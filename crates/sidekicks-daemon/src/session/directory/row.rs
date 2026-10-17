@@ -314,7 +314,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentProviderBindingChangeFailed
         | SessionEventType::WorkspacePreparing
         | SessionEventType::WorkspaceReady
-        | SessionEventType::WorkspaceStale
+        | SessionEventType::WorkspaceRootLost
         | SessionEventType::WorkspaceArchived
         | SessionEventType::WorktreeCreated
         | SessionEventType::WorktreeReady

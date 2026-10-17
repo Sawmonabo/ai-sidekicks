@@ -77,7 +77,7 @@ macro_rules! preview_mark {
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "kind",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]

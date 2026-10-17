@@ -535,16 +535,16 @@ mod tests {
     const WELL_FORMED_INSTANT: &str = "2026-10-14T09:00:00.000Z";
 
     #[rstest]
-    #[case::payload_not_an_object(WELL_FORMED_INSTANT, "session_lifecycle", "[]", "payload")]
+    #[case::payload_not_an_object(WELL_FORMED_INSTANT, "sessionLifecycle", "[]", "payload")]
     #[case::prototype_member(
         WELL_FORMED_INSTANT,
-        "session_lifecycle",
+        "sessionLifecycle",
         r#"{"__proto__":{}}"#,
         "__proto__"
     )]
     #[case::occurred_at_finer_than_a_millisecond(
         "2026-10-14T09:00:00.0001Z",
-        "session_lifecycle",
+        "sessionLifecycle",
         "{}",
         "occurred_at"
     )]

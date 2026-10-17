@@ -40,7 +40,7 @@ ts_constants! {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -121,7 +121,7 @@ pub struct WorkflowStepQuestion {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowStepResolutionKind {
     /// Approved.
     Approved,
@@ -151,7 +151,7 @@ pub struct WorkflowStepResolution {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -676,7 +676,7 @@ workflow_step! {
 /// A waiting step, by what it waits on: a spent account, a person's chat reply, approval or form,
 /// or its chain's question.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "waitCause", rename_all = "snake_case")]
+#[serde(tag = "waitCause", rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum WorkflowWaitingStep {
     /// A spent provider account.
@@ -697,7 +697,7 @@ pub enum WorkflowWaitingStep {
 /// what it waits on, only a failed one its process exit, and only one no longer waiting how a
 /// person answered it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "status", rename_all = "kebab-case")]
+#[serde(tag = "status", rename_all = "camelCase")]
 pub enum WorkflowStep {
     /// Not started.
     Pending(#[garde(dive)] WorkflowSettledStep),

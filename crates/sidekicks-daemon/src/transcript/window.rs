@@ -48,7 +48,7 @@ use crate::transcript::run_facts::TranscriptRunFactsReader;
 /// Why a transcript read failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TranscriptReadError {
-    /// The session is not one this daemon holds (`session.not_found`), or no row stands at an
+    /// The session is not one this daemon holds (`session.notFound`), or no row stands at an
     /// anchor cursor (`transcript.row.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -68,7 +68,7 @@ pub(crate) enum TranscriptReadError {
 
 /// The head a transcript read checks its cursors against, `None` for a session whose history is
 /// damaged before its first readable event. Fails with [`TranscriptReadError::Refused`]
-/// (`session.not_found`) for a session this daemon holds no events for.
+/// (`session.notFound`) for a session this daemon holds no events for.
 pub(crate) fn read_transcript_head<DamagedFrom>(
     reads: &SessionEventReads<'_, DamagedFrom>,
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,

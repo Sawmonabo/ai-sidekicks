@@ -11,12 +11,12 @@ use crate::wire::list::BoundedVec;
 use crate::wire::literal;
 
 /// The pre-computed answer to what run admission will ask. The first four are the resolved
-/// account's stored health state; `no_account` and `no_default` stand where resolution reached no
+/// account's stored health state; `noAccount` and `noDefault` stand where resolution reached no
 /// account. It authorizes nothing: admission checks again.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderReadinessState {
     /// Signed in.
     Authenticated,
@@ -75,7 +75,7 @@ macro_rules! remedies {
         )+}
 
         /// The next step shown for a readiness state that is not `authenticated`. A client renders
-        /// off `kind`, not `state`, since `reauth_required` takes `sign_in` or `paste_token`.
+        /// off `kind`, not `state`, since `reauthRequired` takes `sign_in` or `paste_token`.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(tag = "kind", rename_all_fields = "camelCase", deny_unknown_fields)]
         pub enum ProviderRemedy {$(
@@ -122,7 +122,7 @@ remedies! {
             /// The resolved account.
             account_id: ProviderAccountId,
         }
-        /// Remedy for `reauth_required` on a token or API-key account: it cannot refresh itself,
+        /// Remedy for `reauthRequired` on a token or API-key account: it cannot refresh itself,
         /// so the person mints a fresh token at the provider and pastes it.
         PasteToken(ProviderPasteTokenRemedy, PasteTokenRemedyKind = "paste_token") {
             /// The resolved account.
@@ -130,19 +130,19 @@ remedies! {
         }
     }
     other {
-        /// Remedy for `no_account`: register an account for the provider.
+        /// Remedy for `noAccount`: register an account for the provider.
         Register(ProviderRegisterRemedy, RegisterRemedyKind = "register") {
             /// The provider.
             provider: ProviderId,
         }
-        /// Remedy for `no_default`: the person picks one of the listed accounts as the default.
+        /// Remedy for `noDefault`: the person picks one of the listed accounts as the default.
         ChooseDefault(ProviderChooseDefaultRemedy, ChooseDefaultRemedyKind = "choose_default") {
             /// The candidates; the daemon lists them and never picks one. One account with no
             /// default is still listed rather than elected.
             candidate_account_ids: BoundedVec<ProviderAccountId, 1, { usize::MAX }>,
         }
         /// Remedy for `indeterminate`: nothing wrong can be seen, so the next read may settle it
-        /// and `providerAccount.probe` asks again. Never a sign-in.
+        /// and `provider.account.probe` asks again. Never a sign-in.
         LookAgain(ProviderLookAgainRemedy, LookAgainRemedyKind = "look_again") {
             /// The resolved account.
             account_id: ProviderAccountId,
@@ -165,7 +165,7 @@ impl ProviderLoginExpiredRemedy {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]

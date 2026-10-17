@@ -128,7 +128,7 @@ pub enum ChannelPublicKey {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "signer",
-    rename_all = "lowercase",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -156,7 +156,7 @@ pub enum TrustSigner {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "signer",
-    rename_all = "lowercase",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -308,7 +308,7 @@ statements! {
         device_id: DeviceId,
     }
     /// A passkey joins, with the platform that holds it.
-    PasskeyAdded = "passkey.added" {
+    PasskeyAdded = "account.passkey.added" {
         statement: PasskeyAddedStatement,
         kind: PasskeyAddedKind,
         previous_hash: TrustStatementHash,
@@ -320,7 +320,7 @@ statements! {
         platform: PlatformDescription,
     }
     /// A passkey's key ends here.
-    PasskeyRemoved = "passkey.removed" {
+    PasskeyRemoved = "account.passkey.removed" {
         statement: PasskeyRemovedStatement,
         kind: PasskeyRemovedKind,
         previous_hash: TrustStatementHash,
@@ -330,7 +330,7 @@ statements! {
     /// A machine joins, or a removed machine comes back under its same id with a new key. The
     /// person's first machine opens the chain with this statement, so here alone `previousHash`
     /// is `null`; the key is still required.
-    RuntimeNodeAdded = "runtimenode.added" {
+    RuntimeNodeAdded = "machine.added" {
         statement: RuntimeNodeAddedStatement,
         kind: RuntimeNodeAddedKind,
         #[serde(deserialize_with = "wire::nullable")]
@@ -346,7 +346,7 @@ statements! {
         name: TrustName,
     }
     /// A machine's one name changes.
-    RuntimeNodeRenamed = "runtimenode.renamed" {
+    RuntimeNodeRenamed = "machine.renamed" {
         statement: RuntimeNodeRenamedStatement,
         kind: RuntimeNodeRenamedKind,
         previous_hash: TrustStatementHash,
@@ -356,7 +356,7 @@ statements! {
         name: TrustName,
     }
     /// A machine's key ends here; its store, sessions and id stay.
-    RuntimeNodeRemoved = "runtimenode.removed" {
+    RuntimeNodeRemoved = "machine.removed" {
         statement: RuntimeNodeRemovedStatement,
         kind: RuntimeNodeRemovedKind,
         previous_hash: TrustStatementHash,
@@ -405,11 +405,11 @@ mod tests {
 
     use super::{RuntimeNodeAddedStatement, TrustStatement};
 
-    /// A chain-opening `runtimenode.added` statement, with `previousHash` set to `previous_hash`
+    /// A chain-opening `machine.added` statement, with `previousHash` set to `previous_hash`
     /// or left out when it is `None`.
     fn opening_statement(previous_hash: Option<Value>) -> Value {
         let mut statement = json!({
-            "kind": "runtimenode.added",
+            "kind": "machine.added",
             "issuedAt": "2026-01-01T00:00:00.000Z",
             "signatures": [{ "signer": "runtimenode", "nodeId": "node-1", "signature": "AAAA" }],
             "nodeId": "node-1",

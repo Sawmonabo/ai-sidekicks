@@ -24,7 +24,7 @@ use crate::wire::{Never, literal};
 
 literal! {
     /// The `type` of a status notice.
-    pub enum McpServerStatusChangedType = "mcp.server_status_changed";
+    pub enum McpServerStatusChangedType = "mcp.server.status.changed";
 }
 
 /// Declares the status notice: each origin's arm repeats the notice's members, then adds its own.
@@ -39,14 +39,14 @@ macro_rules! status_notice {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "origin",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
         pub enum $name {$(
             $(#[doc = $arm_doc])+
             $arm {
-                /// Always `mcp.server_status_changed`.
+                /// Always `mcp.server.status.changed`.
                 #[serde(rename = "type")]
                 notice_type: McpServerStatusChangedType,
                 /// The provider.
@@ -74,9 +74,9 @@ macro_rules! status_notice {
 }
 
 status_notice! {
-    /// `mcp.server_status_changed`, the live notice of a status change on `mcp.subscribe`,
-    /// written to no log, tagged on `origin`: a `session_feed` observation names the session and
-    /// the live leg it came from; a `node_probe` observation has neither.
+    /// `mcp.server.status.changed`, the live notice of a status change on `mcp.subscribe`,
+    /// written to no log, tagged on `origin`: a `sessionFeed` observation names the session and
+    /// the live leg it came from; a `nodeProbe` observation has neither.
     pub enum McpServerStatusChangedNotice {
         /// A session's live leg saw the change.
         SessionFeed {
@@ -109,7 +109,7 @@ status_notice! {
 
 /// How a sign-in ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum McpOauthOutcome {
     /// Signed in.
     Success,
@@ -117,8 +117,8 @@ pub enum McpOauthOutcome {
     Failure,
 }
 
-/// The payload of `mcp.server_oauth_completed`: how a sign-in ended. A sign-in that fails after
-/// `mcp.oauthLogin` has answered arrives here as `failure`, never as a late error.
+/// The payload of `mcp.server.signIn.completed`: how a sign-in ended. A sign-in that fails after
+/// `mcp.server.signIn` has answered arrives here as `failure`, never as a late error.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpServerOauthCompletedPayload {
@@ -153,77 +153,77 @@ methods! {
     /// notices.
     pub const MCP_METHOD_DESCRIPTORS = [
         /// Reads the whole inventory.
-        McpList = query "mcp.list" {
+        McpList = query "mcp.server.list" {
             mutating: false,
             params: McpListRequest,
             result: McpListResponse,
             refusals: [],
         },
         /// Reads one binding.
-        McpGet = query "mcp.get" {
+        McpGet = query "mcp.server.read" {
             mutating: false,
             params: McpServerBindingRef,
             result: McpGetResponse,
             refusals: [McpServerNotFound],
         },
         /// Searches the public MCP Registry.
-        McpRegistrySearch = query "mcp.registrySearch" {
+        McpRegistrySearch = query "mcp.registry.search" {
             mutating: false,
             params: McpRegistrySearchRequest,
             result: McpRegistrySearchResponse,
             refusals: [],
         },
         /// Adds a binding or changes its declaration.
-        McpUpsertServer = mutation "mcp.upsertServer" {
+        McpUpsertServer = mutation "mcp.server.upsert" {
             mutating: true,
             params: McpUpsertServerRequest,
             result: McpMutationResult,
             refusals: [McpBindingStoreUnavailable, McpConfigInvalid, McpConfigWriteConflict],
         },
         /// Removes a binding.
-        McpRemoveServer = mutation "mcp.removeServer" {
+        McpRemoveServer = mutation "mcp.server.delete" {
             mutating: true,
             params: McpRemoveServerRequest,
             result: McpRemoveServerResult,
             refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpConfigWriteConflict],
         },
         /// Turns a binding on or off.
-        McpSetEnabled = mutation "mcp.setEnabled" {
+        McpSetEnabled = mutation "mcp.server.enabled.update" {
             mutating: true,
             params: McpSetEnabledRequest,
             result: McpMutationResult,
             refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpConfigWriteConflict],
         },
         /// Sets one tool's override.
-        McpSetToolOverride = mutation "mcp.setToolOverride" {
+        McpSetToolOverride = mutation "mcp.toolOverride.update" {
             mutating: true,
             params: McpSetToolOverrideRequest,
             result: McpToolOverrideMutationResult,
             refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpConfigWriteConflict],
         },
         /// Clears one facet of one tool's override.
-        McpClearToolOverride = mutation "mcp.clearToolOverride" {
+        McpClearToolOverride = mutation "mcp.toolOverride.clear" {
             mutating: true,
             params: McpClearToolOverrideRequest,
             result: McpToolOverrideMutationResult,
             refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpConfigWriteConflict],
         },
         /// Starts the daemon's sign-in to a server.
-        McpOauthLogin = mutation "mcp.oauthLogin" {
+        McpOauthLogin = mutation "mcp.server.signIn" {
             mutating: true,
             params: McpKeyedBindingRequest,
             result: McpOauthLoginResponse,
             refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpOauthFlowFailed],
         },
         /// Signs out of a server.
-        McpOauthLogout = mutation "mcp.oauthLogout" {
+        McpOauthLogout = mutation "mcp.server.signOut" {
             mutating: true,
             params: McpOauthLogoutRequest,
             result: EmptyPayload,
             refusals: [McpBindingStoreUnavailable],
         },
         /// Opens a binding's connection again.
-        McpReconnect = mutation "mcp.reconnect" {
+        McpReconnect = mutation "mcp.server.reconnect" {
             mutating: true,
             params: McpReconnectRequest,
             result: McpReconnectResponse,

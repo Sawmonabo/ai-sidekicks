@@ -28,7 +28,7 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 
-/// The session whose agents `agent.list` streams.
+/// The session whose agents `agent.subscribe` streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -117,8 +117,8 @@ agent_entry! {
     }
 }
 
-/// `agent.list`'s acknowledgment: the subscription and the session's agents as they stand. Every
-/// later emission is one [`AgentListEntry`] as it changes, so a switch in flight and its
+/// `agent.subscribe`'s acknowledgment: the subscription and the session's agents as they stand.
+/// Every later emission is one [`AgentListEntry`] as it changes, so a switch in flight and its
 /// settlement reach every window and device.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -177,7 +177,7 @@ pub struct AgentConfigUpdateRequest {
     pub output_speed: Option<ProviderToken>,
     /// Values of the session options the target driver declares; an option left out keeps its
     /// value. The daemon checks each against the driver's declaration: an option the driver does
-    /// not declare, or a value outside its declaration, is refused `agent.provider_axis_invalid`.
+    /// not declare, or a value outside its declaration, is refused `agent.providerAxisInvalid`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -256,11 +256,11 @@ pub struct AgentConfigUpdateResponse {
 }
 
 methods! {
-    /// Every `agent.*` method. `agent.definitionSubscribe` resends the whole
-    /// `agent.definitionList` reply on each change to the registry.
+    /// Every `agent.*` method. `agent.definition.subscribe` resends the whole
+    /// `agent.definition.list` reply on each change to the registry.
     pub const AGENT_METHOD_DESCRIPTORS = [
         /// Streams the session's agents.
-        AgentList = subscription "agent.list" {
+        AgentList = subscription "agent.subscribe" {
             mutating: false,
             params: AgentListRequest,
             result: AgentListAck,
@@ -268,21 +268,21 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Moves a running agent's binding.
-        AgentConfigUpdate = mutation "agent.configUpdate" {
+        AgentConfigUpdate = mutation "agent.config.update" {
             mutating: true,
             params: AgentConfigUpdateRequest,
             result: AgentConfigUpdateResponse,
             refusals: [AgentNotFound, AgentProviderAxisInvalid, DriverCapabilityUnsupported],
         },
         /// Reads the definition registry.
-        AgentDefinitionList = query "agent.definitionList" {
+        AgentDefinitionList = query "agent.definition.list" {
             mutating: false,
             params: EmptyPayload,
             result: AgentDefinitionListResponse,
             refusals: [AgentDefinitionUnreadable],
         },
         /// Streams the definition registry.
-        AgentDefinitionSubscribe = subscription "agent.definitionSubscribe" {
+        AgentDefinitionSubscribe = subscription "agent.definition.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,
@@ -290,35 +290,35 @@ methods! {
             refusals: [AgentDefinitionUnreadable],
         },
         /// Creates a definition.
-        AgentDefinitionCreate = mutation "agent.definitionCreate" {
+        AgentDefinitionCreate = mutation "agent.definition.create" {
             mutating: true,
             params: AgentDefinitionCreateRequest,
             result: AgentDefinitionCreateResponse,
             refusals: [AgentDefinitionNameConflict],
         },
         /// Patches a definition.
-        AgentDefinitionUpdate = mutation "agent.definitionUpdate" {
+        AgentDefinitionUpdate = mutation "agent.definition.update" {
             mutating: true,
             params: AgentDefinitionUpdateRequest,
             result: AgentDefinitionUpdateResponse,
             refusals: [AgentDefinitionNotFound, AgentDefinitionNameConflict, AgentUpdateRefused],
         },
         /// Deletes a definition.
-        AgentDefinitionDelete = mutation "agent.definitionDelete" {
+        AgentDefinitionDelete = mutation "agent.definition.delete" {
             mutating: true,
             params: AgentDefinitionDeleteRequest,
             result: AgentDefinitionDeleteResponse,
             refusals: [AgentDefinitionNotFound],
         },
         /// Writes definitions into a folder.
-        AgentDefinitionExport = mutation "agent.definitionExport" {
+        AgentDefinitionExport = mutation "agent.definition.export" {
             mutating: true,
             params: AgentDefinitionExportRequest,
             result: AgentDefinitionExportResponse,
             refusals: [AgentDefinitionNotFound, AgentExportWriteFailed],
         },
         /// Creates the definitions a folder holds.
-        AgentDefinitionImport = mutation "agent.definitionImport" {
+        AgentDefinitionImport = mutation "agent.definition.import" {
             mutating: true,
             params: AgentDefinitionImportRequest,
             result: AgentDefinitionImportResponse,

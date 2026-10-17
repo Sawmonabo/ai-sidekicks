@@ -45,7 +45,7 @@ pub struct WorkflowSubscribeRequest {
 /// What happened to a schedule. `armed` and `disarmed` are its state, which a later frame replaces;
 /// `fired` and `skipped` (a fire the overlap policy skipped, never a run) are events never folded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowScheduleChange {
     /// Armed.
     Armed,
@@ -140,7 +140,7 @@ methods! {
             params: WorkflowSubscribeRequest,
             result: SubscribeAckResponse,
             emission: WorkflowSubscribeNotification,
-            refusals: [SessionNotFound, WorkflowNotFound],
+            refusals: [SessionNotFound, WorkflowDefinitionNotFound],
         },
     ];
 }

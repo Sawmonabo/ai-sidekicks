@@ -1,5 +1,6 @@
-//! Why a run failed, as `run.failed` records it: one closed union of causes, each provider's own
-//! normalized into it by its driver, so a reload redraws the run's last row from the cause alone.
+//! Why a run failed, as `agent.run.failed` records it: one closed union of causes, each provider's
+//! own normalized into it by its driver, so a reload redraws the run's last row from the cause
+//! alone.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,7 @@ literal! {
 /// Who ended a refused turn: the provider, whose cause the driver normalized, or the app's own
 /// refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RunRefusedOrigin {
     /// The provider's safety check refused it.
     Provider,
@@ -29,14 +30,14 @@ pub enum RunRefusedOrigin {
     Daemon,
 }
 
-/// Why a run failed, on `run.failed`, discriminated on `cause`: the refusal, the provider's usage
-/// limit, the provider's spent retries, a setup gate's failure, a turn too long for the context
-/// window, or no flex capacity for a turn on flex. A reload redraws the run's last row from this
-/// cause alone.
+/// Why a run failed, on `agent.run.failed`, discriminated on `cause`: the refusal, the provider's
+/// usage limit, the provider's spent retries, a setup gate's failure, a turn too long for the
+/// context window, or no flex capacity for a turn on flex. A reload redraws the run's last row from
+/// this cause alone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "cause",
-    rename_all = "kebab-case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -101,7 +102,7 @@ pub enum RunFailureCause {
     SetupFailed {
         /// Always `daemon`.
         origin: DaemonFailureOrigin,
-        /// The gate's error code, such as `workspace.execution_root_unresolved`.
+        /// The gate's error code, such as `workspace.executionRoot.unresolved`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -131,7 +132,7 @@ pub enum RunFailureCause {
 /// The TypeScript module of a run's failure cause.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/failure-cause",
-    doc: "Why a run failed, as `run.failed` records it: one closed union of causes, each \
+    doc: "Why a run failed, as `agent.run.failed` records it: one closed union of causes, each \
           provider's own normalized into it by its driver.",
     definitions: &[
         Definition::read::<RunRefusedOrigin>(),

@@ -1,4 +1,4 @@
-//! The summarized child-run projection a transcript row carries and `transcript.childRunExpand`
+//! The summarized child-run projection a transcript row carries and `transcript.childRun.expand`
 //! expands. A failed detail fetch leaves the summary row visible and marked incomplete, with a
 //! required cause, so a consumer can decide whether to retry; a low `eventCount` alone cannot be
 //! told from a run that did little.
@@ -14,7 +14,7 @@ use crate::wire::integer::SafeInt;
 
 /// Why a child-run summary is not the whole picture. Closed; a context compaction is not one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChildRunIncompleteCause {
     /// The daemon could not fetch the child run's detail.
     DetailFetchFailed,
@@ -26,7 +26,7 @@ pub enum ChildRunIncompleteCause {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -83,7 +83,7 @@ pub struct ChildRunSummary {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "transcript/child-run-summary",
     doc: "The summarized child-run projection a transcript row carries and \
-          `transcript.childRunExpand` expands.",
+          `transcript.childRun.expand` expands.",
     definitions: &[
         Definition::read::<ChildRunIncompleteCause>(),
         Definition::read::<ChildRunCompleteness>().checked(),

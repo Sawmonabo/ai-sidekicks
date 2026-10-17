@@ -1,6 +1,7 @@
 //! `daemon.status.read`: the service's own facts in one reply, the WSL 2 distributions it works in
-//! among them, and `daemon.crashList`: the crash reports this machine keeps. Processor and memory
-//! figures are read when called and stamped with the time taken; nothing samples them on a timer.
+//! among them, and `daemon.crashReport.list`: the crash reports this machine keeps. Processor and
+//! memory figures are read when called and stamped with the time taken; nothing samples them on a
+//! timer.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -32,7 +33,7 @@ type StatusText = BoundedText<1, DAEMON_STATUS_TEXT_MAX_LEN>;
 
 /// Where the service is in its own life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum DaemonProcessState {
     /// It serves.
     Running,
@@ -285,7 +286,7 @@ methods! {
             refusals: [],
         },
         /// Lists the crash reports this machine keeps.
-        DaemonCrashList = query "daemon.crashList" {
+        DaemonCrashList = query "daemon.crashReport.list" {
             mutating: false,
             params: EmptyPayload,
             result: DaemonCrashListResponse,
@@ -297,7 +298,7 @@ methods! {
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "daemon/status",
-    doc: "`daemon.status.read`: the service's own facts in one reply, and `daemon.crashList`: the \
+    doc: "`daemon.status.read`: the service's own facts in one reply, and `daemon.crashReport.list`: the \
           crash reports this machine keeps.",
     definitions: &[
         Definition::read::<DaemonProcessState>(),

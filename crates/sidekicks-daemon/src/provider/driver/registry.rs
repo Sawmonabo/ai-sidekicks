@@ -1,6 +1,6 @@
 //! The live drivers, one per registered provider in the table's order, and the capability gate. A
 //! provider id a request or a provider message brings in is checked here: one no driver answers is
-//! refused `driver.unavailable`. The gate reads the capability snapshot the start-time provider
+//! refused `provider.unavailable`. The gate reads the capability snapshot the start-time provider
 //! check recorded, never the driver or the database, and fails closed: a flag is supported only
 //! when a recorded snapshot declares it. A steer is not gated here, since it is how the run queue
 //! delivers a held message.
@@ -77,7 +77,8 @@ impl ProviderRegistry {
         }
     }
 
-    /// The registered entry for `provider`, refused `driver.unavailable` when no driver answers it.
+    /// The registered entry for `provider`, refused `provider.unavailable` when no driver answers
+    /// it.
     fn entry(&self, provider: &ProviderId) -> Result<&RegisteredDriver, DomainError> {
         self.drivers
             .iter()
@@ -86,7 +87,7 @@ impl ProviderRegistry {
     }
 
     /// Records the capabilities `provider`'s read reported, replacing the earlier snapshot. Refused
-    /// `driver.unavailable` when no driver answers it.
+    /// `provider.unavailable` when no driver answers it.
     pub(crate) fn record_capabilities(
         &self,
         provider: &ProviderId,
@@ -100,7 +101,7 @@ impl ProviderRegistry {
         Ok(())
     }
 
-    /// The driver for `provider`, refused `driver.unavailable` when no driver answers it.
+    /// The driver for `provider`, refused `provider.unavailable` when no driver answers it.
     pub(crate) fn lookup(
         &self,
         provider: &ProviderId,
@@ -110,7 +111,7 @@ impl ProviderRegistry {
     }
 
     /// Passes when `provider`'s recorded snapshot declares `flag`. Refuses with
-    /// [`driver_unavailable`] when no driver answers it, and [`driver_capability_unsupported`] when
+    /// [`driverUnavailable`] when no driver answers it, and [`driver_capability_unsupported`] when
     /// the flag is off or no snapshot is recorded yet.
     pub(crate) fn check_capability(
         &self,

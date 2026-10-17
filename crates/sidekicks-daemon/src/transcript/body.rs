@@ -1,4 +1,4 @@
-//! The stored row `transcript.bodyRead` opens: one event of one session by its id, with the body
+//! The stored row `transcript.body.read` opens: one event of one session by its id, with the body
 //! its `content_payload` column holds, read whole only when a client asks for it.
 
 use rusqlite::Connection;
@@ -10,7 +10,7 @@ use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
 /// The stored row of the event `event_id` of `session_id`, read on `reader`, or `None` when the
 /// session reads none; `read_damaged_from_sequence` answers where a damaged session's reads stop.
-/// Fails with [`TranscriptReadError::Refused`] (`session.not_found`) for a session this daemon
+/// Fails with [`TranscriptReadError::Refused`] (`session.notFound`) for a session this daemon
 /// holds no events for, and with [`TranscriptReadError::Log`] when the read fails.
 pub(crate) fn read_stored_event_row<DamagedFrom>(
     reader: &Connection,

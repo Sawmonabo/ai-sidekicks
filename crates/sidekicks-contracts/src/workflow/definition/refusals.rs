@@ -36,7 +36,7 @@ macro_rules! workflow_definition_findings {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "rule",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -106,7 +106,7 @@ workflow_definition_findings! {
     SecretOutsideSensitiveField,
 }
 
-/// The details of `workflow.definition_refused`: the whole list of findings.
+/// The details of `workflow.definition.refused`: the whole list of findings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowDefinitionRefusedDetails {

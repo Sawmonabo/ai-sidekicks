@@ -21,7 +21,7 @@ pattern_text! {
     pub struct GitObjectId("^(?:[0-9a-f]{40}|[0-9a-f]{64})$") branded;
 }
 
-/// `repo.branchList`: the mount whose branches both base pickers list.
+/// `project.branch.list`: the mount whose branches both base pickers list.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -80,8 +80,9 @@ pub struct RepoBranchListEntry {
     pub held_by: Option<BranchHolder>,
 }
 
-/// The `repo.branchList` result, in the daemon's one order: the default branch, then the branches
-/// this project's last picks came from, most recent first, then the rest by their newest commit.
+/// The `project.branch.list` result, in the daemon's one order: the default branch, then the
+/// branches this project's last picks came from, most recent first, then the rest by their newest
+/// commit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -102,10 +103,10 @@ pub struct RepoBranchListResponse {
 }
 
 /// Which side of a comparison a gap read is on: a `committed` side is read from git's object
-/// store; a `working-tree` side from disk, and only while the file there still has the blob id the
+/// store; a `workingTree` side from disk, and only while the file there still has the blob id the
 /// diff was read at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum RepoFileSide {
     /// Git's object store.
     Committed,
@@ -123,8 +124,8 @@ pub struct RepoFileLineRange {
     pub count: SafeInt<1>,
 }
 
-/// Declares one form of a `repo.fileRead` request: the members both forms share, then the form's
-/// own.
+/// Declares one form of a `project.file.read` request: the members both forms share, then the
+/// form's own.
 macro_rules! file_read_request {
     ($(#[doc = $doc:literal])+ pub struct $name:ident { $($own:tt)* }) => {
         $(#[doc = $doc])+
@@ -182,8 +183,8 @@ file_read_request! {
     }
 }
 
-/// `repo.fileRead`: a file in the session's working folder, or the lines inside a collapsed gap of
-/// a diff, which names its blob and its side together.
+/// `project.file.read`: a file in the session's working folder, or the lines inside a collapsed gap
+/// of a diff, which names its blob and its side together.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
@@ -194,13 +195,13 @@ pub enum RepoFileReadRequest {
     WorkingFile(RepoWorkingFileReadRequest),
 }
 
-/// The `repo.fileRead` result: the lines read; `stale` when the working-tree side no longer holds
-/// the blob the diff was read at, so the pane shows its reload mark; `binary` when the file is not
-/// text.
+/// The `project.file.read` result: the lines read; `stale` when the working-tree side no longer
+/// holds the blob the diff was read at, so the pane shows its reload mark; `binary` when the file
+/// is not text.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "outcome",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -223,7 +224,7 @@ pub enum RepoFileReadResponse {
     Binary {},
 }
 
-/// `repo.workingTreeSubscribe`: the session whose working folder the daemon watches.
+/// `session.workingFolder.subscribe`: the session whose working folder the daemon watches.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -235,7 +236,7 @@ pub struct WorkingTreeSubscribeRequest {
 /// How the daemon noticed a working folder change: a file watch, or a slow tick for a folder too
 /// large for the machine's watch limit, so a late mark is never read as a tree that did not change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkingTreeChangeMode {
     /// A file watch.
     Watch,
@@ -243,7 +244,7 @@ pub enum WorkingTreeChangeMode {
     SlowTick,
 }
 
-/// One `repo.workingTreeSubscribe` emission: the working folder changed at `changedAt`.
+/// One `session.workingFolder.subscribe` emission: the working folder changed at `changedAt`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

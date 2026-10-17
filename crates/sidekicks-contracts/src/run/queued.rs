@@ -1,4 +1,5 @@
-//! The `run.queued` payload: a run's creation, and the one durable record of how it came to be.
+//! The `agent.run.queued` payload: a run's creation, and the one durable record of how it came to
+//! be.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ use crate::wire::{Never, True, literal};
 /// How a child run was reached: a provider's own subagent, a run another agent asked for through
 /// the bridge, or a workflow step. Internal to the agent index; the screen never shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChildRunProvenance {
     /// A provider's own subagent.
     ProviderSubagent,
@@ -29,13 +30,13 @@ pub enum ChildRunProvenance {
 }
 
 literal! {
-    /// The state a run is created in, which `run.queued` enters.
+    /// The state a run is created in, which `agent.run.queued` enters.
     pub enum RunQueuedNewState = "queued";
 }
 
 agent_entry! {
     /// An agent minted from a saved definition with the run that creates it: the one shape
-    /// `agent.list` describes an agent in, with the configuration it was resolved from always
+    /// `agent.subscribe` describes an agent in, with the configuration it was resolved from always
     /// named.
     ResolvedAgent {
         /// The configuration it was resolved from, whose definition it names.
@@ -163,7 +164,7 @@ pub enum RunQueuedPayload {
 /// The TypeScript module of a run's creation record.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/queued",
-    doc: "The `run.queued` payload: a run's creation, and the one durable record of how it came \
+    doc: "The `agent.run.queued` payload: a run's creation, and the one durable record of how it came \
           to be.",
     definitions: &[
         Definition::read::<ChildRunProvenance>(),

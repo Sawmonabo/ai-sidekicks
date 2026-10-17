@@ -414,7 +414,7 @@ pub enum PreviewMenuEdit {
 }
 
 /// A device's act from the menu its input raised, naming that menu by its input's id. Refused with
-/// `preview.edit_refused`, changing nothing, where the page took other input after the menu opened.
+/// `preview.editRefused`, changing nothing, where the page took other input after the menu opened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -464,7 +464,7 @@ pub struct PreviewChosenFile {
 /// the daemon sets on the page's input or drops on the page for a picker, or none for a cancel.
 /// More than one only for `selectMultiple` or `selectFolder`. A path that is empty, absolute, holds
 /// an empty, `.` or `..` segment, or is missing from a folder's answer is refused with
-/// `preview.file_path_refused`, setting and dropping nothing.
+/// `preview.filePathRefused`, setting and dropping nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

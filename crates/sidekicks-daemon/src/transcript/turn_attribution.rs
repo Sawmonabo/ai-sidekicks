@@ -37,7 +37,7 @@ pub(crate) enum TurnAttributionError {
     /// SQLite refused a read of the run's log, or a stored payload is not a JSON object.
     #[error("a read of a run's turns failed")]
     Database(#[from] rusqlite::Error),
-    /// A `run.rolled_back` does not match its contract.
+    /// A `agent.run.rolledBack` does not match its contract.
     #[error(transparent)]
     Rollback(#[from] StoredRollbackMismatchError),
     /// The run's superseded turns could not be read.
@@ -55,15 +55,15 @@ pub(crate) enum TurnAttributionError {
     },
 }
 
-/// One event of a run, attributed: the run, the stamp its row carries and, on a `run.rolled_back`,
-/// the rollback read into its contract.
+/// One event of a run, attributed: the run, the stamp its row carries and, on a
+/// `agent.run.rolledBack`, the rollback read into its contract.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RunEventAttribution {
     /// The run the event belongs to.
     pub(crate) run_id: RunId,
     /// The stamp its row carries.
     pub(crate) stamp: TranscriptRunStamp,
-    /// The rollback, on a `run.rolled_back`.
+    /// The rollback, on a `agent.run.rolledBack`.
     pub(crate) rollback: Option<RunRolledBackEvent>,
 }
 
@@ -257,8 +257,8 @@ impl SessionTurnAttribution {
 
     /// The attribution of an event of a run, or `None` for an event naming none, seeding the run
     /// through `reads` when it holds no fold of it. Fails with [`TurnAttributionError`] when a seed
-    /// read fails, a `run.rolled_back` does not match its contract or the payload's run id is not
-    /// one.
+    /// read fails, a `agent.run.rolledBack` does not match its contract or the payload's run id is
+    /// not one.
     pub(crate) fn attribute<DamagedFrom>(
         &mut self,
         reads: &RunTurnReads<'_, DamagedFrom>,

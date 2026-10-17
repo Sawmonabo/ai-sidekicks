@@ -171,21 +171,21 @@ methods! {
     /// The four import methods: their names, how each answers, and their shapes.
     pub const SESSION_IMPORT_METHOD_DESCRIPTORS = [
         /// Counts the projects an import would attach.
-        SessionImportPreview = query "session.importPreview" {
+        SessionImportPreview = query "session.import.preview" {
             mutating: false,
             params: ProviderImportProviderRequest,
             result: ProviderImportPreviewResponse,
             refusals: [],
         },
         /// Starts a provider's import, or answers the one running.
-        SessionImport = mutation "session.import" {
+        SessionImport = mutation "session.import.start" {
             mutating: true,
             params: ProviderImportProviderRequest,
             result: ProviderImportStartResponse,
             refusals: [],
         },
         /// Streams a provider's import, its last outcome first.
-        SessionImportSubscribe = subscription "session.importSubscribe" {
+        SessionImportSubscribe = subscription "session.import.subscribe" {
             mutating: false,
             params: ProviderImportProviderRequest,
             result: SubscribeAckResponse,
@@ -193,7 +193,7 @@ methods! {
             refusals: [],
         },
         /// Stops one import.
-        SessionImportStop = mutation "session.importStop" {
+        SessionImportStop = mutation "session.import.stop" {
             mutating: true,
             params: ProviderImportStopRequest,
             result: EmptyPayload,

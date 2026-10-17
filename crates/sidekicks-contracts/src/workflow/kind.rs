@@ -1,4 +1,4 @@
-//! The node catalog: every node kind the daemon runs, as `workflow.kindList` serializes it. One
+//! The node catalog: every node kind the daemon runs, as `workflow.kind.list` serializes it. One
 //! description per kind drives the palette row, the inspector's parameter form, the canvas handles
 //! and the daemon's check at save, and an agent reads the same list before it writes a workflow.
 //!
@@ -126,7 +126,7 @@ macro_rules! handle_spec {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "type",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -231,7 +231,7 @@ handle_spec! {
 
 /// The type of one leaf parameter, which picks the field the inspector draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowParamType {
     /// One line of text.
     String,
@@ -464,7 +464,7 @@ pub struct WorkflowNodeKindSpec {
     pub capabilities: Option<WorkflowNodeCapabilities>,
 }
 
-/// The `workflow.kindList` result: every kind the daemon runs.
+/// The `workflow.kind.list` result: every kind the daemon runs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -478,7 +478,7 @@ methods! {
     /// The node catalog's method table.
     pub const WORKFLOW_KIND_METHOD_DESCRIPTORS = [
         /// Lists every node kind the daemon runs, with its handles and parameters.
-        WorkflowKindList = query "workflow.kindList" {
+        WorkflowKindList = query "workflow.kind.list" {
             mutating: false,
             params: EmptyPayload,
             result: WorkflowKindListResponse,
@@ -490,7 +490,7 @@ methods! {
 /// The TypeScript module of the node catalog.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/kind",
-    doc: "The node catalog: every node kind the daemon runs, as `workflow.kindList` serializes it.",
+    doc: "The node catalog: every node kind the daemon runs, as `workflow.kind.list` serializes it.",
     definitions: &[
         Definition::read::<WorkflowNodeKindCategory>(),
         Definition::read::<WorkflowInputHandleSpec>(),

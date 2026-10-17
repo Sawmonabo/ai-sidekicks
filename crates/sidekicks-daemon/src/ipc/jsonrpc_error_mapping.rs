@@ -295,8 +295,8 @@ fn issue(path: Vec<IssuePathSegment>, message: &str, params: Option<JsonRecord>)
     }
 }
 
-/// The `data` of an `invalid_params` or `invalid_result` refusal: `{issues}`, built past the
-/// sanitizer since each issue already holds its caps, or no fields when the list is empty.
+/// The `data` of an `request.paramsInvalid` or `request.resultInvalid` refusal: `{issues}`, built
+/// past the sanitizer since each issue already holds its caps, or no fields when the list is empty.
 fn issue_refusal_data(code: RefusalCode, issues: Vec<Issue>) -> JsonRpcErrorData {
     let fields = (!issues.is_empty()).then(|| {
         let issues = serde_json::to_value(issues).expect("an issue is plain text and lists");
@@ -305,6 +305,7 @@ fn issue_refusal_data(code: RefusalCode, issues: Vec<Issue>) -> JsonRpcErrorData
     });
     JsonRpcErrorData {
         refusal: code.as_str().to_owned(),
+        category: code.category(),
         fields,
     }
 }
@@ -313,6 +314,7 @@ fn issue_refusal_data(code: RefusalCode, issues: Vec<Issue>) -> JsonRpcErrorData
 fn refusal_data(code: RefusalCode, fields: Option<Map<String, Value>>) -> JsonRpcErrorData {
     JsonRpcErrorData {
         refusal: code.as_str().to_owned(),
+        category: code.category(),
         fields: fields.map(|fields| {
             let members: BTreeMap<String, AnyValue> = sanitize_fields(fields)
                 .into_iter()
@@ -507,7 +509,7 @@ mod tests {
             .expect_err("the params are refused");
         let response = answer(CallFailure::Dispatch(DispatchError::InvalidParams(refusal)));
         assert_eq!(response["error"]["code"], -32_602);
-        assert_eq!(response["error"]["data"]["type"], "invalid_params");
+        assert_eq!(response["error"]["data"]["type"], "request.paramsInvalid");
         let issues = response["error"]["data"]["fields"]["issues"]
             .as_array()
             .expect("the refusal lists its issues");

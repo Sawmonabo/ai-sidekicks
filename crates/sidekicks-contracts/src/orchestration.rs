@@ -3,7 +3,7 @@
 //!
 //! The daemon keeps one parent-to-child index per session, built from the provider stream, because
 //! neither provider lists its children back on a resume. That index is the one source of the child
-//! tree, every fan-out count and each agent's spend; `orchestration.childRunLinkRead` is the only
+//! tree, every fan-out count and each agent's spend; `agent.childRunLink.list` is the only
 //! method that reads it. How a child was reached stays in the index and is never sent: the screen
 //! draws the tree, provider, model and the agent asked, never a mechanism word.
 
@@ -33,7 +33,7 @@ use crate::wire::text::FreeFormText;
 /// reached, the run's workflow phase was canceled, or the daemon restarted while the run was a
 /// child held in a pause. The person's own interrupt has none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum InterruptReason {
     /// The step limit was reached.
     StepLimit,
@@ -110,7 +110,7 @@ run_create_request! {
     }
 }
 
-/// `orchestration.runCreate`: admits a run under an agent, called by the daemon's own paths and
+/// `agent.run.create`: admits a run under an agent, called by the daemon's own paths and
 /// the SDK, never by a screen control. No count limits admission or depth: a refusal is the
 /// provider's own or an unresolved target. It names exactly one target.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -148,7 +148,7 @@ pub type OrchestrationRefusalReason = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
 /// A refusal's words.
 pub type OrchestrationRefusalDetail = FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>;
 
-/// The `orchestration.rejected` payload: a run create admission refused. It names no run, because
+/// The `agent.run.rejected` payload: a run create admission refused. It names no run, because
 /// a refusal leaves none. `reason` is the refusing error code, and `detail` its words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -183,7 +183,7 @@ pub struct OrchestrationRejectedPayload {
     pub detail: Option<OrchestrationRefusalDetail>,
 }
 
-/// `orchestration.childRunLinkRead`: the session whose whole tree is read.
+/// `agent.childRunLink.list`: the session whose whole tree is read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -373,28 +373,28 @@ methods! {
     /// completed, run queued, create refused and run state change.
     pub const ORCHESTRATION_METHOD_DESCRIPTORS = [
         /// Admits a run under an agent.
-        OrchestrationRunCreate = mutation "orchestration.runCreate" {
+        OrchestrationRunCreate = mutation "agent.run.create" {
             mutating: true,
             params: OrchestrationRunCreateRequest,
             result: OrchestrationRunCreateResponse,
             refusals: [SessionNotFound, AgentNotFound, RunNotFound, AgentDefinitionNotFound],
         },
         /// Reads the session's whole agent tree.
-        OrchestrationChildRunLinkRead = query "orchestration.childRunLinkRead" {
+        OrchestrationChildRunLinkRead = query "agent.childRunLink.list" {
             mutating: false,
             params: ChildRunLinkReadRequest,
             result: ChildRunLinkReadResponse,
             refusals: [SessionNotFound],
         },
         /// Reads the session's limits and spend.
-        OrchestrationBudgetRead = query "orchestration.budgetRead" {
+        OrchestrationBudgetRead = query "session.budget.read" {
             mutating: false,
             params: OrchestrationBudgetReadRequest,
             result: OrchestrationBudgetState,
             refusals: [SessionNotFound],
         },
         /// Reads the session's cost receipt.
-        OrchestrationCostReceiptRead = query "orchestration.costReceiptRead" {
+        OrchestrationCostReceiptRead = query "session.costReceipt.read" {
             mutating: false,
             params: SessionCostReceiptRequest,
             result: SessionCostReceipt,

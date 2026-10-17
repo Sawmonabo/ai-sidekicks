@@ -147,7 +147,7 @@ pub struct PreviewFavicon {
 /// `null` when it reports none; loaded; or failed, which the pane reads as `<host> did not answer.`
 /// with a try-again.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum PreviewPageLoadState {
     /// Loading.
     Loading {
@@ -191,7 +191,7 @@ pub struct PreviewPage {
     pub released: bool,
 }
 
-/// The session whose pages a `preview.pageList` subscription streams.
+/// The session whose pages a `preview.page.subscribe` subscription streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -349,7 +349,7 @@ pub struct PreviewPageReorderResponse {
 /// Where a navigation takes a page, tagged on `kind`. Back, forward and reload ride the same verb
 /// as an address, because all four move the same page within its own history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum PreviewNavigationTarget {
     /// An address.
     Address {
@@ -424,7 +424,7 @@ pub struct PreviewZoomResponse {
 
 /// A refused address's text that is not an address at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum PreviewUnparsedAddress {
     /// The text is not an address.
     NotAnAddress,
@@ -441,7 +441,7 @@ pub enum PreviewAddressRefusedReason {
     Unparsed(PreviewUnparsedAddress),
 }
 
-/// The details a `preview.address_refused` refusal carries. It never echoes the address.
+/// The details a `preview.addressRefused` refusal carries. It never echoes the address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewAddressRefusedDetails {

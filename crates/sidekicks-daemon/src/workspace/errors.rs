@@ -13,15 +13,15 @@ use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode};
 /// not among them. Converts into the [`DomainError`] the reply carries.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkspaceRefusal {
-    /// The named workspace does not exist (`workspace.not_found`); the one refusal here that
-    /// answers `-32602`, as `repo.not_found` does.
+    /// The named workspace does not exist (`workspace.notFound`); the one refusal here that
+    /// answers `-32602`, as `repoMount.notFound` does.
     #[error("workspace {workspace_id} does not exist")]
     NotFound {
         /// The workspace asked for.
         workspace_id: WorkspaceId,
     },
     /// A worktree was asked of a chat's managed workspace, which offers only its own root
-    /// (`workspace.mode_unsupported`).
+    /// (`workspace.modeUnsupported`).
     #[error(
         "execution mode {} is unavailable on this repo mount: a chat's managed workspace offers \
          only its own root",
@@ -31,8 +31,8 @@ pub(crate) enum WorkspaceRefusal {
         /// The refused mode.
         execution_mode: ExecutionMode,
     },
-    /// The execution root is gone, or its mount's folder is unreachable or holds another
-    /// repository now (`workspace.stale`). No path is named, since a refusal can reach a remote
+    /// The execution root is gone, or its mount's folder is unreachable or holds another repository
+    /// now (`workspace.rootUnavailable`). No path is named, since a refusal can reach a remote
     /// caller.
     #[error("{}", stale_message(.workspace_id.as_ref()))]
     Stale {
@@ -58,7 +58,7 @@ impl From<WorkspaceRefusal> for DomainError {
                 json!({ "executionMode": <&'static str>::from(execution_mode) }),
             ),
             WorkspaceRefusal::Stale { workspace_id } => (
-                RefusalCode::WorkspaceStale,
+                RefusalCode::WorkspaceRootUnavailable,
                 DomainErrorJsonRpcCode::InternalError,
                 // A refused bind names no workspace, so its detail is empty.
                 workspace_id.map_or_else(

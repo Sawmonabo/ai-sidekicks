@@ -108,10 +108,10 @@ pub enum ProviderInstallUpdateProgress {
 }
 
 methods! {
-    /// Every `provider.install*` method: its name, how it answers, and its shapes.
+    /// Every `provider.install.start*` method: its name, how it answers, and its shapes.
     pub const PROVIDER_INSTALL_METHOD_DESCRIPTORS = [
         /// Starts a provider's installer.
-        ProviderInstall = mutation "provider.install" {
+        ProviderInstall = mutation "provider.install.start" {
             mutating: true,
             params: ProviderPlaceRequest,
             result: EmptyPayload,
@@ -122,7 +122,7 @@ methods! {
             ],
         },
         /// Streams a provider's install, its last outcome first.
-        ProviderInstallSubscribe = subscription "provider.installSubscribe" {
+        ProviderInstallSubscribe = subscription "provider.install.subscribe" {
             mutating: false,
             params: ProviderPlaceRequest,
             result: SubscribeAckResponse,
@@ -133,7 +133,7 @@ methods! {
             ],
         },
         /// Stops a provider's installer and everything it started.
-        ProviderInstallStop = mutation "provider.installStop" {
+        ProviderInstallStop = mutation "provider.install.stop" {
             mutating: true,
             params: ProviderPlaceRequest,
             result: EmptyPayload,
@@ -143,7 +143,7 @@ methods! {
             ],
         },
         /// Updates a provider's command in one place.
-        ProviderInstallUpdate = mutation "provider.installUpdate" {
+        ProviderInstallUpdate = mutation "provider.installUpdate.start" {
             mutating: true,
             params: ProviderPlaceRequest,
             result: EmptyPayload,
@@ -154,7 +154,7 @@ methods! {
             ],
         },
         /// Streams a provider's update in one place, its last outcome first.
-        ProviderInstallUpdateSubscribe = subscription "provider.installUpdateSubscribe" {
+        ProviderInstallUpdateSubscribe = subscription "provider.installUpdate.subscribe" {
             mutating: false,
             params: ProviderPlaceRequest,
             result: SubscribeAckResponse,
@@ -170,7 +170,7 @@ methods! {
 /// The TypeScript module of a provider's install and update.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/install",
-    doc: "The `provider.install*` methods: installing and updating a provider's command in one \
+    doc: "The `provider.install.start*` methods: installing and updating a provider's command in one \
           place.",
     definitions: &[
         Definition::read::<ProviderInstallProgress>(),

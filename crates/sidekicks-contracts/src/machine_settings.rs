@@ -1,8 +1,8 @@
 //! The machine's settings file and the three service methods that read, write and stream it.
 //!
 //! The file is `<home>/.ai-sidekicks/machine-settings.json`. The background service is its only
-//! writer: every client hands a change to `daemon.machineSettingsUpdate` and reads it through
-//! `daemon.machineSettingsRead` and `daemon.machineSettingsSubscribe`. The desktop's main process
+//! writer: every client hands a change to `machine.settings.update` and reads it through
+//! `machine.settings.read` and `machine.settings.subscribe`. The desktop's main process
 //! alone may read the file directly, and only before the service first answers. One schema
 //! describes the file for every reader, so a missing key reads as its default wherever it is read.
 //!
@@ -111,7 +111,7 @@ ts_constants! {
 
 /// Why a row's name is refused at save.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum EnvironmentNameRefusalReason {
     /// Not a letter or underscore followed by letters, digits and underscores.
     NotAName,
@@ -161,7 +161,7 @@ pub struct DaemonEnvironmentNameRefusedDetails {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "reason",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -301,7 +301,7 @@ pub struct NotificationSettings {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum VoiceMode {
     /// Held while talking.
     Hold,
@@ -339,7 +339,7 @@ pub struct BackupSettings {
 }
 
 /// A branch-name pattern as a change carries it: bounded. Its placeholder rule and git's check are
-/// the service's, refused with `daemon.branch_pattern_refused` so the page can say which.
+/// the service's, refused with `project.branchPattern.refused` so the page can say which.
 pub type BranchNamePatternChange = FreeFormText<BRANCH_NAME_PATTERN_MAX_LEN>;
 
 /// [`BRANCH_NAME_TITLE_PLACEHOLDER`] held exactly once, in ECMAScript's syntax; Rust checks the
@@ -703,7 +703,7 @@ pub struct MachineSettingsReading {
     pub repair: Option<SettingsFileRepair>,
 }
 
-/// `daemon.machineSettingsUpdate`: the one change to write.
+/// `machine.settings.update`: the one change to write.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -725,21 +725,21 @@ methods! {
     /// The descriptor table of the three machine-settings methods.
     pub const MACHINE_SETTINGS_METHOD_DESCRIPTORS = [
         /// The file as it stands.
-        DaemonMachineSettingsRead = query "daemon.machineSettingsRead" {
+        DaemonMachineSettingsRead = query "machine.settings.read" {
             mutating: false,
             params: EmptyPayload,
             result: MachineSettingsReading,
             refusals: [],
         },
         /// Writes one change.
-        DaemonMachineSettingsUpdate = mutation "daemon.machineSettingsUpdate" {
+        DaemonMachineSettingsUpdate = mutation "machine.settings.update" {
             mutating: true,
             params: MachineSettingsUpdateRequest,
             result: MachineSettingsUpdateResponse,
             refusals: [DaemonEnvironmentNameRefused, DaemonBranchPatternRefused],
         },
         /// The first emission is the file as it stands; each written change follows.
-        DaemonMachineSettingsSubscribe = subscription "daemon.machineSettingsSubscribe" {
+        DaemonMachineSettingsSubscribe = subscription "machine.settings.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,

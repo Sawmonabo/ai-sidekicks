@@ -58,7 +58,7 @@ use crate::provider::driver::session_control::{
 };
 use crate::text_cut::cut_to_code_points;
 
-/// The fixed sentence every `driver.capability_unsupported` refusal carries.
+/// The fixed sentence every `provider.capability.unsupported` refusal carries.
 pub(crate) const DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
     "Requested capability is not supported by the driver";
 
@@ -84,7 +84,7 @@ pub(crate) enum DriverError {
 
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
 /// [`DriverError::Refused`]; an operation gated on a capability flag the driver does not declare
-/// is refused as `driver.capability_unsupported` before it reaches the driver.
+/// is refused as `provider.capability.unsupported` before it reaches the driver.
 #[cfg_attr(test, mockall::automock)]
 pub(crate) trait ProviderDriver: Send + Sync {
     /// Opens a provider session and binds its spawn-time legs.
@@ -114,7 +114,7 @@ pub(crate) trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<DriverInterventionResult, DriverError>>;
 
     /// Forks the provider conversation at a recorded position and moves the session onto the
-    /// fork, touching no files (gated on `session_fork`); `Degraded` reports the fallback a driver
+    /// fork, touching no files (gated on `sessionFork`); `Degraded` reports the fallback a driver
     /// took instead.
     fn move_session_to_fork(
         &self,
@@ -204,14 +204,14 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// tried.
     fn purge_session(&self, params: PurgeSessionParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
-    /// Sets the session goal on the target agent's live binding (gated on `session_goals`); a
+    /// Sets the session goal on the target agent's live binding (gated on `sessionGoals`); a
     /// provider that did not take it answers `Degraded`.
     fn set_session_goal(
         &self,
         params: SetSessionGoalParams,
     ) -> BoxFuture<'_, Result<DriverGoalResult, DriverError>>;
 
-    /// Clears the session goal on one live binding (gated on `session_goals`); a provider that did
+    /// Clears the session goal on one live binding (gated on `sessionGoals`); a provider that did
     /// not clear it answers `Degraded`.
     fn clear_session_goal(
         &self,
@@ -234,10 +234,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn probe_auth(&self) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>>;
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
-    /// `context_compaction`), settling on the provider's own compaction evidence, never on the
+    /// `contextCompaction`), settling on the provider's own compaction evidence, never on the
     /// request being accepted. The wait has no time limit of the driver's own: it settles on the
-    /// provider's compaction frame, `not_compacted` when the provider ends the compaction's turn
-    /// without one, or `binding_lost` when the binding stops being live; a later frame normalizes
+    /// provider's compaction frame, `notCompacted` when the provider ends the compaction's turn
+    /// without one, or `bindingLost` when the binding stops being live; a later frame normalizes
     /// as an unrequested one.
     fn compact_context(
         &self,
@@ -245,7 +245,7 @@ pub(crate) trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<DriverCompactionResult, DriverError>>;
 
     /// A live read of the provider's own commands and skills for the bound session (gated on
-    /// `provider_commands`), held with the session and never stored; every entry carries the
+    /// `providerCommands`), held with the session and never stored; every entry carries the
     /// driver and account it was read under.
     fn list_provider_commands(
         &self,
@@ -271,7 +271,7 @@ pub(crate) trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The session options the driver declares for its installed build, each drawn where its
-    /// placement says; the composer and `agent.configUpdate` check a value against them.
+    /// placement says; the composer and `agent.config.update` check a value against them.
     fn session_options(&self) -> BoxFuture<'_, Result<Vec<ProviderSessionOption>, DriverError>>;
 
     /// The session options the provider last reported for the session's live binding, each with
@@ -302,7 +302,7 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// Starts the provider's own review; resolves once it has started.
     fn start_review(&self, params: StartReviewParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
-    /// Follows the session's live command list (gated on `provider_commands`): `listener` gets the
+    /// Follows the session's live command list (gated on `providerCommands`): `listener` gets the
     /// current list and each change until the returned subscription drops.
     fn subscribe_provider_commands(
         &self,
@@ -349,14 +349,14 @@ pub(crate) struct CreateSessionParams {
     /// The session's config.
     pub(crate) config: Map<String, Value>,
     /// The session's model. A provider that takes it at process start applies a usage-credits
-    /// prompt's `switch_default` to this session alone, never to the account's saved default.
+    /// prompt's `switchDefault` to this session alone, never to the account's saved default.
     pub(crate) model: ProviderToken,
     /// The larger window chosen for the model, in tokens, as recorded when it was picked; `None`
     /// runs the model's default window. A provider whose model id names the window refuses one.
     pub(crate) larger_window: Option<SafeInt<1>>,
     /// How the session may touch the machine.
     pub(crate) execution_posture: Option<ExecutionPosture>,
-    /// The agent's accepted output-speed level (gated on `output_speed`), sent when the process
+    /// The agent's accepted output-speed level (gated on `outputSpeed`), sent when the process
     /// starts and never refused: a level the model does not list runs at standard. The provider's
     /// declared state is read through `observed_output_speed_for`, never written back here.
     pub(crate) output_speed: Option<ProviderToken>,
@@ -367,7 +367,7 @@ pub(crate) struct CreateSessionParams {
     /// The values set in the app on the rows the driver declares, passed to the process through
     /// the provider's own command-line layer; a row left out follows the provider's own settings.
     pub(crate) row_values: ProviderRowValues,
-    /// The daemon's callback tools (gated on `callback_tools`); a driver may host them as an
+    /// The daemon's callback tools (gated on `callbackTools`); a driver may host them as an
     /// ephemeral tool server, under whose name they then surface.
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The provider-native subagent policy (gated on `subagents`).
@@ -376,13 +376,13 @@ pub(crate) struct CreateSessionParams {
     /// `mcp`); the driver hands each to the provider as an entry on the daemon's route.
     pub(crate) tool_servers: Option<Vec<SessionToolServer>>,
     /// A JSON Schema the final output must meet, for a provider that binds it per session (gated
-    /// on `structured_output`); one that binds it per turn reads [`StartRunParams::output_schema`].
+    /// on `structuredOutput`); one that binds it per turn reads [`StartRunParams::output_schema`].
     pub(crate) output_schema: Option<Map<String, Value>>,
     /// The account the leg is admitted against, resolved by the daemon; `None` spawns on the
     /// node's default for the provider. The spawn path pins the account's credential home, so the
     /// driver only carries it.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The daemon's callback-tool dispatcher (gated on `callback_tools`); every call it gets goes
+    /// The daemon's callback-tool dispatcher (gated on `callbackTools`); every call it gets goes
     /// through the approval pipeline, and the driver answers the provider with what it returns.
     pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
@@ -462,14 +462,14 @@ pub(crate) struct StartRunParams {
     /// `None` keeps the level the process holds.
     pub(crate) output_speed: Option<ProviderToken>,
     /// The session option values to apply between turns before this run's turn, like
-    /// `output_speed`; an option left out keeps what the process holds.
+    /// `outputSpeed`; an option left out keeps what the process holds.
     pub(crate) options: Vec<ProviderOptionSetting>,
     /// A level for this run's turn alone; the next run carries the agent's own level again.
     pub(crate) output_speed_for_turn: Option<ProviderToken>,
     /// The run's effective posture. A provider that binds posture at spawn meets a change by
     /// relaunching the session, never by applying part of it.
     pub(crate) execution_posture: Option<ExecutionPosture>,
-    /// A JSON Schema this turn's final output must meet (gated on `structured_output`), for a
+    /// A JSON Schema this turn's final output must meet (gated on `structuredOutput`), for a
     /// provider that binds it per turn.
     pub(crate) output_schema: Option<Map<String, Value>>,
 }
@@ -539,7 +539,7 @@ pub(crate) struct GetCapabilitiesResult {
     /// from the stored cache, which keeps values and not provenance. Never sent to a client.
     pub(crate) detection_source: Option<BTreeMap<DriverCapabilityFlag, CapabilityDetectionSource>>,
     /// The output-speed levels of a driver whose provider lists none per model: present only
-    /// when `output_speed` is on and the driver declares a fixed set. With neither this nor a
+    /// when `outputSpeed` is on and the driver declares a fixed set. With neither this nor a
     /// per-model set, a person's request for a level refuses. It survives a cache rebuild.
     pub(crate) output_speed_levels: Option<Vec<ProviderToken>>,
 }
@@ -583,7 +583,7 @@ pub(crate) fn bound_failure_detail(
         .expect("trimmed, NUL-free text cut to the cap is non-blank and within it")
 }
 
-/// Params of `move_session_to_fork` (gated on `session_fork`): fork the conversation at
+/// Params of `move_session_to_fork` (gated on `sessionFork`): fork the conversation at
 /// `position` and move the session onto the fork. A run has many bindings, so `binding_id` names
 /// the leg, resolved by the daemon at dispatch.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -625,7 +625,7 @@ pub(crate) enum DriverGoalResult {
     },
 }
 
-/// Params of `set_session_goal` (gated on `session_goals`): the condition the person typed after
+/// Params of `set_session_goal` (gated on `sessionGoals`): the condition the person typed after
 /// `/goal`, for the target agent's live binding. The goal events are the durable truth, so neither
 /// goal operation returns the goal, and a resume never sets it again. `run_id` is context only.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -640,7 +640,7 @@ pub(crate) struct SetSessionGoalParams {
     pub(crate) goal_text: String,
 }
 
-/// Params of `clear_session_goal` (gated on `session_goals`); addresses one live binding.
+/// Params of `clear_session_goal` (gated on `sessionGoals`); addresses one live binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[expect(
     clippy::struct_field_names,
@@ -691,7 +691,7 @@ pub(crate) fn build_auth_probe_result(
     DriverAuthProbeResult { status, detail }
 }
 
-/// Params of `compact_context` (gated on `context_compaction`); addresses one binding.
+/// Params of `compact_context` (gated on `contextCompaction`); addresses one binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CompactContextParams {
     /// The session.
@@ -700,7 +700,7 @@ pub(crate) struct CompactContextParams {
     pub(crate) binding_id: String,
 }
 
-/// Params of `list_provider_commands` (gated on `provider_commands`); addresses one binding.
+/// Params of `list_provider_commands` (gated on `providerCommands`); addresses one binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ListProviderCommandsParams {
     /// The session.

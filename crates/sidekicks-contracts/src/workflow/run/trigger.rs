@@ -34,8 +34,8 @@ ts_constants! {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowRunMode {
     /// From Run now.
     Manual,

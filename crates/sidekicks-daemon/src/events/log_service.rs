@@ -575,13 +575,13 @@ mod tests {
         }
     }
 
-    /// A `tool.invoked` event of `session_id` in the run `run_id`.
+    /// A `agent.toolCall.invoked` event of `session_id` in the run `run_id`.
     fn tool_invoked(session_id: &SessionId, run_id: &str) -> UnsequencedEventEnvelope {
         let event = serde_json::from_value(json!({
-            "type": "tool.invoked",
+            "type": "agent.toolCall.invoked",
             "payload": { "sessionId": session_id, "runId": run_id, "toolName": "Read" },
         }))
-        .expect("the test writes a tool.invoked event");
+        .expect("the test writes a agent.toolCall.invoked event");
         test_envelope(*session_id, &event)
     }
 

@@ -12,7 +12,7 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum DeclaredLossKind {
     /// The provider's private reasoning, which neither provider lets travel and which is never
     /// translated; stripped even on a same-provider replay.

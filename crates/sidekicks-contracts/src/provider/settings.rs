@@ -293,8 +293,8 @@ pub struct ProviderSection {
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<SafeInt<1>>")]
     pub skill_name_max_length: Option<SafeInt<1>>,
-    /// The voice kinds it offers, each at most once: the composer starts `voice.dictationStart` for
-    /// dictation and `voice.callStart` for a call; empty where it offers none.
+    /// The voice kinds it offers, each at most once: the composer starts `voice.dictation.start`
+    /// for dictation and `voice.call.start` for a call; empty where it offers none.
     #[garde(dive)]
     pub voice_kinds: UniqueList<VoiceKind, 0, { usize::MAX }>,
     /// The output-speed levels every one of its models offers, present only where the provider
@@ -368,7 +368,7 @@ pub struct ProviderPlaceRequest {
     /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
     /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
     /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
-    /// is, is `invalid_params`.
+    /// is, is `request.paramsInvalid`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -412,7 +412,7 @@ pub enum ProviderUpdateRequest {
         /// The place: absent on a computer without a WSL 2 distribution and present on one with.
         /// On Windows, `"windows"` names Windows and a distribution is refused by its name,
         /// whether or not a WSL 2 distribution remains; a place on macOS or Linux, or none where a
-        /// WSL 2 distribution is, is `invalid_params`.
+        /// WSL 2 distribution is, is `request.paramsInvalid`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -457,7 +457,7 @@ pub enum ProviderUpdateRequest {
         /// The place of a per-place switch row: absent on a computer without a WSL 2 distribution
         /// and present on one with. On Windows, `"windows"` names Windows and a distribution is
         /// refused by its name, whether or not a WSL 2 distribution remains; a place on macOS or
-        /// Linux, or none where a WSL 2 distribution is, is `invalid_params`.
+        /// Linux, or none where a WSL 2 distribution is, is `request.paramsInvalid`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -511,7 +511,7 @@ pub enum ProviderUpdateRequest {
 /// Put the app's terminal plugin into the person's own provider install in one place, or take it
 /// out, through the provider's own commands; off removes exactly what on added and nothing the
 /// person added. A provider whose driver offers no terminal plugin is refused with
-/// `driver.capability_unsupported`.
+/// `provider.capability.unsupported`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -521,7 +521,7 @@ pub struct ProviderTerminalPluginUpdateRequest {
     /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
     /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
     /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
-    /// is, is `invalid_params`.
+    /// is, is `request.paramsInvalid`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -729,7 +729,7 @@ methods! {
             refusals: [ProviderDistributionNotFound, ProviderDistributionNeedsWsl2],
         },
         /// Puts the terminal plugin in or takes it out.
-        ProviderTerminalPluginUpdate = mutation "provider.terminalPluginUpdate" {
+        ProviderTerminalPluginUpdate = mutation "provider.terminalPlugin.update" {
             mutating: true,
             params: ProviderTerminalPluginUpdateRequest,
             result: ProviderSettingsResponse,
@@ -741,21 +741,21 @@ methods! {
             ],
         },
         /// Lists the paths a provider refuses.
-        ProviderProtectedPathList = query "provider.protectedPathList" {
+        ProviderProtectedPathList = query "provider.protectedPath.list" {
             mutating: false,
             params: ProviderRequest,
             result: ProviderProtectedPathListResponse,
             refusals: [],
         },
         /// Lists a provider's standing rules.
-        ProviderStandingRuleList = query "provider.standingRuleList" {
+        ProviderStandingRuleList = query "provider.standingRule.list" {
             mutating: false,
             params: ProviderRequest,
             result: ProviderStandingRuleListResponse,
             refusals: [],
         },
         /// Revokes one standing rule.
-        ProviderStandingRuleRevoke = mutation "provider.standingRuleRevoke" {
+        ProviderStandingRuleRevoke = mutation "provider.standingRule.revoke" {
             mutating: true,
             params: ProviderStandingRuleRevokeRequest,
             result: ProviderStandingRuleRevokeResponse,

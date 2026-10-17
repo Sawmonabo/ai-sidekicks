@@ -2,7 +2,7 @@
 //! input. The provider decides how a command runs. Every list frame carries the whole running set,
 //! because a subscriber composing deltas could hold a command the provider has already dropped.
 //! Output arrives on the same subscription as it prints and is never stored; the stored
-//! `command.ended` event settles a row after a reload.
+//! `agent.command.ended` event settles a row after a reload.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -81,7 +81,7 @@ pub struct RunningCommand {
     pub prompt: Option<CommandPrompt>,
 }
 
-/// `command.list`: the session whose running commands the subscription follows.
+/// `agent.command.subscribe`: the session whose running commands the subscription follows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -95,7 +95,7 @@ pub struct CommandListSubscribeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -123,7 +123,7 @@ pub enum CommandListFrame {
     },
 }
 
-/// `command.stop`: stops one running command. The agent receives one short message naming it,
+/// `agent.command.stop`: stops one running command. The agent receives one short message naming it,
 /// never a bare failure; `Stop all commands` sends this once per running command.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -146,9 +146,9 @@ pub struct CommandStopResponse {
     pub stopped: True,
 }
 
-/// `command.background`: moves a command the agent is waiting on to the background, so the agent's
-/// turn continues and the command's output streams into its row. Sent only for a command whose
-/// entry reads `canMoveToBackground`; where no entry does, the control does not exist.
+/// `agent.command.background`: moves a command the agent is waiting on to the background, so the
+/// agent's turn continues and the command's output streams into its row. Sent only for a command
+/// whose entry reads `canMoveToBackground`; where no entry does, the control does not exist.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -170,10 +170,10 @@ pub struct CommandBackgroundResponse {
     pub waiting_in_foreground: False,
 }
 
-/// `command.write`: typed input, `End input`, or both, for a command that takes input or has a
-/// prompt open, whether or not it is waiting. `text` goes to the command or answers its prompt, and
-/// `endOfInput` then ends its input as end of file does on a terminal, or answers an open prompt
-/// with nothing. A write carries text, the end of input, or both.
+/// `agent.command.write`: typed input, `End input`, or both, for a command that takes input or has
+/// a prompt open, whether or not it is waiting. `text` goes to the command or answers its prompt,
+/// and `endOfInput` then ends its input as end of file does on a terminal, or answers an open
+/// prompt with nothing. A write carries text, the end of input, or both.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -225,7 +225,7 @@ fn add_write_carries_something_rule(schema: &mut schemars::Schema) {
 
 /// How a command ended: it finished, it failed, or the person stopped it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum CommandEnding {
     /// It finished.
     Finished,
@@ -235,8 +235,8 @@ pub enum CommandEnding {
     EndedByPerson,
 }
 
-/// The `command.ended` payload: one command's ending. `exitCode` is the process's own when it has
-/// one; `durationMs` is how long it ran, so the row reads its duration after a reload. It takes
+/// The `agent.command.ended` payload: one command's ending. `exitCode` is the process's own when it
+/// has one; `durationMs` is how long it ran, so the row reads its duration after a reload. It takes
 /// the epoch stamp.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -289,7 +289,7 @@ methods! {
     /// The `command.*` methods.
     pub const COMMAND_METHOD_DESCRIPTORS = [
         /// Follows the session's running commands and their output.
-        CommandList = subscription "command.list" {
+        CommandList = subscription "agent.command.subscribe" {
             mutating: false,
             params: CommandListSubscribeRequest,
             result: SubscribeAckResponse,
@@ -297,21 +297,21 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Stops one running command.
-        CommandStop = mutation "command.stop" {
+        CommandStop = mutation "agent.command.stop" {
             mutating: true,
             params: CommandStopRequest,
             result: CommandStopResponse,
             refusals: [SessionNotFound],
         },
         /// Moves a command the agent waits on to the background.
-        CommandBackground = mutation "command.background" {
+        CommandBackground = mutation "agent.command.background" {
             mutating: true,
             params: CommandBackgroundRequest,
             result: CommandBackgroundResponse,
             refusals: [SessionNotFound, DriverCapabilityUnsupported, CommandNotInForeground],
         },
         /// Writes input to a command, ends its input, or both.
-        CommandWrite = mutation "command.write" {
+        CommandWrite = mutation "agent.command.write" {
             mutating: true,
             params: CommandWriteRequest,
             result: NullPayload,

@@ -97,9 +97,9 @@ pub(crate) struct LogRowPosition {
 // none for a payload that is not JSON, which `json_extract` would refuse with an error.
 const EVENT_TEXT_SQL: &str = "CASE
            WHEN NOT json_valid(event.payload) THEN NULL
-           WHEN event.type = 'user.message' THEN json_extract(event.payload, '$.message')
-           WHEN event.type = 'assistant.message' THEN CAST(event.content_payload AS TEXT)
-           WHEN event.type = 'tool.invoked' THEN json_extract(event.payload, '$.toolName')
+           WHEN event.type = 'user.message.sent' THEN json_extract(event.payload, '$.message')
+           WHEN event.type = 'agent.message.sent' THEN CAST(event.content_payload AS TEXT)
+           WHEN event.type = 'agent.toolCall.invoked' THEN json_extract(event.payload, '$.toolName')
              || coalesce(' ' || CAST(event.content_payload AS TEXT), '')
          END";
 

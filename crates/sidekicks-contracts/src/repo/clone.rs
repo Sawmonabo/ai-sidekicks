@@ -1,6 +1,6 @@
-//! Cloning: `repo.clone` makes a project from a repository URL, and its card follows the clone
-//! live: git's progress, the question git asks and the person's answer, a failure with git's last
-//! line, cancel, and pulling large files afterwards.
+//! Cloning: `project.clone.start` makes a project from a repository URL, and its card follows the
+//! clone live: git's progress, the question git asks and the person's answer, a failure with git's
+//! last line, cancel, and pulling large files afterwards.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,22 +15,23 @@ use crate::wire::text::{FreeFormText, pattern_text};
 use crate::wire::{NullableSchema, nullable};
 
 ts_constants! {
-    /// The longest repository URL `repo.clone` takes.
+    /// The longest repository URL `project.clone.start` takes.
     pub const REPO_CLONE_URL_MAX_LEN: usize = 2048;
     /// The longest line of git's own words the clone card carries.
     pub const REPO_CLONE_LINE_MAX_LEN: usize = 1024;
     /// The longest answer to one of git's questions.
     pub const REPO_CLONE_ANSWER_MAX_LEN: usize = 4096;
-    /// The code `repo.clone` answers with when it refuses a clone before it starts.
+    /// The code `project.clone.start` answers with when it refuses a clone before it starts.
     REPO_CLONE_REFUSED_CODE = crate::jsonrpc::refusal::RefusalCode::RepoCloneRefused;
 }
 
 /// A line of git's own words.
 pub type CloneLine = FreeFormText<REPO_CLONE_LINE_MAX_LEN>;
 
-/// `repo.clone`: the repository's URL, the folder the clone goes into when it is not the machine's
-/// clone folder, and the project whose failed or canceled clone this runs again. The reply names
-/// the project, made at once and marked `cloning`; the clone ends in the ordinary attach.
+/// `project.clone.start`: the repository's URL, the folder the clone goes into when it is not the
+/// machine's clone folder, and the project whose failed or canceled clone this runs again. The
+/// reply names the project, made at once and marked `cloning`; the clone ends in the ordinary
+/// attach.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -64,13 +65,13 @@ pub struct RepoCloneRequest {
     pub project_id: Option<ProjectId>,
 }
 
-/// The details of a `repo.clone_refused` refusal: `destination_not_empty` when the destination
-/// holds something, `no_directory_name` when git can name no folder from the address, with git's
+/// The details of a `project.clone.refused` refusal: `destinationNotEmpty` when the destination
+/// holds something, `noDirectoryName` when git can name no folder from the address, with git's
 /// own line, which the clone card shows as it shows any clone's failure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "reason",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -84,7 +85,7 @@ pub enum RepoCloneRefusedDetails {
     },
 }
 
-/// The `repo.clone` result: the project the clone fills.
+/// The `project.clone.start` result: the project the clone fills.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -93,8 +94,8 @@ pub struct RepoCloneResponse {
     pub project_id: ProjectId,
 }
 
-/// `repo.cloneSubscribe`, `repo.cloneCancel` and `repo.largeFilesPull`: the project a clone-card
-/// request is about.
+/// `project.clone.subscribe`, `project.clone.cancel` and `project.largeFile.pull`: the project a
+/// clone-card request is about.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -133,10 +134,10 @@ pub struct RepoCloneQuestion {
     pub masked: bool,
 }
 
-/// The step a failed clone failed at: `clone` or `large_files` with git's own line, or `sessions`
+/// The step a failed clone failed at: `clone` or `largeFiles` with git's own line, or `sessions`
 /// when the sessions that waited on the clone could not be started after it attached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RepoCloneFailedStep {
     /// The clone.
     Clone,
@@ -146,13 +147,13 @@ pub enum RepoCloneFailedStep {
     Sessions,
 }
 
-/// One `repo.cloneSubscribe` emission, the clone card's whole state. `large_files_missing` means
+/// One `project.clone.subscribe` emission, the clone card's whole state. `largeFilesMissing` means
 /// the clone finished but the repository keeps large files in Git LFS, which is not installed, so
 /// they arrived as placeholders; `canceled` and `done` end the card.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -220,9 +221,9 @@ pattern_text! {
     pub struct AskpassAnswer("^[^\\x00\\r\\n]*$", max = REPO_CLONE_ANSWER_MAX_LEN) redacted;
 }
 
-/// `repo.cloneAnswer`: the answer to one of git's questions. The daemon hands it to git's askpass
-/// program and nowhere else; it is never stored, logged or echoed, and a transport that logs
-/// request bodies must redact `answer`.
+/// `project.clone.answer`: the answer to one of git's questions. The daemon hands it to git's
+/// askpass program and nowhere else; it is never stored, logged or echoed, and a transport that
+/// logs request bodies must redact `answer`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -271,7 +272,7 @@ pub struct RepoCloneFolderReadResponse {
 /// The TypeScript module of cloning.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "repo/clone",
-    doc: "Cloning: repo.clone makes a project from a repository URL, and its card follows the \
+    doc: "Cloning: project.clone.start makes a project from a repository URL, and its card follows the \
           clone live.",
     definitions: &[
         Definition::read::<RepoCloneRequest>(),

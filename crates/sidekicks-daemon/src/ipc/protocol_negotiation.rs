@@ -1,6 +1,6 @@
-//! Protocol negotiation: the `daemon.hello` exchange and the gate in front of every other call. A
-//! connection is served nothing until a hello carrying this start's session token has completed,
-//! and no mutating call after an incompatible one.
+//! Protocol negotiation: the `connection.initialize` exchange and the gate in front of every other
+//! call. A connection is served nothing until a hello carrying this start's session token has
+//! completed, and no mutating call after an incompatible one.
 //!
 //! A hello without the token, or with a wrong one, latches the connection refused, so nothing more
 //! is served on it, a second guess included. A hello with the token latches it refused too when
@@ -61,8 +61,7 @@ static DAEMON_VERSIONS: LazyLock<BoundedVec<ProtocolVersion, 0, SUPPORTED_PROTOC
 
 /// The message every refusal of a connection without the session token carries, so a refusal says
 /// nothing about the token.
-const TOKEN_INVALID_MESSAGE: &str =
-    "The connection's daemon.hello lacked this daemon's session token, so nothing is served on it";
+const TOKEN_INVALID_MESSAGE: &str = "The connection's connection.initialize lacked this daemon's session token, so nothing is served on it";
 
 /// The message of a refusal of an agent's connection, or one the system could not name.
 const CALLER_REFUSED_MESSAGE: &str = "The connection was opened by a process this daemon or a \
@@ -71,11 +70,11 @@ const CALLER_REFUSED_MESSAGE: &str = "The connection was opened by a process thi
 
 /// The message of a call before the connection's hello; it never names the call.
 const HANDSHAKE_REQUIRED_MESSAGE: &str =
-    "The call was refused because the connection has not completed daemon.hello";
+    "The call was refused because the connection has not completed connection.initialize";
 
 /// The message of a mutating call after an incompatible hello; it never names the call.
 const VERSION_MISMATCH_MESSAGE: &str =
-    "The mutating call was refused because the connection's daemon.hello was incompatible";
+    "The mutating call was refused because the connection's connection.initialize was incompatible";
 
 /// The message of a hello answered while the service repairs its database file.
 const REPAIRING_MESSAGE: &str =
@@ -142,7 +141,7 @@ enum HelloTurn {
 #[error("the connection's caller process could not be read")]
 struct CallerReadFault(#[source] Arc<dyn Error + Send + Sync>);
 
-/// Keeps each connection's negotiation and answers `daemon.hello`. The gateway calls
+/// Keeps each connection's negotiation and answers `connection.initialize`. The gateway calls
 /// `cleanup_transport` as each connection closes, or the state keeps one entry per connection.
 pub(crate) struct ProtocolNegotiator {
     /// The token this start wrote to its token file.
@@ -164,9 +163,9 @@ impl ProtocolNegotiator {
         })
     }
 
-    /// Registers `daemon.hello` on `registry`; fails as any second registration of it does. The
-    /// hello is a read, so a client whose handshake was incompatible can repeat it and read the
-    /// latched answer.
+    /// Registers `connection.initialize` on `registry`; fails as any second registration of it
+    /// does. The hello is a read, so a client whose handshake was incompatible can repeat it and
+    /// read the latched answer.
     pub(crate) fn register_handshake(
         self: &Arc<Self>,
         registry: &mut MethodRegistryBuilder,
@@ -177,10 +176,10 @@ impl ProtocolNegotiator {
         })
     }
 
-    /// Registers the `daemon.hello` of a service still repairing its database file: a hello with
-    /// the token is refused `daemon.repairing` with the progress `read_progress` reads, every time,
-    /// and latches the handshake as any hello does, so the gate lets that connection's lifecycle
-    /// calls through; one without the token is refused as any wrong token is.
+    /// Registers the `connection.initialize` of a service still repairing its database file: a
+    /// hello with the token is refused `daemon.repairing` with the progress `read_progress` reads,
+    /// every time, and latches the handshake as any hello does, so the gate lets that connection's
+    /// lifecycle calls through; one without the token is refused as any wrong token is.
     pub(crate) fn register_repairing_handshake(
         self: &Arc<Self>,
         registry: &mut MethodRegistryBuilder,
@@ -383,8 +382,8 @@ impl ProtocolNegotiator {
 }
 
 /// The negotiation gate: refuses every call on a refused connection, every call but
-/// `daemon.hello` before a hello completed, and every mutating call after an incompatible one,
-/// each `-32600` with a fixed message; anything else goes to the next dispatch.
+/// `connection.initialize` before a hello completed, and every mutating call after an incompatible
+/// one, each `-32600` with a fixed message; anything else goes to the next dispatch.
 pub(crate) struct NegotiationGate {
     negotiator: Arc<ProtocolNegotiator>,
     next: Arc<dyn Dispatch>,

@@ -14,25 +14,25 @@ use sidekicks_contracts::run::id::RunId;
 /// One stored run state change, whichever state it entered, with its payload as stored.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum StoredRunStateChange {
-    /// `run.starting`.
+    /// `agent.run.starting`.
     Starting(RunStartingPayload),
-    /// `run.running`.
+    /// `agent.run.running`.
     Running(RunRunningPayload),
-    /// `run.waiting_for_approval`.
+    /// `agent.run.waitingForApproval`.
     WaitingForApproval(RunWaitingForApprovalPayload),
-    /// `run.waiting_for_input`.
+    /// `agent.run.waitingForInput`.
     WaitingForInput(RunWaitingForInputPayload),
-    /// `run.pausing`.
+    /// `agent.run.pausing`.
     Pausing(RunPausingPayload),
-    /// `run.paused`.
+    /// `agent.run.paused`.
     Paused(RunPausedPayload),
-    /// `run.completed`.
+    /// `agent.run.completed`.
     Completed(RunCompletedPayload),
-    /// `run.interrupted`.
+    /// `agent.run.interrupted`.
     Interrupted(RunInterruptedPayload),
-    /// `run.stopped`.
+    /// `agent.run.stopped`.
     Stopped(RunStoppedPayload),
-    /// `run.failed`.
+    /// `agent.run.failed`.
     Failed(RunFailedPayload),
 }
 
@@ -102,7 +102,7 @@ pub(crate) fn read_stored_run_state_change(
         SessionEvent::SessionCreated(_)
         | SessionEvent::WorkspacePreparing(_)
         | SessionEvent::WorkspaceReady(_)
-        | SessionEvent::WorkspaceStale(_)
+        | SessionEvent::WorkspaceRootLost(_)
         | SessionEvent::WorkspaceArchived(_)
         | SessionEvent::WorktreeCreated(_)
         | SessionEvent::WorktreeReady(_)

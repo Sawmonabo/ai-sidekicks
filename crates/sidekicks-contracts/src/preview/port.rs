@@ -106,7 +106,7 @@ methods! {
     pub const PREVIEW_PORT_METHOD_DESCRIPTORS = [
         /// Streams the machine's shared ports; the list is the machine's, so the request names
         /// nothing.
-        PreviewPortShareList = subscription "preview.portShareList" {
+        PreviewPortShareList = subscription "preview.portShare.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,
@@ -114,21 +114,21 @@ methods! {
             refusals: [],
         },
         /// Shares a port.
-        PreviewPortShareAdd = mutation "preview.portShareAdd" {
+        PreviewPortShareAdd = mutation "preview.portShare.add" {
             mutating: true,
             params: PreviewPortRequest,
             result: PreviewPortShareAddResponse,
             refusals: [PreviewPortAlreadyShared],
         },
         /// Stops sharing a port.
-        PreviewPortShareRemove = mutation "preview.portShareRemove" {
+        PreviewPortShareRemove = mutation "preview.portShare.remove" {
             mutating: true,
             params: PreviewPortRequest,
             result: PreviewPortShareRemoveResponse,
             refusals: [],
         },
         /// Issues a shared port's web address with its ticket.
-        PreviewPortTicketIssue = mutation "preview.portTicketIssue" {
+        PreviewPortTicketIssue = mutation "preview.portTicket.issue" {
             mutating: true,
             params: PreviewPortRequest,
             result: PreviewPortTicketIssueResponse,

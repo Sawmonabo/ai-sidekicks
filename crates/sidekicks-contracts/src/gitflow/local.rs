@@ -31,7 +31,7 @@ branded_text! {
 
 /// The half-finished git operations that stop a commit until they are ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum PendingGitOperationKind {
     /// A merge.
     Merge,
@@ -43,7 +43,7 @@ pub enum PendingGitOperationKind {
 
 /// Where one command of a running act stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum GitActCommandState {
     /// Not run yet.
     Pending,
@@ -57,7 +57,7 @@ pub enum GitActCommandState {
 
 /// Why a changed file's contents cannot be shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum DiffFileUnreadableReason {
     /// The daemon may not read it.
     PermissionDenied,
@@ -65,7 +65,7 @@ pub enum DiffFileUnreadableReason {
     NotRegularFile,
 }
 
-/// The details of a `gitflow.generate_failed` refusal: the provider's own words; nothing falls
+/// The details of a `git.generateFailed` refusal: the provider's own words; nothing falls
 /// back to another provider, model or account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -84,7 +84,7 @@ pub struct PendingGitOperation {
     pub end_command: NonEmptyText,
 }
 
-/// The `gitflow.branchContextRead` result: the branch's ship facts, which also carry what the
+/// The `git.branchContext.read` result: the branch's ship facts, which also carry what the
 /// change-request form opens with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -149,7 +149,7 @@ pub struct GitflowBranchContextReadResponse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "point",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -173,11 +173,11 @@ pub enum WorkflowRunSnapshotPoint {
     },
 }
 
-/// `gitflow.diffRead`, one arm per comparison.
+/// `git.diff.read`, one arm per comparison.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "scope",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -248,7 +248,7 @@ macro_rules! diff_file {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "kind",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -408,7 +408,7 @@ pub struct DiffCommit {
     pub agent: Option<DiffCommitAgent>,
 }
 
-/// The `gitflow.diffRead` result, always the whole diff: the daemon never cuts a patch at a size.
+/// The `git.diff.read` result, always the whole diff: the daemon never cuts a patch at a size.
 /// `head` and `base` name the two ends; `commits` is present on the branch comparison.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -484,7 +484,7 @@ macro_rules! git_act_request {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "act",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -523,14 +523,14 @@ macro_rules! git_act_request {
 }
 
 git_act_request! {
-    /// `gitflow.gitActionPreview`: one ship act with the values of its form. The preview and the
+    /// `git.action.preview`: one ship act with the values of its form. The preview and the
     /// execution take this one shape, so the commands shown before the press are built by the code
     /// that runs them.
     pub enum GitflowGitActionPreviewRequest {}
 }
 
 git_act_request! {
-    /// `gitflow.gitActionExecute`: the act, and with `retryFromCommand` the earlier act's failed
+    /// `git.action.execute`: the act, and with `retryFromCommand` the earlier act's failed
     /// command it resumes at instead of starting over.
     pub enum GitflowGitActionExecuteRequest {
         /// The failed command to resume at.
@@ -544,7 +544,7 @@ git_act_request! {
     }
 }
 
-/// The `gitflow.gitActionPreview` result: the exact commands the act will run, in order.
+/// The `git.action.preview` result: the exact commands the act will run, in order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -553,7 +553,7 @@ pub struct GitflowGitActionPreviewResponse {
     pub commands: BoundedVec<NonEmptyText, 1, { usize::MAX }>,
 }
 
-/// The `gitflow.gitActionExecute` result: the act's id, whose progress `gitflow.gitActionSubscribe`
+/// The `git.action.execute` result: the act's id, whose progress `git.action.subscribe`
 /// streams, and the commands it runs. A failed command is a failed command on that stream, not an
 /// error reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -566,7 +566,7 @@ pub struct GitflowGitActionExecuteResponse {
     pub commands: BoundedVec<NonEmptyText, 1, { usize::MAX }>,
 }
 
-/// `gitflow.gitActionSubscribe`: the act to follow.
+/// `git.action.subscribe`: the act to follow.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -595,7 +595,7 @@ pub struct GitActCommand {
     pub output: Option<String>,
 }
 
-/// One frame of `gitflow.gitActionSubscribe`: every command of the act and where it stands.
+/// One frame of `git.action.subscribe`: every command of the act and where it stands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -606,7 +606,7 @@ pub struct GitActFrame {
     pub commands: BoundedVec<GitActCommand, 1, { usize::MAX }>,
 }
 
-/// The `gitflow.commitMessageGenerate` result.
+/// The `git.commitMessage.generate` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -620,7 +620,7 @@ pub struct GitflowCommitMessageGenerateResponse {
     pub unread_paths: Vec<FilesystemPath>,
 }
 
-/// The `gitflow.changeRequestTextGenerate` result.
+/// The `git.changeRequest.text.generate` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -640,7 +640,7 @@ pub struct GitflowChangeRequestTextGenerateResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "cause",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]

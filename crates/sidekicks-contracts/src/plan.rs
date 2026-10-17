@@ -1,7 +1,7 @@
 //! The plan record and the one call that answers it. A plan turn ends with a held request on one
 //! provider and a plan item on the other; the daemon turns either into one plan record the screen
 //! renders (`plan.proposed`) and one call answers (`plan.resolve`), and records the outcome as
-//! `plan.accepted` or `plan.handed_off` so the system messages survive a reload. The first answer
+//! `plan.accepted` or `plan.handedOff` so the system messages survive a reload. The first answer
 //! settles the plan everywhere; a later answer reads back the state it settled to rather than
 //! applying again.
 
@@ -24,10 +24,10 @@ branded_uuid_id! {
 }
 
 /// Where a plan stands: `waiting` while its card is up, `accepted` after it is built here,
-/// `handed_off` after it is built in a fresh session, and `open` after the person keeps planning,
+/// `handedOff` after it is built in a fresh session, and `open` after the person keeps planning,
 /// which answers the held request and leaves the plan as a record the next plan replaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum PlanState {
     /// Its card is up.
     Waiting,
@@ -79,7 +79,7 @@ pub struct PlanAcceptedPayload {
     pub session_id: SessionId,
 }
 
-/// `plan.handed_off`: the plan seeded a fresh session, which the system message opens.
+/// `plan.handedOff`: the plan seeded a fresh session, which the system message opens.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanHandedOffPayload {
@@ -109,7 +109,7 @@ pub struct PlanFreshSession {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "verdict",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -140,7 +140,7 @@ pub enum PlanResolveRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]

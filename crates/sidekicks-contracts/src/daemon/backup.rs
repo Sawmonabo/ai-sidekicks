@@ -125,7 +125,7 @@ pub struct BackupListEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "outcome",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -169,7 +169,7 @@ pub struct BackupReadResponse {
     pub backups: Vec<BackupListEntry>,
 }
 
-/// `backup.completed`: a run wrote a backup.
+/// `daemon.backup.completed`: a run wrote a backup.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BackupCompletedPayload {
@@ -179,7 +179,7 @@ pub struct BackupCompletedPayload {
     pub total_bytes: SafeInt<0>,
 }
 
-/// `backup.failed`: a run did not finish, in the service's own words.
+/// `daemon.backup.failed`: a run did not finish, in the service's own words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BackupFailedPayload {
@@ -210,8 +210,8 @@ impl ListKey for BackupKeptDistributionPart {
     }
 }
 
-/// `backup.restored`: the service started again from a backup, naming each distribution part it
-/// kept in the backup.
+/// `daemon.backup.restored`: the service started again from a backup, naming each distribution part
+/// it kept in the backup.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -233,14 +233,14 @@ methods! {
     /// The backup methods. A run started now reports its end through the `backup.*` events.
     pub const DAEMON_BACKUP_METHOD_DESCRIPTORS = [
         /// Reads where the backups stand.
-        DaemonBackupRead = query "daemon.backupRead" {
+        DaemonBackupRead = query "daemon.backup.read" {
             mutating: false,
             params: EmptyPayload,
             result: BackupReadResponse,
             refusals: [],
         },
         /// Starts a backup run now.
-        DaemonBackupStart = mutation "daemon.backupStart" {
+        DaemonBackupStart = mutation "daemon.backup.start" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,

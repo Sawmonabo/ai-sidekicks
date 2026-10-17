@@ -42,7 +42,7 @@ macro_rules! workflow_step_event {
 }
 
 workflow_step_event! {
-    /// `workflow.step_canceled`: a step that was running or waiting when its run ended failed or
+    /// `workflow.step.canceled`: a step that was running or waiting when its run ended failed or
     /// canceled, or a branch a first-to-arrive merge canceled once another branch arrived.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -50,7 +50,7 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.step_started`: the input the step ran on.
+    /// `workflow.step.started`: the input the step ran on.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -62,7 +62,7 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.step_finished`: the output and log the step produced, and its cost if billed.
+    /// `workflow.step.completed`: the output and log the step produced, and its cost if billed.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -85,7 +85,7 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.step_failed`: the error, its failure code if one names it, and the failed item.
+    /// `workflow.step.failed`: the error, its failure code if one names it, and the failed item.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -112,7 +112,7 @@ macro_rules! phase_suspended_payload {
                 /// The session the run lives in.
                 session_id: SessionId,
             ]
-            /// `workflow.phase_suspended`: a step started waiting: its `waitCause` and, for an
+            /// `workflow.phase.suspended`: a step started waiting: its `waitCause` and, for an
             /// `account` wait, the spent account the attention read groups it under and the
             /// durable resume instant where the wait armed one; absent, only the person resumes
             /// it. A wait on anything else names neither. The deadline a `Timeout` arms is
@@ -122,7 +122,7 @@ macro_rules! phase_suspended_payload {
             )]
             #[serde(
                 tag = "waitCause",
-                rename_all = "snake_case",
+                rename_all = "camelCase",
                 rename_all_fields = "camelCase",
                 deny_unknown_fields
             )]
@@ -231,19 +231,19 @@ phase_suspended_payload! {
 /// Why a phase was canceled rather than failing on its own work: a sibling branch's failure ended
 /// the run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowPhaseCancellationReason {
     /// A sibling branch failed and ended the run.
     SiblingFailure,
 }
 
 workflow_step_event! {
-    /// `workflow.phase_failed`: a phase failed, on its own work or because a sibling branch's
+    /// `workflow.phase.failed`: a phase failed, on its own work or because a sibling branch's
     /// failure ended the run and so canceled it.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseFailedPayload {
-        /// `sibling_failure` where a sibling branch's failure canceled the phase; `null` where the
+        /// `siblingFailure` where a sibling branch's failure canceled the phase; `null` where the
         /// phase failed on its own work.
         #[serde(deserialize_with = "crate::wire::nullable")]
         #[schemars(with = "crate::wire::NullableSchema<WorkflowPhaseCancellationReason>")]
@@ -252,7 +252,7 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.phase_waiting_on_pool`: the memory gate holds the step before it starts, written
+    /// `workflow.phase.waitingOnPool`: the memory gate holds the step before it starts, written
     /// on entry to the hold and every 30 seconds while it lasts; memory is the only pool, so the
     /// payload names none.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -264,58 +264,58 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.phase_admitted`: the memory gate admitted the step, which may start.
+    /// `workflow.phase.admitted`: the memory gate admitted the step, which may start.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseAdmittedPayload {}
 }
 
 workflow_step_event! {
-    /// `workflow.phase_started`: an admitted phase began.
+    /// `workflow.phase.started`: an admitted phase began.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseStartedPayload {}
 }
 
 workflow_step_event! {
-    /// `workflow.phase_progressed`: a phase reported progress, at its phase type's own cadence.
+    /// `workflow.phase.progressed`: a phase reported progress, at its phase type's own cadence.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseProgressedPayload {}
 }
 
 workflow_step_event! {
-    /// `workflow.phase_canceling`: a phase was asked to stop and is winding down.
+    /// `workflow.phase.canceling`: a phase was asked to stop and is winding down.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseCancelingPayload {}
 }
 
 workflow_step_event! {
-    /// `workflow.phase_retried`: a failed phase was retried; the step named is the new attempt.
+    /// `workflow.phase.retried`: a failed phase was retried; the step named is the new attempt.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseRetriedPayload {}
 }
 
 workflow_step_event! {
-    /// `workflow.phase_resumed`: a waiting step resumed.
+    /// `workflow.phase.resumed`: a waiting step resumed.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseResumedPayload {}
 }
 
 workflow_step_event! {
-    /// `workflow.phase_completed`: a phase finished, and its gate may be answered.
+    /// `workflow.phase.completed`: a phase finished, and its gate may be answered.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseCompletedPayload {}
 }
 
 workflow_step_event! {
-    /// `workflow.parallel_join_cancellation`: one wave of running sibling branches was canceled at
-    /// the join, because the run ended failed or canceled or a first-to-arrive merge took its first
-    /// input; each sibling's own `workflow.step_canceled` follows.
+    /// `workflow.parallelJoin.branchesCanceled`: one wave of running sibling branches was canceled
+    /// at the join, because the run ended failed or canceled or a first-to-arrive merge took its
+    /// first input; each sibling's own `workflow.step.canceled` follows.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowParallelJoinCancellationPayload {}
@@ -325,7 +325,7 @@ workflow_step_event! {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowStepSkipReason {
     /// Its input carried no items.
     NoItems,
@@ -334,7 +334,7 @@ pub enum WorkflowStepSkipReason {
 }
 
 workflow_step_event! {
-    /// `workflow.step_skipped`: why the step was skipped.
+    /// `workflow.step.skipped`: why the step was skipped.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowStepSkippedPayload {
@@ -344,7 +344,7 @@ workflow_step_event! {
 }
 
 workflow_run_event! {
-    /// `workflow.gate_resolved`: the answer, written with the approval record's entry in one step.
+    /// `workflow.gate.resolved`: the answer, written with the approval record's entry in one step.
     /// `nodeId` names the approval step; a chain's question names none. `deviceId` is the device
     /// that answered.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

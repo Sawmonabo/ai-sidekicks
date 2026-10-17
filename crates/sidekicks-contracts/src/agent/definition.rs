@@ -88,40 +88,40 @@ pub enum AgentMemoryScope {
 )]
 pub enum AgentAccentHue {
     /// Step 0.
-    #[serde(rename = "hue-00")]
+    #[serde(rename = "hue00")]
     Hue00,
     /// Step 1.
-    #[serde(rename = "hue-01")]
+    #[serde(rename = "hue01")]
     Hue01,
     /// Step 2.
-    #[serde(rename = "hue-02")]
+    #[serde(rename = "hue02")]
     Hue02,
     /// Step 3.
-    #[serde(rename = "hue-03")]
+    #[serde(rename = "hue03")]
     Hue03,
     /// Step 4.
-    #[serde(rename = "hue-04")]
+    #[serde(rename = "hue04")]
     Hue04,
     /// Step 5.
-    #[serde(rename = "hue-05")]
+    #[serde(rename = "hue05")]
     Hue05,
     /// Step 6.
-    #[serde(rename = "hue-06")]
+    #[serde(rename = "hue06")]
     Hue06,
     /// Step 7.
-    #[serde(rename = "hue-07")]
+    #[serde(rename = "hue07")]
     Hue07,
     /// Step 8.
-    #[serde(rename = "hue-08")]
+    #[serde(rename = "hue08")]
     Hue08,
     /// Step 9.
-    #[serde(rename = "hue-09")]
+    #[serde(rename = "hue09")]
     Hue09,
     /// Step 10.
-    #[serde(rename = "hue-10")]
+    #[serde(rename = "hue10")]
     Hue10,
     /// Step 11.
-    #[serde(rename = "hue-11")]
+    #[serde(rename = "hue11")]
     Hue11,
 }
 

@@ -1,5 +1,5 @@
 //! A goal inside a session: the condition one agent works toward until it is met, cleared or
-//! stopped unmet, set with `session.goalUpdate` and removed with `session.goalClear`, and the two
+//! stopped unmet, set with `session.goal.update` and removed with `session.goal.clear`, and the two
 //! events that record each change. A goal is a command used inside a session, never what the
 //! session is. The transcript draws every goal row from the two events; there is no goal store.
 
@@ -26,9 +26,9 @@ pub struct SessionGoal {
 
 /// Where a goal stands. `complete` and `impossible` are final; a goal's last status is what its row
 /// draws. `impossible` comes only from a provider whose judge can rule a goal out, carrying the
-/// judge's reason. Clearing is the event `session.goal_cleared`, never a status.
+/// judge's reason. Clearing is the event `session.goal.cleared`, never a status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionGoalStatus {
     /// The agent works toward it.
     Active,
@@ -59,7 +59,7 @@ pub struct SessionGoalUpdateRequest {
     pub goal: SessionGoal,
 }
 
-/// The accepted goal, echoed exactly as the `session.goal_updated` event carries it.
+/// The accepted goal, echoed exactly as the `session.goal.updated` event carries it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -81,7 +81,7 @@ pub struct SessionGoalClearRequest {
     pub agent_id: AgentId,
 }
 
-/// The `session.goal_updated` payload: the goal and where it now stands. `reason` is the provider's
+/// The `session.goal.updated` payload: the goal and where it now stands. `reason` is the provider's
 /// judge's reason, present exactly when the status is `impossible`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -117,7 +117,7 @@ pub struct SessionGoalUpdatedPayload {
     pub reason: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
-/// The `session.goal_cleared` payload: whose goal was removed.
+/// The `session.goal.cleared` payload: whose goal was removed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionGoalClearedPayload {
@@ -131,14 +131,14 @@ methods! {
     /// The goal methods' wire contract: name, procedure type and types.
     pub const SESSION_GOAL_METHOD_DESCRIPTORS = [
         /// Sets or replaces one agent's goal.
-        SessionGoalUpdate = mutation "session.goalUpdate" {
+        SessionGoalUpdate = mutation "session.goal.update" {
             mutating: true,
             params: SessionGoalUpdateRequest,
             result: SessionGoalUpdateResponse,
             refusals: [SessionNotFound, DriverCapabilityUnsupported],
         },
         /// Removes one agent's goal.
-        SessionGoalClear = mutation "session.goalClear" {
+        SessionGoalClear = mutation "session.goal.clear" {
             mutating: true,
             params: SessionGoalClearRequest,
             result: SessionAcknowledgement,

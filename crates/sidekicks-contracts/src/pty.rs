@@ -4,11 +4,11 @@
 //!
 //! Every request names the session and the terminal, and a take or a write names the pane's output
 //! subscription it comes through. A request naming a shell its session does not have is refused
-//! `pty.not_found`, so a terminal id alone never reaches another session's shell. The flow-control
-//! signal is the one exception: naming such a shell changes nothing, since it may race a closing
-//! shell. A take or write whose subscription is not the calling connection's open subscription to
-//! that shell is refused `pty.output_subscription_not_found`, so a hold is never bound to another
-//! connection's pane.
+//! `terminal.notFound`, so a terminal id alone never reaches another session's shell. The
+//! flow-control signal is the one exception: naming such a shell changes nothing, since it may race
+//! a closing shell. A take or write whose subscription is not the calling connection's open
+//! subscription to that shell is refused `terminal.output.subscriptionNotFound`, so a hold is never
+//! bound to another connection's pane.
 
 pub mod control;
 
@@ -60,7 +60,7 @@ branded_text! {
 /// How many bytes of a shell's output, its marks taken out, came before a point in its stream.
 pub type OutputOffset = SafeInt<0>;
 
-/// `pty.list`: the session whose shells the subscription follows.
+/// `terminal.subscribe`: the session whose shells the subscription follows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -75,7 +75,7 @@ pub struct PtyListRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -130,9 +130,9 @@ pub struct PtyListUpdate {
     pub terminals: UniqueList<PtyListEntry, 0, { usize::MAX }>,
 }
 
-/// `pty.open`: another shell for the session, the person's own login shell in the session's tree,
-/// so the request carries no program, arguments or folder. The caller mints the key, and a retry
-/// with the same key never opens a second shell.
+/// `terminal.open`: another shell for the session, the person's own login shell in the session's
+/// tree, so the request carries no program, arguments or folder. The caller mints the key, and a
+/// retry with the same key never opens a second shell.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -144,7 +144,7 @@ pub struct PtyOpenRequest {
 }
 
 /// The new shell's id. A shell that fails to start still has one: its tab stays and its list entry
-/// reads `did_not_start` with the cause.
+/// reads `didNotStart` with the cause.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -153,9 +153,9 @@ pub struct PtyOpenResponse {
     pub terminal_id: TerminalId,
 }
 
-/// `pty.close`: closes one shell and ends its process; closing several sends this once per shell.
-/// The daemon refuses it while a run holds the shell, and while another device holds it unless
-/// `force` is true, which the screen sends only after the person confirmed.
+/// `terminal.close`: closes one shell and ends its process; closing several sends this once per
+/// shell. The daemon refuses it while a run holds the shell, and while another device holds it
+/// unless `force` is true, which the screen sends only after the person confirmed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -174,7 +174,7 @@ pub struct PtyCloseRequest {
     pub force: Option<bool>,
 }
 
-/// `pty.reorder`: the session's shells in their new tab order, each named at most once.
+/// `terminal.reorder`: the session's shells in their new tab order, each named at most once.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PtyReorderRequest {
@@ -186,9 +186,9 @@ pub struct PtyReorderRequest {
     pub terminal_ids: UniqueList<TerminalId, 1, { usize::MAX }>,
 }
 
-/// `pty.outputSubscribe`: the shell whose output the subscription streams. `afterOffset` is where
-/// a watcher that reconnects got to: while that offset is still inside the scrollback window it
-/// gets only the bytes after it, and a fresh `scrollback` otherwise.
+/// `terminal.output.subscribe`: the shell whose output the subscription streams. `afterOffset` is
+/// where a watcher that reconnects got to: while that offset is still inside the scrollback window
+/// it gets only the bytes after it, and a fresh `scrollback` otherwise.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -211,13 +211,13 @@ pub struct PtyOutputSubscribeRequest {
 /// applied, in bytes since the shell started. `scrollback` opens the scrollback window, starting at
 /// its first whole line, with the columns and rows it was last drawn at (so a running program's
 /// boxes come back unwrapped) and who holds it at which lease version; a window too large for one
-/// message goes on in `scrollback_continuation` changes, each in a frame of its own, before any
+/// message goes on in `scrollbackContinuation` changes, each in a frame of its own, before any
 /// output. `output` is what the shell wrote next, in order; `exited` is its program's end. Output
 /// and scrollback travel as raw bytes, an attachment each, with no character held back.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -302,21 +302,21 @@ pub struct PtyOutputFrame {
     pub dropped: Option<True>,
 }
 
-/// `pty.write`: input for one shell, written as it arrives; the writer's connection must hold the
-/// shell. The write is bound to `outputSubscriptionId`, the writing pane's own
-/// `pty.outputSubscribe` subscription to that shell: a first write to a shell nobody holds takes it
-/// through that subscription, and a holding connection's write binds it to the hold. `keys` is
-/// typed text. A `paste` is pasted text sent in one or more parts, each under the wire's message
-/// cap, all naming the client-minted `pasteId` and the last one `isLastPart`; when the program in
-/// the shell asked for pasted text to be marked as pasted, the daemon marks the whole paste once
-/// around all its parts. Each pane has one paste open at a time: a part naming a new `pasteId`
-/// closes the pane's earlier paste first. The daemon answers a write once its bytes reach the
-/// shell's terminal, so a client that sends a paste's next part after the answer to the last pastes
-/// no faster than the program reads.
+/// `terminal.write`: input for one shell, written as it arrives; the writer's connection must hold
+/// the shell. The write is bound to `outputSubscriptionId`, the writing pane's own
+/// `terminal.output.subscribe` subscription to that shell: a first write to a shell nobody holds
+/// takes it through that subscription, and a holding connection's write binds it to the hold.
+/// `keys` is typed text. A `paste` is pasted text sent in one or more parts, each under the wire's
+/// message cap, all naming the client-minted `pasteId` and the last one `isLastPart`; when the
+/// program in the shell asked for pasted text to be marked as pasted, the daemon marks the whole
+/// paste once around all its parts. Each pane has one paste open at a time: a part naming a new
+/// `pasteId` closes the pane's earlier paste first. The daemon answers a write once its bytes reach
+/// the shell's terminal, so a client that sends a paste's next part after the answer to the last
+/// pastes no faster than the program reads.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -350,7 +350,7 @@ pub enum PtyWriteRequest {
     },
 }
 
-/// `pty.resize`: a shell's new size in character cells. Only a connection holding it sets it;
+/// `terminal.resize`: a shell's new size in character cells. Only a connection holding it sets it;
 /// watchers follow.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -390,16 +390,16 @@ pub struct TerminalCellSize {
     pub height: SafeInt<1>,
 }
 
-/// `pty.reportTerminalAppearance`: the appearance the daemon answers a program's questions about
-/// its terminal from, as no screen answers them. `console_theme` is the console theme's terminal
+/// `terminal.appearance.report`: the appearance the daemon answers a program's questions about
+/// its terminal from, as no screen answers them. `consoleTheme` is the console theme's terminal
 /// colors, which the desktop reports on connecting and at every change of appearance; it serves
-/// every shell whose holder reported none. `holding_pane` is the colors and cell size of the pane
+/// every shell whose holder reported none. `holdingPane` is the colors and cell size of the pane
 /// holding the shell, which only a connection the shell's hold is bound to may report, refused as a
 /// resize from another is; it outranks the console theme until the shell changes holder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "source",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -427,7 +427,7 @@ methods! {
     /// Every `pty.*` method.
     pub const PTY_METHOD_DESCRIPTORS = [
         /// Follows the session's shells.
-        PtyList = subscription "pty.list" {
+        PtyList = subscription "terminal.subscribe" {
             mutating: false,
             params: PtyListRequest,
             result: SubscribeAckResponse,
@@ -435,7 +435,7 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Opens another shell.
-        PtyOpen = mutation "pty.open" {
+        PtyOpen = mutation "terminal.open" {
             mutating: true,
             params: PtyOpenRequest,
             result: PtyOpenResponse,
@@ -447,21 +447,21 @@ methods! {
             ],
         },
         /// Closes one shell.
-        PtyClose = mutation "pty.close" {
+        PtyClose = mutation "terminal.close" {
             mutating: true,
             params: PtyCloseRequest,
             result: NullPayload,
             refusals: [SessionNotFound, PtyNotFound, PtyControlHeldByOther],
         },
         /// Reorders the session's shells.
-        PtyReorder = mutation "pty.reorder" {
+        PtyReorder = mutation "terminal.reorder" {
             mutating: true,
             params: PtyReorderRequest,
             result: NullPayload,
             refusals: [SessionNotFound, PtyNotFound],
         },
         /// Streams one shell's output.
-        PtyOutputSubscribe = subscription "pty.outputSubscribe" {
+        PtyOutputSubscribe = subscription "terminal.output.subscribe" {
             mutating: false,
             params: PtyOutputSubscribeRequest,
             result: SubscribeAckResponse,
@@ -469,7 +469,7 @@ methods! {
             refusals: [SessionNotFound, PtyNotFound],
         },
         /// Writes input to one shell.
-        PtyWrite = mutation "pty.write" {
+        PtyWrite = mutation "terminal.write" {
             mutating: true,
             params: PtyWriteRequest,
             result: NullPayload,
@@ -481,14 +481,14 @@ methods! {
             ],
         },
         /// Resizes one shell.
-        PtyResize = mutation "pty.resize" {
+        PtyResize = mutation "terminal.resize" {
             mutating: true,
             params: PtyResizeRequest,
             result: NullPayload,
             refusals: [SessionNotFound, PtyNotFound, PtyControlHeldByOther, PtyControlNotHeld],
         },
         /// Reports the appearance a program's questions are answered from.
-        PtyReportTerminalAppearance = mutation "pty.reportTerminalAppearance" {
+        PtyReportTerminalAppearance = mutation "terminal.appearance.report" {
             mutating: true,
             params: PtyReportTerminalAppearanceRequest,
             result: NullPayload,

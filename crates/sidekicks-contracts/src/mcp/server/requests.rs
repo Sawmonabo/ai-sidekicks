@@ -179,7 +179,7 @@ pub struct McpRegistrySearchRequest {
     pub cursor: Option<McpRequestText>,
 }
 
-/// What `mcp.list` answers with.
+/// What `mcp.server.list` answers with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpListResponse {
@@ -188,7 +188,7 @@ pub struct McpListResponse {
     pub servers: Vec<McpServerInventoryEntry>,
 }
 
-/// What `mcp.get` answers with.
+/// What `mcp.server.read` answers with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpGetResponse {
@@ -199,7 +199,7 @@ pub struct McpGetResponse {
 
 /// How a mutation went on one live session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum McpLiveApplicationOutcome {
     /// The session took the change.
     Applied,

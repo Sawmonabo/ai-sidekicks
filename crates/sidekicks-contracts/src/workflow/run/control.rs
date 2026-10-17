@@ -136,9 +136,9 @@ pub(crate) fn names_whole_repin(
     }
 }
 
-/// The start modes a caller may ask for; `retry` and `sub-workflow` come from their own methods.
+/// The start modes a caller may ask for; `retry` and `subWorkflow` come from their own methods.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowRequestableRunMode {
     /// Started by a person.
     Manual,
@@ -164,7 +164,7 @@ impl From<WorkflowRequestableRunMode> for WorkflowRunMode {
     }
 }
 
-/// The `workflow.runStart` input: the caller's key, the version to run, the session it is started
+/// The `workflow.run.start` input: the caller's key, the version to run, the session it is started
 /// in, the repository it works in, the items it starts on and how the start was made.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -215,7 +215,7 @@ pub struct WorkflowRunStartRequest {
 
 /// The status a new run can answer with: admitted but not yet dispatched, or already running.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowRunStartStatus {
     /// Admitted, not yet dispatched.
     New,
@@ -223,7 +223,7 @@ pub enum WorkflowRunStartStatus {
     Running,
 }
 
-/// The `workflow.runStart` result, which `workflow.runRerun` also answers with: the new run, the
+/// The `workflow.run.start` result, which `workflow.run.rerun` also answers with: the new run, the
 /// session it lives in, and its status.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -334,7 +334,7 @@ fn fitting_value(
     text.map(|text| WorkflowTriggerInputValue::Text(text.to_owned()))
 }
 
-/// The `workflow.runCancel` input. `reason` is recorded on the run and carried on its canceled
+/// The `workflow.run.cancel` input. `reason` is recorded on the run and carried on its canceled
 /// event; it never reaches a step's output or anything an agent reads.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -358,7 +358,7 @@ literal! {
     pub enum WorkflowRunCanceledStatus = "canceled";
 }
 
-/// The `workflow.runCancel` result. Cancel is offered on a new, running or waiting run, and on a
+/// The `workflow.run.cancel` result. Cancel is offered on a new, running or waiting run, and on a
 /// failed run parked on its failed step; `alreadyCanceled` is true when the run was already
 /// canceled and this call returned the first cancel's saved result, `canceledEventId` naming the
 /// original event and no second one written.
@@ -370,7 +370,7 @@ pub struct WorkflowRunCancelResponse {
     pub workflow_run_id: WorkflowRunId,
     /// `canceled`.
     pub status: WorkflowRunCanceledStatus,
-    /// The `workflow.canceled` event the cancel wrote.
+    /// The `workflow.run.canceled` event the cancel wrote.
     pub canceled_event_id: ComposedText,
     /// Whether the run was already canceled.
     pub already_canceled: bool,
@@ -385,7 +385,7 @@ pub struct WorkflowRunResumeVersionRepin {
     pub target_workflow_version_id: WorkflowVersionId,
 }
 
-/// The `workflow.runResume` input. An ordinary resume omits `versionRepin` and continues on the
+/// The `workflow.run.resume` input. An ordinary resume omits `versionRepin` and continues on the
 /// run's pinned version; only an explicit `versionRepin` moves the run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -406,7 +406,7 @@ pub struct WorkflowRunResumeRequest {
 /// The status a resume answers with: running, or waiting again where it reached a provider account
 /// still out of quota, which is a legal outcome and not a refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowRunResumeStatus {
     /// Running.
     Running,
@@ -414,7 +414,7 @@ pub enum WorkflowRunResumeStatus {
     Waiting,
 }
 
-/// The `workflow.runResume` result. The two repinned ids are present only on an accepted re-pin,
+/// The `workflow.run.resume` result. The two repinned ids are present only on an accepted re-pin,
 /// and then both.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -450,7 +450,7 @@ pub struct WorkflowRunResumeResponse {
     pub repinned_to_workflow_version_id: Option<WorkflowVersionId>,
 }
 
-/// The `workflow.runRetry` input: re-run from a named step, which runs again with its descendants
+/// The `workflow.run.retry` input: re-run from a named step, which runs again with its descendants
 /// while the source run's data stays pinned upstream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -465,7 +465,7 @@ pub struct WorkflowRunRetryRequest {
     pub client_idempotency_key: ClientUuid,
 }
 
-/// The `workflow.runRetry` result: a new run in `retry` mode; the source run stays readable. The
+/// The `workflow.run.retry` result: a new run in `retry` mode; the source run stays readable. The
 /// new run is never its own source.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -490,7 +490,7 @@ pub struct WorkflowRunRetryResponse {
     pub status: WorkflowRunStartStatus,
 }
 
-/// The `workflow.runRerun` input: start a new run of the named run's own pinned version, with the
+/// The `workflow.run.rerun` input: start a new run of the named run's own pinned version, with the
 /// input and mode that run was started with, in the session it lives in. The daemon reads all
 /// three from the source run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -517,9 +517,9 @@ pub enum WorkflowNodeExecuteScope {
     FromHere,
 }
 
-/// The `workflow.nodeExecute` input: `Run this node` or `Run from here` on a saved version, never
+/// The `workflow.node.execute` input: `Run this node` or `Run from here` on a saved version, never
 /// unsaved bytes. `projectId` is the project the builder's `Repository` panel names for a node run
-/// on a `chat` or `sub-workflow` trigger, absent for `None` and on every other trigger;
+/// on a `chat` or `subWorkflow` trigger, absent for `None` and on every other trigger;
 /// `dirtyNodeIds` is the builder's hint, and the daemon decides what it runs and reuses.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -535,7 +535,7 @@ pub struct WorkflowNodeExecuteRequest {
     )]
     #[schemars(with = "SessionId")]
     pub session_id: Option<SessionId>,
-    /// The project it works in, on a `chat` or `sub-workflow` trigger.
+    /// The project it works in, on a `chat` or `subWorkflow` trigger.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -557,7 +557,7 @@ pub struct WorkflowNodeExecuteRequest {
     pub dirty_node_ids: Option<Vec<WorkflowNodeId>>,
 }
 
-/// The `workflow.nodeExecute` result: the nodes the daemon ran, in order, and those it reused.
+/// The `workflow.node.execute` result: the nodes the daemon ran, in order, and those it reused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -570,7 +570,7 @@ pub struct WorkflowNodeExecuteResponse {
     pub reused_node_ids: Vec<WorkflowNodeId>,
 }
 
-/// The `workflow.resultsPost` input: pull a finished run's results into the session the
+/// The `workflow.results.post` input: pull a finished run's results into the session the
 /// `/workflow results` verb was typed in, which the daemon checks is the caller's own.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -582,7 +582,7 @@ pub struct WorkflowResultsPostRequest {
     pub session_id: SessionId,
 }
 
-/// The `workflow.resultsPost` result.
+/// The `workflow.results.post` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -622,7 +622,7 @@ pub struct WorkflowCodePackagesNotLockedDetails {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowRetryUnavailableReason {
     /// The source run is still going.
     SourceRunning,
@@ -640,12 +640,12 @@ methods! {
     /// The `workflow.*` methods that act on a run.
     pub const WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS = [
         /// Starts a run of a pinned version.
-        WorkflowRunStart = mutation "workflow.runStart" {
+        WorkflowRunStart = mutation "workflow.run.start" {
             mutating: true,
             params: WorkflowRunStartRequest,
             result: WorkflowRunStartResponse,
             refusals: [
-                WorkflowNotFound,
+                WorkflowVersionNotFound,
                 SessionNotFound,
                 WorkflowStartDenied,
                 WorkflowProjectOnProjectSession,
@@ -656,19 +656,19 @@ methods! {
             ],
         },
         /// Cancels a run that has not ended.
-        WorkflowRunCancel = mutation "workflow.runCancel" {
+        WorkflowRunCancel = mutation "workflow.run.cancel" {
             mutating: true,
             params: WorkflowRunCancelRequest,
             result: WorkflowRunCancelResponse,
-            refusals: [WorkflowNotFound, WorkflowRunNotCancelable],
+            refusals: [WorkflowRunNotFound, WorkflowRunNotCancelable],
         },
         /// Resumes a waiting run, moving it to another version where a re-pin is asked for.
-        WorkflowRunResume = mutation "workflow.runResume" {
+        WorkflowRunResume = mutation "workflow.run.resume" {
             mutating: true,
             params: WorkflowRunResumeRequest,
             result: WorkflowRunResumeResponse,
             refusals: [
-                WorkflowNotFound,
+                WorkflowRunNotFound,
                 WorkflowResumeNotParked,
                 WorkflowRepairNotParked,
                 WorkflowRepairAttemptInFlight,
@@ -676,42 +676,42 @@ methods! {
             ],
         },
         /// Starts a new run from a named step of a run, its upstream data pinned.
-        WorkflowRunRetry = mutation "workflow.runRetry" {
+        WorkflowRunRetry = mutation "workflow.run.retry" {
             mutating: true,
             params: WorkflowRunRetryRequest,
             result: WorkflowRunRetryResponse,
             refusals: [
-                WorkflowNotFound,
+                WorkflowRunNotFound, WorkflowStepNotFound,
                 WorkflowRetryUnavailable,
                 WorkflowInvalidTransition,
                 WorkflowIdempotencyConflict,
             ],
         },
         /// Starts a new run of a run's own version, input and mode, in its session.
-        WorkflowRunRerun = mutation "workflow.runRerun" {
+        WorkflowRunRerun = mutation "workflow.run.rerun" {
             mutating: true,
             params: WorkflowRunRerunRequest,
             result: WorkflowRunStartResponse,
-            refusals: [WorkflowNotFound, WorkflowIdempotencyConflict],
+            refusals: [WorkflowRunNotFound, WorkflowIdempotencyConflict],
         },
         /// Runs one node, or it and its ancestors, from the builder.
-        WorkflowNodeExecute = mutation "workflow.nodeExecute" {
+        WorkflowNodeExecute = mutation "workflow.node.execute" {
             mutating: true,
             params: WorkflowNodeExecuteRequest,
             result: WorkflowNodeExecuteResponse,
-            refusals: [SessionNotFound, WorkflowNotFound, WorkflowRepositoryRequired],
+            refusals: [SessionNotFound, WorkflowVersionNotFound, WorkflowRepositoryRequired],
         },
         /// Posts a finished run's results into the session that asks.
-        WorkflowResultsPost = mutation "workflow.resultsPost" {
+        WorkflowResultsPost = mutation "workflow.results.post" {
             mutating: true,
             params: WorkflowResultsPostRequest,
             result: WorkflowResultsPostResponse,
-            refusals: [SessionNotFound, WorkflowNotFound, WorkflowInvalidTransition],
+            refusals: [SessionNotFound, WorkflowRunNotFound, WorkflowInvalidTransition],
         },
     ];
 }
 
-/// The details a `workflow.idempotency_conflict` refusal carries: what the key first answered.
+/// The details a `workflow.run.idempotencyConflict` refusal carries: what the key first answered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowIdempotencyConflictDetails {

@@ -209,7 +209,7 @@ pub struct ProviderAccountResetCredentialHomeResponse {
     pub account_id: ProviderAccountId,
     /// The generation after the rebuild, greater than the one before.
     pub credential_generation: CredentialGeneration,
-    /// `reauth_required` until the person signs in.
+    /// `reauthRequired` until the person signs in.
     pub health_state: ProviderAccountHealthState,
 }
 

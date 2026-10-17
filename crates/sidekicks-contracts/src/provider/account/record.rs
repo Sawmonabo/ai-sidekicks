@@ -1,6 +1,6 @@
-//! The provider account record and how it is read: the account as sent on the wire, each
-//! provider's readiness and its remedy, the per-limit quota reading, `providerAccount.list` and the
-//! `providerAccount.subscribe` live tail. The auth mode is closed, since the daemon produces every
+//! The provider account record and how it is read: the account as sent on the wire, each provider's
+//! readiness and its remedy, the per-limit quota reading, `provider.account.list` and the
+//! `provider.account.subscribe` live tail. The auth mode is closed, since the daemon produces every
 //! value on the wire; the tolerance sits where a provider's own status output is read.
 
 use std::borrow::Cow;
@@ -68,7 +68,7 @@ ts_constants! {
 /// How an account is charged. `unknown` means not known, never `metered`: it labels cost and
 /// never derives it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum BillingMode {
     /// A subscription.
     Subscription,
@@ -83,7 +83,7 @@ pub enum BillingMode {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderAccountHealthState {
     /// Signed in.
     Authenticated,
@@ -100,7 +100,7 @@ pub enum ProviderAccountHealthState {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderAuthMode {
     /// A subscription sign-in.
     OauthSubscription,
@@ -138,7 +138,7 @@ pub fn normalize_observed_provider_auth_mode(reported: Option<&Value>) -> Option
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderAccountUsageWindowSource {
     /// The account's own limits read.
     Probe,
@@ -250,7 +250,7 @@ pub enum ProviderAccountMemoryImportOutcome {
 
 /// The health states that are the outcome of an observation, and so carry its time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum ObservedHealthState {
     /// Signed in.
@@ -263,7 +263,7 @@ pub enum ObservedHealthState {
 
 /// The health state that may lack an observation time: never probed, or probed and undecided.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum UndecidedHealthState {
     /// Not decided.
@@ -507,7 +507,7 @@ pub struct ProviderAccountUsageWindow {
     pub source: ProviderAccountUsageWindowSource,
 }
 
-/// The request of `providerAccount.list`.
+/// The request of `provider.account.list`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -531,7 +531,7 @@ pub struct ProviderAccountListRequest {
     pub account_id: Option<ProviderAccountId>,
 }
 
-/// The reply of `providerAccount.list`: the accounts, the stored quota readings (sent on the read
+/// The reply of `provider.account.list`: the accounts, the stored quota readings (sent on the read
 /// because the subscription is a live tail), and exactly one readiness entry per provider read.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -551,7 +551,7 @@ pub struct ProviderAccountListResponse {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderLoginOutcome {
     /// The provider's flow finished; the account's health is observed next.
     Succeeded,
@@ -561,13 +561,13 @@ pub enum ProviderLoginOutcome {
     Canceled,
 }
 
-/// A change to the node's account registry, which `providerAccount.subscribe` sends as a full
+/// A change to the node's account registry, which `provider.account.subscribe` sends as a full
 /// state update, so seeing one twice is harmless. A usage window's reading belongs to the account
 /// the notification routes to.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -586,7 +586,7 @@ pub enum ProviderAccountNotification {
         account_id: ProviderAccountId,
     },
     /// A brokered sign-in ended. `succeeded` means only that the provider's flow finished; the
-    /// account's health follows as `account_changed`.
+    /// account's health follows as `accountChanged`.
     LoginCompleted {
         /// The attempt.
         attempt_id: FreeFormText<PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN>,
@@ -645,8 +645,8 @@ fn window_names_routed_account(
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/account/record",
     doc: "The provider account record and how it is read: the account as sent on the wire, each \
-          provider's readiness and its remedy, the per-limit quota reading, `providerAccount.list` \
-          and the `providerAccount.subscribe` live tail.",
+          provider's readiness and its remedy, the per-limit quota reading, `provider.account.list` \
+          and the `provider.account.subscribe` live tail.",
     definitions: &[
         Definition::read::<BillingMode>().checked(),
         Definition::read::<ProviderAccountHealthState>().checked(),

@@ -65,7 +65,7 @@ const CHUNK_MAX_LENGTH: i64 = ARTIFACT_CHUNK_MAX_BYTES as i64;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -229,7 +229,7 @@ pub enum ArtifactReadResponse {
 
 ts_constants! {
     /// Every refusal an artifact call answers with.
-    pub const ARTIFACT_REFUSAL_CODES: [RefusalCode; 8] = [
+    pub const ARTIFACT_REFUSAL_CODES: [RefusalCode; 7] = [
         RefusalCode::ArtifactNotFound,
         RefusalCode::ArtifactTooLarge,
         RefusalCode::ArtifactTypeUnreadable,
@@ -237,7 +237,6 @@ ts_constants! {
         RefusalCode::ArtifactFilePublishRefused,
         RefusalCode::ArtifactIngestCapacityExhausted,
         RefusalCode::ArtifactIngestStreamInvalid,
-        RefusalCode::ArtifactHashMismatch,
     ];
 }
 
@@ -285,9 +284,9 @@ impl JsonSchema for ArtifactRefusalCode {
     }
 }
 
-/// Why an `artifact.ingest_stream_invalid` stream call cannot go on, carried as its `reason`.
+/// Why an `artifact.ingest.streamInvalid` stream call cannot go on, carried as its `reason`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum IngestStreamInvalidReason {
     /// The id names no live stream.
     UnknownStream,
@@ -301,9 +300,9 @@ pub enum IngestStreamInvalidReason {
     CompletionRecordMismatch,
 }
 
-/// Why an `artifact.too_large` refusal was raised, carried as its `reason`.
+/// Why an `artifact.tooLarge` refusal was raised, carried as its `reason`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ArtifactTooLargeReason {
     /// The file was declared larger than the disk has room for.
     VolumeTooSmall,

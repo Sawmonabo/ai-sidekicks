@@ -133,7 +133,7 @@ pub struct ProviderCommandBindingGroup {
     pub entries: Vec<ProviderCommandEntry>,
 }
 
-/// The reply of `driver.listProviderCommands`: one group per live binding, so each entry keeps
+/// The reply of `provider.command.list`: one group per live binding, so each entry keeps
 /// where it came from, and at least one, since an agent with no live binding is refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -84,7 +84,7 @@ pub enum SessionRestoreTarget {
 
 /// What an undo is asked to put back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionRestoreScope {
     /// The conversation and the files.
     ConversationAndFiles,
@@ -96,7 +96,7 @@ pub enum SessionRestoreScope {
 
 /// One part an undo puts back on its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionRestorePart {
     /// The conversation.
     Conversation,
@@ -106,7 +106,7 @@ pub enum SessionRestorePart {
 
 /// What a finished undo put back: a scope, or nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionRestoredScope {
     /// The conversation and the files.
     ConversationAndFiles,
@@ -142,7 +142,7 @@ impl From<SessionRestoreScope> for SessionRestoredScope {
 
 /// Why a file is skipped rather than put back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionRestoreSkipReason {
     /// The path is a symbolic link.
     SymbolicLink,
@@ -244,7 +244,7 @@ pub struct SessionRestoreResend {
 #[garde(allow_unvalidated)]
 #[schemars(extend(
     "if" = { "properties": { "resend": true }, "required": ["resend"] },
-    "then" = { "properties": { "scope": { "const": "conversation-and-files" } } },
+    "then" = { "properties": { "scope": { "const": "conversationAndFiles" } } },
 ))]
 pub struct SessionRestoreRequest {
     /// The session.
@@ -355,7 +355,7 @@ fn require_every_part_accounted(
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "outcome",
-    rename_all = "kebab-case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -365,14 +365,14 @@ pub enum SessionRestoreResult {
     /// A finished undo. `files` is present exactly when the files went back.
     #[schemars(extend("allOf" = [
         {
-            "if": { "properties": { "restored": { "enum": ["conversation-and-files", "files"] } } },
+            "if": { "properties": { "restored": { "enum": ["conversationAndFiles", "files"] } } },
             "then": { "properties": { "files": true }, "required": ["files"] },
             "else": { "not": { "required": ["files"] } },
         },
         {
             "if": {
                 "properties": {
-                    "requested": { "enum": ["conversation-and-files", "conversation"] },
+                    "requested": { "enum": ["conversationAndFiles", "conversation"] },
                     "restored": { "enum": ["files", "nothing"] },
                 },
             },
@@ -390,7 +390,7 @@ pub enum SessionRestoreResult {
         {
             "if": {
                 "properties": {
-                    "requested": { "enum": ["conversation-and-files", "files"] },
+                    "requested": { "enum": ["conversationAndFiles", "files"] },
                     "restored": { "enum": ["conversation", "nothing"] },
                 },
             },
@@ -455,7 +455,7 @@ impl SessionRestoreResult {
     }
 }
 
-/// The payload of `session.restore_finished`: one stored record per undo, carrying its result. The
+/// The payload of `session.restore.completed`: one stored record per undo, carrying its result. The
 /// conversation cut is also recorded by the run's own rolled-back event.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -474,7 +474,7 @@ methods! {
     /// The undo methods, each with its types.
     pub const SESSION_RESTORE_METHOD_DESCRIPTORS = [
         /// Says what an undo would do, changing nothing.
-        SessionRestorePreview = query "session.restorePreview" {
+        SessionRestorePreview = query "session.restore.preview" {
             mutating: false,
             params: SessionRestorePreviewRequest,
             result: SessionRestorePreviewResponse,
@@ -488,7 +488,7 @@ methods! {
             refusals: [SessionNotFound, EventCursorUnresolvable],
         },
         /// Lists a session's snapshots.
-        SessionSnapshotList = query "session.snapshotList" {
+        SessionSnapshotList = query "session.snapshot.list" {
             mutating: false,
             params: SessionSnapshotListRequest,
             result: SessionSnapshotListResponse,

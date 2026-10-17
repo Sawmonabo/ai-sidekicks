@@ -30,7 +30,7 @@ literal! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct RateLimitResponse {
-    /// Always `rate_limited`.
+    /// Always `relay.rateLimited`.
     pub code: RateLimitedCode,
     /// Whole seconds until a retry is allowed.
     pub retry_after: SafeInt<0>,

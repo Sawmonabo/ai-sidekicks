@@ -11,7 +11,7 @@ use crate::wire::text::FreeFormText;
 
 literal! {
     /// The code of a definition that cannot resolve to a runnable agent, wherever its refusal is
-    /// carried: always `agent.resolution_refused`.
+    /// carried: always `agent.definition.resolutionRefused`.
     pub enum AgentResolutionRefusedCode = const RefusalCode::AgentResolutionRefused.as_str();
 }
 
@@ -49,7 +49,7 @@ macro_rules! agent_resolution_refused_details {
         )]
         #[serde(
             tag = "reason",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -123,7 +123,7 @@ agent_resolution_refused_details! {
 /// Why an update was refused: the definition is a plugin's agent, which is read-only, or a
 /// reattach named a record that is not orphaned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentUpdateRefusedReason {
     /// A plugin's agent.
     PluginReadOnly,

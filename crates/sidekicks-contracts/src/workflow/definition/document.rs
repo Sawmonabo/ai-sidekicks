@@ -61,7 +61,7 @@ branded_text! {
 }
 
 named_scalar! {
-    /// The node kind's key as workflow.kindList lists it, such as files.read.
+    /// The node kind's key as workflow.kind.list lists it, such as files.read.
     WorkflowNodeKindId(NonEmptyText)
 }
 
@@ -83,7 +83,7 @@ literal! {
 /// What a node's failure does: stop the run, pass the node's input on, or send the failed items
 /// down a real `error` output handle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowNodeOnError {
     /// Stop the run.
     Stop,
@@ -93,12 +93,12 @@ pub enum WorkflowNodeOnError {
     ContinueErrorOutput,
 }
 
-/// How a `flow.merge` node joins its inputs into its one output. `first-to-arrive` passes on the
+/// How a `flow.merge` node joins its inputs into its one output. `firstToArrive` passes on the
 /// first input to succeed and cancels the branches still running.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowMergeMode {
     /// Every input's items, one input after another.
     Append,
@@ -283,7 +283,7 @@ impl ListKey for WorkflowTriggerInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "type",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]

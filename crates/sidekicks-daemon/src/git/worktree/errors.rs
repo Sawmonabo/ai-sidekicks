@@ -3,8 +3,8 @@
 //! its detail `data.fields`.
 //!
 //! A branch name the caller supplies that collides with a live checkout is refused, never adapted.
-//! A prepare that cannot make its root is `worktree.create_failed`; a mode the mount does not offer
-//! is `workspace.mode_unsupported`, so there is no `worktree.unsupported`. Only the two not-found
+//! A prepare that cannot make its root is `worktree.createFailed`; a mode the mount does not offer
+//! is `workspace.modeUnsupported`, so there is no `worktree.unsupported`. Only the two not-found
 //! refusals answer `-32602`, since each answers an id that did not resolve; the rest answer
 //! `-32603`. No path reaches a message: a closed reason supplies the words, and the other messages
 //! name only opaque ids, git ref names and commit ids. The one git line a message carries is git's
@@ -32,7 +32,7 @@ use crate::session::run::setup_gates::RunSetupGateError;
 
 /// Why making a worktree failed; closed and free of paths, so it is safe on the wire, where its
 /// name is the detail's `reason`. The two `branch_name_*` reasons carry git's own line refusing
-/// the name, `carry_failed` how to recover the stashed work, and `carry_checkout_running` the run
+/// the name, `carry_failed` how to recover the stashed work, and `carryCheckoutRunning` the run
 /// in the way.
 #[derive(Clone, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -80,20 +80,20 @@ pub(crate) enum WorktreeCreateFailureReason {
 /// [`DomainError`] the reply carries, keeping any failure underneath as its source.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorktreeRefusal {
-    /// The worktree id did not resolve (`worktree.not_found`).
+    /// The worktree id did not resolve (`worktree.notFound`).
     #[error("worktree {worktree_id} does not exist")]
     NotFound {
         /// The worktree asked for.
         worktree_id: WorktreeId,
     },
     /// No kept copy has the id, such as one a put-back or a deletion queued before it already
-    /// removed (`worktree.removed_not_found`).
+    /// removed (`worktree.removed.notFound`).
     #[error("kept worktree {removed_worktree_id} does not exist")]
     RemovedNotFound {
         /// The kept copy asked for.
         removed_worktree_id: RemovedWorktreeId,
     },
-    /// Making the worktree failed (`worktree.create_failed`); the workspace goes `stale`.
+    /// Making the worktree failed (`worktree.createFailed`); the workspace goes `stale`.
     #[error("{}", create_failed_message(.reason))]
     CreateFailed {
         /// Why.
@@ -103,7 +103,7 @@ pub(crate) enum WorktreeRefusal {
         source: Option<Box<dyn Error + Send + Sync>>,
     },
     /// A branch name the caller supplied collides with a live checkout the daemon made on the same
-    /// mount (`worktree.branch_collision`); only a creation told to refuse a taken name raises it.
+    /// mount (`worktree.branchCollision`); only a creation told to refuse a taken name raises it.
     #[error(
         "worktree creation refused: branch {} already has a live checkout on repo mount {}",
         .branch_name.as_str(),
@@ -117,14 +117,14 @@ pub(crate) enum WorktreeRefusal {
     },
     /// A removal refused because an agent runs in the tree, or because a plain removal would lose
     /// what the tree now holds, whose current risks the confirm redraws
-    /// (`worktree.retire_conflict`).
+    /// (`worktree.retireConflict`).
     #[error("{}", retire_conflict_message(.details))]
     RetireConflict {
         /// Why, with the session running there or the current risks.
         details: WorktreeRetireConflictDetails,
     },
     /// A discard refused because the system would not move the tree aside while a program outside
-    /// the app holds a file in it open; nothing was removed (`worktree.retire_folder_held`).
+    /// the app holds a file in it open; nothing was removed (`worktree.retireFolderHeld`).
     #[error(
         "worktree {} cannot be moved aside: a program outside the app holds a file",
         .worktree_id
@@ -138,7 +138,7 @@ pub(crate) enum WorktreeRefusal {
     },
     /// A discard whose move across volumes copied the tree whole to its kept place but could not
     /// remove the original completely; the kept copy is listed and the tree stays live
-    /// (`worktree.retire_incomplete`).
+    /// (`worktree.retireIncomplete`).
     #[error(
         "worktree {} was copied to kept copy {}, but its original folder could not be removed \
          completely",
@@ -153,7 +153,7 @@ pub(crate) enum WorktreeRefusal {
         source: Box<dyn Error + Send + Sync>,
     },
     /// Preparing the root failed at the run's setup gate, which ends the run `failed`
-    /// (`workspace.execution_root_unresolved`). The detail names the cause's code when it has one;
+    /// (`workspace.executionRoot.unresolved`). The detail names the cause's code when it has one;
     /// the cause's message never reaches the wire.
     #[error("{}", execution_root_unresolved_message(.workspace_id, .cause))]
     ExecutionRootUnresolved {
@@ -164,7 +164,7 @@ pub(crate) enum WorktreeRefusal {
         cause: RunSetupGateError,
     },
     /// A wire prepare omitted its branch name, which the daemon derives only when a run is set up
-    /// (`workspace.branch_name_required`); raised before any git call.
+    /// (`workspace.branchNameRequired`); raised before any git call.
     #[error(
         "execution root prepare refused for workspace {}: a wire prepare must carry a branch \
          name, because the daemon derives one only when a run is set up",

@@ -4,7 +4,8 @@
 //!
 //! - The wait has no time limit of its own: it ends when the frame arrives, when the provider ends
 //!   the compaction's turn without one, or when the binding stops being live.
-//! - A late frame still becomes `usage.context_compacted` on its ordinary route, waited on or not.
+//! - A late frame still becomes `agent.run.context.compacted` on its ordinary route, waited on or
+//!   not.
 //! - Settlement is per key; withdrawal is per waiter and settles no one.
 
 use std::collections::HashMap;

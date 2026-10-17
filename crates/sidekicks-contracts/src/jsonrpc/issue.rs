@@ -14,8 +14,8 @@ use crate::wire::integer::SafeInt;
 use crate::wire::record::JsonRecord;
 
 ts_constants! {
-    /// The most issues an `invalid_params` or `invalid_result` refusal lists, the first in the
-    /// check's order.
+    /// The most issues an `request.paramsInvalid` or `request.resultInvalid` refusal lists, the
+    /// first in the check's order.
     pub const ISSUES_MAX: usize = 32;
     /// The most steps an issue's path holds; a deeper fault is named at its ancestor this deep.
     pub const ISSUE_PATH_SEGMENTS_MAX: usize = 32;
@@ -39,8 +39,8 @@ impl IssuePathSegment {
     }
 }
 
-/// One fault an `invalid_params` or `invalid_result` refusal names: where it sits, what is wrong
-/// in fixed words, and, for a rule whose finding a client reads, that finding.
+/// One fault an `request.paramsInvalid` or `request.resultInvalid` refusal names: where it sits,
+/// what is wrong in fixed words, and, for a rule whose finding a client reads, that finding.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Issue {

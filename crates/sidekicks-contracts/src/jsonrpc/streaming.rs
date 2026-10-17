@@ -40,7 +40,7 @@ branded_uuid_id! {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "reason",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -85,7 +85,7 @@ pub struct SubscriptionNotifyParams<T> {
 ///
 /// ```ignore
 /// stream_frame! {
-///     /// One `run.subscribeQueue` emission.
+///     /// One `agent.queueItem.subscribe` emission.
 ///     pub struct RunQueueStreamFrame(RunQueueStreamChange);
 /// }
 /// ```

@@ -37,8 +37,8 @@ pub struct InterruptRunParams {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum InterventionType {
     /// Stops the turn.
     Interrupt,
@@ -74,7 +74,7 @@ pub struct InterruptPayload {
 
 /// The one intervention the orchestration asks a driver to apply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum InterruptInterventionType {
     /// An interrupt.
@@ -103,7 +103,7 @@ pub struct ApplyInterventionRequest {
 
 /// Whether an intervention landed as asked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum InterventionResultStatus {
     /// As asked.

@@ -1,9 +1,9 @@
 //! The `repo.*` refusals, each sent on the wire by its code: the refusal's message becomes the
 //! reply's message and its detail `data.fields`.
 //!
-//! Only the two `repo.not_found` refusals, a mount's and a project's, answer `-32602`, as a missing
-//! session does; the others answer `-32603` and a client tells them apart by `data.type`. Two
-//! messages are text the daemon did not write: a clone refusal's git line and a failed clone
+//! Only the two `repoMount.notFound` refusals, a mount's and a project's, answer `-32602`, as a
+//! missing session does; the others answer `-32603` and a client tells them apart by `data.type`.
+//! Two messages are text the daemon did not write: a clone refusal's git line and a failed clone
 //! service start's text, whose paths the reply's sanitizing strips. Every other message names no
 //! path: a closed reason makes that certain, the ones naming an id rely on ids being opaque, and
 //! the two naming a WSL distribution carry its name alone.
@@ -28,19 +28,19 @@ use crate::ipc::domain_error::{DomainError, DomainErrorJsonRpcCode, refusal_fiel
 /// [`DomainError`] the reply carries.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RepoRefusal {
-    /// The project record does not exist, or was forgotten (`repo.not_found`).
+    /// The project record does not exist, or was forgotten (`repoMount.notFound`).
     #[error("project {project_id} does not exist")]
     ProjectNotFound {
         /// The project asked for.
         project_id: ProjectId,
     },
-    /// The repository mount does not exist (`repo.not_found`).
+    /// The repository mount does not exist (`repoMount.notFound`).
     #[error("repo mount {repo_mount_id} does not exist")]
     MountNotFound {
         /// The mount asked for.
         repo_mount_id: RepoMountId,
     },
-    /// A path's canonical repository root could not be resolved (`repo.root_resolution_failed`);
+    /// A path's canonical repository root could not be resolved (`repoMount.rootResolutionFailed`);
     /// only the closed reason is kept, so the path tried never enters the refusal.
     #[error("{}", root_resolution_message(*.reason))]
     RootResolutionFailed {
@@ -49,7 +49,7 @@ pub(crate) enum RepoRefusal {
     },
     /// A path or a workspace binding resolves outside the machine's attached roots, or names a
     /// tree whose removal is committed while its folder waits for deletion
-    /// (`repo.outside_trust_envelope`); only the closed reason is kept, so no path can enter it.
+    /// (`repoMount.outsideTrustEnvelope`); only the closed reason is kept, so no path can enter it.
     #[error(
         "workspace binding rejected: the resolved execution root is outside the declared local \
          trust envelope"
@@ -59,7 +59,8 @@ pub(crate) enum RepoRefusal {
         reason: RepoOutsideTrustEnvelopeReason,
     },
     /// The folder's repository is already attached on this node, by its canonical root or by its
-    /// git common directory (`repo.already_attached`); it names the holding mount, never the root.
+    /// git common directory (`repoMount.alreadyAttached`); it names the holding mount, never the
+    /// root.
     #[error(
         "repo attach refused: the folder's repository is already attached on this node as repo \
          mount {}; bind a workspace on that mount to work in this folder",
@@ -71,7 +72,7 @@ pub(crate) enum RepoRefusal {
         /// Its project, `None` for a chat's managed workspace.
         conflicting_project_id: Option<ProjectId>,
     },
-    /// A detach while an agent runs anywhere in the project (`repo.detach_conflict`).
+    /// A detach while an agent runs anywhere in the project (`repoMount.detachConflict`).
     #[error(
         "repo detach refused: session {} is running in the project",
         .running_session_id
@@ -82,14 +83,14 @@ pub(crate) enum RepoRefusal {
     },
     /// The mount is a chat's managed workspace, which only that chat binds and only its purge
     /// removes, so another session's bind, any detach and a move of the chat are refused
-    /// (`repo.mount_managed`).
+    /// (`repoMount.managed`).
     #[error("repo mount {repo_mount_id} is a chat's managed workspace")]
     MountManaged {
         /// The managed mount.
         repo_mount_id: RepoMountId,
     },
-    /// A re-attach of a mount that does not read `identity_mismatch`, so there is nothing to
-    /// recover (`repo.reattach_refused`).
+    /// A re-attach of a mount that does not read `identityMismatch`, so there is nothing to
+    /// recover (`repoMount.reattachRefused`).
     #[error(
         "repo mount {} still holds the repository attached there",
         .repo_mount_id
@@ -98,7 +99,7 @@ pub(crate) enum RepoRefusal {
         /// The mount asked for; named in the message, not in the detail.
         repo_mount_id: RepoMountId,
     },
-    /// A re-attach while an agent runs anywhere in the project (`repo.reattach_conflict`).
+    /// A re-attach while an agent runs anywhere in the project (`repoMount.reattachConflict`).
     #[error(
         "repo re-attach refused: agent {} is running in session {}",
         .running_agent_id,
@@ -111,31 +112,31 @@ pub(crate) enum RepoRefusal {
         running_agent_id: AgentId,
     },
     /// The folder's WSL distribution runs on WSL 1, where no session runs
-    /// (`repo.distribution_needs_wsl2`); it names the distribution, never the path.
+    /// (`repoMount.distributionNeedsWsl2`); it names the distribution, never the path.
     #[error("{} runs on WSL 1", .distro.as_str())]
     DistributionNeedsWsl2 {
         /// The distribution.
         distro: DistroName,
     },
     /// No WSL distribution of the folder's name is on this computer
-    /// (`repo.distribution_not_found`); it names the distribution, never the path.
+    /// (`repoMount.distributionNotFound`); it names the distribution, never the path.
     #[error("no WSL distribution named {} is on this computer", .distro.as_str())]
     DistributionNotFound {
         /// The distribution.
         distro: DistroName,
     },
     /// The top level was asked for on macOS or Linux, which has none
-    /// (`repo.top_level_unavailable`).
+    /// (`machine.folder.topLevel.notOffered`).
     #[error("this computer has no top level above its folders")]
     TopLevelUnavailable,
-    /// A clone refused before git starts and before anything is written (`repo.clone_refused`):
+    /// A clone refused before git starts and before anything is written (`project.clone.refused`):
     /// the destination holds something, or the address leaves no folder name, with git's line.
     #[error("{}", clone_refused_message(.details))]
     CloneRefused {
         /// Why, with git's own line where there is one.
         details: RepoCloneRefusedDetails,
     },
-    /// The clone service is not running, so no clone verb can run (`repo.clone_unavailable`).
+    /// The clone service is not running, so no clone verb can run (`project.clone.unavailable`).
     #[error("{message}")]
     CloneUnavailable {
         /// The failed start's own text, or empty when the service was never started.
@@ -244,7 +245,7 @@ impl From<RepoRefusal> for DomainError {
     }
 }
 
-// The message of a `repo.root_resolution_failed` refusal; none names the path tried.
+// The message of a `repoMount.rootResolutionFailed` refusal; none names the path tried.
 fn root_resolution_message(reason: RepoRootResolutionReason) -> &'static str {
     match reason {
         RepoRootResolutionReason::NotAbsolute => {

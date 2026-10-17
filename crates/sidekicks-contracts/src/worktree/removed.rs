@@ -16,7 +16,7 @@ use crate::wire::text::FreeFormText;
 use crate::wire::{NullableSchema, nullable};
 use crate::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 
-/// `repo.removedWorktreeList`: one project's kept worktrees, or every project's, plus what is left
+/// `worktree.removed.list`: one project's kept worktrees, or every project's, plus what is left
 /// of a copy put back while it is the one source to rebuild a live tree git cannot read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -67,7 +67,7 @@ pub struct RemovedWorktree {
     pub unreadable_put_back_folder: Option<FilesystemPath>,
 }
 
-/// The `repo.removedWorktreeList` result.
+/// The `worktree.removed.list` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RemovedWorktreeListResponse {
@@ -76,7 +76,7 @@ pub struct RemovedWorktreeListResponse {
     pub removed_worktrees: Vec<RemovedWorktree>,
 }
 
-/// `repo.worktreeRestore` and `repo.removedWorktreeDelete`: the kept worktree to put back or
+/// `worktree.restore` and `worktree.removed.delete`: the kept worktree to put back or
 /// delete.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -90,7 +90,7 @@ pub struct RemovedWorktreeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "reason",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -106,11 +106,11 @@ pub enum WorktreeRestoreRefusal {
     KeptTreeMissing {},
 }
 
-/// The `repo.worktreeRestore` result: the tree made again, or the refusal.
+/// The `worktree.restore` result: the tree made again, or the refusal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "outcome",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]

@@ -491,28 +491,28 @@ methods! {
     /// The session-control methods' wire contract: name, procedure type and types.
     pub const SESSION_CONTROL_METHOD_DESCRIPTORS = [
         /// Moves the session to a permission level.
-        SessionPermissionLevelUpdate = mutation "session.permissionLevelUpdate" {
+        SessionPermissionLevelUpdate = mutation "session.permissionLevel.update" {
             mutating: true,
             params: SessionPermissionLevelUpdateRequest,
             result: SessionPermissionLevelUpdateResponse,
             refusals: [SessionNotFound, DriverUnavailable, SessionPermissionLevelUnavailable],
         },
         /// Sets the session's mode.
-        SessionModeUpdate = mutation "session.modeUpdate" {
+        SessionModeUpdate = mutation "session.mode.update" {
             mutating: true,
             params: SessionModeUpdateRequest,
             result: SessionModeUpdateResponse,
             refusals: [SessionNotFound, DriverUnavailable],
         },
         /// Sets or clears the session's auto-compact bound.
-        SessionAutoCompactUpdate = mutation "session.autoCompactUpdate" {
+        SessionAutoCompactUpdate = mutation "session.autoCompact.update" {
             mutating: true,
             params: SessionAutoCompactUpdateRequest,
             result: SessionAutoCompactUpdateResponse,
             refusals: [SessionNotFound],
         },
         /// Streams the session's tool server list.
-        SessionMcpServerListSubscribe = subscription "session.mcpServerList" {
+        SessionMcpServerListSubscribe = subscription "session.mcpServer.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SubscribeAckResponse,
@@ -520,21 +520,21 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Turns one tool server on or off for the session.
-        SessionMcpServerUpdate = mutation "session.mcpServerUpdate" {
+        SessionMcpServerUpdate = mutation "session.mcpServer.enabled.update" {
             mutating: true,
             params: SessionMcpServerUpdateRequest,
             result: SessionMcpServerUpdateResponse,
             refusals: [SessionNotFound],
         },
         /// Lists one working server's resources.
-        SessionMcpResourceList = query "session.mcpResourceList" {
+        SessionMcpResourceList = query "mcp.resource.list" {
             mutating: false,
             params: SessionMcpResourceListRequest,
             result: SessionMcpResourceListResponse,
             refusals: [SessionNotFound, McpServerUnavailable],
         },
         /// Streams the live `/` list's provider half.
-        SessionProviderCommandsSubscribe = subscription "session.providerCommandsSubscribe" {
+        SessionProviderCommandsSubscribe = subscription "session.providerCommand.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SubscribeAckResponse,
@@ -542,49 +542,49 @@ methods! {
             refusals: [SessionNotFound, DriverUnavailable, DriverCapabilityUnsupported],
         },
         /// Asks a side question.
-        SessionSideQuestionAsk = mutation "session.sideQuestionAsk" {
+        SessionSideQuestionAsk = mutation "session.sideQuestion.ask" {
             mutating: true,
             params: SessionSideQuestionAskRequest,
             result: SessionSideQuestionAskResponse,
             refusals: [SessionNotFound, DriverUnavailable],
         },
         /// Starts the provider's own review.
-        SessionReviewStart = mutation "session.reviewStart" {
+        SessionReviewStart = mutation "session.codeReview.start" {
             mutating: true,
             params: SessionReviewStartRequest,
             result: SessionAcknowledgement,
             refusals: [SessionNotFound, DriverUnavailable],
         },
         /// Reopens the conversation to take new definitions.
-        SessionDefinitionsReload = mutation "session.definitionsReload" {
+        SessionDefinitionsReload = mutation "session.definition.reload" {
             mutating: true,
             params: SessionAddressedRequest,
             result: SessionAcknowledgement,
             refusals: [SessionNotFound],
         },
         /// Sets or clears the session's step bound.
-        SessionMaxStepsUpdate = mutation "session.maxStepsUpdate" {
+        SessionMaxStepsUpdate = mutation "session.maxSteps.update" {
             mutating: true,
             params: SessionMaxStepsUpdateRequest,
             result: SessionMaxStepsUpdateResponse,
             refusals: [SessionNotFound],
         },
         /// Sets or clears the session's `Spend limit`.
-        SessionSpendLimitUpdate = mutation "session.spendLimitUpdate" {
+        SessionSpendLimitUpdate = mutation "session.spendLimit.update" {
             mutating: true,
             params: SessionSpendLimitUpdateRequest,
             result: OrchestrationBudgetState,
             refusals: [SessionNotFound],
         },
         /// Sets or clears the session's `Tokens per run`.
-        SessionTokensPerRunUpdate = mutation "session.tokensPerRunUpdate" {
+        SessionTokensPerRunUpdate = mutation "session.tokensPerRun.update" {
             mutating: true,
             params: SessionTokensPerRunUpdateRequest,
             result: OrchestrationBudgetState,
             refusals: [SessionNotFound],
         },
         /// Lists the provider sessions typed in a terminal.
-        SessionTerminalProviderSessionList = query "session.terminalProviderSessionList" {
+        SessionTerminalProviderSessionList = query "provider.terminalSession.list" {
             mutating: false,
             params: EmptyPayload,
             result: SessionTerminalProviderSessionListResponse,

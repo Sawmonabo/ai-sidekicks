@@ -150,21 +150,21 @@
   {
     "step": "transcriptToolCallIdOf",
     "note": "a tool row belongs to its call",
-    "category": "tool_activity",
+    "category": "toolActivity",
     "payload": { "toolCallId": "call-1" },
     "expected": "call-1"
   },
   {
     "step": "transcriptToolCallIdOf",
     "note": "a row of another category belongs to no call",
-    "category": "run_lifecycle",
+    "category": "runLifecycle",
     "payload": { "toolCallId": "call-1" },
     "expected": null
   },
   {
     "step": "transcriptToolCallIdOf",
     "note": "a tool row with no call id belongs to no call",
-    "category": "tool_activity",
+    "category": "toolActivity",
     "payload": { "toolCallId": 7 },
     "expected": null
   },

@@ -47,7 +47,7 @@ pub(crate) enum DriverDiagnosticKind {
     /// lineage, never arrival order.
     ThreadRegistrationRefused,
     /// A second announcement for a child whose usage base exists. The driver declines to re-base
-    /// (that would re-meter the child's whole spend) and to emit a second `subagent.started`.
+    /// (that would re-meter the child's whole spend) and to emit a second `agent.subagent.started`.
     ThreadDuplicateChildAnnouncement,
     /// A capability re-declaration failed or missed its liveness deadline.
     CapabilityRefreshFailed,

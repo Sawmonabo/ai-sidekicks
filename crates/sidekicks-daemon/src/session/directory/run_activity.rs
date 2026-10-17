@@ -101,7 +101,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::AgentProviderBindingChangeFailed
         | SessionEventType::WorkspacePreparing
         | SessionEventType::WorkspaceReady
-        | SessionEventType::WorkspaceStale
+        | SessionEventType::WorkspaceRootLost
         | SessionEventType::WorkspaceArchived
         | SessionEventType::WorktreeCreated
         | SessionEventType::WorktreeReady

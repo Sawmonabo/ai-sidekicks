@@ -39,7 +39,7 @@ pub struct RuntimeNodeRegisterRequest {
     pub service_version: FreeFormText<APP_VERSION_MAX_LEN>,
 }
 
-/// A rename, as the `runtimenode.renamed` statement a trusted key signs.
+/// A rename, as the `machine.renamed` statement a trusted key signs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -49,7 +49,7 @@ pub struct RuntimeNodeRenameRequest {
     pub statement: RuntimeNodeRenamedStatement,
 }
 
-/// A removal, as the `runtimenode.removed` statement a trusted key signs. The machine comes back
+/// A removal, as the `machine.removed` statement a trusted key signs. The machine comes back
 /// only by being linked again, under a new identity key and its same id.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -90,28 +90,28 @@ methods! {
     /// The runtime-node procedures the control plane serves.
     pub const RUNTIMENODE_METHOD_DESCRIPTORS = [
         /// Registers the machine at each start of its service.
-        RuntimeNodeRegister = mutation "runtimenode.register" {
+        RuntimeNodeRegister = mutation "machine.register" {
             mutating: true,
             params: RuntimeNodeRegisterRequest,
             result: EmptyPayload,
             refusals: [RuntimenodePermissionDenied],
         },
         /// Renames the machine.
-        RuntimeNodeRename = mutation "runtimenode.rename" {
+        RuntimeNodeRename = mutation "machine.rename" {
             mutating: true,
             params: RuntimeNodeRenameRequest,
             result: EmptyPayload,
             refusals: [RuntimenodePermissionDenied],
         },
         /// Removes the machine.
-        RuntimeNodeRemove = mutation "runtimenode.remove" {
+        RuntimeNodeRemove = mutation "machine.remove" {
             mutating: true,
             params: RuntimeNodeRemoveRequest,
             result: EmptyPayload,
             refusals: [RuntimenodePermissionDenied],
         },
         /// Writes the DNS challenge record for the machine's wildcard certificate.
-        RuntimeNodeCertificateChallengeSet = mutation "runtimenode.certificateChallengeSet" {
+        RuntimeNodeCertificateChallengeSet = mutation "machine.certificateChallenge.update" {
             mutating: true,
             params: RuntimeNodeCertificateChallengeSetRequest,
             result: EmptyPayload,

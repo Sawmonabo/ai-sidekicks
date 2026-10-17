@@ -208,7 +208,7 @@ pub struct SessionAutoMemoryUpdateRequest {
 
 /// When an `Auto memory` change takes effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionAutoMemoryAppliesAt {
     /// At once, where the provider takes the change live.
     Now,
@@ -355,7 +355,7 @@ methods! {
     /// The inspector methods' wire contract: name, procedure type and types.
     pub const SESSION_INSPECTOR_METHOD_DESCRIPTORS = [
         /// Streams the session's context readings.
-        SessionContextSubscribe = subscription "session.contextSubscribe" {
+        SessionContextSubscribe = subscription "session.context.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SubscribeAckResponse,
@@ -363,21 +363,21 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Reads the inspector's `Memory` section.
-        SessionMemoryRead = query "session.memoryRead" {
+        SessionMemoryRead = query "session.memory.read" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SessionMemoryReadResponse,
             refusals: [SessionNotFound],
         },
         /// Turns the `Auto memory` switch on or off.
-        SessionAutoMemoryUpdate = mutation "session.autoMemoryUpdate" {
+        SessionAutoMemoryUpdate = mutation "session.autoMemory.update" {
             mutating: true,
             params: SessionAutoMemoryUpdateRequest,
             result: SessionAutoMemoryUpdateResponse,
             refusals: [SessionNotFound],
         },
         /// Reads the inspector's `Hooks` section.
-        SessionHookList = query "session.hookList" {
+        SessionHookList = query "session.hook.list" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SessionHookListResponse,

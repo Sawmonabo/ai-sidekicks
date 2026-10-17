@@ -34,7 +34,7 @@ macro_rules! workflow_run_event {
 pub(crate) use workflow_run_event;
 
 workflow_run_event! {
-    /// `workflow.started`: how the run was started and by whom, so the run row rebuilds from
+    /// `workflow.run.started`: how the run was started and by whom, so the run row rebuilds from
     /// events.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -47,9 +47,9 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
-    /// `workflow.canceled`, written with the status in one step, so rebuilding the run from the log
-    /// cannot bring a canceled run back. `reason` is the person's, when one was given; a chain's
-    /// `Stop them all` cancels with none.
+    /// `workflow.run.canceled`, written with the status in one step, so rebuilding the run from the
+    /// log cannot bring a canceled run back. `reason` is the person's, when one was given; a
+    /// chain's `Stop them all` cancels with none.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -67,7 +67,7 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
-    /// `workflow.run_deleted`, written with the delete of the run's rows in one step, so rebuilding
+    /// `workflow.run.deleted`, written with the delete of the run's rows in one step, so rebuilding
     /// the runs from the log leaves out a run the person deleted, whose earlier events the log
     /// keeps.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -76,14 +76,14 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
-    /// `workflow.gated`: the run reached a gate that must be answered before it goes on.
+    /// `workflow.gate.reached`: the run reached a gate that must be answered before it goes on.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowGatedPayload {}
 }
 
 workflow_run_event! {
-    /// `workflow.failed`: the run ended on a failure, whose cause its failed step's own event
+    /// `workflow.run.failed`: the run ended on a failure, whose cause its failed step's own event
     /// carries.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -91,15 +91,15 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
-    /// `workflow.completed`: the run reached its last steps and succeeded.
+    /// `workflow.run.completed`: the run reached its last steps and succeeded.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowCompletedPayload {}
 }
 
 workflow_run_event! {
-    /// `workflow.run_waiting`: the run started waiting, on a person, on its chain's question or on
-    /// a spent provider account; the waiting step's own `workflow.phase_suspended` says which.
+    /// `workflow.run.waiting`: the run started waiting, on a person, on its chain's question or on
+    /// a spent provider account; the waiting step's own `workflow.phase.suspended` says which.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowRunWaitingPayload {}
@@ -126,7 +126,7 @@ pub struct WorkflowResumptionPoint {
 }
 
 workflow_run_event! {
-    /// `workflow.resumed`: a person or an armed schedule resumed a waiting or failed run, with
+    /// `workflow.run.resumed`: a person or an armed schedule resumed a waiting or failed run, with
     /// where it picks up and, only on an accepted re-pin, the version it left and the one it
     /// joined, both or neither.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -162,7 +162,7 @@ workflow_run_event! {
     }
 }
 
-/// `workflow.results_posted`: a finished run's results landed as the results row in `sessionId`,
+/// `workflow.results.posted`: a finished run's results landed as the results row in `sessionId`,
 /// the session that asked. It follows the run's final status.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

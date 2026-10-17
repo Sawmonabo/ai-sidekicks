@@ -23,8 +23,8 @@ branded_uuid_id! {
     WorkspaceId
 }
 
-/// How a workspace uses its mount: `bound-root` works in the root already bound to it (the mount's
-/// own checkout), `provisioned-worktree` in a worktree the daemon provisions for it.
+/// How a workspace uses its mount: `boundRoot` works in the root already bound to it (the mount's
+/// own checkout), `provisionedWorktree` in a worktree the daemon provisions for it.
 #[derive(
     Clone,
     Copy,
@@ -38,8 +38,8 @@ branded_uuid_id! {
     VariantArray,
     IntoStaticStr,
 )]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ExecutionMode {
     /// The mount's own checkout.
     BoundRoot,
@@ -62,8 +62,8 @@ pub enum ExecutionMode {
     VariantArray,
     IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkspaceState {
     /// Being prepared.
     Preparing,
@@ -90,8 +90,8 @@ pub enum WorkspaceState {
     VariantArray,
     IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum RepoMountState {
     /// Attached.
     Attached,
@@ -101,7 +101,7 @@ pub enum RepoMountState {
     Archived,
 }
 
-/// The version-control system behind a mount. `repo.attach` refuses a path that is not a git
+/// The version-control system behind a mount. `repoMount.attach` refuses a path that is not a git
 /// repository, so every mount is `git`.
 #[derive(
     Clone,
@@ -116,21 +116,21 @@ pub enum RepoMountState {
     VariantArray,
     IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum VcsType {
     /// Git.
     Git,
 }
 
 /// A mount's health, probed on every read and never stored. `unreachable` means the root cannot be
-/// probed and outranks the rest; `identity_mismatch` means the root's git common directory is not
+/// probed and outranks the rest; `identityMismatch` means the root's git common directory is not
 /// the one recorded at attach, and `isRepository` says whether git still answers for the root,
 /// which decides whether re-attaching can recover it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "status",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -174,7 +174,7 @@ pub enum RepoMountHealth {
     },
 }
 
-/// The `repo.mount_health_changed` payload: a mount's health after the daemon's re-probe changed
+/// The `repoMount.health.changed` payload: a mount's health after the daemon's re-probe changed
 /// it, sent on the stream of every session on that mount.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

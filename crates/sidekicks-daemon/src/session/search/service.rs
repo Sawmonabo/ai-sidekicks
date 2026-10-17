@@ -123,7 +123,7 @@ impl SessionSearchService {
     /// `applied_floor_position` is where the rowid floor log stood when the index last matched the
     /// database, read before the call, and `now` the wall time held searches expire by. A page
     /// reads the database in one read transaction, and every page after the first reads the view
-    /// the first one held. Fails with `session.search_cursor_unresolvable` for a cursor that
+    /// the first one held. Fails with `session.search.cursorUnresolvable` for a cursor that
     /// continues no search held for this query, and as a database or index read fails.
     pub(crate) fn search(
         &mut self,
@@ -291,7 +291,7 @@ struct ReadBatch {
 // together, each session's one past what a page holds so a session with more splits across pages;
 // the first with only those after the last hit an earlier page showed. A session since purged, or
 // one whose rowid a later session took, is passed over, and so is a hit whose row is gone or was
-// taken. Fails with `session.search_cursor_unresolvable` when the cursor's hit is none of its
+// taken. Fails with `session.search.cursorUnresolvable` when the cursor's hit is none of its
 // session's hits; after a failure it offers nothing more.
 struct SessionCandidates<'read> {
     reader: &'read Connection,

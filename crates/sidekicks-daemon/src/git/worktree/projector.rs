@@ -1,4 +1,4 @@
-//! The `repo.worktreeStatusRead` answer, folded from what the service read. Nothing here touches
+//! The `worktree.status.read` answer, folded from what the service read. Nothing here touches
 //! the file system, git, a clock or a database: the service reads git's list of trees, the
 //! daemon's records and the figures, and hands them in typed.
 //!
@@ -110,7 +110,7 @@ pub(crate) enum WorktreeStatusProjectionError {
     },
 }
 
-/// Folds one project's trees onto the `repo.worktreeStatusRead` answer, leaving out `retired`
+/// Folds one project's trees onto the `worktree.status.read` answer, leaving out `retired`
 /// records. Refuses a record of another mount than the reading's, and one that recorded no base.
 pub(crate) fn project_worktree_status_read(
     reading: WorktreeStatusReading,

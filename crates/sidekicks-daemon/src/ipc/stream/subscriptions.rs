@@ -97,7 +97,7 @@ impl Subscriptions {
     }
 
     /// Opens the subscription a subscribe call to `method` answered, owned by `transport`, before
-    /// the gateway writes its acknowledgement. Refused `transport.subscription_limit_reached` with
+    /// the gateway writes its acknowledgement. Refused `connection.subscription.limitReached` with
     /// `{limit}` when the connection already holds `MAX_OPEN_LANES` open subscriptions; the feed is
     /// then dropped and nothing opens.
     pub(crate) fn open(
@@ -510,7 +510,7 @@ mod tests {
         assert_eq!(error.code.get(), -32603);
         assert_eq!(
             error.data.map(|data| data.refusal).as_deref(),
-            Some("invalid_result")
+            Some("request.resultInvalid")
         );
         assert!(subscription.next_frame(&gate).await.is_none());
     }

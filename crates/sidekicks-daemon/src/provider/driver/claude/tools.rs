@@ -30,7 +30,7 @@ pub(super) const CLAUDE_BUILT_IN_TOOLS: [(&str, &str); 9] = [
 ];
 
 // Each tool a transcript reports and its class. A tool the daemon cannot establish a repeat is
-// safe for takes the default class, `manual_reconcile_only`.
+// safe for takes the default class, `manualReconcileOnly`.
 const CLAUDE_TOOL_DECLARATIONS: [(&str, IdempotencyClass); 12] = [
     // Pure local reads: nothing observable changes, so a repeated call is safe.
     ("Read", IdempotencyClass::Idempotent),

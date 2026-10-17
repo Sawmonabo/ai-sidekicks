@@ -23,8 +23,8 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowRunStatus {
     /// Started, with no step run yet.
     New,
@@ -43,7 +43,7 @@ pub enum WorkflowRunStatus {
 }
 
 /// The status of one step, meaning one execution of one node. `waiting` is a step held for a
-/// person, a chain's question or a spent account; `waiting-memory` is a step the memory gate has
+/// person, a chain's question or a spent account; `waitingMemory` is a step the memory gate has
 /// not started yet, which needs nobody. `canceled` is a step that was running or waiting when its
 /// run ended failed or canceled, or a branch a first-to-arrive merge stopped.
 #[derive(
@@ -59,8 +59,8 @@ pub enum WorkflowRunStatus {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowStepStatus {
     /// Not started.
     Pending,
@@ -95,8 +95,8 @@ pub enum WorkflowStepStatus {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowWaitCause {
     /// A person's approval.
     Approval,

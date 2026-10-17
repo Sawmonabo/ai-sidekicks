@@ -1,4 +1,4 @@
-//! The damaged ranges a session continued past. Each `recovery.damaged_events_skipped` event names
+//! The damaged ranges a session continued past. Each `session.damagedEvents.skipped` event names
 //! one, and every read of the session's events leaves the range out, so a damaged row stays in the
 //! log, is never rewritten, and is never read again.
 

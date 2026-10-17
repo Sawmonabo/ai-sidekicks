@@ -47,7 +47,7 @@ methods! {
     /// The `callbackTool.*` methods.
     pub const CALLBACK_TOOL_METHOD_DESCRIPTORS = [
         /// Lists the daemon's callback tools for the allowlist picker.
-        CallbackToolList = query "callbackTool.list" {
+        CallbackToolList = query "agent.callbackTool.list" {
             mutating: false,
             params: EmptyPayload,
             result: CallbackToolListResponse,

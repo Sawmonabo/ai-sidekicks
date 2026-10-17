@@ -11,8 +11,8 @@ use crate::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowNodeId, WorkflowVersionId,
 };
 
-/// `workflow.created`: a workflow was authored or a new version of it written; no run exists yet,
-/// so it names the workflow and the version alone.
+/// `workflow.version.created`: a workflow was authored or a new version of it written; no run
+/// exists yet, so it names the workflow and the version alone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowCreatedPayload {
@@ -24,7 +24,7 @@ pub struct WorkflowCreatedPayload {
     pub workflow_version_id: WorkflowVersionId,
 }
 
-/// `workflow.schedule_armed` and `workflow.trigger_armed`: a schedule, or a file watch, webhook or
+/// `workflow.schedule.armed` and `workflow.trigger.armed`: a schedule, or a file watch, webhook or
 /// session-event filter, was armed on the workflow's trigger node.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -37,7 +37,7 @@ pub struct WorkflowTriggerArmedPayload {
     pub node_id: WorkflowNodeId,
 }
 
-/// `workflow.schedule_fired` and `workflow.trigger_fired`: an armed trigger fired, starting a run.
+/// `workflow.schedule.fired` and `workflow.trigger.fired`: an armed trigger fired, starting a run.
 /// The workflow, the node and `scheduledInstant` together name the occurrence, so neither a restart
 /// nor a second arming fires it twice.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]

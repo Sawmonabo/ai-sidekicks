@@ -60,7 +60,7 @@ pub enum HighlightLanguage {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum HighlightSpanClass {
     /// A keyword.
     Keyword,

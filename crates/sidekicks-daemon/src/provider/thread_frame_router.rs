@@ -26,7 +26,7 @@
 //! and a child's approval, permission and input requests use the parent run's pipeline, answered
 //! on the child's own correlation identity, since suppressing them would hang the child.
 //! Suppression covers only a child's transcript projection; its lifecycle reaches the transcript
-//! through `subagent.started` and `subagent.completed`.
+//! through `agent.subagent.started` and `agent.subagent.completed`.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
@@ -130,15 +130,15 @@ pub(crate) enum ChildRegistrationResult<Frame> {
 /// Which `subagent` lifecycle event a driver states for a child.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SubagentLifecycleEventType {
-    /// `subagent.started`, when the child registers.
+    /// `agent.subagent.started`, when the child registers.
     Started,
-    /// `subagent.completed`, when the child completes.
+    /// `agent.subagent.completed`, when the child completes.
     Completed,
 }
 
-/// A `subagent.started` or `subagent.completed` emission a driver states when a child registers or
-/// completes; the emission pipeline mints its event. These two are the child's only transcript
-/// presence, since its own frames are kept out of the transcript.
+/// A `agent.subagent.started` or `agent.subagent.completed` emission a driver states when a child
+/// registers or completes; the emission pipeline mints its event. These two are the child's only
+/// transcript presence, since its own frames are kept out of the transcript.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SubagentLifecycleEmission {
     /// Which event.

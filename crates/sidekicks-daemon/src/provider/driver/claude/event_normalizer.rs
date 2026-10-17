@@ -246,7 +246,7 @@ impl ClaudeWireFrameKind {
             Self::SystemFilesPersisted => self.not_evented(
                 Stream,
                 "file-write summary; the adopted `diff` / `command_output` kinds plus \
-                 `artifact_publication` already carry the file-change capability",
+                 `artifactPublication` already carry the file-change capability",
             ),
             Self::SystemToolUseSummary => self.not_evented(
                 Stream,
@@ -291,7 +291,7 @@ impl ClaudeWireFrameKind {
                 "a host-rendered dialog, sent only for a kind the host declared at `initialize`; \
                  the CLI fails closed on any other. The daemon's two kinds are \
                  `refusal_fallback_prompt` and `fable_overage_consent_prompt`, recorded as \
-                 `run.refusal_choice_requested` and `run.usage_credits_choice_requested`, and \
+                 `agent.run.refusalChoice.requested` and `agent.run.usageCreditsChoice.requested`, and \
                  neither arrives until the driver declares them. `auto_mode_server_fallback` stays \
                  undeclared, its words reaching the working line as a provider warning, and \
                  `auto_mode_outside_reads` never reaches a headless host",
@@ -347,7 +347,7 @@ impl ClaudeWireFrameKind {
             Self::ControlRequestGetSessionCost => self.not_evented(
                 ControlRequest,
                 "daemon-originated read; cost reaches the transcript through the driver's \
-                 `usage.cost_update` emission, never through the request that polled for it",
+                 `usage.cost.updated` emission, never through the request that polled for it",
             ),
             Self::ControlRequestListModels => self.not_evented(
                 ControlRequest,
@@ -525,7 +525,7 @@ pub(crate) struct ClaudeSubagentLifecycleSignal {
 pub(crate) struct ClaudeSubagentLifecycleNormalization {
     /// The event's category, its type's own.
     pub(crate) category: EventCategory,
-    /// `subagent.started` or `subagent.completed`.
+    /// `agent.subagent.started` or `agent.subagent.completed`.
     pub(crate) event_type: SessionEventType,
     /// The helper's id.
     pub(crate) subagent_id: String,
@@ -537,10 +537,10 @@ pub(crate) struct ClaudeSubagentLifecycleNormalization {
     pub(crate) announcement: Option<ChildThreadAnnouncement>,
 }
 
-/// Normalizes one helper lifecycle signal into `subagent.started` or `subagent.completed` and, for
-/// a start, the router announcement. Claude Code has no thread id member, so the helper's id is
-/// the child thread's id; `is_registered_helper` answers whether the router still holds a helper,
-/// since a parent that ended or is untracked reads as no parent.
+/// Normalizes one helper lifecycle signal into `agent.subagent.started` or
+/// `agent.subagent.completed` and, for a start, the router announcement. Claude Code has no thread
+/// id member, so the helper's id is the child thread's id; `is_registered_helper` answers whether
+/// the router still holds a helper, since a parent that ended or is untracked reads as no parent.
 pub(crate) fn normalize_claude_subagent_lifecycle(
     lifecycle_signal: ClaudeSubagentLifecycleSignal,
     session_thread_id: &str,

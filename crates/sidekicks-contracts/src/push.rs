@@ -64,7 +64,7 @@ methods! {
     /// The push procedure the control plane serves.
     pub const PUSH_METHOD_DESCRIPTORS = [
         /// Delivers one sealed notice to one of the person's devices.
-        PushSend = mutation "push.send" {
+        PushSend = mutation "device.push.send" {
             mutating: true,
             params: PushSendRequest,
             result: EmptyPayload,

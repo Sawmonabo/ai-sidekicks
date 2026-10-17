@@ -9,7 +9,7 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::workflow::definition::document::WorkflowDefinitionId;
 
-/// The `workflow.keptVarsClear` input: clear every value `Keep for later runs` kept for one
+/// The `workflow.keptValue.clear` input: clear every value `Keep for later runs` kept for one
 /// workflow. Kept values belong to the workflow, not to a version.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -19,7 +19,7 @@ pub struct WorkflowKeptVarsClearRequest {
     pub definition_id: WorkflowDefinitionId,
 }
 
-/// The `workflow.keptVarsClear` result: how many kept values went.
+/// The `workflow.keptValue.clear` result: how many kept values went.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -31,14 +31,14 @@ pub struct WorkflowKeptVarsClearResponse {
 }
 
 methods! {
-    /// The `workflow.keptVarsClear` method's table.
+    /// The `workflow.keptValue.clear` method's table.
     pub const WORKFLOW_KEPT_VARS_METHOD_DESCRIPTORS = [
         /// Clears the values one workflow's runs kept for later runs.
-        WorkflowKeptVarsClear = mutation "workflow.keptVarsClear" {
+        WorkflowKeptVarsClear = mutation "workflow.keptValue.clear" {
             mutating: true,
             params: WorkflowKeptVarsClearRequest,
             result: WorkflowKeptVarsClearResponse,
-            refusals: [WorkflowNotFound],
+            refusals: [WorkflowDefinitionNotFound],
         },
     ];
 }

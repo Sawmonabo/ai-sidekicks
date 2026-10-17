@@ -24,28 +24,28 @@ methods! {
             refusals: [SessionNotFound, EventCursorUnresolvable, TranscriptRowNotFound],
         },
         /// Reads a run's reasoning, page by page.
-        TranscriptReasoningSurfaceRead = query "transcript.reasoningSurfaceRead" {
+        TranscriptReasoningSurfaceRead = query "transcript.reasoning.read" {
             mutating: false,
             params: ReasoningSurfaceReadRequest,
             result: ReasoningSurfaceReadResponse,
             refusals: [EventCursorUnresolvable],
         },
         /// Expands one summarized child-run row into its own rows.
-        TranscriptChildRunExpand = query "transcript.childRunExpand" {
+        TranscriptChildRunExpand = query "transcript.childRun.expand" {
             mutating: false,
             params: ChildRunExpandRequest,
             result: ChildRunExpandResponse,
             refusals: [EventCursorUnresolvable],
         },
         /// Reads a row's large body or full output.
-        TranscriptBodyRead = query "transcript.bodyRead" {
+        TranscriptBodyRead = query "transcript.body.read" {
             mutating: false,
             params: TranscriptBodyReadRequest,
             result: TranscriptBodyReadResponse,
             refusals: [SessionNotFound, TranscriptRowNotFound],
         },
         /// Reads every file patch a tool call left out.
-        TranscriptPatchRead = query "transcript.patchRead" {
+        TranscriptPatchRead = query "transcript.patch.list" {
             mutating: false,
             params: TranscriptPatchReadRequest,
             result: TranscriptPatchReadResponse,

@@ -95,8 +95,9 @@ pub(crate) enum NormalizedEventKind {
     ProposedPlan,
 }
 
-/// What a normalized kind becomes. Fan-out by outcome (`tool.error`, `approval.rejected`,
-/// `subagent.completed`) is the normalizer's business; an adopted kind names its primary target.
+/// What a normalized kind becomes. Fan-out by outcome (`agent.toolCall.failed`,
+/// `approval.rejected`, `agent.subagent.completed`) is the normalizer's business; an adopted kind
+/// names its primary target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EventKindDisposition {
     /// Becomes an event of this type.
@@ -119,7 +120,7 @@ impl NormalizedEventKind {
             Self::Init => Adopt(SessionEventType::RunProviderInitialized),
             Self::TextDelta | Self::ProposedPlan => Adopt(SessionEventType::AssistantMessage),
             Self::ToolStart | Self::TerminalInteraction => Adopt(SessionEventType::ToolInvoked),
-            // A tool's completion fans to `tool.error` when the tool failed.
+            // A tool's completion fans to `agent.toolCall.failed` when the tool failed.
             Self::ToolComplete
             | Self::BackgroundTaskNotification
             | Self::CommandExit
@@ -133,8 +134,8 @@ impl NormalizedEventKind {
             // Fans by outcome to `approval.rejected` or `approval.canceled`.
             Self::ApprovalResolved => Adopt(SessionEventType::ApprovalApproved),
             Self::UserInputRequest => Adopt(SessionEventType::QuestionAsked),
-            // The answer is recorded as the person's own `user.message` by the call that answered
-            // the question; its delivery to the provider is kept in the service log only.
+            // The answer is recorded as the person's own `user.message.sent` by the call that
+            // answered the question; its delivery to the provider is kept in the service log only.
             Self::UserInputResolved => Discard,
             // Its answer is appended by the daemon when it answers and is no kind.
             Self::RefusalChoiceRequest => Adopt(SessionEventType::RunRefusalChoiceRequested),
@@ -161,9 +162,9 @@ impl NormalizedEventKind {
             Self::BackgroundTaskTerminal | Self::SubagentNotification => {
                 Adopt(SessionEventType::SubagentCompleted)
             }
-            // Fans to `subagent.completed`.
+            // Fans to `agent.subagent.completed`.
             Self::SubagentStatus => Adopt(SessionEventType::SubagentStarted),
-            // An echo confirms delivery and folds into that message's `user.message` row.
+            // An echo confirms delivery and folds into that message's `user.message.sent` row.
             Self::UserText => Correlate,
             Self::Thinking => Adopt(SessionEventType::AssistantThinkingUpdate),
         }

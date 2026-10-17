@@ -36,7 +36,7 @@ pub struct DataExportRequest {
     pub destination: FilesystemPath,
 }
 
-/// The export job the request started; its progress streams on `daemon.dataExportSubscribe`.
+/// The export job the request started; its progress streams on `daemon.dataExport.subscribe`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -59,7 +59,7 @@ pub struct DataExportSubscribeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "state",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -108,14 +108,14 @@ methods! {
     /// emission is the job's progress as it changes.
     pub const DAEMON_DATA_METHOD_DESCRIPTORS = [
         /// Starts an export.
-        DaemonDataExport = mutation "daemon.dataExport" {
+        DaemonDataExport = mutation "daemon.dataExport.start" {
             mutating: true,
             params: DataExportRequest,
             result: DataExportResponse,
             refusals: [],
         },
         /// Streams an export's progress.
-        DaemonDataExportSubscribe = subscription "daemon.dataExportSubscribe" {
+        DaemonDataExportSubscribe = subscription "daemon.dataExport.subscribe" {
             mutating: false,
             params: DataExportSubscribeRequest,
             result: SubscribeAckResponse,
@@ -123,7 +123,7 @@ methods! {
             refusals: [],
         },
         /// Erases everything the service keeps.
-        DaemonDataErase = mutation "daemon.dataErase" {
+        DaemonDataErase = mutation "daemon.data.erase" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,

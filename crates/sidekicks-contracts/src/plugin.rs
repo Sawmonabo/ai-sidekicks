@@ -83,7 +83,7 @@ plugin_summary! {
     }
 }
 
-/// `plugin.catalogList`: one provider's catalog, filtered by `query` as the person types. The
+/// `plugin.catalog.list`: one provider's catalog, filtered by `query` as the person types. The
 /// daemon filters, so a provider's own command needs no query. The catalog is read once per
 /// opening of the view and held only while it is open.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -234,7 +234,7 @@ pub struct PluginUninstallResponse {
     pub uninstalled: True,
 }
 
-/// `plugin.installedList`: the installed plugins of one provider, or of every provider when
+/// `plugin.installed.list`: the installed plugins of one provider, or of every provider when
 /// `provider` is absent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -260,7 +260,7 @@ pub struct PluginInstalledListResponse {
     pub plugins: Vec<PluginSummary>,
 }
 
-/// `plugin.marketplaceAdd`: adds a marketplace by a repository address or a folder, through the
+/// `plugin.marketplace.add`: adds a marketplace by a repository address or a folder, through the
 /// provider's own command. A folder is picked with the platform's own chooser; the desktop main
 /// process puts its path in place of the chooser's token. Each provider's official marketplace is
 /// there without adding it.
@@ -283,7 +283,7 @@ pub struct PluginMarketplaceAddResponse {
     pub name: PluginToken,
 }
 
-/// `plugin.marketplaceRemove`: removes a marketplace by the name its provider gave it.
+/// `plugin.marketplace.remove`: removes a marketplace by the name its provider gave it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -303,7 +303,7 @@ pub struct PluginMarketplaceRemoveResponse {
     pub removed: True,
 }
 
-/// `plugin.appList`: a plugin's apps, on a provider whose plugins carry them. An app is a tool
+/// `plugin.app.list`: a plugin's apps, on a provider whose plugins carry them. An app is a tool
 /// server its provider hosts, reached through a provider account's sign-in, so its link is kept
 /// per account and every linked app reaches every session on that account without loading
 /// anything.
@@ -357,7 +357,7 @@ methods! {
     /// The `plugin.*` methods.
     pub const PLUGIN_METHOD_DESCRIPTORS = [
         /// One provider's catalog, filtered.
-        PluginCatalogList = query "plugin.catalogList" {
+        PluginCatalogList = query "plugin.catalog.list" {
             mutating: false,
             params: PluginCatalogListRequest,
             result: PluginCatalogListResponse,
@@ -385,28 +385,28 @@ methods! {
             refusals: [],
         },
         /// The installed plugins.
-        PluginInstalledList = query "plugin.installedList" {
+        PluginInstalledList = query "plugin.installed.list" {
             mutating: false,
             params: PluginInstalledListRequest,
             result: PluginInstalledListResponse,
             refusals: [],
         },
         /// Adds a marketplace.
-        PluginMarketplaceAdd = mutation "plugin.marketplaceAdd" {
+        PluginMarketplaceAdd = mutation "plugin.marketplace.add" {
             mutating: true,
             params: PluginMarketplaceAddRequest,
             result: PluginMarketplaceAddResponse,
             refusals: [],
         },
         /// Removes a marketplace.
-        PluginMarketplaceRemove = mutation "plugin.marketplaceRemove" {
+        PluginMarketplaceRemove = mutation "plugin.marketplace.remove" {
             mutating: true,
             params: PluginMarketplaceRemoveRequest,
             result: PluginMarketplaceRemoveResponse,
             refusals: [],
         },
         /// A plugin's apps.
-        PluginAppList = query "plugin.appList" {
+        PluginAppList = query "plugin.app.list" {
             mutating: false,
             params: PluginAppListRequest,
             result: PluginAppListResponse,

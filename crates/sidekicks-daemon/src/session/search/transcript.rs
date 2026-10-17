@@ -74,7 +74,7 @@ pub(crate) enum TranscriptSearchError {
 /// `deps` in one read transaction. A session whose history is damaged from
 /// `damaged_from_sequence` on is searched before that point alone, its hits and its match count
 /// both, as its reads stop there; `applied_floor_position` is where the rowid floor log stood when
-/// the index last matched the database, read before the call. Fails with `session.not_found` for a
+/// the index last matched the database, read before the call. Fails with `session.notFound` for a
 /// session the daemon does not hold, with [`EventCursorUnresolvable`] for a cursor that names no
 /// position, and as a database or index read fails.
 pub(crate) fn search_transcript(

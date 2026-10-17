@@ -26,7 +26,7 @@ branded_uuid_id! {
 
 /// The scopes a note can be left in: the uncommitted changes, the branch, or a pull request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ReviewNoteScope {
     /// The uncommitted changes.
     Changes,
@@ -38,7 +38,7 @@ pub enum ReviewNoteScope {
 
 /// Which side of the diff the note's line is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ReviewNoteSide {
     /// An added line.
     Added,
@@ -174,7 +174,7 @@ review_note_located! {
 }
 
 review_note_located! {
-    /// `session.reviewNoteAdd`: holds a new note.
+    /// `session.reviewNote.add`: holds a new note.
     pub struct ReviewNoteAddRequest {
         /// The session.
         pub session_id: SessionId,
@@ -194,7 +194,7 @@ pub struct ReviewNoteResponse {
     pub note: ReviewNote,
 }
 
-/// `session.reviewNoteUpdate`: replaces a held note's words.
+/// `session.reviewNote.update`: replaces a held note's words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -207,7 +207,7 @@ pub struct ReviewNoteUpdateRequest {
     pub body: NonEmptyText,
 }
 
-/// `session.reviewNoteRemove`: discards held notes in one act; the notes chip's `×` discards every
+/// `session.reviewNote.delete`: discards held notes in one act; the notes chip's `×` discards every
 /// note behind one question, and a steer clears every note it carried.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -237,7 +237,8 @@ pub struct ReviewNoteSet {
     pub notes: Vec<ReviewNote>,
 }
 
-/// `session.reviewNoteList`: follows a session's held notes, the whole set now and on each change.
+/// `session.reviewNote.subscribe`: follows a session's held notes, the whole set now and on each
+/// change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -250,28 +251,28 @@ methods! {
     /// The held-note methods.
     pub const REVIEW_NOTE_METHOD_DESCRIPTORS = [
         /// Holds a new note; adding the same note id again makes one note.
-        SessionReviewNoteAdd = mutation "session.reviewNoteAdd" {
+        SessionReviewNoteAdd = mutation "session.reviewNote.add" {
             mutating: true,
             params: ReviewNoteAddRequest,
             result: ReviewNoteResponse,
             refusals: [SessionNotFound, SessionReviewNoteNotFound],
         },
         /// Replaces a held note's words.
-        SessionReviewNoteUpdate = mutation "session.reviewNoteUpdate" {
+        SessionReviewNoteUpdate = mutation "session.reviewNote.update" {
             mutating: true,
             params: ReviewNoteUpdateRequest,
             result: ReviewNoteResponse,
             refusals: [SessionNotFound, SessionReviewNoteNotFound],
         },
         /// Discards held notes.
-        SessionReviewNoteRemove = mutation "session.reviewNoteRemove" {
+        SessionReviewNoteRemove = mutation "session.reviewNote.delete" {
             mutating: true,
             params: ReviewNoteRemoveRequest,
             result: ReviewNoteRemoveResponse,
             refusals: [SessionNotFound],
         },
         /// Follows the session's held notes.
-        SessionReviewNoteList = subscription "session.reviewNoteList" {
+        SessionReviewNoteList = subscription "session.reviewNote.subscribe" {
             mutating: false,
             params: ReviewNoteListRequest,
             result: SubscribeAckResponse,

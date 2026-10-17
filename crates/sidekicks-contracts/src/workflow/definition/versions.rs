@@ -16,9 +16,9 @@ use crate::workflow::definition::document::{
     WorkflowTriggerNode, WorkflowVersionId,
 };
 
-// workflow.versionRead and workflow.versionChainRead
+// workflow.version.read and workflow.version.list
 
-/// The `workflow.versionRead` input: a version is addressed by its definition and number.
+/// The `workflow.version.read` input: a version is addressed by its definition and number.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -29,7 +29,7 @@ pub struct WorkflowVersionReadRequest {
     pub version_number: SafeInt<1>,
 }
 
-/// The `workflow.versionRead` result: one saved version, which never changes. A soft-deleted
+/// The `workflow.version.read` result: one saved version, which never changes. A soft-deleted
 /// definition's versions still read, because a run pins its version.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -51,7 +51,7 @@ pub struct WorkflowVersionReadResponse {
     pub created_at: WireInstant,
 }
 
-/// The `workflow.versionChainRead` input, keyed by a version id alone. A run holds only its pinned
+/// The `workflow.version.list` input, keyed by a version id alone. A run holds only its pinned
 /// version id, and a run whose definition was deleted still opens, so this read works from that
 /// one handle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -66,7 +66,7 @@ pub struct WorkflowVersionChainReadRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -133,7 +133,7 @@ pub struct WorkflowVersionChainEntry {
     pub changes_from_previous: Option<WorkflowVersionChangeCounts>,
 }
 
-/// The `workflow.versionChainRead` result: every version of the pinned version's definition, oldest
+/// The `workflow.version.list` result: every version of the pinned version's definition, oldest
 /// first, never empty.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -146,10 +146,10 @@ pub struct WorkflowVersionChainReadResponse {
     pub versions: BoundedVec<WorkflowVersionChainEntry, 1, { usize::MAX }>,
 }
 
-// workflow.versionDiffRead
+// workflow.version.diff.read
 
-/// The `workflow.versionDiffRead` input: two versions of one workflow. Two versions of different
-/// workflows are refused with `workflow.version_diff_cross_workflow`, and nothing is compared.
+/// The `workflow.version.diff.read` input: two versions of one workflow. Two versions of different
+/// workflows are refused with `workflow.version.diffCrossWorkflow`, and nothing is compared.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -181,7 +181,7 @@ pub struct WorkflowVersionNodeChange {
     pub after: WorkflowVersionNode,
 }
 
-/// The `workflow.versionDiffRead` result: the structural difference, computed in the daemon over
+/// The `workflow.version.diff.read` result: the structural difference, computed in the daemon over
 /// the hashed body only, so a moved node is never a change. The trigger counts as a node, and a
 /// version that changed only the trigger's inputs names the trigger changed.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -200,7 +200,7 @@ pub struct WorkflowVersionDiffReadResponse {
     pub edges_removed: Vec<WorkflowEdge>,
 }
 
-/// The details of `workflow.version_diff_cross_workflow`: the two versions, of different
+/// The details of `workflow.version.diffCrossWorkflow`: the two versions, of different
 /// workflows, a diff named.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

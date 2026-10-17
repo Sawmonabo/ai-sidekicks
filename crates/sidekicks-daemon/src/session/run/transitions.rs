@@ -9,7 +9,7 @@ use strum::VariantArray as _;
 
 use crate::database::sql_list::sql_list_of;
 
-/// The event types that enter a terminal state, one per state: `run.completed` and the rest.
+/// The event types that enter a terminal state, one per state: `agent.run.completed` and the rest.
 pub(crate) static RUN_TERMINAL_EVENT_TYPES: LazyLock<[String; RUN_TERMINAL_STATES.len()]> =
     LazyLock::new(|| {
         RUN_TERMINAL_STATES.map(|state| format!("run.{}", <&'static str>::from(state)))

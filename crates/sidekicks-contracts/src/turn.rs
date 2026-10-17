@@ -47,7 +47,7 @@ pub struct TurnUsageUpdate {
 
 /// Where one task on the agent's list stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum TurnTaskState {
     /// Not started.
     NotStarted,
@@ -86,7 +86,7 @@ methods! {
     /// The `turn.*` methods: two subscriptions that follow one run's current turn.
     pub const TURN_METHOD_DESCRIPTORS = [
         /// The tokens received this turn.
-        TurnUsage = subscription "turn.usage" {
+        TurnUsage = subscription "agent.turn.usage.subscribe" {
             mutating: false,
             params: TurnSubscribeRequest,
             result: SubscribeAckResponse,
@@ -94,7 +94,7 @@ methods! {
             refusals: [SessionNotFound, RunNotFound],
         },
         /// The turn's task list.
-        TurnTasks = subscription "turn.tasks" {
+        TurnTasks = subscription "agent.turn.task.subscribe" {
             mutating: false,
             params: TurnSubscribeRequest,
             result: SubscribeAckResponse,

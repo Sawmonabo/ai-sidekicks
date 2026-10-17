@@ -1,5 +1,5 @@
-//! The folders the service can reach and where each came from (`repo.mountList`), browsing the
-//! machine's folders from another device (`repo.folderList`), one folder's attach, read, detach
+//! The folders the service can reach and where each came from (`repoMount.list`), browsing the
+//! machine's folders from another device (`machine.folder.list`), one folder's attach, read, detach
 //! and re-attach, and the details of their refusals.
 //!
 //! Attach is the only way a path enters the machine's trust envelope. A mount belongs to the
@@ -31,7 +31,7 @@ use crate::worktree::lifecycle::WorktreeId;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -80,7 +80,7 @@ pub struct RepoMountListEntry {
     pub place: Option<Place>,
 }
 
-/// The `repo.mountList` result.
+/// The `repoMount.list` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -89,7 +89,7 @@ pub struct RepoMountListResponse {
     pub mounts: Vec<RepoMountListEntry>,
 }
 
-/// `repo.folderList` for one folder: where to browse (Windows itself when absent, or a WSL 2
+/// `machine.folder.list` for one folder: where to browse (Windows itself when absent, or a WSL 2
 /// distribution), the folder to show there (that place's home folder when absent), the text that
 /// narrows its folders, and whether hidden folders are listed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -138,9 +138,9 @@ pub struct RepoFolderListFolderRequest {
     pub show_hidden: Option<bool>,
 }
 
-/// `repo.folderList` for the top level of a Windows computer: its drives and its WSL 2
+/// `machine.folder.list` for the top level of a Windows computer: its drives and its WSL 2
 /// distributions. Listing it starts no distribution; macOS and Linux refuse it with
-/// `repo.top_level_unavailable`.
+/// `machine.folder.topLevel.notOffered`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
@@ -149,7 +149,7 @@ pub struct RepoFolderListTopRequest {
     pub top: True,
 }
 
-/// What `repo.folderList` takes: one folder, or the top level of a Windows computer. macOS and
+/// What `machine.folder.list` takes: one folder, or the top level of a Windows computer. macOS and
 /// Linux have no top level and refuse it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
@@ -196,7 +196,7 @@ pub enum RepoFolderPathSegment {
 }
 
 /// One entry of a Windows computer's top level: a drive, or a WSL 2 distribution, which opens on
-/// its home folder through `repo.folderList` with its place.
+/// its home folder through `machine.folder.list` with its place.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
@@ -230,10 +230,10 @@ impl ListKey for RepoFolderTopEntry {
     }
 }
 
-/// One folder as `repo.folderList` lists it: where the folder in view is, the folder as that place
-/// writes its path, the path's segments from the top down (the last is the folder in view), its
-/// folders, and `more` when the filter would narrow further. Every path in it is in that place's
-/// own form.
+/// One folder as `machine.folder.list` lists it: where the folder in view is, the folder as that
+/// place writes its path, the path's segments from the top down (the last is the folder in view),
+/// its folders, and `more` when the filter would narrow further. Every path in it is in that
+/// place's own form.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
@@ -278,7 +278,7 @@ pub struct RepoFolderListTopResponse {
     pub entries: UniqueList<RepoFolderTopEntry, 0, { usize::MAX }>,
 }
 
-/// The `repo.folderList` result: one folder, or the top level of a Windows computer.
+/// The `machine.folder.list` result: one folder, or the top level of a Windows computer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
@@ -289,12 +289,12 @@ pub enum RepoFolderListResponse {
     Top(#[garde(dive)] RepoFolderListTopResponse),
 }
 
-/// `repo.attach`: a path on the machine the service runs on, the folder the platform's chooser
-/// returned or, from another device, a folder `repo.folderList` showed. A Linux path comes with the
-/// WSL 2 distribution it was given in, since the path alone does not say which one holds it;
+/// `repoMount.attach`: a path on the machine the service runs on, the folder the platform's chooser
+/// returned or, from another device, a folder `machine.folder.list` showed. A Linux path comes with
+/// the WSL 2 distribution it was given in, since the path alone does not say which one holds it;
 /// without a place, the path's own form says where it is (a drive path on Windows, a
-/// `\\wsl.localhost\<distro>\` path in that distribution). The folder's own disk sets the
-/// mount's place, so a Windows drive reached from a distribution is on Windows. The path is kept as
+/// `\\wsl.localhost\<distro>\` path in that distribution). The folder's own disk sets the mount's
+/// place, so a Windows drive reached from a distribution is on Windows. The path is kept as
 /// entered; absoluteness, traversal and existence are the resolver's to refuse, a path that is not
 /// a git repository is refused, and so is a distribution that runs on WSL 1 or is not on this
 /// computer.
@@ -315,7 +315,7 @@ pub struct RepoAttachRequest {
     pub place: Option<WslPlace>,
 }
 
-/// The `repo.attach` result: the new mount and the root its path resolved to.
+/// The `repoMount.attach` result: the new mount and the root its path resolved to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -339,7 +339,7 @@ pub struct RepoAttachResponse {
     pub place: Option<Place>,
 }
 
-/// `repo.mountRead`, `repo.detach` and `repo.mountReattach`: the mount to act on.
+/// `repoMount.read`, `repoMount.detach` and `repoMount.reattach`: the mount to act on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -356,7 +356,7 @@ pub struct RepoMountUser {
     pub session_id: SessionId,
 }
 
-/// One mount as `repo.mountRead` reports it, with a freshly probed health verdict.
+/// One mount as `repoMount.read` reports it, with a freshly probed health verdict.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -401,7 +401,7 @@ pub struct RepoMountReadResponse {
     pub used_by: Vec<RepoMountUser>,
 }
 
-/// The `repo.detach` result. Detaching is a project's `Delete`: the mount turns `detached` for
+/// The `repoMount.detach` result. Detaching is a project's `Delete`: the mount turns `detached` for
 /// good, every dependent workspace is archived, the project record is forgotten with its setup
 /// steps, and the project's sessions are archived and stay readable. Nothing on disk is touched.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -422,9 +422,9 @@ pub struct RepoDetachResponse {
     pub forgotten_project_id: Option<ProjectId>,
 }
 
-/// Why a folder was refused `repo.outside_trust_envelope`.
+/// Why a folder was refused `repoMount.outsideTrustEnvelope`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RepoOutsideTrustEnvelopeReason {
     /// No admitted root of the project.
     OutsideProject,
@@ -432,8 +432,8 @@ pub enum RepoOutsideTrustEnvelopeReason {
     WorktreeRemoved,
 }
 
-/// The details of a `repo.outside_trust_envelope` refusal: its reason and no path, since the caller
-/// already holds the folder it sent.
+/// The details of a `repoMount.outsideTrustEnvelope` refusal: its reason and no path, since the
+/// caller already holds the folder it sent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoOutsideTrustEnvelopeDetails {
@@ -445,7 +445,7 @@ pub struct RepoOutsideTrustEnvelopeDetails {
 /// or not absolute, git could not answer for it, its working tree is not one git names for the
 /// repository, or git reports a folder with no visible `.git` entry is not a repository.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RepoRootResolutionReason {
     /// The path does not exist.
     PathNotFound,
@@ -461,7 +461,7 @@ pub enum RepoRootResolutionReason {
     NotARepository,
 }
 
-/// The details of a `repo.root_resolution_failed` refusal: its reason and no path, since the
+/// The details of a `repoMount.rootResolutionFailed` refusal: its reason and no path, since the
 /// message never echoes the path tried.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -470,8 +470,8 @@ pub struct RepoRootResolutionFailedDetails {
     pub reason: RepoRootResolutionReason,
 }
 
-/// The details of a `repo.already_attached` refusal: the mount that holds the repository and its
-/// project, `null` when the holder is a chat's own workspace. No path.
+/// The details of a `repoMount.alreadyAttached` refusal: the mount that holds the repository and
+/// its project, `null` when the holder is a chat's own workspace. No path.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoAlreadyAttachedDetails {
@@ -483,7 +483,7 @@ pub struct RepoAlreadyAttachedDetails {
     pub conflicting_project_id: Option<ProjectId>,
 }
 
-/// The `repo.mountReattach` result: the new mount. The old one turns `detached` and the folder is
+/// The `repoMount.reattach` result: the new mount. The old one turns `detached` and the folder is
 /// attached fresh under the same project record, keeping its sessions and their workspaces.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -495,13 +495,13 @@ pub struct RepoMountReattachResponse {
 
 /// Why a re-attach was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RepoReattachRefusedReason {
-    /// The mount does not read `identity_mismatch` at the call.
+    /// The mount does not read `identityMismatch` at the call.
     IdentityMatches,
 }
 
-/// The details of a `repo.reattach_refused` refusal.
+/// The details of a `repoMount.reattachRefused` refusal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoReattachRefusedDetails {
@@ -509,7 +509,7 @@ pub struct RepoReattachRefusedDetails {
     pub reason: RepoReattachRefusedReason,
 }
 
-/// The details of a `repo.reattach_conflict` refusal: the running agent and its session.
+/// The details of a `repoMount.reattachConflict` refusal: the running agent and its session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoReattachConflictDetails {

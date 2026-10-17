@@ -21,10 +21,10 @@ use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 use crate::wire::{False, Never, True};
 
-/// Sends a message onto one child's own queue (`run.childSteer`), where it waits for the child's
-/// next step as a pending row the lead's queue verbs reach with `child_handle`. It names the helper
-/// by its session and handle, so it reaches a helper whose parent run has ended, and it answers as
-/// `run.queueCreate` does.
+/// Sends a message onto one child's own queue (`agent.childRun.steer`), where it waits for the
+/// child's next step as a pending row the lead's queue verbs reach with `child_handle`. It names
+/// the helper by its session and handle, so it reaches a helper whose parent run has ended, and it
+/// answers as `agent.queueItem.create` does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -48,8 +48,8 @@ pub struct ChildSteerRequest {
     pub replaces_queue_item_id: Option<QueueItemId>,
 }
 
-/// Interrupts one child, and only that child (`run.childInterrupt`); its pending messages go as
-/// its next turn, with `deliver_first`, the row `Send now` was pressed on, ahead of the rest.
+/// Interrupts one child, and only that child (`agent.childRun.interrupt`); its pending messages go
+/// as its next turn, with `deliver_first`, the row `Send now` was pressed on, ahead of the rest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -84,7 +84,8 @@ pub struct ChildInterruptResponse {
     pub state: RunState,
 }
 
-/// Pauses one child (`paused: true`) or continues it (`paused: false`) (`run.childPauseSet`).
+/// Pauses one child (`paused: true`) or continues it (`paused: false`)
+/// (`agent.childRun.paused.update`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -151,8 +152,8 @@ pub enum ChildPauseSetResponse {
     NotPaused(ChildPauseSetNotPaused),
 }
 
-/// Stops every running child of a run at every depth (`run.childrenStop`): the daemon walks its
-/// own index, one stop per child, never relayed through the lead.
+/// Stops every running child of a run at every depth (`agent.childRun.stopAll`): the daemon walks
+/// its own index, one stop per child, never relayed through the lead.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -164,7 +165,7 @@ pub struct ChildrenStopRequest {
 /// The run state a stop leaves a child in: `stopped` where the provider's stop is final,
 /// `interrupted` where a send can continue it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ChildStoppedState {
     /// The provider's stop is final.
     Stopped,
@@ -177,7 +178,7 @@ pub enum ChildStoppedState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "outcome",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -248,7 +249,7 @@ pub struct ChildrenStopResponse {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RunChildControlRefusedReason {
     /// The daemon's index names no such child.
     ChildUnknown,
@@ -267,7 +268,7 @@ ts_constants! {
     RUN_CHILD_CONTROL_REFUSED_REASONS = RunChildControlRefusedReason::VARIANTS;
 }
 
-/// The details a `run.child_control_refused` refusal carries.
+/// The details a `agent.childRun.controlRefused` refusal carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RunChildControlRefusedDetails {

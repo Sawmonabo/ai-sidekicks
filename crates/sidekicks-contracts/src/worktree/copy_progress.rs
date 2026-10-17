@@ -12,7 +12,7 @@ use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 use crate::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 
-/// `repo.worktreeCopySubscribe`: one project's copies under way, or every project's.
+/// `worktree.copy.subscribe`: one project's copies under way, or every project's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -27,13 +27,13 @@ pub struct WorktreeCopySubscribeRequest {
     pub project_id: Option<ProjectId>,
 }
 
-/// One copy under way, by the row it draws on: a worktree being removed, by its `repo.mountList`
-/// and `repo.worktreeStatusRead` id, or a kept worktree being put back, by its
-/// `repo.removedWorktreeList` id. The bytes written count the file being copied.
+/// One copy under way, by the row it draws on: a worktree being removed, by its `repoMount.list`
+/// and `worktree.status.read` id, or a kept worktree being put back, by its
+/// `worktree.removed.list` id. The bytes written count the file being copied.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -66,7 +66,7 @@ pub enum WorktreeCopy {
     },
 }
 
-/// One `repo.worktreeCopySubscribe` emission: every copy under way, sent whole on each change.
+/// One `worktree.copy.subscribe` emission: every copy under way, sent whole on each change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

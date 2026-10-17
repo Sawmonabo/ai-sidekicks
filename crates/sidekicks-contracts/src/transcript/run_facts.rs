@@ -187,7 +187,7 @@ pub struct TranscriptRunFacts {
     )]
     #[schemars(with = "RunStateEventType")]
     pub state_event_type: Option<RunStateEventType>,
-    /// Whether a `run.rolled_back` came after `stateEventType`.
+    /// Whether a `agent.run.rolledBack` came after `stateEventType`.
     pub is_rewound: bool,
     /// The sequence the facts hold through: an event at or below it is already in them.
     pub folded_through_sequence: FoldedThroughSequence,
@@ -252,8 +252,8 @@ pub fn is_misstated_state_change(event_type: &str, payload: Option<&Map<String, 
 /// Folds one of the run's own events into its facts. An event at or below
 /// `folded_through_sequence`, or one that changes no fact, answers the same facts. The first actor
 /// wins, and the account is the one the run's creation names. A `run.<state>` event sets the state
-/// and ends a rewind, unless its payload misstates the state; a `run.rolled_back` marks the state
-/// rewound.
+/// and ends a rewind, unless its payload misstates the state; a `agent.run.rolledBack` marks the
+/// state rewound.
 pub fn fold_transcript_run_facts(
     facts: &TranscriptRunFactsFold,
     beat: &TranscriptRunBeat<'_>,

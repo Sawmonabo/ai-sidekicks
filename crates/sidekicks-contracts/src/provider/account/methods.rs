@@ -369,14 +369,14 @@ methods! {
     /// Every `providerAccount.*` method: its name, how it answers, and its shapes.
     pub const PROVIDER_ACCOUNT_METHOD_DESCRIPTORS = [
         /// Reads the accounts, their quota readings and each provider's readiness.
-        ProviderAccountList = query "providerAccount.list" {
+        ProviderAccountList = query "provider.account.list" {
             mutating: false,
             params: ProviderAccountListRequest,
             result: ProviderAccountListResponse,
             refusals: [ProvideraccountUnknown],
         },
         /// Streams every change to the account registry.
-        ProviderAccountSubscribe = subscription "providerAccount.subscribe" {
+        ProviderAccountSubscribe = subscription "provider.account.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,
@@ -384,7 +384,7 @@ methods! {
             refusals: [],
         },
         /// Registers an account, or re-supplies a token account's token.
-        ProviderAccountRegister = mutation "providerAccount.register" {
+        ProviderAccountRegister = mutation "provider.account.register" {
             mutating: true,
             params: ProviderAccountRegisterRequest,
             result: ProviderAccountRegisterResponse,
@@ -399,7 +399,7 @@ methods! {
             ],
         },
         /// Edits an account's descriptive settings.
-        ProviderAccountUpdate = mutation "providerAccount.update" {
+        ProviderAccountUpdate = mutation "provider.account.update" {
             mutating: true,
             params: ProviderAccountUpdateRequest,
             result: ProviderAccountUpdateResponse,
@@ -411,7 +411,7 @@ methods! {
             ],
         },
         /// Removes an account.
-        ProviderAccountRemove = mutation "providerAccount.remove" {
+        ProviderAccountRemove = mutation "provider.account.delete" {
             mutating: true,
             params: ProviderAccountRemoveRequest,
             result: ProviderAccountRemoveResponse,
@@ -422,7 +422,7 @@ methods! {
             ],
         },
         /// Makes an account its provider's current one.
-        ProviderAccountSetCurrent = mutation "providerAccount.setCurrent" {
+        ProviderAccountSetCurrent = mutation "provider.account.current.update" {
             mutating: true,
             params: ProviderAccountSetCurrentRequest,
             result: ProviderAccountSetCurrentResponse,
@@ -435,7 +435,7 @@ methods! {
             ],
         },
         /// Checks an account's health now.
-        ProviderAccountProbe = mutation "providerAccount.probe" {
+        ProviderAccountProbe = mutation "provider.account.probe" {
             mutating: true,
             params: ProviderAccountProbeRequest,
             result: ProviderAccountProbeResponse,
@@ -446,7 +446,7 @@ methods! {
             ],
         },
         /// Rebuilds an account's credential home from empty.
-        ProviderAccountResetCredentialHome = mutation "providerAccount.resetCredentialHome" {
+        ProviderAccountResetCredentialHome = mutation "provider.account.credentialHome.reset" {
             mutating: true,
             params: ProviderAccountResetCredentialHomeRequest,
             result: ProviderAccountResetCredentialHomeResponse,
@@ -457,7 +457,7 @@ methods! {
             ],
         },
         /// Starts the provider's own interactive sign-in.
-        ProviderAccountLogin = mutation "providerAccount.login" {
+        ProviderAccountLogin = mutation "provider.account.signIn" {
             mutating: true,
             params: ProviderAccountLoginRequest,
             result: ProviderAccountLoginResponse,
@@ -470,14 +470,14 @@ methods! {
             ],
         },
         /// Cancels a sign-in attempt.
-        ProviderAccountLoginCancel = mutation "providerAccount.loginCancel" {
+        ProviderAccountLoginCancel = mutation "provider.account.signInAttempt.cancel" {
             mutating: true,
             params: ProviderAccountLoginCancelRequest,
             result: ProviderAccountLoginCancelResponse,
             refusals: [ProvideraccountPermissionDenied],
         },
         /// Copies the person's provider memory into the account's home, once.
-        ProviderAccountMemoryImport = mutation "providerAccount.memoryImport" {
+        ProviderAccountMemoryImport = mutation "provider.account.memory.import" {
             mutating: true,
             params: ProviderAccountMemoryImportRequest,
             result: ProviderAccountMemoryImportOutcome,
@@ -488,7 +488,7 @@ methods! {
             ],
         },
         /// Reads tokens and spend per account.
-        ProviderAccountUsageRead = query "providerAccount.usageRead" {
+        ProviderAccountUsageRead = query "provider.account.usage.list" {
             mutating: false,
             params: ProviderAccountUsageReadRequest,
             result: ProviderAccountUsageReadResponse,

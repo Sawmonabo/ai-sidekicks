@@ -70,7 +70,7 @@ methods! {
         },
         /// A device's heartbeat; not mutating, so a device outside the supported version range
         /// still says whether an app window is in front on it.
-        PresenceHeartbeatCall = mutation "presence.heartbeat" {
+        PresenceHeartbeatCall = mutation "presence.heartbeat.send" {
             mutating: false,
             params: PresenceHeartbeat,
             result: EmptyPayload,

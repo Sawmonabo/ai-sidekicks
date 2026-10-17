@@ -66,7 +66,7 @@ pub(crate) fn read_session_advisor_model(
     Ok(advisor_model.flatten())
 }
 
-/// The statement storing the mode a `session.modeUpdate` moved the provider to.
+/// The statement storing the mode a `session.mode.update` moved the provider to.
 pub(crate) fn session_mode_change_statement(
     session_id: &SessionId,
     session_mode: SessionMode,

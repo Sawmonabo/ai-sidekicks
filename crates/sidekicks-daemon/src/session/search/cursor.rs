@@ -52,7 +52,7 @@ pub(crate) fn encode_search_cursor(
     .expect("a snapshot UUID and two integers run to at most 78 characters, inside the bound")
 }
 
-/// Reads a cursor back. Fails with `session.search_cursor_unresolvable` for a cursor
+/// Reads a cursor back. Fails with `session.search.cursorUnresolvable` for a cursor
 /// [`encode_search_cursor`] did not write.
 pub(crate) fn decode_search_cursor(
     cursor: &SessionSearchCursor,

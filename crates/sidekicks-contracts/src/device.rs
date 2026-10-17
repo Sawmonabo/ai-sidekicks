@@ -2,10 +2,10 @@
 //! and the desktop's control-plane calls through the background service. The keys and statement
 //! chain they carry belong to `trust_statement`.
 //!
-//! Two boundaries meet here, each with its own table. The control plane serves `device.list`,
-//! linking, rename, revoke, forget, `device.statementList` and `device.pushAddressSet`; a machine's
-//! service serves `device.statementApply`, `device.trustedList`, `device.notificationSettingsSet`
-//! and `controlPlane.call`.
+//! Two boundaries meet here, each with its own table. The control plane serves `device.subscribe`,
+//! linking, rename, revoke, forget, `device.statement.list` and `device.pushAddress.update`; a
+//! machine's service serves `device.statement.apply`, `device.trusted.list`,
+//! `device.notificationSettings.update` and `controlPlane.call`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,7 @@ pub type AppVersion = FreeFormText<APP_VERSION_MAX_LEN>;
 /// A single-use pairing's id.
 pub type PairingId = FreeFormText<PAIRING_ID_MAX_LEN>;
 
-// device.list: the machines, devices and passkeys, live
+// device.subscribe: the machines, devices and passkeys, live
 
 /// A machine card's facts. `This machine` is the reader's own comparison of `nodeId`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -172,7 +172,7 @@ pub enum DeviceListRowEvent {
         device_id: DeviceId,
     },
     /// A machine's registration was refreshed.
-    #[serde(rename = "runtimenode.registered")]
+    #[serde(rename = "machine.registered")]
     RuntimeNodeRegistered {
         /// The machine.
         #[garde(dive)]
@@ -444,7 +444,7 @@ methods! {
     /// The device procedures the control plane serves.
     pub const DEVICE_CONTROL_PLANE_METHOD_DESCRIPTORS = [
         /// The machines, devices and passkeys, live.
-        DeviceList = subscription "device.list" {
+        DeviceList = subscription "device.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: DeviceListSnapshot,
@@ -452,28 +452,28 @@ methods! {
             refusals: [],
         },
         /// Opens a single-use pairing.
-        DeviceLinkStart = mutation "device.linkStart" {
+        DeviceLinkStart = mutation "device.link.start" {
             mutating: true,
             params: EmptyPayload,
             result: DeviceLinkStartResponse,
             refusals: [],
         },
         /// The new device's half of the link.
-        DeviceLinkRedeem = mutation "device.linkRedeem" {
+        DeviceLinkRedeem = mutation "device.link.redeem" {
             mutating: true,
             params: DeviceLinkRedeemRequest,
             result: DeviceLinkRedeemResponse,
             refusals: [],
         },
         /// `It matches`.
-        DeviceLink = mutation "device.link" {
+        DeviceLink = mutation "device.link.confirm" {
             mutating: true,
             params: DeviceLinkRequest,
             result: EmptyPayload,
             refusals: [],
         },
         /// Ends a pairing with nothing linked.
-        DeviceLinkCancel = mutation "device.linkCancel" {
+        DeviceLinkCancel = mutation "device.link.cancel" {
             mutating: true,
             params: DeviceLinkCancelRequest,
             result: EmptyPayload,
@@ -501,14 +501,14 @@ methods! {
             refusals: [],
         },
         /// The chain after a statement.
-        DeviceStatementList = query "device.statementList" {
+        DeviceStatementList = query "device.statement.list" {
             mutating: false,
             params: DeviceStatementListRequest,
             result: DeviceStatementListResponse,
             refusals: [],
         },
         /// Sets the calling device's push address.
-        DevicePushAddressSet = mutation "device.pushAddressSet" {
+        DevicePushAddressSet = mutation "device.pushAddress.update" {
             mutating: true,
             params: DevicePushAddressSetRequest,
             result: EmptyPayload,
@@ -521,21 +521,21 @@ methods! {
     /// The device methods a machine's service answers over the channel.
     pub const DEVICE_METHOD_DESCRIPTORS = [
         /// Statements a device has seen, verified before they are kept.
-        DeviceStatementApply = mutation "device.statementApply" {
+        DeviceStatementApply = mutation "device.statement.apply" {
             mutating: true,
             params: DeviceStatementApplyRequest,
             result: EmptyPayload,
             refusals: [],
         },
         /// This machine's verified view of the trusted devices.
-        DeviceTrustedList = query "device.trustedList" {
+        DeviceTrustedList = query "device.trusted.list" {
             mutating: false,
             params: EmptyPayload,
             result: DeviceTrustedListResponse,
             refusals: [],
         },
         /// A device's own switches and push keys.
-        DeviceNotificationSettingsSet = mutation "device.notificationSettingsSet" {
+        DeviceNotificationSettingsSet = mutation "device.notificationSettings.update" {
             mutating: true,
             params: DeviceNotificationSettingsSetRequest,
             result: EmptyPayload,
@@ -553,20 +553,20 @@ methods! {
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
 pub enum ControlPlaneCallProcedure {
-    /// `device.list`.
-    #[serde(rename = "device.list")]
+    /// `device.subscribe`.
+    #[serde(rename = "device.subscribe")]
     DeviceList,
-    /// `device.linkStart`.
-    #[serde(rename = "device.linkStart")]
+    /// `device.link.start`.
+    #[serde(rename = "device.link.start")]
     DeviceLinkStart,
-    /// `device.linkRedeem`.
-    #[serde(rename = "device.linkRedeem")]
+    /// `device.link.redeem`.
+    #[serde(rename = "device.link.redeem")]
     DeviceLinkRedeem,
-    /// `device.link`.
-    #[serde(rename = "device.link")]
+    /// `device.link.confirm`.
+    #[serde(rename = "device.link.confirm")]
     DeviceLink,
-    /// `device.linkCancel`.
-    #[serde(rename = "device.linkCancel")]
+    /// `device.link.cancel`.
+    #[serde(rename = "device.link.cancel")]
     DeviceLinkCancel,
     /// `device.rename`.
     #[serde(rename = "device.rename")]
@@ -577,17 +577,17 @@ pub enum ControlPlaneCallProcedure {
     /// `device.forget`.
     #[serde(rename = "device.forget")]
     DeviceForget,
-    /// `device.statementList`.
-    #[serde(rename = "device.statementList")]
+    /// `device.statement.list`.
+    #[serde(rename = "device.statement.list")]
     DeviceStatementList,
-    /// `device.pushAddressSet`.
-    #[serde(rename = "device.pushAddressSet")]
+    /// `device.pushAddress.update`.
+    #[serde(rename = "device.pushAddress.update")]
     DevicePushAddressSet,
-    /// `runtimenode.rename`.
-    #[serde(rename = "runtimenode.rename")]
+    /// `machine.rename`.
+    #[serde(rename = "machine.rename")]
     RuntimeNodeRename,
-    /// `runtimenode.remove`.
-    #[serde(rename = "runtimenode.remove")]
+    /// `machine.remove`.
+    #[serde(rename = "machine.remove")]
     RuntimeNodeRemove,
 }
 

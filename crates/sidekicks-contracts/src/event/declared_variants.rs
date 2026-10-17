@@ -64,8 +64,8 @@ pub struct EventCompactedRemovedSession {
     pub to_seq: SafeInt<0>,
 }
 
-/// The `event.compacted` payload: the receipt of one session deletion, naming every session it
-/// removed and the range of rows it deleted in each. It is written only when a deletion deleted
+/// The `session.event.compacted` payload: the receipt of one session deletion, naming every session
+/// it removed and the range of rows it deleted in each. It is written only when a deletion deleted
 /// rows, so it names at least one session. The daemon writes it under its own sentinel session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -216,7 +216,7 @@ assistant_output_arm! {
     }
 }
 
-/// The payload of `assistant.message` and `assistant.thinking_update`: a run's row, or a voice
+/// The payload of `agent.message.sent` and `agent.thinking.updated`: a run's row, or a voice
 /// call's spoken answer, which alone names no run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
@@ -228,8 +228,9 @@ pub enum AssistantOutputPayload {
 }
 
 with_machine_content_descriptor! {
-    /// The payload of `tool.invoked`, `tool.result` and `tool.error`; the call's arguments, result
-    /// or error body is kept apart from it. It takes the epoch stamp.
+    /// The payload of `agent.toolCall.invoked`, `agent.toolCall.completed` and
+    /// `agent.toolCall.failed`; the call's arguments, result or error body is kept apart from it.
+    /// It takes the epoch stamp.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]

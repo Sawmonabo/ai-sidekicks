@@ -16,7 +16,7 @@ use crate::wire::instant::WireInstant;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderUsageLimitCause {
     /// The subscription's allowance for a rolling window is spent.
     PlanAllowanceExhausted,
@@ -57,7 +57,7 @@ pub struct ProviderUsageLimitSignal {
 
 /// The cause a spent-retries signal carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum RetriesExhausted {
     /// The provider's own retries ran out.
@@ -69,7 +69,7 @@ pub enum RetriesExhausted {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderSpentRetriesSignal {
-    /// Always `retries-exhausted`.
+    /// Always `retriesExhausted`.
     pub cause: RetriesExhausted,
 }
 

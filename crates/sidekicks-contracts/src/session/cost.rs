@@ -75,7 +75,7 @@ pub struct OrchestrationBudgetState {
     pub agent_spend: Vec<AgentSpend>,
 }
 
-/// The session whose spend `orchestration.budgetRead` answers with.
+/// The session whose spend `session.budget.read` answers with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -84,7 +84,7 @@ pub struct OrchestrationBudgetReadRequest {
     pub session_id: SessionId,
 }
 
-/// The session whose cost receipt `orchestration.costReceiptRead` answers with.
+/// The session whose cost receipt `session.costReceipt.read` answers with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

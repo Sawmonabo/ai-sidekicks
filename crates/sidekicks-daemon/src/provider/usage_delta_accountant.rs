@@ -405,7 +405,7 @@ pub(crate) enum CostUpdateResolution {
 }
 
 /// Resolves one cost update's source: a finite, non-negative provider figure (in micro-dollars,
-/// converted from the provider's unit and rounded to a whole micro-dollar) is `provider_reported`;
+/// converted from the provider's unit and rounded to a whole micro-dollar) is `providerReported`;
 /// else a price-list quote is `derived_exact`; else the request is held until priced.
 #[cfg_attr(
     not(test),

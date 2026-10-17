@@ -222,7 +222,7 @@ pub struct SkillListResponse {
     pub skills: Vec<SkillListEntry>,
 }
 
-/// One skill as it stands after `skill.create`, `skill.update` or `skill.recordReattach`, under
+/// One skill as it stands after `skill.create`, `skill.update` or `skill.record.reattach`, under
 /// its final folder name, so a client never merges its own patch.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -232,7 +232,7 @@ pub struct SkillEntryResponse {
     pub skill: SkillListEntry,
 }
 
-/// `skill.fileRead`: one file's body, loaded when the file opens in the editor.
+/// `skill.file.read`: one file's body, loaded when the file opens in the editor.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -380,7 +380,7 @@ pub struct SkillUpdateRequest {
     pub icon: Option<NonEmptyText>,
 }
 
-/// `skill.callFormRead`: the name a skill of ours would be called by, read while its name is typed
+/// `skill.callForm.read`: the name a skill of ours would be called by, read while its name is typed
 /// and before any save: the typed `name`, folded as `skill.create` folds it, at `scope` (default
 /// `global`; a project scope names its project). `skillId` names the folder being edited, so it is
 /// never its own collision; a new skill sends none.
@@ -474,7 +474,7 @@ pub struct SkillCallFormReadResponse {
     pub collision: Option<SkillCallFormCollision>,
 }
 
-/// `skill.availabilityUpdate`: sets one provider on or off, with no lock: a provider's own skill
+/// `skill.availability.update`: sets one provider on or off, with no lock: a provider's own skill
 /// can be switched off its home provider, and a skill can be off everywhere.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -556,7 +556,7 @@ pub struct SkillScanResponse {
     pub findings: Vec<SkillScanFinding>,
 }
 
-/// `skill.recordReattach`: reattaches an orphaned record (its availability and icon) to a folder,
+/// `skill.record.reattach`: reattaches an orphaned record (its availability and icon) to a folder,
 /// accepted only while the record is orphaned. The renderer sends the folder chooser's token and
 /// main forwards the path in its place, so `folderPath` is the path the daemon reads.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -569,7 +569,7 @@ pub struct SkillRecordReattachRequest {
     pub folder_path: FilesystemPath,
 }
 
-/// `skill.recordDiscard`: drops an orphaned record.
+/// `skill.record.discard`: drops an orphaned record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -587,14 +587,14 @@ pub struct SkillRecordDiscardResponse {
     pub discarded: True,
 }
 
-/// Why `skill.path_refused` refused. A save's path would land outside the folder, the folder
+/// Why `skill.pathRefused` refused. A save's path would land outside the folder, the folder
 /// already holds it, or it names `SKILL.md`, which a folder always has exactly one of and which is
 /// never replaced, renamed or removed. A send's picked skill matches no row of `skill.list` by name
 /// and folder, so the provider is never handed a file the daemon does not list.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SkillPathRefusedReason {
     /// It would land outside the folder.
     EscapesFolder,
@@ -606,7 +606,7 @@ pub enum SkillPathRefusedReason {
     NotListed,
 }
 
-/// The `skill.path_refused` refusal's details: the refused path and why, so the skill editor
+/// The `skill.pathRefused` refusal's details: the refused path and why, so the skill editor
 /// answers in the row it was typed into.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -617,12 +617,12 @@ pub struct SkillPathRefusedDetails {
     pub reason: SkillPathRefusedReason,
 }
 
-/// Why `skill.write_refused` refused: every method that writes refuses a plugin's skill, which is
-/// read-only, and `skill.recordReattach` refuses a record that is not orphaned.
+/// Why `skill.writeRefused` refused: every method that writes refuses a plugin's skill, which is
+/// read-only, and `skill.record.reattach` refuses a record that is not orphaned.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SkillWriteRefusedReason {
     /// A plugin's skill is read-only.
     PluginReadOnly,
@@ -630,7 +630,7 @@ pub enum SkillWriteRefusedReason {
     NotOrphaned,
 }
 
-/// The `skill.write_refused` refusal's details.
+/// The `skill.writeRefused` refusal's details.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SkillWriteRefusedDetails {
@@ -638,7 +638,7 @@ pub struct SkillWriteRefusedDetails {
     pub reason: SkillWriteRefusedReason,
 }
 
-/// The `skill.name_taken` refusal's details: the folder already holding the name, so the screen
+/// The `skill.nameTaken` refusal's details: the folder already holding the name, so the screen
 /// names it under the Name field.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -675,7 +675,7 @@ methods! {
             refusals: [],
         },
         /// One file's body.
-        SkillFileRead = query "skill.fileRead" {
+        SkillFileRead = query "skill.file.read" {
             mutating: false,
             params: SkillFileReadRequest,
             result: SkillFileReadResponse,
@@ -696,14 +696,14 @@ methods! {
             refusals: [SkillPathRefused, SkillWriteRefused, SkillNameTaken, SkillNameTooLong],
         },
         /// The name a typed skill would be called by.
-        SkillCallFormRead = query "skill.callFormRead" {
+        SkillCallFormRead = query "skill.callForm.read" {
             mutating: false,
             params: SkillCallFormReadRequest,
             result: SkillCallFormReadResponse,
             refusals: [],
         },
         /// Sets one provider on or off.
-        SkillAvailabilityUpdate = mutation "skill.availabilityUpdate" {
+        SkillAvailabilityUpdate = mutation "skill.availability.update" {
             mutating: true,
             params: SkillAvailabilityUpdateRequest,
             result: SkillAvailabilityUpdateResponse,
@@ -717,14 +717,14 @@ methods! {
             refusals: [],
         },
         /// Reattaches an orphaned record.
-        SkillRecordReattach = mutation "skill.recordReattach" {
+        SkillRecordReattach = mutation "skill.record.reattach" {
             mutating: true,
             params: SkillRecordReattachRequest,
             result: SkillEntryResponse,
             refusals: [SkillWriteRefused],
         },
         /// Drops an orphaned record.
-        SkillRecordDiscard = mutation "skill.recordDiscard" {
+        SkillRecordDiscard = mutation "skill.record.discard" {
             mutating: true,
             params: SkillRecordDiscardRequest,
             result: SkillRecordDiscardResponse,

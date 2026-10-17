@@ -39,7 +39,7 @@ pub struct AppDiagnosticTextBounds {
 /// code of every window, so its errors read here; or a window of session views or a pane's own
 /// window, for what that window's own objects raise.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, VariantArray)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum AppDiagnosticRole {
     /// The main process.
     Main,
@@ -53,7 +53,7 @@ pub enum AppDiagnosticRole {
 
 /// How bad a captured line is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, VariantArray)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum AppDiagnosticSeverity {
     /// An error.
     Error,
@@ -65,7 +65,7 @@ pub enum AppDiagnosticSeverity {
 
 /// Why records were not written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum AppDiagnosticHeldBackCause {
     /// A window had more to send than it holds while it waited to send.
     WindowBufferFull,
@@ -130,7 +130,7 @@ macro_rules! app_diagnostic_record {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "kind",
-            rename_all = "kebab-case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]

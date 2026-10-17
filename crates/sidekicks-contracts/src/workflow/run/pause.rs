@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 
-/// The `workflow.runsPauseSet` input: the hold on starting new runs, one per daemon over its whole
-/// scheduler. A run already going finishes; every new start waits until the hold is off.
+/// The `workflow.newRunHold.update` input: the hold on starting new runs, one per daemon over its
+/// whole scheduler. A run already going finishes; every new start waits until the hold is off.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -17,7 +17,7 @@ pub struct WorkflowRunsPauseSetRequest {
     pub paused: bool,
 }
 
-/// The hold and how many starts wait behind it, as the `workflow.runsPauseSet` reply and the
+/// The hold and how many starts wait behind it, as the `workflow.newRunHold.update` reply and the
 /// `workflow.subscribe` stream carry it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -31,7 +31,7 @@ methods! {
             refusals: [ArtifactNotFound],
         },
         /// Opens an ingest stream for one file.
-        ArtifactIngestInit = mutation "artifact.ingestInit" {
+        ArtifactIngestInit = mutation "artifact.ingest.start" {
             mutating: true,
             params: AttachmentIngestInitRequest,
             result: AttachmentIngestInitResponse,
@@ -43,14 +43,14 @@ methods! {
             ],
         },
         /// Sends one chunk of an open stream.
-        ArtifactIngestChunk = mutation "artifact.ingestChunk" {
+        ArtifactIngestChunk = mutation "artifact.ingest.write" {
             mutating: true,
             params: AttachmentIngestChunkRequest,
             result: AttachmentIngestChunkResponse,
             refusals: [ArtifactIngestStreamInvalid, ArtifactTooLarge],
         },
         /// Completes a stream and commits its bytes as an artifact.
-        ArtifactIngestComplete = mutation "artifact.ingestComplete" {
+        ArtifactIngestComplete = mutation "artifact.ingest.complete" {
             mutating: true,
             params: AttachmentIngestCompleteRequest,
             result: AttachmentIngestCompleteResponse,

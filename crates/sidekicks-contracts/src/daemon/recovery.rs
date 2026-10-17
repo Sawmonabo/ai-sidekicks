@@ -25,7 +25,7 @@ use crate::wire::text::FreeFormText;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum DaemonRecoveryState {
     /// Every session takes writes.
     Healthy,
@@ -43,7 +43,7 @@ pub enum DaemonRecoveryState {
 /// last good point, `damaged` when no event of it can be read, and `blocked` when a run of it
 /// halted after the restart on a question for the person, named in its `haltedRuns`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum DaemonRecoverySessionState {
     /// The restart's pass has yet to rebuild it.
     Rebuilding,
@@ -150,7 +150,7 @@ pub struct DaemonRecoveryStatus {
 
 /// The node's state when a write was refused by the whole node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum DaemonWriteRefusedRecovery {
     /// The restart's pass runs.
     Rebuilding,
@@ -167,7 +167,7 @@ impl From<DaemonWriteRefusedRecovery> for DaemonRecoveryState {
     }
 }
 
-/// The `daemon.write_refused` refusal's `data.fields`: the node's recovery state when the call
+/// The `daemon.writeRefused` refusal's `data.fields`: the node's recovery state when the call
 /// arrived.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -177,9 +177,9 @@ pub struct DaemonWriteRefusedDetails {
 }
 
 ts_constants! {
-    /// The error code a service answers `daemon.hello` with, once the hello carries its session
-    /// token, while it repairs its database file. A client waits for it rather than counting it as
-    /// silence.
+    /// The error code a service answers `connection.initialize` with, once the hello carries its
+    /// session token, while it repairs its database file. A client waits for it rather than
+    /// counting it as silence.
     DAEMON_REPAIRING_CODE = RefusalCode::DaemonRepairing;
     /// What a person reads while the service repairs its database file.
     pub const DAEMON_REPAIRING_LINE: &str =
@@ -240,7 +240,7 @@ pub fn describe_daemon_repairing_line(
 
 /// The step of the recovery pass an event's outcome was decided in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RecoveryPhase {
     /// Rebuilding the projections.
     ProjectionRebuild,
@@ -252,7 +252,7 @@ pub enum RecoveryPhase {
 
 /// What started a recovery pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RecoveryTrigger {
     /// The service's start.
     Startup,
@@ -264,7 +264,7 @@ pub enum RecoveryTrigger {
 
 /// What kind of failure a failed recovery pass met.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RecoveryFailureKind {
     /// The projections could not be rebuilt.
     ProjectionRebuildFailed,
@@ -281,7 +281,7 @@ branded_uuid_id! {
     RecoveryId
 }
 
-/// `recovery.attempted`: a recovery pass started. Like every recovery event it names this
+/// `daemon.recovery.attempted`: a recovery pass started. Like every recovery event it names this
 /// machine, the pass, the step it was in, and which attempt it is, one above the failed passes
 /// since the last one that succeeded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -305,8 +305,8 @@ pub struct RecoveryAttemptedPayload {
     pub started_at: WireInstant,
 }
 
-/// `recovery.succeeded`: a recovery pass completed; every count is of this pass alone, and every
-/// run it settled is in exactly one of the run counts.
+/// `daemon.recovery.succeeded`: a recovery pass completed; every count is of this pass alone, and
+/// every run it settled is in exactly one of the run counts.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -338,9 +338,9 @@ pub struct RecoverySucceededPayload {
     pub completed_at: WireInstant,
 }
 
-/// `recovery.failed`: a recovery pass that left the node blocked, when the local store failed, or
-/// degraded, when a session's history could not be rebuilt whole; `detail` is in the service's
-/// own words.
+/// `daemon.recovery.failed`: a recovery pass that left the node blocked, when the local store
+/// failed, or degraded, when a session's history could not be rebuilt whole; `detail` is in the
+/// service's own words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecoveryFailedPayload {

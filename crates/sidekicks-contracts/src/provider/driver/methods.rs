@@ -33,7 +33,7 @@ ts_constants! {
     DRIVER_TIMEOUT_CODE = RefusalCode::DriverTimeout;
 }
 
-/// The request of `driver.listModels`: the session whose model control reads the catalog.
+/// The request of `provider.model.list`: the session whose model control reads the catalog.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -42,7 +42,7 @@ pub struct ListModelsRequest {
     pub session_id: SessionId,
 }
 
-/// One driver's models in the `driver.listModels` reply.
+/// One driver's models in the `provider.model.list` reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DriverModelReport {
@@ -52,7 +52,7 @@ pub struct DriverModelReport {
     pub models: Vec<ProviderModel>,
 }
 
-/// The reply of `driver.listModels`: one group per driver.
+/// The reply of `provider.model.list`: one group per driver.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -61,7 +61,7 @@ pub struct ListModelsResult {
     pub drivers: Vec<DriverModelReport>,
 }
 
-/// One driver's modes in the `driver.listModes` reply.
+/// One driver's modes in the `provider.mode.list` reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DriverModeReport {
@@ -71,7 +71,7 @@ pub struct DriverModeReport {
     pub modes: Vec<ProviderMode>,
 }
 
-/// The reply of `driver.listModes`: one group per driver.
+/// The reply of `provider.mode.list`: one group per driver.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -80,7 +80,7 @@ pub struct ListModesResult {
     pub drivers: Vec<DriverModeReport>,
 }
 
-/// The request of `driver.compactContext`, the person's compaction of one run's context. The
+/// The request of `agent.run.context.compact`, the person's compaction of one run's context. The
 /// reply's `refused` and `failed` arms are data a caller branches on, never a refusal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -92,7 +92,7 @@ pub struct CompactContextRequest {
     pub run_id: RunId,
 }
 
-/// The request of `driver.listProviderCommands`: the commands and skills one agent's providers
+/// The request of `provider.command.list`: the commands and skills one agent's providers
 /// publish, one group per live binding the agent holds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -108,21 +108,21 @@ methods! {
     /// The driver methods a client calls: their names, how each answers, and their shapes.
     pub const DRIVER_METHOD_DESCRIPTORS = [
         /// Lists each driver's models for a session's model control.
-        DriverListModels = query "driver.listModels" {
+        DriverListModels = query "provider.model.list" {
             mutating: false,
             params: ListModelsRequest,
             result: ListModelsResult,
             refusals: [SessionNotFound, DriverUnavailable, DriverTimeout],
         },
         /// Lists each driver's modes.
-        DriverListModes = query "driver.listModes" {
+        DriverListModes = query "provider.mode.list" {
             mutating: false,
             params: EmptyPayload,
             result: ListModesResult,
             refusals: [],
         },
         /// Compacts one run's provider-side context.
-        DriverCompactContext = mutation "driver.compactContext" {
+        DriverCompactContext = mutation "agent.run.context.compact" {
             mutating: true,
             params: CompactContextRequest,
             result: DriverCompactionResult,
@@ -135,7 +135,7 @@ methods! {
             ],
         },
         /// Lists the commands and skills an agent's providers publish.
-        DriverListProviderCommands = query "driver.listProviderCommands" {
+        DriverListProviderCommands = query "provider.command.list" {
             mutating: false,
             params: ListProviderCommandsRequest,
             result: ProviderCommandListResult,

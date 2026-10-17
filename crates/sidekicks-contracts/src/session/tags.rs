@@ -38,21 +38,21 @@ methods! {
     /// The session tag methods' wire contract: name, procedure type and types.
     pub const SESSION_TAG_METHOD_DESCRIPTORS = [
         /// Adds a tag to a session.
-        SessionTagAdd = mutation "session.tagAdd" {
+        SessionTagAdd = mutation "session.tag.add" {
             mutating: true,
             params: SessionTagRequest,
             result: EmptyPayload,
             refusals: [SessionNotFound],
         },
         /// Removes a tag from a session.
-        SessionTagRemove = mutation "session.tagRemove" {
+        SessionTagRemove = mutation "session.tag.remove" {
             mutating: true,
             params: SessionTagRequest,
             result: EmptyPayload,
             refusals: [SessionNotFound],
         },
         /// Lists the tags in use.
-        SessionTagList = query "session.tagList" {
+        SessionTagList = query "session.tag.list" {
             mutating: false,
             params: EmptyPayload,
             result: SessionTagListResponse,

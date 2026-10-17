@@ -168,7 +168,7 @@ pub struct SessionMarkChangePayload {
     pub at: WireInstant,
 }
 
-/// The `session.advisor_changed` payload: the session's own advisor, changed by the provider's own
+/// The `session.advisor.changed` payload: the session's own advisor, changed by the provider's own
 /// advisor command in that session. `advisor_model` is the session's own setting, `null` when the
 /// advisor is off; `attached_advisor_model` is the advisor the provider says it attaches after the
 /// change, `null` when none attaches, absent where the build does not report it.
@@ -195,7 +195,7 @@ pub struct SessionAdvisorChangedPayload {
     pub at: WireInstant,
 }
 
-/// The `session.output_style_changed` payload: the session's own output style, changed by the
+/// The `session.outputStyle.changed` payload: the session's own output style, changed by the
 /// provider's own output-style command in that session, with the time it happened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -210,10 +210,10 @@ pub struct SessionOutputStyleChangedPayload {
     pub at: WireInstant,
 }
 
-/// The `session.provider_status` payload: a coarse status the provider reported for its session,
-/// normalized, with display text where it sent some. It records what the provider said and never
-/// moves the session's own state. It takes the epoch stamp: `source_epoch` and `source_position`
-/// come together, and only on a payload naming its run.
+/// The `session.providerStatus.reported` payload: a coarse status the provider reported for its
+/// session, normalized, with display text where it sent some. It records what the provider said and
+/// never moves the session's own state. It takes the epoch stamp: `source_epoch` and
+/// `source_position` come together, and only on a payload naming its run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

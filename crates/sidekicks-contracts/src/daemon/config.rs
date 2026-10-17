@@ -118,7 +118,7 @@ pub struct DaemonConfig {
     pub provider_messages_path: FilesystemPath,
 }
 
-/// `daemon.configUpdate`: exactly one setting, as `{"<setting>": value}`; a nullable setting's
+/// `daemon.config.update`: exactly one setting, as `{"<setting>": value}`; a nullable setting's
 /// `null` clears it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -173,7 +173,7 @@ pub struct DaemonPackageCacheReading {
 
 /// Which cache a clear empties.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum PackageCacheClearTarget {
     /// The bun cache.
     Bun,
@@ -183,7 +183,7 @@ pub enum PackageCacheClearTarget {
     All,
 }
 
-/// `daemon.packageCacheClear`. A clear waits for the installs using that cache, never removes a
+/// `daemon.packageCache.clear`. A clear waits for the installs using that cache, never removes a
 /// step already installed, and answers with the new reading.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
@@ -199,28 +199,28 @@ methods! {
     /// The config and package-cache methods.
     pub const DAEMON_CONFIG_METHOD_DESCRIPTORS = [
         /// Reads the settings.
-        DaemonConfigRead = query "daemon.configRead" {
+        DaemonConfigRead = query "daemon.config.read" {
             mutating: false,
             params: EmptyPayload,
             result: DaemonConfig,
             refusals: [],
         },
         /// Changes one setting.
-        DaemonConfigUpdate = mutation "daemon.configUpdate" {
+        DaemonConfigUpdate = mutation "daemon.config.update" {
             mutating: true,
             params: DaemonConfigUpdateRequest,
             result: DaemonConfig,
             refusals: [],
         },
         /// Reads each package cache's size.
-        DaemonPackageCacheRead = query "daemon.packageCacheRead" {
+        DaemonPackageCacheRead = query "daemon.packageCache.list" {
             mutating: false,
             params: EmptyPayload,
             result: DaemonPackageCacheReading,
             refusals: [],
         },
         /// Empties a package cache.
-        DaemonPackageCacheClear = mutation "daemon.packageCacheClear" {
+        DaemonPackageCacheClear = mutation "daemon.packageCache.clear" {
             mutating: true,
             params: DaemonPackageCacheClearRequest,
             result: DaemonPackageCacheReading,

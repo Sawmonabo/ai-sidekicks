@@ -15,7 +15,7 @@ use crate::typescript::TypeName;
 /// How a method answers: a `query` reads and a `mutation` changes state, each with one result; a
 /// `subscription` answers with an acknowledgement and then streams emissions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ProcedureType {
     /// Reads, with one result.
     Query,
@@ -28,7 +28,7 @@ pub enum ProcedureType {
 /// One method's contract as the table lists it.
 #[derive(Clone, Copy, Debug)]
 pub struct MethodDescriptor {
-    /// The method's wire name (`browser.siteDataList`).
+    /// The method's wire name (`browser.siteData.list`).
     pub method: &'static str,
     /// How the method answers.
     pub procedure_type: ProcedureType,
@@ -85,7 +85,7 @@ pub trait SubscriptionMethod: Method {
 ///     /// The `browser.*` methods the daemon answers.
 ///     pub const BROWSER_METHOD_DESCRIPTORS = [
 ///         /// Lists the sites holding data in the shared browser profile.
-///         BrowserSiteDataList = query "browser.siteDataList" {
+///         BrowserSiteDataList = query "browser.siteData.list" {
 ///             mutating: false,
 ///             params: EmptyPayload,
 ///             result: BrowserSiteDataListResponse,
@@ -190,7 +190,10 @@ mod tests {
         // arguments a model sends.
         failures.extend(
             [
-                ("daemon.hello", received_check::<DaemonHello>().err()),
+                (
+                    "connection.initialize",
+                    received_check::<DaemonHello>().err(),
+                ),
                 (
                     "$/cancelRequest",
                     received_check::<CancelRequestParams>().err(),

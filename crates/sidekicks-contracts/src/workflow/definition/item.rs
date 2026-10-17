@@ -145,7 +145,7 @@ step_error_arm! {
 step_error_arm! {
     /// A step whose agent could not resolve, such as a park on an account removed first.
     pub struct WorkflowStepAgentResolutionError {
-        /// Always `agent.resolution_refused`.
+        /// Always `agent.definition.resolutionRefused`.
         pub code: AgentResolutionRefusedCode,
         /// Why the agent could not resolve.
         #[garde(dive)]

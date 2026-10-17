@@ -66,8 +66,8 @@ branded_uuid_id! {
     VariantArray,
     IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum InterventionState {
     /// Asked for.
     Requested,
@@ -114,8 +114,8 @@ ts_constants! {
     /// The code of a move the run's current state does not allow, such as a second or late answer
     /// to a choice the run already settled.
     RUN_INVALID_TRANSITION_CODE = RefusalCode::RunInvalidTransition;
-    /// The code of a `run.pause` or `run.resume` whose `expectedRunVersion` is not the run's
-    /// current version, older or newer; nothing is written and the run is left as it was.
+    /// The code of a `agent.run.pause` or `agent.run.resume` whose `expectedRunVersion` is not the
+    /// run's current version, older or newer; nothing is written and the run is left as it was.
     RUN_VERSION_STALE_CODE = RefusalCode::RunVersionStale;
 }
 
@@ -192,13 +192,13 @@ intervention_interrupt_request! {
     }
 }
 
-/// A caller's request to interrupt or retry a run; a person's steer is a `run.queueCreate`, never
-/// an intervention. `faster_model_retry` resends a turn the provider holds for a safety check on
-/// `model`.
+/// A caller's request to interrupt or retry a run; a person's steer is a `agent.queueItem.create`,
+/// never an intervention. `fasterModelRetry` resends a turn the provider holds for a safety check
+/// on `model`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "type",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -238,7 +238,7 @@ macro_rules! intervention_request_response {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "state",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -308,7 +308,7 @@ intervention_request_response! {
         ;
         /// Refused, with why.
         Rejected {
-            /// The machine-readable cause, such as `driver.capability_unsupported`.
+            /// The machine-readable cause, such as `provider.capability.unsupported`.
             rejection_reason: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
             /// Never present outside `failed`.
             #[serde(
@@ -374,9 +374,9 @@ pub struct ProcessExitWithSignal {
 }
 
 /// How a process that ended on its own exited: exactly one of its exit code and the signal that
-/// ended it, and the last lines it printed. `run.failed` carries a provider process's under the
-/// turn, and a failed workflow step the process it ran; a process the daemon closed itself, or a
-/// sleep, records none.
+/// ended it, and the last lines it printed. `agent.run.failed` carries a provider process's under
+/// the turn, and a failed workflow step the process it ran; a process the daemon closed itself, or
+/// a sleep, records none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ProcessExit {
@@ -388,7 +388,7 @@ pub enum ProcessExit {
 
 /// How a completed run ended: its turn finished (`turn`) or its whole task did (`task`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RunCompletionKind {
     /// The turn finished.
     Turn,
@@ -524,11 +524,11 @@ run_state_change_members! {
     }
 }
 
-/// One run state transition as `run.subscribeState` delivers it, tagged on its new state, with its
+/// One run state transition as `agent.run.subscribe` delivers it, tagged on its new state, with its
 /// new run version; only a transition into `failed` carries a failure cause or a process exit.
 /// `sessionId` is carried by the subscription's scope, not repeated per event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "newState", rename_all = "snake_case")]
+#[serde(tag = "newState", rename_all = "camelCase")]
 pub enum RunStateChangeEvent {
     /// Into `queued`.
     Queued(#[garde(dive)] RunStateChangeMembers),
@@ -536,9 +536,9 @@ pub enum RunStateChangeEvent {
     Starting(#[garde(dive)] RunStateChangeMembers),
     /// Into `running`.
     Running(#[garde(dive)] RunStateChangeMembers),
-    /// Into `waiting_for_approval`.
+    /// Into `waitingForApproval`.
     WaitingForApproval(#[garde(dive)] RunStateChangeMembers),
-    /// Into `waiting_for_input`.
+    /// Into `waitingForInput`.
     WaitingForInput(#[garde(dive)] RunStateChangeMembers),
     /// Into `pausing`.
     Pausing(#[garde(dive)] RunStateChangeMembers),
@@ -554,9 +554,9 @@ pub enum RunStateChangeEvent {
     Failed(#[garde(dive)] RunFailedStateChangeMembers),
 }
 
-/// A run rewound to an earlier turn boundary, carried on `run.subscribeState`, and the stored
-/// `run.rolled_back` payload. It is not a state transition, so it has no previous or new state,
-/// and it carries no tag: its closed members keep it apart from the state change.
+/// A run rewound to an earlier turn boundary, carried on `agent.run.subscribe`, and the stored
+/// `agent.run.rolledBack` payload. It is not a state transition, so it has no previous or new
+/// state, and it carries no tag: its closed members keep it apart from the state change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RunRolledBackEvent {
@@ -571,7 +571,7 @@ pub struct RunRolledBackEvent {
     pub target_position: SourcePosition,
 }
 
-/// One delivery on `run.subscribeState`: a state change, a rollback, or the provider's safety hold
+/// One delivery on `agent.run.subscribe`: a state change, a rollback, or the provider's safety hold
 /// on the run's turn. The hold is a live detail only this stream carries, never written to the
 /// session's history. None carries a tag; their closed members keep them apart.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -585,7 +585,7 @@ pub enum RunStateStreamEvent {
     SafetyBuffering(#[garde(skip)] RunSafetyBufferingUpdatedPayload),
 }
 
-/// One change on `run.subscribeState`: the delivery and the cursor of the event it came from, or,
+/// One change on `agent.run.subscribe`: the delivery and the cursor of the event it came from, or,
 /// for the provider's safety hold, which the session's history never records, the session's
 /// newest cursor when it went out.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -600,7 +600,7 @@ pub struct RunStateStreamChange {
 }
 
 stream_frame! {
-    /// The value of each `run.subscribeState` notify: the changes since the previous frame.
+    /// The value of each `agent.run.subscribe` notify: the changes since the previous frame.
     pub struct RunStateStreamFrame(RunStateStreamChange);
 }
 
@@ -627,7 +627,7 @@ pub struct RunResumeRequest {
 }
 
 /// The run's state after a run-control call and its advanced `runVersion`, so the caller can guard
-/// its next request without reading `run.subscribeState`.
+/// its next request without reading `agent.run.subscribe`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -641,11 +641,11 @@ pub struct RunControlAck {
 }
 
 /// The person's answer when a resumed conversation and the service's record disagree. Provider
-/// ahead: `keep_provider` keeps what it did, `undo_to_agreed` cuts back to where both agree.
-/// Service ahead: `continue_provider` goes on from the provider's record, `hand_over` starts a new
+/// ahead: `keepProvider` keeps what it did, `undoToAgreed` cuts back to where both agree.
+/// Service ahead: `continueProvider` goes on from the provider's record, `handOver` starts a new
 /// conversation with the hand-over brief.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RunRecoveryChoice {
     /// Keep what the provider did.
     KeepProvider,
@@ -657,7 +657,7 @@ pub enum RunRecoveryChoice {
     HandOver,
 }
 
-/// Answers the recovery question a restart left a run halted on (`run.recoveryResolve`).
+/// Answers the recovery question a restart left a run halted on (`agent.run.recovery.resolve`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -668,7 +668,7 @@ pub struct RunRecoveryResolveRequest {
     pub choice: RunRecoveryChoice,
 }
 
-/// The payload of `run.recovery_resolved`: which choice settled the question.
+/// The payload of `agent.run.recovery.resolved`: which choice settled the question.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RunRecoveryResolvedPayload {
@@ -680,8 +680,8 @@ pub struct RunRecoveryResolvedPayload {
     pub choice: RunRecoveryChoice,
 }
 
-/// The payload of `run.recovery_steps_added`: after a restart, `count` steps from the provider's
-/// own record that only read were added to the transcript as the provider recorded them.
+/// The payload of `agent.run.recoverySteps.added`: after a restart, `count` steps from the
+/// provider's own record that only read were added to the transcript as the provider recorded them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RunRecoveryStepsAddedPayload {
@@ -719,7 +719,7 @@ methods! {
     /// child's own controls, the recovery question and the provider's choices a run waits on.
     pub const RUN_CONTROL_METHOD_DESCRIPTORS = [
         /// Sends a message into a run's queue, or edits one still waiting.
-        RunQueueCreate = mutation "run.queueCreate" {
+        RunQueueCreate = mutation "agent.queueItem.create" {
             mutating: true,
             params: QueueItemCreateRequest,
             result: QueueItemCreateResponse,
@@ -738,21 +738,21 @@ methods! {
             ],
         },
         /// Reads a queue in the daemon's order.
-        RunQueueList = query "run.queueList" {
+        RunQueueList = query "agent.queueItem.list" {
             mutating: false,
             params: QueueItemListRequest,
             result: QueueItemListResponse,
             refusals: [SessionNotFound, RunChildControlRefused],
         },
         /// Removes a waiting message.
-        RunQueueCancel = mutation "run.queueCancel" {
+        RunQueueCancel = mutation "agent.queueItem.cancel" {
             mutating: true,
             params: QueueItemCancelRequest,
             result: QueueItemCancelResponse,
             refusals: [QueueItemNotFound, QueueChangeRefused, RunChildControlRefused],
         },
         /// Puts the waiting messages in a new order.
-        RunQueueReorder = mutation "run.queueReorder" {
+        RunQueueReorder = mutation "agent.queueItem.reorder" {
             mutating: true,
             params: QueueReorderRequest,
             result: QueueItemListResponse,
@@ -764,7 +764,7 @@ methods! {
             ],
         },
         /// Follows a queue's changes.
-        RunSubscribeQueue = subscription "run.subscribeQueue" {
+        RunSubscribeQueue = subscription "agent.queueItem.subscribe" {
             mutating: false,
             params: RunQueueSubscribeRequest,
             result: SubscribeAckResponse,
@@ -777,28 +777,28 @@ methods! {
             ],
         },
         /// Interrupts a run or retries its turn on a faster model.
-        RunIntervene = mutation "run.intervene" {
+        RunIntervene = mutation "agent.run.intervene" {
             mutating: true,
             params: InterventionRequestPayload,
             result: InterventionRequestResponse,
             refusals: [RunNotFound, InterventionIdempotencyConflict],
         },
         /// Pauses a run.
-        RunPause = mutation "run.pause" {
+        RunPause = mutation "agent.run.pause" {
             mutating: true,
             params: RunPauseRequest,
             result: RunControlAck,
             refusals: [RunNotFound, RunVersionStale, RunInvalidTransition, DriverUnavailable],
         },
         /// Resumes a paused run.
-        RunResume = mutation "run.resume" {
+        RunResume = mutation "agent.run.resume" {
             mutating: true,
             params: RunResumeRequest,
             result: RunControlAck,
             refusals: [RunNotFound, RunVersionStale, RunInvalidTransition, DriverUnavailable],
         },
         /// Follows every run state change in a session.
-        RunSubscribeState = subscription "run.subscribeState" {
+        RunSubscribeState = subscription "agent.run.subscribe" {
             mutating: false,
             params: RunStateSubscribeRequest,
             result: SubscribeAckResponse,
@@ -806,7 +806,7 @@ methods! {
             refusals: [SessionNotFound, EventCursorUnresolvable],
         },
         /// Steers one child of a session, live or ended.
-        RunChildSteer = mutation "run.childSteer" {
+        RunChildSteer = mutation "agent.childRun.steer" {
             mutating: true,
             params: ChildSteerRequest,
             result: QueueItemCreateResponse,
@@ -820,42 +820,42 @@ methods! {
             ],
         },
         /// Interrupts one live child of a run.
-        RunChildInterrupt = mutation "run.childInterrupt" {
+        RunChildInterrupt = mutation "agent.childRun.interrupt" {
             mutating: true,
             params: ChildInterruptRequest,
             result: ChildInterruptResponse,
             refusals: [RunNotFound, RunChildControlRefused, QueueItemNotFound],
         },
         /// Pauses or resumes one live child of a run.
-        RunChildPauseSet = mutation "run.childPauseSet" {
+        RunChildPauseSet = mutation "agent.childRun.paused.update" {
             mutating: true,
             params: ChildPauseSetRequest,
             result: ChildPauseSetResponse,
             refusals: [RunNotFound, RunChildControlRefused],
         },
         /// Stops every live child of a run.
-        RunChildrenStop = mutation "run.childrenStop" {
+        RunChildrenStop = mutation "agent.childRun.stopAll" {
             mutating: true,
             params: ChildrenStopRequest,
             result: ChildrenStopResponse,
             refusals: [RunNotFound],
         },
         /// Answers the recovery question a restart left a run halted on.
-        RunRecoveryResolve = mutation "run.recoveryResolve" {
+        RunRecoveryResolve = mutation "agent.run.recovery.resolve" {
             mutating: true,
             params: RunRecoveryResolveRequest,
             result: RunControlAck,
             refusals: [RunNotFound, RunInvalidTransition, RunRecoveryFailed],
         },
         /// Answers the choice a refused turn waits on.
-        RunRefusalChoiceResolve = mutation "run.refusalChoiceResolve" {
+        RunRefusalChoiceResolve = mutation "agent.run.refusalChoice.resolve" {
             mutating: true,
             params: RunRefusalChoiceResolveRequest,
             result: RunControlAck,
             refusals: [RunNotFound, RunInvalidTransition, DriverUnavailable],
         },
         /// Answers the choice a turn past the plan's allowance waits on.
-        RunUsageCreditsChoiceResolve = mutation "run.usageCreditsChoiceResolve" {
+        RunUsageCreditsChoiceResolve = mutation "agent.run.usageCreditsChoice.resolve" {
             mutating: true,
             params: RunUsageCreditsChoiceResolveRequest,
             result: RunControlAck,

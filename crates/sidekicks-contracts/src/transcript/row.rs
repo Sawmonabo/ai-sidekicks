@@ -1,5 +1,5 @@
 //! The transcript row every transcript read returns, discriminated on the closed `kind` (`run`,
-//! `rollback_boundary`, `general`). `type` is free-form so a row projected from a newer producer's
+//! `rollbackBoundary`, `general`). `type` is free-form so a row projected from a newer producer's
 //! event still parses; consumers narrow on `kind`, never on it. [`TranscriptRunStamp`] is the run
 //! arm's attribution alone, for an event delivered without its row.
 
@@ -35,9 +35,9 @@ use crate::wire::record::{prototype_free, prototype_free_names};
 use crate::wire::text::FreeFormText;
 
 ts_constants! {
-    /// The event type the `rollback_boundary` arm pins.
+    /// The event type the `rollbackBoundary` arm pins.
     pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str = SessionEventType::RunRolledBack.as_str();
-    /// The category every `run_lifecycle` event belongs to, and the one the boundary arm pins.
+    /// The category every `runLifecycle` event belongs to, and the one the boundary arm pins.
     /// Every type in it is run-scoped, which is why the `general` arm refuses the category.
     pub const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY: EventCategory = EventCategory::RunLifecycle;
     /// The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions.
@@ -50,7 +50,7 @@ ts_constants! {
     RUN_START_POSITION = RUN_START_POSITION;
 }
 
-/// The `interactive_request` types whose payload does not always name a run: queue events, a
+/// The `interactiveRequest` types whose payload does not always name a run: queue events, a
 /// person's message (accepted before any run exists) and a question a workflow step asks. The
 /// rest of the category is run-scoped, so a newly added type defaults to run-scoped.
 const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [SessionEventType; 7] = [
@@ -63,15 +63,15 @@ const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [SessionEventType; 7] = [
     SessionEventType::QuestionAsked,
 ];
 
-/// The `usage_telemetry` types whose payload requires `runId`, listed positively because the
+/// The `usageTelemetry` types whose payload requires `runId`, listed positively because the
 /// category's shared shape leaves it optional: a session-scoped budget warning is a real row.
 const USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 2] = [
     SessionEventType::UsageContextCompacted,
     SessionEventType::UsageModelRerouted,
 ];
 
-/// The `approval_flow` types whose payload requires `runId`: an ask, its answer and its end belong
-/// to the run that raised it. `approval.rule_revoked` is decided per row by its payload.
+/// The `approvalFlow` types whose payload requires `runId`: an ask, its answer and its end belong
+/// to the run that raised it. `approval.rule.revoked` is decided per row by its payload.
 const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 8] = [
     SessionEventType::ApprovalRequested,
     SessionEventType::ApprovalApproved,
@@ -132,7 +132,7 @@ pub struct SupersededMarker {
 }
 
 /// One file whose patch a tool call's row left out, and the patch's size in bytes;
-/// `transcript.patchRead` fetches every left-out patch of the call in one read.
+/// `transcript.patch.list` fetches every left-out patch of the call in one read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranscriptOmittedPatch {
@@ -151,11 +151,11 @@ pub struct TranscriptOmittedPatch {
 }
 
 literal! {
-    /// The `rollback_boundary` arm's category: `run_lifecycle`, the one `run.rolled_back` belongs
-    /// to.
+    /// The `rollbackBoundary` arm's category: `runLifecycle`, the one `agent.run.rolledBack`
+    /// belongs to.
     pub enum RunLifecycleCategory = const EventCategory::RunLifecycle.as_str();
 
-    /// The `rollback_boundary` arm's event type: `run.rolled_back`.
+    /// The `rollbackBoundary` arm's event type: `agent.run.rolledBack`.
     pub enum RollbackBoundaryType = const SessionEventType::RunRolledBack.as_str();
 }
 
@@ -247,8 +247,8 @@ transcript_row_arm! {
     #[schemars(inline)]
     #[garde(allow_unvalidated)]
     pub struct TranscriptEntry {
-        /// The event's category; never `run_lifecycle`, whose every event is run-scoped.
-        #[schemars(extend("not" = { "const": "run_lifecycle" }))]
+        /// The event's category; never `runLifecycle`, whose every event is run-scoped.
+        #[schemars(extend("not" = { "const": "runLifecycle" }))]
         pub category: EventCategory,
         /// The event's type, free-form by contract: narrow on `kind`, never on this.
         #[serde(rename = "type")]
@@ -272,7 +272,7 @@ impl TranscriptEntry {
     fn refuse_run_scoped_row(&self, event_type: &str) -> garde::Result {
         if self.category == EventCategory::RunLifecycle {
             return Err(garde::Error::new(
-                "every run_lifecycle event is run-scoped, so it belongs to the run arm",
+                "every runLifecycle event is run-scoped, so it belongs to the run arm",
             ));
         }
         if SessionEventType::from_wire_name(event_type)
@@ -304,7 +304,7 @@ transcript_row_arm! {
     pub struct RunScopedTranscriptEntry {
         /// The event's category.
         pub category: EventCategory,
-        /// The event's type; never `run.rolled_back`, which only the boundary arm carries.
+        /// The event's type; never `agent.run.rolledBack`, which only the boundary arm carries.
         #[serde(rename = "type")]
         #[schemars(extend("not" = { "const": TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE }))]
         #[garde(custom(|event_type: &FreeFormText<EVENT_FIELD_MAX_LEN>, (): &()| {
@@ -348,7 +348,7 @@ transcript_row_arm! {
 fn refuse_boundary_type(event_type: &str) -> garde::Result {
     if event_type == TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE {
         Err(garde::Error::new(
-            "the run.rolled_back event type is carried only by the rollback_boundary arm",
+            "the agent.run.rolledBack event type is carried only by the rollbackBoundary arm",
         ))
     } else {
         Ok(())
@@ -385,14 +385,14 @@ impl RunScopedTranscriptEntry {
 }
 
 transcript_row_arm! {
-    /// `kind: "rollback_boundary"`, the `run.rolled_back` row, whose typed payload agrees with the
-    /// row's `runId`, `sessionId` and `position`.
+    /// `kind: "rollback_boundary"`, the `agent.run.rolledBack` row, whose typed payload agrees with
+    /// the row's `runId`, `sessionId` and `position`.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[schemars(inline)]
     #[garde(allow_unvalidated)]
     pub struct TranscriptRollbackBoundary {
-        /// Pinned with `type`: `run.rolled_back` belongs to this category only.
+        /// Pinned with `type`: `agent.run.rolledBack` belongs to this category only.
         pub category: RunLifecycleCategory,
         /// The rollback event's type.
         #[serde(rename = "type")]
@@ -450,9 +450,9 @@ impl TranscriptRollbackBoundary {
 /// chosen by `kind`, so a failure is reported against that arm and never retried against a
 /// sibling.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TranscriptReadRow {
-    /// The `run.rolled_back` row.
+    /// The `agent.run.rolledBack` row.
     RollbackBoundary(#[garde(dive)] TranscriptRollbackBoundary),
     /// A run's row.
     Run(#[garde(dive)] RunScopedTranscriptEntry),

@@ -26,56 +26,56 @@ methods! {
     /// Every `gitflow.*` method.
     pub const GITFLOW_METHOD_DESCRIPTORS = [
         /// The machine's self-hosted git hosts.
-        GitflowHostList = query "gitflow.hostList" {
+        GitflowHostList = query "git.host.list" {
             mutating: false,
             params: EmptyPayload,
             result: GitflowHostListResponse,
             refusals: [],
         },
         /// Adds a self-hosted git host.
-        GitflowHostAdd = mutation "gitflow.hostAdd" {
+        GitflowHostAdd = mutation "git.host.add" {
             mutating: true,
             params: GitflowHostAddRequest,
             result: GitflowHostAddResponse,
             refusals: [GitflowHostInvalid],
         },
         /// Forgets a self-hosted git host.
-        GitflowHostRemove = mutation "gitflow.hostRemove" {
+        GitflowHostRemove = mutation "git.host.remove" {
             mutating: true,
             params: GitflowHostRemoveRequest,
             result: GitflowHostRemoveResponse,
             refusals: [],
         },
         /// The session branch's ship facts.
-        GitflowBranchContextRead = query "gitflow.branchContextRead" {
+        GitflowBranchContextRead = query "git.branchContext.read" {
             mutating: false,
             params: GitflowSessionRequest,
             result: GitflowBranchContextReadResponse,
             refusals: [SessionNotFound, GitflowReadFailed],
         },
         /// One comparison's whole diff.
-        GitflowDiffRead = query "gitflow.diffRead" {
+        GitflowDiffRead = query "git.diff.read" {
             mutating: false,
             params: GitflowDiffReadRequest,
             result: GitflowDiffReadResponse,
             refusals: [SessionNotFound, GitflowReadFailed],
         },
         /// The exact commands a ship act will run.
-        GitflowGitActionPreview = query "gitflow.gitActionPreview" {
+        GitflowGitActionPreview = query "git.action.preview" {
             mutating: false,
             params: GitflowGitActionPreviewRequest,
             result: GitflowGitActionPreviewResponse,
             refusals: [SessionNotFound],
         },
         /// Runs a ship act, or resumes one at its failed command.
-        GitflowGitActionExecute = mutation "gitflow.gitActionExecute" {
+        GitflowGitActionExecute = mutation "git.action.execute" {
             mutating: true,
             params: GitflowGitActionExecuteRequest,
             result: GitflowGitActionExecuteResponse,
             refusals: [SessionNotFound],
         },
         /// Follows a ship act's commands.
-        GitflowGitActionSubscribe = subscription "gitflow.gitActionSubscribe" {
+        GitflowGitActionSubscribe = subscription "git.action.subscribe" {
             mutating: false,
             params: GitflowGitActionSubscribeRequest,
             result: SubscribeAckResponse,
@@ -83,21 +83,21 @@ methods! {
             refusals: [],
         },
         /// Generates a commit message.
-        GitflowCommitMessageGenerate = mutation "gitflow.commitMessageGenerate" {
+        GitflowCommitMessageGenerate = mutation "git.commitMessage.generate" {
             mutating: false,
             params: GitflowSessionRequest,
             result: GitflowCommitMessageGenerateResponse,
             refusals: [SessionNotFound, GitflowGenerateFailed],
         },
         /// Generates a change request's title and description.
-        GitflowChangeRequestTextGenerate = mutation "gitflow.changeRequestTextGenerate" {
+        GitflowChangeRequestTextGenerate = mutation "git.changeRequest.text.generate" {
             mutating: false,
             params: GitflowSessionRequest,
             result: GitflowChangeRequestTextGenerateResponse,
             refusals: [SessionNotFound, GitflowGenerateFailed],
         },
         /// Follows the branch's change requests at one depth.
-        GitflowChangeRequestSubscribe = subscription "gitflow.changeRequestSubscribe" {
+        GitflowChangeRequestSubscribe = subscription "git.changeRequest.subscribe" {
             mutating: false,
             params: GitflowChangeRequestSubscribeRequest,
             result: SubscribeAckResponse,
@@ -105,42 +105,42 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// The reviewer candidates.
-        GitflowReviewerList = query "gitflow.reviewerList" {
+        GitflowReviewerList = query "git.reviewer.list" {
             mutating: false,
             params: GitflowReviewerListRequest,
             result: GitflowReviewerListResponse,
             refusals: [SessionNotFound, GitflowReadFailed],
         },
         /// The label candidates.
-        GitflowLabelList = query "gitflow.labelList" {
+        GitflowLabelList = query "git.label.list" {
             mutating: false,
             params: GitflowSessionRequest,
             result: GitflowLabelListResponse,
             refusals: [SessionNotFound, GitflowReadFailed],
         },
         /// Posts the session's held notes as one review.
-        GitflowReviewSubmit = mutation "gitflow.reviewSubmit" {
+        GitflowReviewSubmit = mutation "git.review.submit" {
             mutating: true,
             params: GitflowReviewSubmitRequest,
             result: GitflowReviewSubmitResponse,
             refusals: [SessionNotFound],
         },
         /// Resolves a review thread.
-        GitflowThreadResolve = mutation "gitflow.threadResolve" {
+        GitflowThreadResolve = mutation "git.reviewThread.resolve" {
             mutating: true,
             params: GitflowThreadResolveRequest,
             result: GitflowThreadResolveResponse,
             refusals: [SessionNotFound],
         },
         /// Replies to a review thread.
-        GitflowThreadReply = mutation "gitflow.threadReply" {
+        GitflowThreadReply = mutation "git.reviewThread.reply" {
             mutating: true,
             params: GitflowThreadReplyRequest,
             result: GitflowThreadReplyResponse,
             refusals: [SessionNotFound],
         },
         /// The end of a check's log.
-        GitflowCheckLogRead = query "gitflow.checkLogRead" {
+        GitflowCheckLogRead = query "git.checkLog.read" {
             mutating: false,
             params: GitflowCheckLogReadRequest,
             result: GitflowCheckLogReadResponse,

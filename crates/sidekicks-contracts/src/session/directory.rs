@@ -1,8 +1,8 @@
 //! The session directory as a client reads and moves it: the live sessions list and its entries,
 //! creating a session (where it works and who leads it), converting a chat to a project, forking a
 //! session, moving its working folder, the terminal pane's overview, and the method table for these
-//! verbs and for `session.subscribe`, whose frames carry each event as its envelope, so a type the
-//! wire has no payload variant for still parses.
+//! verbs and for `session.event.subscribe`, whose frames carry each event as its envelope, so a
+//! type the wire has no payload variant for still parses.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -42,8 +42,8 @@ use crate::worktree::lifecycle::WorktreeId;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum SessionActivity {
     /// Working.
     Running,
@@ -219,7 +219,7 @@ session_list_entry_arm! {
 /// One row of the sessions list, everything the row draws from one feed so the list opens no
 /// stream per session, split on `shape`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(tag = "shape", rename_all = "snake_case")]
+#[serde(tag = "shape", rename_all = "camelCase")]
 pub enum SessionListEntry {
     /// A project session.
     Project(#[garde(dive)] SessionListProjectEntry),
@@ -227,7 +227,7 @@ pub enum SessionListEntry {
     Chat(#[garde(dive)] SessionListChatEntry),
 }
 
-/// `session.list`'s acknowledgement: the subscription, the first page of every session as it
+/// `session.subscribe`'s acknowledgement: the subscription, the first page of every session as it
 /// stands, and `chatCount`, the chats in the live list as the daemon counts them, so no reader
 /// counts. While `isComplete` is false the rest of the list follows as `page` changes, before any
 /// other change.
@@ -252,7 +252,7 @@ pub struct SessionListAck {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -302,7 +302,7 @@ pub struct SessionChatBinding {
 }
 
 /// A project session binds to the project's mount in the same step, working in a worktree of its
-/// own (`provisioned-worktree`) or in the project's checkout (`bound-root`).
+/// own (`provisionedWorktree`) or in the project's checkout (`boundRoot`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionProjectBinding {
@@ -438,7 +438,7 @@ pub struct SessionForkRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "shape",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -473,7 +473,7 @@ pub struct SessionSetWorkingFolderRequest {
 
 /// When a working-folder move takes effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionWorkingFolderDisposition {
     /// The session moved now, or the request cleared a pending move.
     Applied,
@@ -481,7 +481,7 @@ pub enum SessionWorkingFolderDisposition {
     Pending,
 }
 
-/// The `session.setWorkingFolder` result.
+/// The `session.workingFolder.update` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -542,7 +542,7 @@ pub struct SessionOverviewSession {
 
 /// Whether Remote Control is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RemoteControlState {
     /// On.
     On,
@@ -560,8 +560,8 @@ pub struct SessionOverviewRemoteControl {
 }
 
 /// What the terminal pane draws: every session with its agents and Remote Control's state, read
-/// from the projections behind `session.list` and `agent.list`. The next read sends `revision`
-/// back as `afterRevision`.
+/// from the projections behind `session.subscribe` and `agent.subscribe`. The next read sends
+/// `revision` back as `afterRevision`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -587,10 +587,11 @@ methods! {
                 SessionGroupRefused,
                 ProvideraccountNoDefault,
                 ProvideraccountNotRegistered,
+                AgentProviderAxisInvalid,
             ],
         },
         /// Follows the sessions list.
-        SessionList = subscription "session.list" {
+        SessionList = subscription "session.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SessionListAck,
@@ -598,7 +599,7 @@ methods! {
             refusals: [],
         },
         /// Follows one session's events.
-        SessionSubscribe = subscription "session.subscribe" {
+        SessionSubscribe = subscription "session.event.subscribe" {
             mutating: false,
             params: SessionSubscribeRequest,
             result: SubscribeAckResponse,
@@ -628,7 +629,7 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Moves a project session's working folder.
-        SessionSetWorkingFolder = mutation "session.setWorkingFolder" {
+        SessionSetWorkingFolder = mutation "session.workingFolder.update" {
             mutating: true,
             params: SessionSetWorkingFolderRequest,
             result: SessionSetWorkingFolderResponse,
@@ -638,11 +639,11 @@ methods! {
                 SessionWorkingFolderUnavailable,
                 RepoRootResolutionFailed,
                 RepoOutsideTrustEnvelope,
-                WorkspaceStale,
+                WorkspaceRootUnavailable,
             ],
         },
         /// The terminal pane's held read.
-        SessionOverviewRead = query "session.overviewRead" {
+        SessionOverviewRead = query "session.overview.read" {
             mutating: false,
             params: SessionOverviewReadRequest,
             result: SessionOverviewReadResponse,

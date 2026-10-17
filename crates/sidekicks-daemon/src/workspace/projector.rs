@@ -133,7 +133,7 @@ pub(crate) enum HealthProjectionError {
 }
 
 /// A mount's health: `unreachable` first, since nothing more can be asked of a root that cannot be
-/// probed, then `identity_mismatch` when the repository observed is not the anchored one. Refuses
+/// probed, then `identityMismatch` when the repository observed is not the anchored one. Refuses
 /// a probe of another path or place, and an identity observation given when none is owed or
 /// missing when one is.
 pub(crate) fn compute_repo_mount_health(

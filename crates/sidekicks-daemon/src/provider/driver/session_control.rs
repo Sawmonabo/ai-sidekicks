@@ -44,7 +44,7 @@ pub(crate) struct RevokeRuleParams {
     pub(crate) project_folder: Option<PathBuf>,
 }
 
-/// `session.permission_level_unavailable`: the session's provider, its account or its model cannot
+/// `session.permissionLevel.notOffered`: the session's provider, its account or its model cannot
 /// run at `level`, so nothing was changed. The level goes out as the refusal's detail.
 pub(crate) fn permission_level_unavailable(level: PermissionLevel) -> DomainError {
     DomainError::new(
@@ -96,7 +96,7 @@ pub(crate) struct UpdateSessionModeParams {
 
 /// Params of `ask_side_question`: a question asked on a throwaway copy of the conversation,
 /// leaving the session's own conversation and permissions as they were. Its answer is appended as
-/// `session.side_question_answered` under `side_question_id`.
+/// `session.sideQuestion.answered` under `side_question_id`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AskSideQuestionParams {
     /// The session.
@@ -108,7 +108,7 @@ pub(crate) struct AskSideQuestionParams {
 }
 
 /// Params of `start_review`: the provider's own review of `target`, bracketed by the
-/// `review_started` and `review_finished` notices.
+/// `reviewStarted` and `reviewFinished` notices.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StartReviewParams {
     /// The session.

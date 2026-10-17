@@ -19,7 +19,7 @@ use crate::wire::{False, True};
 /// daemon checks it, reusing the machine's mount for that folder or attaching one, and refusing a
 /// folder that is not a git repository. The path is read in the chat's own place: a Linux path in
 /// the chat's distribution, a drive path or its `/mnt/<drive>` form on Windows; a folder in another
-/// place is refused with `session.convert_refused`.
+/// place is refused with `session.conversion.refused`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -34,7 +34,7 @@ pub struct SessionConvertRequest {
 
 /// Why one of the workspace's files was not copied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum SessionConvertSkipReason {
     /// The repository already holds its path.
     RepositoryHasFile,
@@ -66,7 +66,7 @@ pub struct SessionConvertSkippedFile {
 pub struct SessionConvertResponse {
     /// Files copied.
     pub copied_count: SafeInt<0>,
-    /// Files not copied, each read with its reason through `session.convertSkippedFileList`.
+    /// Files not copied, each read with its reason through `session.conversion.skippedFile.list`.
     pub skipped_count: SafeInt<0>,
 }
 
@@ -84,7 +84,7 @@ pub struct SessionConvertedPayload {
     pub skipped_count: SafeInt<0>,
 }
 
-/// The most skipped files one `session.convertSkippedFileList` page carries, and its default.
+/// The most skipped files one `session.conversion.skippedFile.list` page carries, and its default.
 pub const SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX: usize = 256;
 
 /// The longest skipped-file cursor accepted: the daemon's encoding of a path, at most four
@@ -92,8 +92,8 @@ pub const SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX: usize = 256;
 const SESSION_CONVERT_SKIPPED_FILE_CURSOR_MAX_LEN: usize = FILE_PATH_MAX_LEN * 4;
 
 pattern_text! {
-    /// Where the next `session.convertSkippedFileList` page starts: base64url without padding, at
-    /// least one character and at most four for each UTF-16 unit of the longest path. The daemon
+    /// Where the next `session.conversion.skippedFile.list` page starts: base64url without padding,
+    /// at least one character and at most four for each UTF-16 unit of the longest path. The daemon
     /// writes it and owns its format; a client passes it back unchanged with the same session.
     pub struct SessionConvertSkippedFileCursor(
         "^[A-Za-z0-9_-]+$",
@@ -105,7 +105,7 @@ pattern_text! {
 pub type SessionConvertSkippedFileLimit =
     BoundedInt<1, { count_bound(SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX) }>;
 
-/// The `session.convertSkippedFileList` input: the converted session and, past the first page,
+/// The `session.conversion.skippedFile.list` input: the converted session and, past the first page,
 /// the previous page's `nextCursor`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

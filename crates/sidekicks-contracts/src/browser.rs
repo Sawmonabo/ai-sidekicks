@@ -144,7 +144,7 @@ pub struct BrowserSiteDataClearResponse {
 
 /// An installed Chromium that runs pages: the desktop app's own, or an installed Chrome or Edge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum BrowserInstalledChromiumSource {
     /// The desktop app's own.
     Desktop,
@@ -156,7 +156,7 @@ pub enum BrowserInstalledChromiumSource {
 
 literal! {
     /// The Chromium the service fetched on first need, Chrome for Testing.
-    pub enum BrowserFetchedChromiumSource = "chrome-for-testing";
+    pub enum BrowserFetchedChromiumSource = "chromeForTesting";
 }
 
 /// Why the daemon's headless Chromium cannot start on this machine.
@@ -247,49 +247,49 @@ methods! {
     /// The `browser.*` methods the daemon answers.
     pub const BROWSER_METHOD_DESCRIPTORS = [
         /// Every site with saved data.
-        BrowserSiteDataList = query "browser.siteDataList" {
+        BrowserSiteDataList = query "browser.siteData.list" {
             mutating: false,
             params: EmptyPayload,
             result: BrowserSiteDataListResponse,
             refusals: [],
         },
         /// Opens a site to sign in to it.
-        BrowserSiteSignIn = mutation "browser.siteSignIn" {
+        BrowserSiteSignIn = mutation "browser.site.signIn" {
             mutating: true,
             params: BrowserSiteRequest,
             result: BrowserSiteSignInResponse,
             refusals: [],
         },
         /// Clears a site's cookies.
-        BrowserSiteCookiesClear = mutation "browser.siteCookiesClear" {
+        BrowserSiteCookiesClear = mutation "browser.cookie.clear" {
             mutating: true,
             params: BrowserSiteRequest,
             result: BrowserSiteCookiesClearResponse,
             refusals: [],
         },
         /// Forgets everything a site saved.
-        BrowserSiteDataForget = mutation "browser.siteDataForget" {
+        BrowserSiteDataForget = mutation "browser.siteData.forget" {
             mutating: true,
             params: BrowserSiteRequest,
             result: BrowserSiteDataForgetResponse,
             refusals: [],
         },
         /// Clears every site's saved data.
-        BrowserSiteDataClear = mutation "browser.siteDataClear" {
+        BrowserSiteDataClear = mutation "browser.siteData.clear" {
             mutating: true,
             params: EmptyPayload,
             result: BrowserSiteDataClearResponse,
             refusals: [],
         },
         /// The Chromium in use.
-        BrowserChromiumRead = query "browser.chromiumRead" {
+        BrowserChromiumRead = query "browser.chromium.read" {
             mutating: false,
             params: EmptyPayload,
             result: BrowserChromiumReadResponse,
             refusals: [],
         },
         /// Fetches Chrome for Testing.
-        BrowserChromiumFetch = mutation "browser.chromiumFetch" {
+        BrowserChromiumFetch = mutation "browser.chromium.fetch" {
             mutating: true,
             params: EmptyPayload,
             result: BrowserChromiumFetchResponse,

@@ -27,8 +27,8 @@ ts_constants! {
     pub const CLOUD_ENVIRONMENT_LABEL_MAX_LEN: usize = 256;
     /// The most attempts one cloud task runs: its provider's own bound.
     pub const CLOUD_TASK_ATTEMPTS_MAX: i64 = 4;
-    /// Every reason the cloud can be unavailable, for the session menu that shows why.
-    CLOUD_UNAVAILABLE_REASONS = CloudUnavailableReason::VARIANTS;
+    /// Every reason an account is not entitled to the cloud, for the session menu that shows why.
+    CLOUD_ACCOUNT_NOT_ENTITLED_REASONS = CloudAccountNotEntitledReason::VARIANTS;
 }
 
 branded_text! {
@@ -42,28 +42,26 @@ pub type CloudTaskAttempt = BoundedInt<1, CLOUD_TASK_ATTEMPTS_MAX>;
 /// The label of a cloud environment, as the account's tasks name it or as typed.
 pub type CloudEnvironmentLabel = FreeFormText<CLOUD_ENVIRONMENT_LABEL_MAX_LEN>;
 
-/// Why sending to the cloud was refused: the account lacks the provider's sign-in or
-/// subscription, or the project has no GitHub remote.
+/// Why the account is not entitled to the provider's cloud: it is signed in a way that lacks it,
+/// or it lacks the subscription it needs.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-pub enum CloudUnavailableReason {
-    /// The provider's cloud needs a sign-in the account lacks.
-    ProviderSignInRequired,
+#[serde(rename_all = "camelCase")]
+pub enum CloudAccountNotEntitledReason {
+    /// The account's sign-in kind lacks the provider's cloud, as an API key does.
+    SignInKindNotEntitled,
     /// The provider's cloud needs a subscription the account lacks.
-    ProviderSubscriptionRequired,
-    /// The project has no GitHub remote.
-    GithubRemoteRequired,
+    SubscriptionRequired,
 }
 
-/// The `cloud.unavailable` refusal's details: why, and the session's provider, so the screen draws
-/// that provider's own sentence and remedy.
+/// The `cloud.accountNotEntitled` refusal's details: why, and the session's provider, so the
+/// screen draws that provider's own sentence and remedy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CloudUnavailableDetails {
+pub struct CloudAccountNotEntitledDetails {
     /// Why.
-    pub reason: CloudUnavailableReason,
+    pub reason: CloudAccountNotEntitledReason,
     /// The session's provider.
     pub provider: ProviderId,
 }
@@ -74,7 +72,7 @@ pub struct CloudUnavailableDetails {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "outcome",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -108,7 +106,7 @@ literal! {
 
 /// A state of a cloud task its provider reported without an error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum CloudTaskState {
     /// Running in the cloud.
     Pending,
@@ -198,7 +196,7 @@ pub enum CloudWork {
     Session(CloudSession),
 }
 
-/// `cloud.taskStart`: sends one message to the session's provider's cloud instead of to the
+/// `cloud.task.start`: sends one message to the session's provider's cloud instead of to the
 /// agent. `environment` and `attempts` belong to a task with attempts: the environment's label and
 /// how many attempts to run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -236,7 +234,7 @@ pub struct CloudTaskStartResponse {
     pub task_id: CloudTaskId,
 }
 
-/// `cloud.taskList`: the session whose cloud work the subscription follows.
+/// `cloud.task.subscribe`: the session whose cloud work the subscription follows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -257,7 +255,7 @@ pub struct CloudTaskListFrame {
     pub tasks: Vec<CloudWork>,
 }
 
-/// `cloud.taskRead`: the cloud work to read.
+/// `cloud.task.read`: the cloud work to read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -266,8 +264,8 @@ pub struct CloudTaskReadRequest {
     pub task_id: CloudTaskId,
 }
 
-/// `cloud.taskDiffRead` and `cloud.taskApply`: one task's attempt, `attempt` picking one of a
-/// task's several; for `cloud.taskApply` on a cloud session, the session to pull back.
+/// `cloud.task.diff.read` and `cloud.task.apply`: one task's attempt, `attempt` picking one of a
+/// task's several; for `cloud.task.apply` on a cloud session, the session to pull back.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -302,7 +300,7 @@ pub struct CloudTaskDiffReadResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -320,7 +318,7 @@ pub enum CloudTaskApplyResponse {
     },
 }
 
-/// The `cloud.task_updated` payload: cloud work was sent, its provider reported a new state, or it
+/// The `cloud.task.updated` payload: cloud work was sent, its provider reported a new state, or it
 /// was brought back. It carries the whole work as it now stands, so the session's record of its
 /// cloud work is the latest of these per id.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -334,14 +332,19 @@ methods! {
     /// The `cloud.*` methods.
     pub const CLOUD_METHOD_DESCRIPTORS = [
         /// Sends one message to the session's provider's cloud.
-        CloudTaskStart = mutation "cloud.taskStart" {
+        CloudTaskStart = mutation "cloud.task.start" {
             mutating: true,
             params: CloudTaskStartRequest,
             result: CloudTaskStartResponse,
-            refusals: [SessionNotFound, CloudUnavailable],
+            refusals: [
+                SessionNotFound,
+                CloudAccountNotEntitled,
+                CloudGithubRemoteRequired,
+                DriverCapabilityUnsupported,
+            ],
         },
         /// Follows the session's cloud work.
-        CloudTaskList = subscription "cloud.taskList" {
+        CloudTaskList = subscription "cloud.task.subscribe" {
             mutating: false,
             params: CloudTaskListRequest,
             result: SubscribeAckResponse,
@@ -349,21 +352,21 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Reads one piece of cloud work.
-        CloudTaskRead = query "cloud.taskRead" {
+        CloudTaskRead = query "cloud.task.read" {
             mutating: false,
             params: CloudTaskReadRequest,
             result: CloudWork,
             refusals: [],
         },
         /// Reads a ready task's diff.
-        CloudTaskDiffRead = query "cloud.taskDiffRead" {
+        CloudTaskDiffRead = query "cloud.task.diff.read" {
             mutating: false,
             params: CloudTaskAttemptRequest,
             result: CloudTaskDiffReadResponse,
             refusals: [],
         },
         /// Brings cloud work back.
-        CloudTaskApply = mutation "cloud.taskApply" {
+        CloudTaskApply = mutation "cloud.task.apply" {
             mutating: true,
             params: CloudTaskAttemptRequest,
             result: CloudTaskApplyResponse,
@@ -378,8 +381,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A session's work in its provider's own cloud: a task with attempts, or a cloud session.",
     definitions: &[
         Definition::read::<CloudTaskId>().checked(),
-        Definition::read::<CloudUnavailableReason>(),
-        Definition::read::<CloudUnavailableDetails>().checked(),
+        Definition::read::<CloudAccountNotEntitledReason>(),
+        Definition::read::<CloudAccountNotEntitledDetails>().checked(),
         Definition::read::<CloudBringBack>().checked(),
         Definition::read::<CloudTaskState>(),
         Definition::read::<CloudWork>().checked(),

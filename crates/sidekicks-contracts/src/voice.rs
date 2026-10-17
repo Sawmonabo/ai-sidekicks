@@ -37,7 +37,7 @@ literal! {
 }
 
 /// A kind of voice a provider offers, which its section declares: the composer starts the
-/// matching method, `voice.dictationStart` or `voice.callStart`.
+/// matching method, `voice.dictation.start` or `voice.call.start`.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
@@ -74,7 +74,7 @@ pub struct VoiceAccountNotEntitledDetails {
 }
 
 /// The session voice is on in, or `null` when it is off: the request and result of
-/// `voice.stateUpdate`, and each delivery of `voice.stateSubscribe`, the first of which is the
+/// `voice.state.update`, and each delivery of `voice.state.subscribe`, the first of which is the
 /// current state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -86,7 +86,7 @@ pub struct VoiceState {
     pub session_id: Option<SessionId>,
 }
 
-/// `voice.dictationStart`: starts a recording in a session whose voice is dictation.
+/// `voice.dictation.start`: starts a recording in a session whose voice is dictation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -95,7 +95,7 @@ pub struct VoiceDictationStartRequest {
     pub session_id: SessionId,
 }
 
-/// `voice.dictationWrite`: one frame of the recording's audio, 16 kHz 16-bit mono PCM, at most
+/// `voice.dictation.write`: one frame of the recording's audio, 16 kHz 16-bit mono PCM, at most
 /// 100 ms of it, in whole samples.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -112,7 +112,7 @@ pub struct VoiceDictationWriteRequest {
     pub audio: Bytes<1, VOICE_DICTATION_FRAME_MAX_BYTES>,
 }
 
-/// `voice.dictationStop`: stops the recording; `cancel` drops it, and its words with it.
+/// `voice.dictation.stop`: stops the recording; `cancel` drops it, and its words with it.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
 )]
@@ -129,7 +129,7 @@ pub struct VoiceDictationStopRequest {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum VoiceDictationFailureReason {
     /// Only silent samples reached the microphone.
     NoSound,
@@ -143,7 +143,7 @@ pub enum VoiceDictationFailureReason {
 
 literal! {
     /// The reason of a speech service's own error.
-    pub enum VoiceServiceErrorReason = "service_error";
+    pub enum VoiceServiceErrorReason = "serviceError";
 }
 
 /// A recording's failure with a known reason.
@@ -160,7 +160,7 @@ pub struct VoiceDictationKnownFailure {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
 pub struct VoiceDictationServiceError {
-    /// Always `service_error`.
+    /// Always `serviceError`.
     pub reason: VoiceServiceErrorReason,
     /// The service's words.
     pub message: NonEmptyText,
@@ -176,13 +176,13 @@ pub enum VoiceDictationFailure {
     ServiceError(VoiceDictationServiceError),
 }
 
-/// One push of a `voice.dictationSubscribe` stream: `words` carries the settled words and the
+/// One push of a `voice.dictation.subscribe` stream: `words` carries the settled words and the
 /// words still in progress, which the draft shows in that order with a space between; `ended`
 /// closes the recording, with its failure or `null`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
-    rename_all = "snake_case",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -208,7 +208,7 @@ pub enum VoiceDictationFrame {
     },
 }
 
-/// `voice.callStart`: starts a call in a session whose voice is a spoken call, with the window's
+/// `voice.call.start`: starts a call in a session whose voice is a spoken call, with the window's
 /// WebRTC offer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -309,7 +309,7 @@ call_frame! {
     }
 }
 
-/// One push of a `voice.callSubscribe` stream: the call started; the words the call hears from the
+/// One push of a `voice.call.subscribe` stream: the call started; the words the call hears from the
 /// person as they arrive, then settled; the voice's reply, settled; the call ended, with its cause.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
@@ -346,14 +346,14 @@ methods! {
     /// The `voice.*` methods.
     pub const VOICE_METHOD_DESCRIPTORS = [
         /// Turns voice on in a session, or off.
-        VoiceStateUpdate = mutation "voice.stateUpdate" {
+        VoiceStateUpdate = mutation "voice.state.update" {
             mutating: true,
             params: VoiceState,
             result: VoiceState,
             refusals: [SessionNotFound],
         },
         /// Follows which session voice is on in.
-        VoiceStateSubscribe = subscription "voice.stateSubscribe" {
+        VoiceStateSubscribe = subscription "voice.state.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,
@@ -361,28 +361,28 @@ methods! {
             refusals: [],
         },
         /// Starts a recording.
-        VoiceDictationStart = mutation "voice.dictationStart" {
+        VoiceDictationStart = mutation "voice.dictation.start" {
             mutating: true,
             params: VoiceDictationStartRequest,
             result: EmptyPayload,
             refusals: [SessionNotFound, VoiceAccountNotEntitled, DriverCapabilityUnsupported],
         },
         /// Sends one frame of the recording.
-        VoiceDictationWrite = mutation "voice.dictationWrite" {
+        VoiceDictationWrite = mutation "voice.dictation.write" {
             mutating: true,
             params: VoiceDictationWriteRequest,
             result: EmptyPayload,
             refusals: [],
         },
         /// Stops the recording.
-        VoiceDictationStop = mutation "voice.dictationStop" {
+        VoiceDictationStop = mutation "voice.dictation.stop" {
             mutating: true,
             params: VoiceDictationStopRequest,
             result: EmptyPayload,
             refusals: [],
         },
         /// Follows the recording's words.
-        VoiceDictationSubscribe = subscription "voice.dictationSubscribe" {
+        VoiceDictationSubscribe = subscription "voice.dictation.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,
@@ -390,7 +390,7 @@ methods! {
             refusals: [],
         },
         /// Starts a spoken call.
-        VoiceCallStart = mutation "voice.callStart" {
+        VoiceCallStart = mutation "voice.call.start" {
             mutating: true,
             params: VoiceCallStartRequest,
             result: VoiceCallStartResponse,
@@ -405,14 +405,14 @@ methods! {
             ],
         },
         /// Stops the call.
-        VoiceCallStop = mutation "voice.callStop" {
+        VoiceCallStop = mutation "voice.call.stop" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
             refusals: [],
         },
         /// Follows the call.
-        VoiceCallSubscribe = subscription "voice.callSubscribe" {
+        VoiceCallSubscribe = subscription "voice.call.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,
@@ -420,7 +420,7 @@ methods! {
             refusals: [],
         },
         /// The voices the provider offers a call.
-        VoiceList = query "voice.voiceList" {
+        VoiceList = query "voice.list" {
             mutating: false,
             params: EmptyPayload,
             result: VoiceListResponse,

@@ -1,5 +1,5 @@
-//! The `daemon.hello` handshake shared by the daemon and its clients. A protocol version is an
-//! ISO 8601 `YYYY-MM-DD` date, so text order is chronological.
+//! The `connection.initialize` handshake shared by the daemon and its clients. A protocol version
+//! is an ISO 8601 `YYYY-MM-DD` date, so text order is chronological.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,17 +15,17 @@ use crate::wire::text::{BoundedText, pattern_text};
 
 ts_constants! {
     /// The JSON-RPC method name of the negotiation handshake.
-    pub const DAEMON_HELLO_METHOD: &str = "daemon.hello";
+    pub const DAEMON_HELLO_METHOD: &str = "connection.initialize";
     /// The longest a free-form negotiation string (`clientId`, a capability tag) may be.
     pub const NEGOTIATION_FIELD_MAX_LEN: usize = 256;
     /// The most entries any protocol-version or capability list in the handshake may carry.
     pub const SUPPORTED_PROTOCOLS_MAX_LEN: usize = 32;
-    /// The protocol version this build speaks: the version a client offers in `daemon.hello`, and
-    /// the newest one the daemon accepts.
+    /// The protocol version this build speaks: the version a client offers in
+    /// `connection.initialize`, and the newest one the daemon accepts.
     pub const CURRENT_PROTOCOL_VERSION: &str = "2026-05-01";
     /// The protocol versions this build speaks, newest last: its own, and the one before it once a
     /// release has shipped one. The daemon accepts exactly these, and a client offers exactly
-    /// these in `daemon.hello`.
+    /// these in `connection.initialize`.
     pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[CURRENT_PROTOCOL_VERSION];
     /// Ack reason: the client is too old for the daemon.
     NEGOTIATION_REASON_FLOOR_EXCEEDED = NegotiationIncompatibleReason::FloorExceeded;
@@ -37,8 +37,8 @@ ts_constants! {
     /// The refusal of a mutating call on a connection whose handshake answered
     /// `compatible: false`.
     NEGOTIATION_VERSION_MISMATCH_CODE = RefusalCode::ProtocolVersionMismatch;
-    /// The refusal of every call on a connection whose `daemon.hello` carried no session token or
-    /// the wrong one, the hello included.
+    /// The refusal of every call on a connection whose `connection.initialize` carried no session
+    /// token or the wrong one, the hello included.
     NEGOTIATION_TOKEN_INVALID_CODE = RefusalCode::AuthTokenInvalid;
     /// The refusal of every call, whatever token it carried, on a connection opened by a process
     /// the daemon started outside the person's terminals, or one the system could not name or
@@ -54,9 +54,9 @@ pattern_text! {
 /// A non-empty free-form negotiation string.
 pub type NegotiationText = BoundedText<1, NEGOTIATION_FIELD_MAX_LEN>;
 
-/// The `daemon.hello` request, the first call on a connection: the client's preferred version,
-/// its full supported set (by default `[protocolVersion]`), and the daemon's session token read
-/// from its token file.
+/// The `connection.initialize` request, the first call on a connection: the client's preferred
+/// version, its full supported set (by default `[protocolVersion]`), and the daemon's session token
+/// read from its token file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -80,7 +80,7 @@ pub struct DaemonHello {
     #[schemars(with = "NegotiationText")]
     pub client_id: Option<NegotiationText>,
     /// The session token the daemon wrote to its token file at this start; its absence is
-    /// answered as a wrong one, `auth.token_invalid`.
+    /// answered as a wrong one, `auth.token.invalid`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -103,19 +103,19 @@ pub struct DaemonHello {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub enum NegotiationIncompatibleReason {
     /// The client is too old.
-    #[serde(rename = "version.floor_exceeded")]
+    #[serde(rename = "connection.version.floorExceeded")]
     FloorExceeded,
     /// The client is too new.
-    #[serde(rename = "version.ceiling_exceeded")]
+    #[serde(rename = "connection.version.ceilingExceeded")]
     CeilingExceeded,
     /// A second handshake arrived on the connection.
-    #[serde(rename = "protocol.handshake_already_completed")]
+    #[serde(rename = "connection.handshake.alreadyCompleted")]
     HandshakeAlreadyCompleted,
 }
 
-/// The `daemon.hello` result. When `compatible` is false only read-only calls are allowed, and
-/// `protocolVersion` is the daemon's newest; `reason` and `daemonSupportedProtocols` appear only
-/// on an incompatible first handshake.
+/// The `connection.initialize` result. When `compatible` is false only read-only calls are allowed,
+/// and `protocolVersion` is the daemon's newest; `reason` and `daemonSupportedProtocols` appear
+/// only on an incompatible first handshake.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -153,8 +153,8 @@ pub struct DaemonHelloAck {
         Option<BoundedVec<ProtocolVersion, 0, SUPPORTED_PROTOCOLS_MAX_LEN>>,
 }
 
-/// `daemon.hello` as a method the daemon answers, outside every method table: a read, so the
-/// version gate never refuses it, answering a wrong or missing token, a refused caller, or a
+/// `connection.initialize` as a method the daemon answers, outside every method table: a read, so
+/// the version gate never refuses it, answering a wrong or missing token, a refused caller, or a
 /// service still repairing its database file.
 #[derive(Clone, Copy, Debug)]
 pub struct DaemonHandshake;
@@ -181,7 +181,7 @@ impl Method for DaemonHandshake {
 /// The TypeScript module of the handshake.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "jsonrpc/negotiation",
-    doc: "The `daemon.hello` handshake, `DaemonHello` and `DaemonHelloAck`, shared by the daemon \
+    doc: "The `connection.initialize` handshake, `DaemonHello` and `DaemonHelloAck`, shared by the daemon \
           and its clients. A `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date, so lexical order \
           is chronological.",
     definitions: &[

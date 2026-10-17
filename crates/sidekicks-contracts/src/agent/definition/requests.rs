@@ -283,7 +283,7 @@ pub struct AgentDefinitionImportRequest {
 
 /// Why an import skipped a file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[schemars(inline)]
 pub enum SkippedImportFileReason {
     /// The file is not an agent definition.

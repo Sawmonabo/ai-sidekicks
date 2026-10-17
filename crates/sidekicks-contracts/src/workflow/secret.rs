@@ -65,8 +65,8 @@ pattern_text! {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowSecretScope {
     /// The runs that work in one project.
     Project,
@@ -232,7 +232,7 @@ workflow_secret_place! {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(
         tag = "scope",
-        rename_all = "snake_case",
+        rename_all = "camelCase",
         rename_all_fields = "camelCase",
         deny_unknown_fields
     )]
@@ -246,13 +246,14 @@ workflow_secret_place! {
 }
 
 workflow_secret_place! {
-    /// The `workflow.secretCreate` input: the daemon seals `secretValue` in the keychain before it
+    /// The `workflow.secret.create` input: the daemon seals `secretValue` in the keychain before it
     /// writes the record, so a keychain that cannot take it leaves no record. A `name` that breaks
-    /// the rule or that the place already holds is refused with `workflow.secret_name_invalid`.
+    /// the rule is refused with `workflow.secret.nameInvalid`, one the place already holds with
+    /// `workflow.secret.nameTaken`.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(
         tag = "scope",
-        rename_all = "snake_case",
+        rename_all = "camelCase",
         rename_all_fields = "camelCase",
         deny_unknown_fields
     )]
@@ -266,7 +267,7 @@ workflow_secret_place! {
     }
 }
 
-/// The `workflow.secretReplace` input: a new value for one secret, sealed before the record's
+/// The `workflow.secret.update` input: a new value for one secret, sealed before the record's
 /// change is written.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -278,9 +279,9 @@ pub struct WorkflowSecretReplaceRequest {
     pub secret_value: WorkflowSecretValue,
 }
 
-/// The `workflow.secretDelete` input: the daemon records the removal, then removes the keychain
+/// The `workflow.secret.delete` input: the daemon records the removal, then removes the keychain
 /// entry and the record, so a crash between the two finishes it. A version that still names the
-/// secret fails its step with `workflow.secret_not_found`.
+/// secret fails its step with `workflow.secret.notFound`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -298,7 +299,7 @@ pub struct WorkflowSecretActResponse {
     pub secret_id: WorkflowSecretId,
 }
 
-/// The `workflow.secretList` result: every secret by name, shared and each project's, one row
+/// The `workflow.secret.list` result: every secret by name, shared and each project's, one row
 /// each, and no member carries a value. The request names nothing: a workflow belongs to no
 /// project, so the chooser lists them all.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -311,15 +312,13 @@ pub struct WorkflowSecretListResponse {
 
 /// Why a secret's name was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowSecretNameInvalidReason {
     /// The name breaks the name rule.
     Pattern,
-    /// The place already holds the name.
-    Taken,
 }
 
-/// The details of `workflow.secret_name_invalid`.
+/// The details of `workflow.secret.nameInvalid`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowSecretNameInvalidDetails {
@@ -359,7 +358,7 @@ pub struct WorkflowSecretRecordNotFound {
     pub secret_id: WorkflowSecretId,
 }
 
-/// The details of `workflow.secret_not_found`: the reference a failed step stored, or the id a
+/// The details of `workflow.secret.notFound`: the reference a failed step stored, or the id a
 /// replace or a delete named, one or the other.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
@@ -370,7 +369,7 @@ pub enum WorkflowSecretNotFoundDetails {
     Record(WorkflowSecretRecordNotFound),
 }
 
-/// The details of `workflow.secret_store_unavailable`: why the keychain could not be used. A create
+/// The details of `workflow.secret.storeUnavailable`: why the keychain could not be used. A create
 /// or replace is refused, and a step fails and offers `Retry from this step`, never waiting on the
 /// keychain or keeping the value anywhere else.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -384,28 +383,32 @@ methods! {
     /// The workflow secrets' method table.
     pub const WORKFLOW_SECRET_METHOD_DESCRIPTORS = [
         /// Seals a new secret's value and records it under a place and a name.
-        WorkflowSecretCreate = mutation "workflow.secretCreate" {
+        WorkflowSecretCreate = mutation "workflow.secret.create" {
             mutating: true,
             params: WorkflowSecretCreateRequest,
             result: WorkflowSecretSummary,
-            refusals: [WorkflowSecretNameInvalid, WorkflowSecretStoreUnavailable],
+            refusals: [
+                WorkflowSecretNameInvalid,
+                WorkflowSecretNameTaken,
+                WorkflowSecretStoreUnavailable,
+            ],
         },
         /// Replaces a secret's value.
-        WorkflowSecretReplace = mutation "workflow.secretReplace" {
+        WorkflowSecretReplace = mutation "workflow.secret.update" {
             mutating: true,
             params: WorkflowSecretReplaceRequest,
             result: WorkflowSecretActResponse,
             refusals: [WorkflowSecretNotFound, WorkflowSecretStoreUnavailable],
         },
         /// Deletes a secret's record and its stored value.
-        WorkflowSecretDelete = mutation "workflow.secretDelete" {
+        WorkflowSecretDelete = mutation "workflow.secret.delete" {
             mutating: true,
             params: WorkflowSecretDeleteRequest,
             result: WorkflowSecretActResponse,
             refusals: [WorkflowSecretNotFound],
         },
         /// Lists every secret by name, never a value.
-        WorkflowSecretList = query "workflow.secretList" {
+        WorkflowSecretList = query "workflow.secret.list" {
             mutating: false,
             params: EmptyPayload,
             result: WorkflowSecretListResponse,

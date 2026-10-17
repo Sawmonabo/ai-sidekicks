@@ -376,7 +376,7 @@ pub struct PreviewPageLocalInputReportRequest {
 
 /// A device's act from a menu main reported, naming the menu by its press's message id. Main
 /// applies it in the frame holding focus while that menu is still the page's current one, and
-/// otherwise refuses it with `preview.edit_refused`, changing nothing.
+/// otherwise refuses it with `preview.editRefused`, changing nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -393,42 +393,42 @@ methods! {
     /// The `preview.*` link methods the daemon answers; main is their only caller.
     pub const PREVIEW_PAGE_LINK_METHOD_DESCRIPTORS = [
         /// Main reports a page's debug target.
-        PreviewPageTargetReport = mutation "preview.pageTargetReport" {
+        PreviewPageTargetReport = mutation "preview.page.target.report" {
             mutating: true,
             params: PreviewPageTargetReportRequest,
             result: PreviewReceivedResponse,
             refusals: [],
         },
         /// Main returns a page's debugger results and events.
-        PreviewPageDebuggerReport = mutation "preview.pageDebuggerReport" {
+        PreviewPageDebuggerReport = mutation "preview.page.debugger.report" {
             mutating: true,
             params: PreviewPageDebuggerMessageRequest,
             result: PreviewReceivedResponse,
             refusals: [],
         },
         /// Main reports the menu a relayed press raised.
-        PreviewPageMenuReport = mutation "preview.pageMenuReport" {
+        PreviewPageMenuReport = mutation "preview.page.menu.report" {
             mutating: true,
             params: PreviewPageMenuReportRequest,
             result: PreviewReceivedResponse,
             refusals: [],
         },
         /// Main reads the folder it writes a relayed download into, once per connection.
-        PreviewPageStagingFolderRead = query "preview.pageStagingFolderRead" {
+        PreviewPageStagingFolderRead = query "preview.page.stagingFolder.read" {
             mutating: false,
             params: EmptyPayload,
             result: PreviewPageStagingFolderReadResponse,
             refusals: [],
         },
         /// Main reports that input at the machine reached a page.
-        PreviewPageLocalInputReport = mutation "preview.pageLocalInputReport" {
+        PreviewPageLocalInputReport = mutation "preview.page.localInput.report" {
             mutating: true,
             params: PreviewPageLocalInputReportRequest,
             result: PreviewReceivedResponse,
             refusals: [],
         },
         /// Main reports a relayed download in its end state.
-        PreviewPageDownloadReport = mutation "preview.pageDownloadReport" {
+        PreviewPageDownloadReport = mutation "preview.page.download.report" {
             mutating: true,
             params: PreviewPageDownloadReportRequest,
             result: PreviewPageDownloadReportResponse,
@@ -436,7 +436,7 @@ methods! {
         },
         /// Main, in a desktop app reaching another machine, reads one part of a save its own
         /// daemon kept for it.
-        PreviewSaveRead = query "preview.saveRead" {
+        PreviewSaveRead = query "preview.save.read" {
             mutating: false,
             params: PreviewSaveReadRequest,
             result: PreviewFilePartResponse,
@@ -450,42 +450,42 @@ methods! {
     /// connection the app dials, so they never join the daemon's own method map.
     pub const PREVIEW_PAGE_HOST_METHOD_DESCRIPTORS = [
         /// Sends a debugger command to a page.
-        PreviewPageDebuggerSend = mutation "preview.pageDebuggerSend" {
+        PreviewPageDebuggerSend = mutation "preview.page.debugger.send" {
             mutating: true,
             params: PreviewPageDebuggerMessageRequest,
             result: PreviewReceivedResponse,
             refusals: [],
         },
         /// Applies a device's menu act to a page.
-        PreviewPageEdit = mutation "preview.pageEdit" {
+        PreviewPageEdit = mutation "preview.page.edit" {
             mutating: true,
             params: PreviewPageEditRequest,
             result: PreviewMenuEditResponse,
             refusals: [PreviewEditRefused],
         },
         /// Reads cookies.
-        PreviewPageCookiesRead = query "preview.pageCookiesRead" {
+        PreviewPageCookiesRead = query "preview.page.cookie.list" {
             mutating: false,
             params: PreviewPageCookiesReadRequest,
             result: PreviewPageCookiesReadResponse,
             refusals: [],
         },
         /// Writes cookies.
-        PreviewPageCookiesWrite = mutation "preview.pageCookiesWrite" {
+        PreviewPageCookiesWrite = mutation "preview.page.cookie.update" {
             mutating: true,
             params: PreviewPageCookiesWriteRequest,
             result: PreviewPageCookiesWriteResponse,
             refusals: [],
         },
         /// Clears one site's cookies.
-        PreviewPageCookiesClear = mutation "preview.pageCookiesClear" {
+        PreviewPageCookiesClear = mutation "preview.page.cookie.clear" {
             mutating: true,
             params: PreviewPageCookiesClearRequest,
             result: PreviewClearedResponse,
             refusals: [],
         },
         /// Clears site data.
-        PreviewPageSiteDataClear = mutation "preview.pageSiteDataClear" {
+        PreviewPageSiteDataClear = mutation "preview.page.siteData.clear" {
             mutating: true,
             params: PreviewPageSiteDataClearRequest,
             result: PreviewClearedResponse,

@@ -42,8 +42,8 @@ branded_uuid_id! {
 }
 
 branded_uuid_id! {
-    /// The id of one remembered rule: `approval.ruleList` names it and `approval.ruleRevoke` takes
-    /// it.
+    /// The id of one remembered rule: `approval.rule.list` names it and `approval.rule.revoke`
+    /// takes it.
     RememberedRuleId
 }
 
@@ -57,7 +57,7 @@ branded_uuid_id! {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ApprovalCategory {
     /// Running a tool.
     ToolExecution,
@@ -76,7 +76,7 @@ pub enum ApprovalCategory {
 /// Where an ask stands. There is no expired state: an ask waits until it is answered, and the only
 /// ends besides an answer cancel it with its run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ApprovalState {
     /// Waiting on an answer.
     Pending,
@@ -102,8 +102,8 @@ pub enum ApprovalState {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ApprovalDecision {
     /// Approved.
     Approved,
@@ -133,7 +133,7 @@ literal! {
 /// A remembered rule's reach: this session, kept by the provider for the session, or every session
 /// on this project, kept in the provider's own project rule file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RememberedScopeKind {
     /// This session.
     Session,
@@ -144,7 +144,7 @@ pub enum RememberedScopeKind {
 /// Whether a rule allows its subject or blocks it. A block is the remembered form of a network
 /// decline: that host is refused with no card until the rule is replaced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum RememberedRuleSense {
     /// Allows its subject.
     Allow,
@@ -152,12 +152,12 @@ pub enum RememberedRuleSense {
     Block,
 }
 
-/// Why `approval.resolution_invalid` refused an answer: a block on an ask that is not a network
+/// Why `approval.resolutionInvalid` refused an answer: a block on an ask that is not a network
 /// request, a rule the ask does not offer, a rule over other words than the subject the card named,
 /// a scope other than the one asked, a correction on an ask whose command or path cannot be
 /// corrected, or a correction and a rule together.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ApprovalResolutionInvalidReason {
     /// A block on an ask that is not a network request.
     BlockOutsideNetworkAccess,
@@ -173,9 +173,9 @@ pub enum ApprovalResolutionInvalidReason {
     EditWithRule,
 }
 
-/// Why `approval.request_canceled` refused a create: the run ended or the session closed.
+/// Why `approval.requestCanceled` refused a create: the run ended or the session closed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum ApprovalLateCreateReason {
     /// The run ended.
     RunEnded,
@@ -186,7 +186,7 @@ pub enum ApprovalLateCreateReason {
 /// Why a rule ended: the person revoked it, its session ended, or its tool server was removed. A
 /// project's rules live in the project's own folder and stay with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum InvalidationTrigger {
     /// The person revoked it.
     Explicit,
@@ -231,7 +231,7 @@ macro_rules! approval_resolve_request {
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "decision",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -347,7 +347,7 @@ pub struct ApprovalResolveResponse {
     pub resolved_at: WireInstant,
 }
 
-/// `approval.projectionRead`: the session's asks, optionally narrowed by state or category.
+/// `approval.list`: the session's asks, optionally narrowed by state or category.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -433,7 +433,7 @@ macro_rules! approval_projection_row {
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "state",
-            rename_all = "snake_case",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]
@@ -589,7 +589,7 @@ pub struct ApprovalProjectionReadResponse {
     pub approvals: Vec<ApprovalProjectionRow>,
 }
 
-/// `approval.ruleList`: the rules in force on one session, its own and its project's.
+/// `approval.rule.list`: the rules in force on one session, its own and its project's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -624,7 +624,7 @@ pub struct RememberedRuleListResponse {
     pub rules: Vec<RememberedRule>,
 }
 
-/// `approval.ruleRevoke`: revokes one rule; a project rule's revoke removes it from the provider's
+/// `approval.rule.revoke`: revokes one rule; a project rule's revoke removes it from the provider's
 /// project rule file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -648,7 +648,7 @@ pub struct RememberedRuleRevokeResponse {
     pub invalidation_trigger: ExplicitInvalidation,
 }
 
-/// `approval.denialOverride`: allows once an action the provider's own reviewer blocked. The
+/// `approval.denial.override`: allows once an action the provider's own reviewer blocked. The
 /// daemon tells the agent it may retry that one action, by each provider's own means; the agent
 /// decides whether to retry. A press on a block already allowed is answered with the settled
 /// override and sends nothing a second time.
@@ -692,28 +692,28 @@ methods! {
             ],
         },
         /// The session's asks.
-        ApprovalProjectionRead = query "approval.projectionRead" {
+        ApprovalProjectionRead = query "approval.list" {
             mutating: false,
             params: ApprovalProjectionReadRequest,
             result: ApprovalProjectionReadResponse,
             refusals: [SessionNotFound],
         },
         /// The rules in force on a session.
-        ApprovalRuleList = query "approval.ruleList" {
+        ApprovalRuleList = query "approval.rule.list" {
             mutating: false,
             params: RememberedRuleListRequest,
             result: RememberedRuleListResponse,
             refusals: [SessionNotFound],
         },
         /// Revokes one rule.
-        ApprovalRuleRevoke = mutation "approval.ruleRevoke" {
+        ApprovalRuleRevoke = mutation "approval.rule.revoke" {
             mutating: true,
             params: RememberedRuleRevokeRequest,
             result: RememberedRuleRevokeResponse,
             refusals: [ApprovalRuleNotFound, ApprovalRuleAlreadyRevoked],
         },
         /// Allows once an action the provider's reviewer blocked.
-        ApprovalDenialOverride = mutation "approval.denialOverride" {
+        ApprovalDenialOverride = mutation "approval.denial.override" {
             mutating: true,
             params: ApprovalDenialOverrideRequest,
             result: ApprovalDenialOverrideResponse,
