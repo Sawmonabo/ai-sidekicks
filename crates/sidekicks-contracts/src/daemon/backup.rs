@@ -172,7 +172,7 @@ pub struct BackupReadResponse {
 /// `daemon.backup.completed`: a run wrote a backup.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct BackupCompletedPayload {
+pub struct DaemonBackupCompletedPayload {
     /// The backup.
     pub backup_id: BackupId,
     /// Its size in bytes.
@@ -182,7 +182,7 @@ pub struct BackupCompletedPayload {
 /// `daemon.backup.failed`: a run did not finish, in the service's own words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct BackupFailedPayload {
+pub struct DaemonBackupFailedPayload {
     /// The cause.
     pub message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
 }
@@ -215,7 +215,7 @@ impl ListKey for BackupKeptDistributionPart {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct BackupRestoredPayload {
+pub struct DaemonBackupRestoredPayload {
     /// The backup.
     pub backup_id: BackupId,
     /// The distribution parts kept in the backup; absent where every part was written back.
@@ -260,10 +260,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BackupListEntry>(),
         Definition::read::<BackupLastRun>(),
         Definition::read::<BackupReadResponse>().checked(),
-        Definition::read::<BackupCompletedPayload>().checked(),
-        Definition::read::<BackupFailedPayload>().checked(),
+        Definition::read::<DaemonBackupCompletedPayload>().checked(),
+        Definition::read::<DaemonBackupFailedPayload>().checked(),
         Definition::read::<BackupKeptDistributionPart>(),
-        Definition::read::<BackupRestoredPayload>().checked(),
+        Definition::read::<DaemonBackupRestoredPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_BACKUP_METHOD_DESCRIPTORS],

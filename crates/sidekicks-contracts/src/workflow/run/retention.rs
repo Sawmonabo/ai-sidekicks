@@ -37,7 +37,7 @@ pub struct WorkflowRunDeleteResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowRunsDeleteRequest {
+pub struct WorkflowRunPurgeRequest {
     /// The instant.
     #[garde(dive)]
     pub older_than: WireInstant,
@@ -48,7 +48,7 @@ pub struct WorkflowRunsDeleteRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowRunsDeletePreviewResponse {
+pub struct WorkflowRunPurgePreviewResponse {
     /// The runs it would remove.
     pub delete_count: SafeInt<0>,
     /// The older runs it would leave because they are marked Keep.
@@ -62,7 +62,7 @@ pub struct WorkflowRunsDeletePreviewResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowRunsDeleteResponse {
+pub struct WorkflowRunPurgeResponse {
     /// The runs removed.
     pub deleted_count: SafeInt<0>,
 }
@@ -87,9 +87,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<WorkflowRunDeleteRequest>().checked(),
         Definition::read::<WorkflowRunDeleteResponse>().checked(),
-        Definition::read::<WorkflowRunsDeleteRequest>().checked(),
-        Definition::read::<WorkflowRunsDeletePreviewResponse>().checked(),
-        Definition::read::<WorkflowRunsDeleteResponse>().checked(),
+        Definition::read::<WorkflowRunPurgeRequest>().checked(),
+        Definition::read::<WorkflowRunPurgePreviewResponse>().checked(),
+        Definition::read::<WorkflowRunPurgeResponse>().checked(),
         Definition::read::<WorkflowRunKeepSet>().checked(),
     ],
     constants: &[],

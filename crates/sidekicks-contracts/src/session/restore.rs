@@ -361,7 +361,7 @@ fn require_every_part_accounted(
 )]
 #[garde(allow_unvalidated)]
 #[garde(custom(|result: &Self, (): &()| result.accounts_for_every_part()))]
-pub enum SessionRestoreResult {
+pub enum SessionRestoreOutcome {
     /// A finished undo. `files` is present exactly when the files went back.
     #[schemars(extend("allOf" = [
         {
@@ -435,7 +435,7 @@ pub enum SessionRestoreResult {
     },
 }
 
-impl SessionRestoreResult {
+impl SessionRestoreOutcome {
     /// Holds a finished undo to its account; a failed resend carries only its reason.
     fn accounts_for_every_part(&self) -> garde::Result {
         match self {
@@ -460,14 +460,14 @@ impl SessionRestoreResult {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionRestoreFinishedPayload {
+pub struct SessionRestoreCompletedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The point the undo went back to.
     pub target: SessionRestoreTarget,
     /// What it reported.
     #[garde(dive)]
-    pub result: SessionRestoreResult,
+    pub result: SessionRestoreOutcome,
 }
 
 methods! {
@@ -478,14 +478,14 @@ methods! {
             mutating: false,
             params: SessionRestorePreviewRequest,
             result: SessionRestorePreviewResponse,
-            refusals: [SessionNotFound, EventCursorUnresolvable],
+            refusals: [SessionNotFound, SessionEventCursorUnresolvable],
         },
         /// Undoes to a point, with an optional edit and resend.
         SessionRestore = mutation "session.restore" {
             mutating: true,
             params: SessionRestoreRequest,
-            result: SessionRestoreResult,
-            refusals: [SessionNotFound, EventCursorUnresolvable],
+            result: SessionRestoreOutcome,
+            refusals: [SessionNotFound, SessionEventCursorUnresolvable],
         },
         /// Lists a session's snapshots.
         SessionSnapshotList = query "session.snapshot.list" {
@@ -521,8 +521,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionRestoreFailure>(),
         Definition::read::<SessionRestoreFailures>(),
         Definition::read::<SessionRestoreFileOutcome>(),
-        Definition::read::<SessionRestoreResult>().checked(),
-        Definition::read::<SessionRestoreFinishedPayload>().checked(),
+        Definition::read::<SessionRestoreOutcome>().checked(),
+        Definition::read::<SessionRestoreCompletedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[&SESSION_RESTORE_METHOD_DESCRIPTORS],

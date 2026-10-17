@@ -14,7 +14,7 @@ use crate::workflow::definition::document::WorkflowDefinitionId;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowKeptVarsClearRequest {
+pub struct WorkflowKeptValueClearRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
 }
@@ -23,7 +23,7 @@ pub struct WorkflowKeptVarsClearRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowKeptVarsClearResponse {
+pub struct WorkflowKeptValueClearResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// How many kept values were cleared.
@@ -34,10 +34,10 @@ methods! {
     /// The `workflow.keptValue.clear` method's table.
     pub const WORKFLOW_KEPT_VARS_METHOD_DESCRIPTORS = [
         /// Clears the values one workflow's runs kept for later runs.
-        WorkflowKeptVarsClear = mutation "workflow.keptValue.clear" {
+        WorkflowKeptValueClear = mutation "workflow.keptValue.clear" {
             mutating: true,
-            params: WorkflowKeptVarsClearRequest,
-            result: WorkflowKeptVarsClearResponse,
+            params: WorkflowKeptValueClearRequest,
+            result: WorkflowKeptValueClearResponse,
             refusals: [WorkflowDefinitionNotFound],
         },
     ];
@@ -49,8 +49,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A workflow's kept values: what `Keep for later runs` holds for the workflow's later \
           runs, and clearing them, with its method table.",
     definitions: &[
-        Definition::read::<WorkflowKeptVarsClearRequest>().checked(),
-        Definition::read::<WorkflowKeptVarsClearResponse>().checked(),
+        Definition::read::<WorkflowKeptValueClearRequest>().checked(),
+        Definition::read::<WorkflowKeptValueClearResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[&WORKFLOW_KEPT_VARS_METHOD_DESCRIPTORS],

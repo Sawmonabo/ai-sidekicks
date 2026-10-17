@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::machine::id::NodeId;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::run::control::RunFailureCategory;
 use crate::run::id::RunId;
-use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
@@ -287,7 +287,7 @@ branded_uuid_id! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RecoveryAttemptedPayload {
+pub struct DaemonRecoveryAttemptedPayload {
     /// This machine.
     pub node_id: NodeId,
     /// The pass.
@@ -310,7 +310,7 @@ pub struct RecoveryAttemptedPayload {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RecoverySucceededPayload {
+pub struct DaemonRecoverySucceededPayload {
     /// This machine.
     pub node_id: NodeId,
     /// The pass.
@@ -343,7 +343,7 @@ pub struct RecoverySucceededPayload {
 /// service's own words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RecoveryFailedPayload {
+pub struct DaemonRecoveryFailedPayload {
     /// This machine.
     pub node_id: NodeId,
     /// The pass.
@@ -381,9 +381,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RecoveryTrigger>(),
         Definition::read::<RecoveryId>(),
         Definition::read::<RecoveryFailureKind>(),
-        Definition::read::<RecoveryAttemptedPayload>().checked(),
-        Definition::read::<RecoverySucceededPayload>().checked(),
-        Definition::read::<RecoveryFailedPayload>().checked(),
+        Definition::read::<DaemonRecoveryAttemptedPayload>().checked(),
+        Definition::read::<DaemonRecoverySucceededPayload>().checked(),
+        Definition::read::<DaemonRecoveryFailedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

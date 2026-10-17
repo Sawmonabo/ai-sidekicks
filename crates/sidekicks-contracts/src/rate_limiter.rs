@@ -12,7 +12,7 @@ use crate::wire::literal;
 
 ts_constants! {
     /// The code every 429 refusal of a sign-in route carries.
-    RATE_LIMITED_CODE = RefusalCode::RateLimited;
+    RATE_LIMITED_CODE = RefusalCode::RelayRateLimited;
     /// The code of the 400 a sign-in route answers when the request carries no source address the
     /// relay can count, so it is refused rather than counted in a bucket other callers share.
     SOURCE_ADDRESS_UNRESOLVABLE_CODE = RefusalCode::RelaySourceAddressUnresolvable;
@@ -20,7 +20,7 @@ ts_constants! {
 
 literal! {
     /// The code of a sign-in route's 429.
-    pub enum RateLimitedCode = const RefusalCode::RateLimited.as_str();
+    pub enum RelayRateLimitedCode = const RefusalCode::RelayRateLimited.as_str();
 }
 
 /// The body of a 429 from a sign-in route. `retryAfter` is whole seconds until a retry is allowed,
@@ -31,7 +31,7 @@ literal! {
 #[garde(allow_unvalidated)]
 pub struct RateLimitResponse {
     /// Always `relay.rateLimited`.
-    pub code: RateLimitedCode,
+    pub code: RelayRateLimitedCode,
     /// Whole seconds until a retry is allowed.
     pub retry_after: SafeInt<0>,
     /// The requests the window admits.

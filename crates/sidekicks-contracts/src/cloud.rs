@@ -238,7 +238,7 @@ pub struct CloudTaskStartResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CloudTaskListRequest {
+pub struct CloudTaskSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -340,13 +340,13 @@ methods! {
                 SessionNotFound,
                 CloudAccountNotEntitled,
                 CloudGithubRemoteRequired,
-                DriverCapabilityUnsupported,
+                ProviderCapabilityUnsupported,
             ],
         },
         /// Follows the session's cloud work.
-        CloudTaskList = subscription "cloud.task.subscribe" {
+        CloudTaskSubscribe = subscription "cloud.task.subscribe" {
             mutating: false,
-            params: CloudTaskListRequest,
+            params: CloudTaskSubscribeRequest,
             result: SubscribeAckResponse,
             emission: CloudTaskListFrame,
             refusals: [SessionNotFound],
@@ -388,7 +388,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<CloudWork>().checked(),
         Definition::read::<CloudTaskStartRequest>().checked(),
         Definition::read::<CloudTaskStartResponse>(),
-        Definition::read::<CloudTaskListRequest>(),
+        Definition::read::<CloudTaskSubscribeRequest>(),
         Definition::read::<CloudTaskListFrame>(),
         Definition::read::<CloudTaskReadRequest>(),
         Definition::read::<CloudTaskAttemptRequest>(),

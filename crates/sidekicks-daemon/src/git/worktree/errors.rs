@@ -17,7 +17,7 @@ use std::io;
 
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::gitflow::shared::GitRefName;
+use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;

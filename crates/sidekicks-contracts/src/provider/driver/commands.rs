@@ -138,7 +138,7 @@ pub struct ProviderCommandBindingGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderCommandListResult {
+pub struct ProviderCommandListResponse {
     /// The groups.
     pub bindings: BoundedVec<ProviderCommandBindingGroup, 1, { usize::MAX }>,
 }
@@ -152,7 +152,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderCommandBinding>(),
         Definition::read::<ProviderCommandEntry>().checked(),
         Definition::read::<ProviderCommandBindingGroup>(),
-        Definition::read::<ProviderCommandListResult>().checked(),
+        Definition::read::<ProviderCommandListResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[],

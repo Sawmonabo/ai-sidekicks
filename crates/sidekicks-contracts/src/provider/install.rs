@@ -111,7 +111,7 @@ methods! {
     /// Every `provider.install.start*` method: its name, how it answers, and its shapes.
     pub const PROVIDER_INSTALL_METHOD_DESCRIPTORS = [
         /// Starts a provider's installer.
-        ProviderInstall = mutation "provider.install.start" {
+        ProviderInstallStart = mutation "provider.install.start" {
             mutating: true,
             params: ProviderPlaceRequest,
             result: EmptyPayload,
@@ -143,7 +143,7 @@ methods! {
             ],
         },
         /// Updates a provider's command in one place.
-        ProviderInstallUpdate = mutation "provider.installUpdate.start" {
+        ProviderInstallUpdateStart = mutation "provider.installUpdate.start" {
             mutating: true,
             params: ProviderPlaceRequest,
             result: EmptyPayload,

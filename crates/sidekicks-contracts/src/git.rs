@@ -1,4 +1,4 @@
-//! Git flow: local branch work and the git host's pull requests.
+//! Git: local branch work and the git host's pull requests.
 
 use crate::typescript::TypeScriptModule;
 

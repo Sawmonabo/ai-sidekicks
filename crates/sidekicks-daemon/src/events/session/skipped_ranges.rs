@@ -6,7 +6,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 
 /// The event that names a skipped range.
 pub(crate) const DAMAGED_EVENTS_SKIPPED_TYPE: SessionEventType =
-    SessionEventType::RecoveryDamagedEventsSkipped;
+    SessionEventType::SessionDamagedEventsSkipped;
 
 /// The SQL condition that holds for a `session_events` row, aliased `event_alias` in the query,
 /// unless the row sits in a range its session skipped. It reads the sessions holding a skip once

@@ -12,13 +12,13 @@ use crate::wire::text::FreeFormText;
 literal! {
     /// The code of a definition that cannot resolve to a runnable agent, wherever its refusal is
     /// carried: always `agent.definition.resolutionRefused`.
-    pub enum AgentResolutionRefusedCode = const RefusalCode::AgentResolutionRefused.as_str();
+    pub enum AgentDefinitionResolutionRefusedCode = const RefusalCode::AgentDefinitionResolutionRefused.as_str();
 }
 
 /// The operating system's own cause of a failed export write, as it reported it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AgentExportWriteFailedDetails {
+pub struct AgentDefinitionExportWriteFailedDetails {
     /// The cause.
     pub cause: FreeFormText<AGENT_REASON_MAX_LEN>,
 }
@@ -117,14 +117,14 @@ pub(crate) use agent_resolution_refused_details;
 agent_resolution_refused_details! {
     /// Why a definition that exists cannot produce a runnable agent now. The remedy is the same
     /// in every case, edit the definition or repair the account, so one code carries a reason.
-    AgentResolutionRefusedDetails, AgentDefinitionId
+    AgentDefinitionResolutionRefusedDetails, AgentDefinitionId
 }
 
 /// Why an update was refused: the definition is a plugin's agent, which is read-only, or a
 /// reattach named a record that is not orphaned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum AgentUpdateRefusedReason {
+pub enum AgentDefinitionUpdateRefusedReason {
     /// A plugin's agent.
     PluginReadOnly,
     /// The record is not orphaned.
@@ -134,9 +134,9 @@ pub enum AgentUpdateRefusedReason {
 /// The update refusal's details: the definition and why.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AgentUpdateRefusedDetails {
+pub struct AgentDefinitionUpdateRefusedDetails {
     /// The definition.
     pub definition_id: AgentDefinitionId,
     /// Why.
-    pub reason: AgentUpdateRefusedReason,
+    pub reason: AgentDefinitionUpdateRefusedReason,
 }

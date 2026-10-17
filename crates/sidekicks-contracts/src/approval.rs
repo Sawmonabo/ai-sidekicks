@@ -351,7 +351,7 @@ pub struct ApprovalResolveResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ApprovalProjectionReadRequest {
+pub struct ApprovalListRequest {
     /// The session.
     pub session_id: SessionId,
     /// Only asks in this state.
@@ -583,7 +583,7 @@ fn offers_the_project_only_beside_a_standing_allow(
 /// The session's asks.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ApprovalProjectionReadResponse {
+pub struct ApprovalListResponse {
     /// The asks.
     #[garde(dive)]
     pub approvals: Vec<ApprovalProjectionRow>,
@@ -692,10 +692,10 @@ methods! {
             ],
         },
         /// The session's asks.
-        ApprovalProjectionRead = query "approval.list" {
+        ApprovalList = query "approval.list" {
             mutating: false,
-            params: ApprovalProjectionReadRequest,
-            result: ApprovalProjectionReadResponse,
+            params: ApprovalListRequest,
+            result: ApprovalListResponse,
             refusals: [SessionNotFound],
         },
         /// The rules in force on a session.
@@ -748,9 +748,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RememberedScope>().checked(),
         Definition::read::<ApprovalResolveRequest>().checked(),
         Definition::read::<ApprovalResolveResponse>().checked(),
-        Definition::read::<ApprovalProjectionReadRequest>().checked(),
+        Definition::read::<ApprovalListRequest>().checked(),
         Definition::read::<ApprovalProjectionRow>().checked(),
-        Definition::read::<ApprovalProjectionReadResponse>().checked(),
+        Definition::read::<ApprovalListResponse>().checked(),
         Definition::read::<RememberedRuleListRequest>().checked(),
         Definition::read::<RememberedRule>().checked(),
         Definition::read::<RememberedRuleListResponse>().checked(),
@@ -761,7 +761,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<events::ApprovalRequestedPayload>().checked(),
         Definition::read::<events::ApprovalResolvedPayload>().checked(),
         Definition::read::<events::ApprovalCanceledPayload>().checked(),
-        Definition::read::<events::ApprovalRememberedPayload>().checked(),
+        Definition::read::<events::ApprovalRuleRememberedPayload>().checked(),
         Definition::read::<events::ApprovalRuleRevokedPayload>().checked(),
         Definition::read::<events::ApprovalReviewerDeniedPayload>().checked(),
         Definition::read::<events::ApprovalDenialOverriddenPayload>().checked(),

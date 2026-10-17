@@ -31,19 +31,19 @@ methods! {
             refusals: [ArtifactNotFound],
         },
         /// Opens an ingest stream for one file.
-        ArtifactIngestInit = mutation "artifact.ingest.start" {
+        ArtifactIngestStart = mutation "artifact.ingest.start" {
             mutating: true,
             params: AttachmentIngestInitRequest,
             result: AttachmentIngestInitResponse,
             refusals: [
                 SessionNotFound,
-                RunNotFound,
+                AgentRunNotFound,
                 ArtifactTooLarge,
                 ArtifactIngestCapacityExhausted,
             ],
         },
         /// Sends one chunk of an open stream.
-        ArtifactIngestChunk = mutation "artifact.ingest.write" {
+        ArtifactIngestWrite = mutation "artifact.ingest.write" {
             mutating: true,
             params: AttachmentIngestChunkRequest,
             result: AttachmentIngestChunkResponse,
@@ -56,7 +56,7 @@ methods! {
             result: AttachmentIngestCompleteResponse,
             refusals: [
                 SessionNotFound,
-                RunNotFound,
+                AgentRunNotFound,
                 ArtifactIngestStreamInvalid,
                 ArtifactTypeUnreadable,
                 ArtifactTypeCheckUnavailable,
@@ -69,7 +69,7 @@ methods! {
             result: ArtifactPublishResponse,
             refusals: [
                 SessionNotFound,
-                RunNotFound,
+                AgentRunNotFound,
                 ArtifactFilePublishRefused,
                 ArtifactIngestCapacityExhausted,
                 ArtifactTooLarge,

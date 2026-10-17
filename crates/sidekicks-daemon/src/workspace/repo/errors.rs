@@ -13,11 +13,12 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::place::{DistributionRefusalDetails, DistroName};
 use sidekicks_contracts::project::ProjectId;
-use sidekicks_contracts::repo::clone::RepoCloneRefusedDetails;
+use sidekicks_contracts::repo::clone::ProjectCloneRefusedDetails;
 use sidekicks_contracts::repo::folders::{
-    RepoAlreadyAttachedDetails, RepoOutsideTrustEnvelopeDetails, RepoOutsideTrustEnvelopeReason,
-    RepoReattachConflictDetails, RepoReattachRefusedDetails, RepoReattachRefusedReason,
-    RepoRootResolutionFailedDetails, RepoRootResolutionReason,
+    RepoMountAlreadyAttachedDetails, RepoMountOutsideTrustEnvelopeDetails,
+    RepoMountOutsideTrustEnvelopeReason, RepoMountReattachConflictDetails,
+    RepoMountReattachRefusedDetails, RepoMountReattachRefusedReason,
+    RepoMountRootResolutionFailedDetails, RepoRootResolutionReason,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
@@ -56,7 +57,7 @@ pub(crate) enum RepoRefusal {
     )]
     OutsideTrustEnvelope {
         /// Why.
-        reason: RepoOutsideTrustEnvelopeReason,
+        reason: RepoMountOutsideTrustEnvelopeReason,
     },
     /// The folder's repository is already attached on this node, by its canonical root or by its
     /// git common directory (`repoMount.alreadyAttached`); it names the holding mount, never the
@@ -134,7 +135,7 @@ pub(crate) enum RepoRefusal {
     #[error("{}", clone_refused_message(.details))]
     CloneRefused {
         /// Why, with git's own line where there is one.
-        details: RepoCloneRefusedDetails,
+        details: ProjectCloneRefusedDetails,
     },
     /// The clone service is not running, so no clone verb can run (`project.clone.unavailable`).
     #[error("{message}")]
@@ -153,38 +154,42 @@ impl From<RepoRefusal> for DomainError {
         // session is; every other refusal answers as an internal error.
         let (code, json_rpc_code, detail) = match refusal {
             RepoRefusal::ProjectNotFound { project_id } => (
-                RefusalCode::RepoNotFound,
+                RefusalCode::RepoMountNotFound,
                 InvalidParams,
                 Some(refusal_fields(json!({ "projectId": project_id }))),
             ),
             RepoRefusal::MountNotFound { repo_mount_id } => (
-                RefusalCode::RepoNotFound,
+                RefusalCode::RepoMountNotFound,
                 InvalidParams,
                 Some(refusal_fields(json!({ "repoMountId": repo_mount_id }))),
             ),
             RepoRefusal::RootResolutionFailed { reason } => (
-                RefusalCode::RepoRootResolutionFailed,
+                RefusalCode::RepoMountRootResolutionFailed,
                 InternalError,
-                Some(refusal_fields(RepoRootResolutionFailedDetails { reason })),
+                Some(refusal_fields(RepoMountRootResolutionFailedDetails {
+                    reason,
+                })),
             ),
             RepoRefusal::OutsideTrustEnvelope { reason } => (
-                RefusalCode::RepoOutsideTrustEnvelope,
+                RefusalCode::RepoMountOutsideTrustEnvelope,
                 InternalError,
-                Some(refusal_fields(RepoOutsideTrustEnvelopeDetails { reason })),
+                Some(refusal_fields(RepoMountOutsideTrustEnvelopeDetails {
+                    reason,
+                })),
             ),
             RepoRefusal::AlreadyAttached {
                 conflicting_repo_mount_id,
                 conflicting_project_id,
             } => (
-                RefusalCode::RepoAlreadyAttached,
+                RefusalCode::RepoMountAlreadyAttached,
                 InternalError,
-                Some(refusal_fields(RepoAlreadyAttachedDetails {
+                Some(refusal_fields(RepoMountAlreadyAttachedDetails {
                     conflicting_repo_mount_id,
                     conflicting_project_id,
                 })),
             ),
             RepoRefusal::DetachConflict { running_session_id } => (
-                RefusalCode::RepoDetachConflict,
+                RefusalCode::RepoMountDetachConflict,
                 InternalError,
                 Some(refusal_fields(
                     json!({ "runningSessionId": running_session_id }),
@@ -196,43 +201,45 @@ impl From<RepoRefusal> for DomainError {
                 Some(refusal_fields(json!({ "repoMountId": repo_mount_id }))),
             ),
             RepoRefusal::ReattachRefused { repo_mount_id: _ } => (
-                RefusalCode::RepoReattachRefused,
+                RefusalCode::RepoMountReattachRefused,
                 InternalError,
-                Some(refusal_fields(RepoReattachRefusedDetails {
-                    reason: RepoReattachRefusedReason::IdentityMatches,
+                Some(refusal_fields(RepoMountReattachRefusedDetails {
+                    reason: RepoMountReattachRefusedReason::IdentityMatches,
                 })),
             ),
             RepoRefusal::ReattachConflict {
                 running_session_id,
                 running_agent_id,
             } => (
-                RefusalCode::RepoReattachConflict,
+                RefusalCode::RepoMountReattachConflict,
                 InternalError,
-                Some(refusal_fields(RepoReattachConflictDetails {
+                Some(refusal_fields(RepoMountReattachConflictDetails {
                     running_session_id,
                     running_agent_id,
                 })),
             ),
             RepoRefusal::DistributionNeedsWsl2 { distro } => (
-                RefusalCode::RepoDistributionNeedsWsl2,
+                RefusalCode::RepoMountDistributionNeedsWsl2,
                 InternalError,
                 Some(refusal_fields(DistributionRefusalDetails { distro })),
             ),
             RepoRefusal::DistributionNotFound { distro } => (
-                RefusalCode::RepoDistributionNotFound,
+                RefusalCode::RepoMountDistributionNotFound,
                 InternalError,
                 Some(refusal_fields(DistributionRefusalDetails { distro })),
             ),
-            RepoRefusal::TopLevelUnavailable => {
-                (RefusalCode::RepoTopLevelUnavailable, InternalError, None)
-            }
+            RepoRefusal::TopLevelUnavailable => (
+                RefusalCode::MachineFolderTopLevelNotOffered,
+                InternalError,
+                None,
+            ),
             RepoRefusal::CloneRefused { details } => (
-                RefusalCode::RepoCloneRefused,
+                RefusalCode::ProjectCloneRefused,
                 InternalError,
                 Some(refusal_fields(details)),
             ),
             RepoRefusal::CloneUnavailable { message: _ } => {
-                (RefusalCode::RepoCloneUnavailable, InternalError, None)
+                (RefusalCode::ProjectCloneUnavailable, InternalError, None)
             }
         };
         DomainError {
@@ -273,10 +280,10 @@ fn root_resolution_message(reason: RepoRootResolutionReason) -> &'static str {
 }
 
 // Git's own line where there is one; neither message names a path.
-fn clone_refused_message(details: &RepoCloneRefusedDetails) -> &str {
+fn clone_refused_message(details: &ProjectCloneRefusedDetails) -> &str {
     match details {
-        RepoCloneRefusedDetails::NoDirectoryName { line } => line.as_str(),
-        RepoCloneRefusedDetails::DestinationNotEmpty {} => {
+        ProjectCloneRefusedDetails::NoDirectoryName { line } => line.as_str(),
+        ProjectCloneRefusedDetails::DestinationNotEmpty {} => {
             "the clone's destination is already there and is not empty"
         }
     }

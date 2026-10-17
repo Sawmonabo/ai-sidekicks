@@ -108,7 +108,7 @@ methods! {
     /// emission is the job's progress as it changes.
     pub const DAEMON_DATA_METHOD_DESCRIPTORS = [
         /// Starts an export.
-        DaemonDataExport = mutation "daemon.dataExport.start" {
+        DaemonDataExportStart = mutation "daemon.dataExport.start" {
             mutating: true,
             params: DataExportRequest,
             result: DataExportResponse,

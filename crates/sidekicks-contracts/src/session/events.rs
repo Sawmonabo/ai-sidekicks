@@ -9,7 +9,7 @@ use crate::agent::methods::AgentListEntry;
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
-use crate::machine_settings::MACHINE_SETTINGS_NAME_MAX_LEN;
+use crate::machine::settings::MACHINE_SETTINGS_NAME_MAX_LEN;
 use crate::place::Place;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
@@ -218,7 +218,7 @@ pub struct SessionOutputStyleChangedPayload {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct SessionProviderStatusPayload {
+pub struct SessionProviderStatusReportedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run, where the status names one.
@@ -276,7 +276,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionMarkChangePayload>().checked(),
         Definition::read::<SessionAdvisorChangedPayload>().checked(),
         Definition::read::<SessionOutputStyleChangedPayload>().checked(),
-        Definition::read::<SessionProviderStatusPayload>().checked(),
+        Definition::read::<SessionProviderStatusReportedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

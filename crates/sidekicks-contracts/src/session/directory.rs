@@ -24,7 +24,7 @@ use crate::session::event_cursor::EventCursor;
 use crate::session::groups::SessionGroupId;
 use crate::session::id::SessionId;
 use crate::session::methods::{
-    SessionShape, SessionState, SessionStreamFrame, SessionSubscribeRequest,
+    SessionEventSubscribeRequest, SessionShape, SessionState, SessionStreamFrame,
 };
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -234,7 +234,7 @@ pub enum SessionListEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionListAck {
+pub struct SessionSubscribeResponse {
     /// The subscription.
     pub subscription_id: SubscriptionId,
     /// The first page of sessions.
@@ -464,7 +464,7 @@ pub enum SessionForkResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionSetWorkingFolderRequest {
+pub struct SessionWorkingFolderUpdateRequest {
     /// The session.
     pub session_id: SessionId,
     /// The folder.
@@ -485,7 +485,7 @@ pub enum SessionWorkingFolderDisposition {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionSetWorkingFolderResponse {
+pub struct SessionWorkingFolderUpdateResponse {
     /// The session.
     pub session_id: SessionId,
     /// When the move takes effect.
@@ -583,28 +583,28 @@ methods! {
             params: SessionCreateRequest,
             result: SessionCreateResponse,
             refusals: [
-                RepoNotFound,
+                RepoMountNotFound,
                 SessionGroupRefused,
-                ProvideraccountNoDefault,
-                ProvideraccountNotRegistered,
+                ProviderAccountCurrentNotSet,
+                ProviderAccountNotRegistered,
                 AgentProviderAxisInvalid,
             ],
         },
         /// Follows the sessions list.
-        SessionList = subscription "session.subscribe" {
+        SessionSubscribe = subscription "session.subscribe" {
             mutating: false,
             params: EmptyPayload,
-            result: SessionListAck,
+            result: SessionSubscribeResponse,
             emission: SessionListChange,
             refusals: [],
         },
         /// Follows one session's events.
-        SessionSubscribe = subscription "session.event.subscribe" {
+        SessionEventSubscribe = subscription "session.event.subscribe" {
             mutating: false,
-            params: SessionSubscribeRequest,
+            params: SessionEventSubscribeRequest,
             result: SubscribeAckResponse,
             emission: SessionStreamFrame,
-            refusals: [SessionNotFound, EventCursorUnresolvable],
+            refusals: [SessionNotFound, SessionEventCursorUnresolvable],
         },
         /// Converts a chat to a project.
         SessionConvert = mutation "session.convert" {
@@ -615,10 +615,10 @@ methods! {
                 SessionNotFound,
                 SessionAlreadyClosed,
                 SessionChangeRefused,
-                SessionConvertRefused,
-                SessionConvertIncomplete,
-                RepoRootResolutionFailed,
-                RepoAlreadyAttached,
+                SessionConversionRefused,
+                SessionConversionIncomplete,
+                RepoMountRootResolutionFailed,
+                RepoMountAlreadyAttached,
             ],
         },
         /// Forks a session from a message.
@@ -629,16 +629,16 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Moves a project session's working folder.
-        SessionSetWorkingFolder = mutation "session.workingFolder.update" {
+        SessionWorkingFolderUpdate = mutation "session.workingFolder.update" {
             mutating: true,
-            params: SessionSetWorkingFolderRequest,
-            result: SessionSetWorkingFolderResponse,
+            params: SessionWorkingFolderUpdateRequest,
+            result: SessionWorkingFolderUpdateResponse,
             refusals: [
                 SessionNotFound,
                 RepoMountManaged,
-                SessionWorkingFolderUnavailable,
-                RepoRootResolutionFailed,
-                RepoOutsideTrustEnvelope,
+                SessionWorkingFolderMissing,
+                RepoMountRootResolutionFailed,
+                RepoMountOutsideTrustEnvelope,
                 WorkspaceRootUnavailable,
             ],
         },
@@ -663,7 +663,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionExchange>(),
         Definition::read::<SessionListGroup>(),
         Definition::read::<SessionListEntry>(),
-        Definition::read::<SessionListAck>().checked(),
+        Definition::read::<SessionSubscribeResponse>().checked(),
         Definition::read::<SessionListChange>().checked(),
         Definition::read::<SessionChatBinding>(),
         Definition::read::<SessionProjectBinding>(),
@@ -673,9 +673,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionCreateResponse>().checked(),
         Definition::read::<SessionForkRequest>().checked(),
         Definition::read::<SessionForkResponse>().checked(),
-        Definition::read::<SessionSetWorkingFolderRequest>().checked(),
+        Definition::read::<SessionWorkingFolderUpdateRequest>().checked(),
         Definition::read::<SessionWorkingFolderDisposition>(),
-        Definition::read::<SessionSetWorkingFolderResponse>().checked(),
+        Definition::read::<SessionWorkingFolderUpdateResponse>().checked(),
         Definition::read::<SessionOverviewReadRequest>().checked(),
         Definition::read::<SessionOverviewAgent>(),
         Definition::read::<SessionOverviewSession>(),

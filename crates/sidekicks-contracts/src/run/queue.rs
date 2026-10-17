@@ -164,7 +164,7 @@ pub struct QueueItemCreateRequest {
 /// is the answered mark of the question a message answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct UserMessagePayload {
+pub struct UserMessageSentPayload {
     /// The session.
     pub session_id: SessionId,
     /// The queued message, where the send went through the queue.
@@ -217,13 +217,13 @@ literal! {
     /// The state `agent.queueItem.created` records.
     pub enum QueueItemQueuedState = "queued";
     /// The state `agent.queueItem.admitted` records.
-    pub enum QueueItemAdmittedState = "admitted";
+    pub enum AgentQueueItemAdmittedState = "admitted";
     /// The state `agent.queueItem.superseded` records.
-    pub enum QueueItemSupersededState = "superseded";
+    pub enum AgentQueueItemSupersededState = "superseded";
     /// The state `agent.queueItem.canceled` records, and a removal answers.
-    pub enum QueueItemCanceledState = "canceled";
+    pub enum AgentQueueItemCanceledState = "canceled";
     /// The state `agent.queueItem.notDelivered` records.
-    pub enum QueueItemNotDeliveredState = "notDelivered";
+    pub enum AgentQueueItemNotDeliveredState = "notDelivered";
 }
 
 /// Declares the payload of one `queue_item.*` event: the item, the state it entered, and the
@@ -248,23 +248,23 @@ macro_rules! queue_item_event_payload {
 queue_item_event_payload! {
     /// The `agent.queueItem.created` payload: a message entered the queue. The words stay on
     /// `user.message.sent`.
-    QueueItemCreatedPayload(QueueItemQueuedState) {}
+    AgentQueueItemCreatedPayload(QueueItemQueuedState) {}
     /// The `agent.queueItem.admitted` payload: the run that took the message, which can differ from
     /// the run its `user.message.sent` was sent toward.
-    QueueItemAdmittedPayload(QueueItemAdmittedState) {
+    AgentQueueItemAdmittedPayload(AgentQueueItemAdmittedState) {
         /// The run that took it.
         pub run_id: RunId,
     }
     /// The `agent.queueItem.superseded` payload: the item that replaced the message.
-    QueueItemSupersededPayload(QueueItemSupersededState) {
+    AgentQueueItemSupersededPayload(AgentQueueItemSupersededState) {
         /// The item that replaced it.
         pub replaced_by_queue_item_id: QueueItemId,
     }
     /// The `agent.queueItem.canceled` payload: the message was removed.
-    QueueItemCanceledPayload(QueueItemCanceledState) {}
+    AgentQueueItemCanceledPayload(AgentQueueItemCanceledState) {}
     /// The `agent.queueItem.notDelivered` payload: the message was taken and never delivered, and
     /// why.
-    QueueItemNotDeliveredPayload(QueueItemNotDeliveredState) {
+    AgentQueueItemNotDeliveredPayload(AgentQueueItemNotDeliveredState) {
         /// Why it was never delivered.
         pub not_delivered_reason: QueueItemNotDeliveredReason,
     }
@@ -502,7 +502,7 @@ pub struct QueueItemCancelResponse {
     /// The item.
     pub queue_item_id: QueueItemId,
     /// Always `canceled`.
-    pub state: QueueItemCanceledState,
+    pub state: AgentQueueItemCanceledState,
 }
 
 /// Puts a queue's waiting messages in a new order (`agent.queueItem.reorder`): the full order,
@@ -531,23 +531,23 @@ pub struct QueueReorderRequest {
 ts_constants! {
     /// The refusal of a send while the daemon cannot store the queue: nothing is queued, and the
     /// send can be made again once the store is back.
-    QUEUE_PERSISTENCE_UNAVAILABLE_CODE = RefusalCode::QueuePersistenceUnavailable;
+    QUEUE_PERSISTENCE_UNAVAILABLE_CODE = RefusalCode::AgentQueueItemPersistenceUnavailable;
     /// The refusal of a send whose session's lead run started, ended or was continued between
     /// each read and the write that sends into it, every time the daemon tried: nothing is queued.
-    QUEUE_RUN_CHANGED_CODE = RefusalCode::QueueRunChanged;
+    QUEUE_RUN_CHANGED_CODE = RefusalCode::AgentQueueItemRunChanged;
     /// The refusal of a change naming a queue item the queue does not hold: an id it never stored,
     /// an item of another session, or one of another queue than the change names.
-    QUEUE_ITEM_NOT_FOUND_CODE = RefusalCode::QueueItemNotFound;
+    QUEUE_ITEM_NOT_FOUND_CODE = RefusalCode::AgentQueueItemNotFound;
     /// The refusal of a change to a waiting message the agent has already taken or the provider
     /// did not give back, a retry in other words than its own, or a reorder whose list is not
     /// exactly the waiting items.
-    QUEUE_CHANGE_REFUSED_CODE = RefusalCode::QueueChangeRefused;
+    QUEUE_CHANGE_REFUSED_CODE = RefusalCode::AgentQueueItemChangeRefused;
 }
 
 /// Why a change to a waiting message was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum QueueChangeRefusedReason {
+pub enum AgentQueueItemChangeRefusedReason {
     /// The agent has already taken the message.
     AlreadyTaken,
     /// The provider did not give the message back, which now reads not delivered.
@@ -559,9 +559,9 @@ pub enum QueueChangeRefusedReason {
 /// The details a `agent.queueItem.changeRefused` refusal carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct QueueChangeRefusedDetails {
+pub struct AgentQueueItemChangeRefusedDetails {
     /// Why the change was refused.
-    pub reason: QueueChangeRefusedReason,
+    pub reason: AgentQueueItemChangeRefusedReason,
 }
 
 /// The details a `session.message.tooLarge` refusal carries: the provider's limit and the
@@ -587,12 +587,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<QueueItemNotDeliveredReason>(),
         Definition::read::<QueuedSkillPick>(),
         Definition::read::<QueueItemCreateRequest>().checked(),
-        Definition::read::<UserMessagePayload>().checked(),
-        Definition::read::<QueueItemCreatedPayload>().checked(),
-        Definition::read::<QueueItemAdmittedPayload>().checked(),
-        Definition::read::<QueueItemSupersededPayload>().checked(),
-        Definition::read::<QueueItemCanceledPayload>().checked(),
-        Definition::read::<QueueItemNotDeliveredPayload>().checked(),
+        Definition::read::<UserMessageSentPayload>().checked(),
+        Definition::read::<AgentQueueItemCreatedPayload>().checked(),
+        Definition::read::<AgentQueueItemAdmittedPayload>().checked(),
+        Definition::read::<AgentQueueItemSupersededPayload>().checked(),
+        Definition::read::<AgentQueueItemCanceledPayload>().checked(),
+        Definition::read::<AgentQueueItemNotDeliveredPayload>().checked(),
         Definition::read::<QueueItemCreateResponse>().checked(),
         Definition::read::<QueueItemListRequest>().checked(),
         Definition::read::<QueueItemSummary>().checked(),
@@ -603,8 +603,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<QueueItemCancelRequest>().checked(),
         Definition::read::<QueueItemCancelResponse>().checked(),
         Definition::read::<QueueReorderRequest>().checked(),
-        Definition::read::<QueueChangeRefusedReason>(),
-        Definition::read::<QueueChangeRefusedDetails>(),
+        Definition::read::<AgentQueueItemChangeRefusedReason>(),
+        Definition::read::<AgentQueueItemChangeRefusedDetails>(),
         Definition::read::<SessionMessageTooLargeDetails>(),
     ],
     constants: TS_CONSTANTS,

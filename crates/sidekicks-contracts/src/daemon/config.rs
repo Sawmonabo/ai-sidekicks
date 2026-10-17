@@ -213,7 +213,7 @@ methods! {
             refusals: [],
         },
         /// Reads each package cache's size.
-        DaemonPackageCacheRead = query "daemon.packageCache.list" {
+        DaemonPackageCacheList = query "daemon.packageCache.list" {
             mutating: false,
             params: EmptyPayload,
             result: DaemonPackageCacheReading,

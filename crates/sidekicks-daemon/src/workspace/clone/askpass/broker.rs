@@ -112,7 +112,7 @@ impl From<AskpassBrokerError> for DomainError {
     fn from(error: AskpassBrokerError) -> Self {
         DomainError::new(
             error.to_string(),
-            RefusalCode::RepoCloneUnavailable,
+            RefusalCode::ProjectCloneUnavailable,
             DomainErrorJsonRpcCode::InternalError,
         )
         .with_source(error)

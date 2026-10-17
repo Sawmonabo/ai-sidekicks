@@ -86,20 +86,20 @@ methods! {
     /// The `turn.*` methods: two subscriptions that follow one run's current turn.
     pub const TURN_METHOD_DESCRIPTORS = [
         /// The tokens received this turn.
-        TurnUsage = subscription "agent.turn.usage.subscribe" {
+        AgentTurnUsageSubscribe = subscription "agent.turn.usage.subscribe" {
             mutating: false,
             params: TurnSubscribeRequest,
             result: SubscribeAckResponse,
             emission: TurnUsageUpdate,
-            refusals: [SessionNotFound, RunNotFound],
+            refusals: [SessionNotFound, AgentRunNotFound],
         },
         /// The turn's task list.
-        TurnTasks = subscription "agent.turn.task.subscribe" {
+        AgentTurnTaskSubscribe = subscription "agent.turn.task.subscribe" {
             mutating: false,
             params: TurnSubscribeRequest,
             result: SubscribeAckResponse,
             emission: TurnTasksUpdate,
-            refusals: [SessionNotFound, RunNotFound],
+            refusals: [SessionNotFound, AgentRunNotFound],
         },
     ];
 }

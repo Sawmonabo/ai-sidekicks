@@ -13,7 +13,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::driver::intervention::{
-    DriverInterventionResult, InterruptRunParams, InterventionResultStatus,
+    DriverInterventionResponse, InterruptRunRequest, InterventionResultStatus,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
@@ -57,7 +57,7 @@ pub(crate) trait CodexInterventionRuntime: Send + Sync {
     ) -> BoxFuture<'_, Result<CodexSteerAcknowledgement, DriverError>>;
 
     /// Interrupts one run's turn.
-    fn interrupt_run(&self, params: InterruptRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    fn interrupt_run(&self, params: InterruptRunRequest) -> BoxFuture<'_, Result<(), DriverError>>;
 }
 
 /// Routes normalized interventions onto Codex's native operations.
@@ -77,7 +77,7 @@ impl CodexInterventionDispatcher {
     pub(crate) async fn apply_intervention(
         &self,
         params: ApplyInterventionParams,
-    ) -> Result<DriverInterventionResult, DriverError> {
+    ) -> Result<DriverInterventionResponse, DriverError> {
         let status = match params {
             ApplyInterventionParams::Steer {
                 target_run_id,
@@ -107,7 +107,7 @@ impl CodexInterventionDispatcher {
             }
             ApplyInterventionParams::Interrupt(request) => {
                 self.runtime
-                    .interrupt_run(InterruptRunParams {
+                    .interrupt_run(InterruptRunRequest {
                         run_id: request.target_run_id,
                         reason: request.payload.reason,
                     })
@@ -115,7 +115,7 @@ impl CodexInterventionDispatcher {
                 InterventionResultStatus::Applied
             }
         };
-        Ok(DriverInterventionResult {
+        Ok(DriverInterventionResponse {
             status,
             fallback_action: None,
             delivered_run_id: None,
@@ -130,7 +130,7 @@ mod tests {
     use futures::future::BoxFuture;
     use rstest::rstest;
     use sidekicks_contracts::provider::driver::intervention::{
-        InterruptRunParams, InterventionResultStatus,
+        InterruptRunRequest, InterventionResultStatus,
     };
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
@@ -164,7 +164,7 @@ mod tests {
 
         fn interrupt_run(
             &self,
-            _params: InterruptRunParams,
+            _params: InterruptRunRequest,
         ) -> BoxFuture<'_, Result<(), DriverError>> {
             Box::pin(async { Ok(()) })
         }

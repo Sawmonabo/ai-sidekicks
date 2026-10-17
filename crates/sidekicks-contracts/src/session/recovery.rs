@@ -79,7 +79,7 @@ pub struct SessionRecoveryRefusedDetails {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RecoveryDamagedEventsSkippedPayload {
+pub struct SessionDamagedEventsSkippedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The first damaged event.
@@ -107,7 +107,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionRebuildingDetails>(),
         Definition::read::<SessionRecoveryRefusedReason>(),
         Definition::read::<SessionRecoveryRefusedDetails>(),
-        Definition::read::<RecoveryDamagedEventsSkippedPayload>().checked(),
+        Definition::read::<SessionDamagedEventsSkippedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

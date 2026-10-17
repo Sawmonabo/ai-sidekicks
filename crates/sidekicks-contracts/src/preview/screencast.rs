@@ -226,7 +226,7 @@ preview_screencast_element! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewScreencastAckRequest {
+pub struct PreviewScreencastAcknowledgeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.
@@ -374,7 +374,7 @@ pub enum PreviewDeviceInput {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewScreencastInputRequest {
+pub struct PreviewScreencastInputSendRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.
@@ -387,7 +387,7 @@ pub struct PreviewScreencastInputRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewScreencastInputResponse {
+pub struct PreviewScreencastInputSendResponse {
     /// The input's id.
     pub message_id: PreviewInputMessageId,
 }
@@ -503,7 +503,7 @@ pub struct PreviewScreencastFileChooseResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewScreencastSaveAckRequest {
+pub struct PreviewScreencastSaveAcknowledgeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.

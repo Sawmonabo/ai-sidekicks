@@ -38,7 +38,7 @@ named_scalar! {
 
 /// The TypeScript module of the scalars the git-flow modules share.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "gitflow/shared",
+    path: "git/shared",
     doc: "The scalars the git-flow modules share.",
     definitions: &[
         Definition::read::<GitShortObjectId>().checked(),

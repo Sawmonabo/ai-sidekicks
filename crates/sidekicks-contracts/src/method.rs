@@ -169,8 +169,8 @@ pub(crate) use methods;
 #[cfg(test)]
 mod tests {
     use crate::jsonrpc::message::CancelRequestParams;
-    use crate::jsonrpc::negotiation::DaemonHello;
-    use crate::jsonrpc::streaming::SubscriptionCancelParams;
+    use crate::jsonrpc::negotiation::ConnectionInitializeRequest;
+    use crate::jsonrpc::streaming::SubscriptionCancelRequest;
     use crate::provider::tools::{SessionSendArguments, TaskOutputArguments, TaskStopArguments};
     use crate::schema::received_check;
     use crate::workflow::run::tool::WorkflowRunToolInput;
@@ -192,7 +192,7 @@ mod tests {
             [
                 (
                     "connection.initialize",
-                    received_check::<DaemonHello>().err(),
+                    received_check::<ConnectionInitializeRequest>().err(),
                 ),
                 (
                     "$/cancelRequest",
@@ -200,7 +200,7 @@ mod tests {
                 ),
                 (
                     "$/subscription/cancel",
-                    received_check::<SubscriptionCancelParams>().err(),
+                    received_check::<SubscriptionCancelRequest>().err(),
                 ),
                 (
                     "session_send",

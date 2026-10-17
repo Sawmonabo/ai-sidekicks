@@ -106,7 +106,7 @@ methods! {
     pub const PREVIEW_PORT_METHOD_DESCRIPTORS = [
         /// Streams the machine's shared ports; the list is the machine's, so the request names
         /// nothing.
-        PreviewPortShareList = subscription "preview.portShare.subscribe" {
+        PreviewPortShareSubscribe = subscription "preview.portShare.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,
@@ -118,7 +118,7 @@ methods! {
             mutating: true,
             params: PreviewPortRequest,
             result: PreviewPortShareAddResponse,
-            refusals: [PreviewPortAlreadyShared],
+            refusals: [PreviewPortShareAlreadyExists],
         },
         /// Stops sharing a port.
         PreviewPortShareRemove = mutation "preview.portShare.remove" {
@@ -139,7 +139,7 @@ methods! {
 
 ts_constants! {
     /// A port added to the shared list that is on it already; nothing changes.
-    PREVIEW_PORT_ALREADY_SHARED_CODE = RefusalCode::PreviewPortAlreadyShared;
+    PREVIEW_PORT_ALREADY_SHARED_CODE = RefusalCode::PreviewPortShareAlreadyExists;
     /// A forward or a web ticket asked for a port that is not on the shared list.
     PREVIEW_PORT_NOT_SHARED_CODE = RefusalCode::PreviewPortNotShared;
 }

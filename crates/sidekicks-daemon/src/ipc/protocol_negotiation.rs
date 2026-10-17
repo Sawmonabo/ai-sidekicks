@@ -18,9 +18,9 @@ use futures::future::{BoxFuture, Shared};
 use serde_json::json;
 use sidekicks_contracts::daemon::recovery::{DaemonRepairProgress, DaemonRepairingDetails};
 use sidekicks_contracts::jsonrpc::negotiation::{
-    DAEMON_HELLO_METHOD, DaemonHandshake, DaemonHello, DaemonHelloAck,
-    NegotiationIncompatibleReason, NegotiationText, ProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS,
-    SUPPORTED_PROTOCOLS_MAX_LEN,
+    CONNECTION_INITIALIZE_METHOD, ConnectionInitializeRequest, ConnectionInitializeResponse,
+    DaemonHandshake, NegotiationIncompatibleReason, NegotiationText, ProtocolVersion,
+    SUPPORTED_PROTOCOL_VERSIONS, SUPPORTED_PROTOCOLS_MAX_LEN,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -222,14 +222,15 @@ impl ProtocolNegotiator {
     ) -> Option<DomainError> {
         match self.connections().get(&transport) {
             Some(ConnectionNegotiation::Refused(refusal)) => Some(refusal.error()),
-            None | Some(ConnectionNegotiation::ReadingCaller(_)) => (method != DAEMON_HELLO_METHOD)
-                .then(|| {
+            None | Some(ConnectionNegotiation::ReadingCaller(_)) => {
+                (method != CONNECTION_INITIALIZE_METHOD).then(|| {
                     DomainError::new(
                         HANDSHAKE_REQUIRED_MESSAGE,
-                        RefusalCode::ProtocolHandshakeRequired,
+                        RefusalCode::ConnectionHandshakeRequired,
                         DomainErrorJsonRpcCode::InvalidRequest,
                     )
-                }),
+                })
+            }
             // An unregistered method passes, so the registry answers that it is not served.
             Some(ConnectionNegotiation::Latched(LatchedHandshake::Incompatible {
                 reason, ..
@@ -243,9 +244,9 @@ impl ProtocolNegotiator {
 
     async fn answer_hello(
         self: Arc<Self>,
-        hello: DaemonHello,
+        hello: ConnectionInitializeRequest,
         context: HandlerContext,
-    ) -> Result<DaemonHelloAck, HandlerError> {
+    ) -> Result<ConnectionInitializeResponse, HandlerError> {
         let turn = match self.latched(context.transport_id) {
             Some(handshake) => HelloTurn::Repeat(handshake),
             None => self.latch_handshake(&hello, &context).await?,
@@ -255,10 +256,10 @@ impl ProtocolNegotiator {
 
     async fn answer_repairing_hello(
         self: Arc<Self>,
-        hello: DaemonHello,
+        hello: ConnectionInitializeRequest,
         context: HandlerContext,
         read_progress: RepairProgressReader,
-    ) -> Result<DaemonHelloAck, HandlerError> {
+    ) -> Result<ConnectionInitializeResponse, HandlerError> {
         if self.latched(context.transport_id).is_none() {
             self.latch_handshake(&hello, &context).await?;
         } else if !self.is_session_token(hello.session_token.as_ref()) {
@@ -282,7 +283,7 @@ impl ProtocolNegotiator {
     /// refusal latched meanwhile wins, and a second hello during the read finds the first latched.
     async fn latch_handshake(
         &self,
-        hello: &DaemonHello,
+        hello: &ConnectionInitializeRequest,
         context: &HandlerContext,
     ) -> Result<HelloTurn, HandlerError> {
         let transport = context.transport_id;
@@ -410,7 +411,7 @@ impl Dispatch for NegotiationGate {
 fn version_mismatch(reason: NegotiationIncompatibleReason) -> DomainError {
     DomainError::new(
         VERSION_MISMATCH_MESSAGE,
-        RefusalCode::ProtocolVersionMismatch,
+        RefusalCode::ConnectionVersionMismatch,
         DomainErrorJsonRpcCode::InvalidRequest,
     )
     .with_detail(json!({ "reason": reason }))
@@ -418,7 +419,7 @@ fn version_mismatch(reason: NegotiationIncompatibleReason) -> DomainError {
 
 /// The version `hello` and the daemon agree on, the newest both speak, or why there is none:
 /// `floor` when every version the client offers is older than the daemon's oldest, else `ceiling`.
-fn negotiate(hello: &DaemonHello) -> LatchedHandshake {
+fn negotiate(hello: &ConnectionInitializeRequest) -> LatchedHandshake {
     let offered = match &hello.supported_protocols {
         Some(supported) => supported.as_slice(),
         None => std::slice::from_ref(&hello.protocol_version),
@@ -454,7 +455,7 @@ fn negotiate(hello: &DaemonHello) -> LatchedHandshake {
 
 /// The ack of a hello: a repeat gets `handshake_already_completed` with the first's version; an
 /// incompatible first gets its reason and the daemon's versions.
-fn acknowledgement(turn: HelloTurn, device_id: DeviceId) -> DaemonHelloAck {
+fn acknowledgement(turn: HelloTurn, device_id: DeviceId) -> ConnectionInitializeResponse {
     let (compatible, protocol_version, reason, daemon_supported_protocols) = match turn {
         HelloTurn::Repeat(
             LatchedHandshake::Compatible { version }
@@ -479,7 +480,7 @@ fn acknowledgement(turn: HelloTurn, device_id: DeviceId) -> DaemonHelloAck {
             Some(DAEMON_VERSIONS.clone()),
         ),
     };
-    DaemonHelloAck {
+    ConnectionInitializeResponse {
         compatible,
         protocol_version,
         device_id,
@@ -499,7 +500,7 @@ mod tests {
     use serde_json::json;
     use serde_json::value::RawValue;
     use sidekicks_contracts::jsonrpc::negotiation::{
-        CURRENT_PROTOCOL_VERSION, DAEMON_HELLO_METHOD, DaemonHelloAck,
+        CONNECTION_INITIALIZE_METHOD, CURRENT_PROTOCOL_VERSION, ConnectionInitializeResponse,
         NegotiationIncompatibleReason,
     };
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -565,7 +566,7 @@ mod tests {
     fn request(call: Call) -> Request {
         let (method, params) = match call {
             Call::Hello(token, version) => (
-                DAEMON_HELLO_METHOD,
+                CONNECTION_INITIALIZE_METHOD,
                 json!({ "protocolVersion": version, "sessionToken": token }),
             ),
             Call::Read => ("test.read", json!({})),
@@ -615,13 +616,13 @@ mod tests {
     #[case::floor(Some(7), false, &[
         (Call::Hello(SESSION_TOKEN, "2000-01-01"),
             Answer::Ack(false, Some(NegotiationIncompatibleReason::FloorExceeded))),
-        (Call::Write, Answer::Refused(RefusalCode::ProtocolVersionMismatch)),
+        (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
         (Call::Read, Answer::Served),
     ])]
     #[case::ceiling(Some(7), false, &[
         (Call::Hello(SESSION_TOKEN, "2999-12-31"),
             Answer::Ack(false, Some(NegotiationIncompatibleReason::CeilingExceeded))),
-        (Call::Write, Answer::Refused(RefusalCode::ProtocolVersionMismatch)),
+        (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
         (Call::Read, Answer::Served),
     ])]
     #[case::compatible(Some(7), false, &[
@@ -631,8 +632,8 @@ mod tests {
             Answer::Ack(false, Some(NegotiationIncompatibleReason::HandshakeAlreadyCompleted))),
     ])]
     #[case::before_the_hello(Some(7), false, &[
-        (Call::Read, Answer::Refused(RefusalCode::ProtocolHandshakeRequired)),
-        (Call::Write, Answer::Refused(RefusalCode::ProtocolHandshakeRequired)),
+        (Call::Read, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
+        (Call::Write, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
     ])]
     #[case::agent_process(Some(7), true, &[
         (Call::Hello(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
@@ -659,7 +660,7 @@ mod tests {
                 .await;
             match (answer, expected) {
                 (Ok(Reply::Result(encoded)), Answer::Ack(compatible, reason)) => {
-                    let ack: DaemonHelloAck =
+                    let ack: ConnectionInitializeResponse =
                         serde_json::from_slice(&encoded.json).expect("the ack is JSON");
                     assert_eq!(
                         (ack.compatible, ack.reason),

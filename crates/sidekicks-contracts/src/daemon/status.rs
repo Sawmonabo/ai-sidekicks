@@ -269,7 +269,7 @@ pub struct CrashReport {
 /// The reports this machine keeps, newest first; kept as long as its diagnostic logs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DaemonCrashListResponse {
+pub struct DaemonCrashReportListResponse {
     /// The reports, newest first.
     #[garde(dive)]
     pub reports: Vec<CrashReport>,
@@ -286,10 +286,10 @@ methods! {
             refusals: [],
         },
         /// Lists the crash reports this machine keeps.
-        DaemonCrashList = query "daemon.crashReport.list" {
+        DaemonCrashReportList = query "daemon.crashReport.list" {
             mutating: false,
             params: EmptyPayload,
-            result: DaemonCrashListResponse,
+            result: DaemonCrashReportListResponse,
             refusals: [],
         },
     ];
@@ -312,7 +312,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<CrashModuleFileName>(),
         Definition::read::<CrashStackFrame>(),
         Definition::read::<CrashReport>(),
-        Definition::read::<DaemonCrashListResponse>().checked(),
+        Definition::read::<DaemonCrashReportListResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_STATUS_METHOD_DESCRIPTORS],

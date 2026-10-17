@@ -22,7 +22,7 @@ ts_constants! {
     /// The longest answer to one of git's questions.
     pub const REPO_CLONE_ANSWER_MAX_LEN: usize = 4096;
     /// The code `project.clone.start` answers with when it refuses a clone before it starts.
-    REPO_CLONE_REFUSED_CODE = crate::jsonrpc::refusal::RefusalCode::RepoCloneRefused;
+    REPO_CLONE_REFUSED_CODE = crate::jsonrpc::refusal::RefusalCode::ProjectCloneRefused;
 }
 
 /// A line of git's own words.
@@ -35,7 +35,7 @@ pub type CloneLine = FreeFormText<REPO_CLONE_LINE_MAX_LEN>;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoCloneRequest {
+pub struct ProjectCloneStartRequest {
     /// The repository's URL, handed to git as typed.
     pub url: FreeFormText<REPO_CLONE_URL_MAX_LEN>,
     /// The folder the clone goes into.
@@ -75,7 +75,7 @@ pub struct RepoCloneRequest {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum RepoCloneRefusedDetails {
+pub enum ProjectCloneRefusedDetails {
     /// The destination holds something.
     DestinationNotEmpty {},
     /// Git can name no folder from the address.
@@ -89,7 +89,7 @@ pub enum RepoCloneRefusedDetails {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoCloneResponse {
+pub struct ProjectCloneStartResponse {
     /// The project.
     pub project_id: ProjectId,
 }
@@ -227,7 +227,7 @@ pattern_text! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoCloneAnswerRequest {
+pub struct ProjectCloneAnswerRequest {
     /// The project.
     pub project_id: ProjectId,
     /// The question.
@@ -254,7 +254,7 @@ pub enum RepoCloneFolderSource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoCloneFolderReadResponse {
+pub struct ProjectCloneFolderReadResponse {
     /// The folder.
     pub folder: FilesystemPath,
     /// The distribution the folder is in, in Linux form; absent elsewhere.
@@ -275,9 +275,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Cloning: project.clone.start makes a project from a repository URL, and its card follows the \
           clone live.",
     definitions: &[
-        Definition::read::<RepoCloneRequest>(),
-        Definition::read::<RepoCloneRefusedDetails>(),
-        Definition::read::<RepoCloneResponse>(),
+        Definition::read::<ProjectCloneStartRequest>(),
+        Definition::read::<ProjectCloneRefusedDetails>(),
+        Definition::read::<ProjectCloneStartResponse>(),
         Definition::read::<RepoCloneProjectRequest>(),
         Definition::read::<CloneQuestionId>().checked(),
         Definition::read::<RepoCloneProgress>(),
@@ -285,9 +285,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoCloneFailedStep>(),
         Definition::read::<RepoCloneStatus>(),
         Definition::read::<AskpassAnswer>(),
-        Definition::read::<RepoCloneAnswerRequest>().checked(),
+        Definition::read::<ProjectCloneAnswerRequest>().checked(),
         Definition::read::<RepoCloneFolderSource>(),
-        Definition::read::<RepoCloneFolderReadResponse>(),
+        Definition::read::<ProjectCloneFolderReadResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

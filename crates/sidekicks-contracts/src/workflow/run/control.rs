@@ -35,18 +35,18 @@ ts_constants! {
     /// What a node run covers.
     WORKFLOW_NODE_EXECUTE_SCOPES = WorkflowNodeExecuteScope::VARIANTS;
     /// Every reason a retry cannot be made.
-    WORKFLOW_RETRY_UNAVAILABLE_REASONS = WorkflowRetryUnavailableReason::VARIANTS;
+    WORKFLOW_RETRY_UNAVAILABLE_REASONS = WorkflowRunStillRunningReason::VARIANTS;
     /// A start the policy check denied, or whose principal could not be resolved.
-    WORKFLOW_START_DENIED_CODE = RefusalCode::WorkflowStartDenied;
+    WORKFLOW_START_DENIED_CODE = RefusalCode::WorkflowRunStartDenied;
     /// A start in a project session that names a project: the run works in that session's
     /// repository, so it names no other. Nothing runs.
-    WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE = RefusalCode::WorkflowProjectOnProjectSession;
+    WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE = RefusalCode::WorkflowRunProjectOnProjectSession;
     /// A start or a node run that works in no project's repository, of a version holding a Git,
     /// Read a repo diff or Run tests step. Nothing runs.
-    WORKFLOW_REPOSITORY_REQUIRED_CODE = RefusalCode::WorkflowRepositoryRequired;
+    WORKFLOW_REPOSITORY_REQUIRED_CODE = RefusalCode::WorkflowRunRepositoryRequired;
     /// A start that leaves a required input of the workflow unfilled, or gives an input a value
     /// that does not fit it. Nothing runs.
-    WORKFLOW_INPUT_REQUIRED_CODE = RefusalCode::WorkflowInputRequired;
+    WORKFLOW_INPUT_REQUIRED_CODE = RefusalCode::WorkflowRunInputRequired;
     /// A start of a version whose Code steps' packages are not locked; a later save that locks them
     /// makes the version runnable. Nothing runs.
     WORKFLOW_CODE_PACKAGES_NOT_LOCKED_CODE = RefusalCode::WorkflowCodePackagesNotLocked;
@@ -54,19 +54,19 @@ ts_constants! {
     /// canceled; a run already canceled is not refused, the cancel returns the first's outcome.
     WORKFLOW_RUN_NOT_CANCELABLE_CODE = RefusalCode::WorkflowRunNotCancelable;
     /// A resume on a run that is not waiting: there is no wait to lift.
-    WORKFLOW_RESUME_NOT_PARKED_CODE = RefusalCode::WorkflowResumeNotParked;
+    WORKFLOW_RESUME_NOT_PARKED_CODE = RefusalCode::WorkflowRunResumeNotParked;
     /// A version re-pin on a run that is not waiting; a going run is never re-pinned.
-    WORKFLOW_REPAIR_NOT_PARKED_CODE = RefusalCode::WorkflowRepairNotParked;
+    WORKFLOW_REPAIR_NOT_PARKED_CODE = RefusalCode::WorkflowRunRepairNotParked;
     /// A version re-pin while one of the run's steps is still in flight.
-    WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE = RefusalCode::WorkflowRepairAttemptInFlight;
+    WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE = RefusalCode::WorkflowRunRepairAttemptInFlight;
     /// A version re-pin whose target cannot account for the steps the run already finished.
-    WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE = RefusalCode::WorkflowRepairVersionUnaccountable;
+    WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE = RefusalCode::WorkflowRunRepairVersionUnaccountable;
     /// A run or step move its status does not allow: retrying from a step that did not fail,
     /// posting the results of an unfinished run, or opening a fix session on a step that did not
     /// fail.
     WORKFLOW_INVALID_TRANSITION_CODE = RefusalCode::WorkflowInvalidTransition;
     /// A retry the daemon cannot make now; the reason says why.
-    WORKFLOW_RETRY_UNAVAILABLE_CODE = RefusalCode::WorkflowRetryUnavailable;
+    WORKFLOW_RETRY_UNAVAILABLE_CODE = RefusalCode::WorkflowRunStillRunning;
 }
 
 /// The most code points a cancellation reason can hold under its byte cap: its JSON takes two
@@ -256,7 +256,7 @@ pub enum WorkflowTriggerInputValue {
 pub fn fill_workflow_trigger_inputs(
     declared: &[WorkflowTriggerInput],
     input: &[WorkflowItem],
-) -> Result<BTreeMap<String, WorkflowTriggerInputValue>, WorkflowInputRequiredDetails> {
+) -> Result<BTreeMap<String, WorkflowTriggerInputValue>, WorkflowRunInputRequiredDetails> {
     let named = input.first().and_then(|item| item.json.0.as_object());
     let mut values = BTreeMap::new();
     let mut missing = Vec::new();
@@ -307,7 +307,7 @@ pub fn fill_workflow_trigger_inputs(
     }
     match BoundedVec::new(missing) {
         None => Ok(values),
-        Some(input_names) => Err(WorkflowInputRequiredDetails { input_names }),
+        Some(input_names) => Err(WorkflowRunInputRequiredDetails { input_names }),
     }
 }
 
@@ -596,7 +596,7 @@ pub struct WorkflowResultsPostResponse {
 /// The repository refusal's details: the nodes that need a repository.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowRepositoryRequiredDetails {
+pub struct WorkflowRunRepositoryRequiredDetails {
     /// The nodes, at least one.
     pub node_ids: BoundedVec<WorkflowNodeId, 1, { usize::MAX }>,
 }
@@ -605,7 +605,7 @@ pub struct WorkflowRepositoryRequiredDetails {
 /// that does not fit, by name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowInputRequiredDetails {
+pub struct WorkflowRunInputRequiredDetails {
     /// The inputs, at least one.
     pub input_names: BoundedVec<NonEmptyText, 1, { usize::MAX }>,
 }
@@ -623,7 +623,7 @@ pub struct WorkflowCodePackagesNotLockedDetails {
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
-pub enum WorkflowRetryUnavailableReason {
+pub enum WorkflowRunStillRunningReason {
     /// The source run is still going.
     SourceRunning,
 }
@@ -631,9 +631,9 @@ pub enum WorkflowRetryUnavailableReason {
 /// The retry refusal's details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowRetryUnavailableDetails {
+pub struct WorkflowRunStillRunningDetails {
     /// Why.
-    pub reason: WorkflowRetryUnavailableReason,
+    pub reason: WorkflowRunStillRunningReason,
 }
 
 methods! {
@@ -647,12 +647,12 @@ methods! {
             refusals: [
                 WorkflowVersionNotFound,
                 SessionNotFound,
-                WorkflowStartDenied,
-                WorkflowProjectOnProjectSession,
-                WorkflowRepositoryRequired,
-                WorkflowInputRequired,
+                WorkflowRunStartDenied,
+                WorkflowRunProjectOnProjectSession,
+                WorkflowRunRepositoryRequired,
+                WorkflowRunInputRequired,
                 WorkflowCodePackagesNotLocked,
-                WorkflowIdempotencyConflict,
+                WorkflowRunIdempotencyConflict,
             ],
         },
         /// Cancels a run that has not ended.
@@ -669,10 +669,10 @@ methods! {
             result: WorkflowRunResumeResponse,
             refusals: [
                 WorkflowRunNotFound,
-                WorkflowResumeNotParked,
-                WorkflowRepairNotParked,
-                WorkflowRepairAttemptInFlight,
-                WorkflowRepairVersionUnaccountable,
+                WorkflowRunResumeNotParked,
+                WorkflowRunRepairNotParked,
+                WorkflowRunRepairAttemptInFlight,
+                WorkflowRunRepairVersionUnaccountable,
             ],
         },
         /// Starts a new run from a named step of a run, its upstream data pinned.
@@ -682,9 +682,9 @@ methods! {
             result: WorkflowRunRetryResponse,
             refusals: [
                 WorkflowRunNotFound, WorkflowStepNotFound,
-                WorkflowRetryUnavailable,
+                WorkflowRunStillRunning,
                 WorkflowInvalidTransition,
-                WorkflowIdempotencyConflict,
+                WorkflowRunIdempotencyConflict,
             ],
         },
         /// Starts a new run of a run's own version, input and mode, in its session.
@@ -692,14 +692,14 @@ methods! {
             mutating: true,
             params: WorkflowRunRerunRequest,
             result: WorkflowRunStartResponse,
-            refusals: [WorkflowRunNotFound, WorkflowIdempotencyConflict],
+            refusals: [WorkflowRunNotFound, WorkflowRunIdempotencyConflict],
         },
         /// Runs one node, or it and its ancestors, from the builder.
         WorkflowNodeExecute = mutation "workflow.node.execute" {
             mutating: true,
             params: WorkflowNodeExecuteRequest,
             result: WorkflowNodeExecuteResponse,
-            refusals: [SessionNotFound, WorkflowVersionNotFound, WorkflowRepositoryRequired],
+            refusals: [SessionNotFound, WorkflowVersionNotFound, WorkflowRunRepositoryRequired],
         },
         /// Posts a finished run's results into the session that asks.
         WorkflowResultsPost = mutation "workflow.results.post" {
@@ -714,7 +714,7 @@ methods! {
 /// The details a `workflow.run.idempotencyConflict` refusal carries: what the key first answered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowIdempotencyConflictDetails {
+pub struct WorkflowRunIdempotencyConflictDetails {
     /// The run the first request under the key named: a retry's or re-run's source run; absent
     /// for a start, which names none.
     #[serde(
@@ -754,12 +754,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowNodeExecuteResponse>().checked(),
         Definition::read::<WorkflowResultsPostRequest>().checked(),
         Definition::read::<WorkflowResultsPostResponse>().checked(),
-        Definition::read::<WorkflowRepositoryRequiredDetails>().checked(),
-        Definition::read::<WorkflowInputRequiredDetails>().checked(),
+        Definition::read::<WorkflowRunRepositoryRequiredDetails>().checked(),
+        Definition::read::<WorkflowRunInputRequiredDetails>().checked(),
         Definition::read::<WorkflowCodePackagesNotLockedDetails>().checked(),
-        Definition::read::<WorkflowRetryUnavailableReason>(),
-        Definition::read::<WorkflowRetryUnavailableDetails>().checked(),
-        Definition::read::<WorkflowIdempotencyConflictDetails>().checked(),
+        Definition::read::<WorkflowRunStillRunningReason>(),
+        Definition::read::<WorkflowRunStillRunningDetails>().checked(),
+        Definition::read::<WorkflowRunIdempotencyConflictDetails>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS],

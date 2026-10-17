@@ -85,7 +85,7 @@ pub struct RunningCommand {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandListSubscribeRequest {
+pub struct AgentCommandSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -128,7 +128,7 @@ pub enum CommandListFrame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandStopRequest {
+pub struct AgentCommandStopRequest {
     /// The session.
     pub session_id: SessionId,
     /// The command.
@@ -139,7 +139,7 @@ pub struct CommandStopRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandStopResponse {
+pub struct AgentCommandStopResponse {
     /// The command.
     pub command_id: CommandId,
     /// Always true.
@@ -152,7 +152,7 @@ pub struct CommandStopResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandBackgroundRequest {
+pub struct AgentCommandBackgroundRequest {
     /// The session.
     pub session_id: SessionId,
     /// The command.
@@ -163,7 +163,7 @@ pub struct CommandBackgroundRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CommandBackgroundResponse {
+pub struct AgentCommandBackgroundResponse {
     /// The command.
     pub command_id: CommandId,
     /// Always false.
@@ -185,7 +185,7 @@ pub struct CommandBackgroundResponse {
     }
 }))]
 #[schemars(transform = add_write_carries_something_rule)]
-pub struct CommandWriteRequest {
+pub struct AgentCommandWriteRequest {
     /// The session.
     pub session_id: SessionId,
     /// The command.
@@ -242,7 +242,7 @@ pub enum CommandEnding {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct CommandEndedPayload {
+pub struct AgentCommandEndedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -289,33 +289,33 @@ methods! {
     /// The `command.*` methods.
     pub const COMMAND_METHOD_DESCRIPTORS = [
         /// Follows the session's running commands and their output.
-        CommandList = subscription "agent.command.subscribe" {
+        AgentCommandSubscribe = subscription "agent.command.subscribe" {
             mutating: false,
-            params: CommandListSubscribeRequest,
+            params: AgentCommandSubscribeRequest,
             result: SubscribeAckResponse,
             emission: CommandListFrame,
             refusals: [SessionNotFound],
         },
         /// Stops one running command.
-        CommandStop = mutation "agent.command.stop" {
+        AgentCommandStop = mutation "agent.command.stop" {
             mutating: true,
-            params: CommandStopRequest,
-            result: CommandStopResponse,
+            params: AgentCommandStopRequest,
+            result: AgentCommandStopResponse,
             refusals: [SessionNotFound],
         },
         /// Moves a command the agent waits on to the background.
-        CommandBackground = mutation "agent.command.background" {
+        AgentCommandBackground = mutation "agent.command.background" {
             mutating: true,
-            params: CommandBackgroundRequest,
-            result: CommandBackgroundResponse,
-            refusals: [SessionNotFound, DriverCapabilityUnsupported, CommandNotInForeground],
+            params: AgentCommandBackgroundRequest,
+            result: AgentCommandBackgroundResponse,
+            refusals: [SessionNotFound, ProviderCapabilityUnsupported, AgentCommandNotInForeground],
         },
         /// Writes input to a command, ends its input, or both.
-        CommandWrite = mutation "agent.command.write" {
+        AgentCommandWrite = mutation "agent.command.write" {
             mutating: true,
-            params: CommandWriteRequest,
+            params: AgentCommandWriteRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, CommandTakesNoInput],
+            refusals: [SessionNotFound, AgentCommandTakesNoInput],
         },
     ];
 }
@@ -329,15 +329,15 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<CommandId>().checked(),
         Definition::read::<CommandPrompt>(),
         Definition::read::<RunningCommand>(),
-        Definition::read::<CommandListSubscribeRequest>(),
+        Definition::read::<AgentCommandSubscribeRequest>(),
         Definition::read::<CommandListFrame>().checked(),
-        Definition::read::<CommandStopRequest>(),
-        Definition::read::<CommandStopResponse>(),
-        Definition::read::<CommandBackgroundRequest>(),
-        Definition::read::<CommandBackgroundResponse>(),
-        Definition::read::<CommandWriteRequest>().checked(),
+        Definition::read::<AgentCommandStopRequest>(),
+        Definition::read::<AgentCommandStopResponse>(),
+        Definition::read::<AgentCommandBackgroundRequest>(),
+        Definition::read::<AgentCommandBackgroundResponse>(),
+        Definition::read::<AgentCommandWriteRequest>().checked(),
         Definition::read::<CommandEnding>(),
-        Definition::read::<CommandEndedPayload>().checked(),
+        Definition::read::<AgentCommandEndedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&COMMAND_METHOD_DESCRIPTORS],

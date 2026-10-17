@@ -45,7 +45,7 @@ pub struct SessionSideQuestionAnsweredPayload {
 /// the run then ends as interrupted. `count` is the bound reached, drawn beside `Continue`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunStepLimitReachedPayload {
+pub struct AgentRunStepLimitReachedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -70,7 +70,7 @@ pub struct SessionSpendLimitReachedPayload {
 /// the next message starts a new run. `tokenLimit` is the limit, drawn beside `Raise limit`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunTokenLimitReachedPayload {
+pub struct AgentRunTokenLimitReachedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -401,7 +401,7 @@ impl SessionNotice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
-pub enum SessionNoticePayload {
+pub enum SessionNoticePostedPayload {
     /// A provider ignored part of its settings, by a report naming a file and a line.
     SettingsIgnoredAtLine(SettingsIgnoredAtLineNotice),
     /// A provider ignored part of its settings, by a report naming a file and a key.
@@ -425,7 +425,7 @@ pub enum ModerationReviewSignal {
 /// `text` is the words the row shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ModerationReviewFlaggedPayload {
+pub struct ApprovalReviewerFlaggedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -448,14 +448,14 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           reviewer, and the live frame of a provider's safety hold on a turn.",
     definitions: &[
         Definition::read::<SessionSideQuestionAnsweredPayload>().checked(),
-        Definition::read::<RunStepLimitReachedPayload>().checked(),
+        Definition::read::<AgentRunStepLimitReachedPayload>().checked(),
         Definition::read::<SessionSpendLimitReachedPayload>().checked(),
-        Definition::read::<RunTokenLimitReachedPayload>().checked(),
+        Definition::read::<AgentRunTokenLimitReachedPayload>().checked(),
         Definition::read::<RunSafetyBufferingUpdatedPayload>().checked(),
         Definition::read::<ProviderWarningSource>(),
-        Definition::read::<SessionNoticePayload>().checked(),
+        Definition::read::<SessionNoticePostedPayload>().checked(),
         Definition::read::<ModerationReviewSignal>(),
-        Definition::read::<ModerationReviewFlaggedPayload>().checked(),
+        Definition::read::<ApprovalReviewerFlaggedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

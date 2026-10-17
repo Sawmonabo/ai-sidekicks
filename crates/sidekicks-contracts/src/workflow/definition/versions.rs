@@ -57,7 +57,7 @@ pub struct WorkflowVersionReadResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowVersionChainReadRequest {
+pub struct WorkflowVersionListRequest {
     /// A version of the chain.
     pub workflow_version_id: WorkflowVersionId,
 }
@@ -138,7 +138,7 @@ pub struct WorkflowVersionChainEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowVersionChainReadResponse {
+pub struct WorkflowVersionListResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// Its versions, oldest first.
@@ -220,11 +220,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<WorkflowVersionReadRequest>().checked(),
         Definition::read::<WorkflowVersionReadResponse>().checked(),
-        Definition::read::<WorkflowVersionChainReadRequest>().checked(),
+        Definition::read::<WorkflowVersionListRequest>().checked(),
         Definition::read::<WorkflowVersionSavedBy>(),
         Definition::read::<WorkflowVersionChangeCounts>(),
         Definition::read::<WorkflowVersionChainEntry>().checked(),
-        Definition::read::<WorkflowVersionChainReadResponse>().checked(),
+        Definition::read::<WorkflowVersionListResponse>().checked(),
         Definition::read::<WorkflowVersionDiffReadRequest>().checked(),
         Definition::read::<WorkflowVersionNode>(),
         Definition::read::<WorkflowVersionNodeChange>(),

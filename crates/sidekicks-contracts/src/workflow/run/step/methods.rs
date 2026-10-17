@@ -35,7 +35,7 @@ ts_constants! {
     /// chain's question answered once it is no longer open.
     WORKFLOW_STEP_NOT_WAITING_CODE = RefusalCode::WorkflowStepNotWaiting;
     /// A form draft save or a form submit carrying a revision that is no longer current.
-    WORKFLOW_REVISION_STALE_CODE = RefusalCode::WorkflowRevisionStale;
+    WORKFLOW_REVISION_STALE_CODE = RefusalCode::WorkflowHumanFormRevisionStale;
 }
 
 /// One tab of a step's panel: its input, output or log, its cost or its error.
@@ -336,7 +336,7 @@ workflow_step_key! {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
-    pub struct WorkflowHumanFormDraftSaveRequest {
+    pub struct WorkflowHumanFormDraftUpdateRequest {
         /// The form's values as typed.
         pub form_state: JsonRecord,
         /// The draft revision the save was typed over.
@@ -354,7 +354,7 @@ workflow_step_key! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowHumanFormDraftSaveResponse {
+pub struct WorkflowHumanFormDraftUpdateResponse {
     /// The draft's new revision.
     pub revision: SafeInt<1>,
     /// When it was saved.
@@ -474,18 +474,18 @@ methods! {
             refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowStepNotWaiting],
         },
         /// Saves a waiting form's draft as it is typed.
-        WorkflowHumanFormDraftSave = mutation "workflow.humanForm.draft.update" {
+        WorkflowHumanFormDraftUpdate = mutation "workflow.humanForm.draft.update" {
             mutating: true,
-            params: WorkflowHumanFormDraftSaveRequest,
-            result: WorkflowHumanFormDraftSaveResponse,
-            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowRevisionStale],
+            params: WorkflowHumanFormDraftUpdateRequest,
+            result: WorkflowHumanFormDraftUpdateResponse,
+            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowHumanFormRevisionStale],
         },
         /// Submits a waiting form against the revision it was read at.
         WorkflowHumanFormSubmit = mutation "workflow.humanForm.submit" {
             mutating: true,
             params: WorkflowHumanFormSubmitRequest,
             result: WorkflowHumanFormSubmitResponse,
-            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowRevisionStale, WorkflowStepNotWaiting],
+            refusals: [WorkflowRunNotFound, WorkflowStepNotFound, WorkflowHumanFormRevisionStale, WorkflowStepNotWaiting],
         },
         /// Opens a new session to fix a failed step, which the run links to.
         WorkflowFixSessionCreate = mutation "workflow.fixSession.create" {
@@ -522,8 +522,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowGateResolveResponse>().checked(),
         Definition::read::<WorkflowHumanFormDraft>(),
         Definition::read::<WorkflowHumanFormReadResponse>().checked(),
-        Definition::read::<WorkflowHumanFormDraftSaveRequest>().checked(),
-        Definition::read::<WorkflowHumanFormDraftSaveResponse>().checked(),
+        Definition::read::<WorkflowHumanFormDraftUpdateRequest>().checked(),
+        Definition::read::<WorkflowHumanFormDraftUpdateResponse>().checked(),
         Definition::read::<WorkflowHumanFormPathAnswer>(),
         Definition::read::<WorkflowHumanFormSubmitRequest>().checked(),
         Definition::read::<WorkflowHumanFormSubmitResponse>().checked(),

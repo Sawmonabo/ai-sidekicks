@@ -20,21 +20,20 @@ use crate::workflow::definition::builder::{
     WorkflowBackgroundBrowser, WorkflowBackgroundBrowserUpdateRequest,
     WorkflowBackgroundBrowserUpdateResponse, WorkflowDefinitionSettingResponse,
     WorkflowDraftReadRequest, WorkflowDraftReadResponse, WorkflowDraftUpdateRequest,
-    WorkflowDraftUpdateResponse, WorkflowEnabledSetRequest, WorkflowEnabledSetResponse,
-    WorkflowExpressionPreviewRequest, WorkflowExpressionPreviewResponse, WorkflowLayoutSetRequest,
-    WorkflowPermissionLevelUpdateRequest, WorkflowPermissionLevelUpdateResponse,
-    WorkflowPinDataSetRequest, WorkflowPinDataSetResponse, WorkflowTagsSetRequest,
-    WorkflowWebhookListenerReadResponse, WorkflowWebhookTokenRotateRequest,
-    WorkflowWebhookTokenRotateResponse,
+    WorkflowDraftUpdateResponse, WorkflowEnabledUpdateRequest, WorkflowEnabledUpdateResponse,
+    WorkflowExpressionPreviewRequest, WorkflowExpressionPreviewResponse,
+    WorkflowLayoutUpdateRequest, WorkflowPermissionLevelUpdateRequest,
+    WorkflowPermissionLevelUpdateResponse, WorkflowPinDataUpdateRequest,
+    WorkflowPinDataUpdateResponse, WorkflowTagsUpdateRequest, WorkflowWebhookListenerReadResponse,
+    WorkflowWebhookTokenRotateRequest, WorkflowWebhookTokenRotateResponse,
 };
 use crate::workflow::definition::document::{
     WorkflowContentHash, WorkflowDefinitionId, WorkflowDocument, WorkflowNodeKindId,
     WorkflowVersionId,
 };
 use crate::workflow::definition::versions::{
-    WorkflowVersionChainReadRequest, WorkflowVersionChainReadResponse,
-    WorkflowVersionDiffReadRequest, WorkflowVersionDiffReadResponse, WorkflowVersionReadRequest,
-    WorkflowVersionReadResponse,
+    WorkflowVersionDiffReadRequest, WorkflowVersionDiffReadResponse, WorkflowVersionListRequest,
+    WorkflowVersionListResponse, WorkflowVersionReadRequest, WorkflowVersionReadResponse,
 };
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::status::WorkflowRunStatus;
@@ -574,10 +573,10 @@ methods! {
             refusals: [WorkflowDefinitionNotFound, WorkflowVersionNotFound],
         },
         /// Reads every version of the definition a version id belongs to.
-        WorkflowVersionChainRead = query "workflow.version.list" {
+        WorkflowVersionList = query "workflow.version.list" {
             mutating: false,
-            params: WorkflowVersionChainReadRequest,
-            result: WorkflowVersionChainReadResponse,
+            params: WorkflowVersionListRequest,
+            result: WorkflowVersionListResponse,
             refusals: [WorkflowVersionNotFound],
         },
         /// Saves a new version of a workflow: Save, Restore and a schedule change.
@@ -606,26 +605,26 @@ methods! {
             mutating: true,
             params: WorkflowDefinitionImportRequest,
             result: WorkflowDefinitionCreateResponse,
-            refusals: [WorkflowDefinitionRefused, WorkflowImportSchemaUnknown],
+            refusals: [WorkflowDefinitionRefused, WorkflowDefinitionImportSchemaUnknown],
         },
         /// Arms or disarms every trigger of one workflow.
-        WorkflowEnabledSet = mutation "workflow.enabled.update" {
+        WorkflowEnabledUpdate = mutation "workflow.enabled.update" {
             mutating: true,
-            params: WorkflowEnabledSetRequest,
-            result: WorkflowEnabledSetResponse,
+            params: WorkflowEnabledUpdateRequest,
+            result: WorkflowEnabledUpdateResponse,
             refusals: [WorkflowDefinitionNotFound, WorkflowTriggerUnarmable],
         },
         /// Saves the canvas layout without a new version.
-        WorkflowLayoutSet = mutation "workflow.layout.update" {
+        WorkflowLayoutUpdate = mutation "workflow.layout.update" {
             mutating: true,
-            params: WorkflowLayoutSetRequest,
+            params: WorkflowLayoutUpdateRequest,
             result: WorkflowDefinitionSettingResponse,
             refusals: [WorkflowDefinitionNotFound],
         },
         /// Replaces the workflow's tags without a new version.
-        WorkflowTagsSet = mutation "workflow.tags.update" {
+        WorkflowTagsUpdate = mutation "workflow.tags.update" {
             mutating: true,
-            params: WorkflowTagsSetRequest,
+            params: WorkflowTagsUpdateRequest,
             result: WorkflowDefinitionSettingResponse,
             refusals: [WorkflowDefinitionNotFound],
         },
@@ -645,10 +644,10 @@ methods! {
             refusals: [WorkflowDefinitionNotFound],
         },
         /// Pins or unpins a node's test data without a new version.
-        WorkflowPinDataSet = mutation "workflow.pinData.update" {
+        WorkflowPinDataUpdate = mutation "workflow.pinData.update" {
             mutating: true,
-            params: WorkflowPinDataSetRequest,
-            result: WorkflowPinDataSetResponse,
+            params: WorkflowPinDataUpdateRequest,
+            result: WorkflowPinDataUpdateResponse,
             refusals: [WorkflowDefinitionNotFound],
         },
         /// Holds the builder's unsaved draft so it survives a reload.

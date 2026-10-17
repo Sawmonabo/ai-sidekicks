@@ -3,8 +3,8 @@
 
 use crate::method::methods;
 use crate::transcript::content::{
-    TranscriptBodyReadRequest, TranscriptBodyReadResponse, TranscriptPatchReadRequest,
-    TranscriptPatchReadResponse,
+    TranscriptBodyReadRequest, TranscriptBodyReadResponse, TranscriptPatchListRequest,
+    TranscriptPatchListResponse,
 };
 use crate::transcript::operations::{
     ChildRunExpandRequest, ChildRunExpandResponse, ReasoningSurfaceReadRequest,
@@ -21,21 +21,21 @@ methods! {
             mutating: false,
             params: TranscriptReadRequest,
             result: TranscriptReadResponse,
-            refusals: [SessionNotFound, EventCursorUnresolvable, TranscriptRowNotFound],
+            refusals: [SessionNotFound, SessionEventCursorUnresolvable, TranscriptRowNotFound],
         },
         /// Reads a run's reasoning, page by page.
-        TranscriptReasoningSurfaceRead = query "transcript.reasoning.read" {
+        TranscriptReasoningRead = query "transcript.reasoning.read" {
             mutating: false,
             params: ReasoningSurfaceReadRequest,
             result: ReasoningSurfaceReadResponse,
-            refusals: [EventCursorUnresolvable],
+            refusals: [SessionEventCursorUnresolvable],
         },
         /// Expands one summarized child-run row into its own rows.
         TranscriptChildRunExpand = query "transcript.childRun.expand" {
             mutating: false,
             params: ChildRunExpandRequest,
             result: ChildRunExpandResponse,
-            refusals: [EventCursorUnresolvable],
+            refusals: [SessionEventCursorUnresolvable],
         },
         /// Reads a row's large body or full output.
         TranscriptBodyRead = query "transcript.body.read" {
@@ -45,10 +45,10 @@ methods! {
             refusals: [SessionNotFound, TranscriptRowNotFound],
         },
         /// Reads every file patch a tool call left out.
-        TranscriptPatchRead = query "transcript.patch.list" {
+        TranscriptPatchList = query "transcript.patch.list" {
             mutating: false,
-            params: TranscriptPatchReadRequest,
-            result: TranscriptPatchReadResponse,
+            params: TranscriptPatchListRequest,
+            result: TranscriptPatchListResponse,
             refusals: [SessionNotFound],
         },
         /// Searches every row one session holds.
@@ -56,7 +56,7 @@ methods! {
             mutating: false,
             params: TranscriptSearchRequest,
             result: TranscriptSearchResponse,
-            refusals: [SessionNotFound, EventCursorUnresolvable],
+            refusals: [SessionNotFound, SessionEventCursorUnresolvable],
         },
     ];
 }

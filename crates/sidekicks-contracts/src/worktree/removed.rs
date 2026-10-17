@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
-use crate::gitflow::shared::GitRefName;
+use crate::git::shared::GitRefName;
 use crate::project::ProjectId;
 use crate::repo::git_reads::GitObjectId;
 use crate::typescript::{Definition, TypeScriptModule};

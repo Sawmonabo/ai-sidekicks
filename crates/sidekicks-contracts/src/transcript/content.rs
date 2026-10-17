@@ -326,7 +326,7 @@ pub struct TranscriptPatchCursor {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct TranscriptPatchReadRequest {
+pub struct TranscriptPatchListRequest {
     /// The session.
     pub session_id: SessionId,
     /// The tool call.
@@ -504,7 +504,7 @@ pub enum TranscriptPatchFile {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct TranscriptPatchReadResponse {
+pub struct TranscriptPatchListResponse {
     /// The files.
     #[garde(dive, custom(fits_one_page))]
     #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]

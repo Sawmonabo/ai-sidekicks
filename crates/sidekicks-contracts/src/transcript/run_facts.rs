@@ -105,23 +105,23 @@ impl JsonSchema for RunStateEventType {
 }
 
 /// The type of a person's message, which is never a run's own event even when it steers one.
-pub const USER_MESSAGE_EVENT_TYPE: &str = SessionEventType::UserMessage.as_str();
+pub const USER_MESSAGE_EVENT_TYPE: &str = SessionEventType::UserMessageSent.as_str();
 
 impl RunStateEventType {
     /// The session event type this is.
     pub const fn session_event_type(self) -> SessionEventType {
         match self {
-            Self::Queued => SessionEventType::RunQueued,
-            Self::Starting => SessionEventType::RunStarting,
-            Self::Running => SessionEventType::RunRunning,
-            Self::WaitingForApproval => SessionEventType::RunWaitingForApproval,
-            Self::WaitingForInput => SessionEventType::RunWaitingForInput,
-            Self::Pausing => SessionEventType::RunPausing,
-            Self::Paused => SessionEventType::RunPaused,
-            Self::Completed => SessionEventType::RunCompleted,
-            Self::Interrupted => SessionEventType::RunInterrupted,
-            Self::Stopped => SessionEventType::RunStopped,
-            Self::Failed => SessionEventType::RunFailed,
+            Self::Queued => SessionEventType::AgentRunQueued,
+            Self::Starting => SessionEventType::AgentRunStarting,
+            Self::Running => SessionEventType::AgentRunRunning,
+            Self::WaitingForApproval => SessionEventType::AgentRunWaitingForApproval,
+            Self::WaitingForInput => SessionEventType::AgentRunWaitingForInput,
+            Self::Pausing => SessionEventType::AgentRunPausing,
+            Self::Paused => SessionEventType::AgentRunPaused,
+            Self::Completed => SessionEventType::AgentRunCompleted,
+            Self::Interrupted => SessionEventType::AgentRunInterrupted,
+            Self::Stopped => SessionEventType::AgentRunStopped,
+            Self::Failed => SessionEventType::AgentRunFailed,
         }
     }
 

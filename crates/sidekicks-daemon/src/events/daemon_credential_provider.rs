@@ -20,7 +20,7 @@ use std::error::Error;
 use futures::future::BoxFuture;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
-use sidekicks_contracts::runtime_node::id::NodeId;
+use sidekicks_contracts::machine::id::NodeId;
 use sidekicks_contracts::session::id::SessionId;
 use url::Url;
 

@@ -38,7 +38,7 @@ workflow_run_event! {
     /// events.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowStartedPayload {
+    pub struct WorkflowRunStartedPayload {
         /// How it was started.
         pub mode: WorkflowRunMode,
         /// Who or what started it.
@@ -53,7 +53,7 @@ workflow_run_event! {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
-    pub struct WorkflowCanceledPayload {
+    pub struct WorkflowRunCanceledPayload {
         /// The person's reason.
         #[serde(
             default,
@@ -79,7 +79,7 @@ workflow_run_event! {
     /// `workflow.gate.reached`: the run reached a gate that must be answered before it goes on.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowGatedPayload {}
+    pub struct WorkflowGateReachedPayload {}
 }
 
 workflow_run_event! {
@@ -87,14 +87,14 @@ workflow_run_event! {
     /// carries.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowFailedPayload {}
+    pub struct WorkflowRunFailedPayload {}
 }
 
 workflow_run_event! {
     /// `workflow.run.completed`: the run reached its last steps and succeeded.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowCompletedPayload {}
+    pub struct WorkflowRunCompletedPayload {}
 }
 
 workflow_run_event! {
@@ -140,7 +140,7 @@ workflow_run_event! {
         "repinnedFromWorkflowVersionId": ["repinnedToWorkflowVersionId"],
         "repinnedToWorkflowVersionId": ["repinnedFromWorkflowVersionId"],
     }))]
-    pub struct WorkflowResumedPayload {
+    pub struct WorkflowRunResumedPayload {
         /// Where it picks up.
         pub resumption_point: WorkflowResumptionPoint,
         /// The version the run left, on an accepted re-pin.
@@ -180,16 +180,16 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           waited, failed, completed, was canceled, resumed or deleted, and its results were posted \
           into a session.",
     definitions: &[
-        Definition::read::<WorkflowStartedPayload>().checked(),
-        Definition::read::<WorkflowCanceledPayload>().checked(),
+        Definition::read::<WorkflowRunStartedPayload>().checked(),
+        Definition::read::<WorkflowRunCanceledPayload>().checked(),
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
-        Definition::read::<WorkflowGatedPayload>().checked(),
-        Definition::read::<WorkflowFailedPayload>().checked(),
-        Definition::read::<WorkflowCompletedPayload>().checked(),
+        Definition::read::<WorkflowGateReachedPayload>().checked(),
+        Definition::read::<WorkflowRunFailedPayload>().checked(),
+        Definition::read::<WorkflowRunCompletedPayload>().checked(),
         Definition::read::<WorkflowRunWaitingPayload>().checked(),
         Definition::read::<WorkflowResumedStep>(),
         Definition::read::<WorkflowResumptionPoint>(),
-        Definition::read::<WorkflowResumedPayload>().checked(),
+        Definition::read::<WorkflowRunResumedPayload>().checked(),
         Definition::read::<WorkflowResultsPostedPayload>().checked(),
     ],
     constants: &[],

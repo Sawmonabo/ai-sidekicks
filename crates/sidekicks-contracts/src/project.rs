@@ -12,7 +12,7 @@ use strum::{IntoStaticStr, VariantArray};
 
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
-use crate::machine_settings::{BranchNamePattern, BranchNamePatternChange, EnvironmentRow};
+use crate::machine::settings::{BranchNamePattern, BranchNamePatternChange, EnvironmentRow};
 use crate::place::Place;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;

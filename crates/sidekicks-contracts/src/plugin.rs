@@ -410,7 +410,7 @@ methods! {
             mutating: false,
             params: PluginAppListRequest,
             result: PluginAppListResponse,
-            refusals: [DriverCapabilityUnsupported],
+            refusals: [ProviderCapabilityUnsupported],
         },
     ];
 }

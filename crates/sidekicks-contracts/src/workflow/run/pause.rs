@@ -12,7 +12,7 @@ use crate::wire::integer::SafeInt;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowRunsPauseSetRequest {
+pub struct WorkflowNewRunHoldUpdateRequest {
     /// Whether the hold is on.
     pub paused: bool,
 }
@@ -35,7 +35,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The hold on starting new runs: one per daemon over its whole scheduler, and how many \
           starts wait behind it.",
     definitions: &[
-        Definition::read::<WorkflowRunsPauseSetRequest>().checked(),
+        Definition::read::<WorkflowNewRunHoldUpdateRequest>().checked(),
         Definition::read::<WorkflowRunsPauseState>().checked(),
     ],
     constants: &[],

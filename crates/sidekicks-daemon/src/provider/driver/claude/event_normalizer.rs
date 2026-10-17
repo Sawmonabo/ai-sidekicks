@@ -221,7 +221,7 @@ impl ClaudeWireFrameKind {
             // this row and reaches the diagnostic default branch.
             Self::SystemWorkerShuttingDown => ClaudeFrameNormalization::Normalized(self.emission(
                 Stream,
-                SessionEventType::RunWorkerShutdown,
+                SessionEventType::AgentRunWorkerShuttingDown,
                 None,
             )),
             Self::SystemHookStarted => self.not_evented(
@@ -560,7 +560,7 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
                     .unwrap_or_else(|| session_thread_id.to_owned())
             });
             (
-                SessionEventType::SubagentStarted,
+                SessionEventType::AgentSubagentStarted,
                 Some(ChildThreadAnnouncement {
                     child_thread_id: subagent_id.clone(),
                     declared_parent_thread_id,
@@ -568,7 +568,7 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
                 }),
             )
         }
-        ClaudeSubagentSignal::SubagentStop => (SessionEventType::SubagentCompleted, None),
+        ClaudeSubagentSignal::SubagentStop => (SessionEventType::AgentSubagentCompleted, None),
     };
     ClaudeSubagentLifecycleNormalization {
         category: event_type.category(),
@@ -698,8 +698,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::success("result/success", SessionEventType::RunCompleted)]
-    #[case::error_during_execution("result/error_during_execution", SessionEventType::RunFailed)]
+    #[case::success("result/success", SessionEventType::AgentRunCompleted)]
+    #[case::error_during_execution(
+        "result/error_during_execution",
+        SessionEventType::AgentRunFailed
+    )]
     fn a_result_frame_emits_its_run_ending(
         #[case] frame_kind: &str,
         #[case] event_type: SessionEventType,

@@ -32,10 +32,10 @@ use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::{BoundedText, NonEmptyText, branded_text};
 use crate::wire::{NullableSchema, True, nullable};
 use control::{
-    LeaseVersion, PtyControlChangedPayload, PtyControlChangedReason, PtyControlHeldByOtherDetails,
-    SessionSetTerminalFlowControlRequest, SessionSetTerminalFlowControlResponse,
-    SessionTakeControlRequest, SessionTakeControlResponse, TERMINAL_CONTROL_METHOD_DESCRIPTORS,
-    TerminalControlHolder,
+    LeaseVersion, TERMINAL_CONTROL_METHOD_DESCRIPTORS, TerminalControlChangedPayload,
+    TerminalControlChangedReason, TerminalControlHeldByOtherDetails, TerminalControlHolder,
+    TerminalControlTakeRequest, TerminalControlTakeResponse, TerminalFlowControlUpdateRequest,
+    TerminalFlowControlUpdateResponse,
 };
 
 ts_constants! {
@@ -47,9 +47,9 @@ ts_constants! {
     /// sets to this many UTF-16 units, on a grapheme boundary.
     pub const SHELL_TITLE_MAX_LEN: usize = 256;
     /// The event every change of one shell's holder is broadcast on.
-    pub const PTY_CONTROL_CHANGED_EVENT: &str = SessionEventType::PtyControlChanged.as_str();
+    pub const TERMINAL_CONTROL_CHANGED_EVENT: &str = SessionEventType::TerminalControlChanged.as_str();
     /// Every reason a shell's holder can change.
-    PTY_CONTROL_CHANGED_REASONS = PtyControlChangedReason::VARIANTS;
+    TERMINAL_CONTROL_CHANGED_REASONS = TerminalControlChangedReason::VARIANTS;
 }
 
 branded_text! {
@@ -64,7 +64,7 @@ pub type OutputOffset = SafeInt<0>;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PtyListRequest {
+pub struct TerminalSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -79,7 +79,7 @@ pub struct PtyListRequest {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum PtyShellStatus {
+pub enum TerminalShellStatus {
     /// Running.
     Running {},
     /// Its program ended.
@@ -100,13 +100,13 @@ pub enum PtyShellStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PtyListEntry {
+pub struct TerminalListEntry {
     /// The shell.
     pub terminal_id: TerminalId,
     /// Its title.
     pub title: BoundedText<1, SHELL_TITLE_MAX_LEN>,
     /// Where its process stands.
-    pub status: PtyShellStatus,
+    pub status: TerminalShellStatus,
     /// Who holds it, or `null`.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<TerminalControlHolder>")]
@@ -121,13 +121,13 @@ pub struct PtyListEntry {
 /// not in it, and a shell appears at most once.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PtyListUpdate {
+pub struct TerminalListUpdate {
     /// The session.
     #[garde(skip)]
     pub session_id: SessionId,
     /// Its shells, in tab order.
     #[garde(dive)]
-    pub terminals: UniqueList<PtyListEntry, 0, { usize::MAX }>,
+    pub terminals: UniqueList<TerminalListEntry, 0, { usize::MAX }>,
 }
 
 /// `terminal.open`: another shell for the session, the person's own login shell in the session's
@@ -136,7 +136,7 @@ pub struct PtyListUpdate {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PtyOpenRequest {
+pub struct TerminalOpenRequest {
     /// The session.
     pub session_id: SessionId,
     /// The caller's key for this open.
@@ -148,7 +148,7 @@ pub struct PtyOpenRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PtyOpenResponse {
+pub struct TerminalOpenResponse {
     /// The shell.
     pub terminal_id: TerminalId,
 }
@@ -159,7 +159,7 @@ pub struct PtyOpenResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PtyCloseRequest {
+pub struct TerminalCloseRequest {
     /// The session.
     pub session_id: SessionId,
     /// The shell.
@@ -177,7 +177,7 @@ pub struct PtyCloseRequest {
 /// `terminal.reorder`: the session's shells in their new tab order, each named at most once.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PtyReorderRequest {
+pub struct TerminalReorderRequest {
     /// The session.
     #[garde(skip)]
     pub session_id: SessionId,
@@ -192,7 +192,7 @@ pub struct PtyReorderRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PtyOutputSubscribeRequest {
+pub struct TerminalOutputSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The shell.
@@ -222,7 +222,7 @@ pub struct PtyOutputSubscribeRequest {
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum PtyOutputChange {
+pub enum TerminalOutputChange {
     /// The scrollback window opens.
     Scrollback {
         /// The session.
@@ -287,10 +287,10 @@ pub enum PtyOutputChange {
 /// when the shell exits gets the drop mark, a fresh `scrollback` change and the `exited` change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PtyOutputFrame {
+pub struct TerminalOutputFrame {
     /// The changes, oldest first.
     #[garde(dive)]
-    pub changes: BoundedVec<PtyOutputChange, 1, STREAM_FRAME_MAX_CHANGES>,
+    pub changes: BoundedVec<TerminalOutputChange, 1, STREAM_FRAME_MAX_CHANGES>,
     /// Present on the frame after a drop.
     #[serde(
         default,
@@ -321,7 +321,7 @@ pub struct PtyOutputFrame {
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum PtyWriteRequest {
+pub enum TerminalWriteRequest {
     /// Typed text.
     Keys {
         /// The session.
@@ -355,7 +355,7 @@ pub enum PtyWriteRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PtyResizeRequest {
+pub struct TerminalResizeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The shell.
@@ -404,7 +404,7 @@ pub struct TerminalCellSize {
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum PtyReportTerminalAppearanceRequest {
+pub enum TerminalAppearanceReportRequest {
     /// The console theme's colors.
     ConsoleTheme {
         /// The colors.
@@ -424,120 +424,120 @@ pub enum PtyReportTerminalAppearanceRequest {
 }
 
 methods! {
-    /// Every `pty.*` method.
-    pub const PTY_METHOD_DESCRIPTORS = [
+    /// Every `terminal.*` method.
+    pub const TERMINAL_METHOD_DESCRIPTORS = [
         /// Follows the session's shells.
-        PtyList = subscription "terminal.subscribe" {
+        TerminalSubscribe = subscription "terminal.subscribe" {
             mutating: false,
-            params: PtyListRequest,
+            params: TerminalSubscribeRequest,
             result: SubscribeAckResponse,
-            emission: PtyListUpdate,
+            emission: TerminalListUpdate,
             refusals: [SessionNotFound],
         },
         /// Opens another shell.
-        PtyOpen = mutation "terminal.open" {
+        TerminalOpen = mutation "terminal.open" {
             mutating: true,
-            params: PtyOpenRequest,
-            result: PtyOpenResponse,
+            params: TerminalOpenRequest,
+            result: TerminalOpenResponse,
             refusals: [
                 SessionNotFound,
-                PtyChatUnsupported,
-                PtyBackendUnavailable,
-                SessionWorkingFolderUnavailable,
+                TerminalChatUnsupported,
+                TerminalBackendUnavailable,
+                SessionWorkingFolderMissing,
             ],
         },
         /// Closes one shell.
-        PtyClose = mutation "terminal.close" {
+        TerminalClose = mutation "terminal.close" {
             mutating: true,
-            params: PtyCloseRequest,
+            params: TerminalCloseRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, PtyNotFound, PtyControlHeldByOther],
+            refusals: [SessionNotFound, TerminalNotFound, TerminalControlHeldByOther],
         },
         /// Reorders the session's shells.
-        PtyReorder = mutation "terminal.reorder" {
+        TerminalReorder = mutation "terminal.reorder" {
             mutating: true,
-            params: PtyReorderRequest,
+            params: TerminalReorderRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, PtyNotFound],
+            refusals: [SessionNotFound, TerminalNotFound],
         },
         /// Streams one shell's output.
-        PtyOutputSubscribe = subscription "terminal.output.subscribe" {
+        TerminalOutputSubscribe = subscription "terminal.output.subscribe" {
             mutating: false,
-            params: PtyOutputSubscribeRequest,
+            params: TerminalOutputSubscribeRequest,
             result: SubscribeAckResponse,
-            emission: PtyOutputFrame,
-            refusals: [SessionNotFound, PtyNotFound],
+            emission: TerminalOutputFrame,
+            refusals: [SessionNotFound, TerminalNotFound],
         },
         /// Writes input to one shell.
-        PtyWrite = mutation "terminal.write" {
+        TerminalWrite = mutation "terminal.write" {
             mutating: true,
-            params: PtyWriteRequest,
+            params: TerminalWriteRequest,
             result: NullPayload,
             refusals: [
                 SessionNotFound,
-                PtyNotFound,
-                PtyControlNotHeld,
-                PtyOutputSubscriptionNotFound,
+                TerminalNotFound,
+                TerminalControlNotHeld,
+                TerminalOutputSubscriptionNotFound,
             ],
         },
         /// Resizes one shell.
-        PtyResize = mutation "terminal.resize" {
+        TerminalResize = mutation "terminal.resize" {
             mutating: true,
-            params: PtyResizeRequest,
+            params: TerminalResizeRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, PtyNotFound, PtyControlHeldByOther, PtyControlNotHeld],
+            refusals: [SessionNotFound, TerminalNotFound, TerminalControlHeldByOther, TerminalControlNotHeld],
         },
         /// Reports the appearance a program's questions are answered from.
-        PtyReportTerminalAppearance = mutation "terminal.appearance.report" {
+        TerminalAppearanceReport = mutation "terminal.appearance.report" {
             mutating: true,
-            params: PtyReportTerminalAppearanceRequest,
+            params: TerminalAppearanceReportRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, PtyNotFound, PtyControlHeldByOther, PtyControlNotHeld],
+            refusals: [SessionNotFound, TerminalNotFound, TerminalControlHeldByOther, TerminalControlNotHeld],
         },
     ];
 }
 
 /// The TypeScript module of a session's shells.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "pty",
+    path: "terminal",
     doc: "A session's shells as a client addresses them: the live list, opening, closing and \
           ordering, one shell's output stream, writing and resizing, terminal appearance, flow \
           control, and the per-shell control lease.",
     definitions: &[
         Definition::read::<TerminalId>().checked(),
         Definition::read::<TerminalControlHolder>().checked(),
-        Definition::read::<PtyListRequest>().checked(),
-        Definition::read::<PtyShellStatus>(),
-        Definition::read::<PtyListEntry>(),
-        Definition::read::<PtyListUpdate>().checked(),
-        Definition::read::<PtyOpenRequest>().checked(),
-        Definition::read::<PtyOpenResponse>().checked(),
-        Definition::read::<PtyCloseRequest>().checked(),
-        Definition::read::<PtyReorderRequest>().checked(),
-        Definition::read::<PtyOutputSubscribeRequest>().checked(),
-        Definition::read::<PtyOutputChange>(),
-        Definition::read::<PtyOutputFrame>().checked(),
-        Definition::read::<PtyWriteRequest>().checked(),
-        Definition::read::<PtyResizeRequest>().checked(),
+        Definition::read::<TerminalSubscribeRequest>().checked(),
+        Definition::read::<TerminalShellStatus>(),
+        Definition::read::<TerminalListEntry>(),
+        Definition::read::<TerminalListUpdate>().checked(),
+        Definition::read::<TerminalOpenRequest>().checked(),
+        Definition::read::<TerminalOpenResponse>().checked(),
+        Definition::read::<TerminalCloseRequest>().checked(),
+        Definition::read::<TerminalReorderRequest>().checked(),
+        Definition::read::<TerminalOutputSubscribeRequest>().checked(),
+        Definition::read::<TerminalOutputChange>(),
+        Definition::read::<TerminalOutputFrame>().checked(),
+        Definition::read::<TerminalWriteRequest>().checked(),
+        Definition::read::<TerminalResizeRequest>().checked(),
         Definition::read::<TerminalColors>().checked(),
         Definition::read::<TerminalCellSize>().checked(),
-        Definition::read::<PtyReportTerminalAppearanceRequest>().checked(),
-        Definition::read::<SessionSetTerminalFlowControlRequest>().checked(),
-        Definition::read::<SessionSetTerminalFlowControlResponse>().checked(),
-        Definition::read::<SessionTakeControlRequest>().checked(),
-        Definition::read::<SessionTakeControlResponse>().checked(),
-        Definition::read::<PtyControlChangedReason>(),
-        Definition::read::<PtyControlChangedPayload>().checked(),
-        Definition::read::<PtyControlHeldByOtherDetails>().checked(),
+        Definition::read::<TerminalAppearanceReportRequest>().checked(),
+        Definition::read::<TerminalFlowControlUpdateRequest>().checked(),
+        Definition::read::<TerminalFlowControlUpdateResponse>().checked(),
+        Definition::read::<TerminalControlTakeRequest>().checked(),
+        Definition::read::<TerminalControlTakeResponse>().checked(),
+        Definition::read::<TerminalControlChangedReason>(),
+        Definition::read::<TerminalControlChangedPayload>().checked(),
+        Definition::read::<TerminalControlHeldByOtherDetails>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[
-        &PTY_METHOD_DESCRIPTORS,
+        &TERMINAL_METHOD_DESCRIPTORS,
         &TERMINAL_CONTROL_METHOD_DESCRIPTORS,
     ],
 };
 
-impl ListKey for PtyListEntry {
+impl ListKey for TerminalListEntry {
     type Key = TerminalId;
 
     fn list_key(&self) -> TerminalId {

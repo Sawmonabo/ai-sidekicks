@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
+use crate::machine::id::NodeId;
 use crate::place::{Place, WslPlace};
 use crate::project::{ProjectId, ProjectName};
 use crate::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId};
-use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
@@ -95,7 +95,7 @@ pub struct RepoMountListResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
-pub struct RepoFolderListFolderRequest {
+pub struct MachineFolderListFolderRequest {
     /// Never present: this asks for a folder.
     #[serde(
         default,
@@ -144,7 +144,7 @@ pub struct RepoFolderListFolderRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
-pub struct RepoFolderListTopRequest {
+pub struct MachineFolderListTopRequest {
     /// Always `true`.
     pub top: True,
 }
@@ -154,11 +154,11 @@ pub struct RepoFolderListTopRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
-pub enum RepoFolderListRequest {
+pub enum MachineFolderListRequest {
     /// One folder.
-    Folder(RepoFolderListFolderRequest),
+    Folder(MachineFolderListFolderRequest),
     /// The top level.
-    Top(RepoFolderListTopRequest),
+    Top(MachineFolderListTopRequest),
 }
 
 /// One folder in a listing.
@@ -237,7 +237,7 @@ impl ListKey for RepoFolderTopEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
-pub struct RepoFolderListFolderResponse {
+pub struct MachineFolderListFolderResponse {
     /// Never present: this is a folder.
     #[serde(
         default,
@@ -270,7 +270,7 @@ pub struct RepoFolderListFolderResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
 #[garde(allow_unvalidated)]
-pub struct RepoFolderListTopResponse {
+pub struct MachineFolderListTopResponse {
     /// Always `true`.
     pub top: True,
     /// The drives, then the distributions.
@@ -282,11 +282,11 @@ pub struct RepoFolderListTopResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
-pub enum RepoFolderListResponse {
+pub enum MachineFolderListResponse {
     /// One folder.
-    Folder(RepoFolderListFolderResponse),
+    Folder(MachineFolderListFolderResponse),
     /// The top level.
-    Top(#[garde(dive)] RepoFolderListTopResponse),
+    Top(#[garde(dive)] MachineFolderListTopResponse),
 }
 
 /// `repoMount.attach`: a path on the machine the service runs on, the folder the platform's chooser
@@ -301,7 +301,7 @@ pub enum RepoFolderListResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoAttachRequest {
+pub struct RepoMountAttachRequest {
     /// The path as entered.
     pub local_path: FilesystemPath,
     /// The distribution a Linux path was given in; absent on macOS and Linux and wherever the
@@ -319,7 +319,7 @@ pub struct RepoAttachRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoAttachResponse {
+pub struct RepoMountAttachResponse {
     /// The mount.
     pub repo_mount_id: RepoMountId,
     /// Its state.
@@ -407,7 +407,7 @@ pub struct RepoMountReadResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoDetachResponse {
+pub struct RepoMountDetachResponse {
     /// The mount.
     pub repo_mount_id: RepoMountId,
     /// Its state.
@@ -425,7 +425,7 @@ pub struct RepoDetachResponse {
 /// Why a folder was refused `repoMount.outsideTrustEnvelope`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RepoOutsideTrustEnvelopeReason {
+pub enum RepoMountOutsideTrustEnvelopeReason {
     /// No admitted root of the project.
     OutsideProject,
     /// A tree whose removal is committed while its folder still waits for deletion.
@@ -436,9 +436,9 @@ pub enum RepoOutsideTrustEnvelopeReason {
 /// caller already holds the folder it sent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoOutsideTrustEnvelopeDetails {
+pub struct RepoMountOutsideTrustEnvelopeDetails {
     /// Why.
-    pub reason: RepoOutsideTrustEnvelopeReason,
+    pub reason: RepoMountOutsideTrustEnvelopeReason,
 }
 
 /// Why a path's canonical repository root could not be resolved: the path is missing, unreadable
@@ -465,7 +465,7 @@ pub enum RepoRootResolutionReason {
 /// message never echoes the path tried.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoRootResolutionFailedDetails {
+pub struct RepoMountRootResolutionFailedDetails {
     /// Why.
     pub reason: RepoRootResolutionReason,
 }
@@ -474,7 +474,7 @@ pub struct RepoRootResolutionFailedDetails {
 /// its project, `null` when the holder is a chat's own workspace. No path.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoAlreadyAttachedDetails {
+pub struct RepoMountAlreadyAttachedDetails {
     /// The mount holding the repository.
     pub conflicting_repo_mount_id: RepoMountId,
     /// Its project.
@@ -496,7 +496,7 @@ pub struct RepoMountReattachResponse {
 /// Why a re-attach was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RepoReattachRefusedReason {
+pub enum RepoMountReattachRefusedReason {
     /// The mount does not read `identityMismatch` at the call.
     IdentityMatches,
 }
@@ -504,15 +504,15 @@ pub enum RepoReattachRefusedReason {
 /// The details of a `repoMount.reattachRefused` refusal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoReattachRefusedDetails {
+pub struct RepoMountReattachRefusedDetails {
     /// Why.
-    pub reason: RepoReattachRefusedReason,
+    pub reason: RepoMountReattachRefusedReason,
 }
 
 /// The details of a `repoMount.reattachConflict` refusal: the running agent and its session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoReattachConflictDetails {
+pub struct RepoMountReattachConflictDetails {
     /// The session running there.
     pub running_session_id: SessionId,
     /// The agent running.
@@ -529,26 +529,26 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoMountOrigin>().checked(),
         Definition::read::<RepoMountListEntry>(),
         Definition::read::<RepoMountListResponse>(),
-        Definition::read::<RepoFolderListRequest>(),
+        Definition::read::<MachineFolderListRequest>(),
         Definition::read::<RepoFolderListEntry>(),
         Definition::read::<RepoFolderPathSegment>(),
         Definition::read::<RepoFolderTopEntry>(),
-        Definition::read::<RepoFolderListResponse>().checked(),
-        Definition::read::<RepoAttachRequest>().checked(),
-        Definition::read::<RepoAttachResponse>().checked(),
+        Definition::read::<MachineFolderListResponse>().checked(),
+        Definition::read::<RepoMountAttachRequest>().checked(),
+        Definition::read::<RepoMountAttachResponse>().checked(),
         Definition::read::<RepoMountRequest>(),
         Definition::read::<RepoMountUser>(),
         Definition::read::<RepoMountReadResponse>().checked(),
-        Definition::read::<RepoDetachResponse>().checked(),
-        Definition::read::<RepoOutsideTrustEnvelopeReason>(),
-        Definition::read::<RepoOutsideTrustEnvelopeDetails>(),
+        Definition::read::<RepoMountDetachResponse>().checked(),
+        Definition::read::<RepoMountOutsideTrustEnvelopeReason>(),
+        Definition::read::<RepoMountOutsideTrustEnvelopeDetails>(),
         Definition::read::<RepoRootResolutionReason>(),
-        Definition::read::<RepoRootResolutionFailedDetails>(),
-        Definition::read::<RepoAlreadyAttachedDetails>(),
+        Definition::read::<RepoMountRootResolutionFailedDetails>(),
+        Definition::read::<RepoMountAlreadyAttachedDetails>(),
         Definition::read::<RepoMountReattachResponse>(),
-        Definition::read::<RepoReattachRefusedReason>(),
-        Definition::read::<RepoReattachRefusedDetails>(),
-        Definition::read::<RepoReattachConflictDetails>(),
+        Definition::read::<RepoMountReattachRefusedReason>(),
+        Definition::read::<RepoMountReattachRefusedDetails>(),
+        Definition::read::<RepoMountReattachConflictDetails>(),
     ],
     constants: &[],
     method_tables: &[],

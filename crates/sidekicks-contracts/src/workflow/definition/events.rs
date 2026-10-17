@@ -15,7 +15,7 @@ use crate::workflow::definition::document::{
 /// exists yet, so it names the workflow and the version alone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkflowCreatedPayload {
+pub struct WorkflowVersionCreatedPayload {
     /// The session the event is written to.
     pub session_id: SessionId,
     /// The workflow.
@@ -61,7 +61,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The events a workflow appends before any run exists: a version written, and a trigger \
           or schedule armed or fired, each naming the workflow rather than a run.",
     definitions: &[
-        Definition::read::<WorkflowCreatedPayload>().checked(),
+        Definition::read::<WorkflowVersionCreatedPayload>().checked(),
         Definition::read::<WorkflowTriggerArmedPayload>().checked(),
         Definition::read::<WorkflowTriggerFiredPayload>().checked(),
     ],

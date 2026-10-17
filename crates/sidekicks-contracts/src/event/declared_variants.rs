@@ -13,8 +13,8 @@ use crate::event::envelope::{
     EventOccurredAt, SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
+use crate::machine::id::NodeId;
 use crate::run::id::RunId;
-use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::voice::MessageOrigin;
@@ -70,7 +70,7 @@ pub struct EventCompactedRemovedSession {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct EventCompactedPayload {
+pub struct SessionEventCompactedPayload {
     /// The machine whose daemon ran the deletion.
     pub node_id: NodeId,
     /// The deletion's correlation id: opaque, with no fixed format.
@@ -288,7 +288,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           assistant and tool activity.",
     definitions: &[
         Definition::read::<EventCompactedRemovedSession>(),
-        Definition::read::<EventCompactedPayload>().checked(),
+        Definition::read::<SessionEventCompactedPayload>().checked(),
         Definition::read::<RunAssistantOutputPayload>(),
         Definition::read::<VoiceAssistantOutputPayload>(),
         Definition::read::<AssistantOutputPayload>().checked(),

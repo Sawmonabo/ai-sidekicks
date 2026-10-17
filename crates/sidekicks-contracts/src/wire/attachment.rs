@@ -351,7 +351,7 @@ mod tests {
     use crate::session::goal::SessionGoalUpdatedPayload;
     use crate::session::links::SessionLinkRequest;
     use crate::tag::TagList;
-    use crate::workflow::secret::WorkflowSecretReplaceRequest;
+    use crate::workflow::secret::WorkflowSecretUpdateRequest;
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -683,7 +683,7 @@ mod tests {
     fn a_shape_refusal_never_carries_the_refused_value() {
         let message =
             br#"{"secretId":"0192f0a0-0000-7000-8000-000000000001","secretValue":48213377}"#;
-        let error = parse_received::<WorkflowSecretReplaceRequest>(message, Vec::new())
+        let error = parse_received::<WorkflowSecretUpdateRequest>(message, Vec::new())
             .expect_err("a number where the secret's text belongs is refused");
         assert!(matches!(error, ReceivedError::Shape { .. }), "{error:?}");
         let mut source: Option<&dyn std::error::Error> = Some(&error);

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::commands::ProviderCommandListResult;
+use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
 };
@@ -49,7 +49,7 @@ pub(crate) struct RevokeRuleParams {
 pub(crate) fn permission_level_unavailable(level: PermissionLevel) -> DomainError {
     DomainError::new(
         "The session's provider cannot run at that permission level.",
-        RefusalCode::SessionPermissionLevelUnavailable,
+        RefusalCode::SessionPermissionLevelNotOffered,
         DomainErrorJsonRpcCode::InvalidParams,
     )
     .with_detail(json!({ "level": level }))
@@ -148,4 +148,4 @@ pub(crate) struct SubscribeProviderCommandsParams {
 }
 
 /// Receives each new command list a session's provider and its tool servers offer.
-pub(crate) type ProviderCommandsListener = Arc<dyn Fn(ProviderCommandListResult) + Send + Sync>;
+pub(crate) type ProviderCommandsListener = Arc<dyn Fn(ProviderCommandListResponse) + Send + Sync>;

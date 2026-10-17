@@ -110,7 +110,7 @@ pub type SessionConvertSkippedFileLimit =
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionConvertSkippedFileListRequest {
+pub struct SessionConversionSkippedFileListRequest {
     /// The session.
     pub session_id: SessionId,
     /// Continue from this cursor.
@@ -167,7 +167,7 @@ pub struct SessionConvertSkippedFilesTerminal {
 /// One page of the files a conversion did not copy, in path order, split on `hasMore`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
-pub enum SessionConvertSkippedFileListResponse {
+pub enum SessionConversionSkippedFileListResponse {
     /// More files follow.
     Continuing(#[garde(dive)] SessionConvertSkippedFilesContinuing),
     /// The last page.
@@ -186,8 +186,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionConvertResponse>().checked(),
         Definition::read::<SessionConvertedPayload>().checked(),
         Definition::read::<SessionConvertSkippedFileCursor>(),
-        Definition::read::<SessionConvertSkippedFileListRequest>().checked(),
-        Definition::read::<SessionConvertSkippedFileListResponse>().checked(),
+        Definition::read::<SessionConversionSkippedFileListRequest>().checked(),
+        Definition::read::<SessionConversionSkippedFileListResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[],

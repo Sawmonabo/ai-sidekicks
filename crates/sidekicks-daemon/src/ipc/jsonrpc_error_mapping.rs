@@ -153,7 +153,7 @@ pub(crate) fn json_rpc_error_of(failure: CallFailure) -> JsonRpcError {
                 JsonRpcErrorCode::InvalidRequest,
                 MESSAGE_TOO_LARGE,
                 Some(refusal_data(
-                    RefusalCode::TransportMessageTooLarge,
+                    RefusalCode::ConnectionMessageTooLarge,
                     Some(fields),
                 )),
             )
@@ -168,7 +168,7 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
         DispatchError::MethodNotFound => json_rpc_error(
             JsonRpcErrorCode::MethodNotFound,
             &message,
-            Some(refusal_data(RefusalCode::MethodNotFound, None)),
+            Some(refusal_data(RefusalCode::RequestMethodNotFound, None)),
         ),
         DispatchError::InvalidParams(refusal) => {
             let issues = match refusal {
@@ -193,7 +193,10 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
             json_rpc_error(
                 JsonRpcErrorCode::InvalidParams,
                 &message,
-                Some(issue_refusal_data(RefusalCode::InvalidParams, issues)),
+                Some(issue_refusal_data(
+                    RefusalCode::RequestParamsInvalid,
+                    issues,
+                )),
             )
         }
         DispatchError::Refused(refusal) => {
@@ -221,7 +224,10 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
             json_rpc_error(
                 JsonRpcErrorCode::InternalError,
                 &message,
-                Some(issue_refusal_data(RefusalCode::InvalidResult, issues)),
+                Some(issue_refusal_data(
+                    RefusalCode::RequestResultInvalid,
+                    issues,
+                )),
             )
         }
     }
@@ -434,7 +440,7 @@ impl From<EventCursorUnresolvable> for DomainError {
     fn from(error: EventCursorUnresolvable) -> Self {
         Self::new(
             error.to_string(),
-            RefusalCode::EventCursorUnresolvable,
+            RefusalCode::SessionEventCursorUnresolvable,
             DomainErrorJsonRpcCode::InvalidParams,
         )
     }

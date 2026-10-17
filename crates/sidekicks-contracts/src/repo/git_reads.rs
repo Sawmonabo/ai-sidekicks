@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
-use crate::gitflow::shared::GitRefName;
+use crate::git::shared::GitRefName;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -25,7 +25,7 @@ pattern_text! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoBranchListRequest {
+pub struct ProjectBranchListRequest {
     /// The mount.
     pub repo_mount_id: RepoMountId,
 }
@@ -86,7 +86,7 @@ pub struct RepoBranchListEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoBranchListResponse {
+pub struct ProjectBranchListResponse {
     /// The default branch.
     pub default_branch: GitRefName,
     /// The branches.
@@ -188,7 +188,7 @@ file_read_request! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
-pub enum RepoFileReadRequest {
+pub enum ProjectFileReadRequest {
     /// A gap read.
     Gap(RepoGapReadRequest),
     /// A read by path alone.
@@ -206,7 +206,7 @@ pub enum RepoFileReadRequest {
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum RepoFileReadResponse {
+pub enum ProjectFileReadResponse {
     /// The lines read, starting at `firstLine`, with the file's `totalLines`.
     Lines {
         /// The file.
@@ -265,14 +265,14 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           blob, and the signal that a session's working folder changed.",
     definitions: &[
         Definition::read::<GitObjectId>().checked(),
-        Definition::read::<RepoBranchListRequest>(),
+        Definition::read::<ProjectBranchListRequest>(),
         Definition::read::<BranchHolder>(),
         Definition::read::<RepoBranchListEntry>(),
-        Definition::read::<RepoBranchListResponse>(),
+        Definition::read::<ProjectBranchListResponse>(),
         Definition::read::<RepoFileSide>(),
         Definition::read::<RepoFileLineRange>(),
-        Definition::read::<RepoFileReadRequest>().checked(),
-        Definition::read::<RepoFileReadResponse>(),
+        Definition::read::<ProjectFileReadRequest>().checked(),
+        Definition::read::<ProjectFileReadResponse>(),
         Definition::read::<WorkingTreeSubscribeRequest>(),
         Definition::read::<WorkingTreeChangeMode>(),
         Definition::read::<WorkingTreeChange>(),

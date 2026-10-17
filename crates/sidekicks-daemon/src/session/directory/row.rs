@@ -13,7 +13,7 @@ use sidekicks_contracts::event::envelope::{
 };
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::place::Place;
-use sidekicks_contracts::run::queue::UserMessagePayload;
+use sidekicks_contracts::run::queue::UserMessageSentPayload;
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::events::{
     SessionCreatedPayload, SessionMarkChangePayload, SessionRenamedPayload,
@@ -245,123 +245,123 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
                 changed.branch.map(FreeFormText::into_string),
             ))
         }
-        SessionEventType::UserMessage => {
-            let sent: UserMessagePayload = payload_as(event_type, event.payload)?;
+        SessionEventType::UserMessageSent => {
+            let sent: UserMessageSentPayload = payload_as(event_type, event.payload)?;
             keep_first_column(ColumnValue::FirstMessagePreview(Some(
                 first_message_preview_of(sent.message.as_str()),
             )))
         }
-        SessionEventType::RunCompleted
-        | SessionEventType::RunFailed
-        | SessionEventType::RunInterrupted
-        | SessionEventType::RunStopped
-        | SessionEventType::RunPaused => {
+        SessionEventType::AgentRunCompleted
+        | SessionEventType::AgentRunFailed
+        | SessionEventType::AgentRunInterrupted
+        | SessionEventType::AgentRunStopped
+        | SessionEventType::AgentRunPaused => {
             return Ok(run_outcome_of(event_type, event.payload)
                 .map(|outcome| set_column(ColumnValue::LastRunOutcome(outcome))));
         }
-        SessionEventType::RunQueued
-        | SessionEventType::RunStarting
-        | SessionEventType::RunRunning
-        | SessionEventType::RunWaitingForApproval
-        | SessionEventType::RunWaitingForInput
-        | SessionEventType::RunPausing
-        | SessionEventType::RunRolledBack
-        | SessionEventType::RunProviderInitialized
-        | SessionEventType::RunTurnStarted
-        | SessionEventType::RunWorkerShutdown
-        | SessionEventType::RunStepLimitReached
-        | SessionEventType::RunTokenLimitReached
-        | SessionEventType::RunRecoveryStepsAdded
-        | SessionEventType::RunRecoveryResolved
-        | SessionEventType::RunRefusalChoiceRequested
-        | SessionEventType::RunRefusalChoiceResolved
-        | SessionEventType::RunUsageCreditsChoiceRequested
-        | SessionEventType::RunUsageCreditsChoiceResolved
-        | SessionEventType::AssistantMessage
-        | SessionEventType::AssistantThinkingUpdate
-        | SessionEventType::ToolInvoked
-        | SessionEventType::ToolResult
-        | SessionEventType::ToolError
-        | SessionEventType::SubagentStarted
-        | SessionEventType::SubagentCompleted
-        | SessionEventType::CommandEnded
-        | SessionEventType::QueueItemCreated
-        | SessionEventType::QueueItemAdmitted
-        | SessionEventType::QueueItemSuperseded
-        | SessionEventType::QueueItemCanceled
-        | SessionEventType::QueueItemNotDelivered
-        | SessionEventType::InterventionRequested
-        | SessionEventType::InterventionAccepted
-        | SessionEventType::InterventionApplied
-        | SessionEventType::InterventionRejected
-        | SessionEventType::InterventionDegraded
-        | SessionEventType::InterventionExpired
-        | SessionEventType::InterventionFailed
+        SessionEventType::AgentRunQueued
+        | SessionEventType::AgentRunStarting
+        | SessionEventType::AgentRunRunning
+        | SessionEventType::AgentRunWaitingForApproval
+        | SessionEventType::AgentRunWaitingForInput
+        | SessionEventType::AgentRunPausing
+        | SessionEventType::AgentRunRolledBack
+        | SessionEventType::AgentRunProviderInitialized
+        | SessionEventType::AgentTurnStarted
+        | SessionEventType::AgentRunWorkerShuttingDown
+        | SessionEventType::AgentRunStepLimitReached
+        | SessionEventType::AgentRunTokenLimitReached
+        | SessionEventType::AgentRunRecoveryStepsAdded
+        | SessionEventType::AgentRunRecoveryResolved
+        | SessionEventType::AgentRunRefusalChoiceRequested
+        | SessionEventType::AgentRunRefusalChoiceResolved
+        | SessionEventType::AgentRunUsageCreditsChoiceRequested
+        | SessionEventType::AgentRunUsageCreditsChoiceResolved
+        | SessionEventType::AgentMessageSent
+        | SessionEventType::AgentThinkingUpdated
+        | SessionEventType::AgentToolCallInvoked
+        | SessionEventType::AgentToolCallCompleted
+        | SessionEventType::AgentToolCallFailed
+        | SessionEventType::AgentSubagentStarted
+        | SessionEventType::AgentSubagentCompleted
+        | SessionEventType::AgentCommandEnded
+        | SessionEventType::AgentQueueItemCreated
+        | SessionEventType::AgentQueueItemAdmitted
+        | SessionEventType::AgentQueueItemSuperseded
+        | SessionEventType::AgentQueueItemCanceled
+        | SessionEventType::AgentQueueItemNotDelivered
+        | SessionEventType::AgentInterventionRequested
+        | SessionEventType::AgentInterventionAccepted
+        | SessionEventType::AgentInterventionApplied
+        | SessionEventType::AgentInterventionRejected
+        | SessionEventType::AgentInterventionDegraded
+        | SessionEventType::AgentInterventionExpired
+        | SessionEventType::AgentInterventionFailed
         | SessionEventType::QuestionAsked
         | SessionEventType::ArtifactPublished
         | SessionEventType::ArtifactSuperseded
         | SessionEventType::GitSettled
         | SessionEventType::SessionGoalUpdated
         | SessionEventType::SessionGoalCleared
-        | SessionEventType::SessionProviderStatus
-        | SessionEventType::SessionNotice
+        | SessionEventType::SessionProviderStatusReported
+        | SessionEventType::SessionNoticePosted
         | SessionEventType::SessionSideQuestionAnswered
         | SessionEventType::SessionSpendLimitReached
-        | SessionEventType::SessionRestoreFinished
+        | SessionEventType::SessionRestoreCompleted
         | SessionEventType::SessionAdvisorChanged
         | SessionEventType::SessionOutputStyleChanged
         | SessionEventType::AgentProviderBindingChanged
         | SessionEventType::AgentProviderBindingChangeFailed
         | SessionEventType::WorkspacePreparing
-        | SessionEventType::WorkspaceReady
+        | SessionEventType::WorkspacePrepared
         | SessionEventType::WorkspaceRootLost
         | SessionEventType::WorkspaceArchived
         | SessionEventType::WorktreeCreated
-        | SessionEventType::WorktreeReady
-        | SessionEventType::WorktreeDirty
+        | SessionEventType::WorktreeBound
+        | SessionEventType::WorktreeDirtied
         | SessionEventType::WorktreeMerged
         | SessionEventType::WorktreeRetired
         | SessionEventType::RepoMountHealthChanged
-        | SessionEventType::SessionSweptToRepoRoot
-        | SessionEventType::PtyControlChanged
+        | SessionEventType::SessionSweptToCheckout
+        | SessionEventType::TerminalControlChanged
         | SessionEventType::CloudTaskUpdated
         | SessionEventType::ApprovalRequested
         | SessionEventType::ApprovalApproved
         | SessionEventType::ApprovalRejected
         | SessionEventType::ApprovalCanceled
-        | SessionEventType::ApprovalRemembered
+        | SessionEventType::ApprovalRuleRemembered
         | SessionEventType::ApprovalRuleRevoked
         | SessionEventType::ApprovalReviewerDenied
         | SessionEventType::ApprovalDenialOverridden
-        | SessionEventType::ModerationReviewFlagged
+        | SessionEventType::ApprovalReviewerFlagged
         | SessionEventType::PlanProposed
         | SessionEventType::PlanAccepted
         | SessionEventType::PlanHandedOff
-        | SessionEventType::UsageTokenCount
-        | SessionEventType::UsageCostUpdate
-        | SessionEventType::UsageContextWindowUpdate
-        | SessionEventType::UsageRateLimitUpdate
-        | SessionEventType::UsageApiRetry
-        | SessionEventType::UsageContextCompacted
-        | SessionEventType::UsageModelRerouted
-        | SessionEventType::RecoveryAttempted
-        | SessionEventType::RecoverySucceeded
-        | SessionEventType::RecoveryFailed
-        | SessionEventType::RecoveryDamagedEventsSkipped
+        | SessionEventType::UsageTokenCountRecorded
+        | SessionEventType::UsageCostUpdated
+        | SessionEventType::UsageContextWindowUpdated
+        | SessionEventType::UsageRateLimitUpdated
+        | SessionEventType::UsageApiRequestRetried
+        | SessionEventType::AgentRunContextCompacted
+        | SessionEventType::AgentTurnRerouted
+        | SessionEventType::DaemonRecoveryAttempted
+        | SessionEventType::DaemonRecoverySucceeded
+        | SessionEventType::DaemonRecoveryFailed
+        | SessionEventType::SessionDamagedEventsSkipped
         | SessionEventType::RelayPinRefused
-        | SessionEventType::EventCompacted
-        | SessionEventType::BackupCompleted
-        | SessionEventType::BackupFailed
-        | SessionEventType::BackupRestored
-        | SessionEventType::OrchestrationRejected
-        | SessionEventType::McpServerOauthCompleted
-        | SessionEventType::WorkflowCreated
-        | SessionEventType::WorkflowStarted
-        | SessionEventType::WorkflowGated
-        | SessionEventType::WorkflowFailed
-        | SessionEventType::WorkflowCompleted
-        | SessionEventType::WorkflowResumed
-        | SessionEventType::WorkflowCanceled
+        | SessionEventType::SessionEventCompacted
+        | SessionEventType::DaemonBackupCompleted
+        | SessionEventType::DaemonBackupFailed
+        | SessionEventType::DaemonBackupRestored
+        | SessionEventType::AgentRunRejected
+        | SessionEventType::McpServerSignInCompleted
+        | SessionEventType::WorkflowVersionCreated
+        | SessionEventType::WorkflowRunStarted
+        | SessionEventType::WorkflowGateReached
+        | SessionEventType::WorkflowRunFailed
+        | SessionEventType::WorkflowRunCompleted
+        | SessionEventType::WorkflowRunResumed
+        | SessionEventType::WorkflowRunCanceled
         | SessionEventType::WorkflowRunWaiting
         | SessionEventType::WorkflowRunDeleted
         | SessionEventType::WorkflowScheduleArmed
@@ -380,11 +380,11 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::WorkflowPhaseResumed
         | SessionEventType::WorkflowPhaseCompleted
         | SessionEventType::WorkflowStepStarted
-        | SessionEventType::WorkflowStepFinished
+        | SessionEventType::WorkflowStepCompleted
         | SessionEventType::WorkflowStepFailed
         | SessionEventType::WorkflowStepCanceled
         | SessionEventType::WorkflowStepSkipped
-        | SessionEventType::WorkflowParallelJoinCancellation
+        | SessionEventType::WorkflowParallelJoinBranchesCanceled
         | SessionEventType::WorkflowGateResolved => return Ok(None),
     };
     Ok(Some(change))
@@ -430,7 +430,7 @@ fn describe_directory_update(
             .as_str()
             .to_owned(),
         moves_last_activity: event.category != EventCategory::EventMaintenance
-            && event.event_type != SessionEventType::AssistantThinkingUpdate.as_str(),
+            && event.event_type != SessionEventType::AgentThinkingUpdated.as_str(),
         moves_updated_at: event.category == EventCategory::SessionLifecycle,
     })
 }

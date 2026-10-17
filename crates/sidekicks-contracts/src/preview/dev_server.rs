@@ -11,7 +11,7 @@ use crate::wire::text::NonEmptyText;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewDevServerListRequest {
+pub struct PreviewDevServerSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }

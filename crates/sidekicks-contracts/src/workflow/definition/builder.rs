@@ -36,7 +36,7 @@ ts_constants! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowEnabledSetRequest {
+pub struct WorkflowEnabledUpdateRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// Whether its triggers are armed.
@@ -60,7 +60,7 @@ pub struct WorkflowEnabledSetRequest {
     "if" = { "properties": { "enabled": { "const": false } } },
     "then" = { "properties": { "armedTriggerCount": { "const": 0 } } },
 ))]
-pub struct WorkflowEnabledSetResponse {
+pub struct WorkflowEnabledUpdateResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// Whether its triggers are armed.
@@ -74,7 +74,7 @@ pub struct WorkflowEnabledSetResponse {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowLayoutSetRequest {
+pub struct WorkflowLayoutUpdateRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The layout.
@@ -100,7 +100,7 @@ pub struct WorkflowDefinitionSettingResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowTagsSetRequest {
+pub struct WorkflowTagsUpdateRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The whole tag set.
@@ -190,7 +190,7 @@ pub struct WorkflowBackgroundBrowserUpdateResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowPinDataSetRequest {
+pub struct WorkflowPinDataUpdateRequest {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The node.
@@ -206,7 +206,7 @@ pub struct WorkflowPinDataSetRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowPinDataSetResponse {
+pub struct WorkflowPinDataUpdateResponse {
     /// The workflow.
     pub definition_id: WorkflowDefinitionId,
     /// The node.
@@ -531,18 +531,18 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           pinned test data, the builder's unsaved draft, the expression preview, and the webhook \
           token and listener.",
     definitions: &[
-        Definition::read::<WorkflowEnabledSetRequest>().checked(),
-        Definition::read::<WorkflowEnabledSetResponse>().checked(),
-        Definition::read::<WorkflowLayoutSetRequest>().checked(),
+        Definition::read::<WorkflowEnabledUpdateRequest>().checked(),
+        Definition::read::<WorkflowEnabledUpdateResponse>().checked(),
+        Definition::read::<WorkflowLayoutUpdateRequest>().checked(),
         Definition::read::<WorkflowDefinitionSettingResponse>().checked(),
-        Definition::read::<WorkflowTagsSetRequest>().checked(),
+        Definition::read::<WorkflowTagsUpdateRequest>().checked(),
         Definition::read::<WorkflowPermissionLevelUpdateRequest>().checked(),
         Definition::read::<WorkflowPermissionLevelUpdateResponse>().checked(),
         Definition::read::<WorkflowBackgroundBrowser>(),
         Definition::read::<WorkflowBackgroundBrowserUpdateRequest>().checked(),
         Definition::read::<WorkflowBackgroundBrowserUpdateResponse>().checked(),
-        Definition::read::<WorkflowPinDataSetRequest>().checked(),
-        Definition::read::<WorkflowPinDataSetResponse>().checked(),
+        Definition::read::<WorkflowPinDataUpdateRequest>().checked(),
+        Definition::read::<WorkflowPinDataUpdateResponse>().checked(),
         Definition::read::<SavedWorkflowDraftUpdateRequest>(),
         Definition::read::<NewWorkflowDraftUpdateRequest>(),
         Definition::read::<WorkflowDraftUpdateRequest>().checked(),

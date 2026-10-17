@@ -12,7 +12,7 @@ use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::machine_settings::ProviderRowValues;
+use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -23,10 +23,10 @@ use sidekicks_contracts::provider::declaration::{
 use sidekicks_contracts::provider::driver::capabilities::{
     ExecutionPosture, ProviderMode, ProviderModel,
 };
-use sidekicks_contracts::provider::driver::commands::ProviderCommandListResult;
-use sidekicks_contracts::provider::driver::compaction::DriverCompactionResult;
+use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::intervention::{
-    DriverInterventionResult, InterruptRunParams,
+    DriverInterventionResponse, InterruptRunRequest,
 };
 use sidekicks_contracts::provider::driver::length_limits::{
     DRIVER_BINDING_ID_MAX_LEN, DRIVER_FAILURE_DETAIL_MAX_LEN, DRIVER_FALLBACK_ACTION_MAX_LEN,
@@ -104,14 +104,14 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn start_run(&self, params: StartRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Interrupts one run.
-    fn interrupt_run(&self, params: InterruptRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    fn interrupt_run(&self, params: InterruptRunRequest) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Delivers a steer or carries out an interrupt on a live run; `degraded` answers a kind the
     /// driver cannot deliver at all.
     fn apply_intervention(
         &self,
         params: ApplyInterventionParams,
-    ) -> BoxFuture<'_, Result<DriverInterventionResult, DriverError>>;
+    ) -> BoxFuture<'_, Result<DriverInterventionResponse, DriverError>>;
 
     /// Forks the provider conversation at a recorded position and moves the session onto the
     /// fork, touching no files (gated on `sessionFork`); `Degraded` reports the fallback a driver
@@ -242,7 +242,7 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn compact_context(
         &self,
         params: CompactContextParams,
-    ) -> BoxFuture<'_, Result<DriverCompactionResult, DriverError>>;
+    ) -> BoxFuture<'_, Result<AgentRunContextCompactResponse, DriverError>>;
 
     /// A live read of the provider's own commands and skills for the bound session (gated on
     /// `providerCommands`), held with the session and never stored; every entry carries the
@@ -250,7 +250,7 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
-    ) -> BoxFuture<'_, Result<ProviderCommandListResult, DriverError>>;
+    ) -> BoxFuture<'_, Result<ProviderCommandListResponse, DriverError>>;
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
     /// `None` with no live binding or no declaration yet, which means unread, never off. A read of

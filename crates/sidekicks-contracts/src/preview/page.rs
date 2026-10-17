@@ -195,7 +195,7 @@ pub struct PreviewPage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewPageListRequest {
+pub struct PreviewPageSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -368,7 +368,7 @@ pub enum PreviewNavigationTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewNavigateRequest {
+pub struct PreviewPageNavigateRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.
@@ -382,7 +382,7 @@ pub struct PreviewNavigateRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewNavigateResponse {
+pub struct PreviewPageNavigateResponse {
     /// The page.
     pub page_id: PreviewPageId,
     /// The address it loads.
@@ -402,7 +402,7 @@ pub struct PreviewNavigateResponse {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewZoomRequest {
+pub struct PreviewPageZoomUpdateRequest {
     /// The session.
     pub session_id: SessionId,
     /// The page.
@@ -415,7 +415,7 @@ pub struct PreviewZoomRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewZoomResponse {
+pub struct PreviewPageZoomUpdateResponse {
     /// The page.
     pub page_id: PreviewPageId,
     /// The factor.

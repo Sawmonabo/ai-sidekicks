@@ -14,8 +14,8 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::framing::incoming::MAX_OPEN_LANES;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::{
-    SubscriptionCancel, SubscriptionCancelParams, SubscriptionCancelResult, SubscriptionEndParams,
-    SubscriptionId,
+    SubscriptionCancel, SubscriptionCancelRequest, SubscriptionCancelResponse,
+    SubscriptionEndParams, SubscriptionId,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
@@ -79,9 +79,9 @@ impl Subscriptions {
     ) -> Result<(), RegistrationError> {
         let subscriptions = Arc::clone(self);
         registry.register::<SubscriptionCancel, _>(
-            move |params: SubscriptionCancelParams, context: HandlerContext| {
+            move |params: SubscriptionCancelRequest, context: HandlerContext| {
                 let canceled = subscriptions.cancel(&params.subscription_id, context.transport_id);
-                futures::future::ready(Ok(SubscriptionCancelResult { canceled })).boxed()
+                futures::future::ready(Ok(SubscriptionCancelResponse { canceled })).boxed()
             },
         )
     }
@@ -169,7 +169,7 @@ impl Subscriptions {
 fn subscription_limit_reached() -> DomainError {
     DomainError::new(
         "the connection holds as many subscriptions as it may open",
-        RefusalCode::TransportSubscriptionLimitReached,
+        RefusalCode::ConnectionSubscriptionLimitReached,
         DomainErrorJsonRpcCode::InternalError,
     )
     .with_detail(json!({ "limit": MAX_OPEN_LANES }))
@@ -403,7 +403,7 @@ mod tests {
         let Ok(Reply::Result(result)) = reply else {
             panic!("a cancel answers a result");
         };
-        serde_json::from_slice::<SubscriptionCancelResult>(&result.json)
+        serde_json::from_slice::<SubscriptionCancelResponse>(&result.json)
             .expect("the result reads as its type")
             .canceled
     }
@@ -553,7 +553,10 @@ mod tests {
             )
             .err()
             .expect("the connection is at its limit");
-        assert_eq!(refusal.code, RefusalCode::TransportSubscriptionLimitReached);
+        assert_eq!(
+            refusal.code,
+            RefusalCode::ConnectionSubscriptionLimitReached
+        );
         assert_eq!(
             refusal.detail.map(Value::Object),
             Some(json!({ "limit": 10_000 }))

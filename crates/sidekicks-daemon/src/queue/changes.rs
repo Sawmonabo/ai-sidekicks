@@ -204,11 +204,11 @@ impl QueueChangeSignals {
 static QUEUE_ITEM_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
     sql_list_of(
         [
-            SessionEventType::QueueItemCreated,
-            SessionEventType::QueueItemAdmitted,
-            SessionEventType::QueueItemSuperseded,
-            SessionEventType::QueueItemCanceled,
-            SessionEventType::QueueItemNotDelivered,
+            SessionEventType::AgentQueueItemCreated,
+            SessionEventType::AgentQueueItemAdmitted,
+            SessionEventType::AgentQueueItemSuperseded,
+            SessionEventType::AgentQueueItemCanceled,
+            SessionEventType::AgentQueueItemNotDelivered,
         ]
         .map(SessionEventType::as_str),
     )

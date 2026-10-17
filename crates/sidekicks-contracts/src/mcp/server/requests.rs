@@ -24,7 +24,7 @@ use crate::wire::{Never, literal};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct McpListRequest {
+pub struct McpServerListRequest {
     /// Whether to probe first.
     #[serde(
         default,
@@ -40,7 +40,7 @@ binding_addressed! {
     /// scope takes what the person typed, values included, written in that provider's own file
     /// format; a plugin's, connector's or organization's server is refused, and so is a transport
     /// or member the binding's provider does not declare.
-    pub enum McpUpsertServerRequest in writable scopes {
+    pub enum McpServerUpsertRequest in writable scopes {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
         /// The declaration.
@@ -53,7 +53,7 @@ binding_addressed! {
     /// Removes a binding from its provider's config. A plugin's server leaves only with its
     /// plugin, and a connector or an organization's server only with the provider's own account or
     /// settings, so each is refused.
-    pub enum McpRemoveServerRequest in writable scopes {
+    pub enum McpServerDeleteRequest in writable scopes {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
     }
@@ -63,7 +63,7 @@ binding_addressed! {
     /// Turns one binding on or off. A connector or an organization's server is switched for one
     /// project, `projectRoot`, by the daemon's own switch, never in the provider's config; every
     /// other binding is switched where it applies and takes no `projectRoot`.
-    pub enum McpSetEnabledRequest in every scope {
+    pub enum McpServerEnabledUpdateRequest in every scope {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
         /// On or off.
@@ -103,7 +103,7 @@ binding_addressed! {
 
 binding_addressed! {
     /// Sets one tool's override on a binding.
-    pub enum McpSetToolOverrideRequest in every scope {
+    pub enum McpToolOverrideUpdateRequest in every scope {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
         /// The override.
@@ -115,7 +115,7 @@ binding_addressed! {
 binding_addressed! {
     /// Clears one facet of one tool's override, returning that facet to the server's own value
     /// and leaving the tool's other facets as they stand.
-    pub enum McpClearToolOverrideRequest in every scope {
+    pub enum McpToolOverrideClearRequest in every scope {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
         /// The tool.
@@ -130,7 +130,7 @@ binding_addressed! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct McpOauthLogoutRequest {
+pub struct McpServerSignOutRequest {
     /// The press's key; a retry reuses it.
     pub client_idempotency_key: ClientUuid,
     /// The server's address.
@@ -141,7 +141,7 @@ binding_addressed! {
     /// Asks the provider to open a binding's connection again. It carries no key: it writes
     /// nothing, so there is no receipt to return. `bindingId` names one live leg; `sessionId`
     /// alone names every leg of that session; neither names every live leg.
-    pub enum McpReconnectRequest in every scope {
+    pub enum McpServerReconnectRequest in every scope {
         /// The session whose legs to reconnect.
         #[serde(
             default,
@@ -182,7 +182,7 @@ pub struct McpRegistrySearchRequest {
 /// What `mcp.server.list` answers with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct McpListResponse {
+pub struct McpServerListResponse {
     /// Every binding.
     #[garde(dive)]
     pub servers: Vec<McpServerInventoryEntry>,
@@ -191,7 +191,7 @@ pub struct McpListResponse {
 /// What `mcp.server.read` answers with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct McpGetResponse {
+pub struct McpServerReadResponse {
     /// The binding.
     #[garde(dive)]
     pub server: McpServerInventoryEntry,
@@ -242,7 +242,7 @@ pub struct McpLiveApplicationResult {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct McpMutationResult {
+pub struct McpServerMutationResponse {
     /// The row.
     #[garde(dive)]
     pub server: McpServerInventoryEntry,
@@ -262,7 +262,7 @@ pub struct McpMutationResult {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct McpRemoveServerResult {
+pub struct McpServerDeleteResponse {
     /// Where the change took effect.
     pub applied: McpApplicationGrade,
     /// Each touched session's outcome.
@@ -316,7 +316,7 @@ pub struct McpToolOverrideApplication {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct McpToolOverrideMutationResult {
+pub struct McpToolOverrideMutationResponse {
     /// The row.
     #[garde(dive)]
     pub server: McpServerInventoryEntry,
@@ -330,7 +330,7 @@ pub struct McpToolOverrideMutationResult {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct McpOauthLoginResponse {
+pub struct McpServerSignInResponse {
     /// The sign-in page, `http:` or `https:`.
     #[serde(
         default,
@@ -344,7 +344,7 @@ pub struct McpOauthLoginResponse {
 /// What reconnecting answers with: each leg's status after the attempt.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct McpReconnectResponse {
+pub struct McpServerReconnectResponse {
     /// Each leg.
     #[garde(dive)]
     pub legs: Vec<McpServerLegStatus>,
@@ -466,7 +466,7 @@ pub struct McpRegistrySearchResponse {
 mod tests {
     use rstest::rstest;
 
-    use super::{McpOauthLogoutRequest, McpUpsertServerRequest};
+    use super::{McpServerSignOutRequest, McpServerUpsertRequest};
     use crate::wire::attachment::{ReceivedError, parse_received};
 
     const KEY: &str = "00000000-0000-4000-8000-000000000000";
@@ -489,16 +489,19 @@ mod tests {
         let logout = |url: &str| {
             serde_json::json!({ "clientIdempotencyKey": KEY, "serverId": url }).to_string()
         };
-        parse_received::<McpUpsertServerRequest>(upsert("https://example.com/").as_bytes(), vec![])
+        parse_received::<McpServerUpsertRequest>(upsert("https://example.com/").as_bytes(), vec![])
             .expect("an address within the cap is read");
-        parse_received::<McpOauthLogoutRequest>(logout("https://example.com/").as_bytes(), vec![])
-            .expect("an address within the cap is read");
+        parse_received::<McpServerSignOutRequest>(
+            logout("https://example.com/").as_bytes(),
+            vec![],
+        )
+        .expect("an address within the cap is read");
         assert!(matches!(
-            parse_received::<McpUpsertServerRequest>(upsert(&padded).as_bytes(), vec![]),
+            parse_received::<McpServerUpsertRequest>(upsert(&padded).as_bytes(), vec![]),
             Err(ReceivedError::Read { .. })
         ));
         assert!(matches!(
-            parse_received::<McpOauthLogoutRequest>(logout(&padded).as_bytes(), vec![]),
+            parse_received::<McpServerSignOutRequest>(logout(&padded).as_bytes(), vec![]),
             Err(ReceivedError::Read { .. })
         ));
     }

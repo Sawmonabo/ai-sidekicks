@@ -41,7 +41,7 @@ pub enum SessionLinkKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionRelatedListRequest {
+pub struct SessionRelatedSessionSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -118,9 +118,9 @@ methods! {
     pub const SESSION_LINK_METHOD_DESCRIPTORS = [
         /// Follows a session's related list; the acknowledgement carries only the subscription,
         /// and the first emission is the list.
-        SessionRelatedList = subscription "session.relatedSession.subscribe" {
+        SessionRelatedSessionSubscribe = subscription "session.relatedSession.subscribe" {
             mutating: false,
-            params: SessionRelatedListRequest,
+            params: SessionRelatedSessionSubscribeRequest,
             result: SubscribeAckResponse,
             emission: SessionRelatedListUpdate,
             refusals: [SessionNotFound],
@@ -148,7 +148,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The links between sessions as the person reads and changes them.",
     definitions: &[
         Definition::read::<SessionLinkKind>(),
-        Definition::read::<SessionRelatedListRequest>().checked(),
+        Definition::read::<SessionRelatedSessionSubscribeRequest>().checked(),
         Definition::read::<SessionRelatedListEntry>(),
         Definition::read::<SessionRelatedListUpdate>().checked(),
         Definition::read::<SessionLinkRequest>().checked(),

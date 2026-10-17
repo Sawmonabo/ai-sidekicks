@@ -66,7 +66,7 @@ workflow_step_event! {
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
-    pub struct WorkflowStepFinishedPayload {
+    pub struct WorkflowStepCompletedPayload {
         /// The output.
         #[garde(dive)]
         pub output_ref: WorkflowPayloadRef,
@@ -318,7 +318,7 @@ workflow_step_event! {
     /// first input; each sibling's own `workflow.step.canceled` follows.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowParallelJoinCancellationPayload {}
+    pub struct WorkflowParallelJoinBranchesCanceledPayload {}
 }
 
 /// Why a step was skipped: its input carried no items, or its node is disabled.
@@ -377,7 +377,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<WorkflowStepCanceledPayload>().checked(),
         Definition::read::<WorkflowStepStartedPayload>().checked(),
-        Definition::read::<WorkflowStepFinishedPayload>().checked(),
+        Definition::read::<WorkflowStepCompletedPayload>().checked(),
         Definition::read::<WorkflowStepFailedPayload>().checked(),
         Definition::read::<WorkflowPhaseSuspendedPayload>().checked(),
         Definition::read::<WorkflowPhaseCancellationReason>(),
@@ -390,7 +390,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowPhaseRetriedPayload>().checked(),
         Definition::read::<WorkflowPhaseResumedPayload>().checked(),
         Definition::read::<WorkflowPhaseCompletedPayload>().checked(),
-        Definition::read::<WorkflowParallelJoinCancellationPayload>().checked(),
+        Definition::read::<WorkflowParallelJoinBranchesCanceledPayload>().checked(),
         Definition::read::<WorkflowStepSkipReason>(),
         Definition::read::<WorkflowStepSkippedPayload>().checked(),
         Definition::read::<WorkflowGateResolvedPayload>().checked(),

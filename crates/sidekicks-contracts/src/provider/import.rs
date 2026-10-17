@@ -178,7 +178,7 @@ methods! {
             refusals: [],
         },
         /// Starts a provider's import, or answers the one running.
-        SessionImport = mutation "session.import.start" {
+        SessionImportStart = mutation "session.import.start" {
             mutating: true,
             params: ProviderImportProviderRequest,
             result: ProviderImportStartResponse,

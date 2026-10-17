@@ -291,7 +291,7 @@ fn compose_current_lead_run_predicate(alias: &str) -> String {
       WHERE session_events.session_id = {alias}.session_id AND session_events.type = '{}'
         AND session_events.run_id = {alias}.run_id))",
         <&'static str>::from(RunState::Failed),
-        SessionEventType::RunRunning.as_str()
+        SessionEventType::AgentRunRunning.as_str()
     )
 }
 

@@ -232,7 +232,7 @@ pub type PreviewSiteDomain = BoundedText<1, 253>;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewPageCookiesReadRequest {
+pub struct PreviewPageCookieListRequest {
     /// The site.
     #[serde(
         default,
@@ -247,7 +247,7 @@ pub struct PreviewPageCookiesReadRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewPageCookiesReadResponse {
+pub struct PreviewPageCookieListResponse {
     /// The cookies.
     pub cookies: Vec<PreviewCookie>,
 }
@@ -257,7 +257,7 @@ pub struct PreviewPageCookiesReadResponse {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewPageCookiesWriteRequest {
+pub struct PreviewPageCookieUpdateRequest {
     /// The cookies.
     pub cookies: Vec<PreviewCookie>,
 }
@@ -268,7 +268,7 @@ pub struct PreviewPageCookiesWriteRequest {
 )]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewPageCookiesWriteResponse {
+pub struct PreviewPageCookieUpdateResponse {
     /// The count written.
     pub written: SafeInt<0>,
 }
@@ -278,7 +278,7 @@ pub struct PreviewPageCookiesWriteResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewPageCookiesClearRequest {
+pub struct PreviewPageCookieClearRequest {
     /// The site.
     pub domain: PreviewSiteDomain,
 }
@@ -464,23 +464,23 @@ methods! {
             refusals: [PreviewEditRefused],
         },
         /// Reads cookies.
-        PreviewPageCookiesRead = query "preview.page.cookie.list" {
+        PreviewPageCookieList = query "preview.page.cookie.list" {
             mutating: false,
-            params: PreviewPageCookiesReadRequest,
-            result: PreviewPageCookiesReadResponse,
+            params: PreviewPageCookieListRequest,
+            result: PreviewPageCookieListResponse,
             refusals: [],
         },
         /// Writes cookies.
-        PreviewPageCookiesWrite = mutation "preview.page.cookie.update" {
+        PreviewPageCookieUpdate = mutation "preview.page.cookie.update" {
             mutating: true,
-            params: PreviewPageCookiesWriteRequest,
-            result: PreviewPageCookiesWriteResponse,
+            params: PreviewPageCookieUpdateRequest,
+            result: PreviewPageCookieUpdateResponse,
             refusals: [],
         },
         /// Clears one site's cookies.
-        PreviewPageCookiesClear = mutation "preview.page.cookie.clear" {
+        PreviewPageCookieClear = mutation "preview.page.cookie.clear" {
             mutating: true,
-            params: PreviewPageCookiesClearRequest,
+            params: PreviewPageCookieClearRequest,
             result: PreviewClearedResponse,
             refusals: [],
         },
@@ -527,11 +527,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewPageEditRequest>().checked(),
         Definition::read::<PreviewCookieSameSite>(),
         Definition::read::<PreviewCookie>(),
-        Definition::read::<PreviewPageCookiesReadRequest>().checked(),
-        Definition::read::<PreviewPageCookiesReadResponse>().checked(),
-        Definition::read::<PreviewPageCookiesWriteRequest>().checked(),
-        Definition::read::<PreviewPageCookiesWriteResponse>().checked(),
-        Definition::read::<PreviewPageCookiesClearRequest>().checked(),
+        Definition::read::<PreviewPageCookieListRequest>().checked(),
+        Definition::read::<PreviewPageCookieListResponse>().checked(),
+        Definition::read::<PreviewPageCookieUpdateRequest>().checked(),
+        Definition::read::<PreviewPageCookieUpdateResponse>().checked(),
+        Definition::read::<PreviewPageCookieClearRequest>().checked(),
         Definition::read::<PreviewPageSiteDataClearRequest>().checked(),
         Definition::read::<PreviewClearedResponse>().checked(),
     ],

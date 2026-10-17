@@ -35,7 +35,7 @@ pub enum RunRefusalChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunRefusalChoiceResolveRequest {
+pub struct AgentRunRefusalChoiceResolveRequest {
     /// The run that waits.
     pub run_id: RunId,
     /// The answer.
@@ -47,7 +47,7 @@ pub struct RunRefusalChoiceResolveRequest {
 /// already streamed for the refused answer, which leave the flow when the choice is answered.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunRefusalChoiceRequestedPayload {
+pub struct AgentRunRefusalChoiceRequestedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run that waits.
@@ -102,7 +102,7 @@ pub enum RunRefusalChoiceSettlement {
 /// device that sent a person's answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunRefusalChoiceResolvedPayload {
+pub struct AgentRunRefusalChoiceResolvedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -136,7 +136,7 @@ pub enum RunUsageCreditsChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunUsageCreditsChoiceResolveRequest {
+pub struct AgentRunUsageCreditsChoiceResolveRequest {
     /// The run that waits.
     pub run_id: RunId,
     /// The answer.
@@ -148,7 +148,7 @@ pub struct RunUsageCreditsChoiceResolveRequest {
 /// switch moves to when the provider's model list names one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunUsageCreditsChoiceRequestedPayload {
+pub struct AgentRunUsageCreditsChoiceRequestedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run that waits.
@@ -209,7 +209,7 @@ pub enum RunUsageCreditsChoiceSettlement {
 /// that sent a person's answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunUsageCreditsChoiceResolvedPayload {
+pub struct AgentRunUsageCreditsChoiceResolvedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -234,16 +234,16 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           needs usage credits.",
     definitions: &[
         Definition::read::<RunRefusalChoice>(),
-        Definition::read::<RunRefusalChoiceResolveRequest>().checked(),
-        Definition::read::<RunRefusalChoiceRequestedPayload>().checked(),
+        Definition::read::<AgentRunRefusalChoiceResolveRequest>().checked(),
+        Definition::read::<AgentRunRefusalChoiceRequestedPayload>().checked(),
         Definition::read::<RunRefusalChoiceSettlement>(),
-        Definition::read::<RunRefusalChoiceResolvedPayload>().checked(),
+        Definition::read::<AgentRunRefusalChoiceResolvedPayload>().checked(),
         Definition::read::<RunUsageCreditsChoice>(),
-        Definition::read::<RunUsageCreditsChoiceResolveRequest>().checked(),
-        Definition::read::<RunUsageCreditsChoiceRequestedPayload>().checked(),
+        Definition::read::<AgentRunUsageCreditsChoiceResolveRequest>().checked(),
+        Definition::read::<AgentRunUsageCreditsChoiceRequestedPayload>().checked(),
         Definition::read::<RunUsageCreditsChoiceUnanswered>(),
         Definition::read::<RunUsageCreditsChoiceSettlement>(),
-        Definition::read::<RunUsageCreditsChoiceResolvedPayload>().checked(),
+        Definition::read::<AgentRunUsageCreditsChoiceResolvedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

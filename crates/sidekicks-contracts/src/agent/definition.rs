@@ -35,7 +35,7 @@ ts_constants! {
     /// The longest reason text a refusal or a load failure carries.
     pub const AGENT_REASON_MAX_LEN: usize = 1024;
     /// A definition that exists but cannot produce a runnable agent now.
-    AGENT_RESOLUTION_REFUSED_CODE = RefusalCode::AgentResolutionRefused;
+    AGENT_RESOLUTION_REFUSED_CODE = RefusalCode::AgentDefinitionResolutionRefused;
     /// The agent hue wheel's twelve steps by token name, in wheel order.
     AGENT_ACCENT_HUES = AgentAccentHue::VARIANTS;
 }
@@ -463,11 +463,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<requests::AgentDefinitionImportRequest>().checked(),
         Definition::read::<requests::SkippedImportFile>(),
         Definition::read::<requests::AgentDefinitionImportResponse>().checked(),
-        Definition::read::<refusal::AgentResolutionRefusedCode>(),
-        Definition::read::<refusal::AgentExportWriteFailedDetails>(),
-        Definition::read::<refusal::AgentResolutionRefusedDetails>().checked(),
-        Definition::read::<refusal::AgentUpdateRefusedReason>(),
-        Definition::read::<refusal::AgentUpdateRefusedDetails>(),
+        Definition::read::<refusal::AgentDefinitionResolutionRefusedCode>(),
+        Definition::read::<refusal::AgentDefinitionExportWriteFailedDetails>(),
+        Definition::read::<refusal::AgentDefinitionResolutionRefusedDetails>().checked(),
+        Definition::read::<refusal::AgentDefinitionUpdateRefusedReason>(),
+        Definition::read::<refusal::AgentDefinitionUpdateRefusedDetails>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

@@ -14,7 +14,7 @@ use crate::event::envelope::{
 use crate::event::registry::SessionEventType;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
-use crate::run::control::RunRolledBackEvent;
+use crate::run::control::AgentRunRolledBackEvent;
 use crate::run::id::RunId;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
@@ -36,7 +36,7 @@ use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The event type the `rollbackBoundary` arm pins.
-    pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str = SessionEventType::RunRolledBack.as_str();
+    pub const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE: &str = SessionEventType::AgentRunRolledBack.as_str();
     /// The category every `runLifecycle` event belongs to, and the one the boundary arm pins.
     /// Every type in it is run-scoped, which is why the `general` arm refuses the category.
     pub const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY: EventCategory = EventCategory::RunLifecycle;
@@ -54,20 +54,20 @@ ts_constants! {
 /// person's message (accepted before any run exists) and a question a workflow step asks. The
 /// rest of the category is run-scoped, so a newly added type defaults to run-scoped.
 const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [SessionEventType; 7] = [
-    SessionEventType::QueueItemCreated,
-    SessionEventType::QueueItemAdmitted,
-    SessionEventType::QueueItemSuperseded,
-    SessionEventType::QueueItemCanceled,
-    SessionEventType::QueueItemNotDelivered,
-    SessionEventType::UserMessage,
+    SessionEventType::AgentQueueItemCreated,
+    SessionEventType::AgentQueueItemAdmitted,
+    SessionEventType::AgentQueueItemSuperseded,
+    SessionEventType::AgentQueueItemCanceled,
+    SessionEventType::AgentQueueItemNotDelivered,
+    SessionEventType::UserMessageSent,
     SessionEventType::QuestionAsked,
 ];
 
 /// The `usageTelemetry` types whose payload requires `runId`, listed positively because the
 /// category's shared shape leaves it optional: a session-scoped budget warning is a real row.
 const USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 2] = [
-    SessionEventType::UsageContextCompacted,
-    SessionEventType::UsageModelRerouted,
+    SessionEventType::AgentRunContextCompacted,
+    SessionEventType::AgentTurnRerouted,
 ];
 
 /// The `approvalFlow` types whose payload requires `runId`: an ask, its answer and its end belong
@@ -77,9 +77,9 @@ const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: [SessionEventType; 8] = [
     SessionEventType::ApprovalApproved,
     SessionEventType::ApprovalRejected,
     SessionEventType::ApprovalCanceled,
-    SessionEventType::ApprovalRemembered,
+    SessionEventType::ApprovalRuleRemembered,
     SessionEventType::ApprovalReviewerDenied,
-    SessionEventType::ModerationReviewFlagged,
+    SessionEventType::ApprovalReviewerFlagged,
     SessionEventType::PlanProposed,
 ];
 
@@ -156,7 +156,7 @@ literal! {
     pub enum RunLifecycleCategory = const EventCategory::RunLifecycle.as_str();
 
     /// The `rollbackBoundary` arm's event type: `agent.run.rolledBack`.
-    pub enum RollbackBoundaryType = const SessionEventType::RunRolledBack.as_str();
+    pub enum RollbackBoundaryType = const SessionEventType::AgentRunRolledBack.as_str();
 }
 
 /// Refuses a marker that does not supersede its row: the row's position must exceed the marker's
@@ -416,7 +416,7 @@ transcript_row_arm! {
         #[schemars(with = "SupersededMarker")]
         pub superseded: Option<SupersededMarker>,
         /// The rollback, which names the row's run, session and position.
-        #[garde(custom(|payload: &RunRolledBackEvent, (): &()| {
+        #[garde(custom(|payload: &AgentRunRolledBackEvent, (): &()| {
             self.require_payload_to_agree(payload)
         }))]
         #[schemars(extend("type" = "object", "properties" = {
@@ -424,13 +424,13 @@ transcript_row_arm! {
             "sessionId": { "const": { "$data": "2/sessionId" } },
             "targetPosition": { "const": { "$data": "2/position" } }
         }))]
-        pub payload: RunRolledBackEvent,
+        pub payload: AgentRunRolledBackEvent,
     }
 }
 
 impl TranscriptRollbackBoundary {
     /// Refuses a payload that names another run, session or rewind floor than the row.
-    fn require_payload_to_agree(&self, payload: &RunRolledBackEvent) -> garde::Result {
+    fn require_payload_to_agree(&self, payload: &AgentRunRolledBackEvent) -> garde::Result {
         if payload.run_id != self.run_id {
             return Err(garde::Error::new("runId must equal payload.runId"));
         }

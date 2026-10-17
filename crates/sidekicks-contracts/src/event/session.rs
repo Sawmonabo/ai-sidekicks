@@ -11,91 +11,95 @@ use crate::agent::provider_binding::{
     AgentProviderBindingChangeFailedPayload, AgentProviderBindingChangedPayload,
 };
 use crate::approval::events::{
-    ApprovalCanceledPayload, ApprovalDenialOverriddenPayload, ApprovalRememberedPayload,
-    ApprovalRequestedPayload, ApprovalResolvedPayload, ApprovalRuleRevokedPayload,
+    ApprovalCanceledPayload, ApprovalDenialOverriddenPayload, ApprovalRequestedPayload,
+    ApprovalResolvedPayload, ApprovalRuleRememberedPayload, ApprovalRuleRevokedPayload,
     approval_reviewer_denied_payload,
 };
 use crate::artifacts::publication::ArtifactPublicationPayload;
 use crate::cloud::CloudTaskUpdatedPayload;
-use crate::command::CommandEndedPayload;
-use crate::daemon::backup::{BackupCompletedPayload, BackupFailedPayload, BackupRestoredPayload};
+use crate::command::AgentCommandEndedPayload;
+use crate::daemon::backup::{
+    DaemonBackupCompletedPayload, DaemonBackupFailedPayload, DaemonBackupRestoredPayload,
+};
 use crate::daemon::recovery::{
-    RecoveryAttemptedPayload, RecoveryFailedPayload, RecoverySucceededPayload,
+    DaemonRecoveryAttemptedPayload, DaemonRecoveryFailedPayload, DaemonRecoverySucceededPayload,
 };
 use crate::event::declared_variants::{
-    AssistantOutputPayload, EventCompactedPayload, ToolActivityPayload,
+    AssistantOutputPayload, SessionEventCompactedPayload, ToolActivityPayload,
 };
 use crate::event::envelope::{EventCategory, EventEnvelope};
 use crate::event::registry::SessionEventType;
 use crate::event::usage::{
-    UsageApiRetryPayload, UsageContextCompactedPayload, UsageContextWindowUpdatePayload,
-    UsageCostUpdatePayload, UsageModelReroutedPayload, UsageRateLimitUpdatePayload,
-    UsageTokenCountPayload,
+    AgentRunContextCompactedPayload, AgentTurnReroutedPayload, UsageApiRequestRetriedPayload,
+    UsageContextWindowUpdatedPayload, UsageCostUpdatedPayload, UsageRateLimitUpdatedPayload,
+    UsageTokenCountRecordedPayload,
 };
-use crate::gitflow::local::GitSettledPayload;
-use crate::mcp::governance::McpServerOauthCompletedPayload;
-use crate::orchestration::OrchestrationRejectedPayload;
+use crate::git::local::GitSettledPayload;
+use crate::mcp::governance::McpServerSignInCompletedPayload;
+use crate::orchestration::AgentRunRejectedPayload;
 use crate::plan::{PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload};
-use crate::pty::control::PtyControlChangedPayload;
 use crate::question::QuestionAskedPayload;
 use crate::relay::RelayPinRefusedPayload;
 use crate::repo::mount::{RepoMountHealthChangedPayload, RepoWorkspaceLifecyclePayload};
 use crate::run::control::{
-    RunRecoveryResolvedPayload, RunRecoveryStepsAddedPayload, RunRolledBackEvent,
+    AgentRunRecoveryResolvedPayload, AgentRunRecoveryStepsAddedPayload, AgentRunRolledBackEvent,
 };
 use crate::run::events::{
-    InterventionAcceptedPayload, InterventionAppliedPayload, InterventionDegradedPayload,
-    InterventionExpiredPayload, InterventionFailedPayload, InterventionRejectedPayload,
-    InterventionRequestedPayload, RunCompletedPayload, RunFailedPayload, RunInterruptedPayload,
-    RunPausedPayload, RunPausingPayload, RunProviderInitializedPayload, RunRunningPayload,
-    RunStartingPayload, RunStoppedPayload, RunTurnStartedPayload, RunWaitingForApprovalPayload,
-    RunWaitingForInputPayload, RunWorkerShutdownPayload,
+    AgentInterventionAcceptedPayload, AgentInterventionAppliedPayload,
+    AgentInterventionDegradedPayload, AgentInterventionExpiredPayload,
+    AgentInterventionFailedPayload, AgentInterventionRejectedPayload,
+    AgentInterventionRequestedPayload, AgentRunCompletedPayload, AgentRunFailedPayload,
+    AgentRunInterruptedPayload, AgentRunPausedPayload, AgentRunPausingPayload,
+    AgentRunProviderInitializedPayload, AgentRunRunningPayload, AgentRunStartingPayload,
+    AgentRunStoppedPayload, AgentRunWaitingForApprovalPayload, AgentRunWaitingForInputPayload,
+    AgentRunWorkerShuttingDownPayload, AgentTurnStartedPayload,
 };
 use crate::run::id::RunId;
 use crate::run::provider_choice::{
-    RunRefusalChoiceRequestedPayload, RunRefusalChoiceResolvedPayload,
-    RunUsageCreditsChoiceRequestedPayload, RunUsageCreditsChoiceResolvedPayload,
+    AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
+    AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolvedPayload,
 };
 use crate::run::queue::{
-    QueueItemAdmittedPayload, QueueItemCanceledPayload, QueueItemCreatedPayload,
-    QueueItemNotDeliveredPayload, QueueItemSupersededPayload, UserMessagePayload,
+    AgentQueueItemAdmittedPayload, AgentQueueItemCanceledPayload, AgentQueueItemCreatedPayload,
+    AgentQueueItemNotDeliveredPayload, AgentQueueItemSupersededPayload, UserMessageSentPayload,
 };
-use crate::run::queued::RunQueuedPayload;
+use crate::run::queued::AgentRunQueuedPayload;
 use crate::run::subagent::SubagentLifecyclePayload;
 use crate::session::controls::events::{
-    ModerationReviewFlaggedPayload, RunStepLimitReachedPayload, RunTokenLimitReachedPayload,
-    SessionNotice, SessionNoticePayload, SessionSideQuestionAnsweredPayload,
-    SessionSpendLimitReachedPayload,
+    AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
+    ApprovalReviewerFlaggedPayload, SessionNotice, SessionNoticePostedPayload,
+    SessionSideQuestionAnsweredPayload, SessionSpendLimitReachedPayload,
 };
 use crate::session::convert::SessionConvertedPayload;
 use crate::session::events::{
     SessionAdvisorChangedPayload, SessionCreatedPayload, SessionLifecycleChangePayload,
-    SessionMarkChangePayload, SessionOutputStyleChangedPayload, SessionProviderStatusPayload,
-    SessionRenamedPayload,
+    SessionMarkChangePayload, SessionOutputStyleChangedPayload,
+    SessionProviderStatusReportedPayload, SessionRenamedPayload,
 };
 use crate::session::goal::{SessionGoalClearedPayload, SessionGoalUpdatedPayload};
-use crate::session::recovery::RecoveryDamagedEventsSkippedPayload;
-use crate::session::restore::SessionRestoreFinishedPayload;
+use crate::session::recovery::SessionDamagedEventsSkippedPayload;
+use crate::session::restore::SessionRestoreCompletedPayload;
+use crate::terminal::control::TerminalControlChangedPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
 use crate::workflow::definition::events::{
-    WorkflowCreatedPayload, WorkflowTriggerArmedPayload, WorkflowTriggerFiredPayload,
+    WorkflowTriggerArmedPayload, WorkflowTriggerFiredPayload, WorkflowVersionCreatedPayload,
 };
 use crate::workflow::run::events::{
-    WorkflowCanceledPayload, WorkflowCompletedPayload, WorkflowFailedPayload, WorkflowGatedPayload,
-    WorkflowResultsPostedPayload, WorkflowResumedPayload, WorkflowRunDeletedPayload,
-    WorkflowRunWaitingPayload, WorkflowStartedPayload,
+    WorkflowGateReachedPayload, WorkflowResultsPostedPayload, WorkflowRunCanceledPayload,
+    WorkflowRunCompletedPayload, WorkflowRunDeletedPayload, WorkflowRunFailedPayload,
+    WorkflowRunResumedPayload, WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
 };
 use crate::workflow::run::step::events::{
-    WorkflowGateResolvedPayload, WorkflowParallelJoinCancellationPayload,
+    WorkflowGateResolvedPayload, WorkflowParallelJoinBranchesCanceledPayload,
     WorkflowPhaseAdmittedPayload, WorkflowPhaseCancelingPayload, WorkflowPhaseCompletedPayload,
     WorkflowPhaseFailedPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseResumedPayload,
     WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseSuspendedPayload,
-    WorkflowPhaseWaitingOnPoolPayload, WorkflowStepCanceledPayload, WorkflowStepFailedPayload,
-    WorkflowStepFinishedPayload, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
+    WorkflowPhaseWaitingOnPoolPayload, WorkflowStepCanceledPayload, WorkflowStepCompletedPayload,
+    WorkflowStepFailedPayload, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
 };
 use crate::worktree::events::{
-    SessionBranchChangedPayload, SessionSweptToRepoRootPayload, WorktreeCreatedPayload,
+    SessionBranchChangedPayload, SessionSweptToCheckoutPayload, WorktreeCreatedPayload,
     WorktreeRetiredPayload,
 };
 use crate::worktree::lifecycle::WorktreeLifecyclePayload;
@@ -221,7 +225,7 @@ session_events! {
     /// Emitted when a workspace's preparation begins, the first time or again.
     WorkspacePreparing(RepoWorkspaceLifecyclePayload) = "workspace.preparing",
     /// Emitted when preparation completes and the execution root is bound.
-    WorkspaceReady(RepoWorkspaceLifecyclePayload) = "workspace.prepared",
+    WorkspacePrepared(RepoWorkspaceLifecyclePayload) = "workspace.prepared",
     /// Emitted when a workspace becomes unavailable: a failed preparation, or a path that went
     /// away after binding. Write runs are blocked until repair.
     WorkspaceRootLost(RepoWorkspaceLifecyclePayload) = "workspace.rootLost",
@@ -230,48 +234,48 @@ session_events! {
     /// Emitted with the worktree's record; carries the kept copy a put-back came from, if any.
     WorktreeCreated(WorktreeCreatedPayload) = "worktree.created",
     /// Emitted when the checkout is bound as an execution root.
-    WorktreeReady(WorktreeLifecyclePayload) = "worktree.bound",
+    WorktreeBound(WorktreeLifecyclePayload) = "worktree.bound",
     /// Emitted when uncommitted work was observed in the checkout.
-    WorktreeDirty(WorktreeLifecyclePayload) = "worktree.dirtied",
+    WorktreeDirtied(WorktreeLifecyclePayload) = "worktree.dirtied",
     /// Emitted when the worktree's branch has merged back.
     WorktreeMerged(WorktreeLifecyclePayload) = "worktree.merged",
     /// Emitted when a worktree retires, recorded before any disk change; cleanup is asynchronous
     /// and idempotent. Carries the kept copy when a discard kept one.
     WorktreeRetired(WorktreeRetiredPayload) = "worktree.retired",
     /// Emitted once per session deletion that deleted rows.
-    EventCompacted(#[garde(dive)] EventCompactedPayload) = "session.event.compacted",
+    SessionEventCompacted(#[garde(dive)] SessionEventCompactedPayload) = "session.event.compacted",
     /// Emitted when the assistant produces a message; its body is kept apart from the payload.
-    AssistantMessage(#[garde(dive)] AssistantOutputPayload) = "agent.message.sent" => read(assistant_output_run),
+    AgentMessageSent(#[garde(dive)] AssistantOutputPayload) = "agent.message.sent" => read(assistant_output_run),
     /// Emitted when the assistant reports a reasoning update; its body is kept apart.
-    AssistantThinkingUpdate(#[garde(dive)] AssistantOutputPayload) = "agent.thinking.updated" => read(assistant_output_run),
+    AgentThinkingUpdated(#[garde(dive)] AssistantOutputPayload) = "agent.thinking.updated" => read(assistant_output_run),
     /// Emitted when a tool call starts; its arguments are kept apart from the payload.
-    ToolInvoked(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.invoked" => required,
+    AgentToolCallInvoked(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.invoked" => required,
     /// Emitted when a tool call returns; its result is kept apart from the payload.
-    ToolResult(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.completed" => required,
+    AgentToolCallCompleted(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.completed" => required,
     /// Emitted when a tool call fails; its error body is kept apart from the payload.
-    ToolError(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.failed" => required,
+    AgentToolCallFailed(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.failed" => required,
     /// Emitted when a provider's own subagent starts under a run.
-    SubagentStarted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.started" => required,
+    AgentSubagentStarted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.started" => required,
     /// Emitted when a provider's own subagent finishes, paired to its start.
-    SubagentCompleted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.completed" => required,
+    AgentSubagentCompleted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.completed" => required,
     /// Emitted when the provider process reports its start for a run; it moves no state.
-    RunProviderInitialized(RunProviderInitializedPayload) = "agent.run.providerInitialized" => versioned,
+    AgentRunProviderInitialized(AgentRunProviderInitializedPayload) = "agent.run.providerInitialized" => versioned,
     /// Emitted when a turn opens within a run; it moves no state.
-    RunTurnStarted(RunTurnStartedPayload) = "agent.turn.started" => versioned,
+    AgentTurnStarted(AgentTurnStartedPayload) = "agent.turn.started" => versioned,
     /// Emitted when the provider says its worker is shutting down mid-run; never the run's end.
-    RunWorkerShutdown(RunWorkerShutdownPayload) = "agent.run.workerShuttingDown" => versioned,
+    AgentRunWorkerShuttingDown(AgentRunWorkerShuttingDownPayload) = "agent.run.workerShuttingDown" => versioned,
     /// Emitted when the provider reports a coarse status for its session.
-    SessionProviderStatus(#[garde(dive)] SessionProviderStatusPayload) = "session.providerStatus.reported" => optional,
+    SessionProviderStatusReported(#[garde(dive)] SessionProviderStatusReportedPayload) = "session.providerStatus.reported" => optional,
     /// Emitted when an approval request is refused, and by whom.
     ApprovalRejected(ApprovalResolvedPayload) = "approval.rejected" => required,
     /// Emitted when an ask ends with its run and can no longer be answered.
     ApprovalCanceled(ApprovalCanceledPayload) = "approval.canceled" => required,
     /// Emitted when an approval rule is remembered; the payload is the whole rule.
-    ApprovalRemembered(ApprovalRememberedPayload) = "approval.rule.remembered" => required,
+    ApprovalRuleRemembered(ApprovalRuleRememberedPayload) = "approval.rule.remembered" => required,
     /// Emitted when a remembered approval rule is revoked.
     ApprovalRuleRevoked(ApprovalRuleRevokedPayload) = "approval.rule.revoked" => optional,
     /// Emitted when a provider's own reviewer flags an item with a warning or a required review.
-    ModerationReviewFlagged(ModerationReviewFlaggedPayload) = "approval.reviewer.flagged" => required,
+    ApprovalReviewerFlagged(ApprovalReviewerFlaggedPayload) = "approval.reviewer.flagged" => required,
     /// Emitted when an agent proposes a plan; the payload is the record the screen renders.
     PlanProposed(PlanProposedPayload) = "plan.proposed" => required,
     /// Emitted when a proposed plan is accepted and is being built in its own session.
@@ -281,29 +285,29 @@ session_events! {
     /// Emitted when an agent, tool server or workflow step asks the person a question.
     QuestionAsked(#[garde(dive)] QuestionAskedPayload) = "question.asked" => read(question_asked_run),
     /// Emitted when the daemon accepts a message the person sent, or a voice call hears one.
-    UserMessage(UserMessagePayload) = "user.message.sent" => optional,
+    UserMessageSent(UserMessageSentPayload) = "user.message.sent" => optional,
     /// Emitted when a message the person sent is queued.
-    QueueItemCreated(QueueItemCreatedPayload) = "agent.queueItem.created",
+    AgentQueueItemCreated(AgentQueueItemCreatedPayload) = "agent.queueItem.created",
     /// Emitted when the agent takes a queued message.
-    QueueItemAdmitted(QueueItemAdmittedPayload) = "agent.queueItem.admitted" => required,
+    AgentQueueItemAdmitted(AgentQueueItemAdmittedPayload) = "agent.queueItem.admitted" => required,
     /// Emitted when an edit replaces a waiting message, naming the message that replaced it.
-    QueueItemSuperseded(QueueItemSupersededPayload) = "agent.queueItem.superseded",
+    AgentQueueItemSuperseded(AgentQueueItemSupersededPayload) = "agent.queueItem.superseded",
     /// Emitted when a waiting message is removed before the agent takes it.
-    QueueItemCanceled(QueueItemCanceledPayload) = "agent.queueItem.canceled",
+    AgentQueueItemCanceled(AgentQueueItemCanceledPayload) = "agent.queueItem.canceled",
     /// Emitted when a taken message could not be delivered, with the reason.
-    QueueItemNotDelivered(QueueItemNotDeliveredPayload) = "agent.queueItem.notDelivered",
+    AgentQueueItemNotDelivered(AgentQueueItemNotDeliveredPayload) = "agent.queueItem.notDelivered",
     /// Emitted when an MCP server sign-in ends, in success or failure.
-    McpServerOauthCompleted(McpServerOauthCompletedPayload) = "mcp.server.signIn.completed",
+    McpServerSignInCompleted(McpServerSignInCompletedPayload) = "mcp.server.signIn.completed",
     /// Emitted when a cloud task is sent, changes state or is brought back.
     CloudTaskUpdated(CloudTaskUpdatedPayload) = "cloud.task.updated",
     /// Emitted when an undo finishes, with what applied and what did not.
-    SessionRestoreFinished(#[garde(dive)] SessionRestoreFinishedPayload) =
+    SessionRestoreCompleted(#[garde(dive)] SessionRestoreCompletedPayload) =
         "session.restore.completed",
     /// Emitted when a session's goal is removed.
     SessionGoalCleared(SessionGoalClearedPayload) = "session.goal.cleared",
     /// Emitted for a plain-sentence notice about the session, such as a warning from the
     /// provider.
-    SessionNotice(#[garde(dive)] SessionNoticePayload) = "session.notice.posted" => read(session_notice_run),
+    SessionNoticePosted(#[garde(dive)] SessionNoticePostedPayload) = "session.notice.posted" => read(session_notice_run),
     /// Emitted when a side question is answered; the aside never enters the conversation.
     SessionSideQuestionAnswered(SessionSideQuestionAnsweredPayload) =
         "session.sideQuestion.answered",
@@ -314,22 +318,22 @@ session_events! {
     /// Emitted when the relay presents a key that does not match the pinned one.
     RelayPinRefused(RelayPinRefusedPayload) = "relay.pin.refused",
     /// Emitted when a command ends; it takes the epoch stamp.
-    CommandEnded(#[garde(dive)] CommandEndedPayload) = "agent.command.ended" => required,
+    AgentCommandEnded(#[garde(dive)] AgentCommandEndedPayload) = "agent.command.ended" => required,
     /// Emitted when a turn's own token figures are recorded; it takes the epoch stamp.
-    UsageTokenCount(#[garde(dive)] UsageTokenCountPayload) = "usage.tokenCount.recorded" => optional,
+    UsageTokenCountRecorded(#[garde(dive)] UsageTokenCountRecordedPayload) = "usage.tokenCount.recorded" => optional,
     /// Emitted when a request is priced; it takes the epoch stamp.
-    UsageCostUpdate(#[garde(dive)] UsageCostUpdatePayload) = "usage.cost.updated" => optional,
+    UsageCostUpdated(#[garde(dive)] UsageCostUpdatedPayload) = "usage.cost.updated" => optional,
     /// Emitted when the context window's reading changes; it takes the epoch stamp.
-    UsageContextWindowUpdate(#[garde(dive)] UsageContextWindowUpdatePayload) =
+    UsageContextWindowUpdated(#[garde(dive)] UsageContextWindowUpdatedPayload) =
         "usage.contextWindow.updated" => optional,
     /// Emitted when a provider reports one of an account's quotas.
-    UsageRateLimitUpdate(#[garde(dive)] UsageRateLimitUpdatePayload) = "usage.rateLimit.updated",
+    UsageRateLimitUpdated(#[garde(dive)] UsageRateLimitUpdatedPayload) = "usage.rateLimit.updated",
     /// Emitted when the provider retries a request mid-run; it takes the epoch stamp.
-    UsageApiRetry(#[garde(dive)] UsageApiRetryPayload) = "usage.apiRequest.retried" => optional,
+    UsageApiRequestRetried(#[garde(dive)] UsageApiRequestRetriedPayload) = "usage.apiRequest.retried" => optional,
     /// Emitted when the provider compacts a run's context; it takes the epoch stamp.
-    UsageContextCompacted(#[garde(dive)] UsageContextCompactedPayload) = "agent.run.context.compacted" => required,
+    AgentRunContextCompacted(#[garde(dive)] AgentRunContextCompactedPayload) = "agent.run.context.compacted" => required,
     /// Emitted when the provider moves a turn onto another model; it takes the epoch stamp.
-    UsageModelRerouted(#[garde(dive)] UsageModelReroutedPayload) = "agent.turn.rerouted" => required,
+    AgentTurnRerouted(#[garde(dive)] AgentTurnReroutedPayload) = "agent.turn.rerouted" => required,
     /// Emitted when a new session's storage is ready and it moves from provisioning to active.
     SessionActivated(SessionLifecycleChangePayload) = "session.activated",
     /// Emitted when a session is archived.
@@ -351,7 +355,7 @@ session_events! {
     /// Emitted when the branch a session's folder is on changes outside the app.
     SessionBranchChanged(SessionBranchChangedPayload) = "session.branch.changed",
     /// Emitted when a worktree removal moves a session back to the repository root.
-    SessionSweptToRepoRoot(SessionSweptToRepoRootPayload) = "session.sweptToCheckout",
+    SessionSweptToCheckout(SessionSweptToCheckoutPayload) = "session.sweptToCheckout",
     /// Emitted when an agent's provider binding is switched.
     AgentProviderBindingChanged(#[garde(dive)] AgentProviderBindingChangedPayload) =
         "agent.providerBinding.changed",
@@ -368,16 +372,16 @@ session_events! {
     /// Emitted when the person allows a blocked action once.
     ApprovalDenialOverridden(ApprovalDenialOverriddenPayload) = "approval.denial.overridden",
     /// Emitted when a run is queued.
-    RunQueued(#[garde(dive)] RunQueuedPayload) = "agent.run.queued" => read(run_queued_run),
+    AgentRunQueued(#[garde(dive)] AgentRunQueuedPayload) = "agent.run.queued" => read(run_queued_run),
     /// Emitted when a turn reaches the step bound and ends there.
-    RunStepLimitReached(RunStepLimitReachedPayload) = "agent.run.stepLimit.reached" => required,
+    AgentRunStepLimitReached(AgentRunStepLimitReachedPayload) = "agent.run.stepLimit.reached" => required,
     /// Emitted when a run passes its token limit and ends.
-    RunTokenLimitReached(RunTokenLimitReachedPayload) = "agent.run.tokenLimit.reached" => required,
+    AgentRunTokenLimitReached(AgentRunTokenLimitReachedPayload) = "agent.run.tokenLimit.reached" => required,
     /// Emitted when the person's choice settles a run's recovery question.
-    RunRecoveryResolved(RunRecoveryResolvedPayload) = "agent.run.recovery.resolved" => required,
+    AgentRunRecoveryResolved(AgentRunRecoveryResolvedPayload) = "agent.run.recovery.resolved" => required,
     /// Emitted when a restart found steps in the provider's own record that only read, added
     /// them to the transcript and let the run go on.
-    RunRecoveryStepsAdded(RunRecoveryStepsAddedPayload) = "agent.run.recoverySteps.added" => required,
+    AgentRunRecoveryStepsAdded(AgentRunRecoveryStepsAddedPayload) = "agent.run.recoverySteps.added" => required,
     /// Emitted when the provider's own advisor command changes the session's advisor, or turns it
     /// off.
     SessionAdvisorChanged(#[garde(dive)] SessionAdvisorChangedPayload) =
@@ -389,35 +393,35 @@ session_events! {
     RepoMountHealthChanged(#[garde(dive)] RepoMountHealthChangedPayload) =
         "repoMount.health.changed",
     /// Emitted when admission refuses an orchestration run create; no run or queue item is left.
-    OrchestrationRejected(OrchestrationRejectedPayload) = "agent.run.rejected",
+    AgentRunRejected(AgentRunRejectedPayload) = "agent.run.rejected",
     /// Emitted when an artifact is published from a run; its payload keeps members it does not
     /// know.
     ArtifactPublished(ArtifactPublicationPayload) = "artifact.published" => optional,
     /// Emitted when a newer version replaces an artifact; its payload keeps unknown members.
     ArtifactSuperseded(ArtifactPublicationPayload) = "artifact.superseded" => optional,
     /// Emitted when the provider refuses a turn, names a fallback model and asks to retry or edit.
-    RunRefusalChoiceRequested(RunRefusalChoiceRequestedPayload) =
+    AgentRunRefusalChoiceRequested(AgentRunRefusalChoiceRequestedPayload) =
         "agent.run.refusalChoice.requested" => required,
     /// Emitted when the first answer settles a refused turn's retry-or-edit choice.
-    RunRefusalChoiceResolved(RunRefusalChoiceResolvedPayload) = "agent.run.refusalChoice.resolved" => required,
+    AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload) = "agent.run.refusalChoice.resolved" => required,
     /// Emitted when a turn's model needs usage credits and the provider asks to switch or go on.
-    RunUsageCreditsChoiceRequested(RunUsageCreditsChoiceRequestedPayload) =
+    AgentRunUsageCreditsChoiceRequested(AgentRunUsageCreditsChoiceRequestedPayload) =
         "agent.run.usageCreditsChoice.requested" => required,
     /// Emitted when a turn's switch-or-credits choice settles.
-    RunUsageCreditsChoiceResolved(RunUsageCreditsChoiceResolvedPayload) =
+    AgentRunUsageCreditsChoiceResolved(AgentRunUsageCreditsChoiceResolvedPayload) =
         "agent.run.usageCreditsChoice.resolved" => required,
     /// Emitted when a session's goal is set or changes status.
     SessionGoalUpdated(#[garde(dive)] SessionGoalUpdatedPayload) = "session.goal.updated",
     /// Emitted when a session is renamed.
     SessionRenamed(SessionRenamedPayload) = "session.renamed",
     /// Emitted when the holder of a shell changes.
-    PtyControlChanged(#[garde(dive)] PtyControlChangedPayload) = "terminal.control.changed",
+    TerminalControlChanged(#[garde(dive)] TerminalControlChangedPayload) = "terminal.control.changed",
     /// Emitted when a workflow run starts.
-    WorkflowStarted(WorkflowStartedPayload) = "workflow.run.started",
+    WorkflowRunStarted(WorkflowRunStartedPayload) = "workflow.run.started",
     /// Emitted when a workflow run resumes.
-    WorkflowResumed(#[garde(dive)] WorkflowResumedPayload) = "workflow.run.resumed",
+    WorkflowRunResumed(#[garde(dive)] WorkflowRunResumedPayload) = "workflow.run.resumed",
     /// Emitted when a workflow run is canceled.
-    WorkflowCanceled(#[garde(dive)] WorkflowCanceledPayload) = "workflow.run.canceled",
+    WorkflowRunCanceled(#[garde(dive)] WorkflowRunCanceledPayload) = "workflow.run.canceled",
     /// Emitted when the person deletes a workflow run.
     WorkflowRunDeleted(WorkflowRunDeletedPayload) = "workflow.run.deleted",
     /// Emitted when a finished run's results land as a row in the asking session.
@@ -435,7 +439,7 @@ session_events! {
     /// Emitted when a workflow step starts, with the input it ran on.
     WorkflowStepStarted(#[garde(dive)] WorkflowStepStartedPayload) = "workflow.step.started",
     /// Emitted when a workflow step finishes, with its output and log.
-    WorkflowStepFinished(#[garde(dive)] WorkflowStepFinishedPayload) = "workflow.step.completed",
+    WorkflowStepCompleted(#[garde(dive)] WorkflowStepCompletedPayload) = "workflow.step.completed",
     /// Emitted when a workflow step fails, with its error.
     WorkflowStepFailed(#[garde(dive)] WorkflowStepFailedPayload) = "workflow.step.failed",
     /// Emitted when a running or waiting step ends because its run ended failed or canceled, or
@@ -446,13 +450,13 @@ session_events! {
     /// Emitted when a workflow gate is answered.
     WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate.resolved",
     /// Emitted when a workflow is authored or a new version of it is written.
-    WorkflowCreated(WorkflowCreatedPayload) = "workflow.version.created",
+    WorkflowVersionCreated(WorkflowVersionCreatedPayload) = "workflow.version.created",
     /// Emitted when a workflow run reaches a gate that must be answered before it goes on.
-    WorkflowGated(WorkflowGatedPayload) = "workflow.gate.reached",
+    WorkflowGateReached(WorkflowGateReachedPayload) = "workflow.gate.reached",
     /// Emitted when a workflow run ends on a failure.
-    WorkflowFailed(WorkflowFailedPayload) = "workflow.run.failed",
+    WorkflowRunFailed(WorkflowRunFailedPayload) = "workflow.run.failed",
     /// Emitted when a workflow run reaches its last steps and succeeds.
-    WorkflowCompleted(WorkflowCompletedPayload) = "workflow.run.completed",
+    WorkflowRunCompleted(WorkflowRunCompletedPayload) = "workflow.run.completed",
     /// Emitted when a workflow run starts waiting, on a person, its chain's question or a spent
     /// provider account.
     WorkflowRunWaiting(WorkflowRunWaitingPayload) = "workflow.run.waiting",
@@ -479,63 +483,63 @@ session_events! {
     /// Emitted when a workflow phase finishes.
     WorkflowPhaseCompleted(WorkflowPhaseCompletedPayload) = "workflow.phase.completed",
     /// Emitted once per wave of running sibling branches a join cancels.
-    WorkflowParallelJoinCancellation(WorkflowParallelJoinCancellationPayload) =
+    WorkflowParallelJoinBranchesCanceled(WorkflowParallelJoinBranchesCanceledPayload) =
         "workflow.parallelJoin.branchesCanceled",
     /// Emitted when a backup run writes a backup.
-    BackupCompleted(BackupCompletedPayload) = "daemon.backup.completed",
+    DaemonBackupCompleted(DaemonBackupCompletedPayload) = "daemon.backup.completed",
     /// Emitted when a backup run does not finish.
-    BackupFailed(BackupFailedPayload) = "daemon.backup.failed",
+    DaemonBackupFailed(DaemonBackupFailedPayload) = "daemon.backup.failed",
     /// Emitted when the service starts again from a backup.
-    BackupRestored(#[garde(dive)] BackupRestoredPayload) = "daemon.backup.restored",
+    DaemonBackupRestored(#[garde(dive)] DaemonBackupRestoredPayload) = "daemon.backup.restored",
     /// Emitted when the service's recovery pass starts, on its own session.
-    RecoveryAttempted(#[garde(dive)] RecoveryAttemptedPayload) = "daemon.recovery.attempted",
+    DaemonRecoveryAttempted(#[garde(dive)] DaemonRecoveryAttemptedPayload) = "daemon.recovery.attempted",
     /// Emitted when the service's recovery pass completes, on its own session.
-    RecoverySucceeded(#[garde(dive)] RecoverySucceededPayload) = "daemon.recovery.succeeded",
+    DaemonRecoverySucceeded(#[garde(dive)] DaemonRecoverySucceededPayload) = "daemon.recovery.succeeded",
     /// Emitted when the service's recovery pass leaves the node blocked or a session degraded, on
     /// its own session.
-    RecoveryFailed(RecoveryFailedPayload) = "daemon.recovery.failed",
+    DaemonRecoveryFailed(DaemonRecoveryFailedPayload) = "daemon.recovery.failed",
     /// Emitted on a session with damaged history when it continues from its last good point,
     /// naming the damaged range every read and rebuild skips from then on.
-    RecoveryDamagedEventsSkipped(#[garde(dive)] RecoveryDamagedEventsSkippedPayload) =
+    SessionDamagedEventsSkipped(#[garde(dive)] SessionDamagedEventsSkippedPayload) =
         "session.damagedEvents.skipped",
     /// Emitted when the daemon starts preparing a run's provider, workspace or execution state.
-    RunStarting(#[garde(dive)] RunStartingPayload) = "agent.run.starting" => versioned,
+    AgentRunStarting(#[garde(dive)] AgentRunStartingPayload) = "agent.run.starting" => versioned,
     /// Emitted when a run is executing, stamped with the posture it runs under.
-    RunRunning(#[garde(dive)] RunRunningPayload) = "agent.run.running" => versioned,
+    AgentRunRunning(#[garde(dive)] AgentRunRunningPayload) = "agent.run.running" => versioned,
     /// Emitted when a run blocks on an approval request.
-    RunWaitingForApproval(#[garde(dive)] RunWaitingForApprovalPayload) =
+    AgentRunWaitingForApproval(#[garde(dive)] AgentRunWaitingForApprovalPayload) =
         "agent.run.waitingForApproval" => versioned,
     /// Emitted when a run blocks on the person's input or answers.
-    RunWaitingForInput(#[garde(dive)] RunWaitingForInputPayload) = "agent.run.waitingForInput" => versioned,
+    AgentRunWaitingForInput(#[garde(dive)] AgentRunWaitingForInputPayload) = "agent.run.waitingForInput" => versioned,
     /// Emitted when a pause is asked for while the step in flight finishes.
-    RunPausing(#[garde(dive)] RunPausingPayload) = "agent.run.pausing" => versioned,
+    AgentRunPausing(#[garde(dive)] AgentRunPausingPayload) = "agent.run.pausing" => versioned,
     /// Emitted when a run is paused.
-    RunPaused(#[garde(dive)] RunPausedPayload) = "agent.run.paused" => versioned,
+    AgentRunPaused(#[garde(dive)] AgentRunPausedPayload) = "agent.run.paused" => versioned,
     /// Emitted when a run finishes, as a turn or as its whole task.
-    RunCompleted(#[garde(dive)] RunCompletedPayload) = "agent.run.completed" => versioned,
+    AgentRunCompleted(#[garde(dive)] AgentRunCompletedPayload) = "agent.run.completed" => versioned,
     /// Emitted when a run ends on an interrupt, with the daemon's trigger when it interrupted.
-    RunInterrupted(#[garde(dive)] RunInterruptedPayload) = "agent.run.interrupted" => versioned,
+    AgentRunInterrupted(#[garde(dive)] AgentRunInterruptedPayload) = "agent.run.interrupted" => versioned,
     /// Emitted when a child run ends on a stop that reached several agents.
-    RunStopped(#[garde(dive)] RunStoppedPayload) = "agent.run.stopped" => versioned,
+    AgentRunStopped(#[garde(dive)] AgentRunStoppedPayload) = "agent.run.stopped" => versioned,
     /// Emitted when a run ends on an unrecovered error, with its category and cause.
-    RunFailed(#[garde(dive)] RunFailedPayload) = "agent.run.failed" => versioned,
+    AgentRunFailed(#[garde(dive)] AgentRunFailedPayload) = "agent.run.failed" => versioned,
     /// Emitted when an undo cuts the conversation back to an earlier turn; it moves no state and
     /// advances the run version.
-    RunRolledBack(RunRolledBackEvent) = "agent.run.rolledBack" => versioned,
+    AgentRunRolledBack(AgentRunRolledBackEvent) = "agent.run.rolledBack" => versioned,
     /// Emitted when an intervention on a run is requested.
-    InterventionRequested(InterventionRequestedPayload) = "agent.intervention.requested",
+    AgentInterventionRequested(AgentInterventionRequestedPayload) = "agent.intervention.requested",
     /// Emitted when an intervention is accepted for application.
-    InterventionAccepted(InterventionAcceptedPayload) = "agent.intervention.accepted",
+    AgentInterventionAccepted(AgentInterventionAcceptedPayload) = "agent.intervention.accepted",
     /// Emitted when an intervention is applied to its run.
-    InterventionApplied(InterventionAppliedPayload) = "agent.intervention.applied",
+    AgentInterventionApplied(AgentInterventionAppliedPayload) = "agent.intervention.applied",
     /// Emitted when an intervention is rejected.
-    InterventionRejected(InterventionRejectedPayload) = "agent.intervention.rejected",
+    AgentInterventionRejected(AgentInterventionRejectedPayload) = "agent.intervention.rejected",
     /// Emitted when an intervention is applied with a degraded effect.
-    InterventionDegraded(InterventionDegradedPayload) = "agent.intervention.degraded",
+    AgentInterventionDegraded(AgentInterventionDegradedPayload) = "agent.intervention.degraded",
     /// Emitted when an intervention expires without being applied.
-    InterventionExpired(InterventionExpiredPayload) = "agent.intervention.expired",
+    AgentInterventionExpired(AgentInterventionExpiredPayload) = "agent.intervention.expired",
     /// Emitted when an intervention's dispatch throws, so it ends without a driver verdict.
-    InterventionFailed(InterventionFailedPayload) = "agent.intervention.failed",
+    AgentInterventionFailed(AgentInterventionFailedPayload) = "agent.intervention.failed",
 }
 
 /// The run of an assistant row: a run's row names it, a voice call's answer names none.
@@ -579,10 +583,10 @@ fn git_settled_run(payload: &GitSettledPayload) -> Option<EventRun> {
     clippy::unnecessary_wraps,
     reason = "every run rule that reads its payload answers an Option"
 )]
-fn run_queued_run(payload: &RunQueuedPayload) -> Option<EventRun> {
+fn run_queued_run(payload: &AgentRunQueuedPayload) -> Option<EventRun> {
     let (run_id, run_version) = match payload {
-        RunQueuedPayload::SessionAgent(queued) => (queued.run_id, queued.run_version),
-        RunQueuedPayload::ResolvedAgent(queued) => (queued.run_id, queued.run_version),
+        AgentRunQueuedPayload::SessionAgent(queued) => (queued.run_id, queued.run_version),
+        AgentRunQueuedPayload::ResolvedAgent(queued) => (queued.run_id, queued.run_version),
     };
     Some(EventRun {
         run_id,
@@ -591,8 +595,9 @@ fn run_queued_run(payload: &RunQueuedPayload) -> Option<EventRun> {
 }
 
 /// The run a notice is about: only the run that asked for fast output it lacks.
-fn session_notice_run(payload: &SessionNoticePayload) -> Option<EventRun> {
-    let SessionNoticePayload::Notice(SessionNotice::FastOutputUnavailable { run_id, .. }) = payload
+fn session_notice_run(payload: &SessionNoticePostedPayload) -> Option<EventRun> {
+    let SessionNoticePostedPayload::Notice(SessionNotice::FastOutputUnavailable { run_id, .. }) =
+        payload
     else {
         return None;
     };

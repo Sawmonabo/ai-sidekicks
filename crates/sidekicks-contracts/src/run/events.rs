@@ -72,25 +72,25 @@ impl From<RunStateChangeState> for RunState {
 
 literal! {
     /// The `newState` of a `agent.run.starting` payload.
-    pub enum RunStartingNewState = "starting";
+    pub enum AgentRunStartingNewState = "starting";
     /// The `newState` of a `agent.run.running` payload.
-    pub enum RunRunningNewState = "running";
+    pub enum AgentRunRunningNewState = "running";
     /// The `newState` of a `agent.run.waitingForApproval` payload.
-    pub enum RunWaitingForApprovalNewState = "waitingForApproval";
+    pub enum AgentRunWaitingForApprovalNewState = "waitingForApproval";
     /// The `newState` of a `agent.run.waitingForInput` payload.
-    pub enum RunWaitingForInputNewState = "waitingForInput";
+    pub enum AgentRunWaitingForInputNewState = "waitingForInput";
     /// The `newState` of a `agent.run.pausing` payload.
-    pub enum RunPausingNewState = "pausing";
+    pub enum AgentRunPausingNewState = "pausing";
     /// The `newState` of a `agent.run.paused` payload.
-    pub enum RunPausedNewState = "paused";
+    pub enum AgentRunPausedNewState = "paused";
     /// The `newState` of a `agent.run.completed` payload.
-    pub enum RunCompletedNewState = "completed";
+    pub enum AgentRunCompletedNewState = "completed";
     /// The `newState` of a `agent.run.interrupted` payload.
-    pub enum RunInterruptedNewState = "interrupted";
+    pub enum AgentRunInterruptedNewState = "interrupted";
     /// The `newState` of a `agent.run.stopped` payload.
-    pub enum RunStoppedNewState = "stopped";
+    pub enum AgentRunStoppedNewState = "stopped";
     /// The `newState` of a `agent.run.failed` payload.
-    pub enum RunFailedNewState = "failed";
+    pub enum AgentRunFailedNewState = "failed";
 }
 
 /// Declares the stored payload of each `run.<state>`: the transition with its new run version,
@@ -140,11 +140,11 @@ macro_rules! run_state_change_payloads {
 
 run_state_change_payloads! {
     /// The `agent.run.starting` payload.
-    pub struct RunStartingPayload: RunStartingNewState {}
+    pub struct AgentRunStartingPayload: AgentRunStartingNewState {}
 
     /// The `agent.run.running` payload, which stamps the effective posture, final only once
     /// running.
-    pub struct RunRunningPayload: RunRunningNewState {
+    pub struct AgentRunRunningPayload: AgentRunRunningNewState {
         /// The effective posture, with the workspace root resolved.
         #[serde(
             default,
@@ -156,19 +156,19 @@ run_state_change_payloads! {
     }
 
     /// The `agent.run.waitingForApproval` payload.
-    pub struct RunWaitingForApprovalPayload: RunWaitingForApprovalNewState {}
+    pub struct AgentRunWaitingForApprovalPayload: AgentRunWaitingForApprovalNewState {}
 
     /// The `agent.run.waitingForInput` payload.
-    pub struct RunWaitingForInputPayload: RunWaitingForInputNewState {}
+    pub struct AgentRunWaitingForInputPayload: AgentRunWaitingForInputNewState {}
 
     /// The `agent.run.pausing` payload.
-    pub struct RunPausingPayload: RunPausingNewState {}
+    pub struct AgentRunPausingPayload: AgentRunPausingNewState {}
 
     /// The `agent.run.paused` payload.
-    pub struct RunPausedPayload: RunPausedNewState {}
+    pub struct AgentRunPausedPayload: AgentRunPausedNewState {}
 
     /// The `agent.run.completed` payload, with whether its turn or its whole task finished.
-    pub struct RunCompletedPayload: RunCompletedNewState {
+    pub struct AgentRunCompletedPayload: AgentRunCompletedNewState {
         /// Present only on a terminal the daemon itself closed, which is never a crash.
         #[serde(
             default,
@@ -183,7 +183,7 @@ run_state_change_payloads! {
 
     /// The `agent.run.interrupted` payload, with why the daemon interrupted the run where it did so
     /// itself; the person's own interrupt carries none.
-    pub struct RunInterruptedPayload: RunInterruptedNewState {
+    pub struct AgentRunInterruptedPayload: AgentRunInterruptedNewState {
         /// Present only on a terminal the daemon itself closed, which is never a crash.
         #[serde(
             default,
@@ -203,7 +203,7 @@ run_state_change_payloads! {
     }
 
     /// The `agent.run.stopped` payload.
-    pub struct RunStoppedPayload: RunStoppedNewState {
+    pub struct AgentRunStoppedPayload: AgentRunStoppedNewState {
         /// Present only on a terminal the daemon itself closed, which is never a crash.
         #[serde(
             default,
@@ -216,7 +216,7 @@ run_state_change_payloads! {
 
     /// The `agent.run.failed` payload, with its typed cause, the provider's own words and its
     /// process's own exit.
-    pub struct RunFailedPayload: RunFailedNewState {
+    pub struct AgentRunFailedPayload: AgentRunFailedNewState {
         /// Present only on a terminal the daemon itself closed, which is never a crash.
         #[serde(
             default,
@@ -279,7 +279,7 @@ macro_rules! run_marker_payloads {
 run_marker_payloads! {
     /// The `agent.run.providerInitialized` payload: the provider process reported its start for the
     /// run, with the model it runs where it named one.
-    pub struct RunProviderInitializedPayload {
+    pub struct AgentRunProviderInitializedPayload {
         /// The provider.
         pub provider: ProviderId,
         /// The model it runs.
@@ -294,7 +294,7 @@ run_marker_payloads! {
 
     /// The `agent.turn.started` payload: a turn opened within the run, at the session position the
     /// provider named where it named one.
-    pub struct RunTurnStartedPayload {
+    pub struct AgentTurnStartedPayload {
         /// The turn's session position.
         #[serde(
             default,
@@ -307,7 +307,7 @@ run_marker_payloads! {
 
     /// The `agent.run.workerShuttingDown` payload: the provider said its worker is shutting down
     /// mid-run, with its own reason where it sent one. An early warning, never the run's end.
-    pub struct RunWorkerShutdownPayload {
+    pub struct AgentRunWorkerShuttingDownPayload {
         /// The provider's reason.
         #[serde(
             default,
@@ -387,19 +387,19 @@ pub enum InterventionActor {
 
 literal! {
     /// The `state` of an `agent.intervention.requested` payload.
-    pub enum InterventionRequestedState = "requested";
+    pub enum AgentInterventionRequestedState = "requested";
     /// The `state` of an `agent.intervention.accepted` payload.
-    pub enum InterventionAcceptedState = "accepted";
+    pub enum AgentInterventionAcceptedState = "accepted";
     /// The `state` of an `agent.intervention.applied` payload.
-    pub enum InterventionAppliedState = "applied";
+    pub enum AgentInterventionAppliedState = "applied";
     /// The `state` of an `agent.intervention.rejected` payload.
-    pub enum InterventionRejectedState = "rejected";
+    pub enum AgentInterventionRejectedState = "rejected";
     /// The `state` of an `agent.intervention.degraded` payload.
-    pub enum InterventionDegradedState = "degraded";
+    pub enum AgentInterventionDegradedState = "degraded";
     /// The `state` of an `agent.intervention.expired` payload.
-    pub enum InterventionExpiredState = "expired";
+    pub enum AgentInterventionExpiredState = "expired";
     /// The `state` of an `agent.intervention.failed` payload.
-    pub enum InterventionFailedState = "failed";
+    pub enum AgentInterventionFailedState = "failed";
 }
 
 /// Declares the stored payload of each `intervention.<state>`, whose `state` is its own type's
@@ -434,26 +434,26 @@ macro_rules! intervention_event_payloads {
 
 intervention_event_payloads! {
     /// The `agent.intervention.requested` payload.
-    pub struct InterventionRequestedPayload: InterventionRequestedState {}
+    pub struct AgentInterventionRequestedPayload: AgentInterventionRequestedState {}
 
     /// The `agent.intervention.accepted` payload.
-    pub struct InterventionAcceptedPayload: InterventionAcceptedState {}
+    pub struct AgentInterventionAcceptedPayload: AgentInterventionAcceptedState {}
 
     /// The `agent.intervention.applied` payload.
-    pub struct InterventionAppliedPayload: InterventionAppliedState {}
+    pub struct AgentInterventionAppliedPayload: AgentInterventionAppliedState {}
 
     /// The `agent.intervention.rejected` payload.
-    pub struct InterventionRejectedPayload: InterventionRejectedState {}
+    pub struct AgentInterventionRejectedPayload: AgentInterventionRejectedState {}
 
     /// The `agent.intervention.degraded` payload.
-    pub struct InterventionDegradedPayload: InterventionDegradedState {}
+    pub struct AgentInterventionDegradedPayload: AgentInterventionDegradedState {}
 
     /// The `agent.intervention.expired` payload.
-    pub struct InterventionExpiredPayload: InterventionExpiredState {}
+    pub struct AgentInterventionExpiredPayload: AgentInterventionExpiredState {}
 
     /// The `agent.intervention.failed` payload, with why, in the words its reply and its stored row
     /// carry.
-    pub struct InterventionFailedPayload: InterventionFailedState {
+    pub struct AgentInterventionFailedPayload: AgentInterventionFailedState {
         /// The thrown error's code, else its message.
         pub failure_reason: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
     }
@@ -466,27 +466,27 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           of its interventions, one per event type.",
     definitions: &[
         Definition::read::<RunStateChangeState>(),
-        Definition::read::<RunStartingPayload>(),
-        Definition::read::<RunRunningPayload>(),
-        Definition::read::<RunWaitingForApprovalPayload>(),
-        Definition::read::<RunWaitingForInputPayload>(),
-        Definition::read::<RunPausingPayload>(),
-        Definition::read::<RunPausedPayload>(),
-        Definition::read::<RunCompletedPayload>(),
-        Definition::read::<RunInterruptedPayload>(),
-        Definition::read::<RunStoppedPayload>(),
-        Definition::read::<RunFailedPayload>(),
-        Definition::read::<RunProviderInitializedPayload>().checked(),
-        Definition::read::<RunTurnStartedPayload>().checked(),
-        Definition::read::<RunWorkerShutdownPayload>().checked(),
+        Definition::read::<AgentRunStartingPayload>(),
+        Definition::read::<AgentRunRunningPayload>(),
+        Definition::read::<AgentRunWaitingForApprovalPayload>(),
+        Definition::read::<AgentRunWaitingForInputPayload>(),
+        Definition::read::<AgentRunPausingPayload>(),
+        Definition::read::<AgentRunPausedPayload>(),
+        Definition::read::<AgentRunCompletedPayload>(),
+        Definition::read::<AgentRunInterruptedPayload>(),
+        Definition::read::<AgentRunStoppedPayload>(),
+        Definition::read::<AgentRunFailedPayload>(),
+        Definition::read::<AgentRunProviderInitializedPayload>().checked(),
+        Definition::read::<AgentTurnStartedPayload>().checked(),
+        Definition::read::<AgentRunWorkerShuttingDownPayload>().checked(),
         Definition::read::<InterventionActor>(),
-        Definition::read::<InterventionRequestedPayload>(),
-        Definition::read::<InterventionAcceptedPayload>(),
-        Definition::read::<InterventionAppliedPayload>(),
-        Definition::read::<InterventionRejectedPayload>(),
-        Definition::read::<InterventionDegradedPayload>(),
-        Definition::read::<InterventionExpiredPayload>(),
-        Definition::read::<InterventionFailedPayload>(),
+        Definition::read::<AgentInterventionRequestedPayload>(),
+        Definition::read::<AgentInterventionAcceptedPayload>(),
+        Definition::read::<AgentInterventionAppliedPayload>(),
+        Definition::read::<AgentInterventionRejectedPayload>(),
+        Definition::read::<AgentInterventionDegradedPayload>(),
+        Definition::read::<AgentInterventionExpiredPayload>(),
+        Definition::read::<AgentInterventionFailedPayload>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

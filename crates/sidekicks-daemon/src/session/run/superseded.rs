@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use rusqlite::{Connection, named_params};
 use serde::Deserialize as _;
 use serde_json::{Map, Value};
-use sidekicks_contracts::run::control::RunRolledBackEvent;
+use sidekicks_contracts::run::control::AgentRunRolledBackEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::row::TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE;
@@ -50,8 +50,8 @@ pub(crate) fn parse_stored_rollback(
     payload: &Map<String, Value>,
     session_id: &SessionId,
     sequence: i64,
-) -> Result<RunRolledBackEvent, StoredRollbackMismatchError> {
-    RunRolledBackEvent::deserialize(payload).map_err(|cause| StoredRollbackMismatchError {
+) -> Result<AgentRunRolledBackEvent, StoredRollbackMismatchError> {
+    AgentRunRolledBackEvent::deserialize(payload).map_err(|cause| StoredRollbackMismatchError {
         session_id: *session_id,
         sequence,
         cause,

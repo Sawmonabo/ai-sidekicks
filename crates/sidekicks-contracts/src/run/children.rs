@@ -250,7 +250,7 @@ pub struct ChildrenStopResponse {
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
-pub enum RunChildControlRefusedReason {
+pub enum AgentChildRunControlRefusedReason {
     /// The daemon's index names no such child.
     ChildUnknown,
     /// The child has ended; an interrupt instead answers the state it finished in.
@@ -263,17 +263,17 @@ ts_constants! {
     /// The refusal of a child control: the daemon's index names no such child, the child has
     /// ended, or the provider refused the act. A hold lost before a continue is a result, never
     /// this refusal.
-    RUN_CHILD_CONTROL_REFUSED_CODE = RefusalCode::RunChildControlRefused;
+    RUN_CHILD_CONTROL_REFUSED_CODE = RefusalCode::AgentChildRunControlRefused;
     /// Every reason a child control is refused.
-    RUN_CHILD_CONTROL_REFUSED_REASONS = RunChildControlRefusedReason::VARIANTS;
+    RUN_CHILD_CONTROL_REFUSED_REASONS = AgentChildRunControlRefusedReason::VARIANTS;
 }
 
 /// The details a `agent.childRun.controlRefused` refusal carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunChildControlRefusedDetails {
+pub struct AgentChildRunControlRefusedDetails {
     /// Why it was refused.
-    pub reason: RunChildControlRefusedReason,
+    pub reason: AgentChildRunControlRefusedReason,
 }
 
 /// The TypeScript module of a child's own controls.
@@ -291,8 +291,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ChildStoppedState>(),
         Definition::read::<ChildStopOutcome>(),
         Definition::read::<ChildrenStopResponse>().checked(),
-        Definition::read::<RunChildControlRefusedReason>(),
-        Definition::read::<RunChildControlRefusedDetails>().checked(),
+        Definition::read::<AgentChildRunControlRefusedReason>(),
+        Definition::read::<AgentChildRunControlRefusedDetails>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

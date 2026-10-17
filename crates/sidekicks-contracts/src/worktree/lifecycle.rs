@@ -8,7 +8,7 @@ use strum::{IntoStaticStr, VariantArray};
 
 use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
-use crate::gitflow::shared::GitRefName;
+use crate::git::shared::GitRefName;
 use crate::internal::branded::branded_uuid_id;
 use crate::project::ProjectId;
 use crate::repo::mount::{RepoMountId, WorkspaceId, WorkspaceState, lifecycle_payload};

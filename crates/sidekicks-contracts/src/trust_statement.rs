@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
-use crate::runtime_node::id::NodeId;
+use crate::machine::id::NodeId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::base64::{Base64Array, Base64Text, Base64UrlText};
 use crate::wire::instant::WireInstant;
@@ -139,7 +139,7 @@ pub enum TrustSigner {
         device_id: DeviceId,
     },
     /// A machine's key.
-    RuntimeNode {
+    Machine {
         /// The machine.
         node_id: NodeId,
     },
@@ -169,7 +169,7 @@ pub enum TrustStatementSignature {
         signature: Base64Text<1, SIGNATURE_PART_MAX_LEN>,
     },
     /// A machine key's signature.
-    RuntimeNode {
+    Machine {
         /// The machine.
         node_id: NodeId,
         /// The signature, standard base64.
@@ -308,9 +308,9 @@ statements! {
         device_id: DeviceId,
     }
     /// A passkey joins, with the platform that holds it.
-    PasskeyAdded = "account.passkey.added" {
-        statement: PasskeyAddedStatement,
-        kind: PasskeyAddedKind,
+    AccountPasskeyAdded = "account.passkey.added" {
+        statement: AccountPasskeyAddedStatement,
+        kind: AccountPasskeyAddedKind,
         previous_hash: TrustStatementHash,
         /// The passkey's credential id.
         passkey_id: PasskeyId,
@@ -320,9 +320,9 @@ statements! {
         platform: PlatformDescription,
     }
     /// A passkey's key ends here.
-    PasskeyRemoved = "account.passkey.removed" {
-        statement: PasskeyRemovedStatement,
-        kind: PasskeyRemovedKind,
+    AccountPasskeyRemoved = "account.passkey.removed" {
+        statement: AccountPasskeyRemovedStatement,
+        kind: AccountPasskeyRemovedKind,
         previous_hash: TrustStatementHash,
         /// The passkey's credential id.
         passkey_id: PasskeyId,
@@ -330,9 +330,9 @@ statements! {
     /// A machine joins, or a removed machine comes back under its same id with a new key. The
     /// person's first machine opens the chain with this statement, so here alone `previousHash`
     /// is `null`; the key is still required.
-    RuntimeNodeAdded = "machine.added" {
-        statement: RuntimeNodeAddedStatement,
-        kind: RuntimeNodeAddedKind,
+    MachineAdded = "machine.added" {
+        statement: MachineAddedStatement,
+        kind: MachineAddedKind,
         #[serde(deserialize_with = "wire::nullable")]
         #[schemars(with = "wire::NullableSchema<TrustStatementHash>")]
         previous_hash: Option<TrustStatementHash>,
@@ -346,9 +346,9 @@ statements! {
         name: TrustName,
     }
     /// A machine's one name changes.
-    RuntimeNodeRenamed = "machine.renamed" {
-        statement: RuntimeNodeRenamedStatement,
-        kind: RuntimeNodeRenamedKind,
+    MachineRenamed = "machine.renamed" {
+        statement: MachineRenamedStatement,
+        kind: MachineRenamedKind,
         previous_hash: TrustStatementHash,
         /// The machine.
         node_id: NodeId,
@@ -356,9 +356,9 @@ statements! {
         name: TrustName,
     }
     /// A machine's key ends here; its store, sessions and id stay.
-    RuntimeNodeRemoved = "machine.removed" {
-        statement: RuntimeNodeRemovedStatement,
-        kind: RuntimeNodeRemovedKind,
+    MachineRemoved = "machine.removed" {
+        statement: MachineRemovedStatement,
+        kind: MachineRemovedKind,
         previous_hash: TrustStatementHash,
         /// The machine.
         node_id: NodeId,
@@ -387,11 +387,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DeviceLinkedStatement>(),
         Definition::read::<DeviceRenamedStatement>().checked(),
         Definition::read::<DeviceRevokedStatement>(),
-        Definition::read::<PasskeyAddedStatement>(),
-        Definition::read::<PasskeyRemovedStatement>(),
-        Definition::read::<RuntimeNodeAddedStatement>(),
-        Definition::read::<RuntimeNodeRenamedStatement>(),
-        Definition::read::<RuntimeNodeRemovedStatement>(),
+        Definition::read::<AccountPasskeyAddedStatement>(),
+        Definition::read::<AccountPasskeyRemovedStatement>(),
+        Definition::read::<MachineAddedStatement>(),
+        Definition::read::<MachineRenamedStatement>(),
+        Definition::read::<MachineRemovedStatement>(),
         Definition::read::<TrustStatement>().checked(),
     ],
     constants: TS_CONSTANTS,
@@ -403,7 +403,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::{RuntimeNodeAddedStatement, TrustStatement};
+    use super::{MachineAddedStatement, TrustStatement};
 
     /// A chain-opening `machine.added` statement, with `previousHash` set to `previous_hash`
     /// or left out when it is `None`.
@@ -411,7 +411,7 @@ mod tests {
         let mut statement = json!({
             "kind": "machine.added",
             "issuedAt": "2026-01-01T00:00:00.000Z",
-            "signatures": [{ "signer": "runtimenode", "nodeId": "node-1", "signature": "AAAA" }],
+            "signatures": [{ "signer": "machine", "nodeId": "node-1", "signature": "AAAA" }],
             "nodeId": "node-1",
             "identityKey": {
                 "algorithm": "ed25519",
@@ -438,7 +438,7 @@ mod tests {
         #[case] is_read: bool,
     ) {
         let statement = opening_statement(previous_hash);
-        let standalone = serde_json::from_value::<RuntimeNodeAddedStatement>(statement.clone());
+        let standalone = serde_json::from_value::<MachineAddedStatement>(statement.clone());
         assert_eq!(standalone.is_ok(), is_read, "standalone: {standalone:?}");
         let in_chain = serde_json::from_value::<TrustStatement>(statement.clone());
         assert_eq!(in_chain.is_ok(), is_read, "in the chain: {in_chain:?}");

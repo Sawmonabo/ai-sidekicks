@@ -115,7 +115,7 @@ pub struct BrowserSiteSignInResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct BrowserSiteCookiesClearResponse {
+pub struct BrowserCookieClearResponse {
     /// The site.
     pub origin: SiteOrigin,
     /// Always true.
@@ -261,10 +261,10 @@ methods! {
             refusals: [],
         },
         /// Clears a site's cookies.
-        BrowserSiteCookiesClear = mutation "browser.cookie.clear" {
+        BrowserCookieClear = mutation "browser.cookie.clear" {
             mutating: true,
             params: BrowserSiteRequest,
-            result: BrowserSiteCookiesClearResponse,
+            result: BrowserCookieClearResponse,
             refusals: [],
         },
         /// Forgets everything a site saved.
@@ -308,7 +308,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BrowserSiteDataListResponse>(),
         Definition::read::<BrowserSiteRequest>(),
         Definition::read::<BrowserSiteSignInResponse>(),
-        Definition::read::<BrowserSiteCookiesClearResponse>(),
+        Definition::read::<BrowserCookieClearResponse>(),
         Definition::read::<BrowserSiteDataForgetResponse>(),
         Definition::read::<BrowserSiteDataClearResponse>(),
         Definition::read::<BrowserInstalledChromiumSource>(),

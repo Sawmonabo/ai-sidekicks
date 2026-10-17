@@ -31,7 +31,7 @@ pub enum ChildRunProvenance {
 
 literal! {
     /// The state a run is created in, which `agent.run.queued` enters.
-    pub enum RunQueuedNewState = "queued";
+    pub enum AgentRunQueuedNewState = "queued";
 }
 
 agent_entry! {
@@ -44,7 +44,7 @@ agent_entry! {
     }
 }
 
-/// Declares one arm of [`RunQueuedPayload`] with the members every arm repeats.
+/// Declares one arm of [`AgentRunQueuedPayload`] with the members every arm repeats.
 macro_rules! run_queued_payload {
     ($(#[doc = $doc:literal])+ $name:ident { $($agent:tt)* }) => {
         $(#[doc = $doc])+
@@ -60,7 +60,7 @@ macro_rules! run_queued_payload {
             /// The run's version at creation.
             pub run_version: SafeInt<0>,
             /// Always `queued`.
-            pub new_state: RunQueuedNewState,
+            pub new_state: AgentRunQueuedNewState,
             $($agent)*
             /// The run this one is a child of.
             #[serde(
@@ -154,7 +154,7 @@ run_queued_payload! {
 /// already in the session, or as the agent minted from a saved definition with this run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
-pub enum RunQueuedPayload {
+pub enum AgentRunQueuedPayload {
     /// For an agent already in the session.
     SessionAgent(#[garde(dive)] RunQueuedSessionAgentPayload),
     /// For an agent resolved from a definition.
@@ -169,7 +169,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<ChildRunProvenance>(),
         Definition::read::<ResolvedAgent>(),
-        Definition::read::<RunQueuedPayload>().checked(),
+        Definition::read::<AgentRunQueuedPayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

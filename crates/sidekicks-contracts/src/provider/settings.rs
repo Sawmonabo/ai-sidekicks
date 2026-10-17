@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
-use crate::machine_settings::ENVIRONMENT_ROW_MAX_LEN;
+use crate::machine::settings::ENVIRONMENT_ROW_MAX_LEN;
 use crate::mcp::server::config::ProviderMcpDeclaration;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -48,7 +48,7 @@ ts_constants! {
     /// plugin.
     PROVIDER_NOT_INSTALLED_CODE = RefusalCode::ProviderNotInstalled;
     /// Nothing runnable sits at the command path the person typed.
-    PROVIDER_COMMAND_NOT_RUNNABLE_CODE = RefusalCode::ProviderCommandNotRunnable;
+    PROVIDER_COMMAND_NOT_RUNNABLE_CODE = RefusalCode::ProviderCommandPathNotRunnable;
 }
 
 /// The provider version as its command printed it.
@@ -710,9 +710,9 @@ methods! {
             params: ProviderUpdateRequest,
             result: ProviderSettingsResponse,
             refusals: [
-                DriverUnavailable,
+                ProviderUnavailable,
                 ProviderNotInstalled,
-                ProviderCommandNotRunnable,
+                ProviderCommandPathNotRunnable,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
                 ProviderRowNotFound,
@@ -737,7 +737,7 @@ methods! {
                 ProviderNotInstalled,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
-                DriverCapabilityUnsupported,
+                ProviderCapabilityUnsupported,
             ],
         },
         /// Lists the paths a provider refuses.

@@ -206,7 +206,7 @@ pub struct SessionMcpServerList {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionMcpServerUpdateRequest {
+pub struct SessionMcpServerEnabledUpdateRequest {
     /// The session.
     pub session_id: SessionId,
     /// The server.
@@ -219,7 +219,7 @@ pub struct SessionMcpServerUpdateRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionMcpServerUpdateResponse {
+pub struct SessionMcpServerEnabledUpdateResponse {
     /// The session.
     pub session_id: SessionId,
     /// The server.
@@ -232,7 +232,7 @@ pub struct SessionMcpServerUpdateResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionMcpResourceListRequest {
+pub struct McpResourceListRequest {
     /// The session.
     pub session_id: SessionId,
     /// The server.
@@ -285,7 +285,7 @@ pub struct SessionMcpResource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionMcpResourceListResponse {
+pub struct McpResourceListResponse {
     /// The session.
     pub session_id: SessionId,
     /// The server.
@@ -384,7 +384,7 @@ pub enum SessionReviewTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionReviewStartRequest {
+pub struct SessionCodeReviewStartRequest {
     /// The session.
     pub session_id: SessionId,
     /// What the review covers.
@@ -482,7 +482,7 @@ pub struct TerminalProviderSession {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionTerminalProviderSessionListResponse {
+pub struct ProviderTerminalSessionListResponse {
     /// The sessions.
     pub sessions: Vec<TerminalProviderSession>,
 }
@@ -495,14 +495,14 @@ methods! {
             mutating: true,
             params: SessionPermissionLevelUpdateRequest,
             result: SessionPermissionLevelUpdateResponse,
-            refusals: [SessionNotFound, DriverUnavailable, SessionPermissionLevelUnavailable],
+            refusals: [SessionNotFound, ProviderUnavailable, SessionPermissionLevelNotOffered],
         },
         /// Sets the session's mode.
         SessionModeUpdate = mutation "session.mode.update" {
             mutating: true,
             params: SessionModeUpdateRequest,
             result: SessionModeUpdateResponse,
-            refusals: [SessionNotFound, DriverUnavailable],
+            refusals: [SessionNotFound, ProviderUnavailable],
         },
         /// Sets or clears the session's auto-compact bound.
         SessionAutoCompactUpdate = mutation "session.autoCompact.update" {
@@ -512,7 +512,7 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Streams the session's tool server list.
-        SessionMcpServerListSubscribe = subscription "session.mcpServer.subscribe" {
+        SessionMcpServerSubscribe = subscription "session.mcpServer.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SubscribeAckResponse,
@@ -520,43 +520,43 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Turns one tool server on or off for the session.
-        SessionMcpServerUpdate = mutation "session.mcpServer.enabled.update" {
+        SessionMcpServerEnabledUpdate = mutation "session.mcpServer.enabled.update" {
             mutating: true,
-            params: SessionMcpServerUpdateRequest,
-            result: SessionMcpServerUpdateResponse,
+            params: SessionMcpServerEnabledUpdateRequest,
+            result: SessionMcpServerEnabledUpdateResponse,
             refusals: [SessionNotFound],
         },
         /// Lists one working server's resources.
-        SessionMcpResourceList = query "mcp.resource.list" {
+        McpResourceList = query "mcp.resource.list" {
             mutating: false,
-            params: SessionMcpResourceListRequest,
-            result: SessionMcpResourceListResponse,
-            refusals: [SessionNotFound, McpServerUnavailable],
+            params: McpResourceListRequest,
+            result: McpResourceListResponse,
+            refusals: [SessionNotFound, McpServerNotRunning],
         },
         /// Streams the live `/` list's provider half.
-        SessionProviderCommandsSubscribe = subscription "session.providerCommand.subscribe" {
+        SessionProviderCommandSubscribe = subscription "session.providerCommand.subscribe" {
             mutating: false,
             params: SessionAddressedRequest,
             result: SubscribeAckResponse,
             emission: SessionProviderCommandList,
-            refusals: [SessionNotFound, DriverUnavailable, DriverCapabilityUnsupported],
+            refusals: [SessionNotFound, ProviderUnavailable, ProviderCapabilityUnsupported],
         },
         /// Asks a side question.
         SessionSideQuestionAsk = mutation "session.sideQuestion.ask" {
             mutating: true,
             params: SessionSideQuestionAskRequest,
             result: SessionSideQuestionAskResponse,
-            refusals: [SessionNotFound, DriverUnavailable],
+            refusals: [SessionNotFound, ProviderUnavailable],
         },
         /// Starts the provider's own review.
-        SessionReviewStart = mutation "session.codeReview.start" {
+        SessionCodeReviewStart = mutation "session.codeReview.start" {
             mutating: true,
-            params: SessionReviewStartRequest,
+            params: SessionCodeReviewStartRequest,
             result: SessionAcknowledgement,
-            refusals: [SessionNotFound, DriverUnavailable],
+            refusals: [SessionNotFound, ProviderUnavailable],
         },
         /// Reopens the conversation to take new definitions.
-        SessionDefinitionsReload = mutation "session.definition.reload" {
+        SessionDefinitionReload = mutation "session.definition.reload" {
             mutating: true,
             params: SessionAddressedRequest,
             result: SessionAcknowledgement,
@@ -584,10 +584,10 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// Lists the provider sessions typed in a terminal.
-        SessionTerminalProviderSessionList = query "provider.terminalSession.list" {
+        ProviderTerminalSessionList = query "provider.terminalSession.list" {
             mutating: false,
             params: EmptyPayload,
-            result: SessionTerminalProviderSessionListResponse,
+            result: ProviderTerminalSessionListResponse,
             refusals: [],
         },
     ];
@@ -611,11 +611,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionAutoCompactUpdateResponse>().checked(),
         Definition::read::<SessionMcpServer>(),
         Definition::read::<SessionMcpServerList>().checked(),
-        Definition::read::<SessionMcpServerUpdateRequest>().checked(),
-        Definition::read::<SessionMcpServerUpdateResponse>().checked(),
-        Definition::read::<SessionMcpResourceListRequest>().checked(),
+        Definition::read::<SessionMcpServerEnabledUpdateRequest>().checked(),
+        Definition::read::<SessionMcpServerEnabledUpdateResponse>().checked(),
+        Definition::read::<McpResourceListRequest>().checked(),
         Definition::read::<SessionMcpResource>(),
-        Definition::read::<SessionMcpResourceListResponse>().checked(),
+        Definition::read::<McpResourceListResponse>().checked(),
         Definition::read::<SessionServerPrompt>(),
         Definition::read::<SessionProviderCommandList>().checked(),
         Definition::read::<SideQuestionId>().checked(),
@@ -623,14 +623,14 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionSideQuestionAskRequest>().checked(),
         Definition::read::<SessionSideQuestionAskResponse>().checked(),
         Definition::read::<SessionReviewTarget>(),
-        Definition::read::<SessionReviewStartRequest>().checked(),
+        Definition::read::<SessionCodeReviewStartRequest>().checked(),
         Definition::read::<SessionMaxStepsUpdateRequest>().checked(),
         Definition::read::<SessionMaxStepsUpdateResponse>().checked(),
         Definition::read::<SessionSpendLimitUpdateRequest>().checked(),
         Definition::read::<SessionTokensPerRunUpdateRequest>().checked(),
         Definition::read::<TerminalProviderSessionState>(),
         Definition::read::<TerminalProviderSession>(),
-        Definition::read::<SessionTerminalProviderSessionListResponse>().checked(),
+        Definition::read::<ProviderTerminalSessionListResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[&SESSION_CONTROL_METHOD_DESCRIPTORS],

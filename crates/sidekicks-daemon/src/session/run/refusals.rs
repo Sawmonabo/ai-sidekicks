@@ -104,7 +104,7 @@ impl From<RunRefusal> for DomainError {
         match refusal {
             RunRefusal::NotFound { run_id } => DomainError::new(
                 message,
-                RefusalCode::RunNotFound,
+                RefusalCode::AgentRunNotFound,
                 DomainErrorJsonRpcCode::InvalidParams,
             )
             .with_detail(json!({ "runId": run_id })),
@@ -114,7 +114,7 @@ impl From<RunRefusal> for DomainError {
                 run_version,
             } => DomainError::new(
                 message,
-                RefusalCode::RunVersionStale,
+                RefusalCode::AgentRunVersionStale,
                 DomainErrorJsonRpcCode::InvalidRequest,
             )
             .with_detail(json!({
@@ -141,7 +141,7 @@ impl From<RunRefusal> for DomainError {
             } => transition_refusal(message, &run_id, from_state, to_state),
             RunRefusal::SessionTurnHeld { session_id } => DomainError::new(
                 message,
-                RefusalCode::DriverUnavailable,
+                RefusalCode::ProviderUnavailable,
                 DomainErrorJsonRpcCode::InternalError,
             )
             .with_detail(json!({
@@ -162,7 +162,7 @@ fn transition_refusal(
 ) -> DomainError {
     DomainError::new(
         message,
-        RefusalCode::RunInvalidTransition,
+        RefusalCode::AgentRunInvalidTransition,
         DomainErrorJsonRpcCode::InvalidRequest,
     )
     .with_detail(json!({

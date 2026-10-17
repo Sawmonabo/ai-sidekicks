@@ -117,17 +117,19 @@ impl NormalizedEventKind {
         use EventKindDisposition::{Adopt, Correlate, Discard};
         match self {
             // The daemon's own run state changes are never mapped from a provider's init.
-            Self::Init => Adopt(SessionEventType::RunProviderInitialized),
-            Self::TextDelta | Self::ProposedPlan => Adopt(SessionEventType::AssistantMessage),
-            Self::ToolStart | Self::TerminalInteraction => Adopt(SessionEventType::ToolInvoked),
+            Self::Init => Adopt(SessionEventType::AgentRunProviderInitialized),
+            Self::TextDelta | Self::ProposedPlan => Adopt(SessionEventType::AgentMessageSent),
+            Self::ToolStart | Self::TerminalInteraction => {
+                Adopt(SessionEventType::AgentToolCallInvoked)
+            }
             // A tool's completion fans to `agent.toolCall.failed` when the tool failed.
             Self::ToolComplete
             | Self::BackgroundTaskNotification
             | Self::CommandExit
             | Self::Diff
-            | Self::CommandOutput => Adopt(SessionEventType::ToolResult),
-            Self::TurnStart => Adopt(SessionEventType::RunTurnStarted),
-            Self::TurnComplete => Adopt(SessionEventType::RunCompleted),
+            | Self::CommandOutput => Adopt(SessionEventType::AgentToolCallCompleted),
+            Self::TurnStart => Adopt(SessionEventType::AgentTurnStarted),
+            Self::TurnComplete => Adopt(SessionEventType::AgentRunCompleted),
             // Recorded once as the approval it opens; an ask the daemon answers itself appends
             // nothing, since the tool row is the record.
             Self::ApprovalRequest => Adopt(SessionEventType::ApprovalRequested),
@@ -138,35 +140,35 @@ impl NormalizedEventKind {
             // answered the question; its delivery to the provider is kept in the service log only.
             Self::UserInputResolved => Discard,
             // Its answer is appended by the daemon when it answers and is no kind.
-            Self::RefusalChoiceRequest => Adopt(SessionEventType::RunRefusalChoiceRequested),
+            Self::RefusalChoiceRequest => Adopt(SessionEventType::AgentRunRefusalChoiceRequested),
             Self::UsageCreditsChoiceRequest => {
-                Adopt(SessionEventType::RunUsageCreditsChoiceRequested)
+                Adopt(SessionEventType::AgentRunUsageCreditsChoiceRequested)
             }
             // It never drives a session state change, so none is made up from it.
-            Self::SessionStatus => Adopt(SessionEventType::SessionProviderStatus),
-            Self::TokenUsage => Adopt(SessionEventType::UsageTokenCount),
-            Self::Error => Adopt(SessionEventType::RunFailed),
+            Self::SessionStatus => Adopt(SessionEventType::SessionProviderStatusReported),
+            Self::TokenUsage => Adopt(SessionEventType::UsageTokenCountRecorded),
+            Self::Error => Adopt(SessionEventType::AgentRunFailed),
             // Each feeds the turn's live task list, served while the turn runs; never stored and
             // never a tool row, because the task list is never a row in the transcript.
             Self::TodoUpdate | Self::TaskCreate | Self::TaskUpdate => Discard,
-            Self::Notification => Adopt(SessionEventType::SessionNotice),
-            Self::ApiRetry => Adopt(SessionEventType::UsageApiRetry),
+            Self::Notification => Adopt(SessionEventType::SessionNoticePosted),
+            Self::ApiRetry => Adopt(SessionEventType::UsageApiRequestRetried),
             // The provider's compaction, apart from the daemon's own event compaction.
-            Self::CompactBoundary => Adopt(SessionEventType::UsageContextCompacted),
-            Self::RateLimits => Adopt(SessionEventType::UsageRateLimitUpdate),
-            Self::ModelRerouted => Adopt(SessionEventType::UsageModelRerouted),
+            Self::CompactBoundary => Adopt(SessionEventType::AgentRunContextCompacted),
+            Self::RateLimits => Adopt(SessionEventType::UsageRateLimitUpdated),
+            Self::ModelRerouted => Adopt(SessionEventType::AgentTurnRerouted),
             Self::ThreadRenamed => Adopt(SessionEventType::SessionRenamed),
             // Streaming boundaries around a text piece, which carries the content that lasts.
             Self::ContentBlockStart | Self::ContentBlockStop => Discard,
             // A background task's ending never replaces its tool's own completion row.
             Self::BackgroundTaskTerminal | Self::SubagentNotification => {
-                Adopt(SessionEventType::SubagentCompleted)
+                Adopt(SessionEventType::AgentSubagentCompleted)
             }
             // Fans to `agent.subagent.completed`.
-            Self::SubagentStatus => Adopt(SessionEventType::SubagentStarted),
+            Self::SubagentStatus => Adopt(SessionEventType::AgentSubagentStarted),
             // An echo confirms delivery and folds into that message's `user.message.sent` row.
             Self::UserText => Correlate,
-            Self::Thinking => Adopt(SessionEventType::AssistantThinkingUpdate),
+            Self::Thinking => Adopt(SessionEventType::AgentThinkingUpdated),
         }
     }
 }

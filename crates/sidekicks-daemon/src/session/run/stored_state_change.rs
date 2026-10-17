@@ -5,9 +5,10 @@ use serde_json::Value;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
 use sidekicks_contracts::run::events::{
-    RunCompletedPayload, RunFailedPayload, RunInterruptedPayload, RunPausedPayload,
-    RunPausingPayload, RunRunningPayload, RunStartingPayload, RunStateChangeState,
-    RunStoppedPayload, RunWaitingForApprovalPayload, RunWaitingForInputPayload,
+    AgentRunCompletedPayload, AgentRunFailedPayload, AgentRunInterruptedPayload,
+    AgentRunPausedPayload, AgentRunPausingPayload, AgentRunRunningPayload, AgentRunStartingPayload,
+    AgentRunStoppedPayload, AgentRunWaitingForApprovalPayload, AgentRunWaitingForInputPayload,
+    RunStateChangeState,
 };
 use sidekicks_contracts::run::id::RunId;
 
@@ -15,25 +16,25 @@ use sidekicks_contracts::run::id::RunId;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum StoredRunStateChange {
     /// `agent.run.starting`.
-    Starting(RunStartingPayload),
+    Starting(AgentRunStartingPayload),
     /// `agent.run.running`.
-    Running(RunRunningPayload),
+    Running(AgentRunRunningPayload),
     /// `agent.run.waitingForApproval`.
-    WaitingForApproval(RunWaitingForApprovalPayload),
+    WaitingForApproval(AgentRunWaitingForApprovalPayload),
     /// `agent.run.waitingForInput`.
-    WaitingForInput(RunWaitingForInputPayload),
+    WaitingForInput(AgentRunWaitingForInputPayload),
     /// `agent.run.pausing`.
-    Pausing(RunPausingPayload),
+    Pausing(AgentRunPausingPayload),
     /// `agent.run.paused`.
-    Paused(RunPausedPayload),
+    Paused(AgentRunPausedPayload),
     /// `agent.run.completed`.
-    Completed(RunCompletedPayload),
+    Completed(AgentRunCompletedPayload),
     /// `agent.run.interrupted`.
-    Interrupted(RunInterruptedPayload),
+    Interrupted(AgentRunInterruptedPayload),
     /// `agent.run.stopped`.
-    Stopped(RunStoppedPayload),
+    Stopped(AgentRunStoppedPayload),
     /// `agent.run.failed`.
-    Failed(RunFailedPayload),
+    Failed(AgentRunFailedPayload),
 }
 
 impl StoredRunStateChange {
@@ -84,76 +85,78 @@ pub(crate) fn read_stored_run_state_change(
         return Ok(None);
     }
     Ok(match SessionEvent::from_envelope(event)? {
-        SessionEvent::RunStarting(payload) => Some(StoredRunStateChange::Starting(payload)),
-        SessionEvent::RunRunning(payload) => Some(StoredRunStateChange::Running(payload)),
-        SessionEvent::RunWaitingForApproval(payload) => {
+        SessionEvent::AgentRunStarting(payload) => Some(StoredRunStateChange::Starting(payload)),
+        SessionEvent::AgentRunRunning(payload) => Some(StoredRunStateChange::Running(payload)),
+        SessionEvent::AgentRunWaitingForApproval(payload) => {
             Some(StoredRunStateChange::WaitingForApproval(payload))
         }
-        SessionEvent::RunWaitingForInput(payload) => {
+        SessionEvent::AgentRunWaitingForInput(payload) => {
             Some(StoredRunStateChange::WaitingForInput(payload))
         }
-        SessionEvent::RunPausing(payload) => Some(StoredRunStateChange::Pausing(payload)),
-        SessionEvent::RunPaused(payload) => Some(StoredRunStateChange::Paused(payload)),
-        SessionEvent::RunCompleted(payload) => Some(StoredRunStateChange::Completed(payload)),
-        SessionEvent::RunInterrupted(payload) => Some(StoredRunStateChange::Interrupted(payload)),
-        SessionEvent::RunStopped(payload) => Some(StoredRunStateChange::Stopped(payload)),
-        SessionEvent::RunFailed(payload) => Some(StoredRunStateChange::Failed(payload)),
+        SessionEvent::AgentRunPausing(payload) => Some(StoredRunStateChange::Pausing(payload)),
+        SessionEvent::AgentRunPaused(payload) => Some(StoredRunStateChange::Paused(payload)),
+        SessionEvent::AgentRunCompleted(payload) => Some(StoredRunStateChange::Completed(payload)),
+        SessionEvent::AgentRunInterrupted(payload) => {
+            Some(StoredRunStateChange::Interrupted(payload))
+        }
+        SessionEvent::AgentRunStopped(payload) => Some(StoredRunStateChange::Stopped(payload)),
+        SessionEvent::AgentRunFailed(payload) => Some(StoredRunStateChange::Failed(payload)),
         // A state change's type reads as its own variant, so no other arm is reached.
         SessionEvent::SessionCreated(_)
         | SessionEvent::WorkspacePreparing(_)
-        | SessionEvent::WorkspaceReady(_)
+        | SessionEvent::WorkspacePrepared(_)
         | SessionEvent::WorkspaceRootLost(_)
         | SessionEvent::WorkspaceArchived(_)
         | SessionEvent::WorktreeCreated(_)
-        | SessionEvent::WorktreeReady(_)
-        | SessionEvent::WorktreeDirty(_)
+        | SessionEvent::WorktreeBound(_)
+        | SessionEvent::WorktreeDirtied(_)
         | SessionEvent::WorktreeMerged(_)
         | SessionEvent::WorktreeRetired(_)
-        | SessionEvent::EventCompacted(_)
-        | SessionEvent::AssistantMessage(_)
-        | SessionEvent::AssistantThinkingUpdate(_)
-        | SessionEvent::ToolInvoked(_)
-        | SessionEvent::ToolResult(_)
-        | SessionEvent::ToolError(_)
-        | SessionEvent::SubagentStarted(_)
-        | SessionEvent::SubagentCompleted(_)
-        | SessionEvent::RunProviderInitialized(_)
-        | SessionEvent::RunTurnStarted(_)
-        | SessionEvent::RunWorkerShutdown(_)
-        | SessionEvent::RunRolledBack(_)
-        | SessionEvent::SessionProviderStatus(_)
+        | SessionEvent::SessionEventCompacted(_)
+        | SessionEvent::AgentMessageSent(_)
+        | SessionEvent::AgentThinkingUpdated(_)
+        | SessionEvent::AgentToolCallInvoked(_)
+        | SessionEvent::AgentToolCallCompleted(_)
+        | SessionEvent::AgentToolCallFailed(_)
+        | SessionEvent::AgentSubagentStarted(_)
+        | SessionEvent::AgentSubagentCompleted(_)
+        | SessionEvent::AgentRunProviderInitialized(_)
+        | SessionEvent::AgentTurnStarted(_)
+        | SessionEvent::AgentRunWorkerShuttingDown(_)
+        | SessionEvent::AgentRunRolledBack(_)
+        | SessionEvent::SessionProviderStatusReported(_)
         | SessionEvent::ApprovalRejected(_)
         | SessionEvent::ApprovalCanceled(_)
-        | SessionEvent::ApprovalRemembered(_)
+        | SessionEvent::ApprovalRuleRemembered(_)
         | SessionEvent::ApprovalRuleRevoked(_)
-        | SessionEvent::ModerationReviewFlagged(_)
+        | SessionEvent::ApprovalReviewerFlagged(_)
         | SessionEvent::PlanProposed(_)
         | SessionEvent::PlanAccepted(_)
         | SessionEvent::PlanHandedOff(_)
         | SessionEvent::QuestionAsked(_)
-        | SessionEvent::UserMessage(_)
-        | SessionEvent::QueueItemCreated(_)
-        | SessionEvent::QueueItemAdmitted(_)
-        | SessionEvent::QueueItemSuperseded(_)
-        | SessionEvent::QueueItemCanceled(_)
-        | SessionEvent::QueueItemNotDelivered(_)
-        | SessionEvent::McpServerOauthCompleted(_)
+        | SessionEvent::UserMessageSent(_)
+        | SessionEvent::AgentQueueItemCreated(_)
+        | SessionEvent::AgentQueueItemAdmitted(_)
+        | SessionEvent::AgentQueueItemSuperseded(_)
+        | SessionEvent::AgentQueueItemCanceled(_)
+        | SessionEvent::AgentQueueItemNotDelivered(_)
+        | SessionEvent::McpServerSignInCompleted(_)
         | SessionEvent::CloudTaskUpdated(_)
-        | SessionEvent::SessionRestoreFinished(_)
+        | SessionEvent::SessionRestoreCompleted(_)
         | SessionEvent::SessionGoalCleared(_)
-        | SessionEvent::SessionNotice(_)
+        | SessionEvent::SessionNoticePosted(_)
         | SessionEvent::SessionSideQuestionAnswered(_)
         | SessionEvent::SessionSpendLimitReached(_)
         | SessionEvent::GitSettled(_)
         | SessionEvent::RelayPinRefused(_)
-        | SessionEvent::CommandEnded(_)
-        | SessionEvent::UsageTokenCount(_)
-        | SessionEvent::UsageCostUpdate(_)
-        | SessionEvent::UsageContextWindowUpdate(_)
-        | SessionEvent::UsageRateLimitUpdate(_)
-        | SessionEvent::UsageApiRetry(_)
-        | SessionEvent::UsageContextCompacted(_)
-        | SessionEvent::UsageModelRerouted(_)
+        | SessionEvent::AgentCommandEnded(_)
+        | SessionEvent::UsageTokenCountRecorded(_)
+        | SessionEvent::UsageCostUpdated(_)
+        | SessionEvent::UsageContextWindowUpdated(_)
+        | SessionEvent::UsageRateLimitUpdated(_)
+        | SessionEvent::UsageApiRequestRetried(_)
+        | SessionEvent::AgentRunContextCompacted(_)
+        | SessionEvent::AgentTurnRerouted(_)
         | SessionEvent::SessionActivated(_)
         | SessionEvent::SessionArchived(_)
         | SessionEvent::SessionReactivated(_)
@@ -164,49 +167,49 @@ pub(crate) fn read_stored_run_state_change(
         | SessionEvent::SessionUnmuted(_)
         | SessionEvent::SessionConverted(_)
         | SessionEvent::SessionBranchChanged(_)
-        | SessionEvent::SessionSweptToRepoRoot(_)
+        | SessionEvent::SessionSweptToCheckout(_)
         | SessionEvent::AgentProviderBindingChanged(_)
         | SessionEvent::AgentProviderBindingChangeFailed(_)
         | SessionEvent::ApprovalRequested(_)
         | SessionEvent::ApprovalApproved(_)
         | SessionEvent::ApprovalReviewerDenied(_)
         | SessionEvent::ApprovalDenialOverridden(_)
-        | SessionEvent::RunQueued(_)
-        | SessionEvent::RunStepLimitReached(_)
-        | SessionEvent::RunTokenLimitReached(_)
-        | SessionEvent::RunRecoveryResolved(_)
-        | SessionEvent::RunRecoveryStepsAdded(_)
+        | SessionEvent::AgentRunQueued(_)
+        | SessionEvent::AgentRunStepLimitReached(_)
+        | SessionEvent::AgentRunTokenLimitReached(_)
+        | SessionEvent::AgentRunRecoveryResolved(_)
+        | SessionEvent::AgentRunRecoveryStepsAdded(_)
         | SessionEvent::SessionAdvisorChanged(_)
         | SessionEvent::SessionOutputStyleChanged(_)
         | SessionEvent::RepoMountHealthChanged(_)
-        | SessionEvent::OrchestrationRejected(_)
+        | SessionEvent::AgentRunRejected(_)
         | SessionEvent::ArtifactPublished(_)
         | SessionEvent::ArtifactSuperseded(_)
-        | SessionEvent::RunRefusalChoiceRequested(_)
-        | SessionEvent::RunRefusalChoiceResolved(_)
-        | SessionEvent::RunUsageCreditsChoiceRequested(_)
-        | SessionEvent::RunUsageCreditsChoiceResolved(_)
+        | SessionEvent::AgentRunRefusalChoiceRequested(_)
+        | SessionEvent::AgentRunRefusalChoiceResolved(_)
+        | SessionEvent::AgentRunUsageCreditsChoiceRequested(_)
+        | SessionEvent::AgentRunUsageCreditsChoiceResolved(_)
         | SessionEvent::SessionGoalUpdated(_)
         | SessionEvent::SessionRenamed(_)
-        | SessionEvent::PtyControlChanged(_)
-        | SessionEvent::WorkflowStarted(_)
-        | SessionEvent::WorkflowResumed(_)
-        | SessionEvent::WorkflowCanceled(_)
+        | SessionEvent::TerminalControlChanged(_)
+        | SessionEvent::WorkflowRunStarted(_)
+        | SessionEvent::WorkflowRunResumed(_)
+        | SessionEvent::WorkflowRunCanceled(_)
         | SessionEvent::WorkflowRunDeleted(_)
         | SessionEvent::WorkflowResultsPosted(_)
         | SessionEvent::WorkflowPhaseSuspended(_)
         | SessionEvent::WorkflowPhaseFailed(_)
         | SessionEvent::WorkflowPhaseWaitingOnPool(_)
         | SessionEvent::WorkflowStepStarted(_)
-        | SessionEvent::WorkflowStepFinished(_)
+        | SessionEvent::WorkflowStepCompleted(_)
         | SessionEvent::WorkflowStepFailed(_)
         | SessionEvent::WorkflowStepCanceled(_)
         | SessionEvent::WorkflowStepSkipped(_)
         | SessionEvent::WorkflowGateResolved(_)
-        | SessionEvent::WorkflowCreated(_)
-        | SessionEvent::WorkflowGated(_)
-        | SessionEvent::WorkflowFailed(_)
-        | SessionEvent::WorkflowCompleted(_)
+        | SessionEvent::WorkflowVersionCreated(_)
+        | SessionEvent::WorkflowGateReached(_)
+        | SessionEvent::WorkflowRunFailed(_)
+        | SessionEvent::WorkflowRunCompleted(_)
         | SessionEvent::WorkflowRunWaiting(_)
         | SessionEvent::WorkflowScheduleArmed(_)
         | SessionEvent::WorkflowScheduleFired(_)
@@ -219,20 +222,20 @@ pub(crate) fn read_stored_run_state_change(
         | SessionEvent::WorkflowPhaseRetried(_)
         | SessionEvent::WorkflowPhaseResumed(_)
         | SessionEvent::WorkflowPhaseCompleted(_)
-        | SessionEvent::WorkflowParallelJoinCancellation(_)
-        | SessionEvent::BackupCompleted(_)
-        | SessionEvent::BackupFailed(_)
-        | SessionEvent::BackupRestored(_)
-        | SessionEvent::RecoveryAttempted(_)
-        | SessionEvent::RecoverySucceeded(_)
-        | SessionEvent::RecoveryFailed(_)
-        | SessionEvent::RecoveryDamagedEventsSkipped(_)
-        | SessionEvent::InterventionRequested(_)
-        | SessionEvent::InterventionAccepted(_)
-        | SessionEvent::InterventionApplied(_)
-        | SessionEvent::InterventionRejected(_)
-        | SessionEvent::InterventionDegraded(_)
-        | SessionEvent::InterventionExpired(_)
-        | SessionEvent::InterventionFailed(_) => None,
+        | SessionEvent::WorkflowParallelJoinBranchesCanceled(_)
+        | SessionEvent::DaemonBackupCompleted(_)
+        | SessionEvent::DaemonBackupFailed(_)
+        | SessionEvent::DaemonBackupRestored(_)
+        | SessionEvent::DaemonRecoveryAttempted(_)
+        | SessionEvent::DaemonRecoverySucceeded(_)
+        | SessionEvent::DaemonRecoveryFailed(_)
+        | SessionEvent::SessionDamagedEventsSkipped(_)
+        | SessionEvent::AgentInterventionRequested(_)
+        | SessionEvent::AgentInterventionAccepted(_)
+        | SessionEvent::AgentInterventionApplied(_)
+        | SessionEvent::AgentInterventionRejected(_)
+        | SessionEvent::AgentInterventionDegraded(_)
+        | SessionEvent::AgentInterventionExpired(_)
+        | SessionEvent::AgentInterventionFailed(_) => None,
     })
 }

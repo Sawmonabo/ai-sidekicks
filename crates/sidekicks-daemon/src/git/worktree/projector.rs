@@ -8,7 +8,7 @@
 //! order it receives and never sorts.
 
 use sidekicks_contracts::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
-use sidekicks_contracts::gitflow::shared::GitRefName;
+use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;

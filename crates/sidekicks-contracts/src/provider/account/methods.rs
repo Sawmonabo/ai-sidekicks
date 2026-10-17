@@ -18,10 +18,10 @@ use crate::provider::account::record::{
     ProviderAccountMemoryImportOutcome, ProviderAccountNotification,
 };
 use crate::provider::account::sign_in::{
-    ProviderAccountLoginCancelRequest, ProviderAccountLoginCancelResponse,
-    ProviderAccountLoginRequest, ProviderAccountLoginResponse, ProviderAccountRegisterRequest,
-    ProviderAccountRegisterResponse, ProviderAccountResetCredentialHomeRequest,
-    ProviderAccountResetCredentialHomeResponse,
+    ProviderAccountCredentialHomeResetRequest, ProviderAccountCredentialHomeResetResponse,
+    ProviderAccountRegisterRequest, ProviderAccountRegisterResponse,
+    ProviderAccountSignInAttemptCancelRequest, ProviderAccountSignInAttemptCancelResponse,
+    ProviderAccountSignInRequest, ProviderAccountSignInResponse,
 };
 use crate::provider::id::ProviderId;
 use crate::session::cost::UsdMicros;
@@ -41,17 +41,17 @@ ts_constants! {
     pub const PROVIDER_WAKE_HELPER_REASON_MAX_LEN: usize = 1024;
     /// The update renamed an account the person did not name: only an account added from a
     /// pasted token or API key carries a typed name.
-    PROVIDER_ACCOUNT_RENAME_REFUSED_CODE = RefusalCode::ProvideraccountRenameRefused;
+    PROVIDER_ACCOUNT_RENAME_REFUSED_CODE = RefusalCode::ProviderAccountRenameRefused;
     /// No account is registered for the provider a run needs, so the run is not admitted.
-    PROVIDER_ACCOUNT_NOT_REGISTERED_CODE = RefusalCode::ProvideraccountNotRegistered;
+    PROVIDER_ACCOUNT_NOT_REGISTERED_CODE = RefusalCode::ProviderAccountNotRegistered;
     /// The provider has accounts but none is current, so a run's account is ambiguous and it is
     /// not admitted.
-    PROVIDER_ACCOUNT_NO_DEFAULT_CODE = RefusalCode::ProvideraccountNoDefault;
+    PROVIDER_ACCOUNT_NO_DEFAULT_CODE = RefusalCode::ProviderAccountCurrentNotSet;
     /// A run bound to the account is live, so it is not removed; the refusal names the sessions.
-    PROVIDER_ACCOUNT_IN_USE_CODE = RefusalCode::ProvideraccountAccountInUse;
+    PROVIDER_ACCOUNT_IN_USE_CODE = RefusalCode::ProviderAccountInUse;
     /// The named account is not signed in, so it is refused as a switch target before anything
     /// moves.
-    PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = RefusalCode::ProvideraccountNotAuthenticated;
+    PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = RefusalCode::ProviderAccountNotAuthenticated;
 }
 
 /// Edits an account's descriptive settings; an omitted member is unchanged. The provider, the
@@ -147,7 +147,7 @@ pub struct ProviderAccountUpdateResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountRemoveRequest {
+pub struct ProviderAccountDeleteRequest {
     /// The account.
     pub account_id: ProviderAccountId,
 }
@@ -156,7 +156,7 @@ pub struct ProviderAccountRemoveRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountRemoveResponse {
+pub struct ProviderAccountDeleteResponse {
     /// The account.
     pub account_id: ProviderAccountId,
     /// Always `true`: removal has no partial success, and every refusal is a typed error.
@@ -177,7 +177,7 @@ pub struct ProviderAccountInUseDetails {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountSetCurrentRequest {
+pub struct ProviderAccountCurrentUpdateRequest {
     /// The account.
     pub account_id: ProviderAccountId,
 }
@@ -198,7 +198,7 @@ pub struct ProviderAccountMovingSession {
     "type": "object",
     "properties": { "isDefault": { "const": true } },
 } } }]))]
-pub struct ProviderAccountSetCurrentResponse {
+pub struct ProviderAccountCurrentUpdateResponse {
     /// The account now current, so it carries the default mark.
     #[garde(dive, custom(|account: &ProviderAccount, (): &()| {
         if account.is_default() {
@@ -296,7 +296,7 @@ pub enum ProviderAccountUsageGrouping {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountUsageReadRequest {
+pub struct ProviderAccountUsageListRequest {
     /// The accounts read.
     pub scope: ProviderAccountUsageScope,
     /// The inclusive start; absent reads from the first recorded turn.
@@ -359,7 +359,7 @@ pub struct ProviderAccountUsageRow {
 /// The usage rows for the requested range and grouping.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderAccountUsageReadResponse {
+pub struct ProviderAccountUsageListResponse {
     /// The rows.
     #[garde(dive)]
     pub rows: Vec<ProviderAccountUsageRow>,
@@ -373,7 +373,7 @@ methods! {
             mutating: false,
             params: ProviderAccountListRequest,
             result: ProviderAccountListResponse,
-            refusals: [ProvideraccountUnknown],
+            refusals: [ProviderAccountNotFound],
         },
         /// Streams every change to the account registry.
         ProviderAccountSubscribe = subscription "provider.account.subscribe" {
@@ -389,13 +389,13 @@ methods! {
             params: ProviderAccountRegisterRequest,
             result: ProviderAccountRegisterResponse,
             refusals: [
-                ProvideraccountPermissionDenied,
-                ProvideraccountUnknown,
-                ProvideraccountCredentialSealRefused,
-                ProvideraccountTokenNotAccepted,
-                ProvideraccountDisplayLabelTaken,
-                ProvideraccountDefaultConflict,
-                ProvideraccountCredentialHomeUnavailable,
+                ProviderAccountPermissionDenied,
+                ProviderAccountNotFound,
+                ProviderAccountCredentialSealRefused,
+                ProviderAccountTokenNotAccepted,
+                ProviderAccountDisplayLabelTaken,
+                ProviderAccountCurrentConflict,
+                ProviderAccountCredentialHomeUnavailable,
             ],
         },
         /// Edits an account's descriptive settings.
@@ -404,34 +404,34 @@ methods! {
             params: ProviderAccountUpdateRequest,
             result: ProviderAccountUpdateResponse,
             refusals: [
-                ProvideraccountPermissionDenied,
-                ProvideraccountUnknown,
-                ProvideraccountRenameRefused,
-                ProvideraccountDisplayLabelTaken,
+                ProviderAccountPermissionDenied,
+                ProviderAccountNotFound,
+                ProviderAccountRenameRefused,
+                ProviderAccountDisplayLabelTaken,
             ],
         },
         /// Removes an account.
-        ProviderAccountRemove = mutation "provider.account.delete" {
+        ProviderAccountDelete = mutation "provider.account.delete" {
             mutating: true,
-            params: ProviderAccountRemoveRequest,
-            result: ProviderAccountRemoveResponse,
+            params: ProviderAccountDeleteRequest,
+            result: ProviderAccountDeleteResponse,
             refusals: [
-                ProvideraccountPermissionDenied,
-                ProvideraccountUnknown,
-                ProvideraccountAccountInUse,
+                ProviderAccountPermissionDenied,
+                ProviderAccountNotFound,
+                ProviderAccountInUse,
             ],
         },
         /// Makes an account its provider's current one.
-        ProviderAccountSetCurrent = mutation "provider.account.current.update" {
+        ProviderAccountCurrentUpdate = mutation "provider.account.current.update" {
             mutating: true,
-            params: ProviderAccountSetCurrentRequest,
-            result: ProviderAccountSetCurrentResponse,
+            params: ProviderAccountCurrentUpdateRequest,
+            result: ProviderAccountCurrentUpdateResponse,
             refusals: [
-                ProvideraccountPermissionDenied,
-                ProvideraccountUnknown,
-                ProvideraccountNotAuthenticated,
-                ProvideraccountDefaultConflict,
-                ProvideraccountCredentialHomeUnavailable,
+                ProviderAccountPermissionDenied,
+                ProviderAccountNotFound,
+                ProviderAccountNotAuthenticated,
+                ProviderAccountCurrentConflict,
+                ProviderAccountCredentialHomeUnavailable,
             ],
         },
         /// Checks an account's health now.
@@ -440,41 +440,41 @@ methods! {
             params: ProviderAccountProbeRequest,
             result: ProviderAccountProbeResponse,
             refusals: [
-                ProvideraccountPermissionDenied,
-                ProvideraccountUnknown,
-                ProvideraccountCredentialHomeUnavailable,
+                ProviderAccountPermissionDenied,
+                ProviderAccountNotFound,
+                ProviderAccountCredentialHomeUnavailable,
             ],
         },
         /// Rebuilds an account's credential home from empty.
-        ProviderAccountResetCredentialHome = mutation "provider.account.credentialHome.reset" {
+        ProviderAccountCredentialHomeReset = mutation "provider.account.credentialHome.reset" {
             mutating: true,
-            params: ProviderAccountResetCredentialHomeRequest,
-            result: ProviderAccountResetCredentialHomeResponse,
+            params: ProviderAccountCredentialHomeResetRequest,
+            result: ProviderAccountCredentialHomeResetResponse,
             refusals: [
-                ProvideraccountPermissionDenied,
-                ProvideraccountUnknown,
-                ProvideraccountCredentialHomeUnavailable,
+                ProviderAccountPermissionDenied,
+                ProviderAccountNotFound,
+                ProviderAccountCredentialHomeUnavailable,
             ],
         },
         /// Starts the provider's own interactive sign-in.
-        ProviderAccountLogin = mutation "provider.account.signIn" {
+        ProviderAccountSignIn = mutation "provider.account.signIn" {
             mutating: true,
-            params: ProviderAccountLoginRequest,
-            result: ProviderAccountLoginResponse,
+            params: ProviderAccountSignInRequest,
+            result: ProviderAccountSignInResponse,
             refusals: [
-                ProvideraccountPermissionDenied,
-                ProvideraccountUnknown,
-                ProvideraccountSigninInFlight,
-                ProvideraccountSigninUnsupported,
-                ProvideraccountCredentialHomeUnavailable,
+                ProviderAccountPermissionDenied,
+                ProviderAccountNotFound,
+                ProviderAccountSignInInFlight,
+                ProviderAccountSignInUnsupported,
+                ProviderAccountCredentialHomeUnavailable,
             ],
         },
         /// Cancels a sign-in attempt.
-        ProviderAccountLoginCancel = mutation "provider.account.signInAttempt.cancel" {
+        ProviderAccountSignInAttemptCancel = mutation "provider.account.signInAttempt.cancel" {
             mutating: true,
-            params: ProviderAccountLoginCancelRequest,
-            result: ProviderAccountLoginCancelResponse,
-            refusals: [ProvideraccountPermissionDenied],
+            params: ProviderAccountSignInAttemptCancelRequest,
+            result: ProviderAccountSignInAttemptCancelResponse,
+            refusals: [ProviderAccountPermissionDenied],
         },
         /// Copies the person's provider memory into the account's home, once.
         ProviderAccountMemoryImport = mutation "provider.account.memory.import" {
@@ -482,17 +482,17 @@ methods! {
             params: ProviderAccountMemoryImportRequest,
             result: ProviderAccountMemoryImportOutcome,
             refusals: [
-                ProvideraccountPermissionDenied,
-                ProvideraccountUnknown,
-                ProvideraccountCredentialHomeUnavailable,
+                ProviderAccountPermissionDenied,
+                ProviderAccountNotFound,
+                ProviderAccountCredentialHomeUnavailable,
             ],
         },
         /// Reads tokens and spend per account.
-        ProviderAccountUsageRead = query "provider.account.usage.list" {
+        ProviderAccountUsageList = query "provider.account.usage.list" {
             mutating: false,
-            params: ProviderAccountUsageReadRequest,
-            result: ProviderAccountUsageReadResponse,
-            refusals: [ProvideraccountUnknown],
+            params: ProviderAccountUsageListRequest,
+            result: ProviderAccountUsageListResponse,
+            refusals: [ProviderAccountNotFound],
         },
     ];
 }
@@ -506,21 +506,21 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderAccountUpdateRequest>(),
         Definition::read::<ProviderWakeHelperState>(),
         Definition::read::<ProviderAccountUpdateResponse>(),
-        Definition::read::<ProviderAccountRemoveRequest>(),
-        Definition::read::<ProviderAccountRemoveResponse>(),
+        Definition::read::<ProviderAccountDeleteRequest>(),
+        Definition::read::<ProviderAccountDeleteResponse>(),
         Definition::read::<ProviderAccountInUseDetails>().checked(),
-        Definition::read::<ProviderAccountSetCurrentRequest>(),
+        Definition::read::<ProviderAccountCurrentUpdateRequest>(),
         Definition::read::<ProviderAccountMovingSession>(),
-        Definition::read::<ProviderAccountSetCurrentResponse>(),
+        Definition::read::<ProviderAccountCurrentUpdateResponse>(),
         Definition::read::<ProviderAccountNotAuthenticatedDetails>().checked(),
         Definition::read::<ProviderAccountProbeRequest>(),
         Definition::read::<ProviderAccountProbeResponse>(),
         Definition::read::<ProviderAccountMemoryImportRequest>(),
         Definition::read::<ProviderAccountUsageScope>(),
         Definition::read::<ProviderAccountUsageGrouping>(),
-        Definition::read::<ProviderAccountUsageReadRequest>(),
+        Definition::read::<ProviderAccountUsageListRequest>(),
         Definition::read::<ProviderAccountUsageRow>(),
-        Definition::read::<ProviderAccountUsageReadResponse>(),
+        Definition::read::<ProviderAccountUsageListResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&PROVIDER_ACCOUNT_METHOD_DESCRIPTORS],

@@ -79,7 +79,7 @@ pub struct OrchestrationBudgetState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct OrchestrationBudgetReadRequest {
+pub struct SessionBudgetReadRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -163,7 +163,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<TokensPerRun>().checked(),
         Definition::read::<AgentSpend>().checked(),
         Definition::read::<OrchestrationBudgetState>().checked(),
-        Definition::read::<OrchestrationBudgetReadRequest>(),
+        Definition::read::<SessionBudgetReadRequest>(),
         Definition::read::<SessionCostReceiptRequest>(),
         Definition::read::<SessionCostReceiptAccountRow>(),
         Definition::read::<SessionCostReceiptVoiceRow>(),

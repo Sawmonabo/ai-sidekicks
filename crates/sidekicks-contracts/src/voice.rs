@@ -365,7 +365,7 @@ methods! {
             mutating: true,
             params: VoiceDictationStartRequest,
             result: EmptyPayload,
-            refusals: [SessionNotFound, VoiceAccountNotEntitled, DriverCapabilityUnsupported],
+            refusals: [SessionNotFound, VoiceAccountNotEntitled, ProviderCapabilityUnsupported],
         },
         /// Sends one frame of the recording.
         VoiceDictationWrite = mutation "voice.dictation.write" {
@@ -397,11 +397,11 @@ methods! {
             refusals: [
                 SessionNotFound,
                 VoiceAccountNotEntitled,
-                DriverCapabilityUnsupported,
+                ProviderCapabilityUnsupported,
                 VoiceCallStartFailed,
-                ProvideraccountNotAuthenticated,
+                ProviderAccountNotAuthenticated,
                 ProviderAccountAllowanceExhausted,
-                DriverTimeout,
+                ProviderTimeout,
             ],
         },
         /// Stops the call.

@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::gitflow::shared::GitRefName;
+use crate::git::shared::GitRefName;
 use crate::repo::mount::{RepoMountId, lifecycle_payload};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -45,7 +45,7 @@ lifecycle_payload! {
 /// repository root. It records a move, not a state change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionSweptToRepoRootPayload {
+pub struct SessionSweptToCheckoutPayload {
     /// The session moved.
     pub session_id: SessionId,
     /// The mount.
@@ -94,7 +94,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<WorktreeCreatedPayload>().checked(),
         Definition::read::<WorktreeRetiredPayload>().checked(),
-        Definition::read::<SessionSweptToRepoRootPayload>().checked(),
+        Definition::read::<SessionSweptToCheckoutPayload>().checked(),
         Definition::read::<SessionBranchChangedPayload>().checked(),
     ],
     constants: &[],

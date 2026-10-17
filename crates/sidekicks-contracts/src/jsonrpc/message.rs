@@ -11,7 +11,7 @@ use serde_json::value::RawValue;
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
 use crate::jsonrpc::error_code::JsonRpcErrorCode;
-use crate::jsonrpc::negotiation::DAEMON_HELLO_METHOD;
+use crate::jsonrpc::negotiation::CONNECTION_INITIALIZE_METHOD;
 use crate::jsonrpc::refusal::{RefusalCategory, RefusalCode};
 use crate::schema::doc_description;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -27,7 +27,7 @@ ts_constants! {
     pub const JSON_RPC_ID_MAX_BYTES: usize = 256;
     /// The refusal a client reports when the daemon cannot be reached: nothing listens on its
     /// socket, or the link to it is down; `fields.reason` says why.
-    TRANSPORT_UNAVAILABLE_CODE = RefusalCode::TransportUnavailable;
+    TRANSPORT_UNAVAILABLE_CODE = RefusalCode::ConnectionUnavailable;
 }
 
 /// The notification that asks the daemon to stop a call it has not answered; the call still gets
@@ -36,7 +36,7 @@ pub const CANCEL_REQUEST_METHOD: &str = "$/cancelRequest";
 
 /// The methods that carry no `protocolVersion` on the message: only `connection.initialize`, which
 /// carries its versions in its params, since none is negotiated before it.
-pub const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: &[&str] = &[DAEMON_HELLO_METHOD];
+pub const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: &[&str] = &[CONNECTION_INITIALIZE_METHOD];
 
 /// A request's `id`: a string, a number or `null`, echoed back by its response.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -439,7 +439,7 @@ impl JsonSchema for JsonRpcMessage {
 /// Why a socket cannot reach the daemon, the `fields.reason` of `connection.unavailable`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum TransportUnavailableReason {
+pub enum ConnectionUnavailableReason {
     /// Nobody answers on the socket (`ENOENT` or `ECONNREFUSED`).
     NotListening,
     /// The client may not open the socket (`EACCES` or `EPERM`).
@@ -464,7 +464,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<JsonRpcResponseEnvelopeSchema>(),
         Definition::read::<JsonRpcMessage>(),
         Definition::read::<JsonRpcServerMessageSchema>().checked(),
-        Definition::read::<TransportUnavailableReason>(),
+        Definition::read::<ConnectionUnavailableReason>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

@@ -20,7 +20,7 @@ use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
 use crate::run::state::RunState;
 use crate::session::convert::{
-    SessionConvertSkippedFileListRequest, SessionConvertSkippedFileListResponse,
+    SessionConversionSkippedFileListRequest, SessionConversionSkippedFileListResponse,
 };
 use crate::session::draft::SessionAttachmentSummary;
 use crate::session::event_cursor::EventCursor;
@@ -283,7 +283,7 @@ pub struct SessionReadResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionSubscribeRequest {
+pub struct SessionEventSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
     /// Catch up from after this position.
@@ -613,7 +613,7 @@ methods! {
                 SessionNotFound,
                 SessionAlreadyClosed,
                 SessionChangeRefused,
-                DriverUnavailable,
+                ProviderUnavailable,
             ],
         },
         /// Pins a session.
@@ -649,7 +649,7 @@ methods! {
             mutating: true,
             params: SessionTargetRequest,
             result: EmptyPayload,
-            refusals: [SessionNotFound, DriverUnavailable, DriverCapabilityUnsupported],
+            refusals: [SessionNotFound, ProviderUnavailable, ProviderCapabilityUnsupported],
         },
         /// `Continue from here`: the session's last good point becomes its end, its damaged events
         /// are skipped from then on, and it takes new work again.
@@ -679,13 +679,13 @@ methods! {
             mutating: false,
             params: SessionFileSearchRequest,
             result: SessionFileSearchResponse,
-            refusals: [SessionNotFound, SessionWorkingFolderUnavailable],
+            refusals: [SessionNotFound, SessionWorkingFolderMissing],
         },
         /// Reads the files a conversion did not copy, page by page.
-        SessionConvertSkippedFileList = query "session.conversion.skippedFile.list" {
+        SessionConversionSkippedFileList = query "session.conversion.skippedFile.list" {
             mutating: false,
-            params: SessionConvertSkippedFileListRequest,
-            result: SessionConvertSkippedFileListResponse,
+            params: SessionConversionSkippedFileListRequest,
+            result: SessionConversionSkippedFileListResponse,
             refusals: [SessionNotFound],
         },
     ];
@@ -705,7 +705,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionLiveRun>(),
         Definition::read::<SessionStandingEvent>(),
         Definition::read::<SessionReadResponse>().checked(),
-        Definition::read::<SessionSubscribeRequest>().checked(),
+        Definition::read::<SessionEventSubscribeRequest>().checked(),
         Definition::read::<SessionStreamChange>(),
         Definition::read::<SessionStreamFrame>().checked(),
         Definition::read::<SessionTargetRequest>().checked(),

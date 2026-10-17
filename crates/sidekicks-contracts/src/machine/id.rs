@@ -14,7 +14,7 @@ branded_text! {
 
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "runtime-node/id",
+    path: "machine/id",
     doc: "The daemon-assigned id of the one machine a daemon runs on.",
     definitions: &[Definition::read::<NodeId>().checked()],
     constants: &[],

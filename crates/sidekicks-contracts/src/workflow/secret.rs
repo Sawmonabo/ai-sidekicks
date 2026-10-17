@@ -272,7 +272,7 @@ workflow_secret_place! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowSecretReplaceRequest {
+pub struct WorkflowSecretUpdateRequest {
     /// The secret.
     pub secret_id: WorkflowSecretId,
     /// The new value.
@@ -394,9 +394,9 @@ methods! {
             ],
         },
         /// Replaces a secret's value.
-        WorkflowSecretReplace = mutation "workflow.secret.update" {
+        WorkflowSecretUpdate = mutation "workflow.secret.update" {
             mutating: true,
-            params: WorkflowSecretReplaceRequest,
+            params: WorkflowSecretUpdateRequest,
             result: WorkflowSecretActResponse,
             refusals: [WorkflowSecretNotFound, WorkflowSecretStoreUnavailable],
         },
@@ -430,7 +430,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowSecretReference>(),
         Definition::read::<WorkflowSecretSummary>().checked(),
         Definition::read::<WorkflowSecretCreateRequest>().checked(),
-        Definition::read::<WorkflowSecretReplaceRequest>().checked(),
+        Definition::read::<WorkflowSecretUpdateRequest>().checked(),
         Definition::read::<WorkflowSecretDeleteRequest>().checked(),
         Definition::read::<WorkflowSecretActResponse>().checked(),
         Definition::read::<WorkflowSecretListResponse>().checked(),
@@ -453,9 +453,9 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        WorkflowSecretCreateRequest, WorkflowSecretReference, WorkflowSecretReplaceRequest,
+        WorkflowSecretCreateRequest, WorkflowSecretReference, WorkflowSecretUpdateRequest,
     };
-    use crate::repo::clone::RepoCloneAnswerRequest;
+    use crate::repo::clone::ProjectCloneAnswerRequest;
     use crate::workflow::definition::builder::WorkflowWebhookTokenRotateResponse;
 
     /// The secret every leak case carries.
@@ -502,7 +502,7 @@ mod tests {
         "name": "github-read",
         "secretValue": SECRET,
     })))]
-    #[case::replace(&debug_of::<WorkflowSecretReplaceRequest>(json!({
+    #[case::replace(&debug_of::<WorkflowSecretUpdateRequest>(json!({
         "secretId": RECORD_ID,
         "secretValue": SECRET,
     })))]
@@ -511,7 +511,7 @@ mod tests {
         "token": SECRET,
         "createdAt": "2026-10-13T12:00:00.000Z",
     })))]
-    #[case::clone_answer(&debug_of::<RepoCloneAnswerRequest>(json!({
+    #[case::clone_answer(&debug_of::<ProjectCloneAnswerRequest>(json!({
         "projectId": RECORD_ID,
         "questionId": RECORD_ID,
         "answer": SECRET,

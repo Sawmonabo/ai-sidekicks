@@ -97,26 +97,39 @@ macro_rules! refusal_codes {
 refusal_codes! {
     /// `account.signIn` on a machine already signed in to the hosted account; nothing starts.
     AccountAlreadySignedIn = "account.alreadySignedIn" (FailedPrecondition, 409);
+    /// The `WebAuthn` ceremony challenge presented at verification is unknown, already consumed, or
+    /// expired.
+    AccountPasskeyChallengeInvalid = "account.passkey.challengeInvalid" (InvalidArgument, 400);
+    /// A `WebAuthn` registration or assertion response failed verification.
+    AccountPasskeyVerificationFailed = "account.passkey.verificationFailed" (InvalidArgument, 400);
     /// The `relayAddress` given to `account.signIn` is not a relay address; nothing is set and no
     /// sign-in starts.
     AccountRelayAddressInvalid = "account.relay.addressInvalid" (InvalidArgument, 422);
     /// `account.signIn` on a machine with no relay address set and none given in the request.
     AccountRelayNotConfigured = "account.relay.notConfigured" (FailedPrecondition, 409);
-    /// A call past the connection's calls in flight, refused at once.
-    ConnectionCallLimitReached = "connection.call.limitReached" (ResourceExhausted);
-    /// A terminal write that found its connection's writes to that shell at their waiting limit.
-    TerminalWriteLimitReached = "terminal.write.limitReached" (ResourceExhausted);
+    /// A control on one named child of a run.
+    AgentChildRunControlRefused = "agent.childRun.controlRefused" (FailedPrecondition, 409);
+    /// `agent.command.background` named a command that is not waiting in the foreground.
+    AgentCommandNotInForeground = "agent.command.notInForeground" (FailedPrecondition, 409);
+    /// `agent.command.write` named a command that takes no input and has no prompt open.
+    AgentCommandTakesNoInput = "agent.command.takesNoInput" (FailedPrecondition, 409);
+    /// `agent.definition.export` could not write a definition's file into the chosen folder.
+    AgentDefinitionExportWriteFailed = "agent.definition.exportWriteFailed" (Internal, 500);
     /// Requested definition name already exists, compared case-insensitively under full Unicode
     /// case folding.
     AgentDefinitionNameConflict = "agent.definition.nameConflict" (AlreadyExists, 409);
     /// No definition with the given `definitionId` exists on this node.
     AgentDefinitionNotFound = "agent.definition.notFound" (NotFound, 404);
+    /// The definition exists but cannot currently produce a runnable agent.
+    AgentDefinitionResolutionRefused = "agent.definition.resolutionRefused" (FailedPrecondition, 409);
     /// The definition registry could not be read: the library's own list read renders this refusal
     /// in place of its rows rather than an empty library, and a run that names a saved agent
     /// refuses rather than starting one the registry could not describe.
     AgentDefinitionUnreadable = "agent.definition.unreadable" (Unavailable, 503);
-    /// `agent.definition.export` could not write a definition's file into the chosen folder.
-    AgentExportWriteFailed = "agent.definition.exportWriteFailed" (Internal, 500);
+    /// `agent.definition.update` refused the change.
+    AgentDefinitionUpdateRefused = "agent.definition.updateRefused" (FailedPrecondition, 409);
+    /// A `clientIdempotencyKey` was reused with a differing payload.
+    AgentInterventionIdempotencyConflict = "agent.intervention.idempotencyConflict" (InvalidArgument, 422);
     /// Agent does not exist in the session (`data.fields`: `agentId`).
     AgentNotFound = "agent.notFound" (NotFound, 404);
     /// A provider-axis member on `agent.config.update` or `session.create` names something the
@@ -128,10 +141,32 @@ refusal_codes! {
     /// a session option the target driver does not declare, or a session option's value outside
     /// the target driver's declaration of it or one the provider reports this session cannot run.
     AgentProviderAxisInvalid = "agent.providerAxisInvalid" (InvalidArgument, 422);
-    /// The definition exists but cannot currently produce a runnable agent.
-    AgentResolutionRefused = "agent.definition.resolutionRefused" (FailedPrecondition, 409);
-    /// `agent.definition.update` refused the change.
-    AgentUpdateRefused = "agent.definition.updateRefused" (FailedPrecondition, 409);
+    /// A change to a waiting message refused: a removal (`agent.queueItem.cancel`) or an edit
+    /// (`agent.queueItem.create` with `replacesQueueItemId`) of a message the agent has already
+    /// taken, a removal or an edit of one the provider did not give back, its withdraw failing or
+    /// passing the daemon's ten-second withdraw deadline, which then reads not delivered, or a
+    /// `agent.queueItem.reorder` whose list is not exactly the waiting items.
+    AgentQueueItemChangeRefused = "agent.queueItem.changeRefused" (FailedPrecondition, 409);
+    /// A change (`agent.queueItem.cancel`, an edit through `agent.queueItem.create` with
+    /// `replacesQueueItemId`, or `agent.queueItem.reorder`) named a queue item the queue does not
+    /// hold: an id it never stored, an item of another session, or one of another queue than the
+    /// call names.
+    AgentQueueItemNotFound = "agent.queueItem.notFound" (NotFound, 404);
+    /// New queued run-control work was rejected fail-closed because the daemon's queue-persistence
+    /// layer is unavailable.
+    AgentQueueItemPersistenceUnavailable = "agent.queueItem.persistenceUnavailable" (Unavailable, 503);
+    /// A send (`agent.queueItem.create`) whose session's lead run started, ended or was continued
+    /// between each read of it and the write that sends into it, every time the daemon tried.
+    AgentQueueItemRunChanged = "agent.queueItem.runChanged" (Aborted, 409);
+    /// Requested state transition is not allowed from the current run state.
+    AgentRunInvalidTransition = "agent.run.invalidTransition" (FailedPrecondition, 409);
+    /// Run does not exist.
+    AgentRunNotFound = "agent.run.notFound" (NotFound, 404);
+    /// Run recovery failed due to an internal error.
+    AgentRunRecoveryFailed = "agent.run.recoveryFailed" (Internal, 500);
+    /// A `agent.run.pause` or `agent.run.resume` whose `expectedRunVersion` is not the run's
+    /// current version, older or newer.
+    AgentRunVersionStale = "agent.run.versionStale" (Aborted, 409);
     /// Approval request has already been resolved.
     ApprovalAlreadyResolved = "approval.alreadyResolved" (FailedPrecondition, 409);
     /// `approval.denial.override` names a `denialId` the daemon holds no block for.
@@ -201,24 +236,35 @@ refusal_codes! {
     AuthTokenExpired = "auth.token.expired" (Unauthenticated, 401);
     /// Authentication token is malformed or invalid.
     AuthTokenInvalid = "auth.token.invalid" (Unauthenticated, 401);
-    /// The machine runs none of the channel profiles a device's first frame offered, so it closes
-    /// the connection with this code.
-    ChannelNoCommonProfile = "relay.channel.noCommonProfile" (Unimplemented);
     /// Sending to the cloud refused because the account's sign-in kind or plan lacks cloud tasks,
     /// with `data.fields.reason` `signInKindNotEntitled` or `subscriptionRequired`.
     CloudAccountNotEntitled = "cloud.accountNotEntitled" (PermissionDenied, 403);
     /// Sending to the cloud refused because the project has no GitHub remote.
     CloudGithubRemoteRequired = "cloud.githubRemoteRequired" (FailedPrecondition, 409);
-    /// `agent.command.background` named a command that is not waiting in the foreground.
-    CommandNotInForeground = "agent.command.notInForeground" (FailedPrecondition, 409);
-    /// `agent.command.write` named a command that takes no input and has no prompt open.
-    CommandTakesNoInput = "agent.command.takesNoInput" (FailedPrecondition, 409);
-    /// A branch-name pattern refused at save, from `machine.settings.update` (`Every
-    /// project`'s `Branch names`) or `project.branchPattern.update`, one rule for both.
-    DaemonBranchPatternRefused = "project.branchPattern.refused" (InvalidArgument, 422);
-    /// An environment row's name refused at save, from `machine.settings.update` or
-    /// `project.environment.update`.
-    DaemonEnvironmentNameRefused = "project.environment.nameRefused" (InvalidArgument, 422);
+    /// A call past the connection's calls in flight, refused at once.
+    ConnectionCallLimitReached = "connection.call.limitReached" (ResourceExhausted);
+    /// Second `connection.initialize` on a connection with latched outcome.
+    ConnectionHandshakeAlreadyCompleted = "connection.handshake.alreadyCompleted" (FailedPrecondition);
+    /// Any method but `connection.initialize` dispatched in `pre` state.
+    ConnectionHandshakeRequired = "connection.handshake.required" (FailedPrecondition);
+    /// An inbound message passed the 7 MiB cap on its JSON or the 4 MiB cap on its attachments.
+    ConnectionMessageTooLarge = "connection.message.tooLarge" (ResourceExhausted, 413);
+    /// A subscribe call found its connection already holding 10,000 open subscriptions; it may
+    /// be sent again once one closes.
+    ConnectionSubscriptionLimitReached = "connection.subscription.limitReached" (ResourceExhausted, 429);
+    /// The client cannot reach the daemon's OS-local socket or named pipe, or its link to the
+    /// daemon is down.
+    ConnectionUnavailable = "connection.unavailable" (Unavailable, 503);
+    /// Client above daemon's lex-max supported version.
+    ConnectionVersionCeilingExceeded = "connection.version.ceilingExceeded" (FailedPrecondition);
+    /// Client below daemon's lex-min supported version.
+    ConnectionVersionFloorExceeded = "connection.version.floorExceeded" (FailedPrecondition);
+    /// Mutating dispatch attempted in `done-incompatible` state.
+    ConnectionVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
+    /// Bootstrap rejected an unrecognized `SecureDefaults` config key.
+    DaemonBootstrapUnknownSetting = "daemon.bootstrap.unknownSetting" (InvalidArgument);
+    /// A request would pass a daemon limit.
+    DaemonLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
     /// The answer to a `connection.initialize` carrying the start's session token while the service
     /// repairs its database file, when it serves only the lifecycle verbs on that connection, so
     /// `daemon.stop` or `daemon.restart` ends the repair.
@@ -228,49 +274,38 @@ refusal_codes! {
     /// can reach any session through a project, a mount, a workspace or a tree, or any call while
     /// the local store is unavailable.
     DaemonWriteRefused = "daemon.writeRefused" (Unavailable, 503);
-    /// Requested capability is not supported by the driver.
-    DriverCapabilityUnsupported = "provider.capability.unsupported" (Unimplemented, 422);
-    /// Provider driver operation timed out.
-    DriverTimeout = "provider.timeout" (DeadlineExceeded, 504);
-    /// Provider driver is currently unavailable.
-    DriverUnavailable = "provider.unavailable" (Unavailable, 503);
-    /// An `EventCursor` submitted to `readAfterCursor` / `readWindow` cannot be decoded to a log
-    /// position.
-    EventCursorUnresolvable = "session.event.cursorUnresolvable" (InvalidArgument, 400);
     /// A Generate, `git.commitMessage.generate` or `git.changeRequest.text.generate`, failed.
-    GitflowGenerateFailed = "git.generateFailed" (Unavailable, 503);
+    GitGenerateFailed = "git.generateFailed" (Unavailable, 503);
     /// A host the person tried to add was not added, and nothing is saved.
-    GitflowHostInvalid = "git.host.invalid" (InvalidArgument, 422);
+    GitHostInvalid = "git.host.invalid" (InvalidArgument, 422);
     /// A read the review pane depends on still failed after the daemon's one retry, so the pane
     /// shows its own error state and keeps what it already drew.
-    GitflowReadFailed = "git.readFailed" (Internal, 500);
+    GitReadFailed = "git.readFailed" (Internal, 500);
     /// A `highlight.read` that a newer read for the same block, on the same connection, replaced
     /// while it waited to be colored.
     HighlightReadReplaced = "highlight.readReplaced" (Canceled, 409);
-    /// A `clientIdempotencyKey` was reused with a differing payload.
-    InterventionIdempotencyConflict = "agent.intervention.idempotencyConflict" (InvalidArgument, 422);
-    /// The request's params failed the method's contract check, so no handler ran.
-    InvalidParams = "request.paramsInvalid" (InvalidArgument);
-    /// The handler's result failed the method's result check: a daemon fault, never the client's.
-    InvalidResult = "request.resultInvalid" (Internal);
+    /// `machine.folder.list` asked for the top level (`{top: true}`) on macOS or Linux, which has
+    /// none: only a Windows computer lists drives and distributions above its folders.
+    MachineFolderTopLevelNotOffered = "machine.folder.topLevel.notOffered" (InvalidArgument, 422);
+    /// Caller is not authorized for the machine the request names: the caller's verified principal
+    /// does not own the machine the request's `nodeId` names (`runtime_nodes.user_id`).
+    MachinePermissionDenied = "machine.permissionDenied" (PermissionDenied, 403);
     /// The MCP binding store cannot be read, so every MCP change fails closed until it can.
     McpBindingStoreUnavailable = "mcp.bindingStoreUnavailable" (Unavailable, 503);
     /// The submitted server configuration failed validation.
-    McpConfigInvalid = "mcp.server.configInvalid" (InvalidArgument, 400);
+    McpServerConfigInvalid = "mcp.server.configInvalid" (InvalidArgument, 400);
     /// A write to a provider's own configuration lost to a concurrent edit, on either arm: a
     /// `user`-scope write's expected version was refused as stale, returned at once with no retry
     /// and carrying both version tokens so the caller can re-inspect, or the `project` file no
     /// longer hashes to what the daemon last read, so the edit is not written.
-    McpConfigWriteConflict = "mcp.server.configWriteConflict" (Aborted, 409);
-    /// The daemon failed to launch the sign-in.
-    McpOauthFlowFailed = "mcp.server.signInFailed" (Unavailable, 503);
+    McpServerConfigWriteConflict = "mcp.server.configWriteConflict" (Aborted, 409);
     /// No server with the requested `(provider, scope, scopeRef, serverName)` binding exists in the
     /// unified inventory.
     McpServerNotFound = "mcp.server.notFound" (NotFound, 404);
     /// The server is off or not working, so it cannot answer a read of its resources.
-    McpServerUnavailable = "mcp.server.notRunning" (FailedPrecondition, 409);
-    /// The request names a method the daemon does not register; no handler runs.
-    MethodNotFound = "request.methodNotFound" (NotFound);
+    McpServerNotRunning = "mcp.server.notRunning" (FailedPrecondition, 409);
+    /// The daemon failed to launch the sign-in.
+    McpServerSignInFailed = "mcp.server.signInFailed" (Unavailable, 503);
     /// An address Preview will not open.
     PreviewAddressRefused = "preview.addressRefused" (InvalidArgument, 422);
     /// A device's paste, select all or cut for a menu that is no longer the page's current one.
@@ -279,21 +314,69 @@ refusal_codes! {
     /// empty, `.` or `..` segment, or is missing, or main's download report named a file by
     /// anything but an id main minted.
     PreviewFilePathRefused = "preview.filePathRefused" (InvalidArgument, 422);
-    /// `preview.portShare.add` named a port already on the shared list.
-    PreviewPortAlreadyShared = "preview.portShare.alreadyExists" (AlreadyExists, 409);
     /// A forward or a `preview.portTicket.issue` named a port that is not on the shared list.
     PreviewPortNotShared = "preview.port.notShared" (PermissionDenied, 403);
-    /// Second `connection.initialize` on a connection with latched outcome.
-    ProtocolHandshakeAlreadyCompleted = "connection.handshake.alreadyCompleted" (FailedPrecondition);
-    /// Any method but `connection.initialize` dispatched in `pre` state.
-    ProtocolHandshakeRequired = "connection.handshake.required" (FailedPrecondition);
-    /// Mutating dispatch attempted in `done-incompatible` state.
-    ProtocolVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
+    /// `preview.portShare.add` named a port already on the shared list.
+    PreviewPortShareAlreadyExists = "preview.portShare.alreadyExists" (AlreadyExists, 409);
+    /// A branch-name pattern refused at save, from `machine.settings.update` (`Every
+    /// project`'s `Branch names`) or `project.branchPattern.update`, one rule for both.
+    ProjectBranchPatternRefused = "project.branchPattern.refused" (InvalidArgument, 422);
+    /// `project.clone.start` refused before anything is fetched.
+    ProjectCloneRefused = "project.clone.refused" (InvalidArgument, 422);
+    /// `project.clone.start`, `project.clone.folder.read`, `project.clone.subscribe`,
+    /// `project.clone.answer`, `project.clone.cancel` and `project.largeFile.pull` answered while
+    /// the clone service is not running.
+    ProjectCloneUnavailable = "project.clone.unavailable" (Unavailable, 503);
+    /// An environment row's name refused at save, from `machine.settings.update` or
+    /// `project.environment.update`.
+    ProjectEnvironmentNameRefused = "project.environment.nameRefused" (InvalidArgument, 422);
     /// The account's plan allowance or credits are spent, shared by every provider call that spends
     /// from the account; `data.fields` carries the reset time when the provider gives one.
     ProviderAccountAllowanceExhausted = "provider.account.allowanceExhausted" (ResourceExhausted, 429);
+    /// The account's credential home is missing, unreadable, or structurally unusable.
+    ProviderAccountCredentialHomeUnavailable = "provider.account.credentialHome.unavailable" (Unavailable, 503);
+    /// The operating system's keychain would not take the token, so registration refuses and the
+    /// token is stored nowhere else.
+    ProviderAccountCredentialSealRefused = "provider.account.credentialSealRefused" (Unavailable, 503);
+    /// A concurrent `provider.account.current.update` lost the partial-unique-index race.
+    ProviderAccountCurrentConflict = "provider.account.current.conflict" (Aborted, 409);
+    /// Accounts exist for the provider but none carries the current mark, so resolution is
+    /// ambiguous and refuses rather than picking one.
+    ProviderAccountCurrentNotSet = "provider.account.current.notSet" (FailedPrecondition, 409);
+    /// The name given to an account added from a pasted token or API key repeats one of that
+    /// provider's other account names, trimmed and compared by full Unicode case folding
+    /// (`foldName`).
+    ProviderAccountDisplayLabelTaken = "provider.account.displayLabelTaken" (AlreadyExists, 409);
+    /// `provider.account.delete` refused because a run bound to the account is live.
+    ProviderAccountInUse = "provider.account.inUse" (FailedPrecondition, 409);
+    /// The account's sign-in is gone or the provider refused it: `provider.account.current.update`
+    /// named a known-dead target (its stored reading is `reauthRequired`, or its last limits read
+    /// showed its provider sign-in gone), or a provider call such as a voice call needed a sign-in.
+    ProviderAccountNotAuthenticated = "provider.account.notAuthenticated" (FailedPrecondition, 409);
+    /// The referenced `providerAccountId` is not present in the registry (never registered, or
+    /// removed after the reference was taken).
+    ProviderAccountNotFound = "provider.account.notFound" (NotFound, 404);
+    /// No account is registered for the requested provider.
+    ProviderAccountNotRegistered = "provider.account.notRegistered" (FailedPrecondition, 409);
+    /// The caller is neither this machine's own client nor a linked device: a session asked for a
+    /// registry verb.
+    ProviderAccountPermissionDenied = "provider.account.permissionDenied" (PermissionDenied, 403);
+    /// `provider.account.update` carried `displayLabel` for an account that carries no typed name:
+    /// only an account added from a pasted token or API key is named by the person, and every other
+    /// account is named by the identity its provider reports.
+    ProviderAccountRenameRefused = "provider.account.renameRefused" (FailedPrecondition, 409);
+    /// A brokered sign-in is already in flight for this account.
+    ProviderAccountSignInInFlight = "provider.account.signInInFlight" (FailedPrecondition, 409);
+    /// Brokered sign-in was requested for a provider whose pinned flow emits neither an
+    /// authorization URL nor a device code, so there is nothing the person could act on.
+    ProviderAccountSignInUnsupported = "provider.account.signInUnsupported" (Unimplemented, 422);
+    /// The registration-time status invocation, run on a pasted token, reported no signed-in mode,
+    /// so the provider did not accept the token.
+    ProviderAccountTokenNotAccepted = "provider.account.tokenNotAccepted" (InvalidArgument, 422);
+    /// Requested capability is not supported by the driver.
+    ProviderCapabilityUnsupported = "provider.capability.unsupported" (Unimplemented, 422);
     /// Nothing runnable sits at the command path the person typed.
-    ProviderCommandNotRunnable = "provider.commandPath.notRunnable" (InvalidArgument, 422);
+    ProviderCommandPathNotRunnable = "provider.commandPath.notRunnable" (InvalidArgument, 422);
     /// A per-place provider call named a WSL distribution that runs on WSL 1, where no session
     /// runs, naming it (`data.fields`: `distro`).
     ProviderDistributionNeedsWsl2 = "provider.distributionNeedsWsl2" (FailedPrecondition, 409);
@@ -316,90 +399,21 @@ refusal_codes! {
     /// listed or unavailable, a none the row does not offer, text past its length, or a place on a
     /// row that is not set per place.
     ProviderRowValueInvalid = "provider.row.valueInvalid" (InvalidArgument, 422);
-    /// `provider.account.delete` refused because a run bound to the account is live.
-    ProvideraccountAccountInUse = "provider.account.inUse" (FailedPrecondition, 409);
-    /// The account's credential home is missing, unreadable, or structurally unusable.
-    ProvideraccountCredentialHomeUnavailable = "provider.account.credentialHome.unavailable" (Unavailable, 503);
-    /// The operating system's keychain would not take the token, so registration refuses and the
-    /// token is stored nowhere else.
-    ProvideraccountCredentialSealRefused = "provider.account.credentialSealRefused" (Unavailable, 503);
-    /// A concurrent `provider.account.current.update` lost the partial-unique-index race.
-    ProvideraccountDefaultConflict = "provider.account.current.conflict" (Aborted, 409);
-    /// The name given to an account added from a pasted token or API key repeats one of that
-    /// provider's other account names, trimmed and compared by full Unicode case folding
-    /// (`foldName`).
-    ProvideraccountDisplayLabelTaken = "provider.account.displayLabelTaken" (AlreadyExists, 409);
-    /// Accounts exist for the provider but none carries the current mark, so resolution is
-    /// ambiguous and refuses rather than picking one.
-    ProvideraccountNoDefault = "provider.account.current.notSet" (FailedPrecondition, 409);
-    /// The account's sign-in is gone or the provider refused it: `provider.account.current.update`
-    /// named a known-dead target (its stored reading is `reauthRequired`, or its last limits read
-    /// showed its provider sign-in gone), or a provider call such as a voice call needed a sign-in.
-    ProvideraccountNotAuthenticated = "provider.account.notAuthenticated" (FailedPrecondition, 409);
-    /// No account is registered for the requested provider.
-    ProvideraccountNotRegistered = "provider.account.notRegistered" (FailedPrecondition, 409);
-    /// The caller is neither this machine's own client nor a linked device: a session asked for a
-    /// registry verb.
-    ProvideraccountPermissionDenied = "provider.account.permissionDenied" (PermissionDenied, 403);
-    /// `provider.account.update` carried `displayLabel` for an account that carries no typed name:
-    /// only an account added from a pasted token or API key is named by the person, and every other
-    /// account is named by the identity its provider reports.
-    ProvideraccountRenameRefused = "provider.account.renameRefused" (FailedPrecondition, 409);
-    /// A brokered sign-in is already in flight for this account.
-    ProvideraccountSigninInFlight = "provider.account.signInInFlight" (FailedPrecondition, 409);
-    /// Brokered sign-in was requested for a provider whose pinned flow emits neither an
-    /// authorization URL nor a device code, so there is nothing the person could act on.
-    ProvideraccountSigninUnsupported = "provider.account.signInUnsupported" (Unimplemented, 422);
-    /// The registration-time status invocation, run on a pasted token, reported no signed-in mode,
-    /// so the provider did not accept the token.
-    ProvideraccountTokenNotAccepted = "provider.account.tokenNotAccepted" (InvalidArgument, 422);
-    /// The referenced `providerAccountId` is not present in the registry (never registered, or
-    /// removed after the reference was taken).
-    ProvideraccountUnknown = "provider.account.notFound" (NotFound, 404);
-    /// The PTY a shell needs cannot be opened: `sidekicks-terminal` in the daemon could not create
-    /// it (`ConPTY` on Windows, `alacritty_terminal`'s tty elsewhere).
-    PtyBackendUnavailable = "terminal.backendUnavailable" (Unavailable, 503);
-    /// `terminal.open` on a chat session, which is bound to a managed workspace and no repository
-    /// and has no shell.
-    PtyChatUnsupported = "terminal.chatUnsupported" (FailedPrecondition, 409);
-    /// `terminal.control.take`, a resize, a pane's appearance report or a close refused for the
-    /// named shell because someone else holds it.
-    PtyControlHeldByOther = "terminal.control.heldByOther" (FailedPrecondition, 409);
-    /// A write from a connection the shell's hold is not bound to.
-    PtyControlNotHeld = "terminal.control.notHeld" (FailedPrecondition, 409);
-    /// A request naming a shell its session does not have: no shell by that terminal id, or another
-    /// session's shell, which the refusal never tells apart.
-    PtyNotFound = "terminal.notFound" (NotFound, 404);
-    /// `terminal.control.take` or `terminal.write` naming an output subscription that is not the
-    /// calling connection's own open `terminal.output.subscribe` subscription to the named shell:
-    /// no such subscription, another connection's, or one to another shell, which the refusal never
-    /// tells apart.
-    PtyOutputSubscriptionNotFound = "terminal.output.subscriptionNotFound" (NotFound, 404);
+    /// Provider driver operation timed out.
+    ProviderTimeout = "provider.timeout" (DeadlineExceeded, 504);
+    /// Provider driver is currently unavailable.
+    ProviderUnavailable = "provider.unavailable" (Unavailable, 503);
     /// `question.resolve` was sent answers that do not cover every question of the record.
     QuestionAnswersIncomplete = "question.answersIncomplete" (InvalidArgument, 422);
-    /// A change to a waiting message refused: a removal (`agent.queueItem.cancel`) or an edit
-    /// (`agent.queueItem.create` with `replacesQueueItemId`) of a message the agent has already
-    /// taken, a removal or an edit of one the provider did not give back, its withdraw failing or
-    /// passing the daemon's ten-second withdraw deadline, which then reads not delivered, or a
-    /// `agent.queueItem.reorder` whose list is not exactly the waiting items.
-    QueueChangeRefused = "agent.queueItem.changeRefused" (FailedPrecondition, 409);
-    /// A change (`agent.queueItem.cancel`, an edit through `agent.queueItem.create` with
-    /// `replacesQueueItemId`, or `agent.queueItem.reorder`) named a queue item the queue does not
-    /// hold: an id it never stored, an item of another session, or one of another queue than the
-    /// call names.
-    QueueItemNotFound = "agent.queueItem.notFound" (NotFound, 404);
-    /// New queued run-control work was rejected fail-closed because the daemon's queue-persistence
-    /// layer is unavailable.
-    QueuePersistenceUnavailable = "agent.queueItem.persistenceUnavailable" (Unavailable, 503);
-    /// A send (`agent.queueItem.create`) whose session's lead run started, ended or was continued
-    /// between each read of it and the write that sends into it, every time the daemon tried.
-    QueueRunChanged = "agent.queueItem.runChanged" (Aborted, 409);
-    /// A sign-in route of the relay refused a request over its rate limit.
-    RateLimited = "relay.rateLimited" (ResourceExhausted, 429);
     /// Relay authentication failed.
     RelayAuthenticationFailed = "relay.authenticationFailed" (Unauthenticated, 401);
+    /// The machine runs none of the channel profiles a device's first frame offered, so it closes
+    /// the connection with this code.
+    RelayChannelNoCommonProfile = "relay.channel.noCommonProfile" (Unimplemented);
     /// Relay connection to the upstream service failed.
     RelayConnectionFailed = "relay.connectionFailed" (Unavailable, 502);
+    /// A sign-in route of the relay refused a request over its rate limit.
+    RelayRateLimited = "relay.rateLimited" (ResourceExhausted, 429);
     /// A channel frame failed the Noise transport's decryption.
     RelayReplayRejected = "relay.replayRejected" (Aborted, 409);
     /// A request reached a sign-in route (sign-in, token refresh or device linking) with no source
@@ -410,60 +424,44 @@ refusal_codes! {
     RelaySpkiMismatch = "relay.spkiMismatch" (FailedPrecondition, 409);
     /// The resolved canonical root is already attached on this machine: a mount belongs to the
     /// machine, one per canonical root.
-    RepoAlreadyAttached = "repoMount.alreadyAttached" (AlreadyExists, 409);
-    /// `project.clone.start` refused before anything is fetched.
-    RepoCloneRefused = "project.clone.refused" (InvalidArgument, 422);
-    /// `project.clone.start`, `project.clone.folder.read`, `project.clone.subscribe`,
-    /// `project.clone.answer`, `project.clone.cancel` and `project.largeFile.pull` answered while
-    /// the clone service is not running.
-    RepoCloneUnavailable = "project.clone.unavailable" (Unavailable, 503);
+    RepoMountAlreadyAttached = "repoMount.alreadyAttached" (AlreadyExists, 409);
     /// Detach refused while an agent runs anywhere in the project, naming the running session
     /// (drawn `Busy: <session> is running in it.`).
-    RepoDetachConflict = "repoMount.detachConflict" (FailedPrecondition, 409);
+    RepoMountDetachConflict = "repoMount.detachConflict" (FailedPrecondition, 409);
     /// `repoMount.attach`, `machine.folder.list` or `project.clone.start` refused because the
     /// folder's WSL distribution runs on WSL 1, naming the distribution (`data.fields`: `distro`).
-    RepoDistributionNeedsWsl2 = "repoMount.distributionNeedsWsl2" (FailedPrecondition, 409);
+    RepoMountDistributionNeedsWsl2 = "repoMount.distributionNeedsWsl2" (FailedPrecondition, 409);
     /// `repoMount.attach`, `machine.folder.list` or `project.clone.start` refused because no WSL
     /// distribution of the folder's name is on this computer, naming the name (`data.fields`:
     /// `distro`).
-    RepoDistributionNotFound = "repoMount.distributionNotFound" (InvalidArgument, 422);
+    RepoMountDistributionNotFound = "repoMount.distributionNotFound" (InvalidArgument, 422);
     /// The mount is a chat's managed workspace, which only that chat binds and only its purge
     /// removes: another session's bind, any detach and a `session.workingFolder.update` of the chat
     /// are refused, writing nothing (`data.fields`: `repoMountId`).
     RepoMountManaged = "repoMount.managed" (FailedPrecondition, 409);
     /// Repo mount does not exist, or is no longer attached for a bind or a project `session.create`
     /// to name.
-    RepoNotFound = "repoMount.notFound" (NotFound, 404);
+    RepoMountNotFound = "repoMount.notFound" (NotFound, 404);
     /// A picked folder lies outside the project's admitted roots.
-    RepoOutsideTrustEnvelope = "repoMount.outsideTrustEnvelope" (InvalidArgument, 422);
+    RepoMountOutsideTrustEnvelope = "repoMount.outsideTrustEnvelope" (InvalidArgument, 422);
     /// `repoMount.reattach` refused, writing nothing, while an agent runs anywhere in the project.
-    RepoReattachConflict = "repoMount.reattachConflict" (FailedPrecondition, 409);
+    RepoMountReattachConflict = "repoMount.reattachConflict" (FailedPrecondition, 409);
     /// `repoMount.reattach` refused, writing nothing.
-    RepoReattachRefused = "repoMount.reattachRefused" (FailedPrecondition, 409);
+    RepoMountReattachRefused = "repoMount.reattachRefused" (FailedPrecondition, 409);
     /// Canonical repository root could not be resolved for the supplied path.
-    RepoRootResolutionFailed = "repoMount.rootResolutionFailed" (InvalidArgument, 422);
-    /// `machine.folder.list` asked for the top level (`{top: true}`) on macOS or Linux, which has
-    /// none: only a Windows computer lists drives and distributions above its folders.
-    RepoTopLevelUnavailable = "machine.folder.topLevel.notOffered" (InvalidArgument, 422);
+    RepoMountRootResolutionFailed = "repoMount.rootResolutionFailed" (InvalidArgument, 422);
     /// A call the client canceled with `$/cancelRequest` before the daemon reached its commit
     /// point.
     RequestCanceled = "request.canceled" (Canceled);
-    /// A request would pass a daemon limit.
-    ResourceLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
-    /// A control on one named child of a run.
-    RunChildControlRefused = "agent.childRun.controlRefused" (FailedPrecondition, 409);
-    /// Requested state transition is not allowed from the current run state.
-    RunInvalidTransition = "agent.run.invalidTransition" (FailedPrecondition, 409);
-    /// Run does not exist.
-    RunNotFound = "agent.run.notFound" (NotFound, 404);
-    /// Run recovery failed due to an internal error.
-    RunRecoveryFailed = "agent.run.recoveryFailed" (Internal, 500);
-    /// A `agent.run.pause` or `agent.run.resume` whose `expectedRunVersion` is not the run's
-    /// current version, older or newer.
-    RunVersionStale = "agent.run.versionStale" (Aborted, 409);
-    /// Caller is not authorized for the machine the request names: the caller's verified principal
-    /// does not own the machine the request's `nodeId` names (`runtime_nodes.user_id`).
-    RuntimenodePermissionDenied = "machine.permissionDenied" (PermissionDenied, 403);
+    /// The request names a method the daemon does not register; no handler runs.
+    RequestMethodNotFound = "request.methodNotFound" (NotFound);
+    /// The request's params failed the method's contract check, so no handler ran.
+    RequestParamsInvalid = "request.paramsInvalid" (InvalidArgument);
+    /// Per-request envelope-level `protocolVersion` field violates, the wrong JSON type, or fails
+    /// the ISO 8601 `YYYY-MM-DD` shape.
+    RequestProtocolVersionInvalid = "request.protocolVersion.invalid" (InvalidArgument, 400);
+    /// The handler's result failed the method's result check: a daemon fault, never the client's.
+    RequestResultInvalid = "request.resultInvalid" (Internal);
     /// Session has already been closed and cannot be modified.
     SessionAlreadyClosed = "session.alreadyClosed" (FailedPrecondition, 409);
     /// A file `session.attachment.add` did not stage.
@@ -472,20 +470,26 @@ refusal_codes! {
     /// closed nor converted, and a `purgeRequested` one, being deleted, takes no change.
     SessionChangeRefused = "session.changeRefused" (FailedPrecondition, 409);
     /// A conversion stopped after the repository was attached.
-    SessionConvertIncomplete = "session.conversion.incomplete" (Internal, 500);
+    SessionConversionIncomplete = "session.conversion.incomplete" (Internal, 500);
     /// `session.convert` named a session that is not a chat, a chat with no managed workspace to
     /// convert (`data.fields.reason: no_managed_workspace`), a `clientIdempotencyKey` another
     /// session's conversion holds (`reason: idempotency_key_reused`), a folder other than the one a
     /// chat's stopped conversion copies into (`reason: conversion_unfinished`, with that
     /// conversion's `repoMountId`), or a folder outside the chat's place, which never changes
     /// (`reason: folder_in_another_place`, with the chat's `place`).
-    SessionConvertRefused = "session.conversion.refused" (FailedPrecondition, 409);
+    SessionConversionRefused = "session.conversion.refused" (FailedPrecondition, 409);
+    /// An `EventCursor` submitted to `readAfterCursor` / `readWindow` cannot be decoded to a log
+    /// position.
+    SessionEventCursorUnresolvable = "session.event.cursorUnresolvable" (InvalidArgument, 400);
     /// `session.group.create` or `session.group.rename` named a group another group of the
     /// session's project already holds, ignoring case.
     SessionGroupNameTaken = "session.group.nameTaken" (AlreadyExists, 409);
     /// `session.group.create`, `session.group.move` or `session.create`'s `groupId` asked to put a
     /// chat in a group, or a session in a group of another project.
     SessionGroupRefused = "session.group.refused" (InvalidArgument, 422);
+    /// A write to a session whose history is degraded or damaged, at the wire for a call naming the
+    /// session and at the append for any of its events (`data.fields`: `sessionId`, `recovery`).
+    SessionHistoryDamaged = "session.history.damaged" (FailedPrecondition, 409);
     /// `session.link.remove` named a link the daemon wrote from an event (`started`, `copiedFrom`,
     /// `messaged`, `asked`, `mentioned`), which records what happened.
     SessionLinkNotRemovable = "session.link.notRemovable" (FailedPrecondition, 409);
@@ -497,7 +501,11 @@ refusal_codes! {
     SessionNotFound = "session.notFound" (NotFound, 404);
     /// A permission level the session's provider, its account or its model cannot run, sent on
     /// `session.permissionLevel.update` or as `plan.resolve`'s `fresh.level`.
-    SessionPermissionLevelUnavailable = "session.permissionLevel.notOffered" (InvalidArgument, 422);
+    SessionPermissionLevelNotOffered = "session.permissionLevel.notOffered" (InvalidArgument, 422);
+    /// A write to a session the restart's recovery pass has not rebuilt yet, at the wire for a call
+    /// naming the session and at the append for any of its events but the pass's own; retry
+    /// (`data.fields`: `sessionId`).
+    SessionRebuilding = "session.rebuilding" (Unavailable, 503);
     /// `session.recovery.continue` or `session.recovery.delete` named a session the refusal does
     /// not fit.
     SessionRecoveryRefused = "session.recovery.refused" (FailedPrecondition, 409);
@@ -509,20 +517,13 @@ refusal_codes! {
     /// A `session.file.search` whose session has no working folder in place, yet or any more,
     /// nothing being listed, or a `session.workingFolder.update` whose session works in no folder
     /// any more, nothing being moved.
-    SessionWorkingFolderUnavailable = "session.workingFolder.missing" (FailedPrecondition, 409);
-    /// A write to a session whose history is degraded or damaged, at the wire for a call naming the
-    /// session and at the append for any of its events (`data.fields`: `sessionId`, `recovery`).
-    SessionHistoryDamaged = "session.history.damaged" (FailedPrecondition, 409);
-    /// A write to a session the restart's recovery pass has not rebuilt yet, at the wire for a call
-    /// naming the session and at the append for any of its events but the pass's own; retry
-    /// (`data.fields`: `sessionId`).
-    SessionRebuilding = "session.rebuilding" (Unavailable, 503);
-    /// A skill's name is longer than the name limit of a provider the skill is on
-    /// (`data.fields`: `SkillNameTooLongDetails`).
-    SkillNameTooLong = "skill.nameTooLong" (InvalidArgument, 422);
+    SessionWorkingFolderMissing = "session.workingFolder.missing" (FailedPrecondition, 409);
     /// A save would rename a folder of ours onto a name another folder of ours already holds in the
     /// same place.
     SkillNameTaken = "skill.nameTaken" (AlreadyExists, 409);
+    /// A skill's name is longer than the name limit of a provider the skill is on
+    /// (`data.fields`: `SkillNameTooLongDetails`).
+    SkillNameTooLong = "skill.nameTooLong" (InvalidArgument, 422);
     /// `skill.update` refused a path in the folder it would save, or `agent.queueItem.create`
     /// refused a picked skill whose name and folder match no row of `skill.list`, or, for an agent
     /// whose provider keeps its own skill list, no skill that list names in that folder.
@@ -533,31 +534,30 @@ refusal_codes! {
     SystemInternalError = "system.internalError" (Internal, 500);
     /// System is undergoing maintenance.
     SystemMaintenance = "system.maintenance" (Unavailable, 503);
+    /// The PTY a shell needs cannot be opened: `sidekicks-terminal` in the daemon could not create
+    /// it (`ConPTY` on Windows, `alacritty_terminal`'s tty elsewhere).
+    TerminalBackendUnavailable = "terminal.backendUnavailable" (Unavailable, 503);
+    /// `terminal.open` on a chat session, which is bound to a managed workspace and no repository
+    /// and has no shell.
+    TerminalChatUnsupported = "terminal.chatUnsupported" (FailedPrecondition, 409);
+    /// `terminal.control.take`, a resize, a pane's appearance report or a close refused for the
+    /// named shell because someone else holds it.
+    TerminalControlHeldByOther = "terminal.control.heldByOther" (FailedPrecondition, 409);
+    /// A write from a connection the shell's hold is not bound to.
+    TerminalControlNotHeld = "terminal.control.notHeld" (FailedPrecondition, 409);
+    /// A request naming a shell its session does not have: no shell by that terminal id, or another
+    /// session's shell, which the refusal never tells apart.
+    TerminalNotFound = "terminal.notFound" (NotFound, 404);
+    /// `terminal.control.take` or `terminal.write` naming an output subscription that is not the
+    /// calling connection's own open `terminal.output.subscribe` subscription to the named shell:
+    /// no such subscription, another connection's, or one to another shell, which the refusal never
+    /// tells apart.
+    TerminalOutputSubscriptionNotFound = "terminal.output.subscriptionNotFound" (NotFound, 404);
+    /// A terminal write that found its connection's writes to that shell at their waiting limit.
+    TerminalWriteLimitReached = "terminal.write.limitReached" (ResourceExhausted);
     /// A transcript read named a row the session does not hold: an anchor cursor or a row id at
     /// which no row of the session's transcript stands.
     TranscriptRowNotFound = "transcript.row.notFound" (NotFound, 404);
-    /// Per-request envelope-level `protocolVersion` field violates, the wrong JSON type, or fails
-    /// the ISO 8601 `YYYY-MM-DD` shape.
-    TransportInvalidProtocolVersion = "request.protocolVersion.invalid" (InvalidArgument, 400);
-    /// An inbound message passed the 7 MiB cap on its JSON or the 4 MiB cap on its attachments.
-    TransportMessageTooLarge = "connection.message.tooLarge" (ResourceExhausted, 413);
-    /// A subscribe call found its connection already holding 10,000 open subscriptions; it may
-    /// be sent again once one closes.
-    TransportSubscriptionLimitReached = "connection.subscription.limitReached" (ResourceExhausted, 429);
-    /// The client cannot reach the daemon's OS-local socket or named pipe, or its link to the
-    /// daemon is down.
-    TransportUnavailable = "connection.unavailable" (Unavailable, 503);
-    /// Bootstrap rejected an unrecognized `SecureDefaults` config key.
-    UnknownSetting = "daemon.bootstrap.unknownSetting" (InvalidArgument);
-    /// The `WebAuthn` ceremony challenge presented at verification is unknown, already consumed, or
-    /// expired.
-    UserWebauthnChallengeInvalid = "account.passkey.challengeInvalid" (InvalidArgument, 400);
-    /// A `WebAuthn` registration or assertion response failed verification.
-    UserWebauthnVerificationFailed = "account.passkey.verificationFailed" (InvalidArgument, 400);
-    /// Client above daemon's lex-max supported version.
-    VersionCeilingExceeded = "connection.version.ceilingExceeded" (FailedPrecondition);
-    /// Client below daemon's lex-min supported version.
-    VersionFloorExceeded = "connection.version.floorExceeded" (FailedPrecondition);
     /// Voice refused on a signed-in account whose sign-in kind its provider gives no voice
     /// (`data.fields`: `VoiceAccountNotEntitledDetails`).
     VoiceAccountNotEntitled = "voice.accountNotEntitled" (PermissionDenied, 403);
@@ -573,47 +573,25 @@ refusal_codes! {
     /// A `workflow.run.list`, `workflow.step.read` or `workflow.definition.list` `cursor` the
     /// daemon did not write, or one past the end of what it pages; nothing is read.
     WorkflowCursorUnresolvable = "workflow.cursorUnresolvable" (InvalidArgument, 400);
+    /// An import whose schema version is unknown.
+    WorkflowDefinitionImportSchemaUnknown = "workflow.definition.importSchemaUnknown" (InvalidArgument, 422);
+    /// A workflow definition that does not exist.
+    WorkflowDefinitionNotFound = "workflow.definition.notFound" (NotFound, 404);
     /// A saved or imported document the daemon's own re-check refuses.
     WorkflowDefinitionRefused = "workflow.definition.refused" (InvalidArgument, 422);
-    /// A `workflow.run.start`, `runRetry` or `runRerun` reused a `clientIdempotencyKey` with a
-    /// differing payload; the run the key first answered is untouched. A resend with the same
-    /// payload is not refused: it answers that run.
-    WorkflowIdempotencyConflict = "workflow.run.idempotencyConflict" (InvalidArgument, 422);
-    /// An import whose schema version is unknown.
-    WorkflowImportSchemaUnknown = "workflow.definition.importSchemaUnknown" (InvalidArgument, 422);
-    /// A start that leaves a required input its workflow declares unfilled, or gives an input a
-    /// value that does not fit it.
-    WorkflowInputRequired = "workflow.run.inputRequired" (InvalidArgument, 422);
+    /// A form draft save or a form submit carrying a revision that is no longer current.
+    WorkflowHumanFormRevisionStale = "workflow.humanForm.revisionStale" (Aborted, 409);
     /// A run or step move its status does not allow: retrying from a step that did not fail,
     /// posting the results of an unfinished run, or opening a fix session on a step that did not
     /// fail.
     WorkflowInvalidTransition = "workflow.invalidTransition" (FailedPrecondition, 409);
-    /// A workflow definition that does not exist.
-    WorkflowDefinitionNotFound = "workflow.definition.notFound" (NotFound, 404);
-    /// A workflow run that does not exist.
-    WorkflowRunNotFound = "workflow.run.notFound" (NotFound, 404);
-    /// A step key that does not exist in its run.
-    WorkflowStepNotFound = "workflow.step.notFound" (NotFound, 404);
-    /// A workflow version that does not exist.
-    WorkflowVersionNotFound = "workflow.version.notFound" (NotFound, 404);
-    /// A `workflow.run.start` from a project session that names a project: that session's run works
-    /// in the session's own repository, so nothing runs.
-    WorkflowProjectOnProjectSession = "workflow.run.projectOnProjectSession" (InvalidArgument, 422);
-    /// Frozen-definition re-pin refused: a step of the run is still in flight.
-    WorkflowRepairAttemptInFlight = "workflow.run.repairAttemptInFlight" (FailedPrecondition, 409);
-    /// Frozen-definition re-pin refused: the target run is not parked.
-    WorkflowRepairNotParked = "workflow.run.repairNotParked" (FailedPrecondition, 409);
-    /// Frozen-definition re-pin refused: the target version cannot account for the nodes the run
-    /// has already completed.
-    WorkflowRepairVersionUnaccountable = "workflow.run.repairVersionUnaccountable" (FailedPrecondition, 409);
-    /// A start, or a node run (`workflow.node.execute`), that names no project's repository.
-    WorkflowRepositoryRequired = "workflow.run.repositoryRequired" (InvalidArgument, 422);
-    /// `workflow.run.resume` refused because the target run is not parked.
-    WorkflowResumeNotParked = "workflow.run.resumeNotParked" (FailedPrecondition, 409);
-    /// `Retry from this step` refused while the source run is still going.
-    WorkflowRetryUnavailable = "workflow.run.stillRunning" (FailedPrecondition, 409);
-    /// A form draft save or a form submit carrying a revision that is no longer current.
-    WorkflowRevisionStale = "workflow.humanForm.revisionStale" (Aborted, 409);
+    /// A `workflow.run.start`, `runRetry` or `runRerun` reused a `clientIdempotencyKey` with a
+    /// differing payload; the run the key first answered is untouched. A resend with the same
+    /// payload is not refused: it answers that run.
+    WorkflowRunIdempotencyConflict = "workflow.run.idempotencyConflict" (InvalidArgument, 422);
+    /// A start that leaves a required input its workflow declares unfilled, or gives an input a
+    /// value that does not fit it.
+    WorkflowRunInputRequired = "workflow.run.inputRequired" (InvalidArgument, 422);
     /// `workflow.run.cancel` refused because the run has ended, so there is nothing to cancel and
     /// reporting success would misinform the person about what their action did.
     WorkflowRunNotCancelable = "workflow.run.notCancelable" (FailedPrecondition, 409);
@@ -621,21 +599,41 @@ refusal_codes! {
     /// failed step, or on a chain's first run while a later run of its chain is one of those, drawn
     /// `Cancel it first.`.
     WorkflowRunNotDeletable = "workflow.run.notDeletable" (FailedPrecondition, 409);
+    /// A workflow run that does not exist.
+    WorkflowRunNotFound = "workflow.run.notFound" (NotFound, 404);
+    /// A `workflow.run.start` from a project session that names a project: that session's run works
+    /// in the session's own repository, so nothing runs.
+    WorkflowRunProjectOnProjectSession = "workflow.run.projectOnProjectSession" (InvalidArgument, 422);
+    /// Frozen-definition re-pin refused: a step of the run is still in flight.
+    WorkflowRunRepairAttemptInFlight = "workflow.run.repairAttemptInFlight" (FailedPrecondition, 409);
+    /// Frozen-definition re-pin refused: the target run is not parked.
+    WorkflowRunRepairNotParked = "workflow.run.repairNotParked" (FailedPrecondition, 409);
+    /// Frozen-definition re-pin refused: the target version cannot account for the nodes the run
+    /// has already completed.
+    WorkflowRunRepairVersionUnaccountable = "workflow.run.repairVersionUnaccountable" (FailedPrecondition, 409);
+    /// A start, or a node run (`workflow.node.execute`), that names no project's repository.
+    WorkflowRunRepositoryRequired = "workflow.run.repositoryRequired" (InvalidArgument, 422);
+    /// `workflow.run.resume` refused because the target run is not parked.
+    WorkflowRunResumeNotParked = "workflow.run.resumeNotParked" (FailedPrecondition, 409);
+    /// Workflow run start refused by Cedar under `Action::"workflow::start"`, or whose principal
+    /// could not be resolved: an agent's start, or a run a trigger fires, judged when it fires with
+    /// the person recorded as its starter.
+    WorkflowRunStartDenied = "workflow.run.startDenied" (PermissionDenied, 403);
+    /// `Retry from this step` refused while the source run is still going.
+    WorkflowRunStillRunning = "workflow.run.stillRunning" (FailedPrecondition, 409);
     /// A full-tier Code step, or a shell step at the Sandboxed level, whose provider sandbox did
     /// not start.
     WorkflowSandboxUnavailable = "workflow.sandboxUnavailable" (Unavailable, 503);
-    /// A secret name already in use, refused at save.
-    WorkflowSecretNameTaken = "workflow.secret.nameTaken" (AlreadyExists, 409);
     /// A secret name refused at save.
     WorkflowSecretNameInvalid = "workflow.secret.nameInvalid" (InvalidArgument, 422);
+    /// A secret name already in use, refused at save.
+    WorkflowSecretNameTaken = "workflow.secret.nameTaken" (AlreadyExists, 409);
     /// A secret reference the keychain does not hold.
     WorkflowSecretNotFound = "workflow.secret.notFound" (NotFound, 404);
     /// The keychain is locked or unavailable.
     WorkflowSecretStoreUnavailable = "workflow.secret.storeUnavailable" (Unavailable, 503);
-    /// Workflow run start refused by Cedar under `Action::"workflow::start"`, or whose principal
-    /// could not be resolved: an agent's start, or a run a trigger fires, judged when it fires with
-    /// the person recorded as its starter.
-    WorkflowStartDenied = "workflow.run.startDenied" (PermissionDenied, 403);
+    /// A step key that does not exist in its run.
+    WorkflowStepNotFound = "workflow.step.notFound" (NotFound, 404);
     /// A form submitted, an approval answered or a form read on a step that is no longer waiting.
     WorkflowStepNotWaiting = "workflow.step.notWaiting" (FailedPrecondition, 409);
     /// A quick step's engine that could not be started: its thread, `rquickjs` runtime or context
@@ -648,6 +646,8 @@ refusal_codes! {
     /// A `workflow.version.diff.read` naming two versions of different workflows; nothing is
     /// compared.
     WorkflowVersionDiffCrossWorkflow = "workflow.version.diffCrossWorkflow" (InvalidArgument, 422);
+    /// A workflow version that does not exist.
+    WorkflowVersionNotFound = "workflow.version.notFound" (NotFound, 404);
     /// A save against a stale definition version.
     WorkflowVersionStale = "workflow.version.stale" (Aborted, 409);
     /// A webhook call with the wrong token, or any call while no token exists.

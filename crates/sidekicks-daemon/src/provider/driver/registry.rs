@@ -21,7 +21,7 @@ use crate::provider::driver::{DriverServices, ProviderRegistration};
 pub(crate) fn driver_unavailable(provider: &ProviderId) -> DomainError {
     DomainError::new(
         "Provider driver is currently unavailable",
-        RefusalCode::DriverUnavailable,
+        RefusalCode::ProviderUnavailable,
         DomainErrorJsonRpcCode::InternalError,
     )
     .with_detail(json!({ "driverId": provider.as_str() }))
@@ -36,7 +36,7 @@ pub(crate) fn driver_capability_unsupported(
 ) -> DomainError {
     DomainError::new(
         DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
-        RefusalCode::DriverCapabilityUnsupported,
+        RefusalCode::ProviderCapabilityUnsupported,
         DomainErrorJsonRpcCode::InvalidRequest,
     )
     .with_detail(json!({ "driverId": provider.as_str(), "flag": flag }))
@@ -190,7 +190,7 @@ mod tests {
         let gate = registry
             .check_capability(&unknown, DriverCapabilityFlag::Steer)
             .expect_err("no driver answers the id");
-        assert_eq!(lookup.code, RefusalCode::DriverUnavailable);
-        assert_eq!(gate.code, RefusalCode::DriverUnavailable);
+        assert_eq!(lookup.code, RefusalCode::ProviderUnavailable);
+        assert_eq!(gate.code, RefusalCode::ProviderUnavailable);
     }
 }

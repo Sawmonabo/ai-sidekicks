@@ -40,7 +40,7 @@ pub enum CompactionFailure {
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum DriverCompactionResult {
+pub enum AgentRunContextCompactResponse {
     /// The provider compacted.
     Applied {
         /// Where the boundary sits; `null` where the provider's frame carried none.
@@ -64,7 +64,7 @@ pub enum DriverCompactionResult {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/compaction",
     doc: "The result of a provider's compaction, composed by the daemon from the wait's own end.",
-    definitions: &[Definition::read::<DriverCompactionResult>().checked()],
+    definitions: &[Definition::read::<AgentRunContextCompactResponse>().checked()],
     constants: &[],
     method_tables: &[],
 };

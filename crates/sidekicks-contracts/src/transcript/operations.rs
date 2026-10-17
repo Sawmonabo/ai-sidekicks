@@ -18,7 +18,7 @@ use crate::session::id::SessionId;
 use crate::transcript::child_run_summary::refuse_self_parenting_run;
 use crate::transcript::content::{
     TranscriptBodyReadRequest, TranscriptBodyReadResponse, TranscriptPatchCursor,
-    TranscriptPatchFile, TranscriptPatchReadRequest, TranscriptPatchReadResponse,
+    TranscriptPatchFile, TranscriptPatchListRequest, TranscriptPatchListResponse,
 };
 use crate::transcript::limits::TRANSCRIPT_READ_LIMIT_MAX;
 use crate::transcript::row::TranscriptReadRow;
@@ -507,9 +507,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<TranscriptBodyReadRequest>().checked(),
         Definition::read::<TranscriptBodyReadResponse>().checked(),
         Definition::read::<TranscriptPatchCursor>(),
-        Definition::read::<TranscriptPatchReadRequest>().checked(),
+        Definition::read::<TranscriptPatchListRequest>().checked(),
         Definition::read::<TranscriptPatchFile>(),
-        Definition::read::<TranscriptPatchReadResponse>().checked(),
+        Definition::read::<TranscriptPatchListResponse>().checked(),
         Definition::read::<TranscriptReadRequest>().checked(),
         Definition::read::<TranscriptReadResponse>().checked(),
         Definition::read::<ReasoningSurfaceReadRequest>().checked(),

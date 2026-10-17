@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::event::envelope::EventEnvelope;
-use sidekicks_contracts::run::control::RunRolledBackEvent;
+use sidekicks_contracts::run::control::AgentRunRolledBackEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
@@ -64,7 +64,7 @@ pub(crate) struct RunEventAttribution {
     /// The stamp its row carries.
     pub(crate) stamp: TranscriptRunStamp,
     /// The rollback, on a `agent.run.rolledBack`.
-    pub(crate) rollback: Option<RunRolledBackEvent>,
+    pub(crate) rollback: Option<AgentRunRolledBackEvent>,
 }
 
 /// One run's place in the fold.

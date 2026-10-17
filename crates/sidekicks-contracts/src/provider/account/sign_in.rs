@@ -30,13 +30,13 @@ ts_constants! {
     pub const PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN: usize = 8192;
     /// A pasted token could not be sealed in this machine's keychain, so nothing was stored.
     PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE =
-        RefusalCode::ProvideraccountCredentialSealRefused;
+        RefusalCode::ProviderAccountCredentialSealRefused;
     /// The provider's status output, run on a pasted token, reported no signed-in mode, so
     /// nothing is registered, sealed or replaced.
-    PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE = RefusalCode::ProvideraccountTokenNotAccepted;
+    PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE = RefusalCode::ProviderAccountTokenNotAccepted;
     /// The name given to a token or API-key account repeats another of that provider's account
     /// names; a rename refuses on the same code.
-    PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE = RefusalCode::ProvideraccountDisplayLabelTaken;
+    PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE = RefusalCode::ProviderAccountDisplayLabelTaken;
     /// Every way a cancel ends, in declaration order.
     PROVIDER_LOGIN_CANCEL_STATUSES = ProviderLoginCancelStatus::VARIANTS;
     /// Wire members a request-logging transport redacts before writing a record, listed once so
@@ -195,7 +195,7 @@ pub struct ProviderAccountCredentialSealRefusedDetails {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountResetCredentialHomeRequest {
+pub struct ProviderAccountCredentialHomeResetRequest {
     /// The account.
     pub account_id: ProviderAccountId,
 }
@@ -204,7 +204,7 @@ pub struct ProviderAccountResetCredentialHomeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountResetCredentialHomeResponse {
+pub struct ProviderAccountCredentialHomeResetResponse {
     /// The account.
     pub account_id: ProviderAccountId,
     /// The generation after the rebuild, greater than the one before.
@@ -217,7 +217,7 @@ pub struct ProviderAccountResetCredentialHomeResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountLoginRequest {
+pub struct ProviderAccountSignInRequest {
     /// The account.
     pub account_id: ProviderAccountId,
 }
@@ -226,7 +226,7 @@ pub struct ProviderAccountLoginRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountLoginResponse {
+pub struct ProviderAccountSignInResponse {
     /// Opaque, daemon-minted and single-use: the key for cancel and for completion.
     pub attempt_id: FreeFormText<PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN>,
     /// Where the person finishes the flow: the provider's own `https:` address, verbatim, since
@@ -256,7 +256,7 @@ pub struct ProviderAccountLoginResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountLoginCancelRequest {
+pub struct ProviderAccountSignInAttemptCancelRequest {
     /// The attempt.
     pub attempt_id: FreeFormText<PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN>,
 }
@@ -280,7 +280,7 @@ pub enum ProviderLoginCancelStatus {
 )]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderAccountLoginCancelResponse {
+pub struct ProviderAccountSignInAttemptCancelResponse {
     /// The outcome.
     pub status: ProviderLoginCancelStatus,
 }
@@ -294,13 +294,13 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderAccountRegisterRequest>().checked(),
         Definition::read::<ProviderAccountRegisterResponse>().checked(),
         Definition::read::<ProviderAccountCredentialSealRefusedDetails>().checked(),
-        Definition::read::<ProviderAccountResetCredentialHomeRequest>().checked(),
-        Definition::read::<ProviderAccountResetCredentialHomeResponse>().checked(),
-        Definition::read::<ProviderAccountLoginRequest>().checked(),
-        Definition::read::<ProviderAccountLoginResponse>().checked(),
-        Definition::read::<ProviderAccountLoginCancelRequest>().checked(),
+        Definition::read::<ProviderAccountCredentialHomeResetRequest>().checked(),
+        Definition::read::<ProviderAccountCredentialHomeResetResponse>().checked(),
+        Definition::read::<ProviderAccountSignInRequest>().checked(),
+        Definition::read::<ProviderAccountSignInResponse>().checked(),
+        Definition::read::<ProviderAccountSignInAttemptCancelRequest>().checked(),
         Definition::read::<ProviderLoginCancelStatus>(),
-        Definition::read::<ProviderAccountLoginCancelResponse>().checked(),
+        Definition::read::<ProviderAccountSignInAttemptCancelResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

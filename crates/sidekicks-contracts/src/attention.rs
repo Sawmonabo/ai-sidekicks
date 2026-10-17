@@ -400,7 +400,7 @@ pub struct AttentionEmailDigestDelivery {
 /// What each channel last did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AttentionDeliveryReadResponse {
+pub struct AttentionDeliveryListResponse {
     /// The web address.
     #[garde(dive)]
     pub web_address: AttentionWebAddressDelivery,
@@ -437,7 +437,7 @@ pub type AttentionDeliverySecret = FreeFormText<ATTENTION_DELIVERY_SECRET_MAX_LE
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttentionMailPasswordSaveRequest {
+pub struct AttentionMailPasswordUpdateRequest {
     /// The password.
     pub password: AttentionDeliverySecret,
 }
@@ -448,7 +448,7 @@ pub struct AttentionMailPasswordSaveRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttentionWebAddressSaveRequest {
+pub struct AttentionWebAddressUpdateRequest {
     /// The address as typed.
     pub address: AttentionDeliverySecret,
 }
@@ -459,7 +459,7 @@ pub struct AttentionWebAddressSaveRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttentionWebAddressSaveResponse {
+pub struct AttentionWebAddressUpdateResponse {
     /// The host, or `null`.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<NonEmptyText>")]
@@ -510,7 +510,7 @@ methods! {
     /// The `attention.*` methods.
     pub const ATTENTION_METHOD_DESCRIPTORS = [
         /// The machine-wide projection, served live: whole first, then whole on every change.
-        AttentionProjectionRead = subscription "attention.subscribe" {
+        AttentionSubscribe = subscription "attention.subscribe" {
             mutating: false,
             params: EmptyPayload,
             result: SubscribeAckResponse,
@@ -532,10 +532,10 @@ methods! {
             refusals: [SessionNotFound],
         },
         /// What each delivery channel last did.
-        AttentionDeliveryRead = query "attention.delivery.list" {
+        AttentionDeliveryList = query "attention.delivery.list" {
             mutating: false,
             params: EmptyPayload,
-            result: AttentionDeliveryReadResponse,
+            result: AttentionDeliveryListResponse,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Sends one test message on a channel.
@@ -546,24 +546,24 @@ methods! {
             refusals: [AttentionDeliveryNotConfigured, AttentionDeliveryStoreUnavailable],
         },
         /// Saves the mail password.
-        AttentionMailPasswordSave = mutation "attention.mailPassword.update" {
+        AttentionMailPasswordUpdate = mutation "attention.mailPassword.update" {
             mutating: true,
-            params: AttentionMailPasswordSaveRequest,
+            params: AttentionMailPasswordUpdateRequest,
             result: EmptyPayload,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Removes the mail password.
-        AttentionMailPasswordRemove = mutation "attention.mailPassword.delete" {
+        AttentionMailPasswordDelete = mutation "attention.mailPassword.delete" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Saves the web address.
-        AttentionWebAddressSave = mutation "attention.webAddress.update" {
+        AttentionWebAddressUpdate = mutation "attention.webAddress.update" {
             mutating: true,
-            params: AttentionWebAddressSaveRequest,
-            result: AttentionWebAddressSaveResponse,
+            params: AttentionWebAddressUpdateRequest,
+            result: AttentionWebAddressUpdateResponse,
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Mints a new signing secret.
@@ -574,7 +574,7 @@ methods! {
             refusals: [AttentionDeliveryStoreUnavailable],
         },
         /// Removes the web address.
-        AttentionWebAddressRemove = mutation "attention.webAddress.delete" {
+        AttentionWebAddressDelete = mutation "attention.webAddress.delete" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
@@ -604,12 +604,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AttentionDeliveryOutcome>(),
         Definition::read::<AttentionWebAddressDelivery>(),
         Definition::read::<AttentionEmailDigestDelivery>(),
-        Definition::read::<AttentionDeliveryReadResponse>().checked(),
+        Definition::read::<AttentionDeliveryListResponse>().checked(),
         Definition::read::<AttentionDeliveryTestRequest>(),
         Definition::read::<AttentionDeliveryTestResponse>(),
-        Definition::read::<AttentionMailPasswordSaveRequest>(),
-        Definition::read::<AttentionWebAddressSaveRequest>(),
-        Definition::read::<AttentionWebAddressSaveResponse>(),
+        Definition::read::<AttentionMailPasswordUpdateRequest>(),
+        Definition::read::<AttentionWebAddressUpdateRequest>(),
+        Definition::read::<AttentionWebAddressUpdateResponse>(),
         Definition::read::<AttentionWebAddressSecretRotateResponse>(),
         Definition::read::<AttentionDeliveryStoreUnavailableDetails>().checked(),
         Definition::read::<AttentionDeliveryMissing>(),

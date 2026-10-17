@@ -173,7 +173,7 @@ methods! {
             mutating: true,
             params: PlanResolveRequest,
             result: PlanResolveResponse,
-            refusals: [SessionPermissionLevelUnavailable],
+            refusals: [SessionPermissionLevelNotOffered],
         },
     ];
 }

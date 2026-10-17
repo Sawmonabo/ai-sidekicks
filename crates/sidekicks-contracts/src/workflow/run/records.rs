@@ -21,10 +21,10 @@ use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::attention::WorkflowRunAttentionListResponse;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::list::{WorkflowRunListRequest, WorkflowRunListResponse};
-use crate::workflow::run::pause::{WorkflowRunsPauseSetRequest, WorkflowRunsPauseState};
+use crate::workflow::run::pause::{WorkflowNewRunHoldUpdateRequest, WorkflowRunsPauseState};
 use crate::workflow::run::retention::{
     WorkflowRunDeleteRequest, WorkflowRunDeleteResponse, WorkflowRunKeepSet,
-    WorkflowRunsDeletePreviewResponse, WorkflowRunsDeleteRequest, WorkflowRunsDeleteResponse,
+    WorkflowRunPurgePreviewResponse, WorkflowRunPurgeRequest, WorkflowRunPurgeResponse,
 };
 use crate::workflow::run::snapshot::WorkflowRunEpoch;
 use crate::workflow::run::step::record::{WorkflowCost, WorkflowStep};
@@ -585,21 +585,21 @@ methods! {
             refusals: [WorkflowRunNotFound, WorkflowRunNotDeletable],
         },
         /// Counts what deleting the runs older than an instant would remove and leave.
-        WorkflowRunsDeletePreview = query "workflow.run.purge.preview" {
+        WorkflowRunPurgePreview = query "workflow.run.purge.preview" {
             mutating: false,
-            params: WorkflowRunsDeleteRequest,
-            result: WorkflowRunsDeletePreviewResponse,
+            params: WorkflowRunPurgeRequest,
+            result: WorkflowRunPurgePreviewResponse,
             refusals: [],
         },
         /// Deletes the runs older than an instant, leaving kept and unfinished ones.
-        WorkflowRunsDelete = mutation "workflow.run.purge" {
+        WorkflowRunPurge = mutation "workflow.run.purge" {
             mutating: true,
-            params: WorkflowRunsDeleteRequest,
-            result: WorkflowRunsDeleteResponse,
+            params: WorkflowRunPurgeRequest,
+            result: WorkflowRunPurgeResponse,
             refusals: [],
         },
         /// Marks a run Keep, or clears the mark.
-        WorkflowRunKeepSetCall = mutation "workflow.run.keep.update" {
+        WorkflowRunKeepUpdate = mutation "workflow.run.keep.update" {
             mutating: true,
             params: WorkflowRunKeepSet,
             result: WorkflowRunKeepSet,
@@ -613,9 +613,9 @@ methods! {
             refusals: [],
         },
         /// Puts the hold on starting new runs, or lifts it.
-        WorkflowRunsPauseSet = mutation "workflow.newRunHold.update" {
+        WorkflowNewRunHoldUpdate = mutation "workflow.newRunHold.update" {
             mutating: true,
-            params: WorkflowRunsPauseSetRequest,
+            params: WorkflowNewRunHoldUpdateRequest,
             result: WorkflowRunsPauseState,
             refusals: [],
         },

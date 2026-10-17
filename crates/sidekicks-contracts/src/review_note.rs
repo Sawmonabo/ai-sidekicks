@@ -265,14 +265,14 @@ methods! {
             refusals: [SessionNotFound, SessionReviewNoteNotFound],
         },
         /// Discards held notes.
-        SessionReviewNoteRemove = mutation "session.reviewNote.delete" {
+        SessionReviewNoteDelete = mutation "session.reviewNote.delete" {
             mutating: true,
             params: ReviewNoteRemoveRequest,
             result: ReviewNoteRemoveResponse,
             refusals: [SessionNotFound],
         },
         /// Follows the session's held notes.
-        SessionReviewNoteList = subscription "session.reviewNote.subscribe" {
+        SessionReviewNoteSubscribe = subscription "session.reviewNote.subscribe" {
             mutating: false,
             params: ReviewNoteListRequest,
             result: SubscribeAckResponse,

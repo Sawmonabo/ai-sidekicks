@@ -17,9 +17,9 @@ use strum::VariantArray;
 use crate::command::CommandId;
 use crate::jsonrpc::streaming::SubscriptionId;
 use crate::method::methods;
-use crate::pty::TerminalId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
+use crate::terminal::TerminalId;
 use crate::trust_statement::DeviceId;
 use crate::wire::integer::SafeInt;
 use crate::wire::{Never, NullableSchema, True, nullable};
@@ -86,7 +86,7 @@ terminal_holder! {
     /// The `terminal.control.heldByOther` refusal's details: the shell and who holds it, so the
     /// screen can tell a run's hold, which ends with its command and which no take moves, from
     /// another device's, which a forced take or close moves.
-    PtyControlHeldByOtherDetails {
+    TerminalControlHeldByOtherDetails {
         /// The shell.
         pub terminal_id: TerminalId,
     }
@@ -99,7 +99,7 @@ terminal_holder! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionTakeControlRequest {
+pub struct TerminalControlTakeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The shell.
@@ -120,7 +120,7 @@ pub struct SessionTakeControlRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionTakeControlResponse {
+pub struct TerminalControlTakeResponse {
     /// The shell.
     pub terminal_id: TerminalId,
     /// The calling device.
@@ -135,7 +135,7 @@ pub struct SessionTakeControlResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionSetTerminalFlowControlRequest {
+pub struct TerminalFlowControlUpdateRequest {
     /// The session.
     pub session_id: SessionId,
     /// The shell.
@@ -148,7 +148,7 @@ pub struct SessionSetTerminalFlowControlRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionSetTerminalFlowControlResponse {
+pub struct TerminalFlowControlUpdateResponse {
     /// Always true.
     pub accepted: True,
 }
@@ -161,7 +161,7 @@ pub struct SessionSetTerminalFlowControlResponse {
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
-pub enum PtyControlChangedReason {
+pub enum TerminalControlChangedReason {
     /// Taken.
     Taken,
     /// Taken by force off another device.
@@ -176,7 +176,7 @@ pub enum PtyControlChangedReason {
     AutoReleasedRunIdle,
 }
 
-/// Declares `PtyControlChangedPayload` with the members every reason repeats.
+/// Declares `TerminalControlChangedPayload` with the members every reason repeats.
 macro_rules! control_changed_payload {
     ($($(#[doc = $doc:literal])+ $arm:ident { $($fields:tt)* })+) => {
         /// The `terminal.control.changed` payload: one change of one shell's holder. The holder
@@ -199,7 +199,7 @@ macro_rules! control_changed_payload {
             "holderRunId": ["holderCommandId"],
             "holderCommandId": ["holderRunId"],
         }))]
-        pub enum PtyControlChangedPayload {$(
+        pub enum TerminalControlChangedPayload {$(
             $(#[doc = $doc])+
             $arm {
                 /// The session.
@@ -311,7 +311,7 @@ release_arms! {
     AutoReleasedRunIdle(Option<DeviceId>, "NullableSchema<DeviceId>");
 }
 
-impl PtyControlChangedPayload {
+impl TerminalControlChangedPayload {
     /// Whether a take's hold names its run and command together; every other arm names no run.
     fn names_its_run_hold_whole(&self) -> garde::Result {
         match self {
@@ -333,22 +333,22 @@ methods! {
     /// The two `session.*` methods that act on one shell: the lease take and flow control.
     pub const TERMINAL_CONTROL_METHOD_DESCRIPTORS = [
         /// Takes one shell's lease.
-        SessionTakeControl = mutation "terminal.control.take" {
+        TerminalControlTake = mutation "terminal.control.take" {
             mutating: true,
-            params: SessionTakeControlRequest,
-            result: SessionTakeControlResponse,
+            params: TerminalControlTakeRequest,
+            result: TerminalControlTakeResponse,
             refusals: [
                 SessionNotFound,
-                PtyNotFound,
-                PtyControlHeldByOther,
-                PtyOutputSubscriptionNotFound,
+                TerminalNotFound,
+                TerminalControlHeldByOther,
+                TerminalOutputSubscriptionNotFound,
             ],
         },
         /// Declares whether this connection is behind on one shell.
-        SessionSetTerminalFlowControl = mutation "terminal.flowControl.update" {
+        TerminalFlowControlUpdate = mutation "terminal.flowControl.update" {
             mutating: true,
-            params: SessionSetTerminalFlowControlRequest,
-            result: SessionSetTerminalFlowControlResponse,
+            params: TerminalFlowControlUpdateRequest,
+            result: TerminalFlowControlUpdateResponse,
             refusals: [SessionNotFound],
         },
     ];

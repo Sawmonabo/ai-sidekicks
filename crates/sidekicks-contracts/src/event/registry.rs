@@ -1,6 +1,6 @@
-//! The closed set of session event types, grouped by category. A type's wire name is an immutable
-//! identifier, never renamed, and its category is the group it is listed in here, not its prefix:
-//! `relay.pin.refused` is `securityEvents`, `plan.*` is `approvalFlow`.
+//! The closed set of session event types, grouped by category. A type's category is the group it
+//! is listed in here, not its prefix: `relay.pin.refused` is `securityEvents`, `plan.*` is
+//! `approvalFlow`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -74,59 +74,59 @@ macro_rules! session_event_types {
 session_event_types! {
     /// The event types of the `runLifecycle` category.
     RUN_LIFECYCLE_EVENT_TYPES = RunLifecycle [
-        RunQueued = "agent.run.queued",
-        RunStarting = "agent.run.starting",
-        RunRunning = "agent.run.running",
-        RunWaitingForApproval = "agent.run.waitingForApproval",
-        RunWaitingForInput = "agent.run.waitingForInput",
-        RunPausing = "agent.run.pausing",
-        RunPaused = "agent.run.paused",
-        RunCompleted = "agent.run.completed",
-        RunInterrupted = "agent.run.interrupted",
-        RunStopped = "agent.run.stopped",
-        RunFailed = "agent.run.failed",
-        RunRolledBack = "agent.run.rolledBack",
-        RunProviderInitialized = "agent.run.providerInitialized",
-        RunTurnStarted = "agent.turn.started",
-        RunWorkerShutdown = "agent.run.workerShuttingDown",
-        RunStepLimitReached = "agent.run.stepLimit.reached",
-        RunTokenLimitReached = "agent.run.tokenLimit.reached",
-        RunRecoveryStepsAdded = "agent.run.recoverySteps.added",
-        RunRecoveryResolved = "agent.run.recovery.resolved",
-        RunRefusalChoiceRequested = "agent.run.refusalChoice.requested",
-        RunRefusalChoiceResolved = "agent.run.refusalChoice.resolved",
-        RunUsageCreditsChoiceRequested = "agent.run.usageCreditsChoice.requested",
-        RunUsageCreditsChoiceResolved = "agent.run.usageCreditsChoice.resolved",
+        AgentRunQueued = "agent.run.queued",
+        AgentRunStarting = "agent.run.starting",
+        AgentRunRunning = "agent.run.running",
+        AgentRunWaitingForApproval = "agent.run.waitingForApproval",
+        AgentRunWaitingForInput = "agent.run.waitingForInput",
+        AgentRunPausing = "agent.run.pausing",
+        AgentRunPaused = "agent.run.paused",
+        AgentRunCompleted = "agent.run.completed",
+        AgentRunInterrupted = "agent.run.interrupted",
+        AgentRunStopped = "agent.run.stopped",
+        AgentRunFailed = "agent.run.failed",
+        AgentRunRolledBack = "agent.run.rolledBack",
+        AgentRunProviderInitialized = "agent.run.providerInitialized",
+        AgentTurnStarted = "agent.turn.started",
+        AgentRunWorkerShuttingDown = "agent.run.workerShuttingDown",
+        AgentRunStepLimitReached = "agent.run.stepLimit.reached",
+        AgentRunTokenLimitReached = "agent.run.tokenLimit.reached",
+        AgentRunRecoveryStepsAdded = "agent.run.recoverySteps.added",
+        AgentRunRecoveryResolved = "agent.run.recovery.resolved",
+        AgentRunRefusalChoiceRequested = "agent.run.refusalChoice.requested",
+        AgentRunRefusalChoiceResolved = "agent.run.refusalChoice.resolved",
+        AgentRunUsageCreditsChoiceRequested = "agent.run.usageCreditsChoice.requested",
+        AgentRunUsageCreditsChoiceResolved = "agent.run.usageCreditsChoice.resolved",
     ]
     /// The event types of the `assistantOutput` category.
     ASSISTANT_OUTPUT_EVENT_TYPES = AssistantOutput [
-        AssistantMessage = "agent.message.sent",
-        AssistantThinkingUpdate = "agent.thinking.updated",
+        AgentMessageSent = "agent.message.sent",
+        AgentThinkingUpdated = "agent.thinking.updated",
     ]
     /// The event types of the `toolActivity` category.
     TOOL_ACTIVITY_EVENT_TYPES = ToolActivity [
-        ToolInvoked = "agent.toolCall.invoked",
-        ToolResult = "agent.toolCall.completed",
-        ToolError = "agent.toolCall.failed",
-        SubagentStarted = "agent.subagent.started",
-        SubagentCompleted = "agent.subagent.completed",
-        CommandEnded = "agent.command.ended",
+        AgentToolCallInvoked = "agent.toolCall.invoked",
+        AgentToolCallCompleted = "agent.toolCall.completed",
+        AgentToolCallFailed = "agent.toolCall.failed",
+        AgentSubagentStarted = "agent.subagent.started",
+        AgentSubagentCompleted = "agent.subagent.completed",
+        AgentCommandEnded = "agent.command.ended",
     ]
     /// The event types of the `interactiveRequest` category.
     INTERACTIVE_REQUEST_EVENT_TYPES = InteractiveRequest [
-        QueueItemCreated = "agent.queueItem.created",
-        QueueItemAdmitted = "agent.queueItem.admitted",
-        QueueItemSuperseded = "agent.queueItem.superseded",
-        QueueItemCanceled = "agent.queueItem.canceled",
-        QueueItemNotDelivered = "agent.queueItem.notDelivered",
-        InterventionRequested = "agent.intervention.requested",
-        InterventionAccepted = "agent.intervention.accepted",
-        InterventionApplied = "agent.intervention.applied",
-        InterventionRejected = "agent.intervention.rejected",
-        InterventionDegraded = "agent.intervention.degraded",
-        InterventionExpired = "agent.intervention.expired",
-        InterventionFailed = "agent.intervention.failed",
-        UserMessage = "user.message.sent",
+        AgentQueueItemCreated = "agent.queueItem.created",
+        AgentQueueItemAdmitted = "agent.queueItem.admitted",
+        AgentQueueItemSuperseded = "agent.queueItem.superseded",
+        AgentQueueItemCanceled = "agent.queueItem.canceled",
+        AgentQueueItemNotDelivered = "agent.queueItem.notDelivered",
+        AgentInterventionRequested = "agent.intervention.requested",
+        AgentInterventionAccepted = "agent.intervention.accepted",
+        AgentInterventionApplied = "agent.intervention.applied",
+        AgentInterventionRejected = "agent.intervention.rejected",
+        AgentInterventionDegraded = "agent.intervention.degraded",
+        AgentInterventionExpired = "agent.intervention.expired",
+        AgentInterventionFailed = "agent.intervention.failed",
+        UserMessageSent = "user.message.sent",
         QuestionAsked = "question.asked",
     ]
     /// The event types of the `artifactPublication` category.
@@ -138,7 +138,7 @@ session_event_types! {
     /// The event types of the `sessionLifecycle` category: session (including the side
     /// question, the undo record, the pin and mute marks and a chat's conversion), agent, repo,
     /// workspace and worktree (including the branch change and the sweep to the repository root),
-    /// pty and cloud task.
+    /// terminal and cloud task.
     SESSION_LIFECYCLE_EVENT_TYPES = SessionLifecycle [
         SessionCreated = "session.created",
         SessionActivated = "session.activated",
@@ -147,8 +147,8 @@ session_event_types! {
         SessionClosed = "session.closed",
         SessionGoalUpdated = "session.goal.updated",
         SessionGoalCleared = "session.goal.cleared",
-        SessionProviderStatus = "session.providerStatus.reported",
-        SessionNotice = "session.notice.posted",
+        SessionProviderStatusReported = "session.providerStatus.reported",
+        SessionNoticePosted = "session.notice.posted",
         SessionRenamed = "session.renamed",
         SessionPinned = "session.pinned",
         SessionUnpinned = "session.unpinned",
@@ -157,24 +157,24 @@ session_event_types! {
         SessionConverted = "session.converted",
         SessionSideQuestionAnswered = "session.sideQuestion.answered",
         SessionSpendLimitReached = "session.spendLimit.reached",
-        SessionRestoreFinished = "session.restore.completed",
+        SessionRestoreCompleted = "session.restore.completed",
         SessionAdvisorChanged = "session.advisor.changed",
         SessionOutputStyleChanged = "session.outputStyle.changed",
         AgentProviderBindingChanged = "agent.providerBinding.changed",
         AgentProviderBindingChangeFailed = "agent.providerBinding.changeFailed",
         WorkspacePreparing = "workspace.preparing",
-        WorkspaceReady = "workspace.prepared",
+        WorkspacePrepared = "workspace.prepared",
         WorkspaceRootLost = "workspace.rootLost",
         WorkspaceArchived = "workspace.archived",
         WorktreeCreated = "worktree.created",
-        WorktreeReady = "worktree.bound",
-        WorktreeDirty = "worktree.dirtied",
+        WorktreeBound = "worktree.bound",
+        WorktreeDirtied = "worktree.dirtied",
         WorktreeMerged = "worktree.merged",
         WorktreeRetired = "worktree.retired",
         RepoMountHealthChanged = "repoMount.health.changed",
         SessionBranchChanged = "session.branch.changed",
-        SessionSweptToRepoRoot = "session.sweptToCheckout",
-        PtyControlChanged = "terminal.control.changed",
+        SessionSweptToCheckout = "session.sweptToCheckout",
+        TerminalControlChanged = "terminal.control.changed",
         CloudTaskUpdated = "cloud.task.updated",
     ]
     /// The event types of the `approvalFlow` category.
@@ -183,31 +183,31 @@ session_event_types! {
         ApprovalApproved = "approval.approved",
         ApprovalRejected = "approval.rejected",
         ApprovalCanceled = "approval.canceled",
-        ApprovalRemembered = "approval.rule.remembered",
+        ApprovalRuleRemembered = "approval.rule.remembered",
         ApprovalRuleRevoked = "approval.rule.revoked",
         ApprovalReviewerDenied = "approval.reviewer.denied",
         ApprovalDenialOverridden = "approval.denial.overridden",
-        ModerationReviewFlagged = "approval.reviewer.flagged",
+        ApprovalReviewerFlagged = "approval.reviewer.flagged",
         PlanProposed = "plan.proposed",
         PlanAccepted = "plan.accepted",
         PlanHandedOff = "plan.handedOff",
     ]
     /// The event types of the `usageTelemetry` category.
     USAGE_TELEMETRY_EVENT_TYPES = UsageTelemetry [
-        UsageTokenCount = "usage.tokenCount.recorded",
-        UsageCostUpdate = "usage.cost.updated",
-        UsageContextWindowUpdate = "usage.contextWindow.updated",
-        UsageRateLimitUpdate = "usage.rateLimit.updated",
-        UsageApiRetry = "usage.apiRequest.retried",
-        UsageContextCompacted = "agent.run.context.compacted",
-        UsageModelRerouted = "agent.turn.rerouted",
+        UsageTokenCountRecorded = "usage.tokenCount.recorded",
+        UsageCostUpdated = "usage.cost.updated",
+        UsageContextWindowUpdated = "usage.contextWindow.updated",
+        UsageRateLimitUpdated = "usage.rateLimit.updated",
+        UsageApiRequestRetried = "usage.apiRequest.retried",
+        AgentRunContextCompacted = "agent.run.context.compacted",
+        AgentTurnRerouted = "agent.turn.rerouted",
     ]
     /// The event types of the `recoveryEvents` category.
     RECOVERY_EVENTS_EVENT_TYPES = RecoveryEvents [
-        RecoveryAttempted = "daemon.recovery.attempted",
-        RecoverySucceeded = "daemon.recovery.succeeded",
-        RecoveryFailed = "daemon.recovery.failed",
-        RecoveryDamagedEventsSkipped = "session.damagedEvents.skipped",
+        DaemonRecoveryAttempted = "daemon.recovery.attempted",
+        DaemonRecoverySucceeded = "daemon.recovery.succeeded",
+        DaemonRecoveryFailed = "daemon.recovery.failed",
+        SessionDamagedEventsSkipped = "session.damagedEvents.skipped",
     ]
     /// The event types of the `securityEvents` category.
     SECURITY_EVENTS_EVENT_TYPES = SecurityEvents [
@@ -215,29 +215,29 @@ session_event_types! {
     ]
     /// The event types of the `eventMaintenance` category.
     EVENT_MAINTENANCE_EVENT_TYPES = EventMaintenance [
-        EventCompacted = "session.event.compacted",
-        BackupCompleted = "daemon.backup.completed",
-        BackupFailed = "daemon.backup.failed",
-        BackupRestored = "daemon.backup.restored",
+        SessionEventCompacted = "session.event.compacted",
+        DaemonBackupCompleted = "daemon.backup.completed",
+        DaemonBackupFailed = "daemon.backup.failed",
+        DaemonBackupRestored = "daemon.backup.restored",
     ]
     /// The event types of the `orchestrationAdmission` category.
     ORCHESTRATION_ADMISSION_EVENT_TYPES = OrchestrationAdmission [
-        OrchestrationRejected = "agent.run.rejected",
+        AgentRunRejected = "agent.run.rejected",
     ]
     /// The event types of the `mcpGovernance` category. `mcp.server.signIn.completed` binds to the
     /// daemon-scope sentinel session.
     MCP_GOVERNANCE_EVENT_TYPES = McpGovernance [
-        McpServerOauthCompleted = "mcp.server.signIn.completed",
+        McpServerSignInCompleted = "mcp.server.signIn.completed",
     ]
     /// The event types of the `workflowLifecycle` category.
     WORKFLOW_LIFECYCLE_EVENT_TYPES = WorkflowLifecycle [
-        WorkflowCreated = "workflow.version.created",
-        WorkflowStarted = "workflow.run.started",
-        WorkflowGated = "workflow.gate.reached",
-        WorkflowFailed = "workflow.run.failed",
-        WorkflowCompleted = "workflow.run.completed",
-        WorkflowResumed = "workflow.run.resumed",
-        WorkflowCanceled = "workflow.run.canceled",
+        WorkflowVersionCreated = "workflow.version.created",
+        WorkflowRunStarted = "workflow.run.started",
+        WorkflowGateReached = "workflow.gate.reached",
+        WorkflowRunFailed = "workflow.run.failed",
+        WorkflowRunCompleted = "workflow.run.completed",
+        WorkflowRunResumed = "workflow.run.resumed",
+        WorkflowRunCanceled = "workflow.run.canceled",
         WorkflowRunWaiting = "workflow.run.waiting",
         WorkflowRunDeleted = "workflow.run.deleted",
         WorkflowScheduleArmed = "workflow.schedule.armed",
@@ -259,14 +259,14 @@ session_event_types! {
         WorkflowPhaseResumed = "workflow.phase.resumed",
         WorkflowPhaseCompleted = "workflow.phase.completed",
         WorkflowStepStarted = "workflow.step.started",
-        WorkflowStepFinished = "workflow.step.completed",
+        WorkflowStepCompleted = "workflow.step.completed",
         WorkflowStepFailed = "workflow.step.failed",
         WorkflowStepCanceled = "workflow.step.canceled",
         WorkflowStepSkipped = "workflow.step.skipped",
     ]
     /// The event types of the `workflowParallelCoordination` category.
     WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES = WorkflowParallelCoordination [
-        WorkflowParallelJoinCancellation = "workflow.parallelJoin.branchesCanceled",
+        WorkflowParallelJoinBranchesCanceled = "workflow.parallelJoin.branchesCanceled",
     ]
     /// The event types of the `workflowGateResolution` category.
     WORKFLOW_GATE_RESOLUTION_EVENT_TYPES = WorkflowGateResolution [

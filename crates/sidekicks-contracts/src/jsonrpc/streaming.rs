@@ -121,7 +121,7 @@ pub(crate) use stream_frame;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SubscriptionCancelParams {
+pub struct SubscriptionCancelRequest {
     /// The subscription to cancel.
     pub subscription_id: SubscriptionId,
 }
@@ -131,7 +131,7 @@ pub struct SubscriptionCancelParams {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SubscriptionCancelResult {
+pub struct SubscriptionCancelResponse {
     /// Whether the subscription was canceled.
     pub canceled: bool,
 }
@@ -142,17 +142,17 @@ pub struct SubscriptionCancelResult {
 pub struct SubscriptionCancel;
 
 impl Method for SubscriptionCancel {
-    type Params = SubscriptionCancelParams;
-    type Result = SubscriptionCancelResult;
+    type Params = SubscriptionCancelRequest;
+    type Result = SubscriptionCancelResponse;
     const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
         method: SUBSCRIPTION_CANCEL_METHOD,
         procedure_type: ProcedureType::Query,
         is_mutating: false,
-        params: TypeName::of::<SubscriptionCancelParams>(),
-        result: TypeName::of::<SubscriptionCancelResult>(),
+        params: TypeName::of::<SubscriptionCancelRequest>(),
+        result: TypeName::of::<SubscriptionCancelResponse>(),
         emission: None,
         refusals: &[],
-        received_check: received_check::<SubscriptionCancelParams>,
+        received_check: received_check::<SubscriptionCancelRequest>,
     };
 }
 
@@ -168,8 +168,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SubscriptionEndParams>().checked(),
         Definition::read::<SubscribeAckResponse>().checked(),
         Definition::read::<SubscriptionNotifyParams<AnyValue>>().checked(),
-        Definition::read::<SubscriptionCancelParams>(),
-        Definition::read::<SubscriptionCancelResult>().checked(),
+        Definition::read::<SubscriptionCancelRequest>(),
+        Definition::read::<SubscriptionCancelResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

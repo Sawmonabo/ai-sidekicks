@@ -28,7 +28,7 @@ use crate::run::children::{
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
 use crate::run::provider_choice::{
-    RunRefusalChoiceResolveRequest, RunUsageCreditsChoiceResolveRequest,
+    AgentRunRefusalChoiceResolveRequest, AgentRunUsageCreditsChoiceResolveRequest,
 };
 use crate::run::queue::{
     QueueItemCancelRequest, QueueItemCancelResponse, QueueItemCreateRequest,
@@ -113,10 +113,10 @@ ts_constants! {
     INTERVENTION_STATES = InterventionState::VARIANTS;
     /// The code of a move the run's current state does not allow, such as a second or late answer
     /// to a choice the run already settled.
-    RUN_INVALID_TRANSITION_CODE = RefusalCode::RunInvalidTransition;
+    RUN_INVALID_TRANSITION_CODE = RefusalCode::AgentRunInvalidTransition;
     /// The code of a `agent.run.pause` or `agent.run.resume` whose `expectedRunVersion` is not the
     /// run's current version, older or newer; nothing is written and the run is left as it was.
-    RUN_VERSION_STALE_CODE = RefusalCode::RunVersionStale;
+    RUN_VERSION_STALE_CODE = RefusalCode::AgentRunVersionStale;
 }
 
 /// Declares the interrupt's arms on `pending`: each repeats the guards every intervention carries
@@ -559,7 +559,7 @@ pub enum RunStateChangeEvent {
 /// state, and it carries no tag: its closed members keep it apart from the state change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunRolledBackEvent {
+pub struct AgentRunRolledBackEvent {
     /// The session.
     pub session_id: SessionId,
     /// The run rewound.
@@ -580,7 +580,7 @@ pub enum RunStateStreamEvent {
     /// A state transition.
     StateChange(#[garde(dive)] RunStateChangeEvent),
     /// A rollback.
-    RolledBack(#[garde(skip)] RunRolledBackEvent),
+    RolledBack(#[garde(skip)] AgentRunRolledBackEvent),
     /// The provider's safety hold or its release.
     SafetyBuffering(#[garde(skip)] RunSafetyBufferingUpdatedPayload),
 }
@@ -608,7 +608,7 @@ stream_frame! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunPauseRequest {
+pub struct AgentRunPauseRequest {
     /// The run.
     pub target_run_id: RunId,
     /// The run version the caller last saw.
@@ -619,7 +619,7 @@ pub struct RunPauseRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunResumeRequest {
+pub struct AgentRunResumeRequest {
     /// The run.
     pub target_run_id: RunId,
     /// The run version the caller last saw.
@@ -631,7 +631,7 @@ pub struct RunResumeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunControlAck {
+pub struct AgentRunControlResponse {
     /// The run.
     pub run_id: RunId,
     /// Its state now.
@@ -661,7 +661,7 @@ pub enum RunRecoveryChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunRecoveryResolveRequest {
+pub struct AgentRunRecoveryResolveRequest {
     /// The run.
     pub run_id: RunId,
     /// The person's answer.
@@ -671,7 +671,7 @@ pub struct RunRecoveryResolveRequest {
 /// The payload of `agent.run.recovery.resolved`: which choice settled the question.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunRecoveryResolvedPayload {
+pub struct AgentRunRecoveryResolvedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -684,7 +684,7 @@ pub struct RunRecoveryResolvedPayload {
 /// provider's own record that only read were added to the transcript as the provider recorded them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RunRecoveryStepsAddedPayload {
+pub struct AgentRunRecoveryStepsAddedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -719,7 +719,7 @@ methods! {
     /// child's own controls, the recovery question and the provider's choices a run waits on.
     pub const RUN_CONTROL_METHOD_DESCRIPTORS = [
         /// Sends a message into a run's queue, or edits one still waiting.
-        RunQueueCreate = mutation "agent.queueItem.create" {
+        AgentQueueItemCreate = mutation "agent.queueItem.create" {
             mutating: true,
             params: QueueItemCreateRequest,
             result: QueueItemCreateResponse,
@@ -727,139 +727,139 @@ methods! {
                 SessionNotFound,
                 SessionAlreadyClosed,
                 SessionChangeRefused,
-                DriverUnavailable,
-                DriverTimeout,
-                QueuePersistenceUnavailable,
-                QueueItemNotFound,
-                QueueChangeRefused,
-                QueueRunChanged,
+                ProviderUnavailable,
+                ProviderTimeout,
+                AgentQueueItemPersistenceUnavailable,
+                AgentQueueItemNotFound,
+                AgentQueueItemChangeRefused,
+                AgentQueueItemRunChanged,
                 SkillPathRefused,
                 SessionMessageTooLarge,
             ],
         },
         /// Reads a queue in the daemon's order.
-        RunQueueList = query "agent.queueItem.list" {
+        AgentQueueItemList = query "agent.queueItem.list" {
             mutating: false,
             params: QueueItemListRequest,
             result: QueueItemListResponse,
-            refusals: [SessionNotFound, RunChildControlRefused],
+            refusals: [SessionNotFound, AgentChildRunControlRefused],
         },
         /// Removes a waiting message.
-        RunQueueCancel = mutation "agent.queueItem.cancel" {
+        AgentQueueItemCancel = mutation "agent.queueItem.cancel" {
             mutating: true,
             params: QueueItemCancelRequest,
             result: QueueItemCancelResponse,
-            refusals: [QueueItemNotFound, QueueChangeRefused, RunChildControlRefused],
+            refusals: [AgentQueueItemNotFound, AgentQueueItemChangeRefused, AgentChildRunControlRefused],
         },
         /// Puts the waiting messages in a new order.
-        RunQueueReorder = mutation "agent.queueItem.reorder" {
+        AgentQueueItemReorder = mutation "agent.queueItem.reorder" {
             mutating: true,
             params: QueueReorderRequest,
             result: QueueItemListResponse,
             refusals: [
                 SessionNotFound,
-                QueueItemNotFound,
-                QueueChangeRefused,
-                RunChildControlRefused,
+                AgentQueueItemNotFound,
+                AgentQueueItemChangeRefused,
+                AgentChildRunControlRefused,
             ],
         },
         /// Follows a queue's changes.
-        RunSubscribeQueue = subscription "agent.queueItem.subscribe" {
+        AgentQueueItemSubscribe = subscription "agent.queueItem.subscribe" {
             mutating: false,
             params: RunQueueSubscribeRequest,
             result: SubscribeAckResponse,
             emission: RunQueueStreamFrame,
             refusals: [
                 SessionNotFound,
-                DriverUnavailable,
-                EventCursorUnresolvable,
-                RunChildControlRefused,
+                ProviderUnavailable,
+                SessionEventCursorUnresolvable,
+                AgentChildRunControlRefused,
             ],
         },
         /// Interrupts a run or retries its turn on a faster model.
-        RunIntervene = mutation "agent.run.intervene" {
+        AgentRunIntervene = mutation "agent.run.intervene" {
             mutating: true,
             params: InterventionRequestPayload,
             result: InterventionRequestResponse,
-            refusals: [RunNotFound, InterventionIdempotencyConflict],
+            refusals: [AgentRunNotFound, AgentInterventionIdempotencyConflict],
         },
         /// Pauses a run.
-        RunPause = mutation "agent.run.pause" {
+        AgentRunPause = mutation "agent.run.pause" {
             mutating: true,
-            params: RunPauseRequest,
-            result: RunControlAck,
-            refusals: [RunNotFound, RunVersionStale, RunInvalidTransition, DriverUnavailable],
+            params: AgentRunPauseRequest,
+            result: AgentRunControlResponse,
+            refusals: [AgentRunNotFound, AgentRunVersionStale, AgentRunInvalidTransition, ProviderUnavailable],
         },
         /// Resumes a paused run.
-        RunResume = mutation "agent.run.resume" {
+        AgentRunResume = mutation "agent.run.resume" {
             mutating: true,
-            params: RunResumeRequest,
-            result: RunControlAck,
-            refusals: [RunNotFound, RunVersionStale, RunInvalidTransition, DriverUnavailable],
+            params: AgentRunResumeRequest,
+            result: AgentRunControlResponse,
+            refusals: [AgentRunNotFound, AgentRunVersionStale, AgentRunInvalidTransition, ProviderUnavailable],
         },
         /// Follows every run state change in a session.
-        RunSubscribeState = subscription "agent.run.subscribe" {
+        AgentRunSubscribe = subscription "agent.run.subscribe" {
             mutating: false,
             params: RunStateSubscribeRequest,
             result: SubscribeAckResponse,
             emission: RunStateStreamFrame,
-            refusals: [SessionNotFound, EventCursorUnresolvable],
+            refusals: [SessionNotFound, SessionEventCursorUnresolvable],
         },
         /// Steers one child of a session, live or ended.
-        RunChildSteer = mutation "agent.childRun.steer" {
+        AgentChildRunSteer = mutation "agent.childRun.steer" {
             mutating: true,
             params: ChildSteerRequest,
             result: QueueItemCreateResponse,
             refusals: [
                 SessionNotFound,
-                RunChildControlRefused,
-                QueueItemNotFound,
-                QueueChangeRefused,
-                QueuePersistenceUnavailable,
+                AgentChildRunControlRefused,
+                AgentQueueItemNotFound,
+                AgentQueueItemChangeRefused,
+                AgentQueueItemPersistenceUnavailable,
                 SessionMessageTooLarge,
             ],
         },
         /// Interrupts one live child of a run.
-        RunChildInterrupt = mutation "agent.childRun.interrupt" {
+        AgentChildRunInterrupt = mutation "agent.childRun.interrupt" {
             mutating: true,
             params: ChildInterruptRequest,
             result: ChildInterruptResponse,
-            refusals: [RunNotFound, RunChildControlRefused, QueueItemNotFound],
+            refusals: [AgentRunNotFound, AgentChildRunControlRefused, AgentQueueItemNotFound],
         },
         /// Pauses or resumes one live child of a run.
-        RunChildPauseSet = mutation "agent.childRun.paused.update" {
+        AgentChildRunPausedUpdate = mutation "agent.childRun.paused.update" {
             mutating: true,
             params: ChildPauseSetRequest,
             result: ChildPauseSetResponse,
-            refusals: [RunNotFound, RunChildControlRefused],
+            refusals: [AgentRunNotFound, AgentChildRunControlRefused],
         },
         /// Stops every live child of a run.
-        RunChildrenStop = mutation "agent.childRun.stopAll" {
+        AgentChildRunStopAll = mutation "agent.childRun.stopAll" {
             mutating: true,
             params: ChildrenStopRequest,
             result: ChildrenStopResponse,
-            refusals: [RunNotFound],
+            refusals: [AgentRunNotFound],
         },
         /// Answers the recovery question a restart left a run halted on.
-        RunRecoveryResolve = mutation "agent.run.recovery.resolve" {
+        AgentRunRecoveryResolve = mutation "agent.run.recovery.resolve" {
             mutating: true,
-            params: RunRecoveryResolveRequest,
-            result: RunControlAck,
-            refusals: [RunNotFound, RunInvalidTransition, RunRecoveryFailed],
+            params: AgentRunRecoveryResolveRequest,
+            result: AgentRunControlResponse,
+            refusals: [AgentRunNotFound, AgentRunInvalidTransition, AgentRunRecoveryFailed],
         },
         /// Answers the choice a refused turn waits on.
-        RunRefusalChoiceResolve = mutation "agent.run.refusalChoice.resolve" {
+        AgentRunRefusalChoiceResolve = mutation "agent.run.refusalChoice.resolve" {
             mutating: true,
-            params: RunRefusalChoiceResolveRequest,
-            result: RunControlAck,
-            refusals: [RunNotFound, RunInvalidTransition, DriverUnavailable],
+            params: AgentRunRefusalChoiceResolveRequest,
+            result: AgentRunControlResponse,
+            refusals: [AgentRunNotFound, AgentRunInvalidTransition, ProviderUnavailable],
         },
         /// Answers the choice a turn past the plan's allowance waits on.
-        RunUsageCreditsChoiceResolve = mutation "agent.run.usageCreditsChoice.resolve" {
+        AgentRunUsageCreditsChoiceResolve = mutation "agent.run.usageCreditsChoice.resolve" {
             mutating: true,
-            params: RunUsageCreditsChoiceResolveRequest,
-            result: RunControlAck,
-            refusals: [RunNotFound, RunInvalidTransition, DriverUnavailable],
+            params: AgentRunUsageCreditsChoiceResolveRequest,
+            result: AgentRunControlResponse,
+            refusals: [AgentRunNotFound, AgentRunInvalidTransition, ProviderUnavailable],
         },
     ];
 }
@@ -879,17 +879,17 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProcessExit>().checked(),
         Definition::read::<RunCompletionKind>().checked(),
         Definition::read::<RunStateChangeEvent>().checked(),
-        Definition::read::<RunRolledBackEvent>().checked(),
+        Definition::read::<AgentRunRolledBackEvent>().checked(),
         Definition::read::<RunStateStreamEvent>(),
         Definition::read::<RunStateStreamChange>(),
         Definition::read::<RunStateStreamFrame>().checked(),
-        Definition::read::<RunPauseRequest>().checked(),
-        Definition::read::<RunResumeRequest>().checked(),
-        Definition::read::<RunControlAck>().checked(),
+        Definition::read::<AgentRunPauseRequest>().checked(),
+        Definition::read::<AgentRunResumeRequest>().checked(),
+        Definition::read::<AgentRunControlResponse>().checked(),
         Definition::read::<RunRecoveryChoice>(),
-        Definition::read::<RunRecoveryResolveRequest>().checked(),
-        Definition::read::<RunRecoveryResolvedPayload>().checked(),
-        Definition::read::<RunRecoveryStepsAddedPayload>().checked(),
+        Definition::read::<AgentRunRecoveryResolveRequest>().checked(),
+        Definition::read::<AgentRunRecoveryResolvedPayload>().checked(),
+        Definition::read::<AgentRunRecoveryStepsAddedPayload>().checked(),
         Definition::read::<RunStateSubscribeRequest>().checked(),
     ],
     constants: TS_CONSTANTS,

@@ -9,8 +9,8 @@ use crate::approval::{
     RememberedScope, ReviewerDenialId,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
+use crate::machine::id::NodeId;
 use crate::run::id::RunId;
-use crate::runtime_node::id::NodeId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::wire::id::ClientUuid;
@@ -109,7 +109,7 @@ pub struct ApprovalCanceledPayload {
 /// the machine whose provider keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ApprovalRememberedPayload {
+pub struct ApprovalRuleRememberedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run.

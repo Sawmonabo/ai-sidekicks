@@ -18,7 +18,7 @@ use crate::provider::driver::methods::{DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_T
 use crate::run::id::RunId;
 use crate::run::state::RunState;
 use crate::session::cost::{
-    OrchestrationBudgetReadRequest, OrchestrationBudgetState, SessionCostReceipt,
+    OrchestrationBudgetState, SessionBudgetReadRequest, SessionCostReceipt,
     SessionCostReceiptRequest, TokensPerRun, UsdMicros,
 };
 use crate::session::id::SessionId;
@@ -96,7 +96,7 @@ macro_rules! run_create_request {
 
 run_create_request! {
     /// A run create aimed at a live agent in the session.
-    AgentRunCreateRequest {
+    LiveAgentRunCreateRequest {
         /// The agent.
         pub target_agent_id: AgentId,
     }
@@ -116,9 +116,9 @@ run_create_request! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
-pub enum OrchestrationRunCreateRequest {
+pub enum AgentRunCreateRequest {
     /// Aimed at a live agent.
-    Agent(AgentRunCreateRequest),
+    Agent(LiveAgentRunCreateRequest),
     /// Aimed at a saved definition.
     Definition(DefinitionRunCreateRequest),
 }
@@ -127,7 +127,7 @@ pub enum OrchestrationRunCreateRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct OrchestrationRunCreateResponse {
+pub struct AgentRunCreateResponse {
     /// The run.
     pub run_id: RunId,
     /// Its state.
@@ -152,7 +152,7 @@ pub type OrchestrationRefusalDetail = FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>;
 /// a refusal leaves none. `reason` is the refusing error code, and `detail` its words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct OrchestrationRejectedPayload {
+pub struct AgentRunRejectedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The agent the run was aimed at.
@@ -373,28 +373,28 @@ methods! {
     /// completed, run queued, create refused and run state change.
     pub const ORCHESTRATION_METHOD_DESCRIPTORS = [
         /// Admits a run under an agent.
-        OrchestrationRunCreate = mutation "agent.run.create" {
+        AgentRunCreate = mutation "agent.run.create" {
             mutating: true,
-            params: OrchestrationRunCreateRequest,
-            result: OrchestrationRunCreateResponse,
-            refusals: [SessionNotFound, AgentNotFound, RunNotFound, AgentDefinitionNotFound],
+            params: AgentRunCreateRequest,
+            result: AgentRunCreateResponse,
+            refusals: [SessionNotFound, AgentNotFound, AgentRunNotFound, AgentDefinitionNotFound],
         },
         /// Reads the session's whole agent tree.
-        OrchestrationChildRunLinkRead = query "agent.childRunLink.list" {
+        AgentChildRunLinkList = query "agent.childRunLink.list" {
             mutating: false,
             params: ChildRunLinkReadRequest,
             result: ChildRunLinkReadResponse,
             refusals: [SessionNotFound],
         },
         /// Reads the session's limits and spend.
-        OrchestrationBudgetRead = query "session.budget.read" {
+        SessionBudgetRead = query "session.budget.read" {
             mutating: false,
-            params: OrchestrationBudgetReadRequest,
+            params: SessionBudgetReadRequest,
             result: OrchestrationBudgetState,
             refusals: [SessionNotFound],
         },
         /// Reads the session's cost receipt.
-        OrchestrationCostReceiptRead = query "session.costReceipt.read" {
+        SessionCostReceiptRead = query "session.costReceipt.read" {
             mutating: false,
             params: SessionCostReceiptRequest,
             result: SessionCostReceipt,
@@ -411,9 +411,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<InterruptReason>(),
         Definition::read::<OrchestrationRunConfig>().checked(),
-        Definition::read::<OrchestrationRunCreateRequest>(),
-        Definition::read::<OrchestrationRunCreateResponse>(),
-        Definition::read::<OrchestrationRejectedPayload>().checked(),
+        Definition::read::<AgentRunCreateRequest>(),
+        Definition::read::<AgentRunCreateResponse>(),
+        Definition::read::<AgentRunRejectedPayload>().checked(),
         Definition::read::<ChildRunLinkReadRequest>(),
         Definition::read::<ChildRunHead>(),
         Definition::read::<ChildRunLink>().checked(),

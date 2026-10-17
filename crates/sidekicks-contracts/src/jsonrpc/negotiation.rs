@@ -15,7 +15,7 @@ use crate::wire::text::{BoundedText, pattern_text};
 
 ts_constants! {
     /// The JSON-RPC method name of the negotiation handshake.
-    pub const DAEMON_HELLO_METHOD: &str = "connection.initialize";
+    pub const CONNECTION_INITIALIZE_METHOD: &str = "connection.initialize";
     /// The longest a free-form negotiation string (`clientId`, a capability tag) may be.
     pub const NEGOTIATION_FIELD_MAX_LEN: usize = 256;
     /// The most entries any protocol-version or capability list in the handshake may carry.
@@ -36,7 +36,7 @@ ts_constants! {
         NegotiationIncompatibleReason::HandshakeAlreadyCompleted;
     /// The refusal of a mutating call on a connection whose handshake answered
     /// `compatible: false`.
-    NEGOTIATION_VERSION_MISMATCH_CODE = RefusalCode::ProtocolVersionMismatch;
+    NEGOTIATION_VERSION_MISMATCH_CODE = RefusalCode::ConnectionVersionMismatch;
     /// The refusal of every call on a connection whose `connection.initialize` carried no session
     /// token or the wrong one, the hello included.
     NEGOTIATION_TOKEN_INVALID_CODE = RefusalCode::AuthTokenInvalid;
@@ -60,7 +60,7 @@ pub type NegotiationText = BoundedText<1, NEGOTIATION_FIELD_MAX_LEN>;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DaemonHello {
+pub struct ConnectionInitializeRequest {
     /// The client's preferred version.
     pub protocol_version: ProtocolVersion,
     /// Every version the client speaks.
@@ -119,7 +119,7 @@ pub enum NegotiationIncompatibleReason {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DaemonHelloAck {
+pub struct ConnectionInitializeResponse {
     /// Whether the client and the daemon share a version.
     pub compatible: bool,
     /// The negotiated version, or the daemon's newest when incompatible.
@@ -160,35 +160,35 @@ pub struct DaemonHelloAck {
 pub struct DaemonHandshake;
 
 impl Method for DaemonHandshake {
-    type Params = DaemonHello;
-    type Result = DaemonHelloAck;
+    type Params = ConnectionInitializeRequest;
+    type Result = ConnectionInitializeResponse;
     const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
-        method: DAEMON_HELLO_METHOD,
+        method: CONNECTION_INITIALIZE_METHOD,
         procedure_type: ProcedureType::Query,
         is_mutating: false,
-        params: TypeName::of::<DaemonHello>(),
-        result: TypeName::of::<DaemonHelloAck>(),
+        params: TypeName::of::<ConnectionInitializeRequest>(),
+        result: TypeName::of::<ConnectionInitializeResponse>(),
         emission: None,
         refusals: &[
             RefusalCode::AuthTokenInvalid,
             RefusalCode::AuthCallerRefused,
             RefusalCode::DaemonRepairing,
         ],
-        received_check: received_check::<DaemonHello>,
+        received_check: received_check::<ConnectionInitializeRequest>,
     };
 }
 
 /// The TypeScript module of the handshake.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "jsonrpc/negotiation",
-    doc: "The `connection.initialize` handshake, `DaemonHello` and `DaemonHelloAck`, shared by the daemon \
-          and its clients. A `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date, so lexical order \
+    doc: "The `connection.initialize` handshake, `ConnectionInitializeRequest` and \
+          `ConnectionInitializeResponse`, shared by the daemon and its clients. A `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date, so lexical order \
           is chronological.",
     definitions: &[
         Definition::read::<ProtocolVersion>(),
-        Definition::read::<DaemonHello>().checked(),
+        Definition::read::<ConnectionInitializeRequest>().checked(),
         Definition::read::<NegotiationIncompatibleReason>(),
-        Definition::read::<DaemonHelloAck>().checked(),
+        Definition::read::<ConnectionInitializeResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

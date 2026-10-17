@@ -165,7 +165,7 @@ const SELECT_TAGS_SQL: &str =
 // event log; the unary `+` drops the run id column's affinity, which would keep the index from
 // serving.
 static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
-    let run_queued = SessionEventType::RunQueued.as_str();
+    let run_queued = SessionEventType::AgentRunQueued.as_str();
     let lifecycle_types = sql_list_of(
         RUN_LIFECYCLE_EVENT_TYPES
             .iter()
@@ -209,11 +209,11 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 // which the outer select drops. Each newest pick takes the newest readable row, so a damaged or
 // skipped newer one never hides the fact before it.
 static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
-    let window_update = SessionEventType::UsageContextWindowUpdate.as_str();
-    let compacted = SessionEventType::UsageContextCompacted.as_str();
-    let control_changed = SessionEventType::PtyControlChanged.as_str();
+    let window_update = SessionEventType::UsageContextWindowUpdated.as_str();
+    let compacted = SessionEventType::AgentRunContextCompacted.as_str();
+    let control_changed = SessionEventType::TerminalControlChanged.as_str();
     let session_created = SessionEventType::SessionCreated.as_str();
-    let run_queued = SessionEventType::RunQueued.as_str();
+    let run_queued = SessionEventType::AgentRunQueued.as_str();
     let binding_changed = SessionEventType::AgentProviderBindingChanged.as_str();
     let terminal_states = &*RUN_TERMINAL_STATES_SQL;
     let readable_measured = readable_event_sql("measured");

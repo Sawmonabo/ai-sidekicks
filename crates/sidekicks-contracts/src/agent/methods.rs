@@ -32,7 +32,7 @@ use crate::wire::integer::SafeInt;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AgentListRequest {
+pub struct AgentSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -123,7 +123,7 @@ agent_entry! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AgentListAck {
+pub struct AgentSubscribeResponse {
     /// The subscription.
     pub subscription_id: SubscriptionId,
     /// The session's agents.
@@ -260,10 +260,10 @@ methods! {
     /// `agent.definition.list` reply on each change to the registry.
     pub const AGENT_METHOD_DESCRIPTORS = [
         /// Streams the session's agents.
-        AgentList = subscription "agent.subscribe" {
+        AgentSubscribe = subscription "agent.subscribe" {
             mutating: false,
-            params: AgentListRequest,
-            result: AgentListAck,
+            params: AgentSubscribeRequest,
+            result: AgentSubscribeResponse,
             emission: AgentListEntry,
             refusals: [SessionNotFound],
         },
@@ -272,7 +272,7 @@ methods! {
             mutating: true,
             params: AgentConfigUpdateRequest,
             result: AgentConfigUpdateResponse,
-            refusals: [AgentNotFound, AgentProviderAxisInvalid, DriverCapabilityUnsupported],
+            refusals: [AgentNotFound, AgentProviderAxisInvalid, ProviderCapabilityUnsupported],
         },
         /// Reads the definition registry.
         AgentDefinitionList = query "agent.definition.list" {
@@ -301,7 +301,7 @@ methods! {
             mutating: true,
             params: AgentDefinitionUpdateRequest,
             result: AgentDefinitionUpdateResponse,
-            refusals: [AgentDefinitionNotFound, AgentDefinitionNameConflict, AgentUpdateRefused],
+            refusals: [AgentDefinitionNotFound, AgentDefinitionNameConflict, AgentDefinitionUpdateRefused],
         },
         /// Deletes a definition.
         AgentDefinitionDelete = mutation "agent.definition.delete" {
@@ -315,7 +315,7 @@ methods! {
             mutating: true,
             params: AgentDefinitionExportRequest,
             result: AgentDefinitionExportResponse,
-            refusals: [AgentDefinitionNotFound, AgentExportWriteFailed],
+            refusals: [AgentDefinitionNotFound, AgentDefinitionExportWriteFailed],
         },
         /// Creates the definitions a folder holds.
         AgentDefinitionImport = mutation "agent.definition.import" {
@@ -333,9 +333,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A session's live agents as a client reads and moves them, and the `agent.*` method \
           table, which also carries the definition verbs.",
     definitions: &[
-        Definition::read::<AgentListRequest>(),
+        Definition::read::<AgentSubscribeRequest>(),
         Definition::read::<AgentListEntry>().checked(),
-        Definition::read::<AgentListAck>(),
+        Definition::read::<AgentSubscribeResponse>(),
         Definition::read::<AgentConfigUpdateRequest>(),
         Definition::read::<AgentConfigUpdateResponse>(),
     ],

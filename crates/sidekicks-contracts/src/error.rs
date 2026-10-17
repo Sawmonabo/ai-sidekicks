@@ -22,7 +22,7 @@ ts_constants! {
 /// figure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct ResourceLimitExceededFields {
+pub struct DaemonLimitExceededFields {
     /// The limit's name.
     pub resource: FreeFormText<RESOURCE_LABEL_MAX_LEN>,
     /// The limit's ceiling.
@@ -35,7 +35,7 @@ pub struct ResourceLimitExceededFields {
 /// needs, rendered opaquely and never branched on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct PtyBackendUnavailableFields {
+pub struct TerminalBackendUnavailableFields {
     /// What the platform's PTY reported.
     #[serde(
         default,
@@ -52,8 +52,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The fields two refusals carry in `data.fields`: `daemon.limitExceeded` and \
           `terminal.backendUnavailable`.",
     definitions: &[
-        Definition::read::<ResourceLimitExceededFields>(),
-        Definition::read::<PtyBackendUnavailableFields>(),
+        Definition::read::<DaemonLimitExceededFields>(),
+        Definition::read::<TerminalBackendUnavailableFields>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

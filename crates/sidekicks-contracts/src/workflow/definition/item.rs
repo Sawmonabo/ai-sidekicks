@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentDefinitionId;
 use crate::agent::definition::refusal::{
-    AgentResolutionRefusedCode, agent_resolution_refused_details,
+    AgentDefinitionResolutionRefusedCode, agent_resolution_refused_details,
 };
 use crate::artifacts::id::ArtifactId;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
@@ -146,7 +146,7 @@ step_error_arm! {
     /// A step whose agent could not resolve, such as a park on an account removed first.
     pub struct WorkflowStepAgentResolutionError {
         /// Always `agent.definition.resolutionRefused`.
-        pub code: AgentResolutionRefusedCode,
+        pub code: AgentDefinitionResolutionRefusedCode,
         /// Why the agent could not resolve.
         #[garde(dive)]
         pub details: WorkflowStepAgentResolutionRefusedDetails,

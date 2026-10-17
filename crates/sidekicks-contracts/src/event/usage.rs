@@ -42,7 +42,7 @@ ts_constants! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageTokenCountPayload {
+pub struct UsageTokenCountRecordedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run, absent on a turn no session owns.
@@ -151,7 +151,7 @@ pub struct UsageTokenCountPayload {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageCostUpdatePayload {
+pub struct UsageCostUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run, absent on a turn no session owns.
@@ -211,7 +211,7 @@ pub struct UsageCostUpdatePayload {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = window_dependent_required()))]
-pub struct UsageContextWindowUpdatePayload {
+pub struct UsageContextWindowUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run, absent on a turn no session owns.
@@ -318,7 +318,7 @@ fn window_dependent_required() -> Value {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct UsageRateLimitUpdatePayload {
+pub struct UsageRateLimitUpdatedPayload {
     /// The provider.
     pub provider: ProviderId,
     /// The account the quota belongs to.
@@ -384,7 +384,7 @@ pub enum ApiRetryErrorKind {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageApiRetryPayload {
+pub struct UsageApiRequestRetriedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run whose request was retried.
@@ -443,7 +443,7 @@ pub struct UsageApiRetryPayload {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageContextCompactedPayload {
+pub struct AgentRunContextCompactedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run whose context was compacted.
@@ -529,7 +529,7 @@ pub enum ModelRerouteCause {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct UsageModelReroutedPayload {
+pub struct AgentTurnReroutedPayload {
     /// The session.
     pub session_id: SessionId,
     /// The run whose turn moved.
@@ -602,16 +602,16 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           quota snapshot, a provider's retry, a compaction of a run's context, and the provider's \
           move of a turn onto another model.",
     definitions: &[
-        Definition::read::<UsageTokenCountPayload>().checked(),
-        Definition::read::<UsageCostUpdatePayload>().checked(),
-        Definition::read::<UsageContextWindowUpdatePayload>().checked(),
-        Definition::read::<UsageRateLimitUpdatePayload>().checked(),
+        Definition::read::<UsageTokenCountRecordedPayload>().checked(),
+        Definition::read::<UsageCostUpdatedPayload>().checked(),
+        Definition::read::<UsageContextWindowUpdatedPayload>().checked(),
+        Definition::read::<UsageRateLimitUpdatedPayload>().checked(),
         Definition::read::<ApiRetryErrorKind>(),
-        Definition::read::<UsageApiRetryPayload>().checked(),
-        Definition::read::<UsageContextCompactedPayload>().checked(),
+        Definition::read::<UsageApiRequestRetriedPayload>().checked(),
+        Definition::read::<AgentRunContextCompactedPayload>().checked(),
         Definition::read::<ModelRerouteScope>(),
         Definition::read::<ModelRerouteCause>(),
-        Definition::read::<UsageModelReroutedPayload>().checked(),
+        Definition::read::<AgentTurnReroutedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

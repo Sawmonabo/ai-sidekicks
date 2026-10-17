@@ -23,9 +23,9 @@ use crate::session::search::index::columns::{index_key_sql, index_row_kind_of, s
 // stored once settled. A thinking update is narration a later event supersedes, so it is never
 // indexed.
 const INDEXED_EVENT_TYPES: [SessionEventType; 3] = [
-    SessionEventType::UserMessage,
-    SessionEventType::AssistantMessage,
-    SessionEventType::ToolInvoked,
+    SessionEventType::UserMessageSent,
+    SessionEventType::AgentMessageSent,
+    SessionEventType::AgentToolCallInvoked,
 ];
 
 /// The log rows the index holds, as a SQL list: a person's message, an assistant's message and a
