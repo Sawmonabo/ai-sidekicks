@@ -353,8 +353,8 @@ interface PreviewScreencastInputSendResponse {
   messageId: string;
 }
 
-// Refused with `preview.editRefused` where the page took other input after the menu opened; the pane
-// reads `The page changed before that could run.`
+// Refused with `preview.editRefused` where the page took other input after the menu opened; the
+// pane reads `The page changed before that could run.`
 interface PreviewScreencastEditRequest {
   sessionId: SessionId;
   pageId: string;
@@ -368,15 +368,15 @@ interface PreviewMenuEditResponse {
 
 // The files come from the device's own picker. Each is staged on the machine first through the
 // ArtifactIngest trio, so its bounds and refusals (`artifact.tooLarge`,
-// `artifact.ingest.capacityExhausted`) apply and no request holds a whole file; the staged artifacts
-// are the session's and go with it. The page reads a file's name from its path, so the service copies
-// each into the session's staging folder under the name the ingest recorded, cleaned, and deletes an
-// input's copies when the page loads another document or closes, or the session ends; a picker's stay
-// until the session ends. For a picker the service drops the copies on the page instead of setting
-// them on an input. An empty list is a cancel, which sets no file. More than one only for a
-// `selectMultiple` or `selectFolder` chooser. A `path` that is empty, absolute, holds an empty, `.` or
-// `..` segment, or is missing from a `selectFolder` answer is refused with `preview.filePathRefused`,
-// setting and dropping nothing.
+// `artifact.ingest.capacityExhausted`) apply and no request holds a whole file; the staged
+// artifacts are the session's and go with it. The page reads a file's name from its path, so the
+// service copies each into the session's staging folder under the name the ingest recorded,
+// cleaned, and deletes an input's copies when the page loads another document or closes, or the
+// session ends; a picker's stay until the session ends. For a picker the service drops the copies
+// on the page instead of setting them on an input. An empty list is a cancel, which sets no file.
+// More than one only for a `selectMultiple` or `selectFolder` chooser. A `path` that is empty,
+// absolute, holds an empty, `.` or `..` segment, or is missing from a `selectFolder` answer is
+// refused with `preview.filePathRefused`, setting and dropping nothing.
 interface PreviewScreencastFileChooseRequest {
   sessionId: SessionId;
   pageId: string;

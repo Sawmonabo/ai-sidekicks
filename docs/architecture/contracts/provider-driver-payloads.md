@@ -143,8 +143,8 @@ type RunOutputSpeedSettledListener = (
 //   * Any connection that reaches the session may call either one; nothing checks who the caller
 //     is (api-payload-contracts.md §Authenticated Principal And Authorization Model, run control).
 //
-// WIRE ADDRESSING. Neither client-facing operation takes a `bindingId`, and the daemon resolves
-// the live runtime binding at dispatch. This is not stylistic: no client-facing read publishes a
+// WIRE ADDRESSING. Neither client-facing operation takes a `bindingId`, and the daemon resolves the
+// live runtime binding at dispatch. This is not stylistic: no client-facing read publishes a
 // `bindingId` anywhere, so a binding-addressed wire request would be unconstructible from every
 // response a client can obtain, and a client that somehow held one would be holding a
 // daemon-internal lifecycle identifier whose liveness it cannot check.
@@ -157,7 +157,7 @@ type RunOutputSpeedSettledListener = (
 //     list; the client never names an agent, a run or a binding to get it. Every entry still
 //     carries the `(driverName, providerAccountId)` it was read under ([Spec-004 §The provider
 //     command and skill
-//     surface](../../specs/004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface)).
+// surface](../../specs/004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface)).
 //
 // `agent.run.context.compact` refuses in a FIXED ORDER, each on an ALREADY-REGISTERED code, so this
 // addressing mints none: `session.notFound` (unknown session), then `agent.run.notFound` (no such

@@ -173,12 +173,13 @@ interface WorkflowRunStartRequest {
   // first such run and reused by every later one. A run started in a session works in that session's
   // recorded folder, unless a chat's start names a project.
   sessionId?: SessionId;
-  // The project whose repository the run works in, in that project's own folder: the one the Run now
-  // panel's `Repository` names, or, on a start in a chat, the one the chat's `Repository` panel or the
-  // agent's `workflow_run` names. Absent for `None`, and on a chat's start that names none, which works
-  // in the chat's own folder; either has no checkout, no snapshot and no `Open in Review`. A project
-  // session's run names none, because its session already names the folder, and the daemon refuses a
-  // `projectId` sent beside a project session's `sessionId` with `workflow.run.projectOnProjectSession`.
+  // The project whose repository the run works in, in that project's own folder: the one the Run
+  // now panel's `Repository` names, or, on a start in a chat, the one the chat's `Repository` panel
+  // or the agent's `workflow_run` names. Absent for `None`, and on a chat's start that names none,
+  // which works in the chat's own folder; either has no checkout, no snapshot and no `Open in
+  // Review`. A project session's run names none, because its session already names the folder, and
+  // the daemon refuses a `projectId` sent beside a project session's `sessionId` with
+  // `workflow.run.projectOnProjectSession`.
   projectId?: ProjectId;
   // The items the run starts on. A workflow declares the inputs it asks for on its trigger, each one
   // named, typed and carrying the value it starts on; the start affordance seeds a field per input and
@@ -286,11 +287,11 @@ type WorkflowRunReadResponse = WorkflowRun & {
   // execution whose start and end snapshots `Open in Review` compares; missing, it carries why the end
   // snapshot could not be taken, and the door stays in place saying so.
   review?: { state: "pinned"; epoch: number } | { state: "missing"; reason: string };
-  // Present only on the chain's first run, once the chain's question has been asked: open, or answered
-  // with the decision and the run count it was taken at, which its receipt reads (`Kept going at 100
-  // runs`). It is an approval the engine raises on the first run and answers through
-  // workflow.gate.resolve naming no node: `approved` keeps the chain going, `rejected` stops every run of
-  // it.
+  // Present only on the chain's first run, once the chain's question has been asked: open, or
+  // answered with the decision and the run count it was taken at, which its receipt reads (`Kept
+  // going at 100 runs`). It is an approval the engine raises on the first run and answers through
+  // workflow.gate.resolve naming no node: `approved` keeps the chain going, `rejected` stops every
+  // run of it.
   chainQuestion?:
     | { state: "open" }
     | { state: "answered"; decision: ApprovalDecision; runCount: number; answeredAt: string };
@@ -366,8 +367,8 @@ type WorkflowVersionRepin =
   | { repinnedFromWorkflowVersionId?: undefined; repinnedToWorkflowVersionId?: undefined }
   | { repinnedFromWorkflowVersionId: string; repinnedToWorkflowVersionId: string };
 
-// WorkflowStepOutputList — workflow.step.output.list. A run's step outputs for a caller outside the run
-// page — the CLI or an SDK — and only the agent and human steps' output summaries and artifact
+// WorkflowStepOutputList — workflow.step.output.list. A run's step outputs for a caller outside the
+// run page — the CLI or an SDK — and only the agent and human steps' output summaries and artifact
 // references: one step's full input, output or log comes only from workflow.step.read. Outputs stay
 // addressable after their step completes, and a retry adds entries rather than changing one.
 interface WorkflowStepOutputListRequest {
@@ -375,7 +376,8 @@ interface WorkflowStepOutputListRequest {
 }
 interface WorkflowStepOutputListResponse {
   steps: Array<{
-    // The finished step, keyed as workflow.step.read keys it. `status` is the step's, not the run's.
+    // The finished step, keyed as workflow.step.read keys it. `status` is the step's, not the
+    // run's.
     nodeId: WorkflowNodeId;
     executionIndex: number;
     status: "succeeded" | "failed";
@@ -388,12 +390,13 @@ type WorkflowStepOutput =
   | { valueKind: "inline"; summary: string; producedAt: string }
   | { valueKind: "artifactRef"; artifactId: ArtifactId; summary: string; producedAt: string };
 
-// WorkflowGateResolve — workflow.gate.resolve. Answers an approval: an approval step's Approve or Reject,
-// from the approvals surface or from the step's own panel, through the one approval pipeline and its
-// Cedar check; and the question the engine raises on a chain's first run once the chain has started as
-// many runs as the person's setting allows, where `approved` is Keep going and `rejected` is Stop them
-// all. The first answer settles the wait everywhere. An answer on a step no longer waiting, or after the
-// step's `Timeout` instant even before its timer has run, is refused with `workflow.step.notWaiting`.
+// WorkflowGateResolve — workflow.gate.resolve. Answers an approval: an approval step's Approve or
+// Reject, from the approvals surface or from the step's own panel, through the one approval
+// pipeline and its Cedar check; and the question the engine raises on a chain's first run once the
+// chain has started as many runs as the person's setting allows, where `approved` is Keep going and
+// `rejected` is Stop them all. The first answer settles the wait everywhere. An answer on a step no
+// longer waiting, or after the step's `Timeout` instant even before its timer has run, is refused
+// with `workflow.step.notWaiting`.
 interface WorkflowGateResolveRequest {
   workflowRunId: WorkflowRunId;
   // The approval step being answered. Absent for a chain's question, which belongs to the run named
@@ -501,8 +504,8 @@ interface WorkflowResultsPostedPayload {
   sessionId: SessionId;
   workflowRunId: WorkflowRunId;
 }
-// workflow.version.created names a definition rather than a run — no run exists when a version is written —
-// so it carries the definition and the version alone (Spec-005 §Workflow Lifecycle).
+// workflow.version.created names a definition rather than a run — no run exists when a version is
+// written — so it carries the definition and the version alone (Spec-005 §Workflow Lifecycle).
 interface WorkflowVersionCreatedPayload {
   sessionId: SessionId;
   definitionId: WorkflowDefinitionId;
@@ -555,10 +558,10 @@ type WorkflowRunDeletedPayload = WorkflowRunEventPayload;
 interface WorkflowPhaseFailedPayload extends WorkflowStepEventPayload {
   cancellationReason: "siblingFailure" | null;
 }
-// workflow.phase.suspended — a step started waiting: its `waitCause` and, for an `account` wait, the
-// spent account the attention read groups it under and the durable resume instant where the wait armed
-// one; absent, only the person resumes it. A wait on anything else names neither. The deadline a
-// `Timeout` arms is written on the step's row as truth and rides no event.
+// workflow.phase.suspended — a step started waiting: its `waitCause` and, for an `account` wait,
+// the spent account the attention read groups it under and the durable resume instant where the
+// wait armed one; absent, only the person resumes it. A wait on anything else names neither. The
+// deadline a `Timeout` arms is written on the step's row as truth and rides no event.
 type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
   (
     | { waitCause: "account"; providerAccountId: ProviderAccountId; resumeAt?: string } // RFC 3339 UTC

@@ -66,8 +66,8 @@ interface WorktreeStatusReadResponse {
   newWorktree?: NewWorktreeSuggestion; // present when the request named the asking session
 }
 // One worktree git lists for the repository, as its switcher row draws it; `path` is the folder
-// `session.workingFolder.update` takes. A tree the app made carries its record (`madeBy: "app"`); one the
-// person made with git carries none, and has no removal of its own.
+// `session.workingFolder.update` takes. A tree the app made carries its record (`madeBy: "app"`);
+// one the person made with git carries none, and has no removal of its own.
 type WorktreeStatusRecord = (
   | {
       madeBy: "app";
@@ -110,12 +110,12 @@ interface NewWorktreeSuggestion {
   folderBefore: string;
 }
 
-// session.sweptToCheckout payload (Spec-005 §Repo, Workspace, and Worktree Lifecycle). A sweep is not
-// a state transition: it records that this session's working folder is now the repository root because the
-// worktree it was attached to was removed. `worktreeId` names the REMOVED tree, and `pendingMoveCleared`
-// is present only where the same removal cleared a pending working-folder move that pointed at it — the
-// presence-discriminator idiom, absent rather than `false`. One event is appended per session the removal
-// moved, so each moved session's own flow row survives a reload.
+// session.sweptToCheckout payload (Spec-005 §Repo, Workspace, and Worktree Lifecycle). A sweep is
+// not a state transition: it records that this session's working folder is now the repository root
+// because the worktree it was attached to was removed. `worktreeId` names the REMOVED tree, and
+// `pendingMoveCleared` is present only where the same removal cleared a pending working-folder move
+// that pointed at it — the presence-discriminator idiom, absent rather than `false`. One event is
+// appended per session the removal moved, so each moved session's own flow row survives a reload.
 interface SessionSweptToCheckoutPayload {
   sessionId: SessionId;
   repoMountId: RepoMountId;

@@ -139,17 +139,18 @@ type AgentHooks = Record<
 >;
 
 // The RESOLVED-CONFIGURATION ECHO: every field as actually applied, once a run has started under a
-// definition. It rides the response of whichever request started that run — the scratch session a try-it
-// starts, the workflow step's own record, and the agent row a name in a composer produces — so a resolved
-// binding has exactly ONE home on the wire and no surface reconstructs it by merging its own request with
-// a registry row that may already have moved. `instructions` is part of the echo rather than left out of
-// it: without it a caller cannot tell which system prompt the run actually received except by re-reading
-// the registry, which is the live-view read I-024-2 forbids. The goal is echoed as the definition set it;
-// the agent also starts with it as its own goal command, which `session.goal.updated` records. Where the
-// definition is bound plural the echo carries the RESOLVED BINDING in place of the folded axes, so a
-// reader is told which side of the per-field merge won rather than which axes existed to merge. The hue is
-// echoed so every client tints the agent with the step its definition chose, read off the event that
-// brought the agent in rather than off a registry row that may since have moved.
+// definition. It rides the response of whichever request started that run — the scratch session a
+// try-it starts, the workflow step's own record, and the agent row a name in a composer produces —
+// so a resolved binding has exactly ONE home on the wire and no surface reconstructs it by merging
+// its own request with a registry row that may already have moved. `instructions` is part of the
+// echo rather than left out of it: without it a caller cannot tell which system prompt the run
+// actually received except by re-reading the registry, which is the live-view read I-024-2 forbids.
+// The goal is echoed as the definition set it; the agent also starts with it as its own goal
+// command, which `session.goal.updated` records. Where the definition is bound plural the echo
+// carries the RESOLVED BINDING in place of the folded axes, so a reader is told which side of the
+// per-field merge won rather than which axes existed to merge. The hue is echoed so every client
+// tints the agent with the step its definition chose, read off the event that brought the agent in
+// rather than off a registry row that may since have moved.
 type AgentResolvedConfiguration = {
   resolvedFromDefinitionId: AgentDefinitionId;
   resolvedBinding: AgentProviderBinding;
@@ -269,14 +270,14 @@ interface AgentDefinitionDeleteResponse {
   deleted: true;
 }
 
-// agent.definition.export — writes the chosen definitions into the folder the person picked with the
-// platform's own dialog, one Markdown file per definition: each definition's record, icon, accent,
-// hooks and memory scope, and every binding with the account left out. The notes in an agent's memory
-// folder are never read into a file. The daemon leaves the accounts out itself and never relies on the
-// caller to. The request carries the picked folder's token; main's relay turns it into the path the
-// daemon writes, so no path string crosses the bridge (Preload Bridge Contract). An unknown
-// id refuses the whole export; a failed write refuses with `agent.definition.exportWriteFailed`, carrying the
-// operating system's cause.
+// agent.definition.export — writes the chosen definitions into the folder the person picked with
+// the platform's own dialog, one Markdown file per definition: each definition's record, icon,
+// accent, hooks and memory scope, and every binding with the account left out. The notes in an
+// agent's memory folder are never read into a file. The daemon leaves the accounts out itself and
+// never relies on the caller to. The request carries the picked folder's token; main's relay turns
+// it into the path the daemon writes, so no path string crosses the bridge (Preload Bridge
+// Contract). An unknown id refuses the whole export; a failed write refuses with
+// `agent.definition.exportWriteFailed`, carrying the operating system's cause.
 interface AgentDefinitionExportRequest {
   definitionIds: AgentDefinitionId[]; // one or more
   folder: FilePathRef;
@@ -308,12 +309,13 @@ interface AgentDefinitionImportResponse {
 // `EmptyPayload`.
 type AgentDefinitionSubscribeStream = AsyncIterable<AgentDefinitionListResponse>;
 
-// agent.callbackTool.list — the daemon's callback tools, one of the allowlist picker's three sources beside
-// the MCP catalog (`mcp.server.list`, mcp-governance-payloads.md §Plan-022) and each provider's own built-in tools (the `builtInTools`
-// list each driver's descriptor carries on `provider.list`, settings-payloads.md). Machine-wide, because the editor has no session: a static
-// catalog of the registrations in code — the bridge's verbs, the session tools and the
-// workflow tools — whose names the daemon curates and never takes from provider output. The request
-// is `EmptyPayload`.
+// agent.callbackTool.list — the daemon's callback tools, one of the allowlist picker's three
+// sources beside the MCP catalog (`mcp.server.list`, mcp-governance-payloads.md §Plan-022) and each
+// provider's own built-in tools (the `builtInTools` list each driver's descriptor carries on
+// `provider.list`, settings-payloads.md). Machine-wide, because the editor has no session: a static
+// catalog of the registrations in code — the bridge's verbs, the session tools and the workflow
+// tools — whose names the daemon curates and never takes from provider output. The request is
+// `EmptyPayload`.
 interface AgentCallbackToolListResponse {
   tools: Array<{
     name: string; // the wire name a provider sees
@@ -322,22 +324,22 @@ interface AgentCallbackToolListResponse {
   }>;
 }
 
-// ---- Plugins: each provider's own plugin verbs, over one daemon-owned plugin home per provider ----
-// Plugins install into a plugin home the daemon owns, one per provider, never an account home and
-// never the person's own home: every `claude plugin` command runs with that folder as
-// `CLAUDE_CONFIG_DIR`, and Codex's `plugin/*` and `marketplace/*` verbs are answered by a
-// `codex app-server` the daemon starts on that folder while the view is open and stops 60 seconds
-// after it closes. An installed plugin's agents and skills are the read-only plugin origin
-// (`plugin · <name>`) of the definition list and the skills list. Under Codex the view lists what
-// Codex's own `/plugins` lists for the account, the workspace's catalog and the plugins shared with
-// the person included, each as its own section below Codex's catalog and each row installed like
-// any other. Installing or removing a plugin raises the daemon's own `plugin.installed` /
-// `plugin.uninstalled` signal, which the origin reader, `agent.definition.subscribe` and the session
-// pack follow; neither is a session event.
+// ---- Plugins: each provider's own plugin verbs, over one daemon-owned plugin home per provider
+// ---- Plugins install into a plugin home the daemon owns, one per provider, never an account home
+// and never the person's own home: every `claude plugin` command runs with that folder as
+// `CLAUDE_CONFIG_DIR`, and Codex's `plugin/*` and `marketplace/*` verbs are answered by a `codex
+// app-server` the daemon starts on that folder while the view is open and stops 60 seconds after it
+// closes. An installed plugin's agents and skills are the read-only plugin origin (`plugin ·
+// <name>`) of the definition list and the skills list. Under Codex the view lists what Codex's own
+// `/plugins` lists for the account, the workspace's catalog and the plugins shared with the person
+// included, each as its own section below Codex's catalog and each row installed like any other.
+// Installing or removing a plugin raises the daemon's own `plugin.installed` / `plugin.uninstalled`
+// signal, which the origin reader, `agent.definition.subscribe` and the session pack follow;
+// neither is a session event.
 // `provider` on every plugin verb is the open ProviderId of a provider whose driver offers plugins;
-// one that offers none is refused with `provider.capability.unsupported`.
-// plugin.catalog.list — each provider's catalog, read once per opening of the view and held only while
-// it is open. The daemon filters by `query`, because neither provider's verb takes one.
+// one that offers none is refused with `provider.capability.unsupported`. plugin.catalog.list —
+// each provider's catalog, read once per opening of the view and held only while it is open. The
+// daemon filters by `query`, because neither provider's verb takes one.
 interface PluginCatalogListRequest {
   provider: ProviderId;
   query?: string;
@@ -384,10 +386,10 @@ interface PluginReadResponse {
     isRequired: boolean;
   }>;
 }
-// plugin.options.read / plugin.options.update — an installed Claude Code plugin's options, read through
-// `claude plugin configure <id> --json` and saved through the same verb with `--values-stdin`, so a
-// value never rides a command line where another process could read it. A sensitive value is never
-// read back: `isSet` says only whether it holds one.
+// plugin.options.read / plugin.options.update — an installed Claude Code plugin's options, read
+// through `claude plugin configure <id> --json` and saved through the same verb with
+// `--values-stdin`, so a value never rides a command line where another process could read it. A
+// sensitive value is never read back: `isSet` says only whether it holds one.
 interface PluginOptionsReadRequest {
   provider: ProviderId; // a provider whose plugins carry options (Claude Code today)
   id: string;
@@ -441,8 +443,8 @@ interface PluginInstalledListRequest {
 interface PluginInstalledListResponse {
   plugins: Array<PluginCatalogListResponse["plugins"][number] & { loadError?: string }>;
 }
-// plugin.marketplace.add / plugin.marketplace.remove — each provider's official marketplace is present
-// without adding it.
+// plugin.marketplace.add / plugin.marketplace.remove — each provider's official marketplace is
+// present without adding it.
 interface PluginMarketplaceAddRequest {
   provider: ProviderId;
   source: string; // a repository address or a folder
@@ -452,13 +454,14 @@ interface PluginMarketplaceRemoveRequest {
   name: string;
 }
 interface PluginMarketplaceAddResponse {
-  provider: ProviderId;
-  name: string;
+  name: string; // the name the provider gave the added marketplace
 }
-type PluginMarketplaceRemoveResponse = PluginMarketplaceAddResponse;
-// plugin.app.list — a Codex plugin's apps, each with its link state on every Codex account, read from
-// that account's own Codex service. `connectUrl` opens the app's page in the browser, where the person
-// links it while signed in as that account. An API-key account carries no apps.
+interface PluginMarketplaceRemoveResponse {
+  removed: true;
+}
+// plugin.app.list — a Codex plugin's apps, each with its link state on every Codex account, read
+// from that account's own Codex service. `connectUrl` opens the app's page in the browser, where
+// the person links it while signed in as that account. An API-key account carries no apps.
 interface PluginAppListRequest {
   provider: ProviderId; // a provider whose plugins carry apps (Codex today)
   pluginId: string;
@@ -529,16 +532,18 @@ interface PluginAppListResponse {
 // reach past the daemon that owns it.
 type AgentBridgeHandle = string & { readonly __brand: "AgentBridgeHandle" };
 
-// agent_run — start an agent and ANSWER AT ONCE with its handle, never blocking until the work is done.
-// The daemon resolves the definition, starts that provider's own unit of work under it — a thread on the
-// Codex leg, a process on the Claude leg — admits the run through the ordinary orchestration pipeline,
-// and links it to the run that reached it, the link recording `reachedBy: "bridgeRun"` (orchestration-payloads.md §Plan-013's
-// ChildRunProvenance); this surface mints no run kind. The daemon shows a bridged agent under the lead
-// that reached it and hands the lead its result.
-// Admission is evaluated SYNCHRONOUSLY inside the creation call, so the verb can never answer with the
-// handle of a run that then died at admission. No admission check bounds how deep the chain runs: an
-// agent reached through the bridge may reach another, and that one another, to any depth. Because the daemon owns the started process it reads that agent's output word
-// by word in both directions, unlike a provider's own in-session helper seen through its lead.
+// agent_run — start an agent and ANSWER AT ONCE with its handle, never blocking until the work is
+// done.
+// The daemon resolves the definition, starts that provider's own unit of work under it — a thread
+// on the Codex leg, a process on the Claude leg — admits the run through the ordinary orchestration
+// pipeline, and links it to the run that reached it, the link recording `reachedBy: "bridgeRun"`
+// (orchestration-payloads.md §Plan-013's ChildRunProvenance); this surface mints no run kind. The
+// daemon shows a bridged agent under the lead that reached it and hands the lead its result.
+// Admission is evaluated SYNCHRONOUSLY inside the creation call, so the verb can never answer with
+// the handle of a run that then died at admission. No admission check bounds how deep the chain
+// runs: an agent reached through the bridge may reach another, and that one another, to any depth.
+// Because the daemon owns the started process it reads that agent's output word by word in both
+// directions, unlike a provider's own in-session helper seen through its lead.
 // Exactly one of `agent` and `handle` is present.
 interface AgentBridgeRunArguments {
   agent?: string; // the provider-carrying name, such as `sidekicks:claude-reviewer`; resolved to its definition at the call

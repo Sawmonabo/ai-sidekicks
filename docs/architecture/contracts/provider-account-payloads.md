@@ -34,9 +34,10 @@ interface ProviderAccount {
   observedAccountPlan?: string; // the provider's own word for the plan, carried verbatim and never mapped onto a vocabulary of ours; distinct from `billingMode`, which says how the account is paid for rather than which plan it is on
   observedAccountOrgId?: string;
   observedAccountOrgName?: string;
-  // Present only on an account added by a pasted token or API key, which the provider names nowhere:
-  // the name the person gave it, required at that registration, different from that provider's other
-  // account names, and renamed through `provider.account.update`. No other account carries a typed name.
+  // Present only on an account added by a pasted token or API key, which the provider names
+  // nowhere: the name the person gave it, required at that registration, different from that
+  // provider's other account names, and renamed through `provider.account.update`. No other account
+  // carries a typed name.
   displayLabel?: string;
   isDefault: boolean; // exactly one per provider, enforced by a partial unique index (I-023-5); the provider's CURRENT account, which `provider.account.current.update` moves
   // The places where the account has a home, one per place a session on it has run in; present on a
@@ -46,16 +47,17 @@ interface ProviderAccount {
   healthState: ProviderAccountHealthState;
   // The OTHER HALF of the stored observation pair (`provider_accounts.health_observed_at`, whose
   // table-level CHECK holds the two set and cleared together). Required-shape and nullable on the
-  // reading the four members below take: `null` means no observation has ever been recorded for this
-  // account. That is exactly the case a bare `healthState` cannot express — a never-observed account
-  // and a probe that genuinely could not decide both project `indeterminate`, and only the timestamp
-  // separates them: `null` for the first, a time for the second. It rides the ACCOUNT ROW rather than
-  // only `ProviderReadiness.observedAt` because readiness is derived per PROVIDER from the resolved
-  // account, so every non-default account in a list reply — and every `accountChanged` notification,
-  // which carries this shape — would otherwise carry a state with no age at all and no surface could
-  // apply the freshness test the stored reading exists to support. Carried VERBATIM from the column,
-  // never re-derived and never defaulted to `updated_at`: a registry read still spawns no provider
-  // process, and an edit to a billing mode must not read as a fresh authentication observation.
+  // reading the four members below take: `null` means no observation has ever been recorded for
+  // this account. That is exactly the case a bare `healthState` cannot express — a never-observed
+  // account and a probe that genuinely could not decide both project `indeterminate`, and only the
+  // timestamp separates them: `null` for the first, a time for the second. It rides the ACCOUNT ROW
+  // rather than only `ProviderReadiness.observedAt` because readiness is derived per PROVIDER from
+  // the resolved account, so every non-default account in a list reply — and every `accountChanged`
+  // notification, which carries this shape — would otherwise carry a state with no age at all and
+  // no surface could apply the freshness test the stored reading exists to support. Carried
+  // VERBATIM from the column, never re-derived and never defaulted to `updated_at`: a registry read
+  // still spawns no provider process, and an edit to a billing mode must not read as a fresh
+  // authentication observation.
   healthObservedAt: string | null;
   // The window-start switch sits UNDER `probeEnabled` rather than beside it: on by default, and
   // inert while `probeEnabled` is false, so an account silenced for the observer spends nothing at a
@@ -165,21 +167,22 @@ interface ProviderReadiness {
 
 // Guidance for the person that happens to travel structured. The disclosure rule (Spec-025 §Machine
 // provider readiness and the sign-in handoff) governs it UNCHANGED and binds the READER: these
-// values reach the person's screen and NEVER an event payload, anything the control plane can read, a
-// log line, or a refusal envelope. `provider.account.list` takes the SAME device gate as
-// the mutating verbs — not the laxer read gate a list verb would otherwise get (Spec-025
-// §Authorization Posture; enforced and tested by Plan-023 T2.4).
+// values reach the person's screen and NEVER an event payload, anything the control plane can read,
+// a log line, or a refusal envelope. `provider.account.list` takes the SAME device gate as the
+// mutating verbs — not the laxer read gate a list verb would otherwise get (Spec-025 §Authorization
+// Posture; enforced and tested by Plan-023 T2.4).
 //
 // A UNION rather than one shape, because the remedy is "the person's next action" and the
-// non-authenticated states have five different next actions, each with its own producible field set. A single sign-in shape was unproducible on two of them: `noAccount` has no account to name
+// non-authenticated states have five different next actions, each with its own producible field
+// set. A single sign-in shape was unproducible on two of them: `noAccount` has no account to name
 // at all, and `noDefault` deliberately resolved to none of several accounts, so composing either
-// reply would have required inventing an account or arbitrarily picking one — precisely
-// the arbitrary selection I-023-5's single-default rule exists to prevent. The discriminant is
-// `kind`, and it is NOT redundant with `state`: `reauthRequired` maps to `signIn` or, on a token
-// or API-key account, to `pasteToken`; `homeMissing` maps to `signIn`; and `indeterminate` maps
-// to `lookAgain`, never to a sign-in, because "cannot tell right now" means look again and
-// conflating it with a lost login walks a person through a sign-in over a passing fault. A client
-// renders off `kind` without re-deriving it.
+// reply would have required inventing an account or arbitrarily picking one — precisely the
+// arbitrary selection I-023-5's single-default rule exists to prevent. The discriminant is `kind`,
+// and it is NOT redundant with `state`: `reauthRequired` maps to `signIn` or, on a token or API-key
+// account, to `pasteToken`; `homeMissing` maps to `signIn`; and `indeterminate` maps to
+// `lookAgain`, never to a sign-in, because "cannot tell right now" means look again and conflating
+// it with a lost login walks a person through a sign-in over a passing fault. A client renders off
+// `kind` without re-deriving it.
 type ProviderRemedy =
   | ProviderRegisterRemedy
   | ProviderChooseDefaultRemedy
@@ -293,8 +296,8 @@ interface ProviderAccountRegisterRequest {
   // WRITE-ONLY, and the rule is absolute in the direction that matters: this value is never
   // returned on this verb's response or any other, never logged, never echoed to a terminal, never
   // rendered, never placed in an error message or a diagnostic dump, and never carried in an
-  // argument vector (an argv is readable by any process running as the same user). A transport
-  // that logs request bodies MUST redact this member by name.
+  // argument vector (an argv is readable by any process running as the same user). A transport that
+  // logs request bodies MUST redact this member by name.
   //
   // A token the provider's own tooling minted: the daemon never mints, exchanges, refreshes, or
   // derives credential material and never speaks a provider token endpoint.
@@ -304,21 +307,22 @@ interface ProviderAccountRegisterRequest {
   // Service on Linux, never the kernel keyring, which a reboot empties; where no Secret Service
   // answers, and on a Mac from the logged-out service's takeover until `sidekicks daemon uninstall`
   // moves them back, including after that service is turned off in Login Items & Extensions, the
-  // daemon keeps its items in one file in its own data folder, readable by this account alone
-  // (mode `0600`).
-  // Where the store cannot take it, registration refuses with `provider.account.credentialSealRefused`
-  // carrying `cause: "locked" | "unavailable"` and nothing is stored anywhere. Where the registration-time
-  // status observation reports no signed-in mode for it, registration refuses with
-  // `provider.account.tokenNotAccepted` and nothing is registered, sealed or replaced. It is NOT written into
-  // the credential home: daemon-owned bytes in provider-owned space are indistinguishable to every
-  // later reader, the provider's own tooling included. It reaches the provider only on the
-  // invocations ADR-026 D2 enumerates — the registration-time status observation, and each provider
-  // process of a run bound to this account — and on Claude Code never in an environment variable: the
-  // variable the provider documents for it, `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, names a pipe the
-  // daemon writes once per start, so no command the model issues can read the token from its
-  // process's environment. The project's own probe re-runs that observation when the project moves
-  // to a new Claude Code version. A pasted OpenAI API key on a Codex account is kept the same way, in the credential store and
-  // the daemon's memory only, never in Codex's plaintext file mode.
+  // daemon keeps its items in one file in its own data folder, readable by this account alone (mode
+  // `0600`).
+  // Where the store cannot take it, registration refuses with
+  // `provider.account.credentialSealRefused` carrying `cause: "locked" | "unavailable"` and nothing
+  // is stored anywhere. Where the registration-time status observation reports no signed-in mode
+  // for it, registration refuses with `provider.account.tokenNotAccepted` and nothing is
+  // registered, sealed or replaced. It is NOT written into the credential home: daemon-owned bytes
+  // in provider-owned space are indistinguishable to every later reader, the provider's own tooling
+  // included. It reaches the provider only on the invocations ADR-026 D2 enumerates — the
+  // registration-time status observation, and each provider process of a run bound to this account
+  // — and on Claude Code never in an environment variable: the variable the provider documents for
+  // it, `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, names a pipe the daemon writes once per start,
+  // so no command the model issues can read the token from its process's environment. The project's
+  // own probe re-runs that observation when the project moves to a new Claude Code version. A
+  // pasted OpenAI API key on a Codex account is kept the same way, in the credential store and the
+  // daemon's memory only, never in Codex's plaintext file mode.
   nonInteractiveToken?: string;
 }
 interface ProviderAccountRegisterResponse {
@@ -373,8 +377,8 @@ interface ProviderAccountUpdateResponse {
 // registration to a different home would silently re-point historical spend at other credentials),
 // and `credentialGeneration` (daemon-owned, bumped only by the lifecycle transitions in I-023-2 —
 // never by the person's edit, since a descriptive correction is not a credential event).
-// `isDefault` is not updatable here either: it has its own verb, `provider.account.current.update`, whose
-// partial-unique-index race semantics this verb must not duplicate.
+// `isDefault` is not updatable here either: it has its own verb, `provider.account.current.update`,
+// whose partial-unique-index race semantics this verb must not duplicate.
 
 interface ProviderAccountDeleteRequest {
   accountId: ProviderAccountId;
@@ -391,41 +395,45 @@ interface ProviderAccountDeleteResponse {
 // SESSION on that provider that is not PINNED to an account moves to it. Pinned means a saved agent
 // definition or a workflow step set to a specific account; those stay where they are pinned.
 //
-// THE MOVE IS IN PLACE on both providers, at each session's next request: an idle session's next turn
-// runs on the new account, and a busy session's model call after the step in flight does — a running
-// tool finishes and is never repeated — with no hold, interrupt, copy, resume or `continue`. On Claude
-// Code the daemon sends each such session `apply_flag_settings` pointing `CLAUDE_SECURESTORAGE_CONFIG_DIR`
-// at the new account's credential store, and the provider re-reads the store at its next request; the
-// daemon never reads or copies a Claude credential. On Codex every session that follows the current
-// account runs in the one Codex service the daemon keeps for the current account, which runs on tokens
-// the daemon hands it, and the switch is one `account/login/start {type: "chatgptAuthTokens"}` on that
-// service with the new account's tokens, which the daemon holds only in its own memory and never
-// stores, logs, shows or hands to a renderer. Each session's cost splits at the switch's
-// acknowledgment: requests before it stay on the old account, requests after it go to the new one.
-// Every supported version moves in place, and no version is checked: there is no second way to move a
-// session's account. The move lands at the acknowledgment and writes no pending switch, so the
+// THE MOVE IS IN PLACE on both providers, at each session's next request: an idle session's next
+// turn runs on the new account, and a busy session's model call after the step in flight does — a
+// running tool finishes and is never repeated — with no hold, interrupt, copy, resume or
+// `continue`. On Claude Code the daemon sends each such session `apply_flag_settings` pointing
+// `CLAUDE_SECURESTORAGE_CONFIG_DIR` at the new account's credential store, and the provider
+// re-reads the store at its next request; the daemon never reads or copies a Claude credential. On
+// Codex every session that follows the current account runs in the one Codex service the daemon
+// keeps for the current account, which runs on tokens the daemon hands it, and the switch is one
+// `account/login/start {type: "chatgptAuthTokens"}` on that service with the new account's tokens,
+// which the daemon holds only in its own memory and never stores, logs, shows or hands to a
+// renderer. Each session's cost splits at the switch's acknowledgment: requests before it stay on
+// the old account, requests after it go to the new one.
+// Every supported version moves in place, and no version is checked: there is no second way to move
+// a session's account. The move lands at the acknowledgment and writes no pending switch, so the
 // working line shows no waiting words for it.
 //
-// Each move settles on its own session with `agent.providerBinding.changed` (orchestration-payloads.md §Plan-013),
-// `continuity: "inPlace"`: one faint collapsed row at the point of the move,
-// `Switched all sessions to <name>` (the account as the Providers page lists it), opening to the account
-// it came from, the account it went to and the time. A move that fails settles with
-// `agent.providerBinding.changeFailed`, reason `accountUnavailable`: the session stays on the
-// account it had — where the new login fails at the next request, the daemon hands the previous
-// account back — and the transcript gains one system message naming the switch and the reason.
-// Those events are the settlement; this reply is not. A session at a level its new account cannot run
-// (`Reviewed` on a Claude Code account whose plan lacks auto mode) moves with the rest and runs at
-// `Ask`; it gains one `session.notice.posted` of kind `levelUnavailable` naming the level it left, whose
-// flow row reads "Reviewed isn't available on this Claude Code account". Nothing is blocked.
+// Each move settles on its own session with `agent.providerBinding.changed`
+// (orchestration-payloads.md §Plan-013), `continuity: "inPlace"`: one faint collapsed row at the
+// point of the move, `Switched all sessions to <name>` (the account as the Providers page lists
+// it), opening to the account it came from, the account it went to and the time. A move that fails
+// settles with `agent.providerBinding.changeFailed`, reason `accountUnavailable`: the session stays
+// on the account it had — where the new login fails at the next request, the daemon hands the
+// previous account back — and the transcript gains one system message naming the switch and the
+// reason.
+// Those events are the settlement; this reply is not. A session at a level its new account cannot
+// run (`Reviewed` on a Claude Code account whose plan lacks auto mode) moves with the rest and runs
+// at `Ask`; it gains one `session.notice.posted` of kind `levelUnavailable` naming the level it
+// left, whose flow row reads "Reviewed isn't available on this Claude Code account". Nothing is
+// blocked.
 //
 // NO PER-SESSION SWITCH VERB EXISTS. `agent.config.update` carries no account member
 // (orchestration-payloads.md §Plan-013): one control setting one fact is what stops a session
 // sitting on an account the provider surface says it is not on. Nothing here copies a credential or
 // a conversation between homes, and the provider's own login in each home is left exactly as it is.
 //
-// REFUSES IN PLACE where the named account fails the fail-closed spawn validation, or where its last
-// limits read showed a dead login (Claude Code's read answering `rate_limits_available: false`): the
-// current mark does not move, no session moves, and the refusal carries that account's own remedy.
+// REFUSES IN PLACE where the named account fails the fail-closed spawn validation, or where its
+// last limits read showed a dead login (Claude Code's read answering `rate_limits_available:
+// false`): the current mark does not move, no session moves, and the refusal carries that account's
+// own remedy.
 interface ProviderAccountCurrentUpdateRequest {
   accountId: ProviderAccountId;
 }
@@ -541,19 +549,20 @@ type ProviderAccountUsageListResponse =
 
 // Brokered interactive sign-in (ADR-026 D1; Spec-025 §Brokered interactive sign-in). The daemon
 // constructs the invocation, spawns the provider's UNMODIFIED binary with this account's home
-// pinned, and reads nothing the flow writes. What returns is what the provider emits for the
-// PERSON to act on, plus an opaque daemon-minted attempt id. It is deliberately NOT a shell
-// string: the request names only the account, or the provider for a new one, the daemon authors
-// the invocation itself, and no client-supplied string is ever executed.
+// pinned, and reads nothing the flow writes. What returns is what the provider emits for the PERSON
+// to act on, plus an opaque daemon-minted attempt id. It is deliberately NOT a shell string: the
+// request names only the account, or the provider for a new one, the daemon authors the invocation
+// itself, and no client-supplied string is ever executed.
 //
 // SHAPE MIRRORS THE PROVIDER'S OWN, deliberately: the pinned Codex login-start returns either an
-// authorization URL or a device code with its verification URL, and the pinned Claude flow prints
-// a URL and accepts a pasted code. WHERE THE SIGN-IN STARTS DECIDES THE ARM: a Codex sign-in
-// started at the machine runs `account/login/start {type: "chatgpt"}`, and one started from another
-// device runs `{type: "chatgptDeviceCode"}`, because the browser arm calls back to `localhost:1455`,
-// which that device cannot reach. A Claude Code sign-in started from another device ends at its
-// `Paste code here if prompted` prompt (https://code.claude.com/docs/en/authentication), which the
-// broker reports as `loginCodeRequested` and the person answers with `provider.account.signInCode.submit`. A provider arm emitting neither cannot be brokered and is
+// authorization URL or a device code with its verification URL, and the pinned Claude flow prints a
+// URL and accepts a pasted code. WHERE THE SIGN-IN STARTS DECIDES THE ARM: a Codex sign-in started
+// at the machine runs `account/login/start {type: "chatgpt"}`, and one started from another device
+// runs `{type: "chatgptDeviceCode"}`, because the browser arm calls back to `localhost:1455`, which
+// that device cannot reach. A Claude Code sign-in started from another device ends at its `Paste
+// code here if prompted` prompt (https://code.claude.com/docs/en/authentication), which the broker
+// reports as `signInCodeRequested` and the person answers with
+// `provider.account.signInCode.submit`. A provider arm emitting neither cannot be brokered and is
 // refused `provider.account.signInUnsupported` rather than spawning a flow the person cannot
 // finish. A second start against an account with one in flight is refused
 // `provider.account.signInInFlight` — at least one pinned provider holds exactly ONE active login
@@ -561,9 +570,9 @@ type ProviderAccountUsageListResponse =
 // device with no signal that their code had stopped working.
 // `{accountId}` signs in an account already registered; `{provider}` adds one. The second arm mints
 // the account id and its home, holds the attempt in memory, and inserts the row only once the
-// health observation reports the provider's identity, its billing mode `unknown` (drawn
-// `Billing not set`) until the person corrects it in place. A sign-in that ends without an identity
-// leaves no row.
+// health observation reports the provider's identity, its billing mode `unknown` (drawn `Billing
+// not set`) until the person corrects it in place. A sign-in that ends without an identity leaves
+// no row.
 type ProviderAccountSignInRequest = { accountId: ProviderAccountId } | { provider: ProviderId };
 interface ProviderAccountSignInResponse {
   attemptId: string; // opaque, daemon-minted, single-use; the correlation key for cancel and for completion
@@ -584,7 +593,7 @@ interface ProviderAccountSignInAttemptCancelResponse {
 }
 
 // The code a Claude Code sign-in page shows when the browser cannot reach Claude Code's local
-// callback, sent after `loginCodeRequested`. It is written to that sign-in process's input and
+// callback, sent after `signInCodeRequested`. It is written to that sign-in process's input and
 // nowhere else. It is a one-time authorization code bound to that flow's own PKCE verifier in the
 // provider's process, not credential material (I-023-10), and it is never logged, stored, evented or
 // echoed. `notFound` answers an attempt that is not waiting for a code, as cancel does.
@@ -623,7 +632,7 @@ type ProviderAccountNotification =
   // waiting for the code its sign-in page shows. A typed state the broker reads from Claude Code's
   // paste prompt, never the prompt's text; the sign-in card then shows
   // `Paste the code the sign-in page shows` with `Finish sign-in`.
-  | { kind: "loginCodeRequested"; attemptId: string }
+  | { kind: "signInCodeRequested"; attemptId: string }
   | {
       kind: "signInCompleted";
       attemptId: string;
@@ -702,12 +711,12 @@ interface ProviderAccountUsageWindow {
 **The provider's own standing rules are `provider.standingRule.list` and `provider.standingRule.revoke`.** Each provider keeps rules of its own that allow or refuse a command on this machine; they are read from and revoked in the provider's own files, the same files the session inspector's `approval.rule.list` and `approval.rule.revoke` read for one session, so one rule has one place: the provider's. Both are machine-wide, needing no session, because a machine-wide page cannot use the driver's reads (`provider.mode.list`, `provider.model.list`, `provider.command.list`), which need an active session.
 
 ```ts
-// provider.standingRule.list — one row per rule, in the provider's own words, read from every account
-// home and every attached project: on Codex the `.rules` files under each account home and each
-// trusted project's `.codex/rules/` (loaded only once the project is trusted); on Claude Code the
-// `permissions` of its user-level, project and project-local settings files. A provider holding none
-// answers an empty list, which the page reads as saying so. Its request is `ProviderRequest`, the
-// provider whose rules are listed.
+// provider.standingRule.list — one row per rule, in the provider's own words, read from every
+// account home and every attached project: on Codex the `.rules` files under each account home and
+// each trusted project's `.codex/rules/` (loaded only once the project is trusted); on Claude Code
+// the `permissions` of its user-level, project and project-local settings files. A provider holding
+// none answers an empty list, which the page reads as saying so. Its request is `ProviderRequest`,
+// the provider whose rules are listed.
 interface ProviderStandingRuleListResponse {
   rules: Array<{
     ruleId: string; // daemon-minted from the rule's place, its file and its text, so one file path in two places names two rules
@@ -722,10 +731,11 @@ interface ProviderStandingRuleListResponse {
   }>;
 }
 
-// provider.standingRule.revoke — removes the rule where the provider keeps it, and the provider follows
-// the change as it does on its own: Claude Code from its next tool call, and Codex in each conversation
-// it loads after the change, a loaded Codex conversation keeping the rules it loaded with, which is
-// Codex's own behavior. The daemon adds nothing over the provider's rules: no copy, no hash, no check.
+// provider.standingRule.revoke — removes the rule where the provider keeps it, and the provider
+// follows the change as it does on its own: Claude Code from its next tool call, and Codex in each
+// conversation it loads after the change, a loaded Codex conversation keeping the rules it loaded
+// with, which is Codex's own behavior. The daemon adds nothing over the provider's rules: no copy,
+// no hash, no check.
 interface ProviderStandingRuleRevokeRequest {
   ruleId: string;
 }

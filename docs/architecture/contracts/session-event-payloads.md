@@ -147,7 +147,7 @@ interface AgentTurnReroutedPayload {
 // agent.thinking.updated carries too. The body itself
 // travels out-of-payload in `session_events.content_payload`. `runId` is absent only on a Codex
 // voice call's answer, which comes outside any run and carries `origin: "voice"`.
-interface AssistantOutputPayload {
+interface AgentOutputPayload {
   sessionId: SessionId;
   runId?: RunId;
   // The provider's own message id, the same on every piece of one message.

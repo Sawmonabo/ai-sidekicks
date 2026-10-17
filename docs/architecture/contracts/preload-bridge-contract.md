@@ -59,13 +59,21 @@ interface PlatformBridge {
     requestRestore(backupId: string): Promise<void>;
   };
 
-  // control-plane RPC — request/response over the control plane's HTTP routes, and its live reads over its Server-Sent Events streams, carried by the background service; the control plane pushes no presence: a device's connected state comes from `device.subscribe`, and a machine's presence is read over its channel (`presence.read`, `presence.subscribe`); relay traffic rides the relay's binary wire frames. The control plane holds no session: another device reaches a session only through its machine ([Spec-027](../../specs/027-remote-control.md)), and this app reaches another machine's sessions the same way, through `daemon` on the machine in view. The `PlatformBridge` type matches this block, the desktop's preload API type carries the same namespaces, and a namespace joins them only where a spec section names its owner
+  // control-plane RPC — request/response over the control plane's HTTP routes, and its live reads
+  // over its Server-Sent Events streams, carried by the background service; the control plane
+  // pushes no presence: a device's connected state comes from `device.subscribe`, and a machine's
+  // presence is read over its channel (`presence.read`, `presence.subscribe`); relay traffic rides
+  // the relay's binary wire frames. The control plane holds no session: another device reaches a
+  // session only through its machine ([Spec-027](../../specs/027-remote-control.md)), and this app
+  // reaches another machine's sessions the same way, through `daemon` on the machine in view. The
+  // `PlatformBridge` type matches this block, the desktop's preload API type carries the same
+  // namespaces, and a namespace joins them only where a spec section names its owner
   controlPlane: {
     // one control-plane procedure that answers once, carried over the client helper's port to the background service, which sends it under this machine's credentials
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
-    // one control-plane live read (`device.subscribe`), from the one stream the service holds per machine
-    // for every reader: each value `live`, `held` with when it was read and why, or `unread` with
-    // why; ends as `daemon.subscribe` does
+    // one control-plane live read (`device.subscribe`), from the one stream the service holds per
+    // machine for every reader: each value `live`, `held` with when it was read and why, or
+    // `unread` with why; ends as `daemon.subscribe` does
     subscribe<P extends CpSubscribeProcedure>(
       procedure: P,
       input: CpInput<P>,
@@ -98,7 +106,14 @@ interface PlatformBridge {
     copyToClipboard(content: { text: string; html?: string }): Promise<void>;
     // the clipboard's plain text, read only inside a person's own `Paste` press into a page on another machine (main's `clipboard.readText`)
     readClipboardText(): Promise<string>;
-    // a file a page in Preview on another machine saved for this device, from its press or key or through a handle its picker gave, saved as this host saves a file and taken part by part as the parts arrive, never whole: the browser's own download in the web client, from a file written part by part into the origin-private file system; the system share sheet on the iPhone, whose Save to Files puts it in Files, from a file appended part by part in the app's cache; and in the desktop app the system save dialog, where `parts` is absent because the app's own service keeps them and main writes the chosen file from it (`preview.save.read`); one save at a time, and at most one 256 KiB part in memory
+    // a file a page in Preview on another machine saved for this device, from its press or key or
+    // through a handle its picker gave, saved as this host saves a file and taken part by part as
+    // the parts arrive, never whole: the browser's own download in the web client, from a file
+    // written part by part into the origin-private file system; the system share sheet on the
+    // iPhone, whose Save to Files puts it in Files, from a file appended part by part in the app's
+    // cache; and in the desktop app the system save dialog, where `parts` is absent because the
+    // app's own service keeps them and main writes the chosen file from it (`preview.save.read`);
+    // one save at a time, and at most one 256 KiB part in memory
     saveFile(save: {
       saveId: string;
       fileName: string;
@@ -123,7 +138,8 @@ interface PlatformBridge {
     // the page as a picture for marking, its scale read from the image
     capturePage(pane: PaneRef): Promise<CapturedPageImage>;
     // page-host events for the pane, `downloadOffered` and `downloadRefused` among them, the latter
-    // raised when the service's answer to main's `preview.page.download.report` refuses a completed download
+    // raised when the service's answer to main's `preview.page.download.report` refuses a completed
+    // download
     subscribe(pane: PaneRef, handler: (event: BrowserPaneEvent) => void): Unsubscribe;
     // on this machine's own desktop window, the system save dialog for the download the pane's page
     // offered; main writes the file where the person chose, and a canceled dialog writes nothing. A
@@ -174,7 +190,8 @@ interface PlatformBridge {
   machineSettings: {
     // the service's live read of the file, with the repair it made since the last change
     read(): Promise<MachineSettingsReading>;
-    // one change, handed to the service's `machine.settings.update`; answered with the file as written
+    // one change, handed to the service's `machine.settings.update`; answered with the file as
+    // written
     write(change: MachineSettingsChange): Promise<MachineSettings>;
     // each written change to every window, the first delivery the current file; ends as `daemon.subscribe` does
     subscribe(
@@ -227,7 +244,7 @@ interface PlatformBridge {
     reportWindowDiagnostics(
       reports: ReadonlyArray<
         | {
-            kind: "uncaught-error" | "unhandled-rejection";
+            kind: "uncaughtError" | "unhandledRejection";
             role: "consoleDocument" | "consoleWindow" | "paneWindow"; // the window whose realm raised it
             name: string | null; // the error's name, or null for a thrown value that is no error
             message: string; // the error's message, or for a value that is no error a sentence naming its type

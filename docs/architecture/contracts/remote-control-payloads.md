@@ -115,13 +115,14 @@ interface TerminalControlTakeRequest {
   sessionId: SessionId; // no caller field on the wire — the caller is the connection's device, per the transport rule below
   // The shell this lease is for. The lease is one per shell, so every take names its shell.
   terminalId: string;
-  // The caller's own `terminal.output.subscribe` subscription to this shell: the pane the take is made
-  // from, refused `terminal.output.subscriptionNotFound` when it is not the calling connection's open
-  // subscription to this shell. The hold is bound to it; its close ends that binding, and the hold
-  // ends with its last.
+  // The caller's own `terminal.output.subscribe` subscription to this shell: the pane the take is
+  // made from, refused `terminal.output.subscriptionNotFound` when it is not the calling
+  // connection's open subscription to this shell. The hold is bound to it; its close ends that
+  // binding, and the hold ends with its last.
   outputSubscriptionId: SubscriptionId;
   // A forced take moves the lease off another of the account's devices. Absent or `false` is the
-  // ordinary first-acquire take, which refuses `terminal.control.heldByOther` against a live holder.
+  // ordinary first-acquire take, which refuses `terminal.control.heldByOther` against a live
+  // holder.
   force?: boolean;
 }
 

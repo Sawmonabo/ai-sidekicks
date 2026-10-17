@@ -14,9 +14,10 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 //     version number, a plan's record id) reach the wire on the list entry and the read facts instead.
 //     No manifest row is ever updated, so a manifest carries no state. ---
 
-// artifactType discriminator (Spec-012 §Interfaces And Contracts) — the five Spec-012 §Required Behavior families (file, diff, summary,
-// log, design) plus workflowOutput, the Spec-015 §Output Mode Specification workflow phase-output type. Spec-012 §Required Behavior
-// admits "at least" those families, so workflow_output adds to them (D-011-3).
+// artifactType discriminator (Spec-012 §Interfaces And Contracts) — the five Spec-012 §Required
+// Behavior families (file, diff, summary, log, design) plus workflowOutput, the Spec-015 §Output
+// Mode Specification workflow phase-output type. Spec-012 §Required Behavior admits "at least"
+// those families, so workflow_output adds to them (D-011-3).
 type ArtifactType = "file" | "diff" | "summary" | "log" | "design" | "workflowOutput";
 
 interface ArtifactManifest {

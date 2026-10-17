@@ -192,8 +192,8 @@ interface DaemonStatusReadResponse {
       lastFrameOutAgeMs?: number;
       lastFrameInAgeMs?: number;
       reconnectCount: number;
-      // Counts each frame the relay refuses as malformed or unauthenticated; there is no per-device
-      // quota.
+      // Counts each channel frame that failed decryption (`channel.decryptionFailed`), on either
+      // carrier; there is no per-device quota.
       rejectedFrameCount: number;
     }>;
     // The pinned relay presented a key other than the one pinned when it was linked

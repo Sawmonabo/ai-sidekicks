@@ -10,8 +10,9 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 type WorkflowNodeId = string & { readonly __brand: "WorkflowNodeId" };
 // A kind key, dotted and readable: the family, then the kind within it. It is data rather than a
-// closed union, because the catalog is enumerated by `workflow.kind.list` in workflow-builder-and-runs-payloads.md and a kind ships with
-// its own spec and executor — a union here would have to be widened for every kind that lands.
+// closed union, because the catalog is enumerated by `workflow.kind.list` in
+// workflow-builder-and-runs-payloads.md and a kind ships with its own spec and executor — a union
+// here would have to be widened for every kind that lands.
 type WorkflowNodeKindId = string;
 
 // ONE JSON document, whose canonical bytes are its hashed field list (`name`, `description`,
@@ -24,8 +25,9 @@ interface WorkflowDocument {
   schemaVersion: "2";
   name: string;
   description?: string;
-  // Exactly one, and it is a node of the trigger family. A workflow with no trigger that can arm cannot
-  // be enabled, which `workflow.enabled.update` in workflow-builder-and-runs-payloads.md refuses rather than accepting silently.
+  // Exactly one, and it is a node of the trigger family. A workflow with no trigger that can arm
+  // cannot be enabled, which `workflow.enabled.update` in workflow-builder-and-runs-payloads.md
+  // refuses rather than accepting silently.
   trigger: WorkflowTriggerNode;
   // Every node except the trigger. A node id names one node: no two nodes, the trigger included,
   // share one, and a parse refuses each repeat with an issue at that id whose `params` is the finding
@@ -34,11 +36,10 @@ interface WorkflowDocument {
   edges: WorkflowEdge[];
   layout?: WorkflowLayout;
   pinData?: Record<string, WorkflowPinnedItem[]>; // by node id
-  // `TagList` (crates/sidekicks-contracts/src/tag.rs): each tag nested with `/`, never empty, with no
-  // whitespace, no empty level around a `/` and no longer than a session name, and each held once
-  // ignoring case. Set beside the
-  // workflow's name in the builder header (`workflow.tags.update`) or by an agent through the workflow
-  // authoring call.
+  // `TagList` (crates/sidekicks-contracts/src/tag.rs): each tag nested with `/`, never empty, with
+  // no whitespace, no empty level around a `/` and no longer than a session name, and each held
+  // once ignoring case. Set beside the workflow's name in the builder header
+  // (`workflow.tags.update`) or by an agent through the workflow authoring call.
   tags?: string[];
 }
 
@@ -47,11 +48,11 @@ interface WorkflowDocument {
 // as a saved document's are, the trigger's included where it has one.
 type WorkflowDraftDocument = Omit<WorkflowDocument, "trigger"> & { trigger?: WorkflowTriggerNode };
 
-// The trigger node, which alone declares the inputs a run starts with: each named and typed, carrying
-// the value it starts on, and marked required where a start must fill it. The Run now panel draws one
-// field per input (a checkbox for a boolean, a list for a select, a folder picker for a path, a box
-// otherwise), and `workflow.run.start`'s `input` carries what was filled in. A start fills inputs by
-// name, so no two of a trigger's inputs share one.
+// The trigger node, which alone declares the inputs a run starts with: each named and typed,
+// carrying the value it starts on, and marked required where a start must fill it. The Run now
+// panel draws one field per input (a checkbox for a boolean, a list for a select, a folder picker
+// for a path, a box otherwise), and `workflow.run.start`'s `input` carries what was filled in. A
+// start fills inputs by name, so no two of a trigger's inputs share one.
 interface WorkflowTriggerNode extends WorkflowNode {
   inputs?: WorkflowTriggerInput[];
 }
@@ -136,12 +137,13 @@ interface WorkflowStepError {
   // The input item the step failed on: the same zero-based index an expression reads as `$itemIndex`,
   // drawn as it stands (`Item 1` for 1) beside the error's first line on the failed node.
   itemIndex?: number;
-  // The step failure's own code where one names it (a timed-out step, a sandbox that did not start, a
-  // Code step over its budget …), in the `workflow.<condition>` form, with that code's details. A step
-  // whose agent could not resolve (its park on an account a removal took first) carries
-  // `agent.definition.resolutionRefused`, its details that refusal's own, `reason` among them, except that
-  // `definitionId` is `null` for a step running the General agent, which runs no definition. A failure
-  // with no code of its own carries the message alone, and `details` never appears without `code`.
+  // The step failure's own code where one names it (a timed-out step, a sandbox that did not start,
+  // a Code step over its budget …), in the `workflow.<condition>` form, with that code's details. A
+  // step whose agent could not resolve (its park on an account a removal took first) carries
+  // `agent.definition.resolutionRefused`, its details that refusal's own, `reason` among them,
+  // except that `definitionId` is `null` for a step running the General agent, which runs no
+  // definition. A failure with no code of its own carries the message alone, and `details` never
+  // appears without `code`.
   code?: string;
   details?: Record<string, unknown>;
 }
@@ -255,9 +257,9 @@ interface WorkflowStep {
   // Only on a `waiting` step, and only where the wait armed one: the instant it resumes itself. Where
   // none is armed, no instant is invented.
   resumeAt?: string; // RFC 3339 UTC
-  // Only on a `waiting` step that waits on a person and whose node sets a `Timeout`: the instant the wait
-  // gives up. An answer after it is refused with `workflow.step.notWaiting`, and at it the step fails
-  // with `workflow.step.timedOut` and its node's `onError` decides what follows.
+  // Only on a `waiting` step that waits on a person and whose node sets a `Timeout`: the instant
+  // the wait gives up. An answer after it is refused with `workflow.step.notWaiting`, and at it the
+  // step fails with `workflow.step.timedOut` and its node's `onError` decides what follows.
   waitDeadlineAt?: string; // RFC 3339 UTC
   // Present exactly on a step waiting on `reply`: the question it asked. `questionId` is the record
   // `question.resolve` answers and `waitId` the wait it settles — the same record the session's question

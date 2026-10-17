@@ -80,8 +80,8 @@ interface GitDiffReadResponse {
     oldBlobId?: string;
     newBlobId?: string;
     newestTurn?: number; // the latest turn that changed the file; absent for a change made outside a turn
-    // on the workflowRun arm only: the step that changed the file, its node id and the name it shows,
-    // per file and never per line
+    // on the workflowRun arm only: the step that changed the file, its node id and the name it
+    // shows, per file and never per line
     step?: { nodeId: WorkflowNodeId; nodeName: string };
   }>;
   // The branch scope's commits; `agent` names the agent whose run made a commit, read from its run

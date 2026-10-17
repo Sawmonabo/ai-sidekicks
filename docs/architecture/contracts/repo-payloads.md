@@ -7,14 +7,14 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ```ts
 // Plan-006 shared shapes (D-006-2 / D-006-4) — the Rust types live in
 // crates/sidekicks-contracts/src/repo/mount.rs; Plan-007 imports these per Plan-006 CP-006-1.
-// A project is a git repository: `repoMount.attach` refuses a folder that is not one, and a chat's own
-// workspace is git-initialized from its first byte, so there is no non-git kind.
+// A project is a git repository: `repoMount.attach` refuses a folder that is not one, and a chat's
+// own workspace is git-initialized from its first byte, so there is no non-git kind.
 type VcsType = "git";
 // Derived projection, never persisted — Spec-007 §Repo Mount Health (V1 Definition).
-// "identityMismatch": root reachable but the re-derived common directory no longer
-// equals the attach-persisted anchor (repo_mounts.metadata.commonDir); "unreachable"
-// takes precedence; re-attach (`repoMount.reattach`) is the recovery while the folder is still a git
-// repository. checkedAt: ISO-8601 instant of the probe that produced the verdict.
+// "identityMismatch": root reachable but the re-derived common directory no longer equals the
+// attach-persisted anchor (repo_mounts.metadata.commonDir); "unreachable" takes precedence;
+// re-attach (`repoMount.reattach`) is the recovery while the folder is still a git repository.
+// checkedAt: ISO-8601 instant of the probe that produced the verdict.
 type RepoMountHealth =
   | { status: "healthy" | "unreachable"; checkedAt: string }
   | {
@@ -33,17 +33,18 @@ interface RepoMountHealthChangedPayload {
   health: RepoMountHealth;
 }
 
-// RepoMountAttach — a mount belongs to the machine, not to one session: attach makes the project's one mount
-// and no workspace. A session reaches the mount by binding to it — in the same step as `session.create`
-// for a new session, through `workspace.bind` for a converted chat. The mount's machine is the daemon's
-// own, stamped by the daemon and never taken from a caller. A folder that is not a git repository is
-// refused; the repository is keyed by its git common folder, so attaching a linked worktree's folder
-// finds the repository already attached. `Place` and `WslPlace` are `@ai-sidekicks/contracts/place`'s
-// `"windows" | { distro: string }` and `{ distro: string }`.
+// RepoMountAttach — a mount belongs to the machine, not to one session: attach makes the project's
+// one mount and no workspace. A session reaches the mount by binding to it — in the same step as
+// `session.create` for a new session, through `workspace.bind` for a converted chat. The mount's
+// machine is the daemon's own, stamped by the daemon and never taken from a caller. A folder that
+// is not a git repository is refused; the repository is keyed by its git common folder, so
+// attaching a linked worktree's folder finds the repository already attached. `Place` and
+// `WslPlace` are `@ai-sidekicks/contracts/place`'s `"windows" | { distro: string }` and `{ distro:
+// string }`.
 interface RepoMountAttachRequest {
-  // On the machine itself the path comes from the platform's own folder chooser, whose token the main
-  // process's relay turns into a path; from another device it is the path of the folder `machine.folder.list`
-  // showed.
+  // On the machine itself the path comes from the platform's own folder chooser, whose token the
+  // main process's relay turns into a path; from another device it is the path of the folder
+  // `machine.folder.list` showed.
   localPath: string; // user-entered path (provenance; persisted as repo_mounts.local_path)
   // The WSL 2 distribution a Linux path was given in; absent on macOS and Linux and wherever the
   // path's own form says, Windows itself among them.
@@ -117,7 +118,12 @@ interface WorkspaceBindRequest {
 }
 interface WorkspaceBindResponse {
   workspaceId: WorkspaceId;
-  // No root in this answer. A client reads the bound root from the workspace's `fsRoot` in `WorkspaceListResponse` once `workspace.prepared` arrives: the EXACT ADMITTED RESOLVED DIRECTORY the bind requested — `directory` resolved against the mount canonical root for the relative form, taken as supplied for the absolute form, symlink-resolved and admitted by containment within an admitted root; equal to a containing root only when the bind names the root itself.
+  // No root in this answer. A client reads the bound root from the workspace's `fsRoot` in
+  // `WorkspaceListResponse` once `workspace.prepared` arrives: the EXACT ADMITTED RESOLVED
+  // DIRECTORY the bind requested — `directory` resolved against the mount canonical root for the
+  // relative form, taken as supplied for the absolute form, symlink-resolved and admitted by
+  // containment within an admitted root; equal to a containing root only when the bind names the
+  // root itself.
   executionMode: ExecutionMode;
   state: WorkspaceState;
 }

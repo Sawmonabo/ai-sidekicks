@@ -11,9 +11,9 @@ interface OrchestrationRunConfig {
   tokenLimit?: number; // the run's `Tokens per run`, input and output together; absent = `Unlimited`, the default (Spec-014 §Budget Policies)
 }
 type ChildRunProvenance = "providerSubagent" | "bridgeRun" | "workflowStep"; // D-013-12: how a child was reached — the provider's own subagent, the cross-provider bridge's `agent_run`, or a workflow's `agent.run` step (agent-definition-payloads.md §Plan-024). A `providerSubagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
-// The reason carried on a system-initiated interrupt, the same set as agent.run.interrupted's `trigger`,
-// which this set rides only. The token limit ends its run, so its `tokenLimit` rides agent.run.stopped's
-// `trigger` instead.
+// The reason carried on a system-initiated interrupt, the same set as agent.run.interrupted's
+// `trigger`, which this set rides only. The token limit ends its run, so its `tokenLimit` rides
+// agent.run.stopped's `trigger` instead.
 type InterruptReason = "stepLimit" | "spendLimit" | "workflowPhaseCanceled" | "daemonRestart";
 
 // AgentRunCreate — wire: agent.run.create (admission pipeline D-013-9:
@@ -43,15 +43,16 @@ interface AgentRunCreateResponse {
 }
 
 // AgentChildRunLinkList — wire: agent.childRunLink.list. A read OF the daemon's parent-to-child
-// index (the paragraph after the registry below), for the WHOLE session: every child at every depth,
-// whether it has a run of its own (an agent the bridge's `agent_run` started, linked in run_links —
-// single-parent: `child_run_id` is the PK, so a child appears under exactly one parent; D-013-3) or is
-// a provider's own helper inside its parent's run. The pane's list, the transcript's child rows and
-// each child's own view all read this one source; the screen reads it again on agent.subagent.started,
-// agent.subagent.completed, agent.run.queued, agent.run.rejected and each run state change.
+// index (the paragraph after the registry below), for the WHOLE session: every child at every
+// depth, whether it has a run of its own (an agent the bridge's `agent_run` started, linked in
+// run_links — single-parent: `child_run_id` is the PK, so a child appears under exactly one parent;
+// D-013-3) or is a provider's own helper inside its parent's run. The pane's list, the transcript's
+// child rows and each child's own view all read this one source; the screen reads it again on
+// agent.subagent.started, agent.subagent.completed, agent.run.queued, agent.run.rejected and each
+// run state change.
 // `rejectedCreates` is event-folded at read time from the session's `agent.run.rejected` events:
-// zero-residue refusals (I-013-7) leave no run/queue/link row, so the fold is the only data path that
-// lets the child-run view surface refusal records (events-canonical projection, the budget
+// zero-residue refusals (I-013-7) leave no run/queue/link row, so the fold is the only data path
+// that lets the child-run view surface refusal records (events-canonical projection, the budget
 // accountant's posture).
 interface AgentChildRunLinkListRequest {
   sessionId: SessionId;
@@ -114,16 +115,16 @@ interface SessionBudgetState {
   sessionId: SessionId;
   spendLimitUsdMicros: number | null; // the session's `Spend limit`; null = `Unlimited`, the default — one exists only where the person set it
   tokensPerRun: number | null; // the session's `Tokens per run`, input and output together for one run; null = `Unlimited`, the default
-  // The ENFORCED number: what the accountant compares against spendLimitUsdMicros wherever a limit is
-  // set (with spendLimitUsdMicros null nothing is compared and no turn is held for spend), and the one
-  // session cost figure a surface shows — never a sum over a visible run list (Spec-014 §Cost Figure
-  // Display Consistency; Plan-013 I-013-15). The budget accountant folds it from the persisted
-  // usage.cost.updated rows alone: each request is priced once, at completion, from the live price table
-  // and never repriced, so a rebuild gives the same figure. A request on a model or speed the price
-  // table does not price yet is stored with its exact tokens and no dollar figure, never held back,
-  // and joins this figure when a later fetch prices it (Spec-014 §Cost Derivation And Absent-Cost
-  // Semantics). Plan-013 T2.4 asserts the
-  // equality with the cost receipt's total at the same fold state.
+  // The ENFORCED number: what the accountant compares against spendLimitUsdMicros wherever a limit
+  // is set (with spendLimitUsdMicros null nothing is compared and no turn is held for spend), and
+  // the one session cost figure a surface shows — never a sum over a visible run list (Spec-014
+  // §Cost Figure Display Consistency; Plan-013 I-013-15). The budget accountant folds it from the
+  // persisted usage.cost.updated rows alone: each request is priced once, at completion, from the
+  // live price table and never repriced, so a rebuild gives the same figure. A request on a model
+  // or speed the price table does not price yet is stored with its exact tokens and no dollar
+  // figure, never held back, and joins this figure when a later fetch prices it (Spec-014 §Cost
+  // Derivation And Absent-Cost Semantics). Plan-013 T2.4 asserts the equality with the cost
+  // receipt's total at the same fold state.
   committedSpendUsdMicros: number;
   // Spend per agent in the session's tree, the lead included, routed up the parent chain at any depth:
   // `ownUsdMicros` is what the agent's own requests cost, `subtreeUsdMicros` that plus every descendant's.
@@ -138,8 +139,9 @@ interface SessionBudgetState {
 interface SessionGoal {
   text: string; // non-blank, NUL-rejected, no length cap of the app's own: the provider refuses in its own words (persisted to the event log and handed to the provider's own goal command)
 }
-// The goal's status, carried on session.goal.updated. `complete` and `impossible` are terminal: a goal's
-// last status is what its row draws. Only Claude Code sends `impossible`, carrying the judge's reason.
+// The goal's status, carried on session.goal.updated. `complete` and `impossible` are terminal: a
+// goal's last status is what its row draws. Only Claude Code sends `impossible`, carrying the
+// judge's reason.
 // Clearing is session.goal.cleared, never a status.
 type SessionGoalStatus =
   | "active"
@@ -159,26 +161,26 @@ interface SessionGoalClearRequest {
   sessionId: SessionId;
   agentId: AgentId;
 }
-// The acknowledgement of session.goal.clear, among other session acts; clearing with no goal set
+// The acknowledgment of session.goal.clear, among other session acts; clearing with no goal set
 // succeeds, as Codex does.
-type SessionAcknowledgement = { sessionId: SessionId };
+type SessionAcknowledgment = { sessionId: SessionId };
 
 // Agent surface (Plan-013 owns the V1 agent identity surface).
 // An agent has no lifecycle state: it is in its session or it is not. An agent row is created by
-// session.created (a session's lead) or agent.run.queued (an agent resolved from a saved definition), and its binding moves only by the
-// binding events below, so the agents projection is deterministic from the log alone.
-// NO WIRE VERB BRINGS AN AGENT INTO A SESSION OR TAKES ONE OUT. A session has one main agent,
-// and another agent takes part only where the main one delegates to it or where the person names
-// it in the composer, so there is no step that binds a saved agent to a running session and none to
-// undo. The verbs here mutate and read what the session already holds.
-// wire: agent.config.update / agent.subscribe
-// The running agent's model, window, effort, output speed, session options and provider, each moved by
-// the person from the composer's controls. Every member is optional and an omitted member is
-// UNCHANGED, never reset. Every accepted update is a switch of the agent's provider binding
-// (`AgentProviderBinding`, agent-definition-payloads.md §Plan-024) and settles with
-// `agent.providerBinding.changed` or `agent.providerBinding.changeFailed`; no other event
-// records it. A change of model, effort, speed or a session option alone settles in place and draws no
-// transcript row.
+// session.created (a session's lead) or agent.run.queued (an agent resolved from a saved
+// definition), and its binding moves only by the binding events below, so the agents projection is
+// deterministic from the log alone.
+// NO WIRE VERB BRINGS AN AGENT INTO A SESSION OR TAKES ONE OUT. A session has one main agent, and
+// another agent takes part only where the main one delegates to it or where the person names it in
+// the composer, so there is no step that binds a saved agent to a running session and none to undo.
+// The verbs here mutate and read what the session already holds. wire: agent.config.update /
+// agent.subscribe The running agent's model, window, effort, output speed, session options and
+// provider, each moved by the person from the composer's controls. Every member is optional and an
+// omitted member is UNCHANGED, never reset. Every accepted update is a switch of the agent's
+// provider binding (`AgentProviderBinding`, agent-definition-payloads.md §Plan-024) and settles
+// with `agent.providerBinding.changed` or `agent.providerBinding.changeFailed`; no other event
+// records it. A change of model, effort, speed or a session option alone settles in place and draws
+// no transcript row.
 interface AgentConfigUpdateRequest {
   agentId: AgentId;
   modelId?: string;
@@ -186,16 +188,18 @@ interface AgentConfigUpdateRequest {
   // (`ProviderModel.largerWindow`). `null` moves back to the model's default window; omitted does not
   // move it. A `modelId` move must carry it, a figure or `null`, so omitted always means unchanged.
   largerWindow?: number | null;
-  // D-013-17 — the provider axis ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-orchestration.md#same-agent-provider-switch)).
+  // D-013-17 — the provider axis ([Spec-014 §Same-Agent Provider
+  // Switch](../../specs/014-multi-agent-orchestration.md#same-agent-provider-switch)).
   // Moving this is the PROVIDER SWITCH, picked from the composer's model control, which lists every
   // installed provider's models, one heading per provider, the session's own first; it applies at
   // the end of the run in flight. Continuity is a HAND-OVER BRIEF composed on a throwaway copy of
   // the old session, never a replay of the whole conversation as text (Spec-014 §Continuity). The
   // brief starts no turn of its own: it opens the person's next message, or goes alone at the
-  // switch on `interruptAndSwitch`. WHICH ACCOUNT PAYS IS NOT A MEMBER HERE: it moves on
-  // the provider surface through `provider.account.current.update` (provider-account-payloads.md §Plan-023), which moves every unpinned
-  // running session on that provider. A caller supplying an account member is refused, not served — a
-  // per-session account switch beside a provider-wide current account would let the two disagree.
+  // switch on `interruptAndSwitch`. WHICH ACCOUNT PAYS IS NOT A MEMBER HERE: it moves on the
+  // provider surface through `provider.account.current.update` (provider-account-payloads.md
+  // §Plan-023), which moves every unpinned running session on that provider. A caller supplying an
+  // account member is refused, not served — a per-session account switch beside a provider-wide
+  // current account would let the two disagree.
   driverName?: string;
   effort?: string;
   // The output-speed axis ([Spec-014 §The mutation surface](../../specs/014-multi-agent-orchestration.md#the-mutation-surface)). Gated on the
@@ -223,14 +227,14 @@ interface AgentConfigUpdateRequest {
   // an axis the target driver takes as a per-turn override, a run boundary for a run-bound one
   // (`driverName` always, and `outputSpeed` on Claude Code — re-derived by listing, not counted). A
   // multi-axis update takes the WIDEST of its axes' boundaries, so no axis applies earlier than its
-  // own rule allows. `true` dispatches the documented `interrupt` intervention (`agent.run.intervene`)
-  // first and then switches — an entry point into a control the corpus already has, not a new run
-  // control, so Spec-003's V1 control set is unchanged. The interrupt is authorized as every
-  // intervention is, as the session's user (Spec-010 §Required Behavior), and a refused interrupt
-  // refuses the switch rather than leaving the agent half-moved. This arm HOLDS THE REQUEST OPEN
-  // across the boundary — which is what lets its response carry the settlement below — and still
-  // writes the pending switch to the agent row BEFORE dispatching the interrupt, so a crash in
-  // between costs the caller its answer and not the switch.
+  // own rule allows. `true` dispatches the documented `interrupt` intervention
+  // (`agent.run.intervene`) first and then switches — an entry point into a control the corpus
+  // already has, not a new run control, so Spec-003's V1 control set is unchanged. The interrupt is
+  // authorized as every intervention is, as the session's user (Spec-010 §Required Behavior), and a
+  // refused interrupt refuses the switch rather than leaving the agent half-moved. This arm HOLDS
+  // THE REQUEST OPEN across the boundary — which is what lets its response carry the settlement
+  // below — and still writes the pending switch to the agent row BEFORE dispatching the interrupt,
+  // so a crash in between costs the caller its answer and not the switch.
   interruptAndSwitch?: boolean;
 }
 interface AgentConfigUpdateResponse {
@@ -281,9 +285,9 @@ interface AgentBindingSwitchPending {
   // did not issue the mutation can render what the agent is switching to rather than only that it
   // is switching. Carrying the targets rather than only the member names is load-bearing for
   // durability: this same object is what the `agents.pending_switch` slot stores and what
-  // `agent.subscribe` serves as `pendingSwitch`, so `switching to …` survives a reload and reaches another
-  // device, and an intent recording only WHICH members moved could not be applied at the boundary
-  // once the caller's request is gone.
+  // `agent.subscribe` serves as `pendingSwitch`, so `switching to …` survives a reload and reaches
+  // another device, and an intent recording only WHICH members moved could not be applied at the
+  // boundary once the caller's request is gone.
   pendingAxes: AgentBindingSwitchTarget;
   // Present when this update REPLACED an earlier still-pending switch on the same agent: at most
   // one switch is pending per agent, and a later update supersedes rather than queues (Spec-014
@@ -327,7 +331,7 @@ interface AgentBindingSwitchFailed {
 }
 
 type AgentBindingSwitchFailureReason =
-  | "driverUnavailable"
+  | "providerUnavailable"
   | "modelUnavailable"
   | "effortUnavailable"
   // The deferred application reached a target whose driver no longer declares
@@ -352,18 +356,18 @@ type AgentBindingSwitchAccountState =
 
 // The binding members a switch moves, as a partial record: an omitted key is a member this switch
 // does not move. It holds no account: the account moves on the provider surface
-// (`provider.account.current.update`, provider-account-payloads.md §Plan-023), in place at the next request, and writes no pending
-// switch. One shape serves three surfaces — the wire acknowledgment above, the durable `agents.pending_switch`
-// slot, and `agent.subscribe`'s `pendingSwitch` member — so a client, a projector, and a restarted daemon
-// all read the same record of the same intent.
-// An omitted key is a member not moving. The one reset is `largerWindow: null`, the move back to the
-// model's default window, which is a model choice of its own rather than a cleared member.
+// (`provider.account.current.update`, provider-account-payloads.md §Plan-023), in place at the next
+// request, and writes no pending switch. One shape serves three surfaces — the wire acknowledgment
+// above, the durable `agents.pending_switch` slot, and `agent.subscribe`'s `pendingSwitch` member —
+// so a client, a projector, and a restarted daemon all read the same record of the same intent.
+// An omitted key is a member not moving. The one reset is `largerWindow: null`, the move back to
+// the model's default window, which is a model choice of its own rather than a cleared member.
 // `driverName`, `modelId` and the account cannot be cleared at all (an agent always runs on one of
 // each), and clearing `effort` or `outputSpeed` is not an operation `agent.config.update` offers,
 // whose omitted members are uniformly "unchanged, never reset". `outputSpeed` is carried in this
 // record rather than only at the coordinator: on Claude Code it applies at a run boundary, so it is
-// a member likely to be pending across a restart, and a member a caller can request but the durable slot cannot hold
-// would be acknowledged and then silently dropped.
+// a member likely to be pending across a restart, and a member a caller can request but the durable
+// slot cannot hold would be acknowledged and then silently dropped.
 interface AgentBindingSwitchTarget {
   driverName?: string;
   modelId?: string;
@@ -456,8 +460,8 @@ interface AgentProviderBindingChangeFailedPayload {
   accountState?: AgentBindingSwitchAccountState; // present exactly when reason is "accountUnavailable"
 }
 
-// agent.subscribe — a LIVE list: the session's agents, then each agent row again as it changes, like
-// session.subscribe, so a switch in flight and its settlement reach every window and device.
+// agent.subscribe — a LIVE list: the session's agents, then each agent row again as it changes,
+// like session.subscribe, so a switch in flight and its settlement reach every window and device.
 interface AgentSubscribeRequest {
   sessionId: SessionId;
 }
@@ -533,22 +537,23 @@ interface AgentListEntry {
   createdAt: string;
 }
 
-// agent.run.queued payload (Spec-005 §Run Lifecycle): a run's creation, and the one durable record of how it came
-// to be. The linkage members ride a run another run or a
-// workflow created, on this row only and never on the run's state stream; an orchestration-created child's
-// run_links row and its per-run limits rebuild from this event alone, while a provider's own subagent's row
-// is written by the provider driver from that provider's subagent notifications. `effectiveRunConfig` is
-// the admission-resolved OrchestrationRunConfig (request override else session default), kept so the
-// token-limit enforcement rebuilds the same even if session defaults change mid-run (D-013-5).
+// agent.run.queued payload (Spec-005 §Run Lifecycle): a run's creation, and the one durable record
+// of how it came to be. The linkage members ride a run another run or a workflow created, on this
+// row only and never on the run's state stream; an orchestration-created child's run_links row and
+// its per-run limits rebuild from this event alone, while a provider's own subagent's row is
+// written by the provider driver from that provider's subagent notifications. `effectiveRunConfig`
+// is the admission-resolved OrchestrationRunConfig (request override else session default), kept so
+// the token-limit enforcement rebuilds the same even if session defaults change mid-run (D-013-5).
 //
-// Every run names its agent exactly ONE way: `agentId` for an agent already in the projection (the lead's
-// own run names the session's lead, the `mainAgent` of its `session.created`, this way), or
+// Every run names its agent exactly ONE way: `agentId` for an agent already in the projection (the
+// lead's own run names the session's lead, the `mainAgent` of its `session.created`, this way), or
 // `resolvedAgent` where the request that created the run named a saved definition instead — a peer
-// invocation's own run included. `resolvedAgent` is the CREATING RECORD of that agent's row, in the one shape
-// `agent.subscribe` describes an agent: `session.created` mints a session's lead and this member mints an agent
-// resolved from a definition, and no `agent.*` type creates a row. Its `resolvedConfiguration` is present,
-// and that configuration's `resolvedFromDefinitionId` names the definition. Path-independent, like the admission stamps: the daemon mints the agent's id
-// at the queue insert exactly as it mints the run id, whichever creation path admitted the run.
+// invocation's own run included. `resolvedAgent` is the CREATING RECORD of that agent's row, in the
+// one shape `agent.subscribe` describes an agent: `session.created` mints a session's lead and this
+// member mints an agent resolved from a definition, and no event of the agent itself creates a row.
+// Its `resolvedConfiguration` is present, and that configuration's `resolvedFromDefinitionId` names
+// the definition. Path-independent, like the admission stamps: the daemon mints the agent's id at
+// the queue insert exactly as it mints the run id, whichever creation path admitted the run.
 type AgentRunQueuedPayload = {
   sessionId: SessionId;
   runId: RunId;
@@ -558,18 +563,18 @@ type AgentRunQueuedPayload = {
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
   isApart?: true; // a turn in a process of its own, such as Claude Code's staged review; never the lead run
   effectiveRunConfig?: OrchestrationRunConfig;
-  // ── Path-independent admission stamps: agent.run.queued carries them for EVERY provider run, whether admitted
-  // via the ordinary agent.queueItem.create path or orchestration admission (the orchestration path threads
-  // their values through the OrchestrationRunLinkCarrier; the ordinary path stamps directly at the queue
-  // write — CP-002-10 owns the stamps either way). Never client-suppliable, and never on the run's state
-  // stream.
+  // ── Path-independent admission stamps: agent.run.queued carries them for EVERY provider run,
+  // whether admitted via the ordinary agent.queueItem.create path or orchestration admission (the
+  // orchestration path threads their values through the OrchestrationRunLinkCarrier; the ordinary
+  // path stamps directly at the queue write — CP-002-10 owns the stamps either way). Never
+  // client-suppliable, and never on the run's state stream.
   // As-of-admission model family, frozen here for every admitted provider run: orchestration-
-  // created runs resolve agentId → agent model → pricing-family key; ordinary runs resolve from
-  // the admission-resolved provider model. Derived pricing keys off it; a later
-  // agent.config.update model change never re-keys an admitted run, and a rebuild
-  // reads this field, never the current agents projection. Derived pricing resolves per usage
-  // row: a row wire-attributed to another model (e.g. a differently-modeled subagent) keys off
-  // that model's family; this field is the fallback when the wire carries no attribution.
+  // created runs resolve agentId → agent model → pricing-family key; ordinary runs resolve from the
+  // admission-resolved provider model. Derived pricing keys off it; a later agent.config.update
+  // model change never re-keys an admitted run, and a rebuild reads this field, never the current
+  // agents projection. Derived pricing resolves per usage row: a row wire-attributed to another
+  // model (e.g. a differently-modeled subagent) keys off that model's family; this field is the
+  // fallback when the wire carries no attribution.
   admittedModelFamily?: string;
   // The account the run was admitted against. Priced usage rows join to a paying account through the run,
   // and resume rebinds to this stamp rather than re-resolving the current default.
@@ -582,12 +587,13 @@ type AgentRunQueuedPayload = {
     }
 );
 
-// Orchestration queue-admission carrier (D-013-9) — IN-PROCESS seam type, not a wire shape, declared
-// in `crates/sidekicks-daemon/src/orchestration/` and never in `crates/sidekicks-contracts`:
-// the orchestration-run-service passes it to Plan-002's daemon queue-admission service after its
-// own admission pipeline passes; the agent.run.queued event payload then carries these fields durably
-// (Spec-005 §Run Lifecycle agent.run.queued row — additive optional fields). The wire agent.queueItem.create handler
-// never populates it — child-run creation goes through agent.run.create only.
+// Orchestration queue-admission carrier (D-013-9) — IN-PROCESS seam type, not a wire shape,
+// declared in `crates/sidekicks-daemon/src/orchestration/` and never in
+// `crates/sidekicks-contracts`: the orchestration-run-service passes it to Plan-002's daemon
+// queue-admission service after its own admission pipeline passes; the agent.run.queued event
+// payload then carries these fields durably (Spec-005 §Run Lifecycle agent.run.queued row —
+// additive optional fields). The wire agent.queueItem.create handler never populates it — child-run
+// creation goes through agent.run.create only.
 interface OrchestrationRunLinkCarrier {
   parentRunId?: RunId;
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
@@ -605,7 +611,7 @@ interface OrchestrationRunLinkCarrier {
 | `session.budget.read` | `query` | `SessionBudgetReadRequest` → `SessionBudgetState` | Committed spend and the per-agent spend, in micro-dollars |
 | `session.costReceipt.read` | `query` | `SessionCostReceiptReadRequest` → `SessionCostReceipt` | Read-only decomposition of the committed-spend fold (D-013-16 — shapes below); served from the same accountant accessor as `session.budget.read`, so the two can never disagree |
 | `session.goal.update` | `mutation` | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals); an accepted update emits `session.goal.updated` carrying the same canonical `goal` |
-| `session.goal.clear` | `mutation` | `SessionGoalClearRequest` → `SessionAcknowledgement` | An accepted clear emits `session.goal.cleared` (clearing is the distinct operation — an update without a goal is malformed) |
+| `session.goal.clear` | `mutation` | `SessionGoalClearRequest` → `SessionAcknowledgment` | An accepted clear emits `session.goal.cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.config.update` | `mutation` | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, window, effort, speed, session options and provider; never the account, which is `provider.account.current.update` (provider-account-payloads.md §Plan-023). Settles with `agent.providerBinding.changed` or `agent.providerBinding.changeFailed` |
 | `agent.subscribe` | `subscription` | `AgentSubscribeRequest` → `AgentSubscribeResponse` | Agents-table projection, live: the list, then each change |
 | `provider.terminalSession.list` | `query` | `EmptyPayload` → `ProviderTerminalSessionListResponse` | The provider sessions typed in a terminal, each a `TerminalProviderSession` with its `provider`; shapes in local-ipc-payloads.md §Plan-005; empty while `Reach Codex sessions started in a terminal` is off |
