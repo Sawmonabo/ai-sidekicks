@@ -61,7 +61,7 @@ pub(crate) enum TranscriptProjectionError {
 /// One row per event of `events`, a contiguous ascending stretch of `session_id`'s log, in the same
 /// order, each stamped and carrying its body, read on `reader`; `read_damaged_from_sequence`
 /// answers where a damaged session's reads stop. Fails with
-/// [`TranscriptProjectionError::Attribution`] on a `agent.run.rolledBack` that does not match its
+/// [`TranscriptProjectionError::Attribution`] on an `agent.run.rolledBack` that does not match its
 /// contract or a seed read that fails, and with [`TranscriptProjectionError::Database`] when the
 /// bodies' read fails.
 pub(crate) fn project_window<DamagedFrom>(

@@ -26,7 +26,7 @@ use sidekicks_contracts::provider::driver::capabilities::{
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::intervention::{
-    DriverInterventionResponse, InterruptRunRequest,
+    ApplyInterventionResponse, InterruptRunRequest,
 };
 use sidekicks_contracts::provider::driver::length_limits::{
     DRIVER_BINDING_ID_MAX_LEN, DRIVER_FAILURE_DETAIL_MAX_LEN, DRIVER_FALLBACK_ACTION_MAX_LEN,
@@ -59,7 +59,7 @@ use crate::provider::driver::session_control::{
 use crate::text_cut::cut_to_code_points;
 
 /// The fixed sentence every `provider.capability.unsupported` refusal carries.
-pub(crate) const DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
+pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
     "Requested capability is not supported by the driver";
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
@@ -111,7 +111,7 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn apply_intervention(
         &self,
         params: ApplyInterventionParams,
-    ) -> BoxFuture<'_, Result<DriverInterventionResponse, DriverError>>;
+    ) -> BoxFuture<'_, Result<ApplyInterventionResponse, DriverError>>;
 
     /// Forks the provider conversation at a recorded position and moves the session onto the
     /// fork, touching no files (gated on `sessionFork`); `Degraded` reports the fallback a driver
@@ -379,8 +379,8 @@ pub(crate) struct CreateSessionParams {
     /// on `structuredOutput`); one that binds it per turn reads [`StartRunParams::output_schema`].
     pub(crate) output_schema: Option<Map<String, Value>>,
     /// The account the leg is admitted against, resolved by the daemon; `None` spawns on the
-    /// node's default for the provider. The spawn path pins the account's credential home, so the
-    /// driver only carries it.
+    /// machine's default for the provider. The spawn path pins the account's credential home, so
+    /// the driver only carries it.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The daemon's callback-tool dispatcher (gated on `callbackTools`); every call it gets goes
     /// through the approval pipeline, and the driver answers the provider with what it returns.

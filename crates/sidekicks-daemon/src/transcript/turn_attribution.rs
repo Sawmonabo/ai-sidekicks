@@ -37,7 +37,7 @@ pub(crate) enum TurnAttributionError {
     /// SQLite refused a read of the run's log, or a stored payload is not a JSON object.
     #[error("a read of a run's turns failed")]
     Database(#[from] rusqlite::Error),
-    /// A `agent.run.rolledBack` does not match its contract.
+    /// An `agent.run.rolledBack` does not match its contract.
     #[error(transparent)]
     Rollback(#[from] StoredRollbackMismatchError),
     /// The run's superseded turns could not be read.
@@ -63,7 +63,7 @@ pub(crate) struct RunEventAttribution {
     pub(crate) run_id: RunId,
     /// The stamp its row carries.
     pub(crate) stamp: TranscriptRunStamp,
-    /// The rollback, on a `agent.run.rolledBack`.
+    /// The rollback, on an `agent.run.rolledBack`.
     pub(crate) rollback: Option<AgentRunRolledBackEvent>,
 }
 
@@ -257,7 +257,7 @@ impl SessionTurnAttribution {
 
     /// The attribution of an event of a run, or `None` for an event naming none, seeding the run
     /// through `reads` when it holds no fold of it. Fails with [`TurnAttributionError`] when a seed
-    /// read fails, a `agent.run.rolledBack` does not match its contract or the payload's run id is
+    /// read fails, an `agent.run.rolledBack` does not match its contract or the payload's run id is
     /// not one.
     pub(crate) fn attribute<DamagedFrom>(
         &mut self,
@@ -303,7 +303,7 @@ impl SessionTurnAttribution {
         // reseeds the run from the log.
         if !RUN_TERMINAL_EVENT_TYPES
             .iter()
-            .any(|terminal_type| terminal_type == event_type)
+            .any(|terminal_type| *terminal_type == event_type)
         {
             self.fold_by_run_id.insert(run_id, fold);
         }
@@ -391,5 +391,65 @@ impl SessionTurnAttribution {
             Some(held) => Ok(held),
             None => reads.read_seed(&self.session_id, run_id, sequence),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sidekicks_contracts::event::envelope::EventEnvelope;
+    use sidekicks_contracts::event::registry::SessionEventType;
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::session::id::SessionId;
+
+    use super::{RunTurnReads, SessionTurnAttribution};
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::uuid_v7::mint_uuid_v7;
+
+    fn run_event(
+        session_id: &SessionId,
+        sequence: u64,
+        event_type: SessionEventType,
+        run_id: &RunId,
+    ) -> EventEnvelope {
+        serde_json::from_value(json!({
+            "id": mint_uuid_v7().to_string(),
+            "sessionId": session_id,
+            "sequence": sequence,
+            "occurredAt": "2026-10-14T09:00:00.000Z",
+            "category": event_type.category().as_str(),
+            "type": event_type.as_str(),
+            "payload": { "runId": run_id },
+            "version": "1.0",
+        }))
+        .expect("the test's envelope reads")
+    }
+
+    #[test]
+    fn a_run_terminal_event_frees_its_fold() {
+        let database = TestDatabase::new();
+        database.opener()().expect("the test creates its database");
+        let reader = database.reader();
+        let no_damage = |_: &SessionId| None;
+        let reads = RunTurnReads::new(&reader, no_damage);
+        let session_id = test_session_id();
+        let run_id = RunId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is a run id");
+        let mut attribution = SessionTurnAttribution::new(session_id);
+
+        attribution
+            .attribute(
+                &reads,
+                &run_event(&session_id, 0, SessionEventType::AgentRunRunning, &run_id),
+            )
+            .expect("a running run's event is attributed");
+        assert!(attribution.fold_by_run_id.contains_key(&run_id));
+
+        attribution
+            .attribute(
+                &reads,
+                &run_event(&session_id, 1, SessionEventType::AgentRunCompleted, &run_id),
+            )
+            .expect("a run's terminal event is attributed");
+        assert!(!attribution.fold_by_run_id.contains_key(&run_id));
     }
 }

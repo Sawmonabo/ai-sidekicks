@@ -69,7 +69,7 @@ pub(crate) enum DispatchError {
     /// The params broke the method's contract, so the handler never ran; never logged, since the
     /// sources can quote the received value.
     #[error("the params break the method's contract")]
-    InvalidParams(#[source] ReceivedError),
+    ParamsInvalid(#[source] ReceivedError),
     /// The handler refused the call.
     #[error(transparent)]
     Refused(DomainError),
@@ -82,7 +82,7 @@ pub(crate) enum DispatchError {
     /// The handler's answer broke its contract's rules: `report` holds each broken rule at its path
     /// in the type's names, `value` the answer's JSON those paths resolve against.
     #[error("the daemon's answer breaks its contract")]
-    InvalidResult {
+    ResultInvalid {
         /// Each broken rule.
         #[source]
         report: garde::Report,
@@ -142,7 +142,7 @@ pub(crate) enum Reply {
 pub(crate) trait EncodedFeed: Send {
     /// The next emission once `gate` lets a frame through; `Ok(None)` when the stream ended
     /// (finished, or its gate closed). An emission that fails its check is
-    /// `DispatchError::InvalidResult`; the feed's own failure is `Refused` or `Internal`.
+    /// `DispatchError::ResultInvalid`; the feed's own failure is `Refused` or `Internal`.
     fn next<'a>(
         &'a mut self,
         gate: &'a dyn SendGate,
@@ -412,10 +412,10 @@ where
     M::Params: 'static,
 {
     let json = params.map_or("null", RawValue::get);
-    parse_received::<M::Params>(json.as_bytes(), attachments).map_err(DispatchError::InvalidParams)
+    parse_received::<M::Params>(json.as_bytes(), attachments).map_err(DispatchError::ParamsInvalid)
 }
 
-/// `value` held to its rules, then written for the wire; a broken rule is `InvalidResult` with
+/// `value` held to its rules, then written for the wire; a broken rule is `ResultInvalid` with
 /// the JSON it would have been written as, and a failed write is `Internal`.
 fn encode_checked<T>(value: &T) -> Result<EncodedValue, DispatchError>
 where
@@ -429,7 +429,7 @@ where
         Err(report) => {
             let value = serde_json::from_slice(&json)
                 .map_err(|error| DispatchError::Internal(Box::new(error)))?;
-            Err(DispatchError::InvalidResult { report, value })
+            Err(DispatchError::ResultInvalid { report, value })
         }
     }
 }
@@ -487,16 +487,17 @@ mod tests {
     };
     use crate::ipc::call_fixtures::{Named, context};
 
-    /// The wire names the markers register under, by index.
-    const NAMES: [&str; 1] = ["test.echo"];
+    /// The wire name the echo method registers under.
+    const ECHO_METHOD: &str = "test.echo";
 
-    struct Marker<const NAME: usize>;
+    /// A query that answers its params.
+    struct Echo;
 
-    impl<const NAME: usize> Method for Marker<NAME> {
+    impl Method for Echo {
         type Params = Named;
         type Result = Named;
         const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
-            method: NAMES[NAME],
+            method: ECHO_METHOD,
             procedure_type: ProcedureType::Query,
             is_mutating: false,
             params: TypeName::of::<Named>(),
@@ -507,17 +508,15 @@ mod tests {
         };
     }
 
-    fn register_echo<const NAME: usize>(
-        builder: &mut MethodRegistryBuilder,
-    ) -> Result<(), RegistrationError> {
-        builder.register::<Marker<NAME>, _>(|named: Named, _context: HandlerContext| {
+    fn register_echo(builder: &mut MethodRegistryBuilder) -> Result<(), RegistrationError> {
+        builder.register::<Echo, _>(|named: Named, _context: HandlerContext| {
             async move { Ok(named) }.boxed()
         })
     }
 
     fn request(params: Option<&str>) -> Request {
         Request {
-            method: NAMES[0].to_owned(),
+            method: ECHO_METHOD.to_owned(),
             params: params
                 .map(|text| RawValue::from_string(text.to_owned()).expect("the params are JSON")),
             attachments: Vec::new(),
@@ -527,11 +526,11 @@ mod tests {
     #[test]
     fn a_name_registered_twice_fails_the_start() {
         let mut builder = MethodRegistryBuilder::new();
-        register_echo::<0>(&mut builder).expect("a first name registers");
+        register_echo(&mut builder).expect("a first name registers");
         assert_eq!(
-            register_echo::<0>(&mut builder),
+            register_echo(&mut builder),
             Err(RegistrationError::Duplicate {
-                method: "test.echo"
+                method: ECHO_METHOD
             })
         );
     }
@@ -549,14 +548,14 @@ mod tests {
         let counted = Arc::clone(&runs);
         let mut builder = MethodRegistryBuilder::new();
         builder
-            .register::<Marker<0>, _>(move |named: Named, _context: HandlerContext| {
+            .register::<Echo, _>(move |named: Named, _context: HandlerContext| {
                 counted.fetch_add(1, Ordering::SeqCst);
                 async move { Ok(named) }.boxed()
             })
             .expect("the name registers");
         let answer = builder.freeze().dispatch(request(params), context(1)).await;
         let refusal = match answer {
-            Err(DispatchError::InvalidParams(refusal)) => refusal,
+            Err(DispatchError::ParamsInvalid(refusal)) => refusal,
             Err(error) => panic!("expected invalid params, got {error:?}"),
             Ok(_) => panic!("expected invalid params, got a reply"),
         };
@@ -571,10 +570,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_result_breaking_its_rule_answers_invalid_result() {
+    async fn a_result_breaking_its_rule_answers_result_invalid() {
         let mut builder = MethodRegistryBuilder::new();
         builder
-            .register::<Marker<0>, _>(|_named: Named, _context: HandlerContext| {
+            .register::<Echo, _>(|_named: Named, _context: HandlerContext| {
                 async move {
                     Ok(Named {
                         name: "far too long".to_owned(),
@@ -588,7 +587,7 @@ mod tests {
             .dispatch(request(Some(r#"{"name": "ok"}"#)), context(1))
             .await;
         match answer {
-            Err(DispatchError::InvalidResult { value, .. }) => {
+            Err(DispatchError::ResultInvalid { value, .. }) => {
                 assert_eq!(value, json!({ "name": "far too long" }));
             }
             Err(error) => panic!("expected an invalid result, got {error:?}"),

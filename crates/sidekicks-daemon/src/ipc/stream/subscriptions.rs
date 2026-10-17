@@ -480,7 +480,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_emission_breaking_its_rule_ends_the_subscription_refused_invalid_result() {
+    async fn an_emission_breaking_its_rule_ends_the_subscription_refused_result_invalid() {
         let gate = CreditGate::with_credit(1);
         let (subscriptions, registry) = served();
         let reply = registry

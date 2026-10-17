@@ -9,9 +9,9 @@ use sidekicks_contracts::provider::id::ProviderId;
 use strum::IntoStaticStr;
 
 /// The closed set of diagnostic kinds; each names its counter, so a kind is never unmetered, and
-/// converts to its snake-case name on the log line.
+/// converts to its lowerCamelCase name on the log line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum DriverDiagnosticKind {
     /// A wire kind outside the pinned set, or one with no defined session event type.
     UnmappedWireKind,
@@ -207,7 +207,7 @@ pub(crate) struct DriverDiagnosticRecord {
     /// The provider the record is about.
     pub(crate) provider: ProviderId,
     /// The account the record is about, which its counter is also counted by; `None` on the
-    /// node's default home.
+    /// machine's default home.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// What happened.
     pub(crate) kind: DriverDiagnosticKind,

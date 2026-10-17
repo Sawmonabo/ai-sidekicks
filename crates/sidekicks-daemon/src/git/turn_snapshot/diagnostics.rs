@@ -10,11 +10,11 @@ use strum::IntoStaticStr;
 
 use crate::git::turn_snapshot::retention::RunContextKey;
 
-/// The capture steps in order, named on a failed capture. `detect-sparse-root` and
-/// `check-sparse-rules` (the matcher failed, or git is older than 2.41) fail closed, never as a
+/// The capture steps in order, named on a failed capture. `detectSparseRoot` and
+/// `checkSparseRules` (the matcher failed, or git is older than 2.41) fail closed, never as a
 /// checkout that is not sparse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
-#[strum(serialize_all = "kebab-case")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum TurnSnapshotCaptureStep {
     /// The supplied checkout is not the top level of the working tree holding the execution root.
     VerifyCheckoutRoot,
@@ -44,7 +44,7 @@ pub(crate) enum TurnSnapshotCaptureStep {
 
 /// Why one run's snapshot refs were not pruned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
-#[strum(serialize_all = "kebab-case")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum TurnSnapshotRetentionSkipReason {
     /// The run has not ended (its context row carries no release time), so its refs stay.
     RunNotEnded,

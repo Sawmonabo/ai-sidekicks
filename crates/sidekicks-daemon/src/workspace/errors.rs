@@ -33,10 +33,10 @@ pub(crate) enum WorkspaceRefusal {
     /// The execution root is gone, or its mount's folder is unreachable or holds another repository
     /// now (`workspace.rootUnavailable`). No path is named, since a refusal can reach a remote
     /// caller.
-    #[error("{}", stale_message(.workspace_id.as_ref()))]
-    Stale {
-        /// The stale workspace, or `None` for a bind refused before its workspace exists because
-        /// the mount's root is unreachable.
+    #[error("{}", root_unavailable_message(.workspace_id.as_ref()))]
+    RootUnavailable {
+        /// The workspace whose root is lost, or `None` for a bind refused before its workspace
+        /// exists because the mount's root is unreachable.
         workspace_id: Option<WorkspaceId>,
     },
 }
@@ -53,7 +53,7 @@ impl From<WorkspaceRefusal> for DomainError {
                 RefusalCode::WorkspaceModeUnsupported,
                 json!({ "executionMode": <&'static str>::from(execution_mode) }),
             ),
-            WorkspaceRefusal::Stale { workspace_id } => (
+            WorkspaceRefusal::RootUnavailable { workspace_id } => (
                 RefusalCode::WorkspaceRootUnavailable,
                 // A refused bind names no workspace, so its detail is empty.
                 workspace_id.map_or_else(
@@ -66,10 +66,13 @@ impl From<WorkspaceRefusal> for DomainError {
     }
 }
 
-fn stale_message(workspace_id: Option<&WorkspaceId>) -> String {
+fn root_unavailable_message(workspace_id: Option<&WorkspaceId>) -> String {
     match workspace_id {
         Some(workspace_id) => {
-            format!("workspace {workspace_id} is stale: new runs are blocked until it is repaired")
+            format!(
+                "workspace {workspace_id} lost its working root: new runs are blocked until it is \
+                 repaired"
+            )
         }
         None => "workspace binding refused: the repo mount's execution root is no longer reachable"
             .to_owned(),
@@ -84,9 +87,9 @@ pub(crate) enum WorkspaceServiceInvariantKind {
     /// refuse, a missing `fs_root` under a state that owes a probe, or a probe of another path. A
     /// probe of another path is a bug in the projection's caller; the rest is corrupt data.
     WorkspaceRowUnprojectable,
-    /// The on-read check derived a `stale` transition it could not make durable (a locked
+    /// The on-read check derived a `rootLost` transition it could not make durable (a locked
     /// database, a full disk, a size refusal); the row is fine and the write path is the defect.
-    StaleTransitionDurabilityFailure,
+    RootLostTransitionDurabilityFailure,
     /// A daemon caller asked for a transition the workspace lifecycle does not admit.
     IllegalStateTransition,
     /// A caller offered an execution root that is not one complete location; completing it would

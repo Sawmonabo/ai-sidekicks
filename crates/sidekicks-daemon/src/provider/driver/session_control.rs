@@ -46,7 +46,7 @@ pub(crate) struct RevokeRuleParams {
 
 /// `session.permissionLevel.notOffered`: the session's provider, its account or its model cannot
 /// run at `level`, so nothing was changed. The level goes out as the refusal's detail.
-pub(crate) fn permission_level_unavailable(level: PermissionLevel) -> DomainError {
+pub(crate) fn permission_level_not_offered(level: PermissionLevel) -> DomainError {
     DomainError::new(
         "The session's provider cannot run at that permission level.",
         RefusalCode::SessionPermissionLevelNotOffered,
@@ -64,7 +64,7 @@ pub(crate) struct ProviderBuildChange {
 }
 
 /// One provider conversation a session opened, by the handle it was resumed from, and the account
-/// home it ran in; `provider_account_id` is `None` for one that ran on the node's default home.
+/// home it ran in; `provider_account_id` is `None` for one that ran on the machine's default home.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PurgedConversation {
     /// The handle the conversation was resumed from.

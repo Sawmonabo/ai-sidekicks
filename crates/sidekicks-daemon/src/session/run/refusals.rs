@@ -20,7 +20,7 @@ pub(crate) enum RunRefusal {
         /// The run asked for.
         run_id: RunId,
     },
-    /// A `agent.run.pause` or `agent.run.resume` whose expected version is not the run's current
+    /// An `agent.run.pause` or `agent.run.resume` whose expected version is not the run's current
     /// one, older or newer (`agent.run.versionStale`); the run is as it was.
     #[error("The run's version is not the one the call expected")]
     VersionStale {
@@ -65,7 +65,7 @@ pub(crate) enum RunRefusal {
     },
     /// A turn the daemon or the provider would start on a session whose next turn is held for
     /// another run: the continue of its interrupted lead run with the messages waiting for it, or
-    /// a lead run that has not ended (`provider.unavailable`, `session_turn_in_flight`, as a driver
+    /// a lead run that has not ended (`provider.unavailable`, `sessionTurnInFlight`, as a driver
     /// refuses a turn the daemon starts while another holds the session).
     #[error("The session's next turn is held for another of its runs, so this turn waits")]
     SessionTurnHeld {
@@ -135,7 +135,7 @@ impl From<RunRefusal> for DomainError {
             RunRefusal::SessionTurnHeld { session_id } => {
                 DomainError::new(message, RefusalCode::ProviderUnavailable).with_detail(json!({
                     "sessionId": session_id,
-                    "reason": "session_turn_in_flight",
+                    "reason": "sessionTurnInFlight",
                 }))
             }
         }

@@ -20,7 +20,7 @@ use std::error::Error;
 use futures::future::BoxFuture;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
-use sidekicks_contracts::machine::id::NodeId;
+use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::SessionId;
 use url::Url;
 
@@ -31,7 +31,7 @@ use url::Url;
     expect(
         dead_code,
         reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-                  the node's registration and its certificate challenge) \
+                  the machine's registration and its certificate challenge) \
                   check the proof header through it"
     )
 )]
@@ -43,25 +43,25 @@ pub(crate) const DPOP_PROOF_HEADER_NAME: HeaderName = HeaderName::from_static("d
     expect(
         dead_code,
         reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-                  the node's registration and its certificate challenge) \
+                  the machine's registration and its certificate challenge) \
                   check the scheme through it"
     )
 )]
 pub(crate) const DPOP_AUTHORIZATION_SCHEME: &str = "DPoP";
 
-/// The request a credential is minted for: the session and node scope the authority claimed, and
+/// The request a credential is minted for: the session and machine scope the authority claimed, and
 /// the method and URI are the ones the proof binds.
 #[expect(
     dead_code,
     reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-              the node's registration and its certificate challenge) \
+              the machine's registration and its certificate challenge) \
               mint their credentials with it"
 )]
 pub(crate) struct DaemonCredentialAttempt {
     /// The session this call is about.
     pub(crate) session_id: SessionId,
-    /// The calling daemon's node, the identity the control plane attributes the write to.
-    pub(crate) node_id: NodeId,
+    /// The calling daemon's machine, the identity the control plane attributes the write to.
+    pub(crate) machine_id: MachineId,
     /// The method of the request these headers will travel on.
     pub(crate) htm: Method,
     /// The absolute URI of that same request, with no query and no fragment; a mismatch produces
@@ -77,7 +77,7 @@ pub(crate) struct DaemonCredentialAttempt {
     expect(
         dead_code,
         reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-                  the node's registration and its certificate challenge) \
+                  the machine's registration and its certificate challenge) \
                   receive their headers in it"
     )
 )]
@@ -90,7 +90,7 @@ pub(crate) struct DaemonCredentialMaterial {
     expect(
         dead_code,
         reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-                  the node's registration and its certificate challenge) \
+                  the machine's registration and its certificate challenge) \
                   build and read it"
     )
 )]
@@ -114,7 +114,7 @@ impl DaemonCredentialMaterial {
 #[expect(
     dead_code,
     reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-              the node's registration and its certificate challenge) \
+              the machine's registration and its certificate challenge) \
               mint their credentials through it"
 )]
 pub(crate) trait DaemonCredentialProvider: Send + Sync {
@@ -132,7 +132,7 @@ pub(crate) trait DaemonCredentialProvider: Send + Sync {
     expect(
         dead_code,
         reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-                  the node's registration and its certificate challenge) \
+                  the machine's registration and its certificate challenge) \
                   refuse their headers with it"
     )
 )]
@@ -188,7 +188,7 @@ pub(crate) enum DpopCredentialRefusal {
     expect(
         dead_code,
         reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-                  the node's registration and its certificate challenge) \
+                  the machine's registration and its certificate challenge) \
                   check each minted credential with it"
     )
 )]

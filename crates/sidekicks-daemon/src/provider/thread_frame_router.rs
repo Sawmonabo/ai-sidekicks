@@ -136,7 +136,7 @@ pub(crate) enum SubagentLifecycleEventType {
     Completed,
 }
 
-/// A `agent.subagent.started` or `agent.subagent.completed` emission a driver states when a child
+/// An `agent.subagent.started` or `agent.subagent.completed` emission a driver states when a child
 /// registers or completes; the emission pipeline mints its event. These two are the child's only
 /// transcript presence, since its own frames are kept out of the transcript.
 #[derive(Clone, Debug, PartialEq, Eq)]

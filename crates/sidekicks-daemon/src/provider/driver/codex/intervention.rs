@@ -13,7 +13,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::driver::intervention::{
-    DriverInterventionResponse, InterruptRunRequest, InterventionResultStatus,
+    ApplyInterventionResponse, InterruptRunRequest, InterventionResultStatus,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
@@ -77,7 +77,7 @@ impl CodexInterventionDispatcher {
     pub(crate) async fn apply_intervention(
         &self,
         params: ApplyInterventionParams,
-    ) -> Result<DriverInterventionResponse, DriverError> {
+    ) -> Result<ApplyInterventionResponse, DriverError> {
         let status = match params {
             ApplyInterventionParams::Steer {
                 target_run_id,
@@ -115,7 +115,7 @@ impl CodexInterventionDispatcher {
                 InterventionResultStatus::Applied
             }
         };
-        Ok(DriverInterventionResponse {
+        Ok(ApplyInterventionResponse {
             status,
             fallback_action: None,
             delivered_run_id: None,

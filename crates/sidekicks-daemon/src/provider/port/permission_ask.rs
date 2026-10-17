@@ -22,7 +22,7 @@ use strum::{EnumDiscriminants, IntoStaticStr};
     doc = "The kind of action a held call would take, without its subject, as a standing rule \
            names it.",
     derive(IntoStaticStr),
-    strum(serialize_all = "snake_case")
+    strum(serialize_all = "camelCase")
 )]
 pub(crate) enum ProviderAskAction {
     /// Leave plan mode with the plan it proposed.

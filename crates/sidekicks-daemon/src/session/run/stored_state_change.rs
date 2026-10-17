@@ -1,8 +1,8 @@
 //! Reads a run state change back from the session event that stored it, for the readers that
 //! follow the log as it commits.
 
-use serde_json::Value;
 use sidekicks_contracts::event::envelope::EventEnvelope;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
 use sidekicks_contracts::run::events::{
     AgentRunCompletedPayload, AgentRunFailedPayload, AgentRunInterruptedPayload,
@@ -13,6 +13,10 @@ use sidekicks_contracts::run::events::{
 use sidekicks_contracts::run::id::RunId;
 
 /// One stored run state change, whichever state it entered, with its payload as stored.
+#[expect(
+    dead_code,
+    reason = "the run state subscription replays and follows each stored state change"
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum StoredRunStateChange {
     /// `agent.run.starting`.
@@ -37,6 +41,10 @@ pub(crate) enum StoredRunStateChange {
     Failed(AgentRunFailedPayload),
 }
 
+#[expect(
+    dead_code,
+    reason = "the run state subscription replays and follows each stored state change"
+)]
 impl StoredRunStateChange {
     /// The run that changed state.
     pub(crate) fn run_id(&self) -> &RunId {
@@ -73,15 +81,30 @@ impl StoredRunStateChange {
 
 /// The run state change `event` stored, or `None` for an event of any other type. Fails when the
 /// payload does not read as its type's: the log is the daemon's own, so that is a broken write.
+#[expect(
+    dead_code,
+    reason = "the run state subscription replays and follows each stored state change"
+)]
 pub(crate) fn read_stored_run_state_change(
     event: &EventEnvelope,
 ) -> Result<Option<StoredRunStateChange>, SessionEventReadError> {
     // Only a state change's type is read further, so no other event's payload is parsed.
-    let Some(state_word) = event.event_type.as_str().strip_prefix("run.") else {
-        return Ok(None);
-    };
-    if serde_json::from_value::<RunStateChangeState>(Value::String(state_word.to_owned())).is_err()
-    {
+    let is_state_change = matches!(
+        SessionEventType::from_wire_name(event.event_type.as_str()),
+        Some(
+            SessionEventType::AgentRunStarting
+                | SessionEventType::AgentRunRunning
+                | SessionEventType::AgentRunWaitingForApproval
+                | SessionEventType::AgentRunWaitingForInput
+                | SessionEventType::AgentRunPausing
+                | SessionEventType::AgentRunPaused
+                | SessionEventType::AgentRunCompleted
+                | SessionEventType::AgentRunInterrupted
+                | SessionEventType::AgentRunStopped
+                | SessionEventType::AgentRunFailed
+        )
+    );
+    if !is_state_change {
         return Ok(None);
     }
     Ok(match SessionEvent::from_envelope(event)? {

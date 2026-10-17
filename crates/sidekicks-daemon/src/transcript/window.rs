@@ -24,7 +24,7 @@ use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_o
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::{
-    EventCursor, EventCursorUnresolvable, decode_event_cursor, encode_event_cursor,
+    EventCursor, SessionEventCursorUnresolvable, decode_event_cursor, encode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::limits::TRANSCRIPT_READ_LIMIT_MAX;
@@ -54,7 +54,7 @@ pub(crate) enum TranscriptReadError {
     Refused(#[from] DomainError),
     /// A cursor names no position, or one past the session's newest event.
     #[error(transparent)]
-    CursorUnresolvable(#[from] EventCursorUnresolvable),
+    CursorUnresolvable(#[from] SessionEventCursorUnresolvable),
     /// A read of the session's log failed, or a stored row is not a well-formed event.
     #[error(transparent)]
     Log(#[from] SessionLogReadError),
@@ -475,7 +475,7 @@ mod tests {
                     "INSERT INTO session_events
                        (id, session_id, sequence, occurred_at, monotonic_ns, category, type,
                         payload)
-                     VALUES (?1, ?2, ?3, ?4, 0, 'session_lifecycle', 'session.pinned', ?5)",
+                     VALUES (?1, ?2, ?3, ?4, 0, 'sessionLifecycle', 'session.pinned', ?5)",
                     params![
                         mint_uuid_v7().to_string(),
                         session.as_str(),
@@ -491,8 +491,7 @@ mod tests {
             .execute(
                 "INSERT INTO session_events
                    (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
-                 VALUES (?1, ?2, 5, ?3, 0, 'recovery_events', 'recovery.damaged_events_skipped',
-                         ?4)",
+                 VALUES (?1, ?2, 5, ?3, 0, 'recoveryEvents', 'session.damagedEvents.skipped', ?4)",
                 params![
                     mint_uuid_v7().to_string(),
                     session.as_str(),

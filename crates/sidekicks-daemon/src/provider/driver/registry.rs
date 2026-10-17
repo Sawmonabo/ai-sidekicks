@@ -1,6 +1,6 @@
 //! The live drivers, one per registered provider in the table's order, and the capability gate. A
 //! provider id a request or a provider message brings in is checked here: one no driver answers is
-//! refused `provider.unavailable`. The gate reads the capability snapshot the start-time provider
+//! refused `provider.notFound`. The gate reads the capability snapshot the start-time provider
 //! check recorded, never the driver or the database, and fails closed: a flag is supported only
 //! when a recorded snapshot declares it. A steer is not gated here, since it is how the run queue
 //! delivers a held message.
@@ -13,27 +13,27 @@ use sidekicks_contracts::provider::id::ProviderId;
 
 use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
-use crate::provider::driver::contract::{DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
+use crate::provider::driver::contract::{PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
 use crate::provider::driver::{DriverServices, ProviderRegistration};
 
 /// The refusal for a call naming a provider no registered driver answers; its detail carries only
 /// the id, so nothing internal leaks.
-pub(crate) fn driver_unavailable(provider: &ProviderId) -> DomainError {
+pub(crate) fn provider_not_found(provider: &ProviderId) -> DomainError {
     DomainError::new(
-        "Provider driver is currently unavailable",
-        RefusalCode::ProviderUnavailable,
+        "No provider driver answers that provider id",
+        RefusalCode::ProviderNotFound,
     )
     .with_detail(json!({ "driverId": provider.as_str() }))
 }
 
 /// The refusal for a call gated on `flag` that the driver does not declare; its detail carries only
 /// the driver's id and the flag.
-pub(crate) fn driver_capability_unsupported(
+pub(crate) fn provider_capability_unsupported(
     provider: &ProviderId,
     flag: DriverCapabilityFlag,
 ) -> DomainError {
     DomainError::new(
-        DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
+        PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE,
         RefusalCode::ProviderCapabilityUnsupported,
     )
     .with_detail(json!({ "driverId": provider.as_str(), "flag": flag }))
@@ -74,17 +74,16 @@ impl ProviderRegistry {
         }
     }
 
-    /// The registered entry for `provider`, refused `provider.unavailable` when no driver answers
-    /// it.
+    /// The registered entry for `provider`, refused `provider.notFound` when no driver answers it.
     fn entry(&self, provider: &ProviderId) -> Result<&RegisteredDriver, DomainError> {
         self.drivers
             .iter()
             .find(|registered| registered.provider == *provider)
-            .ok_or_else(|| driver_unavailable(provider))
+            .ok_or_else(|| provider_not_found(provider))
     }
 
     /// Records the capabilities `provider`'s read reported, replacing the earlier snapshot. Refused
-    /// `provider.unavailable` when no driver answers it.
+    /// `provider.notFound` when no driver answers it.
     pub(crate) fn record_capabilities(
         &self,
         provider: &ProviderId,
@@ -98,7 +97,7 @@ impl ProviderRegistry {
         Ok(())
     }
 
-    /// The driver for `provider`, refused `provider.unavailable` when no driver answers it.
+    /// The driver for `provider`, refused `provider.notFound` when no driver answers it.
     pub(crate) fn lookup(
         &self,
         provider: &ProviderId,
@@ -108,8 +107,8 @@ impl ProviderRegistry {
     }
 
     /// Passes when `provider`'s recorded snapshot declares `flag`. Refuses with
-    /// [`driverUnavailable`] when no driver answers it, and [`driver_capability_unsupported`] when
-    /// the flag is off or no snapshot is recorded yet.
+    /// [`provider_not_found`] when no driver answers it, and [`provider_capability_unsupported`]
+    /// when the flag is off or no snapshot is recorded yet.
     pub(crate) fn check_capability(
         &self,
         provider: &ProviderId,
@@ -125,7 +124,7 @@ impl ProviderRegistry {
         if is_on {
             Ok(())
         } else {
-            Err(driver_capability_unsupported(provider, flag))
+            Err(provider_capability_unsupported(provider, flag))
         }
     }
 
@@ -187,7 +186,7 @@ mod tests {
         let gate = registry
             .check_capability(&unknown, DriverCapabilityFlag::Steer)
             .expect_err("no driver answers the id");
-        assert_eq!(lookup.code, RefusalCode::ProviderUnavailable);
-        assert_eq!(gate.code, RefusalCode::ProviderUnavailable);
+        assert_eq!(lookup.code, RefusalCode::ProviderNotFound);
+        assert_eq!(gate.code, RefusalCode::ProviderNotFound);
     }
 }

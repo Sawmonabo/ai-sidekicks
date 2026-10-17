@@ -1,7 +1,8 @@
 //! The health of a repository mount and of a workspace, projected from its row and what the
 //! service observed. Nothing here touches the file system, git, a clock or a database: the service
-//! probes and hands in the row with the probe. An unavailable execution root reads `stale` on every
-//! read surface, found on read; persisting it and gating writes belong to the workspace service.
+//! probes and hands in the row with the probe. An unavailable execution root reads `rootLost` on
+//! every read surface, found on read; persisting it and gating writes belong to the workspace
+//! service.
 
 use std::path::{Path, PathBuf};
 
@@ -62,12 +63,12 @@ pub(crate) struct WorkspaceHealthRow<'row> {
 /// One workspace's health: the state to report, and whether the service must persist it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceHealthProjection {
-    /// The row's state, or `stale` when the probe found the root unavailable.
+    /// The row's state, or `rootLost` when the probe found the root unavailable.
     pub(crate) observed_state: WorkspaceState,
     /// The probe's instant, `None` when no probe was owed; the wire carries only the state.
     pub(crate) checked_at: Option<WireInstant>,
-    /// Whether the observed state differs from the row's, so the `stale` transition is owed.
-    pub(crate) is_stale_transition_required: bool,
+    /// Whether the observed state differs from the row's, so the `rootLost` transition is owed.
+    pub(crate) is_root_lost_transition_required: bool,
 }
 
 /// Why a health projection refused its inputs: a row and an observation that do not belong
@@ -101,7 +102,7 @@ pub(crate) enum HealthProjectionError {
     )]
     IdentityObservationMispaired,
     /// A probe came with a workspace whose state owes none: a root-less or terminal workspace is
-    /// not re-derived from the file system, and a stale one is never healed.
+    /// not re-derived from the file system, and a `rootLost` one is never healed.
     #[error(
         "a workspace in state {} owes no execution-root probe, but one was supplied",
         <&'static str>::from(*.state)
@@ -175,18 +176,18 @@ pub(crate) fn compute_repo_mount_health(
 }
 
 /// Whether a workspace in `state` carries a live execution root and so owes a probe on read, so
-/// the service can skip the work for the rest: `preparing` has a root in flux, `stale` is already
-/// the fault verdict and never healed here, and `archived` is terminal history.
+/// the service can skip the work for the rest: `preparing` has a root in flux, `rootLost` is
+/// already the fault verdict and never healed here, and `archived` is terminal history.
 pub(crate) fn is_probe_bearing(state: WorkspaceState) -> bool {
     match state {
         WorkspaceState::Ready => true,
-        WorkspaceState::Preparing | WorkspaceState::Stale | WorkspaceState::Archived => false,
+        WorkspaceState::Preparing | WorkspaceState::RootLost | WorkspaceState::Archived => false,
     }
 }
 
 /// A workspace's health from its row and the probe of its root, which a state that owes a probe
-/// requires and every other state refuses. A reachable probe never heals a `stale` workspace: a
-/// stale row owes no probe.
+/// requires and every other state refuses. A reachable probe never heals a `rootLost` workspace:
+/// such a row owes no probe.
 pub(crate) fn compute_workspace_health(
     workspace_row: &WorkspaceHealthRow<'_>,
     probe: Option<&FilesystemPathProbe>,
@@ -199,7 +200,7 @@ pub(crate) fn compute_workspace_health(
         return Ok(WorkspaceHealthProjection {
             observed_state: state,
             checked_at: None,
-            is_stale_transition_required: false,
+            is_root_lost_transition_required: false,
         });
     }
     let fs_root = workspace_row
@@ -216,12 +217,12 @@ pub(crate) fn compute_workspace_health(
     let observed_state = if probe.is_reachable {
         state
     } else {
-        WorkspaceState::Stale
+        WorkspaceState::RootLost
     };
     Ok(WorkspaceHealthProjection {
         observed_state,
         checked_at: Some(probe.checked_at.clone()),
-        is_stale_transition_required: observed_state != state,
+        is_root_lost_transition_required: observed_state != state,
     })
 }
 
@@ -309,23 +310,23 @@ mod tests {
     }
 
     #[rstest]
-    #[case::missing_root_reads_stale_and_asks_for_the_write(
+    #[case::missing_root_reads_root_lost_and_asks_for_the_write(
         WorkspaceState::Ready,
         Some(false),
-        Some((WorkspaceState::Stale, true))
+        Some((WorkspaceState::RootLost, true))
     )]
     #[case::reachable_root_keeps_ready(
         WorkspaceState::Ready,
         Some(true),
         Some((WorkspaceState::Ready, false))
     )]
-    #[case::stale_stays_stale_unprobed(
-        WorkspaceState::Stale,
+    #[case::root_lost_stays_root_lost_unprobed(
+        WorkspaceState::RootLost,
         None,
-        Some((WorkspaceState::Stale, false))
+        Some((WorkspaceState::RootLost, false))
     )]
-    #[case::reachable_probe_never_heals_stale(WorkspaceState::Stale, Some(true), None)]
-    fn a_workspace_reads_stale_when_its_root_is_gone_and_never_heals(
+    #[case::reachable_probe_never_heals_root_lost(WorkspaceState::RootLost, Some(true), None)]
+    fn a_workspace_reads_root_lost_when_its_root_is_gone_and_never_heals(
         #[case] state: WorkspaceState,
         #[case] probe_reachability: Option<bool>,
         #[case] expected: Option<(WorkspaceState, bool)>,
@@ -345,7 +346,7 @@ mod tests {
         assert_eq!(
             projection.ok().map(|projection| (
                 projection.observed_state,
-                projection.is_stale_transition_required
+                projection.is_root_lost_transition_required
             )),
             expected
         );

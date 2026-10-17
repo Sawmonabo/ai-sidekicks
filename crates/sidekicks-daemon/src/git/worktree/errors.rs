@@ -30,11 +30,11 @@ use crate::ipc::domain_error::{DomainError, refusal_fields};
 use crate::session::run::setup_gates::RunSetupGateError;
 
 /// Why making a worktree failed; closed and free of paths, so it is safe on the wire, where its
-/// name is the detail's `reason`. The two `branch_name_*` reasons carry git's own line refusing
-/// the name, `carry_failed` how to recover the stashed work, and `carryCheckoutRunning` the run
-/// in the way.
+/// name is the detail's `reason`. `branchNameInvalid` and `branchNameTaken` carry git's own line
+/// refusing the name, `carryFailed` how to recover the stashed work, and `carryCheckoutRunning`
+/// the run in the way.
 #[derive(Clone, Debug, PartialEq, Eq, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum WorktreeCreateFailureReason {
     /// The base ref begins with `-`, which git would read as an option.
     BaseRefOptionLike,
@@ -92,7 +92,7 @@ pub(crate) enum WorktreeRefusal {
         /// The kept copy asked for.
         removed_worktree_id: RemovedWorktreeId,
     },
-    /// Making the worktree failed (`worktree.createFailed`); the workspace goes `stale`.
+    /// Making the worktree failed (`worktree.createFailed`); the workspace goes `rootLost`.
     #[error("{}", create_failed_message(.reason))]
     CreateFailed {
         /// Why.

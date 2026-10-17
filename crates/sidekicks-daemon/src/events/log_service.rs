@@ -25,8 +25,8 @@ use std::sync::Arc;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::session::event_cursor::{
-    EventCursor, EventCursorPositionOutOfRange, EventCursorUnresolvable, START_OF_LOG_POSITION,
-    encode_event_cursor,
+    EventCursor, EventCursorPositionOutOfRange, START_OF_LOG_POSITION,
+    SessionEventCursorUnresolvable, encode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -149,7 +149,7 @@ pub(crate) enum EventAppendError {
 pub(crate) enum EventLogReadError {
     /// The cursor names no position, or one past the session's last event.
     #[error(transparent)]
-    CursorUnresolvable(#[from] EventCursorUnresolvable),
+    CursorUnresolvable(#[from] SessionEventCursorUnresolvable),
     /// SQLite refused the read, or a stored row is not a well-formed event.
     #[error("the session's event log could not be read")]
     Read(#[from] SessionLogReadError),
@@ -575,7 +575,7 @@ mod tests {
         }
     }
 
-    /// A `agent.toolCall.invoked` event of `session_id` in the run `run_id`.
+    /// An `agent.toolCall.invoked` event of `session_id` in the run `run_id`.
     fn tool_invoked(session_id: &SessionId, run_id: &str) -> UnsequencedEventEnvelope {
         let event = serde_json::from_value(json!({
             "type": "agent.toolCall.invoked",

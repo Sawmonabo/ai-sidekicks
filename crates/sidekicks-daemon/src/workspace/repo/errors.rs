@@ -1,5 +1,5 @@
-//! The `repo.*` refusals, each sent on the wire by its code: the refusal's message becomes the
-//! reply's message and its detail `data.fields`.
+//! The refusals of the project, repo mount and machine folder calls, each sent on the wire by its
+//! code: the refusal's message becomes the reply's message and its detail `data.fields`.
 //!
 //! Each answers `-31000`, and a client tells them apart by `data.type`. Two messages are text the
 //! daemon did not write: a clone refusal's git line and a failed clone service start's text, whose
@@ -17,7 +17,7 @@ use sidekicks_contracts::repo::folders::{
     RepoMountAlreadyAttachedDetails, RepoMountOutsideTrustEnvelopeDetails,
     RepoMountOutsideTrustEnvelopeReason, RepoMountReattachConflictDetails,
     RepoMountReattachRefusedDetails, RepoMountReattachRefusedReason,
-    RepoMountRootResolutionFailedDetails, RepoRootResolutionReason,
+    RepoMountRootResolutionFailedDetails, RepoMountRootResolutionReason,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
@@ -28,7 +28,7 @@ use crate::ipc::domain_error::{DomainError, refusal_fields};
 /// [`DomainError`] the reply carries.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RepoRefusal {
-    /// The project record does not exist, or was forgotten (`repoMount.notFound`).
+    /// The project record does not exist, or was forgotten (`project.notFound`).
     #[error("project {project_id} does not exist")]
     ProjectNotFound {
         /// The project asked for.
@@ -45,7 +45,7 @@ pub(crate) enum RepoRefusal {
     #[error("{}", root_resolution_message(*.reason))]
     RootResolutionFailed {
         /// Why.
-        reason: RepoRootResolutionReason,
+        reason: RepoMountRootResolutionReason,
     },
     /// A path or a workspace binding resolves outside the machine's attached roots, or names a
     /// tree whose removal is committed while its folder waits for deletion
@@ -58,12 +58,12 @@ pub(crate) enum RepoRefusal {
         /// Why.
         reason: RepoMountOutsideTrustEnvelopeReason,
     },
-    /// The folder's repository is already attached on this node, by its canonical root or by its
-    /// git common directory (`repoMount.alreadyAttached`); it names the holding mount, never the
-    /// root.
+    /// The folder's repository is already attached on this machine, by its canonical root or by
+    /// its git common directory (`repoMount.alreadyAttached`); it names the holding mount, never
+    /// the root.
     #[error(
-        "repo attach refused: the folder's repository is already attached on this node as repo \
-         mount {}; bind a workspace on that mount to work in this folder",
+        "repo attach refused: the folder's repository is already attached on this machine as \
+         repo mount {}; bind a workspace on that mount to work in this folder",
         .conflicting_repo_mount_id
     )]
     AlreadyAttached {
@@ -128,7 +128,7 @@ pub(crate) enum RepoRefusal {
     /// The top level was asked for on macOS or Linux, which has none
     /// (`machine.folder.topLevel.notOffered`).
     #[error("this computer has no top level above its folders")]
-    TopLevelUnavailable,
+    TopLevelNotOffered,
     /// A clone refused before git starts and before anything is written (`project.clone.refused`):
     /// the destination holds something, or the address leaves no folder name, with git's line.
     #[error("{}", clone_refused_message(.details))]
@@ -149,7 +149,7 @@ impl From<RepoRefusal> for DomainError {
         let message = refusal.to_string();
         let (code, detail) = match refusal {
             RepoRefusal::ProjectNotFound { project_id } => (
-                RefusalCode::RepoMountNotFound,
+                RefusalCode::ProjectNotFound,
                 Some(refusal_fields(json!({ "projectId": project_id }))),
             ),
             RepoRefusal::MountNotFound { repo_mount_id } => (
@@ -212,9 +212,7 @@ impl From<RepoRefusal> for DomainError {
                 RefusalCode::RepoMountDistributionNotFound,
                 Some(refusal_fields(DistributionRefusalDetails { distro })),
             ),
-            RepoRefusal::TopLevelUnavailable => {
-                (RefusalCode::MachineFolderTopLevelNotOffered, None)
-            }
+            RepoRefusal::TopLevelNotOffered => (RefusalCode::MachineFolderTopLevelNotOffered, None),
             RepoRefusal::CloneRefused { details } => (
                 RefusalCode::ProjectCloneRefused,
                 Some(refusal_fields(details)),
@@ -233,26 +231,26 @@ impl From<RepoRefusal> for DomainError {
 }
 
 // The message of a `repoMount.rootResolutionFailed` refusal; none names the path tried.
-fn root_resolution_message(reason: RepoRootResolutionReason) -> &'static str {
+fn root_resolution_message(reason: RepoMountRootResolutionReason) -> &'static str {
     match reason {
-        RepoRootResolutionReason::NotAbsolute => {
+        RepoMountRootResolutionReason::NotAbsolute => {
             "canonical repository root resolution failed: the supplied path is not absolute"
         }
-        RepoRootResolutionReason::PathNotFound => {
+        RepoMountRootResolutionReason::PathNotFound => {
             "canonical repository root resolution failed: the supplied path does not exist"
         }
-        RepoRootResolutionReason::NotReadable => {
+        RepoMountRootResolutionReason::NotReadable => {
             "canonical repository root resolution failed: the supplied path is not readable"
         }
-        RepoRootResolutionReason::NotARepository => {
+        RepoMountRootResolutionReason::NotARepository => {
             "canonical repository root resolution failed: the supplied path is not a git \
              repository"
         }
-        RepoRootResolutionReason::VcsError => {
+        RepoMountRootResolutionReason::VcsError => {
             "canonical repository root resolution failed: the version-control root query did not \
              complete"
         }
-        RepoRootResolutionReason::RootMismatch => {
+        RepoMountRootResolutionReason::RootMismatch => {
             "canonical repository root resolution failed: the path's working tree is not one git \
              names for its repository, or the repository is not the one attached there"
         }

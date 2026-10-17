@@ -3,17 +3,20 @@
 
 use std::sync::LazyLock;
 
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
 use strum::VariantArray as _;
 
 use crate::database::sql_list::sql_list_of;
 
-/// The event types that enter a terminal state, one per state: `agent.run.completed` and the rest.
-pub(crate) static RUN_TERMINAL_EVENT_TYPES: LazyLock<[String; RUN_TERMINAL_STATES.len()]> =
-    LazyLock::new(|| {
-        RUN_TERMINAL_STATES.map(|state| format!("run.{}", <&'static str>::from(state)))
-    });
+/// The event types that enter a terminal state, one per state in `RUN_TERMINAL_STATES`' order.
+pub(crate) const RUN_TERMINAL_EVENT_TYPES: [&str; RUN_TERMINAL_STATES.len()] = [
+    SessionEventType::AgentRunCompleted.as_str(),
+    SessionEventType::AgentRunInterrupted.as_str(),
+    SessionEventType::AgentRunStopped.as_str(),
+    SessionEventType::AgentRunFailed.as_str(),
+];
 
 /// The terminal states as a SQL list of quoted words, for a `state IN (…)` condition.
 pub(crate) static RUN_TERMINAL_STATES_SQL: LazyLock<String> =
