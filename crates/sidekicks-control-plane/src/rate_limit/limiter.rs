@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sidekicks_contracts::wire::instant::WireInstant;
 
 use crate::account_store::{AccountStore, AccountStoreError, SqlValue};
-use crate::rate_limit::endpoint_groups::endpoint_group_limit;
+use crate::rate_limit::endpoint_groups::read_endpoint_group_limit;
 
 /// The key of each counted group of routes; the sign-in routes are the only group.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,9 +65,13 @@ pub enum RateLimiterError {
     ResetUnwritable,
 }
 
+/// Reads the time; [`read_wall_clock`] on a host, a set instant in a test. Fails only when the
+/// clock reads outside what a timestamp holds.
+pub type Clock = fn() -> Result<Timestamp, jiff::Error>;
+
 /// Reads the wall clock through `time`, which reads `Date.now()` on the Worker, where std's
 /// clock panics; fails only when the clock reads outside what a timestamp holds.
-pub fn wall_clock() -> Result<Timestamp, jiff::Error> {
+pub fn read_wall_clock() -> Result<Timestamp, jiff::Error> {
     let now = time::OffsetDateTime::now_utc();
     Timestamp::new(now.unix_timestamp(), now.nanosecond().cast_signed())
 }
@@ -85,7 +89,7 @@ pub fn check<S: AccountStore>(
         oldest_expiry: Option<i64>,
     }
 
-    let group = endpoint_group_limit(request.endpoint);
+    let group = read_endpoint_group_limit(request.endpoint);
     let expires_at = now.checked_add(group.period)?.as_millisecond();
     let key = [
         SqlValue::Text(request.endpoint.as_str().to_owned()),
@@ -105,7 +109,7 @@ pub fn check<S: AccountStore>(
             oldest_expiry: None,
         });
     // An empty window starts with this request, so it is the oldest one.
-    let reset_at = wire_instant(window.oldest_expiry.unwrap_or(expires_at))?;
+    let reset_at = build_wire_instant(window.oldest_expiry.unwrap_or(expires_at))?;
     let counted = u32::try_from(window.counted).unwrap_or(u32::MAX);
     if counted >= group.limit {
         return Ok(RateLimitCheckResponse {
@@ -131,17 +135,19 @@ pub fn check<S: AccountStore>(
 
 /// Drops every counted request that has left its window at `now`, and answers when the next
 /// address's window empties, the moment the next cleanup is due; `None` once nothing is left.
-pub fn prune<S: AccountStore>(
+pub(crate) fn prune<S: AccountStore>(
     store: &S,
     now: Timestamp,
 ) -> Result<Option<Timestamp>, RateLimiterError> {
     drop_expired(store, now)?;
-    next_cleanup_at(store)
+    find_next_cleanup_at(store)
 }
 
 /// When the first address's whole window empties, one window after its newest counted request;
 /// `None` when nothing is counted.
-pub fn next_cleanup_at<S: AccountStore>(store: &S) -> Result<Option<Timestamp>, RateLimiterError> {
+pub(crate) fn find_next_cleanup_at<S: AccountStore>(
+    store: &S,
+) -> Result<Option<Timestamp>, RateLimiterError> {
     #[derive(Deserialize)]
     struct Next {
         next: Option<i64>,
@@ -166,7 +172,7 @@ fn drop_expired<S: AccountStore>(store: &S, now: Timestamp) -> Result<(), RateLi
     Ok(())
 }
 
-fn wire_instant(millisecond: i64) -> Result<WireInstant, RateLimiterError> {
+fn build_wire_instant(millisecond: i64) -> Result<WireInstant, RateLimiterError> {
     WireInstant::from_timestamp(Timestamp::from_millisecond(millisecond)?)
         .ok_or(RateLimiterError::ResetUnwritable)
 }

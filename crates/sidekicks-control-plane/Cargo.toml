@@ -3,7 +3,7 @@ name = "sidekicks-control-plane"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The control plane: the Cloudflare Worker, the Compose relay's program and the schema runner."
+description = "The control plane: the Cloudflare Worker, the Compose relay's program and the account's SQLite store."
 license.workspace = true
 publish.workspace = true
 
@@ -33,6 +33,7 @@ p256.workspace = true
 pasetors.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error.workspace = true
 sidekicks-contracts.workspace = true
 thiserror.workspace = true
 time.workspace = true

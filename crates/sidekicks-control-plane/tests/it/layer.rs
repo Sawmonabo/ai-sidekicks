@@ -12,30 +12,32 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::from_fn_with_state;
 use axum::routing::post;
 use jiff::Timestamp;
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_control_plane::rate_limit::enforcement_pipeline::{
     AccountFileAdmission, AdmissionCheck, AdmissionError,
 };
-use sidekicks_control_plane::rate_limit::layer::{RateLimitGate, rate_limit};
+use sidekicks_control_plane::rate_limit::layer::{CountedRoute, rate_limit};
 use sidekicks_control_plane::rate_limit::limiter::{
-    RateLimitCheckRequest, RateLimitCheckResponse, RateLimitEndpointGroup, RateLimiterError,
-    wall_clock,
+    Clock, RateLimitCheckRequest, RateLimitCheckResponse, RateLimitEndpointGroup, RateLimiterError,
+    read_wall_clock,
 };
-use sidekicks_control_plane::server::router::{RequestId, SourceAddress, with_refusal_fallbacks};
+use sidekicks_control_plane::server::router::{RequestId, SourceAddress, add_refusal_fallbacks};
 
-use crate::helpers::{account_file, call};
+use crate::helpers::{call, create_account_file};
 
-fn counted_route<A: AdmissionCheck>(admission: A) -> Router {
-    let gate = RateLimitGate {
+fn build_counted_route<A: AdmissionCheck>(admission: A, clock: Clock) -> Router {
+    let route = CountedRoute {
         admission,
         endpoint: RateLimitEndpointGroup::AuthEndpoint,
+        clock,
     };
-    with_refusal_fallbacks(
+    add_refusal_fallbacks(
         Router::new().route(
             "/sign-in",
             post(|| async { StatusCode::NO_CONTENT })
-                .route_layer(from_fn_with_state(gate, rate_limit::<A>)),
+                .route_layer(from_fn_with_state(route, rate_limit::<A>)),
         ),
     )
 }
@@ -57,27 +59,27 @@ fn sign_in(source_address: Option<&str>) -> Request<Body> {
 
 #[tokio::test]
 async fn a_request_with_no_countable_address_is_refused_before_counting() {
-    let account = account_file();
-    let route = counted_route(AccountFileAdmission::new(
-        account.connection.clone(),
-        wall_clock,
-    ));
+    let account = create_account_file();
+    let route = build_counted_route(
+        AccountFileAdmission::new(account.connection.clone(), read_wall_clock),
+        read_wall_clock,
+    );
     for address in [None, Some("127.1")] {
         let (status, _, body) = call(&route, sign_in(address)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["code"], "relay.sourceAddressUnresolvable");
         assert_eq!(body["category"], "invalidArgument");
     }
-    assert_eq!(account.counted_requests(), 0);
+    assert_eq!(account.count_held_requests(), 0);
 }
 
 #[tokio::test]
 async fn the_request_past_the_limit_is_refused_with_its_wait() {
-    let account = account_file();
-    let route = counted_route(AccountFileAdmission::new(
-        account.connection.clone(),
-        wall_clock,
-    ));
+    let account = create_account_file();
+    let route = build_counted_route(
+        AccountFileAdmission::new(account.connection.clone(), read_wall_clock),
+        read_wall_clock,
+    );
     for _ in 0..20 {
         let (status, headers, _) = call(&route, sign_in(Some("::ffff:198.51.100.7"))).await;
         assert_eq!(status, StatusCode::NO_CONTENT);
@@ -109,24 +111,33 @@ async fn the_request_past_the_limit_is_refused_with_its_wait() {
     );
     assert!(body["resetAt"].is_string());
     assert_eq!(
-        account.counted_requests(),
+        account.count_held_requests(),
         20,
         "the refusal was not counted"
     );
 }
 
-/// An admission check that refuses with a window that freed long ago.
-#[derive(Clone)]
-struct RefusedLongAgo;
+/// The instant the fixed clock reads.
+const NOW_MS: i64 = 1_900_000_000_000;
 
-impl AdmissionCheck for RefusedLongAgo {
+fn read_fixed_clock() -> Result<Timestamp, jiff::Error> {
+    Timestamp::from_millisecond(NOW_MS)
+}
+
+/// An admission check that refuses with a window that frees at `.0`, in Unix milliseconds.
+#[derive(Clone)]
+struct RefusedUntil(i64);
+
+impl AdmissionCheck for RefusedUntil {
     fn check_admission(
         &self,
         _request: RateLimitCheckRequest,
         _request_id: Option<RequestId>,
     ) -> impl Future<Output = Result<RateLimitCheckResponse, AdmissionError>> + Send {
-        let reset_at =
-            WireInstant::from_timestamp(Timestamp::UNIX_EPOCH).expect("the epoch has a wire form");
+        let reset_at = Timestamp::from_millisecond(self.0)
+            .ok()
+            .and_then(WireInstant::from_timestamp)
+            .expect("the test's reset instant has a wire form");
         async move {
             Ok(RateLimitCheckResponse {
                 allowed: false,
@@ -138,16 +149,18 @@ impl AdmissionCheck for RefusedLongAgo {
     }
 }
 
+#[rstest]
+#[case::a_part_second_rounds_up(59_001, 60)]
+#[case::a_whole_minute(60_000, 60)]
+#[case::one_millisecond(1, 1)]
+#[case::already_freed(-3_600_000, 0)]
 #[tokio::test]
-async fn the_wait_never_falls_below_zero() {
-    let (status, headers, body) = call(
-        &counted_route(RefusedLongAgo),
-        sign_in(Some("198.51.100.7")),
-    )
-    .await;
+async fn the_wait_is_whole_seconds_up_to_the_reset(#[case] reset_in_ms: i64, #[case] wait: u64) {
+    let route = build_counted_route(RefusedUntil(NOW_MS + reset_in_ms), read_fixed_clock);
+    let (status, headers, body) = call(&route, sign_in(Some("198.51.100.7"))).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(headers[RETRY_AFTER], "0");
-    assert_eq!(body["retryAfter"], 0);
+    assert_eq!(headers[RETRY_AFTER], wait.to_string());
+    assert_eq!(body["retryAfter"], wait);
 }
 
 /// The account file's admission, whose first count fails.
@@ -176,11 +189,14 @@ impl AdmissionCheck for FailsOnce {
 
 #[tokio::test]
 async fn a_counter_failure_fails_only_its_own_request() {
-    let account = account_file();
-    let route = counted_route(FailsOnce {
-        admission: AccountFileAdmission::new(account.connection.clone(), wall_clock),
-        has_failed: Arc::default(),
-    });
+    let account = create_account_file();
+    let route = build_counted_route(
+        FailsOnce {
+            admission: AccountFileAdmission::new(account.connection.clone(), read_wall_clock),
+            has_failed: Arc::default(),
+        },
+        read_wall_clock,
+    );
 
     let (status, _, body) = call(&route, sign_in(Some("198.51.100.7"))).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
@@ -196,7 +212,7 @@ async fn a_counter_failure_fails_only_its_own_request() {
     let (status, _, _) = call(&route, sign_in(Some("198.51.100.7"))).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert_eq!(
-        account.counted_requests(),
+        account.count_held_requests(),
         1,
         "the next request was counted"
     );

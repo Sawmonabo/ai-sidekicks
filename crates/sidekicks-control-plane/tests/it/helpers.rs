@@ -18,7 +18,7 @@ pub(crate) struct AccountFile {
 }
 
 /// A fresh account file with its schema built.
-pub(crate) fn account_file() -> AccountFile {
+pub(crate) fn create_account_file() -> AccountFile {
     let folder = tempfile::tempdir().expect("the test can make a folder");
     let connection = open_account_file(&folder.path().join("account.sqlite"))
         .expect("a fresh account file opens");
@@ -30,7 +30,7 @@ pub(crate) fn account_file() -> AccountFile {
 
 impl AccountFile {
     /// How many requests the file holds counted.
-    pub(crate) fn counted_requests(&self) -> i64 {
+    pub(crate) fn count_held_requests(&self) -> i64 {
         #[derive(serde::Deserialize)]
         struct Count {
             counted: i64,

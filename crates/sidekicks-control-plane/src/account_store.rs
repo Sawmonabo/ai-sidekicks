@@ -193,7 +193,7 @@ pub enum AccountStoreError {
 /// The account's SQLite database, reached through its one writer, which runs one request's
 /// statements at a time, so a read and the write that depends on it see no other request between.
 pub trait AccountStore {
-    /// Runs `script`, statements with no parameters, as one transaction: all of it or none.
+    /// Runs `script`, statements with no parameters, in one call with nothing awaited between.
     fn run_script(&self, script: &str) -> Result<(), AccountStoreError>;
 
     /// Runs one statement that returns no rows, with its parameters.
@@ -209,15 +209,16 @@ pub trait AccountStore {
 
 /// Builds the whole schema in one transaction when the database holds none; a database that
 /// holds it is left as it is.
-pub fn apply_schema<S: AccountStore>(store: &S) -> Result<(), AccountStoreError> {
+pub(crate) fn apply_schema<S: AccountStore>(store: &S) -> Result<(), AccountStoreError> {
     #[derive(serde::Deserialize)]
     struct Probe {
         present: i64,
     }
 
-    // The schema commits whole, so its first table stands for all of them.
+    // The script's last object stands for the whole schema, so a script cut short reads as unbuilt.
     let probe: Vec<Probe> = store.query(
-        "SELECT COUNT(*) AS present FROM sqlite_schema WHERE type = 'table' AND name = 'users'",
+        "SELECT COUNT(*) AS present FROM sqlite_schema \
+         WHERE type = 'index' AND name = 'idx_counted_requests_expires'",
         &[],
     )?;
     if probe.iter().any(|row| row.present > 0) {
@@ -238,7 +239,7 @@ mod file {
 
     use super::{AccountStore, AccountStoreError, SqlValue, apply_schema};
 
-    /// SQLite's page cache for the account file, in KiB: the account's rows fit in it whole.
+    /// SQLite's page cache for the account file, in KiB.
     const CACHE_KIB: i64 = 2048;
 
     /// Opens the account's SQLite file, creating it when absent, with every `REFERENCES` enforced,
@@ -294,7 +295,7 @@ mod file {
             while let Some(row) = rows.next()? {
                 let mut fields = serde_json::Map::with_capacity(columns.len());
                 for (index, column) in columns.iter().enumerate() {
-                    fields.insert(column.clone(), json_value(row.get(index)?));
+                    fields.insert(column.clone(), convert_to_json_value(row.get(index)?));
                 }
                 read.push(serde_json::from_value(serde_json::Value::Object(fields))?);
             }
@@ -303,7 +304,7 @@ mod file {
     }
 
     // A column's value as the JSON a row's reader takes; a blob reads as its bytes.
-    fn json_value(value: Value) -> serde_json::Value {
+    fn convert_to_json_value(value: Value) -> serde_json::Value {
         match value {
             Value::Null => serde_json::Value::Null,
             Value::Integer(integer) => integer.into(),
@@ -326,7 +327,7 @@ mod object {
 
     use super::{AccountStore, AccountStoreError, SqlValue};
 
-    fn storage_values(parameters: &[SqlValue]) -> Vec<SqlStorageValue> {
+    fn convert_to_storage_values(parameters: &[SqlValue]) -> Vec<SqlStorageValue> {
         parameters
             .iter()
             .map(|parameter| match parameter {
@@ -337,8 +338,8 @@ mod object {
     }
 
     impl AccountStore for SqlStorage {
-        // The object commits every write made with no await between them together, so a script
-        // run in one call is one transaction.
+        // The object commits the writes of one call together; `apply_schema` reads the script's
+        // last object, so a script cut short reads as unbuilt.
         fn run_script(&self, script: &str) -> Result<(), AccountStoreError> {
             self.exec(script, None)?;
             Ok(())
@@ -349,7 +350,7 @@ mod object {
             statement: &str,
             parameters: &[SqlValue],
         ) -> Result<(), AccountStoreError> {
-            self.exec(statement, storage_values(parameters))?;
+            self.exec(statement, convert_to_storage_values(parameters))?;
             Ok(())
         }
 
@@ -359,7 +360,7 @@ mod object {
             parameters: &[SqlValue],
         ) -> Result<Vec<T>, AccountStoreError> {
             Ok(self
-                .exec(statement, storage_values(parameters))?
+                .exec(statement, convert_to_storage_values(parameters))?
                 .to_array()?)
         }
     }

@@ -46,17 +46,18 @@ pub enum AdmissionError {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use file::{AccountFileAdmission, Clock};
+pub use file::AccountFileAdmission;
 #[cfg(target_arch = "wasm32")]
 pub(crate) use object::{AccountObjectAdmission, RATE_LIMIT_CHECK_PATH, REQUEST_ID_HEADER};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file {
-    //! The Compose relay's admission: the counter over the relay's SQLite file, and one task that
-    //! drops each counted request once its window has passed.
+    //! The Compose relay's admission: the counter over the relay's SQLite file, and one cleanup
+    //! task, started by a counted request when none is running, as the Worker's alarm is set.
 
     use std::error::Error;
     use std::future::Future;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex, PoisonError};
     use std::time::Duration;
 
@@ -66,17 +67,15 @@ mod file {
 
     use super::{AdmissionCheck, AdmissionError};
     use crate::rate_limit::limiter::{
-        RateLimitCheckRequest, RateLimitCheckResponse, RateLimiterError, check, next_cleanup_at,
-        prune,
+        Clock, RateLimitCheckRequest, RateLimitCheckResponse, RateLimiterError, check,
+        find_next_cleanup_at, prune,
     };
     use crate::server::router::RequestId;
 
-    /// Reads the wall clock; `limiter::wall_clock` in the relay, a set instant in a test.
-    pub type Clock = fn() -> Result<Timestamp, jiff::Error>;
-
-    /// The Compose relay's admission check over its account file. Each count re-arms its one
-    /// cleanup task, which sleeps until the next address's window empties and ends once nothing
-    /// is counted, so no counted request outlives its window; dropping the last clone stops it.
+    /// The Compose relay's admission check over its account file. A counted request starts the
+    /// one cleanup task when none is running; the task sleeps until the next address's window
+    /// empties, drops every row past its window, and ends once nothing is counted, so no counted
+    /// request outlives its window. Dropping the last clone stops it.
     #[derive(Clone)]
     pub struct AccountFileAdmission {
         counter: Arc<AccountFileCounter>,
@@ -85,6 +84,9 @@ mod file {
     struct AccountFileCounter {
         connection: Arc<Mutex<Connection>>,
         clock: Clock,
+        // Set and cleared only while the connection is held, so a count and the task's last
+        // prune never both miss each other.
+        is_cleanup_running: Arc<AtomicBool>,
         cleanup: Mutex<Option<JoinHandle<()>>>,
     }
 
@@ -107,6 +109,7 @@ mod file {
                 counter: Arc::new(AccountFileCounter {
                     connection,
                     clock,
+                    is_cleanup_running: Arc::default(),
                     cleanup: Mutex::default(),
                 }),
             }
@@ -122,18 +125,28 @@ mod file {
             let counter = Arc::clone(&self.counter);
             async move {
                 let connection = Arc::clone(&counter.connection);
+                let is_cleanup_running = Arc::clone(&counter.is_cleanup_running);
                 let clock = counter.clock;
-                let (response, next_cleanup) = tokio::task::spawn_blocking(move || {
+                let (response, cleanup_at) = tokio::task::spawn_blocking(move || {
                     let mut connection = connection.lock().unwrap_or_else(PoisonError::into_inner);
-                    let transaction = connection.transaction().map_err(store_error)?;
+                    let transaction = connection.transaction().map_err(wrap_store_error)?;
                     let response = check(&*transaction, &request, clock()?)?;
-                    let next_cleanup = next_cleanup_at(&*transaction)?;
-                    transaction.commit().map_err(store_error)?;
-                    Ok::<_, RateLimiterError>((response, next_cleanup))
+                    // Only a counted request leaves a row, and only a missing task needs one.
+                    let cleanup_at =
+                        if response.allowed && !is_cleanup_running.load(Ordering::SeqCst) {
+                            find_next_cleanup_at(&*transaction)?
+                        } else {
+                            None
+                        };
+                    transaction.commit().map_err(wrap_store_error)?;
+                    if cleanup_at.is_some() {
+                        is_cleanup_running.store(true, Ordering::SeqCst);
+                    }
+                    Ok::<_, RateLimiterError>((response, cleanup_at))
                 })
                 .await??;
-                if let Some(at) = next_cleanup {
-                    counter.arm_cleanup(at);
+                if let Some(at) = cleanup_at {
+                    counter.start_cleanup(at);
                 }
                 Ok(response)
             }
@@ -141,49 +154,75 @@ mod file {
     }
 
     impl AccountFileCounter {
-        // Replaces the cleanup task with one due at `at`, read after this count, so the one task
-        // always waits for the window the latest count left.
-        fn arm_cleanup(&self, at: Timestamp) {
-            let mut cleanup = self.cleanup.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(previous) = cleanup.take() {
-                previous.abort();
-            }
-            *cleanup = Some(tokio::spawn(clean_up(
+        fn start_cleanup(&self, at: Timestamp) {
+            let task = tokio::spawn(clean_up(
                 Arc::clone(&self.connection),
+                Arc::clone(&self.is_cleanup_running),
                 self.clock,
                 at,
-            )));
+            ));
+            // The task that ran before has ended, so its handle is only replaced.
+            *self.cleanup.lock().unwrap_or_else(PoisonError::into_inner) = Some(task);
         }
     }
 
-    async fn clean_up(connection: Arc<Mutex<Connection>>, clock: Clock, mut at: Timestamp) {
+    async fn clean_up(
+        connection: Arc<Mutex<Connection>>,
+        is_running: Arc<AtomicBool>,
+        clock: Clock,
+        mut at: Timestamp,
+    ) {
         loop {
             let wait = match clock() {
                 Ok(now) => Duration::try_from(now.duration_until(at)).unwrap_or(Duration::ZERO),
-                Err(error) => return log_cleanup_failure(&error),
+                Err(error) => return stop_cleanup(connection, is_running, &error).await,
             };
             tokio::time::sleep(wait).await;
             let pruning = Arc::clone(&connection);
+            let running = Arc::clone(&is_running);
             let next = tokio::task::spawn_blocking(move || {
                 let connection = pruning.lock().unwrap_or_else(PoisonError::into_inner);
-                prune(&*connection, clock()?)
+                let next = clock()
+                    .map_err(RateLimiterError::from)
+                    .and_then(|now| prune(&*connection, now));
+                if !matches!(next, Ok(Some(_))) {
+                    running.store(false, Ordering::SeqCst);
+                }
+                next
             })
             .await;
             match next {
                 Ok(Ok(Some(next))) => at = next,
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => return log_cleanup_failure(&error),
-                Err(error) => return log_cleanup_failure(&error),
+                Err(error) => return stop_cleanup(connection, is_running, &error).await,
             }
         }
     }
 
-    // A failed cleanup leaves its rows to the next count, which drops them and arms a new task.
+    // Marks the task ended while the file is held, so the next count starts another.
+    async fn stop_cleanup(
+        connection: Arc<Mutex<Connection>>,
+        is_running: Arc<AtomicBool>,
+        error: &(dyn Error + Send + Sync + 'static),
+    ) {
+        log_cleanup_failure(error);
+        let stopped = tokio::task::spawn_blocking(move || {
+            let _held = connection.lock().unwrap_or_else(PoisonError::into_inner);
+            is_running.store(false, Ordering::SeqCst);
+        })
+        .await;
+        if let Err(error) = stopped {
+            log_cleanup_failure(&error);
+        }
+    }
+
+    // A failed cleanup leaves its rows to the next count, which drops them and starts the task.
     fn log_cleanup_failure(error: &(dyn Error + 'static)) {
         tracing::error!(error, "the rate limit's cleanup stopped");
     }
 
-    fn store_error(error: rusqlite::Error) -> RateLimiterError {
+    fn wrap_store_error(error: rusqlite::Error) -> RateLimiterError {
         RateLimiterError::Store(error.into())
     }
 }
@@ -199,7 +238,7 @@ mod object {
 
     use futures_util::future::{Either, select};
     use worker::send::SendFuture;
-    use worker::{Delay, Env, Headers, Method, ObjectNamespace, Request, RequestInit};
+    use worker::{Delay, Env, Headers, Method, Request, RequestInit};
 
     use super::{AdmissionCheck, AdmissionError};
     use crate::rate_limit::limiter::{RateLimitCheckRequest, RateLimitCheckResponse};
@@ -217,22 +256,21 @@ mod object {
     /// The header that carries the Worker's request id to the account object's log.
     pub(crate) const REQUEST_ID_HEADER: &str = "X-Request-Id";
 
-    /// How long the Worker waits for the account object's count, well inside a caller's own wait.
+    /// How long the Worker waits for the account object's whole answer, well inside a caller's
+    /// own wait.
     const ACCOUNT_OBJECT_WAIT: Duration = Duration::from_secs(5);
 
-    /// The Worker's admission check: one count in the account object per request.
+    /// The Worker's admission check: one count in the account object per request, its binding
+    /// read when a count needs it.
     #[derive(Clone)]
     pub(crate) struct AccountObjectAdmission {
-        namespace: ObjectNamespace,
+        env: Env,
     }
 
     impl AccountObjectAdmission {
-        /// Reads the account object's binding from the Worker's environment; fails when it is
-        /// not bound.
-        pub(crate) fn from_env(env: &Env) -> Result<Self, worker::Error> {
-            Ok(Self {
-                namespace: env.durable_object(ACCOUNT_BINDING)?,
-            })
+        /// Counts through the account object `env` binds.
+        pub(crate) fn new(env: Env) -> Self {
+            Self { env }
         }
     }
 
@@ -242,9 +280,12 @@ mod object {
             request: RateLimitCheckRequest,
             request_id: Option<RequestId>,
         ) -> impl Future<Output = Result<RateLimitCheckResponse, AdmissionError>> + Send {
-            let namespace = self.namespace.clone();
+            let env = self.env.clone();
             SendFuture::new(async move {
-                let stub = namespace.id_from_name(ACCOUNT_OBJECT_NAME)?.get_stub()?;
+                let stub = env
+                    .durable_object(ACCOUNT_BINDING)?
+                    .id_from_name(ACCOUNT_OBJECT_NAME)?
+                    .get_stub()?;
                 let headers = Headers::new();
                 headers.set("Content-Type", "application/json")?;
                 if let Some(request_id) = &request_id {
@@ -259,19 +300,23 @@ mod object {
                     &format!("https://{ACCOUNT_OBJECT_NAME}{RATE_LIMIT_CHECK_PATH}"),
                     &init,
                 )?;
-                let answer = pin!(stub.fetch_with_request(count));
-                let wait = pin!(Delay::from(ACCOUNT_OBJECT_WAIT));
-                let mut response = match select(answer, wait).await {
-                    Either::Left((answer, _)) => answer?,
-                    Either::Right(((), _)) => {
-                        return Err(AdmissionError::AccountObjectTimedOut(ACCOUNT_OBJECT_WAIT));
+                // The wait covers the answer's body too, so an object that stalls mid-answer
+                // fails the request instead of holding it open.
+                let answer = pin!(async move {
+                    let mut response = stub.fetch_with_request(count).await?;
+                    let status = response.status_code();
+                    if status != 200 {
+                        return Err(AdmissionError::AccountObjectStatus { status });
                     }
-                };
-                let status = response.status_code();
-                if status != 200 {
-                    return Err(AdmissionError::AccountObjectStatus { status });
+                    Ok(response.json::<RateLimitCheckResponse>().await?)
+                });
+                let wait = pin!(Delay::from(ACCOUNT_OBJECT_WAIT));
+                match select(answer, wait).await {
+                    Either::Left((answer, _)) => answer,
+                    Either::Right(((), _)) => {
+                        Err(AdmissionError::AccountObjectTimedOut(ACCOUNT_OBJECT_WAIT))
+                    }
                 }
-                Ok(response.json::<RateLimitCheckResponse>().await?)
             })
         }
     }

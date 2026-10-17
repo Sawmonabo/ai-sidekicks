@@ -2,6 +2,8 @@
 //! account's data in its SQLite storage and counts the sign-in routes' requests there. A panic
 //! answers 500 and resets the WebAssembly instance, so no path here panics.
 
+use std::cell::Cell;
+
 use ::worker::{
     Context, DurableObject, Env, HttpRequest, Method, Request, Response, Result, ScheduledTime,
     SqlStorage, State, durable_object, event,
@@ -9,16 +11,18 @@ use ::worker::{
 use axum::body::Body;
 use axum::http::Response as HttpResponse;
 use jiff::Timestamp;
+use serde_json::Map;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use wasm_bindgen::JsValue;
 
 use crate::account_store::{AccountStoreError, apply_schema};
 use crate::rate_limit::enforcement_pipeline::{RATE_LIMIT_CHECK_PATH, REQUEST_ID_HEADER};
 use crate::rate_limit::limiter::{
-    RateLimitCheckRequest, RateLimiterError, check, next_cleanup_at, prune, wall_clock,
+    RateLimitCheckRequest, RateLimiterError, check, find_next_cleanup_at, prune, read_wall_clock,
 };
 use crate::server::host;
 use crate::server::log_internal_failure;
-use crate::server::router::INTERNAL_ERROR_MESSAGE;
+use crate::server::router::{INTERNAL_ERROR_MESSAGE, build_refusal_body, read_refusal_status};
 
 #[event(fetch)]
 async fn fetch(request: HttpRequest, env: Env, _context: Context) -> Result<HttpResponse<Body>> {
@@ -29,6 +33,8 @@ async fn fetch(request: HttpRequest, env: Env, _context: Context) -> Result<Http
 #[durable_object]
 pub struct AccountObject {
     state: State,
+    // Whether this instance has seen the schema built, so later calls skip the check.
+    is_schema_built: Cell<bool>,
 }
 
 /// A request or an alarm the account object could not finish; the cause is kept.
@@ -50,16 +56,19 @@ enum AccountObjectError {
 
 impl DurableObject for AccountObject {
     fn new(state: State, _env: Env) -> Self {
-        Self { state }
+        Self {
+            state,
+            is_schema_built: Cell::new(false),
+        }
     }
 
     async fn fetch(&self, mut request: Request) -> Result<Response> {
         let request_id = request.headers().get(REQUEST_ID_HEADER)?;
-        match self.serve(&mut request).await {
+        match self.serve(&mut request, request_id.as_deref()).await {
             Ok(response) => Ok(response),
             Err(error) => {
                 log_internal_failure(request_id.as_deref(), &error);
-                Response::error(INTERNAL_ERROR_MESSAGE, 500)
+                build_refusal(RefusalCode::SystemInternalError, INTERNAL_ERROR_MESSAGE)
             }
         }
     }
@@ -78,47 +87,73 @@ impl DurableObject for AccountObject {
 }
 
 impl AccountObject {
-    async fn serve(&self, request: &mut Request) -> Result<Response, AccountObjectError> {
-        let sql = self.sql()?;
+    async fn serve(
+        &self,
+        request: &mut Request,
+        request_id: Option<&str>,
+    ) -> Result<Response, AccountObjectError> {
+        let sql = self.open_sql()?;
         if request.method() != Method::Post || request.path() != RATE_LIMIT_CHECK_PATH {
-            return Ok(Response::error(
+            return Ok(build_refusal(
+                RefusalCode::RequestMethodNotFound,
                 "No route of the account object serves this request.",
-                404,
             )?);
         }
         let count: RateLimitCheckRequest = request.json().await?;
         // Nothing is awaited between the count's read and its write.
-        let response = check(&sql, &count, wall_clock()?)?;
-        // Each alarm set is a billed write, so one is set only when none is pending.
-        let storage = self.state.storage();
+        let response = check(&sql, &count, read_wall_clock()?)?;
+        // The request is counted whatever the alarm does: a failed alarm leaves its rows to the
+        // next check's delete, so it is logged and the count still answered.
         if response.allowed
-            && storage.get_alarm().await?.is_none()
-            && let Some(at) = next_cleanup_at(&sql)?
+            && let Err(error) = self.arm_cleanup(&sql).await
         {
-            storage.set_alarm(scheduled_time(at)).await?;
+            log_internal_failure(request_id, &error);
         }
         Ok(Response::from_json(&response)?)
     }
 
+    // Each alarm set is a billed write, so one is set only when none is pending.
+    async fn arm_cleanup(&self, sql: &SqlStorage) -> Result<(), AccountObjectError> {
+        let storage = self.state.storage();
+        if storage.get_alarm().await?.is_none()
+            && let Some(at) = find_next_cleanup_at(sql)?
+        {
+            storage.set_alarm(build_scheduled_time(at)).await?;
+        }
+        Ok(())
+    }
+
     async fn clean_up(&self) -> Result<(), AccountObjectError> {
-        let sql = self.sql()?;
-        if let Some(at) = prune(&sql, wall_clock()?)? {
-            self.state.storage().set_alarm(scheduled_time(at)).await?;
+        let sql = self.open_sql()?;
+        if let Some(at) = prune(&sql, read_wall_clock()?)? {
+            self.state
+                .storage()
+                .set_alarm(build_scheduled_time(at))
+                .await?;
         }
         Ok(())
     }
 
     // The object's storage with the account's schema built, which an object holding none gets on
-    // its first request or alarm.
-    fn sql(&self) -> Result<SqlStorage, AccountStoreError> {
+    // its first request or alarm; once built, this instance does not check again.
+    fn open_sql(&self) -> Result<SqlStorage, AccountStoreError> {
         let sql = self.state.storage().sql();
-        apply_schema(&sql)?;
+        if !self.is_schema_built.get() {
+            apply_schema(&sql)?;
+            self.is_schema_built.set(true);
+        }
         Ok(sql)
     }
 }
 
+// A refusal in the body every other refusal takes, at its code's status.
+fn build_refusal(code: RefusalCode, message: &str) -> Result<Response> {
+    let body = build_refusal_body(code, message, Map::new());
+    Ok(Response::from_json(&body)?.with_status(read_refusal_status(code).as_u16()))
+}
+
 // An alarm takes an absolute instant as a `Date`; a bare number would read as an offset from now.
-fn scheduled_time(at: Timestamp) -> ScheduledTime {
+fn build_scheduled_time(at: Timestamp) -> ScheduledTime {
     #[expect(
         clippy::cast_precision_loss,
         reason = "a millisecond instant is far below 2^53, which an f64 holds exactly"
