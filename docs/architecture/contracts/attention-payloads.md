@@ -31,7 +31,8 @@ interface AttentionItem {
   // replacement it exists to make possible. The notifications list groups by it too, one line per
   // moment. The main process posts from this projection and from nothing else: a `pending` entry only
   // while no console window is focused (a workflow's Notify step posts either way), and it withdraws the
-  // banner when the entry resolves — so answering on another device clears it here. With the app not
+  // banner when the entry resolves or its session or run is deleted, a Notify step's never — so
+  // answering on another device clears it here. With the app not
   // running, the daemon starts the app's own program with no window to post the banner, and that process
   // exits.
   momentId: string;
@@ -68,7 +69,8 @@ interface AttentionItem {
   // this machine's settings switch off, for the master switch off, for a muted session's `Finished` or
   // `Failed`, and for every `provider_build` entry, and starts no windowless app for it, and `pending`
   // otherwise; the main process settles a `pending` entry once through `attention.bannerSettle`, so a
-  // banner is never posted twice.
+  // banner is never posted twice. A posted banner is settled `withdrawn` when its moment resolves or its
+  // session or run is deleted; a Notify step's is never withdrawn.
   bannerState: "pending" | "posted" | "withheld" | "withdrawn";
   // Where the entry's message to the person's web address stands, and how many sends it took; both
   // present exactly when the entry is sent to a web address.
