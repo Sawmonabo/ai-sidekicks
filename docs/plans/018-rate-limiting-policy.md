@@ -84,7 +84,7 @@ The 429 body has one shape, the same in error-contracts.md §Rate Limiting and a
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RateLimitResponse {
     pub code: RelayRateLimitedCode, // always "relay.rateLimited"
-    pub category: RateLimitedCategory, // always "resourceExhausted"
+    pub category: RelayRateLimitedCategory, // always "resourceExhausted"
     pub message: String,
     pub retry_after: u32, // seconds until retry is allowed
     pub limit: u32, // total allowed requests in the window
@@ -164,7 +164,7 @@ async fn rate_limit(
     let admission = (gate.check_admission)(check_request).await?;
     if !admission.admitted {
         // the one retry_after, also sent as `Retry-After`
-        return Err(ControlPlaneRefusal::rate_limited(&admission.check, now()));
+        return Err(ControlPlaneRefusal::relay_rate_limited(&admission.check, now()));
     }
     Ok(next.run(request).await) // an allowed response carries no rate-limit header
 }
