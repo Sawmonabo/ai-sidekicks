@@ -17,11 +17,7 @@ import { getWindow } from "@floating-ui/utils/dom";
 
 import { type Clock } from "#renderer/lib/clock.js";
 import { NEXT_ACT_EVENTS } from "#renderer/lib/next-act-events.js";
-import {
-  SCROLLING_OVERFLOW_VALUES,
-  clippingAncestorsOf,
-  overflowAxesOf,
-} from "#renderer/lib/clipping-ancestors.js";
+import { scrollingAncestorOf } from "#renderer/lib/clipping-ancestors.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { SETTINGS_CONTROL_ATTRIBUTE } from "./anchor.js";
 
@@ -148,24 +144,6 @@ function glideToMiddle(control: HTMLElement, clock: Clock): void {
   controller.attach(scroller);
   controller.glideTo("settings-control-landing", targetScrollTop);
   controller.dispose();
-}
-
-/**
- * The nearest ancestor that scrolls the control: one the person may scroll whose content is
- * taller than it. `undefined` when none does and the document scrolls it.
- */
-function scrollingAncestorOf(control: HTMLElement): HTMLElement | undefined {
-  const ownerWindow = getWindow(control);
-  for (const ancestor of clippingAncestorsOf(control)) {
-    const { vertical } = overflowAxesOf(ownerWindow.getComputedStyle(ancestor));
-    if (
-      SCROLLING_OVERFLOW_VALUES.some((value) => value === vertical) &&
-      ancestor.scrollHeight > ancestor.clientHeight
-    ) {
-      return ancestor;
-    }
-  }
-  return undefined;
 }
 
 /** The element focus lands on: the control itself where it takes focus, else its first field. */

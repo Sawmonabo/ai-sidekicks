@@ -36,8 +36,6 @@ import {
 } from "#fixtures/scenarios/transcript-states.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "#fixtures/scenarios/concurrent-streaming.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
-import { ScenarioFixtureControl } from "#renderer/services/daemon/selection.fixture.js";
 import { WINDOW_HEIGHT_FLOOR_REM } from "#renderer/styles/palette.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
@@ -63,7 +61,7 @@ import {
 } from "../helpers/animation-frame.js";
 import { liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
-import { advanceScenarioUntil } from "../helpers/scenario/manual-clock.js";
+import { advanceScenarioUntil, runningScenario } from "../helpers/scenario/manual-clock.js";
 import { untilInsideAct } from "../helpers/settle.js";
 
 /**
@@ -598,15 +596,6 @@ function barInsetFrom(
   const round = (value: number): number =>
     Math.round(value / EDGE_TOLERANCE_PX) * EDGE_TOLERANCE_PX;
   return { top: round(drawn.top - box.top), bottom: round(box.bottom - drawn.bottom) };
-}
-
-/** The scenario the app's fixture composition plays, as it hangs it on the page. */
-function runningScenario(): ScenarioFixtureControl {
-  const control: unknown = Reflect.get(globalThis, SCENARIO_FIXTURE_GLOBAL);
-  if (!(control instanceof ScenarioFixtureControl)) {
-    throw new Error("the app's fixture composition hung no scenario on the page");
-  }
-  return control;
 }
 
 /** The element `selector` names in the app's window, once the window has drawn it. */

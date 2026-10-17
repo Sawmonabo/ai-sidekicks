@@ -27,6 +27,8 @@
  * middle of the view, once, when the person arrives on it.
  * `pane-reveal` is the pane block scrolling sideways the least distance that brings a pane into
  * view: one just opened or brought forward, and one the keyboard moves focus to.
+ * `gone-session-control` is a screen bringing back into view the control whose press led into a
+ * session that was gone by the time the window stepped back to that screen.
  * `reorder-edge-scroll` is a pointer reorder carrying the list it moves in along, frame by frame,
  * while the dragged item is held near one of its ends.
  */
@@ -44,6 +46,7 @@ export const SCROLL_CALLERS = [
   "row-reveal",
   "settings-control-landing",
   "pane-reveal",
+  "gone-session-control",
   "reorder-edge-scroll",
 ] as const;
 

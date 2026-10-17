@@ -12,6 +12,8 @@ import "./SettingsScreen.css";
 
 import { useCallback, useId, useState } from "react";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { useGoneSessionRaise } from "#renderer/store/window/hooks/useGoneSessionRaise.js";
+import { MissingTargetLine } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
 import { useMainProcessState } from "#renderer/store/window/hooks/useMainProcessState.js";
 import { useOpenSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsRoute, settingsSelection } from "#renderer/routing/readers.js";
@@ -63,6 +65,9 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // Subscribed, not read once: a getter read during render would not re-render when a session
   // opens in another destination.
   const retainedSessionId = useWindowStore(frameStore, (state) => state.lastOpenedSessionId);
+  // A step back here off a gone session says so at the top of the body: no control here points
+  // into a session.
+  const goneSessionRaise = useGoneSessionRaise(frameStore);
 
   const openPage = useCallback(
     (pageId: SettingsPageId): void => {
@@ -137,6 +142,14 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
       data-arrangement={arrangement}
       aria-label="Settings"
     >
+      {goneSessionRaise === undefined ? null : (
+        <div className="meridian-settings__gone-session">
+          <MissingTargetLine
+            target={goneSessionRaise.target}
+            raisedKey={goneSessionRaise.raisedKey}
+          />
+        </div>
+      )}
       <div
         ref={setListPane}
         className="meridian-settings__list-pane"

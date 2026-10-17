@@ -18,6 +18,8 @@ import { useRunDocument, type RunDocumentHold } from "./useRunDocument.js";
 /** Everything one run's page draws, and the acts on what it shows. */
 export interface RunPageHold {
   readonly runState: PushDrivenReadState<WorkflowRunReadResponse>;
+  /** The daemon has no run by this id, so the screen is leaving for the runs list. */
+  readonly isRunMissing: boolean;
   readonly readRunAgain: () => void;
   readonly document: RunDocumentHold;
   /** The node whose step the panel shows, or `undefined` while the panel is closed. */
@@ -108,6 +110,7 @@ export function useRunPage(options: {
   );
   return {
     runState,
+    isRunMissing: isMissing,
     readRunAgain: () => {
       runRead?.refresh("user-request");
     },

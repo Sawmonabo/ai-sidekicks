@@ -423,29 +423,59 @@ export function revealInRow(
   item: Element,
   caller: ScrollCaller,
 ): ScrollOffsetWrite | undefined {
+  return revealAlong(container, item, "horizontal", caller);
+}
+
+/**
+ * Scrolls `container` up or down the least distance that brings `item` wholly into view, as
+ * {@link revealInRow} does sideways. A screen with no `ScrollController` calls it to bring one
+ * control back into view. Throws for a container whose document has no window.
+ */
+export function revealInColumn(
+  container: Element,
+  item: Element,
+  caller: ScrollCaller,
+): ScrollOffsetWrite | undefined {
+  return revealAlong(container, item, "vertical", caller);
+}
+
+function revealAlong(
+  container: Element,
+  item: Element,
+  axis: ScrollOffsetWrite["axis"],
+  caller: ScrollCaller,
+): ScrollOffsetWrite | undefined {
   const view = container.ownerDocument.defaultView;
   if (view === null) {
-    throw new Error("A row was scrolled in a document with no window.");
+    throw new Error("An item was revealed in a document with no window.");
   }
   const containerBox = container.getBoundingClientRect();
   const itemBox = item.getBoundingClientRect();
-  const leftOverflow = itemBox.left - containerBox.left;
-  const rightOverflow = itemBox.right - containerBox.right;
-  // An item wider than the view shows its start, where its header is.
+  const isHorizontal = axis === "horizontal";
+  const startOverflow = isHorizontal
+    ? itemBox.left - containerBox.left
+    : itemBox.top - containerBox.top;
+  const endOverflow = isHorizontal
+    ? itemBox.right - containerBox.right
+    : itemBox.bottom - containerBox.bottom;
+  const itemLength = isHorizontal ? itemBox.width : itemBox.height;
+  const containerLength = isHorizontal ? containerBox.width : containerBox.height;
+  // An item longer than the view shows its start, where its header is.
   const shift =
-    leftOverflow < 0 || itemBox.width > containerBox.width
-      ? leftOverflow
-      : Math.max(0, rightOverflow);
+    startOverflow < 0 || itemLength > containerLength ? startOverflow : Math.max(0, endOverflow);
   if (shift === 0) {
     return undefined;
   }
-  const requestedOffset = container.scrollLeft + shift;
-  container.scrollTo({
-    left: requestedOffset,
-    behavior: prefersReducedMotion(view) ? "instant" : "smooth",
-  });
-  // A glide reaches its offset over later frames; the write answers where it began.
-  return { caller, axis: "horizontal", requestedOffset, appliedOffset: container.scrollLeft };
+  const behavior = prefersReducedMotion(view) ? "instant" : "smooth";
+  if (isHorizontal) {
+    const requestedOffset = container.scrollLeft + shift;
+    container.scrollTo({ left: requestedOffset, behavior });
+    // A glide reaches its offset over later frames; the write answers where it began.
+    return { caller, axis, requestedOffset, appliedOffset: container.scrollLeft };
+  }
+  const requestedOffset = container.scrollTop + shift;
+  container.scrollTo({ top: requestedOffset, behavior });
+  return { caller, axis, requestedOffset, appliedOffset: container.scrollTop };
 }
 
 /**
@@ -462,6 +492,7 @@ function isAskedOnce(caller: ScrollCaller): boolean {
     case "row-reveal":
     case "settings-control-landing":
     case "pane-reveal":
+    case "gone-session-control":
       return true;
     case "follow-tail":
     case "follow-arriving-text":
@@ -490,6 +521,7 @@ function isFollowWrite(caller: ScrollCaller): boolean {
     case "row-reveal":
     case "settings-control-landing":
     case "pane-reveal":
+    case "gone-session-control":
     case "reorder-edge-scroll":
       return false;
   }

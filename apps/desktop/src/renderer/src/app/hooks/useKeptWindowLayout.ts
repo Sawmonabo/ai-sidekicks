@@ -16,6 +16,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWindowRestore } from "#renderer/services/window/hooks/useWindowRestore.js";
 import type { OpenWindows } from "#renderer/services/window/open-windows.js";
 import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import type { WindowOpeningCause } from "#renderer/store/window/store.js";
 import {
   keepWindows,
   readKeptWindows,
@@ -62,7 +63,11 @@ export function useKeptWindowLayout(options: KeptWindowLayoutOptions): KeptWindo
     const windowUsedLast = bridge.window.lastUsedWindowId;
     const consoleLocation = consoleDocument.location;
     const launchHash = consoleLocation.hash;
-    openAt(openWindows, windowUsedLast, isSafeStart ? DEFAULT_ROUTE : parseRoute(launchHash));
+    if (isSafeStart) {
+      openAt(openWindows, windowUsedLast, DEFAULT_ROUTE);
+    } else {
+      openAt(openWindows, windowUsedLast, parseRoute(launchHash), "address");
+    }
     if (!isSafeStart) {
       void readKeptWindows(uiStateStore).then((keptWindows) => {
         if (!isOpening) {
@@ -70,7 +75,7 @@ export function useKeptWindowLayout(options: KeptWindowLayoutOptions): KeptWindo
         }
         for (const keptWindow of keptWindows) {
           if (keptWindow.windowId !== windowUsedLast) {
-            openAt(openWindows, keptWindow.windowId, keptWindow.route);
+            openAt(openWindows, keptWindow.windowId, keptWindow.route, "kept-layout");
           } else if (launchHash === "") {
             returnToKeptAddress(openWindows, keptWindow);
           }
@@ -125,7 +130,7 @@ export function useKeptWindowLayout(options: KeptWindowLayoutOptions): KeptWindo
     readKeptWindows(uiStateStore)
       .then((keptWindows) => {
         for (const keptWindow of keptWindows) {
-          openAt(openWindows, keptWindow.windowId, keptWindow.route);
+          openAt(openWindows, keptWindow.windowId, keptWindow.route, "kept-layout");
         }
         setLayoutKept(true);
         return endSafeStart();
@@ -141,14 +146,23 @@ export function useKeptWindowLayout(options: KeptWindowLayoutOptions): KeptWindo
 }
 
 /**
- * Open `windowId` on `route`; nothing for a window already open. The address is written before
- * the window is announced, so the window's store starts on it.
+ * Open `windowId` on `route`, which `cause` named, or with no cause on the start screen; nothing
+ * for a window already open. The address is written before the window is announced, so the
+ * window's store starts on it and knows what named it.
  */
-function openAt(openWindows: OpenWindows, windowId: string, route: AppRoute): void {
+function openAt(
+  openWindows: OpenWindows,
+  windowId: string,
+  route: AppRoute,
+  cause?: WindowOpeningCause,
+): void {
   if (openWindows.list().some((openWindow) => openWindow.windowId === windowId)) {
     return;
   }
-  openWindows.open(windowId, formatRoute(route));
+  openWindows.open(windowId, {
+    hash: formatRoute(route),
+    ...(cause === undefined ? {} : { cause }),
+  });
 }
 
 /**

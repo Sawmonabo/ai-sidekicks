@@ -9,6 +9,7 @@
  * the focusable controls, or axe reports `scrollable-region-focusable`.
  */
 .meridian-workflows-destination {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-3);
@@ -16,6 +17,21 @@
   min-block-size: 0;
   padding: var(--meridian-space-5);
   overflow-y: auto;
+}
+
+/* A step back off a gone session whose control is not drawn says so across the top of the body,
+ * under the tab row: a box of no height in the column, cancelling the gap it would add, with the
+ * line drawn over the body's top edge, so its going at the next press moves nothing. */
+.meridian-workflows-destination__gone-session {
+  position: relative;
+  block-size: 0;
+  margin-block-start: calc(-1 * var(--meridian-space-3));
+}
+
+.meridian-workflows-destination__gone-session > * {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
 }
 
 /* --- the tab row and the strip ---------------------------------------------- */

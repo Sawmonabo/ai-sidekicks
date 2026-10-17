@@ -11,9 +11,9 @@ import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
 import {
   followSessionPointer,
+  type SessionPointerControl,
   type SessionPointerOutcome,
 } from "#renderer/features/workflows/open-session.js";
-import { openSessionPane } from "#renderer/store/window/open-session-pane.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
@@ -84,8 +84,11 @@ export interface WorkflowsScreenHold {
   readonly openRun: (workflowRunId: string) => void;
   /** Leave the open run's page for the runs list. */
   readonly backToList: () => void;
-  /** Open a session, unless the background service answers it no longer exists. */
-  readonly openSession: (sessionId: string) => Promise<SessionPointerOutcome>;
+  /** Open a session from a control, unless the background service answers it no longer exists. */
+  readonly openSession: (
+    sessionId: string,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
   /**
    * Open a session with the message a cursor names in view, or at its foot without one, unless
    * the session no longer exists.
@@ -93,14 +96,26 @@ export interface WorkflowsScreenHold {
   readonly openMessage: (
     sessionId: string,
     messageAnchorCursor: string | undefined,
+    pressedControl: SessionPointerControl,
   ) => Promise<SessionPointerOutcome>;
-  /** Open the builder over a saved workflow in a session's pane layout. */
-  readonly openWorkflow: (sessionId: string, definitionId: string) => void;
   /**
-   * Open Review in the run's session on what the run changed between two of its snapshot points.
-   * The points ride the pane's address, so a saved layout restores the same comparison.
+   * Open the builder over a saved workflow in a session's pane layout, unless the session no
+   * longer exists.
    */
-  readonly openReview: (comparison: WorkflowRunComparison) => void;
+  readonly openWorkflow: (
+    sessionId: string,
+    definitionId: string,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
+  /**
+   * Open Review in the run's session on what the run changed between two of its snapshot points,
+   * unless the session no longer exists. The points ride the pane's address, so a saved layout
+   * restores the same comparison.
+   */
+  readonly openReview: (
+    comparison: WorkflowRunComparison,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
   readonly onRunMissing: () => void;
   readonly onAnswered: () => void;
 }
@@ -223,32 +238,36 @@ export function useWorkflowsScreen(
     frameStore.navigate(workflowRunsRoute(undefined));
   }, [frameStore]);
   const openSession = useCallback(
-    (sessionId: string) => followSessionPointer(frameStore, sessionStoreRegistry, sessionId),
+    (sessionId: string, pressedControl: SessionPointerControl) =>
+      followSessionPointer(frameStore, sessionStoreRegistry, pressedControl, sessionId),
     [frameStore, sessionStoreRegistry],
   );
   const openMessage = useCallback(
-    (sessionId: string, messageAnchorCursor: string | undefined) =>
-      followSessionPointer(frameStore, sessionStoreRegistry, sessionId, messageAnchorCursor),
+    (
+      sessionId: string,
+      messageAnchorCursor: string | undefined,
+      pressedControl: SessionPointerControl,
+    ) =>
+      followSessionPointer(frameStore, sessionStoreRegistry, pressedControl, sessionId, {
+        messageAnchorCursor,
+      }),
     [frameStore, sessionStoreRegistry],
   );
   const openWorkflow = useCallback(
-    (sessionId: string, definitionId: string) => {
-      openSessionPane(frameStore, {
-        sessionId,
-        address: {
+    (sessionId: string, definitionId: string, pressedControl: SessionPointerControl) =>
+      followSessionPointer(frameStore, sessionStoreRegistry, pressedControl, sessionId, {
+        paneAddress: {
           kind: "workflow-builder",
           entity: { kind: "workflow-definition", id: definitionId },
         },
-      });
-    },
-    [frameStore],
+      }),
+    [frameStore, sessionStoreRegistry],
   );
   const openReview = useCallback(
-    (comparison: WorkflowRunComparison) => {
+    (comparison: WorkflowRunComparison, pressedControl: SessionPointerControl) =>
       // A Review pane already open over the run is focused and re-pointed.
-      openSessionPane(frameStore, {
-        sessionId: comparison.sessionId,
-        address: {
+      followSessionPointer(frameStore, sessionStoreRegistry, pressedControl, comparison.sessionId, {
+        paneAddress: {
           kind: "diff",
           entity: {
             kind: "workflow-run",
@@ -257,13 +276,13 @@ export function useWorkflowsScreen(
             to: comparison.to,
           },
         },
-      });
-    },
-    [frameStore],
+      }),
+    [frameStore, sessionStoreRegistry],
   );
   const onRunMissing = useCallback(() => {
     setMissingRun(true);
-    frameStore.navigate(workflowRunsRoute(undefined));
+    // A step back here off a gone session raised its line for the run's page, which never drew.
+    frameStore.navigate(workflowRunsRoute(undefined), { carriesGoneSessionRaise: true });
   }, [frameStore]);
   // A run counts once however many of its steps were answered; the open page is the run answered.
   const onAnswered = useCallback(() => {

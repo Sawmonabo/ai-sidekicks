@@ -9,10 +9,15 @@ import "./WorkflowsScreen.css";
 
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
+import { workflowsRunId } from "#renderer/routing/readers.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { MissingTargetLine } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
+import type { WindowStore } from "#renderer/store/window/store.js";
 import { RunsStrip } from "./components/RunsStrip.js";
+import { GoneSessionStepBackContext } from "./gone-session-step-back.js";
+import { useGoneSessionStepBack } from "./hooks/useGoneSessionStepBack.js";
 import { WorkflowCommandTargetsContext, type WorkflowCommandTargets } from "./command-target.js";
 import { useWorkflowsScreen } from "./hooks/useWorkflowsScreen.js";
 import { RunPage } from "./runs/page/RunPage.js";
@@ -26,7 +31,11 @@ export function WorkflowsScreen(props: {
   return props.context.hasServiceAnswered ? (
     <AnsweredWorkflowsScreen context={props.context} commandTargets={props.commandTargets} />
   ) : (
-    <WorkflowsDestination route={props.context.route} runCount={undefined} />
+    <WorkflowsDestination
+      route={props.context.route}
+      frameStore={props.context.frameStore}
+      runCount={undefined}
+    />
   );
 }
 
@@ -42,6 +51,7 @@ function AnsweredWorkflowsScreen(props: {
     <WorkflowCommandTargetsContext.Provider value={props.commandTargets}>
       <WorkflowsDestination
         route={route}
+        frameStore={props.context.frameStore}
         runCount={runCountState.kind === "loaded" ? runCountState.value : undefined}
       >
         <RunsStrip
@@ -94,15 +104,24 @@ function AnsweredWorkflowsScreen(props: {
   );
 }
 
-/** The destination's frame: the tab row, with the Runs count once read, over the Runs tab. */
+/**
+ * The destination's frame: the tab row, with the Runs count once read, over the Runs tab; after a
+ * step back off a gone session, its line at the top of the body unless the control pressed holds
+ * it.
+ */
 function WorkflowsDestination(props: {
   readonly route: AppRoute;
+  readonly frameStore: WindowStore;
   readonly runCount: number | undefined;
   /** The Runs tab's strip and list or page, drawn only on that tab. */
   readonly children?: React.ReactNode;
 }): React.JSX.Element {
   const isOnRunsTab = props.route.kind === "workflows" && props.route.tab === "runs";
   const destinationScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
+  // A run's page reading its run places the line once it has drawn; before the service answers
+  // no page is drawn.
+  const awaitsRunPage = workflowsRunId(props.route) !== undefined && props.children !== undefined;
+  const { stepBack, bodyTopRaise } = useGoneSessionStepBack(props.frameStore, awaitsRunPage);
   return (
     <div className="meridian-workflows-destination" ref={destinationScrollbarRef}>
       <nav className="meridian-workflows-tabs" aria-label="Workflows">
@@ -119,7 +138,14 @@ function WorkflowsDestination(props: {
           )}
         </a>
       </nav>
-      {isOnRunsTab ? props.children : null}
+      {bodyTopRaise === undefined ? null : (
+        <div className="meridian-workflows-destination__gone-session">
+          <MissingTargetLine target={bodyTopRaise.target} raisedKey={bodyTopRaise.raisedKey} />
+        </div>
+      )}
+      <GoneSessionStepBackContext.Provider value={stepBack}>
+        {isOnRunsTab ? props.children : null}
+      </GoneSessionStepBackContext.Provider>
     </div>
   );
 }

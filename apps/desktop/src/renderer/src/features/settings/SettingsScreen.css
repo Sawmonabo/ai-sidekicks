@@ -10,6 +10,7 @@
  * the screen's edge; the screen hears that and shows one pane at a time instead. The panes
  * carry the gutters, so the page's edge is the screen's edge exactly when the two fit. */
 .meridian-settings {
+  position: relative;
   display: grid;
   grid-template-columns: max-content minmax(min-content, 1fr);
   align-items: start;
@@ -18,6 +19,18 @@
 
 .meridian-settings[data-arrangement="one-at-a-time"] {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* A step back off a gone session says so across the top of the body, drawn in the panes' top
+ * gutter rather than in a row of its own, so its going at the next press moves nothing. */
+.meridian-settings__gone-session {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  block-size: var(--meridian-space-6);
+  padding-inline: var(--meridian-space-6);
 }
 
 .meridian-settings__list-pane {

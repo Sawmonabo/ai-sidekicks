@@ -100,6 +100,7 @@ export class WindowStores {
     }
     const store = new WindowStore({
       initialRoute: parseRoute(openWindow.window.location.hash),
+      ...(openWindow.openingCause === undefined ? {} : { openingCause: openWindow.openingCause }),
       ownerDocument: openWindow.window.document,
     });
     if (this.#latestReport !== undefined) {

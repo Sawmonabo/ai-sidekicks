@@ -1,0 +1,13 @@
+/* The logo mark: the icon's line drawing as a mask, filled with the hairline color, two of the
+ * space scale's largest steps square so it grows with the text size. */
+
+.meridian-logo-mark {
+  inline-size: calc(2 * var(--meridian-space-8));
+  block-size: calc(2 * var(--meridian-space-8));
+  flex: none;
+  background-color: var(--meridian-edge);
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  pointer-events: none;
+}

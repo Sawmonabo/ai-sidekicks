@@ -4,11 +4,13 @@
 
 import "./RunPage.css";
 
-import { useRef } from "react";
+import { useContext, useLayoutEffect, useRef } from "react";
 
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { SessionPointerOutcome } from "#renderer/features/workflows/open-session.js";
+import type {
+  SessionPointerControl,
+  SessionPointerOutcome,
+} from "#renderer/features/workflows/open-session.js";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
@@ -22,10 +24,12 @@ import type { WorkflowRunComparison } from "../comparison.js";
 import type { WorkflowReadSources } from "../../reading.js";
 import { ChainQuestion } from "./components/ChainQuestion.js";
 import { RunHeader } from "./components/RunHeader.js";
+import type { ReviewOpener } from "./components/OpenInReview.js";
 import { StepPanel } from "./step/components/StepPanel.js";
 import { useRunPage } from "./hooks/useRunPage.js";
 import { findDocumentNode } from "./document-node.js";
 import { RunGraph } from "./graph/RunGraph.js";
+import { GoneSessionStepBackContext } from "../../gone-session-step-back.js";
 import type { PayerReading } from "../cost.js";
 
 /** What one run's page is drawn from, and where its links lead. */
@@ -37,16 +41,33 @@ export interface RunPageProps {
   readonly payerOf: (providerAccountId: string) => PayerReading;
   readonly onOpenRun: (workflowRunId: string) => void;
   /** Open a session, unless the background service answers it no longer exists. */
-  readonly onOpenSession: (sessionId: string) => Promise<SessionPointerOutcome>;
+  readonly onOpenSession: (
+    sessionId: string,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
   /** Open a session with the message a cursor names in view, or at its foot without one. */
   readonly onOpenMessage: (
     sessionId: string,
     messageAnchorCursor: EventCursor | undefined,
+    pressedControl: SessionPointerControl,
   ) => Promise<SessionPointerOutcome>;
-  /** Open the builder over the workflow a run came from, in the run's session. */
-  readonly onOpenWorkflow: (sessionId: string, definitionId: string) => void;
-  /** Open Review on what a run changed between two of its snapshots, in the run's session. */
-  readonly onOpenReview: (comparison: WorkflowRunComparison) => void;
+  /**
+   * Open the builder over the workflow a run came from, in the run's session, unless the session
+   * no longer exists.
+   */
+  readonly onOpenWorkflow: (
+    sessionId: string,
+    definitionId: string,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
+  /**
+   * Open Review on what a run changed between two of its snapshots, in the run's session, unless
+   * the session no longer exists.
+   */
+  readonly onOpenReview: (
+    comparison: WorkflowRunComparison,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
   /** The daemon has no run by this id. */
   readonly onRunMissing: () => void;
   /** Leave the run's page for the runs list. */
@@ -70,6 +91,15 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
   const clock = useClock();
   const pageRef = useRef<HTMLDivElement>(null);
   const { runState } = page;
+  // Once the page draws what its read answered, a step back's line takes its place: on the control
+  // that claimed it in this same commit, else at the top. A missing run leaves for the list.
+  const settleGoneSessionLine = useContext(GoneSessionStepBackContext)?.settle;
+  const isAnswerDrawn = runState.kind !== "not-loaded" && !page.isRunMissing;
+  useLayoutEffect(() => {
+    if (isAnswerDrawn) {
+      settleGoneSessionLine?.();
+    }
+  }, [isAnswerDrawn, settleGoneSessionLine]);
   // The day the graph, the step panel and the chain question count their instants from: it moves
   // at midnight, never each second, so a going run's ticking stays in its header.
   const dayNowMs = useRunTimesNow({
@@ -99,9 +129,11 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
   const nodeKind = (nodeId: string): string | undefined => findDocumentNode(document, nodeId)?.kind;
   // Until the document is read a step goes by its node id.
   const nodeName = (nodeId: string): string => findDocumentNode(document, nodeId)?.name ?? nodeId;
-  const openReview = (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint): void => {
-    props.onOpenReview({ sessionId: run.sessionId, workflowRunId: run.workflowRunId, from, to });
-  };
+  const openReview: ReviewOpener = (from, to, pressedControl) =>
+    props.onOpenReview(
+      { sessionId: run.sessionId, workflowRunId: run.workflowRunId, from, to },
+      pressedControl,
+    );
   const onKeyDown = (event: React.KeyboardEvent): void => {
     if (!isUnclaimedEscape(event) || isTextEntryTarget(event.target)) {
       return;
@@ -128,9 +160,9 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
         onOpenRun={props.onOpenRun}
         onOpenSession={props.onOpenSession}
         onOpenMessage={props.onOpenMessage}
-        onOpenWorkflow={(definitionId) => {
-          props.onOpenWorkflow(run.sessionId, definitionId);
-        }}
+        onOpenWorkflow={(definitionId, pressedControl) =>
+          props.onOpenWorkflow(run.sessionId, definitionId, pressedControl)
+        }
         onOpenReview={openReview}
       />
       {run.chainQuestion === undefined ? null : (

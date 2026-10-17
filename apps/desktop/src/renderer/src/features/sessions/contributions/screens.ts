@@ -1,15 +1,15 @@
-// The sessions feature's screen registration: the all-sessions flyout the rail mounts.
+// The sessions feature's screen registration: the window's start screen.
 
 import { createElement } from "react";
 
 import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
-import { SessionsFlyout } from "../SessionsFlyout.js";
+import { SessionsScreen } from "../SessionsScreen.js";
 
 /** Register the sessions screen. */
-export function registerSessionsFlyout(registry: ScreenRegistry): void {
+export function registerSessionsScreen(registry: ScreenRegistry): void {
   registry.register({
     name: "sessions",
     owner: "sessions",
-    render: () => createElement(SessionsFlyout),
+    render: (context) => createElement(SessionsScreen, { frameStore: context.frameStore }),
   });
 }

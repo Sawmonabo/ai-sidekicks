@@ -1,13 +1,17 @@
-// The one line a pointer to something gone draws, `Message not found` or `Session not found`: on
-// the control pressed when it is in view, else in the place `Jump to latest` takes. It is said
-// politely without taking focus and drawn without motion.
+// The one line a pointer to something gone draws: `Message not found`, `Session not found`, or
+// `That session is not here.` for an address naming a session this install does not hold. Each
+// screen puts it in its own place; it is said politely without taking focus and drawn without
+// motion.
 
 import "./MissingTargetLine.css";
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
-/** What a pointer named that is gone: a row of the conversation, or a whole session. */
-export type MissingTarget = "message" | "session";
+/**
+ * What a pointer named that is gone: a row of the conversation, a session a pointer inside the app
+ * led to, or a session an address named that this install's list does not hold.
+ */
+export type MissingTarget = "message" | "session" | "session-not-here";
 
 /** Props for `MissingTargetLine`. */
 export interface MissingTargetLineProps {
@@ -32,4 +36,5 @@ export function MissingTargetLine(props: MissingTargetLineProps): React.JSX.Elem
 const MISSING_TARGET_WORDS: Readonly<Record<MissingTarget, string>> = {
   message: "Message not found",
   session: "Session not found",
+  "session-not-here": "That session is not here.",
 };

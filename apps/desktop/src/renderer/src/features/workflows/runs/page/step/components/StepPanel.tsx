@@ -1,7 +1,6 @@
 import { Tabs } from "@base-ui/react/tabs";
 import { useState } from "react";
 
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { WORKFLOW_STEP_TABS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
@@ -37,7 +36,11 @@ import { PIN_CARRIES_FILE_REFUSAL, pinAvailability, pinnedItemsOf } from "../pin
 import { RunControl } from "#renderer/features/workflows/components/RunControl.js";
 import { useGoneSessionLine } from "#renderer/features/workflows/hooks/useGoneSessionLine.js";
 import { MissingTargetLine } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
-import type { SessionPointerOutcome } from "#renderer/features/workflows/open-session.js";
+import type {
+  SessionPointerControl,
+  SessionPointerOutcome,
+} from "#renderer/features/workflows/open-session.js";
+import type { ReviewOpener } from "../../components/OpenInReview.js";
 import { StepBlocker } from "./StepBlocker.js";
 import { StepError } from "./StepError.js";
 import type { StepPayloadView } from "./StepPayload.js";
@@ -77,9 +80,12 @@ export interface StepPanelProps {
   /** Called with the step and its answer once the daemon has taken it. */
   readonly onAnswered: (step: StepAddress, answer: HeldStepAnswer) => void;
   readonly onOpenRun: (workflowRunId: string) => void;
-  readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
+  readonly onOpenReview: ReviewOpener;
   /** Open a session, unless the background service answers it no longer exists. */
-  readonly onOpenSession: (sessionId: string) => Promise<SessionPointerOutcome>;
+  readonly onOpenSession: (
+    sessionId: string,
+    pressedControl: SessionPointerControl,
+  ) => Promise<SessionPointerOutcome>;
   readonly onClose: () => void;
 }
 
@@ -240,7 +246,7 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
  */
 function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefined }) {
   const { run, step, bridge } = props;
-  const goneFixSessionLine = useGoneSessionLine();
+  const goneFixSessionLine = useGoneSessionLine("step-fix-session");
   const retry = useWorkflowCall(
     (failed: WorkflowStep) =>
       callDaemon(bridge, "workflow.runRetry", {
@@ -260,7 +266,7 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
         executionIndex: failed.executionIndex,
       }),
     (created) => {
-      goneFixSessionLine.follow(props.onOpenSession(created.sessionId));
+      goneFixSessionLine.follow(props.onOpenSession(created.sessionId, "step-fix-session"));
     },
   );
   const keep = useWorkflowCall((next: boolean) =>
@@ -276,7 +282,7 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
   );
   const fixSessionId = run.fixSessionId;
   return (
-    <div className="meridian-workflow-step__acts">
+    <div className="meridian-workflow-step__acts" ref={goneFixSessionLine.controlRef}>
       <RunControl
         label="Retry from this step"
         availability={step === undefined ? RETRY_NOT_REACHED : retryAvailability(run, step)}
@@ -323,13 +329,13 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
             if (fixSessionId === undefined) {
               fix.take(step);
             } else {
-              goneFixSessionLine.follow(props.onOpenSession(fixSessionId));
+              goneFixSessionLine.follow(props.onOpenSession(fixSessionId, "step-fix-session"));
             }
           }}
         />
       ) : null}
-      {goneFixSessionLine.raisedKey === undefined ? null : (
-        <MissingTargetLine target="session" raisedKey={goneFixSessionLine.raisedKey} />
+      {goneFixSessionLine.line === undefined ? null : (
+        <MissingTargetLine {...goneFixSessionLine.line} />
       )}
     </div>
   );
