@@ -5,17 +5,19 @@
 //! session does; the others answer `-32603` and a client tells them apart by `data.type`. Two
 //! messages are text the daemon did not write: a clone refusal's git line and a failed clone
 //! service start's text, whose paths the reply's sanitizing strips. Every other message names no
-//! path: a closed reason makes that certain, and the ones naming an id rely on ids being opaque.
+//! path: a closed reason makes that certain, the ones naming an id rely on ids being opaque, and
+//! the two naming a WSL distribution carry its name alone.
 
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::place::DistroName;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::clone::RepoCloneRefusedDetails;
 use sidekicks_contracts::repo::folders::{
-    RepoAlreadyAttachedDetails, RepoOutsideTrustEnvelopeDetails, RepoOutsideTrustEnvelopeReason,
-    RepoReattachConflictDetails, RepoReattachRefusedDetails, RepoReattachRefusedReason,
-    RepoRootResolutionFailedDetails, RepoRootResolutionReason,
+    RepoAlreadyAttachedDetails, RepoDistributionRefusalDetails, RepoOutsideTrustEnvelopeDetails,
+    RepoOutsideTrustEnvelopeReason, RepoReattachConflictDetails, RepoReattachRefusedDetails,
+    RepoReattachRefusedReason, RepoRootResolutionFailedDetails, RepoRootResolutionReason,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
@@ -108,10 +110,20 @@ pub(crate) enum RepoRefusal {
         /// The agent running.
         running_agent_id: AgentId,
     },
-    /// The folder lies inside another WSL distribution than the one the service runs in
-    /// (`repo.folder_unreachable`); it carries nothing, so the refusal names no path.
-    #[error("the background service cannot reach this folder")]
-    FolderUnreachable,
+    /// The folder's WSL distribution runs on WSL 1, where no session runs
+    /// (`repo.distribution_needs_wsl2`); it names the distribution, never the path.
+    #[error("{} runs on WSL 1", .distro.as_str())]
+    DistributionNeedsWsl2 {
+        /// The distribution.
+        distro: DistroName,
+    },
+    /// No WSL distribution of the folder's name is on this computer
+    /// (`repo.distribution_not_found`); it names the distribution, never the path.
+    #[error("no WSL distribution named {} is on this computer", .distro.as_str())]
+    DistributionNotFound {
+        /// The distribution.
+        distro: DistroName,
+    },
     /// A clone refused before git starts and before anything is written (`repo.clone_refused`):
     /// the destination holds something, or the address leaves no folder name, with git's line.
     #[error("{}", clone_refused_message(.details))]
@@ -196,9 +208,16 @@ impl From<RepoRefusal> for DomainError {
                     running_agent_id,
                 })),
             ),
-            RepoRefusal::FolderUnreachable => {
-                (RefusalCode::RepoFolderUnreachable, InternalError, None)
-            }
+            RepoRefusal::DistributionNeedsWsl2 { distro } => (
+                RefusalCode::RepoDistributionNeedsWsl2,
+                InternalError,
+                Some(refusal_fields(RepoDistributionRefusalDetails { distro })),
+            ),
+            RepoRefusal::DistributionNotFound { distro } => (
+                RefusalCode::RepoDistributionNotFound,
+                InternalError,
+                Some(refusal_fields(RepoDistributionRefusalDetails { distro })),
+            ),
             RepoRefusal::CloneRefused { details } => (
                 RefusalCode::RepoCloneRefused,
                 InternalError,
