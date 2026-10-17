@@ -121,17 +121,15 @@ pub enum ProcessExit {
     Signal(ProcessExitWithSignal),
 }
 
-/// How a completed run ended: its turn finished (`turn`) or its whole task did (`task`).
+/// Why the daemon itself ended a run `stopped`: the run passed the token limit the person set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RunCompletionKind {
-    /// The turn finished.
-    Turn,
-    /// The whole task finished.
-    Task,
+pub enum StopTrigger {
+    /// The token limit was passed.
+    TokenLimit,
 }
 
-/// Declares the two bodies of a state change: each carries the members every transition has and
+/// Declares the three bodies of a state change: each carries the members every transition has and
 /// adds what its own target state may carry.
 macro_rules! run_state_change_members {
     ($(
@@ -175,14 +173,6 @@ macro_rules! run_state_change_members {
             )]
             #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
             pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
-            /// Whether its turn or its whole task finished.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "RunCompletionKind")]
-            pub completion_kind: Option<RunCompletionKind>,
             /// Present only on a terminal the daemon itself closed, which is never a crash.
             #[serde(
                 default,
@@ -200,14 +190,6 @@ macro_rules! run_state_change_members {
             )]
             #[schemars(with = "ExecutionPosture")]
             pub execution_posture: Option<ExecutionPosture>,
-            /// Why the daemon itself stopped the run; absent when it did not.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "InterruptReason")]
-            pub trigger: Option<InterruptReason>,
             $($extra)*
             /// When the transition happened.
             #[garde(dive)]
@@ -217,7 +199,8 @@ macro_rules! run_state_change_members {
 }
 
 run_state_change_members! {
-    /// A transition into any state but `failed`, which carries no failure cause or process exit.
+    /// A transition into any state but `stopped` or `failed`, which carries no failure cause or
+    /// process exit, and the daemon's own interrupt reason where it has one.
     pub struct RunStateChangeMembers {
         /// Never present outside `failed`.
         #[serde(
@@ -235,6 +218,42 @@ run_state_change_members! {
         )]
         #[schemars(with = "Never")]
         pub process_exit: Option<Never>,
+        /// Why the daemon itself interrupted the run; absent when it did not.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "InterruptReason")]
+        pub trigger: Option<InterruptReason>,
+    }
+
+    /// A transition into `stopped`, with the daemon's own stop reason where it has one.
+    pub struct RunStoppedStateChangeMembers {
+        /// Never present outside `failed`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub failure_cause: Option<Never>,
+        /// Never present outside `failed`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub process_exit: Option<Never>,
+        /// Why the daemon itself stopped the run; absent when it did not.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "StopTrigger")]
+        pub trigger: Option<StopTrigger>,
     }
 
     /// A transition into `failed`, with its typed cause and its provider process's own exit.
@@ -256,6 +275,14 @@ run_state_change_members! {
         )]
         #[schemars(with = "ProcessExit")]
         pub process_exit: Option<ProcessExit>,
+        /// Why the daemon itself interrupted the run; absent when it did not.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "InterruptReason")]
+        pub trigger: Option<InterruptReason>,
     }
 }
 
@@ -284,7 +311,7 @@ pub enum RunStateChangeEvent {
     /// Into `interrupted`.
     Interrupted(#[garde(dive)] RunStateChangeMembers),
     /// Into `stopped`.
-    Stopped(#[garde(dive)] RunStateChangeMembers),
+    Stopped(#[garde(dive)] RunStoppedStateChangeMembers),
     /// Into `failed`.
     Failed(#[garde(dive)] RunFailedStateChangeMembers),
 }
@@ -631,7 +658,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<RunFailureCategory>().checked(),
         Definition::read::<ProcessExit>().checked(),
-        Definition::read::<RunCompletionKind>().checked(),
+        Definition::read::<StopTrigger>().checked(),
         Definition::read::<RunStateChangeEvent>().checked(),
         Definition::read::<AgentRunRolledBackEvent>().checked(),
         Definition::read::<RunStateStreamEvent>(),

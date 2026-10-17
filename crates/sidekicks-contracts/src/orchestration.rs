@@ -29,9 +29,9 @@ use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 
-/// Why the daemon itself interrupted a run: a step, spend or token limit the person set was
-/// reached, the run's workflow phase was canceled, or the daemon restarted while the run was a
-/// child held in a pause. The person's own interrupt has none.
+/// Why the daemon itself interrupted a run: a step or spend limit the person set was reached, the
+/// run's workflow phase was canceled, or the daemon restarted while the run was a child held in a
+/// pause. The person's own interrupt has none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum InterruptReason {
@@ -39,8 +39,6 @@ pub enum InterruptReason {
     StepLimit,
     /// The spend limit was reached.
     SpendLimit,
-    /// The token limit was reached.
-    TokenLimit,
     /// The run's workflow phase was canceled.
     WorkflowPhaseCanceled,
     /// The daemon restarted while the run was a child held in a pause.
