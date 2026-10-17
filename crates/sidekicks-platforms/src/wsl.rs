@@ -10,19 +10,23 @@ use typed_path::{WindowsComponent, WindowsPath, WindowsPrefix};
 /// the folder's Linux path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DistributionPath {
-    /// The distribution's name, as the path spells it.
+    /// The distribution's name, as the path spells it. A share matches without regard to case, so
+    /// the caller matches it against `wsl -l` the same way and keeps the list's spelling.
     pub distro: String,
     /// The folder's absolute Linux path, `/` for the distribution's root.
     pub linux_path: String,
 }
 
 /// The distribution and Linux path a `\\wsl$\<distro>\…` or `\\wsl.localhost\<distro>\…` path
-/// names, either slash, the host in any ASCII case; `None` for any other path. Names that are not
-/// UTF-8 read lossily.
+/// names, either slash, the host in any ASCII case, or its verbatim `\\?\UNC\…` form; `None` for
+/// any other path. Names that are not UTF-8 read lossily.
 pub fn distribution_of(folder_path: &Path) -> Option<DistributionPath> {
     let components = WindowsPath::new(folder_path.as_os_str().as_encoded_bytes()).components();
-    let Some(WindowsPrefix::UNC(server, share)) = components.prefix_kind() else {
-        return None;
+    let (server, share) = match components.prefix_kind() {
+        Some(WindowsPrefix::UNC(server, share) | WindowsPrefix::VerbatimUNC(server, share)) => {
+            (server, share)
+        }
+        _ => return None,
     };
     let is_wsl_server =
         server.eq_ignore_ascii_case(b"wsl$") || server.eq_ignore_ascii_case(b"wsl.localhost");
@@ -60,6 +64,9 @@ mod tests {
     #[case::wsl_localhost(r"\\wsl.localhost\Ubuntu\home\me\x", Some(("Ubuntu", "/home/me/x")))]
     #[case::wsl_dollar(r"\\wsl$\Ubuntu\home\ana", Some(("Ubuntu", "/home/ana")))]
     #[case::forward_slashes("//WSL.localhost/Debian/home", Some(("Debian", "/home")))]
+    #[case::dollar_forward_slashes("//wsl$/Ubuntu/home", Some(("Ubuntu", "/home")))]
+    #[case::dollar_upper_case(r"\\WSL$\Ubuntu\x", Some(("Ubuntu", "/x")))]
+    #[case::verbatim(r"\\?\UNC\wsl.localhost\Ubuntu\x", Some(("Ubuntu", "/x")))]
     #[case::share_alone(r"\\wsl$\Ubuntu", Some(("Ubuntu", "/")))]
     #[case::share_with_slash(r"\\wsl$\Ubuntu\", Some(("Ubuntu", "/")))]
     #[case::no_share(r"\\wsl$\", None)]
