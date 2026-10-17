@@ -83,7 +83,7 @@ The 429 body has one shape, the same in error-contracts.md §Rate Limiting and a
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RateLimitResponse {
-    pub code: RateLimitedCode, // always "relay.rateLimited"
+    pub code: RelayRateLimitedCode, // always "relay.rateLimited"
     pub category: RateLimitedCategory, // always "resourceExhausted"
     pub message: String,
     pub retry_after: u32, // seconds until retry is allowed
@@ -126,7 +126,7 @@ pub trait RateLimiter {
 }
 ```
 
-- `RateLimiter` and its check types live in the control plane's crate: only the relay's control plane checks a limit, on the Worker and in the Compose relay's native program, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` body, which devices read, lives in `crates/sidekicks-contracts/src/rate_limiter.rs` as a serde type per the `runtime_node/registration.rs` wire-shape convention.
+- `RateLimiter` and its check types live in the control plane's crate: only the relay's control plane checks a limit, on the Worker and in the Compose relay's native program, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` body, which devices read, lives in `crates/sidekicks-contracts/src/rate_limiter.rs` as a serde type per the `machine/registration.rs` wire-shape convention.
 
 ### Admission pipeline (D-018-1)
 
