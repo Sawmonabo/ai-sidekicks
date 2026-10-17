@@ -27,7 +27,7 @@ use crate::wire::text::FreeFormText;
 
 /// What [`RunStateEventType`]'s schema says it is.
 const RUN_STATE_EVENT_TYPE_DOC: &str =
-    "An event type that moves a run into a state: `run.<state>`, one per state.";
+    "An event type that moves a run into a state: `agent.run.<state>`, one per state.";
 
 /// An event type that moves a run into a state, written as the [`SessionEventType`] it maps to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, VariantArray)]
@@ -57,7 +57,7 @@ pub enum RunStateEventType {
     Failed,
 }
 
-/// Every `run.<state>` event type, in the order the states are declared.
+/// Every `agent.run.<state>` event type, in the order the states are declared.
 pub const RUN_STATE_EVENT_TYPES: &[RunStateEventType] = RunStateEventType::VARIANTS;
 
 impl From<RunStateEventType> for SessionEventType {
@@ -142,7 +142,7 @@ impl RunStateEventType {
         }
     }
 
-    /// The `run.<state>` event type `event_type` names, or `None` for any other type.
+    /// The `agent.run.<state>` event type `event_type` names, or `None` for any other type.
     pub fn of(event_type: &str) -> Option<Self> {
         SessionEventType::from_wire_name(event_type)
             .and_then(|event_type| Self::try_from(event_type).ok())
@@ -179,7 +179,7 @@ pub struct TranscriptRunFacts {
     )]
     #[schemars(with = "ProviderAccountId")]
     pub admitted_provider_account_id: Option<ProviderAccountId>,
-    /// The newest `run.<state>` type the run entered, kept across a rewind.
+    /// The newest `agent.run.<state>` type the run entered, kept across a rewind.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -187,7 +187,7 @@ pub struct TranscriptRunFacts {
     )]
     #[schemars(with = "RunStateEventType")]
     pub state_event_type: Option<RunStateEventType>,
-    /// Whether a `agent.run.rolledBack` came after `stateEventType`.
+    /// Whether an `agent.run.rolledBack` came after `stateEventType`.
     pub is_rewound: bool,
     /// The sequence the facts hold through: an event at or below it is already in them.
     pub folded_through_sequence: FoldedThroughSequence,
@@ -204,7 +204,7 @@ pub struct TranscriptRunFactsFold {
     /// The account the run was admitted under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admitted_provider_account_id: Option<ProviderAccountId>,
-    /// The newest `run.<state>` type the run entered.
+    /// The newest `agent.run.<state>` type the run entered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_event_type: Option<RunStateEventType>,
     /// Whether a rewind came after that state.
@@ -251,9 +251,9 @@ pub fn is_misstated_state_change(event_type: &str, payload: Option<&Map<String, 
 
 /// Folds one of the run's own events into its facts. An event at or below
 /// `folded_through_sequence`, or one that changes no fact, answers the same facts. The first actor
-/// wins, and the account is the one the run's creation names. A `run.<state>` event sets the state
-/// and ends a rewind, unless its payload misstates the state; a `agent.run.rolledBack` marks the
-/// state rewound.
+/// wins, and the account is the one the run's creation names. An `agent.run.<state>` event sets
+/// the state and ends a rewind, unless its payload misstates the state; an `agent.run.rolledBack`
+/// marks the state rewound.
 pub fn fold_transcript_run_facts(
     facts: &TranscriptRunFactsFold,
     beat: &TranscriptRunBeat<'_>,

@@ -40,7 +40,7 @@ macro_rules! provider_command_entry {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "kind",
-            rename_all = "lowercase",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]

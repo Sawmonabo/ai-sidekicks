@@ -44,7 +44,7 @@ pub struct AgentCallbackToolListResponse {
 }
 
 methods! {
-    /// The `callbackTool.*` methods.
+    /// The `agent.callbackTool.*` methods.
     pub const CALLBACK_TOOL_METHOD_DESCRIPTORS = [
         /// Lists the daemon's callback tools for the allowlist picker.
         AgentCallbackToolList = query "agent.callbackTool.list" {

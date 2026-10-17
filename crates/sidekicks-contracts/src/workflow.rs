@@ -4,7 +4,7 @@
 use crate::typescript::TypeScriptModule;
 
 pub mod definition;
-pub mod kept_vars;
+pub mod kept_values;
 pub mod kind;
 pub mod run;
 pub mod secret;
@@ -20,7 +20,7 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &definition::methods::TYPESCRIPT_MODULE,
     &definition::refusals::TYPESCRIPT_MODULE,
     &definition::versions::TYPESCRIPT_MODULE,
-    &kept_vars::TYPESCRIPT_MODULE,
+    &kept_values::TYPESCRIPT_MODULE,
     &kind::TYPESCRIPT_MODULE,
     &run::attention::TYPESCRIPT_MODULE,
     &run::control::TYPESCRIPT_MODULE,
@@ -29,7 +29,7 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &run::gate_resolution::TYPESCRIPT_MODULE,
     &run::id::TYPESCRIPT_MODULE,
     &run::list::TYPESCRIPT_MODULE,
-    &run::pause::TYPESCRIPT_MODULE,
+    &run::new_run_hold::TYPESCRIPT_MODULE,
     &run::records::TYPESCRIPT_MODULE,
     &run::retention::TYPESCRIPT_MODULE,
     &run::snapshot::TYPESCRIPT_MODULE,

@@ -21,7 +21,7 @@ use crate::wire::text::{BoundedText, NonEmptyText};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum HighlightLanguage {
     /// Bash.
     Bash,

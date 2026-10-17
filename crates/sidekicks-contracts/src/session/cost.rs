@@ -27,8 +27,8 @@ named_scalar! {
     TokensPerRun(SafeInt<1>), Copy
 }
 
-/// One agent's spend in the session's tree, the lead included: `own_usd_micros` is what its own
-/// requests cost, and `subtree_usd_micros` that plus every descendant's at any depth. A helper
+/// One agent's spend in the session's tree, the lead included: `ownUsdMicros` is what its own
+/// requests cost, and `subtreeUsdMicros` that plus every descendant's at any depth. A helper
 /// request, such as a reviewer's, counts on the agent it belongs to.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -57,7 +57,7 @@ pub struct AgentSpend {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct OrchestrationBudgetState {
+pub struct SessionBudgetState {
     /// The session.
     pub session_id: SessionId,
     /// The spend limit, or `null` for `Unlimited`.
@@ -88,12 +88,12 @@ pub struct SessionBudgetReadRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct SessionCostReceiptRequest {
+pub struct SessionCostReceiptReadRequest {
     /// The session.
     pub session_id: SessionId,
 }
 
-/// One provider account's spend: its tokens and its dollars. `billing_mode` labels the figure and
+/// One provider account's spend: its tokens and its dollars. `billingMode` labels the figure and
 /// never changes how it is derived; `unknown` is never presented as billed dollars.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -148,7 +148,7 @@ pub struct SessionCostReceiptProvider {
 pub struct SessionCostReceipt {
     /// The session's committed spend and limits.
     #[garde(dive)]
-    pub session_total: OrchestrationBudgetState,
+    pub session_total: SessionBudgetState,
     /// The providers the session spent on.
     pub providers: Vec<SessionCostReceiptProvider>,
 }
@@ -162,9 +162,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<UsdMicros>().checked(),
         Definition::read::<TokensPerRun>().checked(),
         Definition::read::<AgentSpend>().checked(),
-        Definition::read::<OrchestrationBudgetState>().checked(),
+        Definition::read::<SessionBudgetState>().checked(),
         Definition::read::<SessionBudgetReadRequest>(),
-        Definition::read::<SessionCostReceiptRequest>(),
+        Definition::read::<SessionCostReceiptReadRequest>(),
         Definition::read::<SessionCostReceiptAccountRow>(),
         Definition::read::<SessionCostReceiptVoiceRow>(),
         Definition::read::<SessionCostReceiptProvider>(),

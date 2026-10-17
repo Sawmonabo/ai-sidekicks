@@ -22,7 +22,7 @@ pub struct WorkflowNewRunHoldUpdateRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowRunsPauseState {
+pub struct WorkflowNewRunHoldState {
     /// Whether the hold is on.
     pub paused: bool,
     /// How many starts wait behind it.
@@ -31,12 +31,12 @@ pub struct WorkflowRunsPauseState {
 
 /// The TypeScript module of the hold on starting new runs.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "workflow/run/pause",
+    path: "workflow/run/new-run-hold",
     doc: "The hold on starting new runs: one per daemon over its whole scheduler, and how many \
           starts wait behind it.",
     definitions: &[
         Definition::read::<WorkflowNewRunHoldUpdateRequest>().checked(),
-        Definition::read::<WorkflowRunsPauseState>().checked(),
+        Definition::read::<WorkflowNewRunHoldState>().checked(),
     ],
     constants: &[],
     method_tables: &[],

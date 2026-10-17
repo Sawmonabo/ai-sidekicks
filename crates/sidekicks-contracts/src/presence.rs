@@ -27,7 +27,7 @@ pub type DeviceType = FreeFormText<DEVICE_TYPE_MAX_LEN>;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PresenceHeartbeat {
+pub struct PresenceHeartbeatSendRequest {
     /// The device's category.
     pub device_type: DeviceType,
     /// An app window is in front on this device; a window behind a locked or sleeping screen is
@@ -72,7 +72,7 @@ methods! {
         /// still says whether an app window is in front on it.
         PresenceHeartbeatSend = mutation "presence.heartbeat.send" {
             mutating: false,
-            params: PresenceHeartbeat,
+            params: PresenceHeartbeatSendRequest,
             result: EmptyPayload,
             refusals: [],
         },
@@ -93,7 +93,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Presence: which of the person's devices are connected to this machine, and whether an \
           app window is in front on each.",
     definitions: &[
-        Definition::read::<PresenceHeartbeat>().checked(),
+        Definition::read::<PresenceHeartbeatSendRequest>().checked(),
         Definition::read::<ConnectedDevice>(),
         Definition::read::<MachinePresence>().checked(),
     ],

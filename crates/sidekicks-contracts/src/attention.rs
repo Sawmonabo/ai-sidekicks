@@ -276,6 +276,61 @@ pub struct AttentionProjection {
     pub items: Vec<AttentionItem>,
 }
 
+/// How far an `attention.subscribe` that names a session narrows the projection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum AttentionSubscribeScope {
+    /// One run's entries, the run named by `runId`.
+    Run,
+    /// The session's aggregate alone.
+    Session,
+}
+
+/// `attention.subscribe`: with no session named, the whole projection across every session and
+/// workflow run; naming a session narrows it to that session's entries, or by `scope`. `runId`
+/// is present exactly when `scope` is `run`, so a run read never widens to every run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+#[schemars(extend(
+    "if" = { "properties": { "scope": { "const": "run" } }, "required": ["scope"] },
+    "then" = { "properties": { "runId": true }, "required": ["runId"] },
+    "else" = { "not": { "required": ["runId"] } },
+))]
+pub struct AttentionSubscribeRequest {
+    /// The session to narrow to.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SessionId")]
+    pub session_id: Option<SessionId>,
+    /// How far to narrow; absent reads the run entries and the aggregate together.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "AttentionSubscribeScope")]
+    pub scope: Option<AttentionSubscribeScope>,
+    /// The run, present exactly when `scope` is `run`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "AttentionId")]
+    #[garde(custom(|run_id: &Option<AttentionId>, (): &()| {
+        if run_id.is_some() == (self.scope == Some(AttentionSubscribeScope::Run)) {
+            Ok(())
+        } else {
+            Err(garde::Error::new("a run id goes exactly with the run scope"))
+        }
+    }))]
+    pub run_id: Option<AttentionId>,
+}
+
 /// `attention.banner.settle`: main's record of what became of a `pending` entry's banner. Only main
 /// sends it, and the daemon ignores it once the entry has left `pending`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -512,10 +567,10 @@ methods! {
         /// The machine-wide projection, served live: whole first, then whole on every change.
         AttentionSubscribe = subscription "attention.subscribe" {
             mutating: false,
-            params: EmptyPayload,
+            params: AttentionSubscribeRequest,
             result: SubscribeAckResponse,
             emission: AttentionProjection,
-            refusals: [],
+            refusals: [SessionNotFound],
         },
         /// Settles a pending entry's banner.
         AttentionBannerSettle = mutation "attention.banner.settle" {
@@ -597,6 +652,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AttentionWebAddressState>(),
         Definition::read::<AttentionItem>().checked(),
         Definition::read::<AttentionProjection>().checked(),
+        Definition::read::<AttentionSubscribeScope>(),
+        Definition::read::<AttentionSubscribeRequest>().checked(),
         Definition::read::<AttentionBannerSettleRequest>().checked(),
         Definition::read::<AttentionSeenUpdateRequest>(),
         Definition::read::<AttentionDeliveryChannel>(),

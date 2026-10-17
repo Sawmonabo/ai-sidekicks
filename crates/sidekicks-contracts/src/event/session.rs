@@ -40,7 +40,7 @@ use crate::orchestration::AgentRunRejectedPayload;
 use crate::plan::{PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload};
 use crate::question::QuestionAskedPayload;
 use crate::relay::RelayPinRefusedPayload;
-use crate::repo::mount::{RepoMountHealthChangedPayload, RepoWorkspaceLifecyclePayload};
+use crate::repo::mount::{RepoMountHealthChangedPayload, WorkspaceLifecyclePayload};
 use crate::run::control::{
     AgentRunRecoveryResolvedPayload, AgentRunRecoveryStepsAddedPayload, AgentRunRolledBackEvent,
 };
@@ -223,14 +223,14 @@ session_events! {
     /// Emitted when a session is admitted.
     SessionCreated(#[garde(dive)] Box<SessionCreatedPayload>) = "session.created",
     /// Emitted when a workspace's preparation begins, the first time or again.
-    WorkspacePreparing(RepoWorkspaceLifecyclePayload) = "workspace.preparing",
+    WorkspacePreparing(WorkspaceLifecyclePayload) = "workspace.preparing",
     /// Emitted when preparation completes and the execution root is bound.
-    WorkspacePrepared(RepoWorkspaceLifecyclePayload) = "workspace.prepared",
+    WorkspacePrepared(WorkspaceLifecyclePayload) = "workspace.prepared",
     /// Emitted when a workspace becomes unavailable: a failed preparation, or a path that went
     /// away after binding. Write runs are blocked until repair.
-    WorkspaceRootLost(RepoWorkspaceLifecyclePayload) = "workspace.rootLost",
+    WorkspaceRootLost(WorkspaceLifecyclePayload) = "workspace.rootLost",
     /// Emitted once per dependent workspace archived by the detach cascade.
-    WorkspaceArchived(RepoWorkspaceLifecyclePayload) = "workspace.archived",
+    WorkspaceArchived(WorkspaceLifecyclePayload) = "workspace.archived",
     /// Emitted with the worktree's record; carries the kept copy a put-back came from, if any.
     WorktreeCreated(WorktreeCreatedPayload) = "worktree.created",
     /// Emitted when the checkout is bound as an execution root.
@@ -412,7 +412,7 @@ session_events! {
     /// Emitted on every session on a mount when the daemon's re-probe changes the mount's health.
     RepoMountHealthChanged(#[garde(dive)] RepoMountHealthChangedPayload) =
         "repoMount.health.changed",
-    /// Emitted when admission refuses an orchestration run create; no run or queue item is left.
+    /// Emitted when admission refuses an `agent.run.create`; no run or queue item is left.
     AgentRunRejected(AgentRunRejectedPayload) = "agent.run.rejected",
     /// Emitted when an artifact is published from a run; its payload keeps members it does not
     /// know.
@@ -519,8 +519,8 @@ session_events! {
     /// Emitted when the service's recovery pass completes, on its own session.
     DaemonRecoverySucceeded(#[garde(dive)] DaemonRecoverySucceededPayload)
         = "daemon.recovery.succeeded",
-    /// Emitted when the service's recovery pass leaves the node blocked or a session degraded, on
-    /// its own session.
+    /// Emitted when the service's recovery pass leaves the machine blocked or a session degraded,
+    /// on its own session.
     DaemonRecoveryFailed(DaemonRecoveryFailedPayload) = "daemon.recovery.failed",
     /// Emitted on a session with damaged history when it continues from its last good point,
     /// naming the damaged range every read and rebuild skips from then on.

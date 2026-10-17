@@ -1,4 +1,5 @@
-//! Runs: ids, state, the queue, control, events, children, subagents and failure causes.
+//! Runs: ids, state, the queue, control, interventions, events, children, subagents and failure
+//! causes.
 
 use crate::typescript::TypeScriptModule;
 
@@ -7,6 +8,7 @@ pub mod control;
 pub mod events;
 pub mod failure_cause;
 pub mod id;
+pub mod intervention;
 pub mod provider_choice;
 pub mod queue;
 pub mod queued;
@@ -20,6 +22,7 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &events::TYPESCRIPT_MODULE,
     &failure_cause::TYPESCRIPT_MODULE,
     &id::TYPESCRIPT_MODULE,
+    &intervention::TYPESCRIPT_MODULE,
     &provider_choice::TYPESCRIPT_MODULE,
     &queue::TYPESCRIPT_MODULE,
     &queued::TYPESCRIPT_MODULE,

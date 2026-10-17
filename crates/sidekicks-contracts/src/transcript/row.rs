@@ -386,7 +386,7 @@ impl RunScopedTranscriptEntry {
 }
 
 transcript_row_arm! {
-    /// `kind: "rollback_boundary"`, the `agent.run.rolledBack` row, whose typed payload agrees with
+    /// `kind: "rollbackBoundary"`, the `agent.run.rolledBack` row, whose typed payload agrees with
     /// the row's `runId`, `sessionId` and `position`.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -21,7 +21,7 @@ use crate::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RemovedWorktreeListRequest {
+pub struct WorktreeRemovedListRequest {
     /// The project; absent lists every project's.
     #[serde(
         default,
@@ -70,7 +70,7 @@ pub struct RemovedWorktree {
 /// The `worktree.removed.list` result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RemovedWorktreeListResponse {
+pub struct WorktreeRemovedListResponse {
     /// The kept worktrees.
     #[garde(dive)]
     pub removed_worktrees: Vec<RemovedWorktree>,
@@ -141,9 +141,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "worktree/removed",
     doc: "The copies Discard and remove keeps: listing them, putting one back and deleting one.",
     definitions: &[
-        Definition::read::<RemovedWorktreeListRequest>(),
+        Definition::read::<WorktreeRemovedListRequest>(),
         Definition::read::<RemovedWorktree>(),
-        Definition::read::<RemovedWorktreeListResponse>(),
+        Definition::read::<WorktreeRemovedListResponse>(),
         Definition::read::<RemovedWorktreeRequest>(),
         Definition::read::<WorktreeRestoreRefusal>(),
         Definition::read::<WorktreeRestoreResponse>(),

@@ -19,11 +19,12 @@ branded_text! {
     pub struct ProviderTurnId(1..=usize::MAX);
 }
 
-/// The run whose current turn a `turn.*` subscription follows.
+/// The run whose current turn an `agent.turn.usage.subscribe` or `agent.turn.task.subscribe`
+/// subscription follows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct TurnSubscribeRequest {
+pub struct AgentTurnSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
     /// The run.
@@ -83,12 +84,12 @@ pub struct TurnTasksUpdate {
 }
 
 methods! {
-    /// The `turn.*` methods: two subscriptions that follow one run's current turn.
+    /// The running turn's two subscriptions, which follow one run's current turn.
     pub const TURN_METHOD_DESCRIPTORS = [
         /// The tokens received this turn.
         AgentTurnUsageSubscribe = subscription "agent.turn.usage.subscribe" {
             mutating: false,
-            params: TurnSubscribeRequest,
+            params: AgentTurnSubscribeRequest,
             result: SubscribeAckResponse,
             emission: TurnUsageUpdate,
             refusals: [SessionNotFound, AgentRunNotFound],
@@ -96,7 +97,7 @@ methods! {
         /// The turn's task list.
         AgentTurnTaskSubscribe = subscription "agent.turn.task.subscribe" {
             mutating: false,
-            params: TurnSubscribeRequest,
+            params: AgentTurnSubscribeRequest,
             result: SubscribeAckResponse,
             emission: TurnTasksUpdate,
             refusals: [SessionNotFound, AgentRunNotFound],
@@ -111,7 +112,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           own task list.",
     definitions: &[
         Definition::read::<ProviderTurnId>(),
-        Definition::read::<TurnSubscribeRequest>().checked(),
+        Definition::read::<AgentTurnSubscribeRequest>().checked(),
         Definition::read::<TurnUsageUpdate>().checked(),
         Definition::read::<TurnTaskState>(),
         Definition::read::<TurnTask>(),

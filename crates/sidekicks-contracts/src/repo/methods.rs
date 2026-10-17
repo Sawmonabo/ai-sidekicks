@@ -1,5 +1,5 @@
-//! The `repo.*` method table: every method on mounts, workspaces, projects, clones, git reads and
-//! worktrees.
+//! The method table of repo mounts, the machine's folders, workspaces, projects, clones, git reads
+//! and worktrees.
 
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
@@ -9,8 +9,8 @@ use crate::project::{
     ProjectList, ProjectRenameRequest, ProjectSetupUpdateRequest, ProjectStateChangeRequest,
 };
 use crate::repo::clone::{
-    ProjectCloneAnswerRequest, ProjectCloneFolderReadResponse, ProjectCloneStartRequest,
-    ProjectCloneStartResponse, RepoCloneProjectRequest, RepoCloneStatus,
+    ProjectCloneAnswerRequest, ProjectCloneFolderReadResponse, ProjectCloneRequest,
+    ProjectCloneStartRequest, ProjectCloneStartResponse, ProjectCloneStatus,
 };
 use crate::repo::folders::{
     MachineFolderListRequest, MachineFolderListResponse, RepoMountAttachRequest,
@@ -19,7 +19,7 @@ use crate::repo::folders::{
 };
 use crate::repo::git_reads::{
     ProjectBranchListRequest, ProjectBranchListResponse, ProjectFileReadRequest,
-    ProjectFileReadResponse, WorkingTreeChange, WorkingTreeSubscribeRequest,
+    ProjectFileReadResponse, SessionWorkingFolderSubscribeRequest, WorkingTreeChange,
 };
 use crate::repo::workspace::{
     WorkspaceBindRequest, WorkspaceBindResponse, WorkspaceListRequest, WorkspaceListResponse,
@@ -27,17 +27,18 @@ use crate::repo::workspace::{
 use crate::typescript::TypeScriptModule;
 use crate::worktree::copy_progress::{WorktreeCopyProgress, WorktreeCopySubscribeRequest};
 use crate::worktree::lifecycle::{
-    ExecutionRootPrepareRequest, ExecutionRootPrepareResponse, WorktreeRetireRequest,
-    WorktreeRetireResponse, WorktreeStatusReadRequest, WorktreeStatusReadResponse,
+    WorkspaceExecutionRootPrepareRequest, WorkspaceExecutionRootPrepareResponse,
+    WorktreeRetireRequest, WorktreeRetireResponse, WorktreeStatusReadRequest,
+    WorktreeStatusReadResponse,
 };
 use crate::worktree::removed::{
-    RemovedWorktreeListRequest, RemovedWorktreeListResponse, RemovedWorktreeRequest,
+    RemovedWorktreeRequest, WorktreeRemovedListRequest, WorktreeRemovedListResponse,
     WorktreeRestoreResponse,
 };
 use crate::worktree::setup::{WorktreeSetupRequest, WorktreeSetupStatus};
 
 methods! {
-    /// Every `repo.*` method.
+    /// Every repo mount, machine folder, workspace, project, clone, git read and worktree method.
     pub const REPO_METHOD_DESCRIPTORS = [
         /// Attaches a folder as a project's mount.
         RepoMountAttach = mutation "repoMount.attach" {
@@ -129,42 +130,42 @@ methods! {
             mutating: true,
             params: ProjectRenameRequest,
             result: ProjectEditResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Moves a project into the archived group.
         ProjectArchive = mutation "project.archive" {
             mutating: true,
             params: ProjectStateChangeRequest,
             result: ProjectEditResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Moves a project out of the archived group.
         ProjectReactivate = mutation "project.reactivate" {
             mutating: true,
             params: ProjectStateChangeRequest,
             result: ProjectEditResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Replaces a project's setup.
         ProjectSetupUpdate = mutation "project.setup.update" {
             mutating: true,
             params: ProjectSetupUpdateRequest,
             result: ProjectEditResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Replaces a project's environment rows.
         ProjectEnvironmentUpdate = mutation "project.environment.update" {
             mutating: true,
             params: ProjectEnvironmentUpdateRequest,
             result: ProjectEditResponse,
-            refusals: [ProjectEnvironmentNameRefused],
+            refusals: [ProjectNotFound, ProjectEnvironmentNameRefused],
         },
         /// Sets or clears a project's branch pattern.
         ProjectBranchPatternUpdate = mutation "project.branchPattern.update" {
             mutating: true,
             params: ProjectBranchPatternUpdateRequest,
             result: ProjectEditResponse,
-            refusals: [ProjectBranchPatternRefused],
+            refusals: [ProjectNotFound, ProjectBranchPatternRefused],
         },
         /// Starts a clone into a new or failed project.
         ProjectCloneStart = mutation "project.clone.start" {
@@ -172,6 +173,7 @@ methods! {
             params: ProjectCloneStartRequest,
             result: ProjectCloneStartResponse,
             refusals: [
+                ProjectNotFound,
                 ProjectCloneRefused,
                 ProjectCloneUnavailable,
                 RepoMountDistributionNeedsWsl2,
@@ -181,24 +183,24 @@ methods! {
         /// Follows a clone's card.
         ProjectCloneSubscribe = subscription "project.clone.subscribe" {
             mutating: false,
-            params: RepoCloneProjectRequest,
+            params: ProjectCloneRequest,
             result: SubscribeAckResponse,
-            emission: RepoCloneStatus,
-            refusals: [ProjectCloneUnavailable],
+            emission: ProjectCloneStatus,
+            refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
         /// Answers git's question.
         ProjectCloneAnswer = mutation "project.clone.answer" {
             mutating: true,
             params: ProjectCloneAnswerRequest,
             result: EmptyPayload,
-            refusals: [ProjectCloneUnavailable],
+            refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
         /// Cancels a clone.
         ProjectCloneCancel = mutation "project.clone.cancel" {
             mutating: true,
-            params: RepoCloneProjectRequest,
+            params: ProjectCloneRequest,
             result: EmptyPayload,
-            refusals: [ProjectCloneUnavailable],
+            refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
         /// Where a clone goes, and why.
         ProjectCloneFolderRead = query "project.clone.folder.read" {
@@ -210,9 +212,9 @@ methods! {
         /// Pulls a cloned project's large files.
         ProjectLargeFilePull = mutation "project.largeFile.pull" {
             mutating: true,
-            params: RepoCloneProjectRequest,
+            params: ProjectCloneRequest,
             result: EmptyPayload,
-            refusals: [ProjectCloneUnavailable],
+            refusals: [ProjectNotFound, ProjectCloneUnavailable],
         },
         /// The branches both base pickers list.
         ProjectBranchList = query "project.branch.list" {
@@ -231,7 +233,7 @@ methods! {
         /// Signals each change of a session's working folder.
         SessionWorkingFolderSubscribe = subscription "session.workingFolder.subscribe" {
             mutating: false,
-            params: WorkingTreeSubscribeRequest,
+            params: SessionWorkingFolderSubscribeRequest,
             result: SubscribeAckResponse,
             emission: WorkingTreeChange,
             refusals: [SessionNotFound],
@@ -239,8 +241,8 @@ methods! {
         /// Makes a workspace's root before a run starts.
         WorkspaceExecutionRootPrepare = mutation "workspace.executionRoot.prepare" {
             mutating: true,
-            params: ExecutionRootPrepareRequest,
-            result: ExecutionRootPrepareResponse,
+            params: WorkspaceExecutionRootPrepareRequest,
+            result: WorkspaceExecutionRootPrepareResponse,
             refusals: [
                 WorkspaceNotFound,
                 WorkspaceBranchNameRequired,
@@ -267,7 +269,7 @@ methods! {
             mutating: false,
             params: WorktreeStatusReadRequest,
             result: WorktreeStatusReadResponse,
-            refusals: [SessionNotFound],
+            refusals: [ProjectNotFound, SessionNotFound],
         },
         /// Follows a tree's setup card.
         WorktreeSetupSubscribe = subscription "worktree.setup.subscribe" {
@@ -290,14 +292,14 @@ methods! {
             params: WorktreeCopySubscribeRequest,
             result: SubscribeAckResponse,
             emission: WorktreeCopyProgress,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// The kept worktrees.
         WorktreeRemovedList = query "worktree.removed.list" {
             mutating: false,
-            params: RemovedWorktreeListRequest,
-            result: RemovedWorktreeListResponse,
-            refusals: [],
+            params: WorktreeRemovedListRequest,
+            result: WorktreeRemovedListResponse,
+            refusals: [ProjectNotFound],
         },
         /// Puts a kept worktree back.
         WorktreeRestore = mutation "worktree.restore" {
@@ -316,10 +318,12 @@ methods! {
     ];
 }
 
-/// The TypeScript module of every repo method.
+/// The TypeScript module of the repo mount, machine folder, workspace, project and worktree
+/// methods.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "repo/methods",
-    doc: "Every repo method: mounts, workspaces, projects, clones, git reads and worktrees.",
+    doc: "Every repo mount, machine folder, workspace, project, clone, git read and worktree \
+          method.",
     definitions: &[],
     constants: &[],
     method_tables: &[&REPO_METHOD_DESCRIPTORS],

@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::refusal::RefusalCode;
+use crate::jsonrpc::refusal::{RefusalCategory, RefusalCode};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
@@ -12,16 +12,29 @@ use crate::wire::literal;
 
 ts_constants! {
     /// The code every 429 refusal of a sign-in route carries.
-    RATE_LIMITED_CODE = RefusalCode::RelayRateLimited;
+    RELAY_RATE_LIMITED_CODE = RefusalCode::RelayRateLimited;
     /// The code of the 400 a sign-in route answers when the request carries no source address the
     /// relay can count, so it is refused rather than counted in a bucket other callers share.
-    SOURCE_ADDRESS_UNRESOLVABLE_CODE = RefusalCode::RelaySourceAddressUnresolvable;
+    RELAY_SOURCE_ADDRESS_UNRESOLVABLE_CODE = RefusalCode::RelaySourceAddressUnresolvable;
 }
 
 literal! {
     /// The code of a sign-in route's 429.
     pub enum RelayRateLimitedCode = const RefusalCode::RelayRateLimited.as_str();
 }
+
+literal! {
+    /// The category of a sign-in route's 429, the one `relay.rateLimited` carries.
+    pub enum RelayRateLimitedCategory = "resourceExhausted";
+}
+
+const _: () = assert!(
+    matches!(
+        RefusalCode::RelayRateLimited.category(),
+        RefusalCategory::ResourceExhausted
+    ),
+    "the 429 body's category is not the one relay.rateLimited carries",
+);
 
 /// The body of a 429 from a sign-in route. `retryAfter` is whole seconds until a retry is allowed,
 /// the same value as the `Retry-After` header; `resetAt` is the instant the oldest counted request
@@ -32,6 +45,10 @@ literal! {
 pub struct RateLimitResponse {
     /// Always `relay.rateLimited`.
     pub code: RelayRateLimitedCode,
+    /// Always `resourceExhausted`.
+    pub category: RelayRateLimitedCategory,
+    /// A sentence for a person.
+    pub message: String,
     /// Whole seconds until a retry is allowed.
     pub retry_after: SafeInt<0>,
     /// The requests the window admits.

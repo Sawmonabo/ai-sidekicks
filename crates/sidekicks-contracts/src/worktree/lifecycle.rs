@@ -1,6 +1,6 @@
-//! A worktree's ids, state and lifecycle payload, and the requests and responses of the worktree
-//! methods on the `repo.*` namespace: preparing an execution root, retiring a tree and the details
-//! of its refusals, and reading the project's trees.
+//! A worktree's ids, state and lifecycle payload, and the requests and responses of
+//! `workspace.executionRoot.prepare`, `worktree.retire` with the details of its refusals, and
+//! `worktree.status.read`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -116,7 +116,7 @@ lifecycle_payload! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ExecutionRootPrepareRequest {
+pub struct WorkspaceExecutionRootPrepareRequest {
     /// The workspace.
     pub workspace_id: WorkspaceId,
     /// The branch; omitting it draws `workspace.branchNameRequired` before any git call.
@@ -152,7 +152,7 @@ pub struct ExecutionRootPrepareRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ExecutionRootPrepareResponse {
+pub struct WorkspaceExecutionRootPrepareResponse {
     /// The root.
     pub execution_root: FilesystemPath,
     /// The workspace's state.
@@ -459,8 +459,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorktreeState>().checked(),
         Definition::read::<ListedWorktreeState>(),
         Definition::read::<WorktreeLifecyclePayload>().checked(),
-        Definition::read::<ExecutionRootPrepareRequest>().checked(),
-        Definition::read::<ExecutionRootPrepareResponse>().checked(),
+        Definition::read::<WorkspaceExecutionRootPrepareRequest>().checked(),
+        Definition::read::<WorkspaceExecutionRootPrepareResponse>().checked(),
         Definition::read::<WorktreeRetireRequest>().checked(),
         Definition::read::<KeptWorktree>(),
         Definition::read::<WorktreeRetireResponse>().checked(),

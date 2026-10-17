@@ -35,7 +35,7 @@ ts_constants! {
     /// The longest reason text a refusal or a load failure carries.
     pub const AGENT_REASON_MAX_LEN: usize = 1024;
     /// A definition that exists but cannot produce a runnable agent now.
-    AGENT_RESOLUTION_REFUSED_CODE = RefusalCode::AgentDefinitionResolutionRefused;
+    AGENT_DEFINITION_RESOLUTION_REFUSED_CODE = RefusalCode::AgentDefinitionResolutionRefused;
     /// The agent hue wheel's twelve steps by token name, in wheel order.
     AGENT_ACCENT_HUES = AgentAccentHue::VARIANTS;
 }
@@ -72,7 +72,7 @@ pub type ToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
 /// project; `project` in the project's repository; `local` in the project but kept out of the
 /// repository. Whichever provider runs the agent reads and writes the same folder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentMemoryScope {
     /// Every project.
     User,
@@ -148,7 +148,7 @@ pub type AgentHooks = Record<ToolName, Vec<AgentHookGroup>>;
 
 /// Whether a definition belongs to every project or to one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentDefinitionScope {
     /// Every project.
     Global,
@@ -159,7 +159,7 @@ pub enum AgentDefinitionScope {
 /// Which files a definition came from: ours, a provider's own, whose provider the entry names in
 /// `originProvider`, or a plugin's, which is read-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum AgentDefinitionOrigin {
     /// Ours, under `.ai-sidekicks/agents/`.
     Ours,

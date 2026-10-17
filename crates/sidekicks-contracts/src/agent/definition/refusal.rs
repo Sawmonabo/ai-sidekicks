@@ -32,7 +32,7 @@ pub(crate) type NullableProviderToken =
 /// attributes: a definition's id where one always runs, nullable where the agent may run none.
 /// Each reason names what was asked for beside what is available, since neither alone tells a
 /// person what to edit.
-macro_rules! agent_resolution_refused_details {
+macro_rules! agent_definition_resolution_refused_details {
     (
         $(#[doc = $doc:literal])+
         $name:ident, $(#[$id_meta:meta])* $definition_id:ty
@@ -113,9 +113,9 @@ macro_rules! agent_resolution_refused_details {
     };
 }
 
-pub(crate) use agent_resolution_refused_details;
+pub(crate) use agent_definition_resolution_refused_details;
 
-agent_resolution_refused_details! {
+agent_definition_resolution_refused_details! {
     /// Why a definition that exists cannot produce a runnable agent now. The remedy is the same
     /// in every case, edit the definition or repair the account, so one code carries a reason.
     AgentDefinitionResolutionRefusedDetails, AgentDefinitionId

@@ -1,7 +1,7 @@
 //! The choices a provider asks the person to make while a run waits on the answer: the
 //! retry-or-edit choice when its safety check refuses a turn and names a fallback model, and the
 //! switch-or-credits choice when a turn's model needs usage credits. Each has a resolve request,
-//! which the `run.*` method table serves, and the payloads of the event that asks and the event
+//! which the run-control method table serves, and the payloads of the event that asks and the event
 //! that records how it settled.
 
 use schemars::JsonSchema;
@@ -20,7 +20,8 @@ use crate::wire::text::FreeFormText;
 
 /// The person's answer when the provider's safety check refuses a turn and names a fallback model:
 /// `retryFallback` goes on on the fallback model, and `editPrompt` ends the turn refused and
-/// returns the message to the composer.
+/// returns the message to the composer. The driver translates each value to the provider's own
+/// answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum RunRefusalChoice {
@@ -121,7 +122,7 @@ pub struct AgentRunRefusalChoiceResolvedPayload {
 
 /// The person's answer when a turn's model needs usage credits: `switchDefault` moves the turn to
 /// the fallback model, and `consent` goes on on usage credits, which the provider accepts only
-/// while credits are on.
+/// while credits are on. The driver translates each value to the provider's own answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum RunUsageCreditsChoice {

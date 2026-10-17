@@ -139,7 +139,7 @@ methods! {
 
 ts_constants! {
     /// A port added to the shared list that is on it already; nothing changes.
-    PREVIEW_PORT_ALREADY_SHARED_CODE = RefusalCode::PreviewPortShareAlreadyExists;
+    PREVIEW_PORT_SHARE_ALREADY_EXISTS_CODE = RefusalCode::PreviewPortShareAlreadyExists;
     /// A forward or a web ticket asked for a port that is not on the shared list.
     PREVIEW_PORT_NOT_SHARED_CODE = RefusalCode::PreviewPortNotShared;
 }

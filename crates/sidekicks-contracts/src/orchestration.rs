@@ -1,11 +1,11 @@
 //! The session's agent tree as a client reads it, run admission under an agent and its refusal
-//! record, and the `orchestration.*` methods.
+//! record, and their two methods, `agent.run.create` and `agent.childRunLink.list`.
 //!
 //! The daemon keeps one parent-to-child index per session, built from the provider stream, because
 //! neither provider lists its children back on a resume. That index is the one source of the child
-//! tree, every fan-out count and each agent's spend; `agent.childRunLink.list` is the only
-//! method that reads it. How a child was reached stays in the index and is never sent: the screen
-//! draws the tree, provider, model and the agent asked, never a mechanism word.
+//! tree, every fan-out count and each agent's spend; `agent.childRunLink.list` is the only method
+//! that reads it. How a child was reached stays in the index and is never sent: the screen draws
+//! the tree, provider, model and the agent asked, never a mechanism word.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -18,8 +18,8 @@ use crate::provider::driver::methods::{DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_T
 use crate::run::id::RunId;
 use crate::run::state::RunState;
 use crate::session::cost::{
-    OrchestrationBudgetState, SessionBudgetReadRequest, SessionCostReceipt,
-    SessionCostReceiptRequest, TokensPerRun, UsdMicros,
+    SessionBudgetReadRequest, SessionBudgetState, SessionCostReceipt,
+    SessionCostReceiptReadRequest, TokensPerRun, UsdMicros,
 };
 use crate::session::id::SessionId;
 use crate::transcript::child_run_summary::refuse_self_parenting_run;
@@ -187,7 +187,7 @@ pub struct AgentRunRejectedPayload {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ChildRunLinkReadRequest {
+pub struct AgentChildRunLinkListRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -356,7 +356,7 @@ pub struct ChildRunCounts {
 /// The whole tree, the badge's figures, and the refused creates.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ChildRunLinkReadResponse {
+pub struct AgentChildRunLinkListResponse {
     /// The tree.
     #[garde(dive)]
     pub children: Vec<ChildRunLink>,
@@ -369,8 +369,8 @@ pub struct ChildRunLinkReadResponse {
 }
 
 methods! {
-    /// The `orchestration.*` methods. The client re-reads the tree on each child started or
-    /// completed, run queued, create refused and run state change.
+    /// The agent tree's read and run admission. The client re-reads the tree on each child
+    /// started or completed, run queued, create refused and run state change.
     pub const ORCHESTRATION_METHOD_DESCRIPTORS = [
         /// Admits a run under an agent.
         AgentRunCreate = mutation "agent.run.create" {
@@ -382,21 +382,21 @@ methods! {
         /// Reads the session's whole agent tree.
         AgentChildRunLinkList = query "agent.childRunLink.list" {
             mutating: false,
-            params: ChildRunLinkReadRequest,
-            result: ChildRunLinkReadResponse,
+            params: AgentChildRunLinkListRequest,
+            result: AgentChildRunLinkListResponse,
             refusals: [SessionNotFound],
         },
         /// Reads the session's limits and spend.
         SessionBudgetRead = query "session.budget.read" {
             mutating: false,
             params: SessionBudgetReadRequest,
-            result: OrchestrationBudgetState,
+            result: SessionBudgetState,
             refusals: [SessionNotFound],
         },
         /// Reads the session's cost receipt.
         SessionCostReceiptRead = query "session.costReceipt.read" {
             mutating: false,
-            params: SessionCostReceiptRequest,
+            params: SessionCostReceiptReadRequest,
             result: SessionCostReceipt,
             refusals: [SessionNotFound],
         },
@@ -407,19 +407,20 @@ methods! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "orchestration",
     doc: "The session's agent tree as a client reads it, run admission under an agent and its \
-          refusal record, and the `orchestration.*` methods.",
+          refusal record, and their two methods, `agent.run.create` and \
+          `agent.childRunLink.list`.",
     definitions: &[
         Definition::read::<InterruptReason>(),
         Definition::read::<OrchestrationRunConfig>().checked(),
         Definition::read::<AgentRunCreateRequest>(),
         Definition::read::<AgentRunCreateResponse>(),
         Definition::read::<AgentRunRejectedPayload>().checked(),
-        Definition::read::<ChildRunLinkReadRequest>(),
+        Definition::read::<AgentChildRunLinkListRequest>(),
         Definition::read::<ChildRunHead>(),
         Definition::read::<ChildRunLink>().checked(),
         Definition::read::<ChildRunRejection>(),
         Definition::read::<ChildRunCounts>(),
-        Definition::read::<ChildRunLinkReadResponse>().checked(),
+        Definition::read::<AgentChildRunLinkListResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[&ORCHESTRATION_METHOD_DESCRIPTORS],

@@ -51,7 +51,7 @@ pub struct PreviewScreencastFrameMetadata {
 
 branded_text! {
     /// The token a watcher returns to acknowledge one frame.
-    pub struct PreviewScreencastAckToken(1..=usize::MAX);
+    pub struct PreviewScreencastAcknowledgmentToken(1..=usize::MAX);
 }
 
 /// The longest input message id the daemon mints.
@@ -121,7 +121,7 @@ preview_screencast_element! {
             /// What maps its pixels back to the page.
             metadata: PreviewScreencastFrameMetadata,
             /// The token that acknowledges it.
-            ack_token: PreviewScreencastAckToken,
+            ack_token: PreviewScreencastAcknowledgmentToken,
         },
         /// The page's right-click menu, sent when the page leaves a device's menu uncanceled.
         Menu {
@@ -232,7 +232,7 @@ pub struct PreviewScreencastAcknowledgeRequest {
     /// The page.
     pub page_id: PreviewPageId,
     /// The frame's token.
-    pub ack_token: PreviewScreencastAckToken,
+    pub ack_token: PreviewScreencastAcknowledgmentToken,
 }
 
 /// The modifier keys held during an input, a bit each: Alt 1, Ctrl 2, Meta 4, Shift 8.

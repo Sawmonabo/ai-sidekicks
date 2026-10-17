@@ -261,7 +261,7 @@ ts_constants! {
     pub const REASONING_SURFACE_ENTRIES_MAX: usize = 256;
     /// The longest one reasoning entry's `content`, in code points.
     pub const REASONING_ENTRY_CONTENT_MAX_LEN: usize = 16_384;
-    /// Every `run.<state>` event type, in the order the states are declared.
+    /// Every `agent.run.<state>` event type, in the order the states are declared.
     RUN_STATE_EVENT_TYPES = RUN_STATE_EVENT_TYPES;
     /// The type of a person's message, which is never a run's own event even when it steers one.
     USER_MESSAGE_EVENT_TYPE = USER_MESSAGE_EVENT_TYPE;
@@ -272,7 +272,7 @@ ts_constants! {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ReasoningSurfaceReadRequest {
+pub struct TranscriptReasoningReadRequest {
     /// The run.
     pub run_id: RunId,
     /// Continue after this position.
@@ -380,7 +380,7 @@ pub struct ReasoningSurfaceUnavailable {
 /// neither entries nor a cursor.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
-pub enum ReasoningSurfaceReadResponse {
+pub enum TranscriptReasoningReadResponse {
     /// More entries follow.
     Continuing(#[garde(dive)] ReasoningSurfaceContinuing),
     /// The last page.
@@ -394,7 +394,7 @@ pub enum ReasoningSurfaceReadResponse {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ChildRunExpandRequest {
+pub struct TranscriptChildRunExpandRequest {
     /// The child run.
     pub run_id: RunId,
     /// Continue after this position.
@@ -457,7 +457,7 @@ macro_rules! child_run_expand_arm {
 
 child_run_expand_arm! {
     /// An expansion with more after it: at least one row, and the cursor to continue from.
-    ChildRunExpandContinuing {
+    TranscriptChildRunExpandContinuing {
         entries: 1,
         /// More rows follow.
         pub has_more: True,
@@ -468,7 +468,7 @@ child_run_expand_arm! {
 
 child_run_expand_arm! {
     /// The last expansion page: possibly empty, and possibly saying where it ended.
-    ChildRunExpandTerminal {
+    TranscriptChildRunExpandTerminal {
         entries: 0,
         /// No rows follow.
         pub has_more: False,
@@ -487,11 +487,11 @@ child_run_expand_arm! {
 /// more rows than fit one frame.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
-pub enum ChildRunExpandResponse {
+pub enum TranscriptChildRunExpandResponse {
     /// More rows follow.
-    Continuing(#[garde(dive)] ChildRunExpandContinuing),
+    Continuing(#[garde(dive)] TranscriptChildRunExpandContinuing),
     /// The last page.
-    Terminal(#[garde(dive)] ChildRunExpandTerminal),
+    Terminal(#[garde(dive)] TranscriptChildRunExpandTerminal),
 }
 
 /// The module's TypeScript face: the transcript reads, and the run facts a window serves, whose
@@ -512,11 +512,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<TranscriptPatchListResponse>().checked(),
         Definition::read::<TranscriptReadRequest>().checked(),
         Definition::read::<TranscriptReadResponse>().checked(),
-        Definition::read::<ReasoningSurfaceReadRequest>().checked(),
+        Definition::read::<TranscriptReasoningReadRequest>().checked(),
         Definition::read::<ReasoningEntry>().checked(),
-        Definition::read::<ReasoningSurfaceReadResponse>().checked(),
-        Definition::read::<ChildRunExpandRequest>().checked(),
-        Definition::read::<ChildRunExpandResponse>().checked(),
+        Definition::read::<TranscriptReasoningReadResponse>().checked(),
+        Definition::read::<TranscriptChildRunExpandRequest>().checked(),
+        Definition::read::<TranscriptChildRunExpandResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

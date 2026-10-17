@@ -53,8 +53,8 @@ pub enum AgentBindingContinuity {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentBindingSwitchFailureReason {
-    /// The target driver is gone.
-    DriverUnavailable,
+    /// The target provider is gone.
+    ProviderUnavailable,
     /// The target model is gone.
     ModelUnavailable,
     /// The target effort is gone.

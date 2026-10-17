@@ -1,5 +1,6 @@
 //! What a driver offers a client: its models and modes, and the execution posture a run starts
-//! under. The `driver.list*` replies that carry them are in the driver's methods.
+//! under. The `provider.model.list` and `provider.mode.list` replies that carry them are in the
+//! driver's methods.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -93,7 +94,7 @@ macro_rules! execution_posture {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "mode",
-            rename_all = "lowercase",
+            rename_all = "camelCase",
             rename_all_fields = "camelCase",
             deny_unknown_fields
         )]

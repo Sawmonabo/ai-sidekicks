@@ -20,7 +20,7 @@ pub const START_OF_LOG_POSITION: i64 = -1;
 /// within JavaScript's safe range. It never quotes the cursor, which the client sent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("the event cursor does not name a position in the session's log")]
-pub struct EventCursorUnresolvable;
+pub struct SessionEventCursorUnresolvable;
 
 /// A position no cursor can name: below the start of the log or past JavaScript's safe range.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -44,8 +44,8 @@ pub fn encode_event_cursor(position: i64) -> Result<EventCursor, EventCursorPosi
 }
 
 /// Reads the log position an [`EventCursor`] names. Accepts only what [`encode_event_cursor`]
-/// writes, so `007`, `+1`, `1e3` and `-0` are refused with [`EventCursorUnresolvable`].
-pub fn decode_event_cursor(cursor: &EventCursor) -> Result<i64, EventCursorUnresolvable> {
+/// writes, so `007`, `+1`, `1e3` and `-0` are refused with [`SessionEventCursorUnresolvable`].
+pub fn decode_event_cursor(cursor: &EventCursor) -> Result<i64, SessionEventCursorUnresolvable> {
     let text = cursor.as_str();
     let is_canonical = text == "-1"
         || text == "0"
@@ -59,7 +59,7 @@ pub fn decode_event_cursor(cursor: &EventCursor) -> Result<i64, EventCursorUnres
                 .ok()
                 .is_none_or(|at| at <= MAX_SAFE_INTEGER)
         });
-    position.ok_or(EventCursorUnresolvable)
+    position.ok_or(SessionEventCursorUnresolvable)
 }
 
 #[cfg(test)]

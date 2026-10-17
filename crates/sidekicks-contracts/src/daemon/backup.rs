@@ -152,7 +152,7 @@ pub enum BackupLastRun {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct BackupReadResponse {
+pub struct DaemonBackupReadResponse {
     /// The folder.
     pub folder: FilesystemPath,
     /// Whether the folder sits on the service's own disk.
@@ -230,13 +230,13 @@ pub struct DaemonBackupRestoredPayload {
 }
 
 methods! {
-    /// The backup methods. A run started now reports its end through the `backup.*` events.
+    /// The backup methods. A run started now reports its end through the `daemon.backup.*` events.
     pub const DAEMON_BACKUP_METHOD_DESCRIPTORS = [
         /// Reads where the backups stand.
         DaemonBackupRead = query "daemon.backup.read" {
             mutating: false,
             params: EmptyPayload,
-            result: BackupReadResponse,
+            result: DaemonBackupReadResponse,
             refusals: [],
         },
         /// Starts a backup run now.
@@ -259,7 +259,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BackupManifest>().checked(),
         Definition::read::<BackupListEntry>(),
         Definition::read::<BackupLastRun>(),
-        Definition::read::<BackupReadResponse>().checked(),
+        Definition::read::<DaemonBackupReadResponse>().checked(),
         Definition::read::<DaemonBackupCompletedPayload>().checked(),
         Definition::read::<DaemonBackupFailedPayload>().checked(),
         Definition::read::<BackupKeptDistributionPart>(),

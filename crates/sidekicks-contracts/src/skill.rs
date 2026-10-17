@@ -686,7 +686,7 @@ methods! {
             mutating: true,
             params: SkillCreateRequest,
             result: SkillEntryResponse,
-            refusals: [SkillPathRefused, SkillNameTooLong],
+            refusals: [SkillPathRefused, SkillNameTooLong, ProjectNotFound],
         },
         /// Saves a skill's folder whole.
         SkillUpdate = mutation "skill.update" {
@@ -700,7 +700,7 @@ methods! {
             mutating: false,
             params: SkillCallFormReadRequest,
             result: SkillCallFormReadResponse,
-            refusals: [],
+            refusals: [ProjectNotFound],
         },
         /// Sets one provider on or off.
         SkillAvailabilityUpdate = mutation "skill.availability.update" {

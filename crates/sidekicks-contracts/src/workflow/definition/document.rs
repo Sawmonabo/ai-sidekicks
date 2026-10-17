@@ -28,7 +28,7 @@ use crate::wire::{literal, named_scalar};
 use crate::workflow::definition::item::WorkflowPinnedItem;
 
 /// The message of the issue a document's read raises at a repeated node id (`nodes[i].id`). The
-/// daemon's refusal recognizes the rule by it and carries the repeat's `node_id_duplicate` finding,
+/// daemon's refusal recognizes the rule by it and carries the repeat's `nodeIdDuplicate` finding,
 /// over the id at that path, as the issue's `params`.
 pub const NODE_ID_DUPLICATE_MESSAGE: &str = "this node id is already used by an earlier node";
 

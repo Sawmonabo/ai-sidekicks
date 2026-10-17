@@ -17,8 +17,9 @@ use crate::preview::page::{PreviewAddress, PreviewPageId};
 use crate::preview::screencast::{PreviewInputMessageId, PreviewMenuEdit, PreviewMenuEditResponse};
 use crate::preview::staging::{
     PREVIEW_STAGED_FILE_ID_MAX_LEN, PreviewDownloadState, PreviewDownloadVerdict,
-    PreviewFilePartResponse, PreviewPageDownloadReportRequest, PreviewPageDownloadReportResponse,
-    PreviewPageStagingFolderReadResponse, PreviewSaveReadRequest, PreviewStagedFileId,
+    PreviewPageDownloadReportRequest, PreviewPageDownloadReportResponse,
+    PreviewPageStagingFolderReadResponse, PreviewSaveReadRequest, PreviewSaveReadResponse,
+    PreviewStagedFileId,
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::True;
@@ -439,7 +440,7 @@ methods! {
         PreviewSaveRead = query "preview.save.read" {
             mutating: false,
             params: PreviewSaveReadRequest,
-            result: PreviewFilePartResponse,
+            result: PreviewSaveReadResponse,
             refusals: [],
         },
     ];
@@ -523,7 +524,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewDownloadVerdict>(),
         Definition::read::<PreviewPageDownloadReportResponse>().checked(),
         Definition::read::<PreviewSaveReadRequest>().checked(),
-        Definition::read::<PreviewFilePartResponse>().checked(),
+        Definition::read::<PreviewSaveReadResponse>().checked(),
         Definition::read::<PreviewPageEditRequest>().checked(),
         Definition::read::<PreviewCookieSameSite>(),
         Definition::read::<PreviewCookie>(),

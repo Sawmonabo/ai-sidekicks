@@ -51,7 +51,7 @@ pub struct BranchHolder {
 /// are absent when it has none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoBranchListEntry {
+pub struct ProjectBranchListEntry {
     /// The branch.
     pub name: GitRefName,
     /// Commits ahead of its upstream.
@@ -90,7 +90,7 @@ pub struct ProjectBranchListResponse {
     /// The default branch.
     pub default_branch: GitRefName,
     /// The branches.
-    pub branches: Vec<RepoBranchListEntry>,
+    pub branches: Vec<ProjectBranchListEntry>,
     /// Present when the last background fetch failed: when the figures were last true.
     #[serde(
         default,
@@ -107,7 +107,7 @@ pub struct ProjectBranchListResponse {
 /// diff was read at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RepoFileSide {
+pub enum ProjectFileSide {
     /// Git's object store.
     Committed,
     /// The file on disk.
@@ -117,7 +117,7 @@ pub enum RepoFileSide {
 /// The lines a read narrows to: `count` lines from line `from`, counted from 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoFileLineRange {
+pub struct ProjectFileLineRange {
     /// The first line, from 1.
     pub from: SafeInt<1>,
     /// How many lines.
@@ -144,8 +144,8 @@ macro_rules! file_read_request {
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "RepoFileLineRange")]
-            pub lines: Option<RepoFileLineRange>,
+            #[schemars(with = "ProjectFileLineRange")]
+            pub lines: Option<ProjectFileLineRange>,
         }
     };
 }
@@ -153,17 +153,17 @@ macro_rules! file_read_request {
 file_read_request! {
     /// A gap read: the blob the diff gave that side, and the side, so its line numbers match the
     /// diff the reader is looking at.
-    pub struct RepoGapReadRequest {
+    pub struct ProjectFileGapReadRequest {
         /// The blob the diff gave that side.
         pub blob_id: GitObjectId,
         /// The side.
-        pub side: RepoFileSide,
+        pub side: ProjectFileSide,
     }
 }
 
 file_read_request! {
     /// A read of a file the diff does not hold, by path alone, from the working tree.
-    pub struct RepoWorkingFileReadRequest {
+    pub struct ProjectWorkingFileReadRequest {
         /// Only a gap read names a blob.
         #[serde(
             default,
@@ -190,9 +190,9 @@ file_read_request! {
 #[garde(allow_unvalidated)]
 pub enum ProjectFileReadRequest {
     /// A gap read.
-    Gap(RepoGapReadRequest),
+    Gap(ProjectFileGapReadRequest),
     /// A read by path alone.
-    WorkingFile(RepoWorkingFileReadRequest),
+    WorkingFile(ProjectWorkingFileReadRequest),
 }
 
 /// The `project.file.read` result: the lines read; `stale` when the working-tree side no longer
@@ -228,7 +228,7 @@ pub enum ProjectFileReadResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkingTreeSubscribeRequest {
+pub struct SessionWorkingFolderSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -267,13 +267,13 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<GitObjectId>().checked(),
         Definition::read::<ProjectBranchListRequest>(),
         Definition::read::<BranchHolder>(),
-        Definition::read::<RepoBranchListEntry>(),
+        Definition::read::<ProjectBranchListEntry>(),
         Definition::read::<ProjectBranchListResponse>(),
-        Definition::read::<RepoFileSide>(),
-        Definition::read::<RepoFileLineRange>(),
+        Definition::read::<ProjectFileSide>(),
+        Definition::read::<ProjectFileLineRange>(),
         Definition::read::<ProjectFileReadRequest>().checked(),
         Definition::read::<ProjectFileReadResponse>(),
-        Definition::read::<WorkingTreeSubscribeRequest>(),
+        Definition::read::<SessionWorkingFolderSubscribeRequest>(),
         Definition::read::<WorkingTreeChangeMode>(),
         Definition::read::<WorkingTreeChange>(),
     ],

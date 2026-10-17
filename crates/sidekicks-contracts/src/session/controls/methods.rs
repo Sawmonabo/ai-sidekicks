@@ -17,7 +17,7 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::commands::ProviderCommandEntry;
 use crate::provider::id::ProviderId;
-use crate::session::cost::{OrchestrationBudgetState, TokensPerRun, UsdMicros};
+use crate::session::cost::{SessionBudgetState, TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
@@ -59,8 +59,8 @@ pub struct SessionAcknowledgement {
     IntoStaticStr,
     VariantArray,
 )]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum PermissionLevel {
     /// Reads only.
     Readonly,
@@ -101,8 +101,8 @@ pub struct SessionPermissionLevelUpdateResponse {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
 )]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum SessionMode {
     /// The turns change the work.
     Build,
@@ -168,7 +168,7 @@ pub struct SessionAutoCompactUpdateResponse {
 }
 
 /// One tool server this session was started with. `enabled` is the session's own switch;
-/// `pending_until_next_turn` says a switch flipped mid-turn waits for the next turn. `reason` is
+/// `pendingUntilNextTurn` says a switch flipped mid-turn waits for the next turn. `reason` is
 /// the failure or sign-in reason, carried for a server that is not working.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -452,7 +452,7 @@ pub struct SessionTokensPerRunUpdateRequest {
 
 /// Where a provider session typed in a terminal stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum TerminalProviderSessionState {
     /// A turn is running.
     Working,
@@ -573,14 +573,14 @@ methods! {
         SessionSpendLimitUpdate = mutation "session.spendLimit.update" {
             mutating: true,
             params: SessionSpendLimitUpdateRequest,
-            result: OrchestrationBudgetState,
+            result: SessionBudgetState,
             refusals: [SessionNotFound],
         },
         /// Sets or clears the session's `Tokens per run`.
         SessionTokensPerRunUpdate = mutation "session.tokensPerRun.update" {
             mutating: true,
             params: SessionTokensPerRunUpdateRequest,
-            result: OrchestrationBudgetState,
+            result: SessionBudgetState,
             refusals: [SessionNotFound],
         },
         /// Lists the provider sessions typed in a terminal.

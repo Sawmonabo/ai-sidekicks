@@ -109,7 +109,7 @@ pub struct PreviewPageDownloadReportResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct PreviewFilePartResponse {
+pub struct PreviewSaveReadResponse {
     /// The part's bytes.
     pub part: PreviewFilePart,
     /// Whether the file ends with this part.

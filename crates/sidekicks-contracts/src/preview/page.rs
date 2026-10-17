@@ -191,7 +191,7 @@ pub struct PreviewPage {
     pub released: bool,
 }
 
-/// The session whose pages a `preview.page.subscribe` subscription streams.
+/// The session whose pages a `preview.page.subscribe` call streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

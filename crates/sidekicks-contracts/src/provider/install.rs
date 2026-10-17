@@ -108,7 +108,8 @@ pub enum ProviderInstallUpdateProgress {
 }
 
 methods! {
-    /// Every `provider.install.start*` method: its name, how it answers, and its shapes.
+    /// Every `provider.install.*` and `provider.installUpdate.*` method: its name, how it answers,
+    /// and its shapes.
     pub const PROVIDER_INSTALL_METHOD_DESCRIPTORS = [
         /// Starts a provider's installer.
         ProviderInstallStart = mutation "provider.install.start" {
@@ -116,6 +117,9 @@ methods! {
             params: ProviderPlaceRequest,
             result: EmptyPayload,
             refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
                 ProviderNoBuildForSystem,
@@ -128,6 +132,9 @@ methods! {
             result: SubscribeAckResponse,
             emission: ProviderInstallProgress,
             refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
             ],
@@ -138,6 +145,9 @@ methods! {
             params: ProviderPlaceRequest,
             result: EmptyPayload,
             refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
             ],
@@ -148,6 +158,9 @@ methods! {
             params: ProviderPlaceRequest,
             result: EmptyPayload,
             refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
                 ProviderNoBuildForSystem,
@@ -160,6 +173,9 @@ methods! {
             result: SubscribeAckResponse,
             emission: ProviderInstallUpdateProgress,
             refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
             ],
@@ -170,8 +186,8 @@ methods! {
 /// The TypeScript module of a provider's install and update.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/install",
-    doc: "The `provider.install.start*` methods: installing and updating a provider's command in \
-          one place.",
+    doc: "The `provider.install.*` and `provider.installUpdate.*` methods: installing and updating \
+          a provider's command in one place.",
     definitions: &[
         Definition::read::<ProviderInstallProgress>(),
         Definition::read::<ProviderInstallUpdateProgress>(),

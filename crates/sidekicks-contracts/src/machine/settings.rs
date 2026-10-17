@@ -94,9 +94,9 @@ ts_constants! {
         SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME,
     ];
     /// The code the service answers with when a row's name is refused.
-    DAEMON_ENVIRONMENT_NAME_REFUSED_CODE = RefusalCode::ProjectEnvironmentNameRefused;
+    PROJECT_ENVIRONMENT_NAME_REFUSED_CODE = RefusalCode::ProjectEnvironmentNameRefused;
     /// The code the service answers with when a branch-name pattern is refused.
-    DAEMON_BRANCH_PATTERN_REFUSED_CODE = RefusalCode::ProjectBranchPatternRefused;
+    PROJECT_BRANCH_PATTERN_REFUSED_CODE = RefusalCode::ProjectBranchPatternRefused;
     /// The placeholder a branch-name pattern holds exactly once: the tail of the session's title.
     pub const BRANCH_NAME_TITLE_PLACEHOLDER: &str = "{title}";
     /// Every [`EmailDigestPeriod`], shortest first.

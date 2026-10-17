@@ -85,14 +85,32 @@ methods! {
             mutating: false,
             params: GitSessionRequest,
             result: GitCommitMessageGenerateResponse,
-            refusals: [SessionNotFound, GitGenerateFailed],
+            refusals: [
+                SessionNotFound,
+                GitGenerateFailed,
+                GitGenerateRefused,
+                ProviderAccountNotAuthenticated,
+                ProviderAccountAllowanceExhausted,
+                ProviderTimeout,
+                ProviderNotInstalled,
+                SystemInternalError,
+            ],
         },
         /// Generates a change request's title and description.
         GitChangeRequestTextGenerate = mutation "git.changeRequest.text.generate" {
             mutating: false,
             params: GitSessionRequest,
             result: GitChangeRequestTextGenerateResponse,
-            refusals: [SessionNotFound, GitGenerateFailed],
+            refusals: [
+                SessionNotFound,
+                GitGenerateFailed,
+                GitGenerateRefused,
+                ProviderAccountNotAuthenticated,
+                ProviderAccountAllowanceExhausted,
+                ProviderTimeout,
+                ProviderNotInstalled,
+                SystemInternalError,
+            ],
         },
         /// Follows the branch's change requests at one depth.
         GitChangeRequestSubscribe = subscription "git.changeRequest.subscribe" {

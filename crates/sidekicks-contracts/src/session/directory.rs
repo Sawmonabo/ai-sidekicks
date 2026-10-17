@@ -583,7 +583,7 @@ methods! {
             params: SessionCreateRequest,
             result: SessionCreateResponse,
             refusals: [
-                RepoMountNotFound,
+                ProjectNotFound,
                 SessionGroupRefused,
                 ProviderAccountCurrentNotSet,
                 ProviderAccountNotRegistered,

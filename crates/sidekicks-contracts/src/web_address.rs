@@ -31,7 +31,7 @@ ts_constants! {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum WebAddressFault {
     /// The scheme is neither `http:` nor `https:`.
     Scheme,

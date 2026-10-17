@@ -13,7 +13,7 @@ use crate::event::envelope::{
     EventOccurredAt, SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::machine::id::NodeId;
+use crate::machine::id::MachineId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -51,7 +51,7 @@ fn ends_at_or_after_its_start(from_seq: SafeInt<0>, to_seq: SafeInt<0>) -> garde
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct EventCompactedRemovedSession {
+pub struct SessionEventCompactedRemovedSession {
     /// The session removed.
     pub session_id: SessionId,
     /// The first sequence deleted.
@@ -72,7 +72,7 @@ pub struct EventCompactedRemovedSession {
 #[garde(allow_unvalidated)]
 pub struct SessionEventCompactedPayload {
     /// The machine whose daemon ran the deletion.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The deletion's correlation id: opaque, with no fixed format.
     pub operation_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     /// When the deletion ran; the envelope's own instant, repeated in the payload.
@@ -80,7 +80,7 @@ pub struct SessionEventCompactedPayload {
     pub occurred_at: EventOccurredAt,
     /// Every session removed, with its deleted range.
     #[garde(dive)]
-    pub removed_sessions: BoundedVec<EventCompactedRemovedSession, 1, { usize::MAX }>,
+    pub removed_sessions: BoundedVec<SessionEventCompactedRemovedSession, 1, { usize::MAX }>,
 }
 
 /// Declares a body-bearing payload: the struct as written, followed by the two members the append
@@ -287,7 +287,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The payloads of the session events this module declares itself: event compaction and \
           assistant and tool activity.",
     definitions: &[
-        Definition::read::<EventCompactedRemovedSession>(),
+        Definition::read::<SessionEventCompactedRemovedSession>(),
         Definition::read::<SessionEventCompactedPayload>().checked(),
         Definition::read::<RunAssistantOutputPayload>(),
         Definition::read::<VoiceAssistantOutputPayload>(),

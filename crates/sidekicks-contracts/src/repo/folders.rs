@@ -3,15 +3,15 @@
 //! and re-attach, and the details of their refusals.
 //!
 //! Attach is the only way a path enters the machine's trust envelope. A mount belongs to the
-//! machine, not to a session: the daemon stamps its own node id on the row, and a session reaches
-//! the mount by binding a workspace to it.
+//! machine, not to a session: the daemon stamps its own machine id on the row, and a session
+//! reaches the mount by binding a workspace to it.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
-use crate::machine::id::NodeId;
+use crate::machine::id::MachineId;
 use crate::place::{Place, WslPlace};
 use crate::project::{ProjectId, ProjectName};
 use crate::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId};
@@ -164,7 +164,7 @@ pub enum MachineFolderListRequest {
 /// One folder in a listing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoFolderListEntry {
+pub struct MachineFolderListEntry {
     /// Its name.
     pub name: FreeFormText<FILE_PATH_MAX_LEN>,
     /// Its path.
@@ -183,7 +183,7 @@ pub struct RepoFolderListEntry {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum RepoFolderPathSegment {
+pub enum MachineFolderPathSegment {
     /// The top level of a Windows computer.
     Top {},
     /// A folder.
@@ -204,7 +204,7 @@ pub enum RepoFolderPathSegment {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum RepoFolderTopEntry {
+pub enum MachineFolderTopEntry {
     /// A drive, by its root folder (`C:\`).
     Drive {
         /// Its root folder.
@@ -219,7 +219,7 @@ pub enum RepoFolderTopEntry {
 
 // A drive or distribution entry is keyed by its one member, the drive's path or the distribution,
 // and carries no rule its read does not hold.
-impl ListKey for RepoFolderTopEntry {
+impl ListKey for MachineFolderTopEntry {
     type Key = Self;
 
     fn list_key(&self) -> Self {
@@ -257,9 +257,9 @@ pub struct MachineFolderListFolderResponse {
     /// The folder in view.
     pub path: FilesystemPath,
     /// The path's segments, at least the folder in view.
-    pub segments: BoundedVec<RepoFolderPathSegment, 1, { usize::MAX }>,
+    pub segments: BoundedVec<MachineFolderPathSegment, 1, { usize::MAX }>,
     /// Its folders.
-    pub entries: Vec<RepoFolderListEntry>,
+    pub entries: Vec<MachineFolderListEntry>,
     /// Whether the filter would narrow further.
     pub more: bool,
 }
@@ -275,7 +275,7 @@ pub struct MachineFolderListTopResponse {
     pub top: True,
     /// The drives, then the distributions.
     #[garde(dive)]
-    pub entries: UniqueList<RepoFolderTopEntry, 0, { usize::MAX }>,
+    pub entries: UniqueList<MachineFolderTopEntry, 0, { usize::MAX }>,
 }
 
 /// The `machine.folder.list` result: one folder, or the top level of a Windows computer.
@@ -364,7 +364,7 @@ pub struct RepoMountReadResponse {
     /// The mount.
     pub id: RepoMountId,
     /// The machine's daemon that holds it.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The path as entered; it differs from `canonicalRoot` when entered inside or via a link.
     pub local_path: FilesystemPath,
     /// The resolved root.
@@ -441,12 +441,13 @@ pub struct RepoMountOutsideTrustEnvelopeDetails {
     pub reason: RepoMountOutsideTrustEnvelopeReason,
 }
 
-/// Why a path's canonical repository root could not be resolved: the path is missing, unreadable
-/// or not absolute, git could not answer for it, its working tree is not one git names for the
-/// repository, or git reports a folder with no visible `.git` entry is not a repository.
+/// Why a `repoMount.rootResolutionFailed` refusal could not resolve a path's canonical repository
+/// root: the path is missing, unreadable or not absolute, git could not answer for it, its working
+/// tree is not one git names for the repository, or git reports a folder with no visible `.git`
+/// entry is not a repository.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RepoRootResolutionReason {
+pub enum RepoMountRootResolutionReason {
     /// The path does not exist.
     PathNotFound,
     /// The path or its root cannot be read.
@@ -467,7 +468,7 @@ pub enum RepoRootResolutionReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoMountRootResolutionFailedDetails {
     /// Why.
-    pub reason: RepoRootResolutionReason,
+    pub reason: RepoMountRootResolutionReason,
 }
 
 /// The details of a `repoMount.alreadyAttached` refusal: the mount that holds the repository and
@@ -530,9 +531,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoMountListEntry>(),
         Definition::read::<RepoMountListResponse>(),
         Definition::read::<MachineFolderListRequest>(),
-        Definition::read::<RepoFolderListEntry>(),
-        Definition::read::<RepoFolderPathSegment>(),
-        Definition::read::<RepoFolderTopEntry>(),
+        Definition::read::<MachineFolderListEntry>(),
+        Definition::read::<MachineFolderPathSegment>(),
+        Definition::read::<MachineFolderTopEntry>(),
         Definition::read::<MachineFolderListResponse>().checked(),
         Definition::read::<RepoMountAttachRequest>().checked(),
         Definition::read::<RepoMountAttachResponse>().checked(),
@@ -542,7 +543,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoMountDetachResponse>().checked(),
         Definition::read::<RepoMountOutsideTrustEnvelopeReason>(),
         Definition::read::<RepoMountOutsideTrustEnvelopeDetails>(),
-        Definition::read::<RepoRootResolutionReason>(),
+        Definition::read::<RepoMountRootResolutionReason>(),
         Definition::read::<RepoMountRootResolutionFailedDetails>(),
         Definition::read::<RepoMountAlreadyAttachedDetails>(),
         Definition::read::<RepoMountReattachResponse>(),

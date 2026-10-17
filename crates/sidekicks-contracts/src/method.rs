@@ -1,4 +1,4 @@
-//! The method table: every daemon method is declared once, with [`methods!`], in the contract
+//! The method table: every daemon method is declared once, with `methods!`, in the contract
 //! module that owns it. A declaration gives a marker type the daemon registers a handler for and a
 //! table entry the TypeScript method map is generated from.
 

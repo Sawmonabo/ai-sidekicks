@@ -34,19 +34,19 @@ ts_constants! {
     pub const WORKFLOW_CANCEL_REASON_BYTE_CAP: usize = 8 * 1024;
     /// What a node run covers.
     WORKFLOW_NODE_EXECUTE_SCOPES = WorkflowNodeExecuteScope::VARIANTS;
-    /// Every reason a retry cannot be made.
-    WORKFLOW_RETRY_UNAVAILABLE_REASONS = WorkflowRunStillRunningReason::VARIANTS;
+    /// Every reason `workflow.run.stillRunning` gives: its one value, the source run still going.
+    WORKFLOW_RUN_STILL_RUNNING_REASONS = WorkflowRunStillRunningReason::VARIANTS;
     /// A start the policy check denied, or whose principal could not be resolved.
-    WORKFLOW_START_DENIED_CODE = RefusalCode::WorkflowRunStartDenied;
+    WORKFLOW_RUN_START_DENIED_CODE = RefusalCode::WorkflowRunStartDenied;
     /// A start in a project session that names a project: the run works in that session's
     /// repository, so it names no other. Nothing runs.
-    WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE = RefusalCode::WorkflowRunProjectOnProjectSession;
+    WORKFLOW_RUN_PROJECT_ON_PROJECT_SESSION_CODE = RefusalCode::WorkflowRunProjectOnProjectSession;
     /// A start or a node run that works in no project's repository, of a version holding a Git,
     /// Read a repo diff or Run tests step. Nothing runs.
-    WORKFLOW_REPOSITORY_REQUIRED_CODE = RefusalCode::WorkflowRunRepositoryRequired;
+    WORKFLOW_RUN_REPOSITORY_REQUIRED_CODE = RefusalCode::WorkflowRunRepositoryRequired;
     /// A start that leaves a required input of the workflow unfilled, or gives an input a value
     /// that does not fit it. Nothing runs.
-    WORKFLOW_INPUT_REQUIRED_CODE = RefusalCode::WorkflowRunInputRequired;
+    WORKFLOW_RUN_INPUT_REQUIRED_CODE = RefusalCode::WorkflowRunInputRequired;
     /// A start of a version whose Code steps' packages are not locked; a later save that locks them
     /// makes the version runnable. Nothing runs.
     WORKFLOW_CODE_PACKAGES_NOT_LOCKED_CODE = RefusalCode::WorkflowCodePackagesNotLocked;
@@ -54,19 +54,20 @@ ts_constants! {
     /// canceled; a run already canceled is not refused, the cancel returns the first's outcome.
     WORKFLOW_RUN_NOT_CANCELABLE_CODE = RefusalCode::WorkflowRunNotCancelable;
     /// A resume on a run that is not waiting: there is no wait to lift.
-    WORKFLOW_RESUME_NOT_PARKED_CODE = RefusalCode::WorkflowRunResumeNotParked;
+    WORKFLOW_RUN_RESUME_NOT_PARKED_CODE = RefusalCode::WorkflowRunResumeNotParked;
     /// A version re-pin on a run that is not waiting; a going run is never re-pinned.
-    WORKFLOW_REPAIR_NOT_PARKED_CODE = RefusalCode::WorkflowRunRepairNotParked;
+    WORKFLOW_RUN_REPAIR_NOT_PARKED_CODE = RefusalCode::WorkflowRunRepairNotParked;
     /// A version re-pin while one of the run's steps is still in flight.
-    WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE = RefusalCode::WorkflowRunRepairAttemptInFlight;
+    WORKFLOW_RUN_REPAIR_ATTEMPT_IN_FLIGHT_CODE = RefusalCode::WorkflowRunRepairAttemptInFlight;
     /// A version re-pin whose target cannot account for the steps the run already finished.
-    WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE = RefusalCode::WorkflowRunRepairVersionUnaccountable;
+    WORKFLOW_RUN_REPAIR_VERSION_UNACCOUNTABLE_CODE =
+        RefusalCode::WorkflowRunRepairVersionUnaccountable;
     /// A run or step move its status does not allow: retrying from a step that did not fail,
     /// posting the results of an unfinished run, or opening a fix session on a step that did not
     /// fail.
     WORKFLOW_INVALID_TRANSITION_CODE = RefusalCode::WorkflowInvalidTransition;
-    /// A retry the daemon cannot make now; the reason says why.
-    WORKFLOW_RETRY_UNAVAILABLE_CODE = RefusalCode::WorkflowRunStillRunning;
+    /// A retry from a step refused while its source run is still going.
+    WORKFLOW_RUN_STILL_RUNNING_CODE = RefusalCode::WorkflowRunStillRunning;
 }
 
 /// The most code points a cancellation reason can hold under its byte cap: its JSON takes two
@@ -618,7 +619,7 @@ pub struct WorkflowCodePackagesNotLockedDetails {
     pub node_ids: BoundedVec<WorkflowNodeId, 1, { usize::MAX }>,
 }
 
-/// Why a retry cannot be made.
+/// Why `workflow.run.stillRunning` refused a retry; its one cause is a source run still going.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
@@ -628,7 +629,7 @@ pub enum WorkflowRunStillRunningReason {
     SourceRunning,
 }
 
-/// The retry refusal's details.
+/// The details of `workflow.run.stillRunning`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowRunStillRunningDetails {
@@ -647,6 +648,7 @@ methods! {
             refusals: [
                 WorkflowVersionNotFound,
                 SessionNotFound,
+                ProjectNotFound,
                 WorkflowRunStartDenied,
                 WorkflowRunProjectOnProjectSession,
                 WorkflowRunRepositoryRequired,
@@ -669,6 +671,7 @@ methods! {
             result: WorkflowRunResumeResponse,
             refusals: [
                 WorkflowRunNotFound,
+                WorkflowVersionNotFound,
                 WorkflowRunResumeNotParked,
                 WorkflowRunRepairNotParked,
                 WorkflowRunRepairAttemptInFlight,
@@ -699,7 +702,12 @@ methods! {
             mutating: true,
             params: WorkflowNodeExecuteRequest,
             result: WorkflowNodeExecuteResponse,
-            refusals: [SessionNotFound, WorkflowVersionNotFound, WorkflowRunRepositoryRequired],
+            refusals: [
+                SessionNotFound,
+                ProjectNotFound,
+                WorkflowVersionNotFound,
+                WorkflowRunRepositoryRequired,
+            ],
         },
         /// Posts a finished run's results into the session that asks.
         WorkflowResultsPost = mutation "workflow.results.post" {

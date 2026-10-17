@@ -1,5 +1,5 @@
-//! The `providerAccount.*` methods not in the sign-in module (update, remove, set-current, probe,
-//! memory import, usage read) and the namespace's method table. A credential crosses these
+//! The `provider.account.*` methods not in the sign-in module (update, delete, current update,
+//! probe, memory import, usage list) and the namespace's method table. A credential crosses these
 //! methods on one input, the register request's token, and on no output; a refusal of a supplied
 //! token names the condition that failed and never quotes the value. No request carries the
 //! credential generation, and an `accountId` always names an account the daemon already minted.
@@ -11,7 +11,7 @@ use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAckResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
-use crate::provider::account::record::readiness::ProviderLoginExpiredRemedy;
+use crate::provider::account::record::readiness::ProviderSignInExpiredRemedy;
 use crate::provider::account::record::{
     BillingMode, CredentialGeneration, DisplayLabel, ProviderAccount, ProviderAccountHealthState,
     ProviderAccountId, ProviderAccountListRequest, ProviderAccountListResponse,
@@ -46,7 +46,7 @@ ts_constants! {
     PROVIDER_ACCOUNT_NOT_REGISTERED_CODE = RefusalCode::ProviderAccountNotRegistered;
     /// The provider has accounts but none is current, so a run's account is ambiguous and it is
     /// not admitted.
-    PROVIDER_ACCOUNT_NO_DEFAULT_CODE = RefusalCode::ProviderAccountCurrentNotSet;
+    PROVIDER_ACCOUNT_CURRENT_NOT_SET_CODE = RefusalCode::ProviderAccountCurrentNotSet;
     /// A run bound to the account is live, so it is not removed; the refusal names the sessions.
     PROVIDER_ACCOUNT_IN_USE_CODE = RefusalCode::ProviderAccountInUse;
     /// The named account is not signed in, so it is refused as a switch target before anything
@@ -218,7 +218,7 @@ pub struct ProviderAccountCurrentUpdateResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderAccountNotAuthenticatedDetails {
     /// The remedy.
-    pub remedy: ProviderLoginExpiredRemedy,
+    pub remedy: ProviderSignInExpiredRemedy,
 }
 
 /// Checks one account's health now.
@@ -366,14 +366,14 @@ pub struct ProviderAccountUsageListResponse {
 }
 
 methods! {
-    /// Every `providerAccount.*` method: its name, how it answers, and its shapes.
+    /// Every `provider.account.*` method: its name, how it answers, and its shapes.
     pub const PROVIDER_ACCOUNT_METHOD_DESCRIPTORS = [
         /// Reads the accounts, their quota readings and each provider's readiness.
         ProviderAccountList = query "provider.account.list" {
             mutating: false,
             params: ProviderAccountListRequest,
             result: ProviderAccountListResponse,
-            refusals: [ProviderAccountNotFound],
+            refusals: [ProviderNotFound, ProviderAccountNotFound],
         },
         /// Streams every change to the account registry.
         ProviderAccountSubscribe = subscription "provider.account.subscribe" {
@@ -389,6 +389,7 @@ methods! {
             params: ProviderAccountRegisterRequest,
             result: ProviderAccountRegisterResponse,
             refusals: [
+                ProviderNotFound,
                 ProviderAccountPermissionDenied,
                 ProviderAccountNotFound,
                 ProviderAccountCredentialSealRefused,
@@ -492,7 +493,7 @@ methods! {
             mutating: false,
             params: ProviderAccountUsageListRequest,
             result: ProviderAccountUsageListResponse,
-            refusals: [ProviderAccountNotFound],
+            refusals: [ProviderNotFound, ProviderAccountNotFound],
         },
     ];
 }
@@ -500,8 +501,8 @@ methods! {
 /// The TypeScript module of the account methods.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/account/methods",
-    doc: "The `providerAccount.*` methods not in the sign-in module (update, remove, set-current, \
-          probe, memory import, usage read) and the namespace's method table.",
+    doc: "The `provider.account.*` methods not in the sign-in module (update, delete, current \
+          update, probe, memory import, usage list) and the namespace's method table.",
     definitions: &[
         Definition::read::<ProviderAccountUpdateRequest>(),
         Definition::read::<ProviderWakeHelperState>(),

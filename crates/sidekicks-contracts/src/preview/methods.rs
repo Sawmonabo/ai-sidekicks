@@ -24,7 +24,7 @@ use crate::preview::page::{
 use crate::preview::screencast::{
     PreviewChosenFile, PreviewDeviceInput, PreviewFileChooserMode, PreviewInputMessageId,
     PreviewKeyAction, PreviewMenuEdit, PreviewMenuEditResponse, PreviewMouseAction,
-    PreviewMouseButton, PreviewScreencastAckToken, PreviewScreencastAcknowledgeRequest,
+    PreviewMouseButton, PreviewScreencastAcknowledgeRequest, PreviewScreencastAcknowledgmentToken,
     PreviewScreencastEditRequest, PreviewScreencastElement, PreviewScreencastFileChooseRequest,
     PreviewScreencastFileChooseResponse, PreviewScreencastFrameMetadata,
     PreviewScreencastInputSendRequest, PreviewScreencastInputSendResponse,
@@ -219,7 +219,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PreviewMarkSendResponse>().checked(),
         Definition::read::<PreviewScreencastSubscribeRequest>().checked(),
         Definition::read::<PreviewScreencastFrameMetadata>(),
-        Definition::read::<PreviewScreencastAckToken>(),
+        Definition::read::<PreviewScreencastAcknowledgmentToken>(),
         Definition::read::<PreviewInputMessageId>().checked(),
         Definition::read::<PreviewSaveId>().checked(),
         Definition::read::<PreviewFileChooserMode>(),

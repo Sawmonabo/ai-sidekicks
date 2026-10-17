@@ -345,7 +345,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<requests::McpToolOverrideUpdateRequest>().checked(),
         Definition::read::<requests::McpToolOverrideClearRequest>().checked(),
         Definition::read::<requests::McpToolOverrideMutationResponse>().checked(),
-        Definition::read::<requests::McpKeyedBindingRequest>().checked(),
+        Definition::read::<requests::McpServerSignInRequest>().checked(),
         Definition::read::<requests::McpServerSignInResponse>().checked(),
         Definition::read::<requests::McpServerSignOutRequest>().checked(),
         Definition::read::<requests::McpServerReconnectRequest>().checked(),

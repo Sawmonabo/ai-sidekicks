@@ -1,5 +1,5 @@
 //! Binding a session's workspace to a mount, and listing a session's workspaces. A workspace's
-//! `lastError` is present only when it went `stale` from a recorded failure.
+//! `lastError` is present only when it went `rootLost` from a recorded failure.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -89,7 +89,7 @@ pub struct WorkspaceListEntry {
     )]
     #[schemars(with = "FilesystemPath")]
     pub fs_root: Option<FilesystemPath>,
-    /// The failure that made it `stale`, when one did.
+    /// The failure that made it `rootLost`, when one did.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

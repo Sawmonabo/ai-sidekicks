@@ -41,7 +41,7 @@ branded_text! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderImportProviderRequest {
+pub struct SessionImportRequest {
     /// The provider.
     pub provider: ProviderId,
 }
@@ -51,7 +51,7 @@ pub struct ProviderImportProviderRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderImportPreviewResponse {
+pub struct SessionImportPreviewResponse {
     /// The provider.
     pub provider: ProviderId,
     /// The projects the import would attach.
@@ -62,7 +62,7 @@ pub struct ProviderImportPreviewResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderImportStartResponse {
+pub struct SessionImportStartResponse {
     /// The import.
     pub import_id: ProviderImportId,
 }
@@ -162,7 +162,7 @@ pub enum ProviderImportProgress {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ProviderImportStopRequest {
+pub struct SessionImportStopRequest {
     /// The import.
     pub import_id: ProviderImportId,
 }
@@ -173,29 +173,29 @@ methods! {
         /// Counts the projects an import would attach.
         SessionImportPreview = query "session.import.preview" {
             mutating: false,
-            params: ProviderImportProviderRequest,
-            result: ProviderImportPreviewResponse,
-            refusals: [],
+            params: SessionImportRequest,
+            result: SessionImportPreviewResponse,
+            refusals: [ProviderNotFound],
         },
         /// Starts a provider's import, or answers the one running.
         SessionImportStart = mutation "session.import.start" {
             mutating: true,
-            params: ProviderImportProviderRequest,
-            result: ProviderImportStartResponse,
-            refusals: [],
+            params: SessionImportRequest,
+            result: SessionImportStartResponse,
+            refusals: [ProviderNotFound],
         },
         /// Streams a provider's import, its last outcome first.
         SessionImportSubscribe = subscription "session.import.subscribe" {
             mutating: false,
-            params: ProviderImportProviderRequest,
+            params: SessionImportRequest,
             result: SubscribeAckResponse,
             emission: ProviderImportProgress,
-            refusals: [],
+            refusals: [ProviderNotFound],
         },
         /// Stops one import.
         SessionImportStop = mutation "session.import.stop" {
             mutating: true,
-            params: ProviderImportStopRequest,
+            params: SessionImportStopRequest,
             result: EmptyPayload,
             refusals: [],
         },
@@ -208,13 +208,13 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Importing a provider's own conversations into the sessions list.",
     definitions: &[
         Definition::read::<ProviderImportId>(),
-        Definition::read::<ProviderImportProviderRequest>(),
-        Definition::read::<ProviderImportPreviewResponse>(),
-        Definition::read::<ProviderImportStartResponse>(),
+        Definition::read::<SessionImportRequest>(),
+        Definition::read::<SessionImportPreviewResponse>(),
+        Definition::read::<SessionImportStartResponse>(),
         Definition::read::<ProviderImportFailure>(),
         Definition::read::<ProviderImportOutcome>(),
         Definition::read::<ProviderImportProgress>(),
-        Definition::read::<ProviderImportStopRequest>(),
+        Definition::read::<SessionImportStopRequest>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&SESSION_IMPORT_METHOD_DESCRIPTORS],

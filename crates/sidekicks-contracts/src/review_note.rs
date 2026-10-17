@@ -175,7 +175,7 @@ review_note_located! {
 
 review_note_located! {
     /// `session.reviewNote.add`: holds a new note.
-    pub struct ReviewNoteAddRequest {
+    pub struct SessionReviewNoteAddRequest {
         /// The session.
         pub session_id: SessionId,
         /// The note.
@@ -188,7 +188,7 @@ review_note_located! {
 /// The note as the daemon holds it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReviewNoteResponse {
+pub struct SessionReviewNoteResponse {
     /// The note.
     #[garde(dive)]
     pub note: ReviewNote,
@@ -198,7 +198,7 @@ pub struct ReviewNoteResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ReviewNoteUpdateRequest {
+pub struct SessionReviewNoteUpdateRequest {
     /// The session.
     pub session_id: SessionId,
     /// The note.
@@ -212,7 +212,7 @@ pub struct ReviewNoteUpdateRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ReviewNoteRemoveRequest {
+pub struct SessionReviewNoteDeleteRequest {
     /// The session.
     pub session_id: SessionId,
     /// The notes.
@@ -223,7 +223,7 @@ pub struct ReviewNoteRemoveRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ReviewNoteRemoveResponse {
+pub struct SessionReviewNoteDeleteResponse {
     /// The notes discarded.
     pub removed_note_ids: Vec<ReviewNoteId>,
 }
@@ -242,7 +242,7 @@ pub struct ReviewNoteSet {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct ReviewNoteListRequest {
+pub struct SessionReviewNoteSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -253,28 +253,28 @@ methods! {
         /// Holds a new note; adding the same note id again makes one note.
         SessionReviewNoteAdd = mutation "session.reviewNote.add" {
             mutating: true,
-            params: ReviewNoteAddRequest,
-            result: ReviewNoteResponse,
+            params: SessionReviewNoteAddRequest,
+            result: SessionReviewNoteResponse,
             refusals: [SessionNotFound, SessionReviewNoteNotFound],
         },
         /// Replaces a held note's words.
         SessionReviewNoteUpdate = mutation "session.reviewNote.update" {
             mutating: true,
-            params: ReviewNoteUpdateRequest,
-            result: ReviewNoteResponse,
+            params: SessionReviewNoteUpdateRequest,
+            result: SessionReviewNoteResponse,
             refusals: [SessionNotFound, SessionReviewNoteNotFound],
         },
         /// Discards held notes.
         SessionReviewNoteDelete = mutation "session.reviewNote.delete" {
             mutating: true,
-            params: ReviewNoteRemoveRequest,
-            result: ReviewNoteRemoveResponse,
+            params: SessionReviewNoteDeleteRequest,
+            result: SessionReviewNoteDeleteResponse,
             refusals: [SessionNotFound],
         },
         /// Follows the session's held notes.
         SessionReviewNoteSubscribe = subscription "session.reviewNote.subscribe" {
             mutating: false,
-            params: ReviewNoteListRequest,
+            params: SessionReviewNoteSubscribeRequest,
             result: SubscribeAckResponse,
             emission: ReviewNoteSet,
             refusals: [SessionNotFound],
@@ -293,13 +293,13 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ReviewNoteSide>(),
         Definition::read::<ReviewNoteComparison>(),
         Definition::read::<ReviewNote>(),
-        Definition::read::<ReviewNoteAddRequest>().checked(),
-        Definition::read::<ReviewNoteResponse>(),
-        Definition::read::<ReviewNoteUpdateRequest>(),
-        Definition::read::<ReviewNoteRemoveRequest>(),
-        Definition::read::<ReviewNoteRemoveResponse>(),
+        Definition::read::<SessionReviewNoteAddRequest>().checked(),
+        Definition::read::<SessionReviewNoteResponse>(),
+        Definition::read::<SessionReviewNoteUpdateRequest>(),
+        Definition::read::<SessionReviewNoteDeleteRequest>(),
+        Definition::read::<SessionReviewNoteDeleteResponse>(),
         Definition::read::<ReviewNoteSet>().checked(),
-        Definition::read::<ReviewNoteListRequest>(),
+        Definition::read::<SessionReviewNoteSubscribeRequest>(),
     ],
     constants: &[],
     method_tables: &[&REVIEW_NOTE_METHOD_DESCRIPTORS],

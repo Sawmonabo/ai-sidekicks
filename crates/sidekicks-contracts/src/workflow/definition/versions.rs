@@ -1,6 +1,6 @@
-//! The `workflow.*` reads over a definition's saved versions: one version, the chain a run's pinned
-//! version belongs to, and the difference between two versions, with the refusal a diff of two
-//! workflows answers with. The definition methods' table lists these methods.
+//! The `workflow.*` reads over a definition's saved versions: one version, every version of the
+//! workflow a run's pinned version belongs to, and the difference between two versions, with the
+//! refusal a diff of two workflows answers with. The definition methods' table lists these methods.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -58,7 +58,7 @@ pub struct WorkflowVersionReadResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct WorkflowVersionListRequest {
-    /// A version of the chain.
+    /// Any version of the workflow.
     pub workflow_version_id: WorkflowVersionId,
 }
 
@@ -106,12 +106,12 @@ pub struct WorkflowVersionChangeCounts {
     pub edges_removed: SafeInt<0>,
 }
 
-/// One version in a chain: the id a re-pin carries, the number a person reads, when it was saved
+/// One version in the list: the id a re-pin carries, the number a person reads, when it was saved
 /// and by whom, and what it changed over the version before it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct WorkflowVersionChainEntry {
+pub struct WorkflowVersionListEntry {
     /// The version's id.
     pub workflow_version_id: WorkflowVersionId,
     /// The version's number.
@@ -143,7 +143,7 @@ pub struct WorkflowVersionListResponse {
     pub definition_id: WorkflowDefinitionId,
     /// Its versions, oldest first.
     #[garde(dive)]
-    pub versions: BoundedVec<WorkflowVersionChainEntry, 1, { usize::MAX }>,
+    pub versions: BoundedVec<WorkflowVersionListEntry, 1, { usize::MAX }>,
 }
 
 // workflow.version.diff.read
@@ -214,16 +214,16 @@ pub struct WorkflowVersionDiffCrossWorkflowDetails {
 /// The TypeScript module of the version reads.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/definition/versions",
-    doc: "The reads over a definition's saved versions: one version, the chain a run's pinned \
-          version belongs to, and the difference between two versions, with the refusal a diff of \
-          two workflows answers with.",
+    doc: "The reads over a definition's saved versions: one version, every version of the \
+          workflow a run's pinned version belongs to, and the difference between two versions, \
+          with the refusal a diff of two workflows answers with.",
     definitions: &[
         Definition::read::<WorkflowVersionReadRequest>().checked(),
         Definition::read::<WorkflowVersionReadResponse>().checked(),
         Definition::read::<WorkflowVersionListRequest>().checked(),
         Definition::read::<WorkflowVersionSavedBy>(),
         Definition::read::<WorkflowVersionChangeCounts>(),
-        Definition::read::<WorkflowVersionChainEntry>().checked(),
+        Definition::read::<WorkflowVersionListEntry>().checked(),
         Definition::read::<WorkflowVersionListResponse>().checked(),
         Definition::read::<WorkflowVersionDiffReadRequest>().checked(),
         Definition::read::<WorkflowVersionNode>(),

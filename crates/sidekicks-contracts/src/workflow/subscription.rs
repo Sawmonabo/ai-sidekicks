@@ -57,7 +57,7 @@ pub enum WorkflowScheduleChange {
     Skipped,
 }
 
-/// One `workflow.subscribe` frame: the hold first, then state frames (`runsPause`, `run`, `step`,
+/// One `workflow.subscribe` frame: the hold first, then state frames (`newRunHold`, `run`, `step`,
 /// `definition`, a schedule `armed` or `disarmed`), each its key's newest value, so a slow reader
 /// may miss a state. A removal and a schedule `fired` or `skipped` are events, each sent and never
 /// folded into a later one; there is no cursor and no dropped mark.
@@ -71,7 +71,7 @@ pub enum WorkflowScheduleChange {
 #[garde(allow_unvalidated)]
 pub enum WorkflowSubscribeNotification {
     /// The hold on starting new runs, and how many starts wait behind it.
-    RunsPause {
+    NewRunHold {
         /// Whether the hold is on.
         paused: bool,
         /// How many starts wait behind it.

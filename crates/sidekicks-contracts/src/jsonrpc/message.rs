@@ -10,7 +10,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::value::RawValue;
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
-use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::jsonrpc::negotiation::CONNECTION_INITIALIZE_METHOD;
 use crate::jsonrpc::refusal::{RefusalCategory, RefusalCode};
 use crate::schema::doc_description;
@@ -28,7 +27,7 @@ ts_constants! {
     pub const JSON_RPC_ID_MAX_BYTES: usize = 256;
     /// The refusal a client reports when the daemon cannot be reached: nothing listens on its
     /// socket, or the link to it is down; `fields.reason` says why.
-    TRANSPORT_UNAVAILABLE_CODE = RefusalCode::ConnectionUnavailable;
+    CONNECTION_UNAVAILABLE_CODE = RefusalCode::ConnectionUnavailable;
 }
 
 /// The notification that asks the daemon to stop a call it has not answered; the call still gets
@@ -144,8 +143,10 @@ impl JsonRpcError {
     /// The answer to a call the client canceled before the daemon committed it.
     pub fn request_canceled() -> Self {
         Self {
-            code: SafeSignedInt::new(i64::from(JsonRpcErrorCode::RequestCanceled.code()))
-                .expect("a JSON-RPC error code is a safe integer"),
+            code: SafeSignedInt::new(i64::from(
+                RefusalCode::RequestCanceled.json_rpc_code().code(),
+            ))
+            .expect("a JSON-RPC error code is a safe integer"),
             message: "The call was canceled.".to_owned(),
             data: Some(JsonRpcErrorData {
                 refusal: RefusalCode::RequestCanceled.as_str().to_owned(),

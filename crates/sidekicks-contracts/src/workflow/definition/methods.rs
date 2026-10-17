@@ -42,7 +42,7 @@ use crate::workflow::run::status::WorkflowRunStatus;
 
 /// The `workflow.definition.create` input, which saving a new workflow, duplicating one and
 /// importing a file all send. A name another workflow holds, compared ignoring case, is refused
-/// with `workflow.definition.refused`, finding `name_taken`.
+/// with `workflow.definition.refused`, finding `nameTaken`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -418,7 +418,7 @@ pub struct WorkflowDefinitionListResponse {
 /// and a document identical to the latest writes none and answers with that version. A Restore
 /// names the version it repeats in `restoredVersionNumber`, whose package locks it keeps, and a
 /// name another workflow holds, compared ignoring case, is refused with
-/// `workflow.definition.refused`, finding `name_taken`.
+/// `workflow.definition.refused`, finding `nameTaken`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -529,7 +529,7 @@ pub struct WorkflowDefinitionExportResponse {
 /// The `workflow.definition.import` input: the daemon reads the picked file at `filePath` (main
 /// forwards it in place of the open chooser's token) and creates the definition through the create
 /// path, all or nothing. A name another workflow holds, compared ignoring case, is refused with
-/// `workflow.definition.refused`, finding `name_taken`, and an unknown schema version with
+/// `workflow.definition.refused`, finding `nameTaken`, and an unknown schema version with
 /// `workflow.definition.importSchemaUnknown`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

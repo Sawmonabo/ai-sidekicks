@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::device::APP_VERSION_MAX_LEN;
-use crate::machine::id::NodeId;
+use crate::machine::id::MachineId;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::trust_statement::{
@@ -28,7 +28,7 @@ const DNS_NAME_MAX_LEN: usize = 253;
 #[garde(allow_unvalidated)]
 pub struct MachineRegisterRequest {
     /// The machine.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The machine's identity key.
     pub identity_key: MachineIdentityKey,
     /// The machine's own name.
@@ -87,7 +87,7 @@ pub struct MachineCertificateChallengeUpdateRequest {
 }
 
 methods! {
-    /// The runtime-node procedures the control plane serves.
+    /// The machine procedures the control plane serves.
     pub const MACHINE_METHOD_DESCRIPTORS = [
         /// Registers the machine at each start of its service.
         MachineRegister = mutation "machine.register" {

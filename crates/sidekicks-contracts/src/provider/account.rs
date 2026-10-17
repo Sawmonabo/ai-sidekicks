@@ -1,5 +1,5 @@
 //! Provider accounts: the record and how it is read, the label an account is named by, sign-in,
-//! and the `providerAccount.*` methods.
+//! and the `provider.account.*` methods.
 
 pub mod label;
 pub mod methods;

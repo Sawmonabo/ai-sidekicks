@@ -248,7 +248,7 @@ pub struct CloudTaskSubscribeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct CloudTaskListFrame {
+pub struct CloudTaskSubscribeFrame {
     /// The session.
     pub session_id: SessionId,
     /// Its cloud work.
@@ -348,7 +348,7 @@ methods! {
             mutating: false,
             params: CloudTaskSubscribeRequest,
             result: SubscribeAckResponse,
-            emission: CloudTaskListFrame,
+            emission: CloudTaskSubscribeFrame,
             refusals: [SessionNotFound],
         },
         /// Reads one piece of cloud work.
@@ -389,7 +389,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<CloudTaskStartRequest>().checked(),
         Definition::read::<CloudTaskStartResponse>(),
         Definition::read::<CloudTaskSubscribeRequest>(),
-        Definition::read::<CloudTaskListFrame>(),
+        Definition::read::<CloudTaskSubscribeFrame>(),
         Definition::read::<CloudTaskReadRequest>(),
         Definition::read::<CloudTaskAttemptRequest>(),
         Definition::read::<CloudTaskDiffReadResponse>(),

@@ -9,7 +9,7 @@ use crate::approval::{
     RememberedScope, ReviewerDenialId,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::machine::id::NodeId;
+use crate::machine::id::MachineId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -105,8 +105,8 @@ pub struct ApprovalCanceledPayload {
     pub scope: ApprovalScope,
 }
 
-/// The `approval.rule.remembered` payload: the whole rule, so it rebuilds from the log. `nodeId` is
-/// the machine whose provider keeps it.
+/// The `approval.rule.remembered` payload: the whole rule, so it rebuilds from the log.
+/// `machineId` is the machine whose provider keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApprovalRuleRememberedPayload {
@@ -121,7 +121,7 @@ pub struct ApprovalRuleRememberedPayload {
     /// Its target scope.
     pub scope: ApprovalScope,
     /// The machine whose provider keeps the rule.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The rule.
     pub rule_id: RememberedRuleId,
     /// Its reach, subject and sense.

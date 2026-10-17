@@ -593,7 +593,7 @@ pub struct ApprovalListResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RememberedRuleListRequest {
+pub struct ApprovalRuleListRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -618,7 +618,7 @@ pub struct RememberedRule {
 /// The rules in force.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RememberedRuleListResponse {
+pub struct ApprovalRuleListResponse {
     /// The rules.
     #[garde(dive)]
     pub rules: Vec<RememberedRule>,
@@ -629,7 +629,7 @@ pub struct RememberedRuleListResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RememberedRuleRevokeRequest {
+pub struct ApprovalRuleRevokeRequest {
     /// The rule.
     pub rule_id: RememberedRuleId,
 }
@@ -638,7 +638,7 @@ pub struct RememberedRuleRevokeRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RememberedRuleRevokeResponse {
+pub struct ApprovalRuleRevokeResponse {
     /// The rule.
     pub rule_id: RememberedRuleId,
     /// When.
@@ -701,15 +701,15 @@ methods! {
         /// The rules in force on a session.
         ApprovalRuleList = query "approval.rule.list" {
             mutating: false,
-            params: RememberedRuleListRequest,
-            result: RememberedRuleListResponse,
+            params: ApprovalRuleListRequest,
+            result: ApprovalRuleListResponse,
             refusals: [SessionNotFound],
         },
         /// Revokes one rule.
         ApprovalRuleRevoke = mutation "approval.rule.revoke" {
             mutating: true,
-            params: RememberedRuleRevokeRequest,
-            result: RememberedRuleRevokeResponse,
+            params: ApprovalRuleRevokeRequest,
+            result: ApprovalRuleRevokeResponse,
             refusals: [ApprovalRuleNotFound, ApprovalRuleAlreadyRevoked],
         },
         /// Allows once an action the provider's reviewer blocked.
@@ -751,11 +751,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ApprovalListRequest>().checked(),
         Definition::read::<ApprovalProjectionRow>().checked(),
         Definition::read::<ApprovalListResponse>().checked(),
-        Definition::read::<RememberedRuleListRequest>().checked(),
+        Definition::read::<ApprovalRuleListRequest>().checked(),
         Definition::read::<RememberedRule>().checked(),
-        Definition::read::<RememberedRuleListResponse>().checked(),
-        Definition::read::<RememberedRuleRevokeRequest>().checked(),
-        Definition::read::<RememberedRuleRevokeResponse>().checked(),
+        Definition::read::<ApprovalRuleListResponse>().checked(),
+        Definition::read::<ApprovalRuleRevokeRequest>().checked(),
+        Definition::read::<ApprovalRuleRevokeResponse>().checked(),
         Definition::read::<ApprovalDenialOverrideRequest>().checked(),
         Definition::read::<ApprovalDenialOverrideResponse>().checked(),
         Definition::read::<events::ApprovalRequestedPayload>().checked(),

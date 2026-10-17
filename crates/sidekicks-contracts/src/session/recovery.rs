@@ -73,8 +73,8 @@ pub struct SessionRecoveryRefusedDetails {
 }
 
 /// `session.damagedEvents.skipped`: the session continued from its last good point. Its events
-/// from `from_sequence` through `to_sequence` are damaged; they stay in the log and every read and
-/// rebuild skips them, so the event before `from_sequence` is the session's end until it takes new
+/// from `fromSequence` through `toSequence` are damaged; they stay in the log and every read and
+/// rebuild skips them, so the event before `fromSequence` is the session's end until it takes new
 /// work.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -84,7 +84,7 @@ pub struct SessionDamagedEventsSkippedPayload {
     pub session_id: SessionId,
     /// The first damaged event.
     pub from_sequence: SafeInt<0>,
-    /// The last damaged event; at or after `from_sequence`.
+    /// The last damaged event; at or after `fromSequence`.
     #[garde(custom(|to: &SafeInt<0>, (): &()| {
         if *to >= self.from_sequence {
             Ok(())

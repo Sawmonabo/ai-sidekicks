@@ -11,7 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
-use crate::machine::id::NodeId;
+use crate::machine::id::MachineId;
 use crate::machine::settings::NotificationKindSwitches;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
@@ -49,13 +49,13 @@ pub type PairingId = FreeFormText<PAIRING_ID_MAX_LEN>;
 
 // device.subscribe: the machines, devices and passkeys, live
 
-/// A machine card's facts. `This machine` is the reader's own comparison of `nodeId`.
+/// A machine card's facts. `This machine` is the reader's own comparison of `machineId`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct MachineEntry {
     /// The machine.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// Its name.
     pub name: TrustName,
     /// Its platform.
@@ -102,7 +102,7 @@ pub struct DeviceEntry {
     #[garde(dive)]
     pub revoked_at: Option<WireInstant>,
     /// The machines that have not yet fetched its revoke; each drops it when it next connects.
-    pub revoke_pending_on_node_ids: Vec<NodeId>,
+    pub revoke_pending_on_machine_ids: Vec<MachineId>,
     /// Its key kept displacing its own connection, so it is in two places at once.
     pub seen_in_two_places: bool,
 }
@@ -233,7 +233,7 @@ pub struct DeviceLinkRedeemRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TrustedMachineKey {
     /// The machine.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// Its identity key.
     pub identity_key: MachineIdentityKey,
 }

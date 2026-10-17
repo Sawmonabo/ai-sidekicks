@@ -99,7 +99,7 @@ pub struct AgentCommandSubscribeRequest {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum CommandListFrame {
+pub enum AgentCommandSubscribeFrame {
     /// The whole running set; a command appears at most once.
     Commands {
         /// The session.
@@ -286,14 +286,14 @@ pub struct AgentCommandEndedPayload {
 pub type ExitCode = SafeSignedInt;
 
 methods! {
-    /// The `command.*` methods.
+    /// The `agent.command.*` methods.
     pub const COMMAND_METHOD_DESCRIPTORS = [
         /// Follows the session's running commands and their output.
         AgentCommandSubscribe = subscription "agent.command.subscribe" {
             mutating: false,
             params: AgentCommandSubscribeRequest,
             result: SubscribeAckResponse,
-            emission: CommandListFrame,
+            emission: AgentCommandSubscribeFrame,
             refusals: [SessionNotFound],
         },
         /// Stops one running command.
@@ -330,7 +330,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<CommandPrompt>(),
         Definition::read::<RunningCommand>(),
         Definition::read::<AgentCommandSubscribeRequest>(),
-        Definition::read::<CommandListFrame>().checked(),
+        Definition::read::<AgentCommandSubscribeFrame>().checked(),
         Definition::read::<AgentCommandStopRequest>(),
         Definition::read::<AgentCommandStopResponse>(),
         Definition::read::<AgentCommandBackgroundRequest>(),

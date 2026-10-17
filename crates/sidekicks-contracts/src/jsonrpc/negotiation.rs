@@ -37,14 +37,14 @@ ts_constants! {
         NegotiationIncompatibleReason::HandshakeAlreadyCompleted;
     /// The refusal of a mutating call on a connection whose handshake answered
     /// `compatible: false`.
-    NEGOTIATION_VERSION_MISMATCH_CODE = RefusalCode::ConnectionVersionMismatch;
+    CONNECTION_VERSION_MISMATCH_CODE = RefusalCode::ConnectionVersionMismatch;
     /// The refusal of every call on a connection whose `connection.initialize` carried no session
-    /// token or the wrong one, the hello included.
-    NEGOTIATION_TOKEN_INVALID_CODE = RefusalCode::AuthTokenInvalid;
+    /// token or the wrong one, the `connection.initialize` itself included.
+    AUTH_TOKEN_INVALID_CODE = RefusalCode::AuthTokenInvalid;
     /// The refusal of every call, whatever token it carried, on a connection opened by a process
     /// the daemon started outside the person's terminals, or one the system could not name or
     /// trace to its first process.
-    NEGOTIATION_CALLER_REFUSED_CODE = RefusalCode::AuthCallerRefused;
+    AUTH_CALLER_REFUSED_CODE = RefusalCode::AuthCallerRefused;
 }
 
 pattern_text! {

@@ -1,5 +1,5 @@
-//! The node's recovery after a restart: the state `daemon.status.read` carries as its `recovery`
-//! member, the details of the refusal a write meets while the whole node cannot take one, the
+//! The service's recovery after a restart: the state `daemon.status.read` carries as its `recovery`
+//! member, the details of the refusal a write meets while the whole service cannot take one, the
 //! repair of the database file and the line a person reads meanwhile, and the three events the
 //! daemon's recovery pass records on its own sentinel session.
 
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::machine::id::NodeId;
+use crate::machine::id::MachineId;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::run::control::RunFailureCategory;
@@ -19,8 +19,8 @@ use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 
-/// Where the node stands in recovery: `rebuilding` while the restart's pass runs, `degraded` while
-/// one or more sessions have damaged history, and `blocked` when the local store itself is
+/// Where the service stands in recovery: `rebuilding` while the restart's pass runs, `degraded`
+/// while one or more sessions have damaged history, and `blocked` when the local store itself is
 /// unavailable. Ordered from least to most severe.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
@@ -38,7 +38,7 @@ pub enum DaemonRecoveryState {
 }
 
 /// Where one session that is not healthy stands: `rebuilding` while the restart's pass has yet to
-/// rebuild it, which a write refusal names and the status read leaves to the node's own state,
+/// rebuild it, which a write refusal names and the status read leaves to the service's own state,
 /// `degraded` when its history is damaged after a readable start, so it opens read-only at its
 /// last good point, `damaged` when no event of it can be read, and `blocked` when a run of it
 /// halted after the restart on a question for the person, named in its `haltedRuns`.
@@ -135,20 +135,20 @@ pub struct DaemonRecoverySession {
     pub halted_runs: Option<Vec<DaemonRecoveryHaltedRun>>,
 }
 
-/// The `recovery` member of `daemon.status.read`: the node's overall state and the sessions that
+/// The `recovery` member of `daemon.status.read`: the service's overall state and the sessions that
 /// are not healthy, each damaged session among them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct DaemonRecoveryStatus {
-    /// The node's overall state.
+    /// The service's overall state.
     pub overall: DaemonRecoveryState,
     /// The sessions that are not healthy.
     #[garde(dive)]
     pub sessions: Vec<DaemonRecoverySession>,
 }
 
-/// The node's state when a write was refused by the whole node.
+/// The service's state when a write was refused by the whole service.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum DaemonWriteRefusedRecovery {
@@ -167,17 +167,17 @@ impl From<DaemonWriteRefusedRecovery> for DaemonRecoveryState {
     }
 }
 
-/// The `daemon.writeRefused` refusal's `data.fields`: the node's recovery state when the call
+/// The `daemon.writeRefused` refusal's `data.fields`: the service's recovery state when the call
 /// arrived.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DaemonWriteRefusedDetails {
-    /// The node's state.
+    /// The service's state.
     pub recovery: DaemonWriteRefusedRecovery,
 }
 
 ts_constants! {
-    /// The error code a service answers `connection.initialize` with, once the hello carries its
+    /// The error code a service answers `connection.initialize` with, once the request carries its
     /// session token, while it repairs its database file. A client waits for it rather than
     /// counting it as silence.
     DAEMON_REPAIRING_CODE = RefusalCode::DaemonRepairing;
@@ -289,7 +289,7 @@ branded_uuid_id! {
 #[garde(allow_unvalidated)]
 pub struct DaemonRecoveryAttemptedPayload {
     /// This machine.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The pass.
     pub recovery_id: RecoveryId,
     /// The step it was in.
@@ -312,7 +312,7 @@ pub struct DaemonRecoveryAttemptedPayload {
 #[garde(allow_unvalidated)]
 pub struct DaemonRecoverySucceededPayload {
     /// This machine.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The pass.
     pub recovery_id: RecoveryId,
     /// The step it was in.
@@ -338,14 +338,14 @@ pub struct DaemonRecoverySucceededPayload {
     pub completed_at: WireInstant,
 }
 
-/// `daemon.recovery.failed`: a recovery pass that left the node blocked, when the local store
+/// `daemon.recovery.failed`: a recovery pass that left the service blocked, when the local store
 /// failed, or degraded, when a session's history could not be rebuilt whole; `detail` is in the
 /// service's own words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DaemonRecoveryFailedPayload {
     /// This machine.
-    pub node_id: NodeId,
+    pub machine_id: MachineId,
     /// The pass.
     pub recovery_id: RecoveryId,
     /// The step it was in.
@@ -365,8 +365,8 @@ pub struct DaemonRecoveryFailedPayload {
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "daemon/recovery",
-    doc: "The node's recovery after a restart: its state, the refusals a write meets, the repair \
-          of the database file and the recovery pass's events.",
+    doc: "The service's recovery after a restart: its state, the refusals a write meets, the \
+          repair of the database file and the recovery pass's events.",
     definitions: &[
         Definition::read::<DaemonRecoveryState>(),
         Definition::read::<DaemonRecoverySessionState>(),

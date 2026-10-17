@@ -1,338 +1,73 @@
-//! Run control: interventions on a running run, pause and resume, the recovery question after a
-//! restart, the run state stream and the `run.*` method table, which also serves the queue, a
-//! child's own controls and the provider's choices a run waits on.
+//! Run control: pause and resume, the recovery question after a restart, the run state stream
+//! and the run-control method table, which also serves the queue, interventions, a child's own
+//! controls and the provider's choices a run waits on.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::{IntoStaticStr, VariantArray};
 
 use crate::command::ExitCode;
 use crate::event::envelope::SourcePosition;
-use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::{SubscribeAckResponse, stream_frame};
 use crate::method::methods;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
-use crate::provider::driver::intervention::InterventionType;
 use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::{
-    DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN,
-};
+use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
 use crate::run::children::{
-    ChildInterruptRequest, ChildInterruptResponse, ChildPauseSetRequest, ChildPauseSetResponse,
-    ChildSteerRequest, ChildrenStopRequest, ChildrenStopResponse,
+    AgentChildRunInterruptRequest, AgentChildRunInterruptResponse,
+    AgentChildRunPausedUpdateRequest, AgentChildRunPausedUpdateResponse, AgentChildRunSteerRequest,
+    AgentChildRunStopAllRequest, AgentChildRunStopAllResponse,
 };
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
+use crate::run::intervention::{AgentRunInterveneRequest, AgentRunInterveneResponse};
 use crate::run::provider_choice::{
     AgentRunRefusalChoiceResolveRequest, AgentRunUsageCreditsChoiceResolveRequest,
 };
 use crate::run::queue::{
-    QueueItemCancelRequest, QueueItemCancelResponse, QueueItemCreateRequest,
-    QueueItemCreateResponse, QueueItemId, QueueItemListRequest, QueueItemListResponse,
-    QueueReorderRequest, RunQueueStreamFrame, RunQueueSubscribeRequest,
+    AgentQueueItemCancelRequest, AgentQueueItemCancelResponse, AgentQueueItemCreateRequest,
+    AgentQueueItemCreateResponse, AgentQueueItemListRequest, AgentQueueItemListResponse,
+    AgentQueueItemReorderRequest, AgentQueueItemSubscribeRequest, RunQueueStreamFrame,
 };
 use crate::run::state::RunState;
 use crate::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 use crate::wire::{Never, True};
 
-branded_uuid_id! {
-    /// Identifies one intervention on a run.
-    InterventionId
-}
-
-/// Where an intervention stands, from request to outcome; each state has its own event. `failed`
-/// is a dispatch that threw, so a request never stays `accepted` for good.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    VariantArray,
-    IntoStaticStr,
-)]
-#[serde(rename_all = "camelCase")]
-#[strum(serialize_all = "camelCase")]
-pub enum InterventionState {
-    /// Asked for.
-    Requested,
-    /// Taken by the daemon.
-    Accepted,
-    /// Carried out as asked.
-    Applied,
-    /// Refused.
-    Rejected,
-    /// Carried out through a fallback.
-    Degraded,
-    /// Outdated before it could apply.
-    Expired,
-    /// Its dispatch threw.
-    Failed,
-}
-
-/// Why a run failed. The values carry spaces because they are wire words, not identifiers.
+/// Why a run failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum RunFailureCategory {
     /// The provider failed the run.
-    #[serde(rename = "provider failure")]
     ProviderFailure,
     /// The link to the provider failed.
-    #[serde(rename = "transport failure")]
     TransportFailure,
     /// The daemon could not write the run's record.
-    #[serde(rename = "local persistence failure")]
     LocalPersistenceFailure,
     /// The daemon could not project the run's events.
-    #[serde(rename = "projection failure")]
     ProjectionFailure,
     /// The provider's safety check refused the turn with no other model to take it.
-    #[serde(rename = "refused")]
     Refused,
     /// A setup gate threw before the provider started the run.
-    #[serde(rename = "setup failure")]
     SetupFailure,
 }
 
 ts_constants! {
-    /// Every state an intervention passes through, `requested` first.
-    INTERVENTION_STATES = InterventionState::VARIANTS;
     /// The code of a move the run's current state does not allow, such as a second or late answer
     /// to a choice the run already settled.
-    RUN_INVALID_TRANSITION_CODE = RefusalCode::AgentRunInvalidTransition;
-    /// The code of a `agent.run.pause` or `agent.run.resume` whose `expectedRunVersion` is not the
-    /// run's current version, older or newer; nothing is written and the run is left as it was.
-    RUN_VERSION_STALE_CODE = RefusalCode::AgentRunVersionStale;
-}
-
-/// Declares the interrupt's arms on `pending`: each repeats the guards every intervention carries
-/// and the reason, then adds its own members.
-macro_rules! intervention_interrupt_request {
-    (
-        $(#[doc = $doc:literal])+
-        pub enum $name:ident {
-            $($(#[doc = $arm_doc:literal])+ $arm:ident { $($extra:tt)* },)+
-        }
-    ) => {
-        $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-        #[serde(
-            tag = "pending",
-            rename_all = "camelCase",
-            rename_all_fields = "camelCase",
-            deny_unknown_fields
-        )]
-        #[schemars(inline)]
-        pub enum $name {$(
-            $(#[doc = $arm_doc])+
-            $arm {
-                /// The run interrupted.
-                target_run_id: RunId,
-                /// The run version the caller last saw; an absent or outdated one is refused,
-                /// never applied.
-                expected_run_version: SafeInt<0>,
-                /// The caller's key, stored with the intervention, so an identical retry answers
-                /// the recorded outcome.
-                client_idempotency_key: ClientUuid,
-                /// The person's reason.
-                #[serde(
-                    default,
-                    skip_serializing_if = "Option::is_none",
-                    deserialize_with = "crate::wire::present"
-                )]
-                #[schemars(with = "FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>")]
-                reason: Option<FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>>,
-                $($extra)*
-            },
-        )+}
-    };
-}
-
-intervention_interrupt_request! {
-    /// An interrupt of a run's turn, tagged on what becomes of the messages still waiting: sent as
-    /// the next turn, or returned to the draft. Only the next turn may name a message to deliver
-    /// first.
-    pub enum InterventionInterruptRequest {
-        /// The waiting messages go as the next turn.
-        NextTurn {
-            /// The message `Send now` puts ahead of the rest.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "QueueItemId")]
-            deliver_first: Option<QueueItemId>,
-        },
-        /// The waiting messages return to the draft.
-        ReturnToDraft {
-            /// Never present: a message delivered first goes as the next turn.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "Never")]
-            deliver_first: Option<Never>,
-        },
-    }
-}
-
-/// A caller's request to interrupt or retry a run; a person's steer is a `agent.queueItem.create`,
-/// never an intervention. `fasterModelRetry` resends a turn the provider holds for a safety check
-/// on `model`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(
-    tag = "type",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-#[garde(allow_unvalidated)]
-pub enum InterventionRequestPayload {
-    /// Interrupts the run's turn.
-    Interrupt(InterventionInterruptRequest),
-    /// Retries the turn the provider holds on the faster model it names.
-    FasterModelRetry {
-        /// The run retried.
-        target_run_id: RunId,
-        /// The run version the caller last saw; an absent or outdated one is refused, never
-        /// applied.
-        expected_run_version: SafeInt<0>,
-        /// The caller's key, stored with the intervention, so an identical retry answers the
-        /// recorded outcome.
-        client_idempotency_key: ClientUuid,
-        /// The provider's id of the turn held.
-        expected_turn_id: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
-        /// The model the turn is sent again on.
-        model: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
-    },
-}
-
-/// Declares the intervention answer's arms on `state`: each repeats the members every answer
-/// carries; the arms before the `;` carry no reason, and each arm after it adds its own.
-macro_rules! intervention_request_response {
-    (
-        $(#[doc = $doc:literal])+
-        pub enum $name:ident {
-            $($(#[doc = $plain_doc:literal])+ $plain_arm:ident,)+
-            ;
-            $($(#[doc = $arm_doc:literal])+ $arm:ident { $($extra:tt)* },)+
-        }
-    ) => {
-        $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-        #[serde(
-            tag = "state",
-            rename_all = "camelCase",
-            rename_all_fields = "camelCase",
-            deny_unknown_fields
-        )]
-        #[garde(allow_unvalidated)]
-        pub enum $name {
-            $(
-                $(#[doc = $plain_doc])+
-                $plain_arm {
-                    /// The intervention.
-                    intervention_id: InterventionId,
-                    /// What it does.
-                    intervention_type: InterventionType,
-                    /// The run version after the intervention, for the caller's next
-                    /// `expectedRunVersion`.
-                    run_version: SafeInt<0>,
-                    /// Never present outside `rejected`.
-                    #[serde(
-                        default,
-                        skip_serializing_if = "Option::is_none",
-                        deserialize_with = "crate::wire::present"
-                    )]
-                    #[schemars(with = "Never")]
-                    rejection_reason: Option<Never>,
-                    /// Never present outside `failed`.
-                    #[serde(
-                        default,
-                        skip_serializing_if = "Option::is_none",
-                        deserialize_with = "crate::wire::present"
-                    )]
-                    #[schemars(with = "Never")]
-                    failure_reason: Option<Never>,
-                },
-            )+
-            $(
-                $(#[doc = $arm_doc])+
-                $arm {
-                    /// The intervention.
-                    intervention_id: InterventionId,
-                    /// What it does.
-                    intervention_type: InterventionType,
-                    /// The run version after the intervention, for the caller's next
-                    /// `expectedRunVersion`.
-                    run_version: SafeInt<0>,
-                    $($extra)*
-                },
-            )+
-        }
-    };
-}
-
-intervention_request_response! {
-    /// The daemon's answer to an intervention request. A refused intervention is a normal answer in
-    /// state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; one whose
-    /// dispatch threw answers `failed` with its `failureReason`, the error's code or message, and a
-    /// retry under the same key answers the same. No other state carries a reason.
-    pub enum InterventionRequestResponse {
-        /// Asked for.
-        Requested,
-        /// Taken by the daemon.
-        Accepted,
-        /// Carried out as asked.
-        Applied,
-        /// Carried out through a fallback.
-        Degraded,
-        /// Outdated before it could apply.
-        Expired,
-        ;
-        /// Refused, with why.
-        Rejected {
-            /// The machine-readable cause, such as `provider.capability.unsupported`.
-            rejection_reason: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
-            /// Never present outside `failed`.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "Never")]
-            failure_reason: Option<Never>,
-        },
-        /// Its dispatch threw, with what it threw.
-        Failed {
-            /// The thrown error's code, else its message.
-            failure_reason: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
-            /// Never present outside `rejected`.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "Never")]
-            rejection_reason: Option<Never>,
-        },
-    }
+    AGENT_RUN_INVALID_TRANSITION_CODE = RefusalCode::AgentRunInvalidTransition;
+    /// The code of an `agent.run.pause` or `agent.run.resume` whose `expectedRunVersion` is not
+    /// the run's current version, older or newer; nothing is written and the run is left as it
+    /// was.
+    AGENT_RUN_VERSION_STALE_CODE = RefusalCode::AgentRunVersionStale;
 }
 
 /// A process that ended with an exit code, and the last lines it printed.
@@ -701,7 +436,7 @@ pub struct AgentRunRecoveryStepsAddedPayload {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RunStateSubscribeRequest {
+pub struct AgentRunSubscribeRequest {
     /// The session.
     pub session_id: SessionId,
     /// Replay from after this position.
@@ -721,8 +456,8 @@ methods! {
         /// Sends a message into a run's queue, or edits one still waiting.
         AgentQueueItemCreate = mutation "agent.queueItem.create" {
             mutating: true,
-            params: QueueItemCreateRequest,
-            result: QueueItemCreateResponse,
+            params: AgentQueueItemCreateRequest,
+            result: AgentQueueItemCreateResponse,
             refusals: [
                 SessionNotFound,
                 SessionAlreadyClosed,
@@ -740,51 +475,54 @@ methods! {
         /// Reads a queue in the daemon's order.
         AgentQueueItemList = query "agent.queueItem.list" {
             mutating: false,
-            params: QueueItemListRequest,
-            result: QueueItemListResponse,
-            refusals: [SessionNotFound, AgentChildRunControlRefused],
+            params: AgentQueueItemListRequest,
+            result: AgentQueueItemListResponse,
+            refusals: [SessionNotFound, AgentChildRunNotFound, AgentChildRunControlRefused],
         },
         /// Removes a waiting message.
         AgentQueueItemCancel = mutation "agent.queueItem.cancel" {
             mutating: true,
-            params: QueueItemCancelRequest,
-            result: QueueItemCancelResponse,
+            params: AgentQueueItemCancelRequest,
+            result: AgentQueueItemCancelResponse,
             refusals: [
                 AgentQueueItemNotFound,
                 AgentQueueItemChangeRefused,
+                AgentChildRunNotFound,
                 AgentChildRunControlRefused,
             ],
         },
         /// Puts the waiting messages in a new order.
         AgentQueueItemReorder = mutation "agent.queueItem.reorder" {
             mutating: true,
-            params: QueueReorderRequest,
-            result: QueueItemListResponse,
+            params: AgentQueueItemReorderRequest,
+            result: AgentQueueItemListResponse,
             refusals: [
                 SessionNotFound,
                 AgentQueueItemNotFound,
                 AgentQueueItemChangeRefused,
+                AgentChildRunNotFound,
                 AgentChildRunControlRefused,
             ],
         },
         /// Follows a queue's changes.
         AgentQueueItemSubscribe = subscription "agent.queueItem.subscribe" {
             mutating: false,
-            params: RunQueueSubscribeRequest,
+            params: AgentQueueItemSubscribeRequest,
             result: SubscribeAckResponse,
             emission: RunQueueStreamFrame,
             refusals: [
                 SessionNotFound,
                 ProviderUnavailable,
                 SessionEventCursorUnresolvable,
+                AgentChildRunNotFound,
                 AgentChildRunControlRefused,
             ],
         },
         /// Interrupts a run or retries its turn on a faster model.
         AgentRunIntervene = mutation "agent.run.intervene" {
             mutating: true,
-            params: InterventionRequestPayload,
-            result: InterventionRequestResponse,
+            params: AgentRunInterveneRequest,
+            result: AgentRunInterveneResponse,
             refusals: [AgentRunNotFound, AgentInterventionIdempotencyConflict],
         },
         /// Pauses a run.
@@ -814,7 +552,7 @@ methods! {
         /// Follows every run state change in a session.
         AgentRunSubscribe = subscription "agent.run.subscribe" {
             mutating: false,
-            params: RunStateSubscribeRequest,
+            params: AgentRunSubscribeRequest,
             result: SubscribeAckResponse,
             emission: RunStateStreamFrame,
             refusals: [SessionNotFound, SessionEventCursorUnresolvable],
@@ -822,10 +560,11 @@ methods! {
         /// Steers one child of a session, live or ended.
         AgentChildRunSteer = mutation "agent.childRun.steer" {
             mutating: true,
-            params: ChildSteerRequest,
-            result: QueueItemCreateResponse,
+            params: AgentChildRunSteerRequest,
+            result: AgentQueueItemCreateResponse,
             refusals: [
                 SessionNotFound,
+                AgentChildRunNotFound,
                 AgentChildRunControlRefused,
                 AgentQueueItemNotFound,
                 AgentQueueItemChangeRefused,
@@ -836,22 +575,27 @@ methods! {
         /// Interrupts one live child of a run.
         AgentChildRunInterrupt = mutation "agent.childRun.interrupt" {
             mutating: true,
-            params: ChildInterruptRequest,
-            result: ChildInterruptResponse,
-            refusals: [AgentRunNotFound, AgentChildRunControlRefused, AgentQueueItemNotFound],
+            params: AgentChildRunInterruptRequest,
+            result: AgentChildRunInterruptResponse,
+            refusals: [
+                AgentRunNotFound,
+                AgentChildRunNotFound,
+                AgentChildRunControlRefused,
+                AgentQueueItemNotFound,
+            ],
         },
         /// Pauses or resumes one live child of a run.
         AgentChildRunPausedUpdate = mutation "agent.childRun.paused.update" {
             mutating: true,
-            params: ChildPauseSetRequest,
-            result: ChildPauseSetResponse,
-            refusals: [AgentRunNotFound, AgentChildRunControlRefused],
+            params: AgentChildRunPausedUpdateRequest,
+            result: AgentChildRunPausedUpdateResponse,
+            refusals: [AgentRunNotFound, AgentChildRunNotFound, AgentChildRunControlRefused],
         },
         /// Stops every live child of a run.
         AgentChildRunStopAll = mutation "agent.childRun.stopAll" {
             mutating: true,
-            params: ChildrenStopRequest,
-            result: ChildrenStopResponse,
+            params: AgentChildRunStopAllRequest,
+            result: AgentChildRunStopAllResponse,
             refusals: [AgentRunNotFound],
         },
         /// Answers the recovery question a restart left a run halted on.
@@ -881,15 +625,11 @@ methods! {
 /// The TypeScript module of run control.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/control",
-    doc: "Run control: interventions on a running run, pause and resume, the recovery question \
-          after a restart, the run state stream and the `run.*` method table, which also serves \
-          the queue, a child's own controls and the provider's choices a run waits on.",
+    doc: "Run control: pause and resume, the recovery question after a restart, the run state \
+          stream and the run-control method table, which also serves the queue, interventions, \
+          a child's own controls and the provider's choices a run waits on.",
     definitions: &[
-        Definition::read::<InterventionId>().checked(),
-        Definition::read::<InterventionState>(),
         Definition::read::<RunFailureCategory>().checked(),
-        Definition::read::<InterventionRequestPayload>().checked(),
-        Definition::read::<InterventionRequestResponse>().checked(),
         Definition::read::<ProcessExit>().checked(),
         Definition::read::<RunCompletionKind>().checked(),
         Definition::read::<RunStateChangeEvent>().checked(),
@@ -904,7 +644,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentRunRecoveryResolveRequest>().checked(),
         Definition::read::<AgentRunRecoveryResolvedPayload>().checked(),
         Definition::read::<AgentRunRecoveryStepsAddedPayload>().checked(),
-        Definition::read::<RunStateSubscribeRequest>().checked(),
+        Definition::read::<AgentRunSubscribeRequest>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&RUN_CONTROL_METHOD_DESCRIPTORS],

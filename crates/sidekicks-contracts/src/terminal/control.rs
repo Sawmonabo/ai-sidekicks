@@ -93,7 +93,7 @@ terminal_holder! {
 }
 
 /// `terminal.control.take`: takes one shell's lease for the calling connection, bound to
-/// `outputSubscriptionId`, the taking pane's own `terminal.output.subscribe` subscription to that
+/// `outputSubscriptionId`, the taking pane's own output feed (`terminal.output.subscribe`) of that
 /// shell, whose end gives the hold back. `force` moves it off another of the person's devices; a
 /// take never moves it off a run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]

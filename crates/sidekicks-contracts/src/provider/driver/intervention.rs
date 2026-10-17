@@ -118,7 +118,7 @@ pub enum InterventionResultStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DriverInterventionResponse {
+pub struct ApplyInterventionResponse {
     /// Whether it landed as asked.
     pub status: InterventionResultStatus,
     /// The fallback a degraded result took.
@@ -150,7 +150,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<InterruptPendingChoice>().checked(),
         Definition::read::<InterruptPayload>(),
         Definition::read::<ApplyInterventionRequest>().checked(),
-        Definition::read::<DriverInterventionResponse>().checked(),
+        Definition::read::<ApplyInterventionResponse>().checked(),
     ],
     constants: &[],
     method_tables: &[],

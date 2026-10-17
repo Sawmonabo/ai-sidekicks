@@ -35,7 +35,7 @@ ts_constants! {
     /// chain's question answered once it is no longer open.
     WORKFLOW_STEP_NOT_WAITING_CODE = RefusalCode::WorkflowStepNotWaiting;
     /// A form draft save or a form submit carrying a revision that is no longer current.
-    WORKFLOW_REVISION_STALE_CODE = RefusalCode::WorkflowHumanFormRevisionStale;
+    WORKFLOW_HUMAN_FORM_REVISION_STALE_CODE = RefusalCode::WorkflowHumanFormRevisionStale;
 }
 
 /// One tab of a step's panel: its input, output or log, its cost or its error.

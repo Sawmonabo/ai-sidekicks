@@ -32,7 +32,7 @@ pub struct WorkflowKeptValueClearResponse {
 
 methods! {
     /// The `workflow.keptValue.clear` method's table.
-    pub const WORKFLOW_KEPT_VARS_METHOD_DESCRIPTORS = [
+    pub const WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS = [
         /// Clears the values one workflow's runs kept for later runs.
         WorkflowKeptValueClear = mutation "workflow.keptValue.clear" {
             mutating: true,
@@ -45,7 +45,7 @@ methods! {
 
 /// The TypeScript module of a workflow's kept values.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
-    path: "workflow/kept-vars",
+    path: "workflow/kept-values",
     doc: "A workflow's kept values: what `Keep for later runs` holds for the workflow's later \
           runs, and clearing them, with its method table.",
     definitions: &[
@@ -53,5 +53,5 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowKeptValueClearResponse>().checked(),
     ],
     constants: &[],
-    method_tables: &[&WORKFLOW_KEPT_VARS_METHOD_DESCRIPTORS],
+    method_tables: &[&WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS],
 };

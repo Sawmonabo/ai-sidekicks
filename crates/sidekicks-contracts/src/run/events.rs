@@ -15,9 +15,10 @@ use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
-use crate::run::control::{InterventionId, ProcessExit, RunCompletionKind, RunFailureCategory};
+use crate::run::control::{ProcessExit, RunCompletionKind, RunFailureCategory};
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
+use crate::run::intervention::InterventionId;
 use crate::run::state::RunState;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -71,32 +72,32 @@ impl From<RunStateChangeState> for RunState {
 }
 
 literal! {
-    /// The `newState` of a `agent.run.starting` payload.
+    /// The `newState` of an `agent.run.starting` payload.
     pub enum AgentRunStartingNewState = "starting";
-    /// The `newState` of a `agent.run.running` payload.
+    /// The `newState` of an `agent.run.running` payload.
     pub enum AgentRunRunningNewState = "running";
-    /// The `newState` of a `agent.run.waitingForApproval` payload.
+    /// The `newState` of an `agent.run.waitingForApproval` payload.
     pub enum AgentRunWaitingForApprovalNewState = "waitingForApproval";
-    /// The `newState` of a `agent.run.waitingForInput` payload.
+    /// The `newState` of an `agent.run.waitingForInput` payload.
     pub enum AgentRunWaitingForInputNewState = "waitingForInput";
-    /// The `newState` of a `agent.run.pausing` payload.
+    /// The `newState` of an `agent.run.pausing` payload.
     pub enum AgentRunPausingNewState = "pausing";
-    /// The `newState` of a `agent.run.paused` payload.
+    /// The `newState` of an `agent.run.paused` payload.
     pub enum AgentRunPausedNewState = "paused";
-    /// The `newState` of a `agent.run.completed` payload.
+    /// The `newState` of an `agent.run.completed` payload.
     pub enum AgentRunCompletedNewState = "completed";
-    /// The `newState` of a `agent.run.interrupted` payload.
+    /// The `newState` of an `agent.run.interrupted` payload.
     pub enum AgentRunInterruptedNewState = "interrupted";
-    /// The `newState` of a `agent.run.stopped` payload.
+    /// The `newState` of an `agent.run.stopped` payload.
     pub enum AgentRunStoppedNewState = "stopped";
-    /// The `newState` of a `agent.run.failed` payload.
+    /// The `newState` of an `agent.run.failed` payload.
     pub enum AgentRunFailedNewState = "failed";
 }
 
-/// Declares the stored payload of each `run.<state>`: the transition with its new run version,
-/// `failureCategory` and `recoveryCondition`, which any change may carry, and the members its own
-/// state carries. Each refuses another state's `newState` and every member only another state
-/// carries.
+/// Declares the stored payload of each `agent.run.<state>`: the transition with its new run
+/// version, `failureCategory` and `recoveryCondition`, which any change may carry, and the members
+/// its own state carries. Each refuses another state's `newState` and every member only another
+/// state carries.
 macro_rules! run_state_change_payloads {
     ($(
         $(#[doc = $doc:literal])+
@@ -402,9 +403,9 @@ literal! {
     pub enum AgentInterventionFailedState = "failed";
 }
 
-/// Declares the stored payload of each `intervention.<state>`, whose `state` is its own type's
-/// state and whose `actor` the envelope repeats; each refuses another `state`, and only `failed`
-/// carries a reason.
+/// Declares the stored payload of each `agent.intervention.<state>`, whose `state` is its own
+/// type's state and whose `actor` the envelope repeats; each refuses another `state`, and only
+/// `failed` carries a reason.
 macro_rules! intervention_event_payloads {
     ($(
         $(#[doc = $doc:literal])+

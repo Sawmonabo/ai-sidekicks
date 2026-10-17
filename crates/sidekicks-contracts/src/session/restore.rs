@@ -65,7 +65,7 @@ pub struct SessionSnapshotListResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
-    rename_all = "lowercase",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -192,11 +192,11 @@ pub struct SessionRestorePreviewRequest {
     pub scope: SessionRestoreScope,
 }
 
-/// What an undo would do. `file_count` and `line_count` are the files it would put back and the
-/// lines across them; `affected_child_count` and `running_commands` count the agents and commands
-/// started after the point that are still running, which the undo stops first. `ignored_folders`
-/// and `commands_ran_after_point` feed the notice shown whenever a command ran after the point;
-/// `also_changed_by` names the paths another session changed since the point.
+/// What an undo would do. `fileCount` and `lineCount` are the files it would put back and the
+/// lines across them; `affectedChildCount` and `runningCommands` count the agents and commands
+/// started after the point that are still running, which the undo stops first. `ignoredFolders`
+/// and `commandsRanAfterPoint` feed the notice shown whenever a command ran after the point;
+/// `alsoChangedBy` names the paths another session changed since the point.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -236,8 +236,8 @@ pub struct SessionRestoreResend {
 }
 
 /// Undoes to a point, and with `resend` sends an edited message from there in the same call.
-/// `client_idempotency_key` is unique within the session, so a retried undo never cuts twice.
-/// `include_also_changed` puts back the paths another session also changed since the point.
+/// `clientIdempotencyKey` is unique within the session, so a retried undo never cuts twice.
+/// `includeAlsoChanged` puts back the paths another session also changed since the point.
 /// `resend` goes only with the conversation and the files together; a narrower scope is refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

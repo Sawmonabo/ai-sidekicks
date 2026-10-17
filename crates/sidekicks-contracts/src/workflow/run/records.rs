@@ -21,7 +21,9 @@ use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::attention::WorkflowRunAttentionListResponse;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::list::{WorkflowRunListRequest, WorkflowRunListResponse};
-use crate::workflow::run::pause::{WorkflowNewRunHoldUpdateRequest, WorkflowRunsPauseState};
+use crate::workflow::run::new_run_hold::{
+    WorkflowNewRunHoldState, WorkflowNewRunHoldUpdateRequest,
+};
 use crate::workflow::run::retention::{
     WorkflowRunDeleteRequest, WorkflowRunDeleteResponse, WorkflowRunKeepSet,
     WorkflowRunPurgePreviewResponse, WorkflowRunPurgeRequest, WorkflowRunPurgeResponse,
@@ -621,7 +623,7 @@ methods! {
         WorkflowNewRunHoldUpdate = mutation "workflow.newRunHold.update" {
             mutating: true,
             params: WorkflowNewRunHoldUpdateRequest,
-            result: WorkflowRunsPauseState,
+            result: WorkflowNewRunHoldState,
             refusals: [],
         },
     ];

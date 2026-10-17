@@ -15,11 +15,11 @@ use crate::repo::git_reads::GitObjectId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::Never;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::{FreeFormText, NonEmptyText, branded_text};
+use crate::wire::{Never, literal};
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRunPauseNumber};
@@ -70,6 +70,23 @@ pub enum DiffFileUnreadableReason {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GitGenerateFailedDetails {
+    /// The provider's words.
+    pub provider_failure_detail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+}
+
+literal! {
+    /// The reason of a `git.generateRefused` refusal: the provider refused the content by its own
+    /// policy.
+    pub enum GitGenerateRefusedReason = "providerRefused";
+}
+
+/// The details of a `git.generateRefused` refusal: why, in the provider's own words; nothing
+/// falls back to another provider, model or account.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GitGenerateRefusedDetails {
+    /// Why.
+    pub reason: GitGenerateRefusedReason,
     /// The provider's words.
     pub provider_failure_detail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
 }
@@ -715,6 +732,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<GitActCommandState>(),
         Definition::read::<DiffFileUnreadableReason>(),
         Definition::read::<GitGenerateFailedDetails>(),
+        Definition::read::<GitGenerateRefusedDetails>(),
         Definition::read::<PendingGitOperation>(),
         Definition::read::<GitBranchContextReadResponse>(),
         Definition::read::<WorkflowRunSnapshotPoint>(),

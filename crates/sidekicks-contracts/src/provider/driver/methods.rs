@@ -1,7 +1,8 @@
-//! The `driver.*` methods a client calls, their requests and replies. Every reply answers for every
-//! driver as a list grouped by `driverName`, never a merged array: model and mode ids collide
-//! across providers, so grouping keeps one provider's value from being sent through an agent bound
-//! to another.
+//! The driver methods a client calls (`provider.model.list`, `provider.mode.list`,
+//! `provider.command.list` and `agent.run.context.compact`), their requests and replies. Every
+//! list answers for every driver as a list grouped by `driverName`, never a merged array: model and
+//! mode ids collide across providers, so grouping keeps one provider's value from being sent
+//! through an agent bound to another.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ ts_constants! {
     /// The longest contract version a driver reports, where the daemon reads and stores it.
     pub const DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN: usize = 64;
     /// The refusal of a provider operation that outlived its deadline.
-    DRIVER_TIMEOUT_CODE = RefusalCode::ProviderTimeout;
+    PROVIDER_TIMEOUT_CODE = RefusalCode::ProviderTimeout;
 }
 
 /// The request of `provider.model.list`: the session whose model control reads the catalog.
@@ -106,7 +107,7 @@ pub struct ProviderCommandListRequest {
 
 methods! {
     /// The driver methods a client calls: their names, how each answers, and their shapes.
-    pub const DRIVER_METHOD_DESCRIPTORS = [
+    pub const PROVIDER_DRIVER_METHOD_DESCRIPTORS = [
         /// Lists each driver's models for a session's model control.
         ProviderModelList = query "provider.model.list" {
             mutating: false,
@@ -153,7 +154,9 @@ methods! {
 /// The TypeScript module of the driver methods.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/methods",
-    doc: "The `driver.*` methods a client calls, their requests and replies, grouped by driver.",
+    doc: "The driver methods a client calls (`provider.model.list`, `provider.mode.list`, \
+          `provider.command.list`, `agent.run.context.compact`), their requests and replies, \
+          grouped by driver.",
     definitions: &[
         Definition::read::<ProviderModelListRequest>(),
         Definition::read::<DriverModelReport>(),
@@ -164,5 +167,5 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderCommandListRequest>(),
     ],
     constants: TS_CONSTANTS,
-    method_tables: &[&DRIVER_METHOD_DESCRIPTORS],
+    method_tables: &[&PROVIDER_DRIVER_METHOD_DESCRIPTORS],
 };

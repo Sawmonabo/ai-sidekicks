@@ -1,5 +1,5 @@
 //! A session's live agents as a client reads and moves them: the live agent list, the switch of a
-//! running agent's binding, and the `agent.*` method table, which also carries the definition
+//! running agent's binding, and the live agents' method table, which also carries the definition
 //! verbs. An agent is in its session or it is not: it has no lifecycle state.
 
 use schemars::{JsonSchema, Schema};
@@ -104,7 +104,7 @@ pub(crate) use agent_entry;
 
 agent_entry! {
     /// One agent in the session.
-    AgentListEntry {
+    AgentSubscribeEntry {
         /// Present exactly when the agent started from a saved definition, which names it on
         /// screen.
         #[serde(
@@ -118,7 +118,7 @@ agent_entry! {
 }
 
 /// `agent.subscribe`'s acknowledgment: the subscription and the session's agents as they stand.
-/// Every later emission is one [`AgentListEntry`] as it changes, so a switch in flight and its
+/// Every later emission is one [`AgentSubscribeEntry`] as it changes, so a switch in flight and its
 /// settlement reach every window and device.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -128,7 +128,7 @@ pub struct AgentSubscribeResponse {
     pub subscription_id: SubscriptionId,
     /// The session's agents.
     #[garde(dive)]
-    pub agents: Vec<AgentListEntry>,
+    pub agents: Vec<AgentSubscribeEntry>,
 }
 
 /// Moves a running agent's model, window, effort, speed, session options or provider: an omitted
@@ -256,15 +256,15 @@ pub struct AgentConfigUpdateResponse {
 }
 
 methods! {
-    /// Every `agent.*` method. `agent.definition.subscribe` resends the whole
-    /// `agent.definition.list` reply on each change to the registry.
+    /// The live agents' methods and the definition verbs. `agent.definition.subscribe` resends
+    /// the whole `agent.definition.list` reply on each change to the registry.
     pub const AGENT_METHOD_DESCRIPTORS = [
         /// Streams the session's agents.
         AgentSubscribe = subscription "agent.subscribe" {
             mutating: false,
             params: AgentSubscribeRequest,
             result: AgentSubscribeResponse,
-            emission: AgentListEntry,
+            emission: AgentSubscribeEntry,
             refusals: [SessionNotFound],
         },
         /// Moves a running agent's binding.
@@ -294,7 +294,7 @@ methods! {
             mutating: true,
             params: AgentDefinitionCreateRequest,
             result: AgentDefinitionCreateResponse,
-            refusals: [AgentDefinitionNameConflict],
+            refusals: [AgentDefinitionNameConflict, ProjectNotFound],
         },
         /// Patches a definition.
         AgentDefinitionUpdate = mutation "agent.definition.update" {
@@ -334,11 +334,11 @@ methods! {
 /// The TypeScript module of the live agents.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "agent/methods",
-    doc: "A session's live agents as a client reads and moves them, and the `agent.*` method \
+    doc: "A session's live agents as a client reads and moves them, and the live agents' method \
           table, which also carries the definition verbs.",
     definitions: &[
         Definition::read::<AgentSubscribeRequest>(),
-        Definition::read::<AgentListEntry>().checked(),
+        Definition::read::<AgentSubscribeEntry>().checked(),
         Definition::read::<AgentSubscribeResponse>(),
         Definition::read::<AgentConfigUpdateRequest>(),
         Definition::read::<AgentConfigUpdateResponse>(),

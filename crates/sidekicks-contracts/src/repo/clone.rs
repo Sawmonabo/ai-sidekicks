@@ -16,17 +16,17 @@ use crate::wire::{NullableSchema, nullable};
 
 ts_constants! {
     /// The longest repository URL `project.clone.start` takes.
-    pub const REPO_CLONE_URL_MAX_LEN: usize = 2048;
+    pub const PROJECT_CLONE_URL_MAX_LEN: usize = 2048;
     /// The longest line of git's own words the clone card carries.
-    pub const REPO_CLONE_LINE_MAX_LEN: usize = 1024;
+    pub const PROJECT_CLONE_LINE_MAX_LEN: usize = 1024;
     /// The longest answer to one of git's questions.
-    pub const REPO_CLONE_ANSWER_MAX_LEN: usize = 4096;
+    pub const PROJECT_CLONE_ANSWER_MAX_LEN: usize = 4096;
     /// The code `project.clone.start` answers with when it refuses a clone before it starts.
-    REPO_CLONE_REFUSED_CODE = crate::jsonrpc::refusal::RefusalCode::ProjectCloneRefused;
+    PROJECT_CLONE_REFUSED_CODE = crate::jsonrpc::refusal::RefusalCode::ProjectCloneRefused;
 }
 
 /// A line of git's own words.
-pub type CloneLine = FreeFormText<REPO_CLONE_LINE_MAX_LEN>;
+pub type CloneLine = FreeFormText<PROJECT_CLONE_LINE_MAX_LEN>;
 
 /// `project.clone.start`: the repository's URL, the folder the clone goes into when it is not the
 /// machine's clone folder, and the project whose failed or canceled clone this runs again. The
@@ -37,7 +37,7 @@ pub type CloneLine = FreeFormText<REPO_CLONE_LINE_MAX_LEN>;
 #[garde(allow_unvalidated)]
 pub struct ProjectCloneStartRequest {
     /// The repository's URL, handed to git as typed.
-    pub url: FreeFormText<REPO_CLONE_URL_MAX_LEN>,
+    pub url: FreeFormText<PROJECT_CLONE_URL_MAX_LEN>,
     /// The folder the clone goes into.
     #[serde(
         default,
@@ -99,7 +99,7 @@ pub struct ProjectCloneStartResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct RepoCloneProjectRequest {
+pub struct ProjectCloneRequest {
     /// The project.
     pub project_id: ProjectId,
 }
@@ -112,7 +112,7 @@ branded_uuid_id! {
 /// Git's progress in its own words, `Receiving objects` at 42 percent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoCloneProgress {
+pub struct ProjectCloneProgress {
     /// The phase, in git's words.
     pub phase: CloneLine,
     /// The whole percent git printed, or `null`.
@@ -125,7 +125,7 @@ pub struct RepoCloneProgress {
 /// a host's key), in git's own words. `masked` is true for a password or a passphrase.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RepoCloneQuestion {
+pub struct ProjectCloneQuestion {
     /// The question.
     pub question_id: CloneQuestionId,
     /// Git's words.
@@ -138,7 +138,7 @@ pub struct RepoCloneQuestion {
 /// when the sessions that waited on the clone could not be started after it attached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RepoCloneFailedStep {
+pub enum ProjectCloneFailedStep {
     /// The clone.
     Clone,
     /// Pulling large files.
@@ -158,19 +158,19 @@ pub enum RepoCloneFailedStep {
     deny_unknown_fields
 )]
 #[garde(allow_unvalidated)]
-pub enum RepoCloneStatus {
+pub enum ProjectCloneStatus {
     /// Git is cloning.
     Cloning {
         /// The project.
         project_id: ProjectId,
         /// Git's latest progress, or `null`.
         #[serde(deserialize_with = "nullable")]
-        #[schemars(with = "NullableSchema<RepoCloneProgress>")]
-        progress: Option<RepoCloneProgress>,
+        #[schemars(with = "NullableSchema<ProjectCloneProgress>")]
+        progress: Option<ProjectCloneProgress>,
         /// The question git is waiting on, or `null`.
         #[serde(deserialize_with = "nullable")]
-        #[schemars(with = "NullableSchema<RepoCloneQuestion>")]
-        question: Option<RepoCloneQuestion>,
+        #[schemars(with = "NullableSchema<ProjectCloneQuestion>")]
+        question: Option<ProjectCloneQuestion>,
     },
     /// Git is pulling large files.
     PullingLargeFiles {
@@ -178,19 +178,19 @@ pub enum RepoCloneStatus {
         project_id: ProjectId,
         /// Git's latest progress, or `null`.
         #[serde(deserialize_with = "nullable")]
-        #[schemars(with = "NullableSchema<RepoCloneProgress>")]
-        progress: Option<RepoCloneProgress>,
+        #[schemars(with = "NullableSchema<ProjectCloneProgress>")]
+        progress: Option<ProjectCloneProgress>,
         /// The question git is waiting on, or `null`.
         #[serde(deserialize_with = "nullable")]
-        #[schemars(with = "NullableSchema<RepoCloneQuestion>")]
-        question: Option<RepoCloneQuestion>,
+        #[schemars(with = "NullableSchema<ProjectCloneQuestion>")]
+        question: Option<ProjectCloneQuestion>,
     },
     /// A step failed.
     Failed {
         /// The project.
         project_id: ProjectId,
         /// The step.
-        step: RepoCloneFailedStep,
+        step: ProjectCloneFailedStep,
         /// Its last error line; `null` only when the service restarted during the clone and git
         /// left none.
         #[serde(deserialize_with = "nullable")]
@@ -218,7 +218,7 @@ pattern_text! {
     /// The answer to one of git's questions: one line with no NUL, possibly empty (an empty
     /// passphrase), since git's askpass program prints it as one line and a break would cut it
     /// short or smuggle a second.
-    pub struct AskpassAnswer("^[^\\x00\\r\\n]*$", max = REPO_CLONE_ANSWER_MAX_LEN) redacted;
+    pub struct AskpassAnswer("^[^\\x00\\r\\n]*$", max = PROJECT_CLONE_ANSWER_MAX_LEN) redacted;
 }
 
 /// `project.clone.answer`: the answer to one of git's questions. The daemon hands it to git's
@@ -239,7 +239,7 @@ pub struct ProjectCloneAnswerRequest {
 /// Why a clone goes where it does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RepoCloneFolderSource {
+pub enum ProjectCloneFolderSource {
     /// The folder the person set.
     Setting,
     /// The folder holding the most recently attached project.
@@ -266,7 +266,7 @@ pub struct ProjectCloneFolderReadResponse {
     #[schemars(with = "WslPlace")]
     pub place: Option<WslPlace>,
     /// Why.
-    pub source: RepoCloneFolderSource,
+    pub source: ProjectCloneFolderSource,
 }
 
 /// The TypeScript module of cloning.
@@ -278,15 +278,15 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProjectCloneStartRequest>(),
         Definition::read::<ProjectCloneRefusedDetails>(),
         Definition::read::<ProjectCloneStartResponse>(),
-        Definition::read::<RepoCloneProjectRequest>(),
+        Definition::read::<ProjectCloneRequest>(),
         Definition::read::<CloneQuestionId>().checked(),
-        Definition::read::<RepoCloneProgress>(),
-        Definition::read::<RepoCloneQuestion>(),
-        Definition::read::<RepoCloneFailedStep>(),
-        Definition::read::<RepoCloneStatus>(),
+        Definition::read::<ProjectCloneProgress>(),
+        Definition::read::<ProjectCloneQuestion>(),
+        Definition::read::<ProjectCloneFailedStep>(),
+        Definition::read::<ProjectCloneStatus>(),
         Definition::read::<AskpassAnswer>(),
         Definition::read::<ProjectCloneAnswerRequest>().checked(),
-        Definition::read::<RepoCloneFolderSource>(),
+        Definition::read::<ProjectCloneFolderSource>(),
         Definition::read::<ProjectCloneFolderReadResponse>(),
     ],
     constants: TS_CONSTANTS,
@@ -297,18 +297,18 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 mod tests {
     use rstest::rstest;
 
-    use super::{AskpassAnswer, REPO_CLONE_ANSWER_MAX_LEN};
+    use super::{AskpassAnswer, PROJECT_CLONE_ANSWER_MAX_LEN};
 
     #[rstest]
     #[case::empty(String::new(), true)]
     #[case::one_line("hunter2".to_owned(), true)]
     #[case::line_separator("pass\u{2028}word".to_owned(), true)]
-    #[case::at_the_cap("a".repeat(REPO_CLONE_ANSWER_MAX_LEN), true)]
+    #[case::at_the_cap("a".repeat(PROJECT_CLONE_ANSWER_MAX_LEN), true)]
     #[case::line_feed("pass\nword".to_owned(), false)]
     #[case::carriage_return("pass\rword".to_owned(), false)]
     #[case::nul("pass\0word".to_owned(), false)]
     #[case::trailing_line_feed("line\n".to_owned(), false)]
-    #[case::past_the_cap("a".repeat(REPO_CLONE_ANSWER_MAX_LEN + 1), false)]
+    #[case::past_the_cap("a".repeat(PROJECT_CLONE_ANSWER_MAX_LEN + 1), false)]
     fn passes_one_line_to_askpass_and_refuses_a_break_or_nul(
         #[case] answer: String,
         #[case] is_passed: bool,

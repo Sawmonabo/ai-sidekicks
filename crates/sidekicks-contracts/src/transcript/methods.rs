@@ -7,8 +7,8 @@ use crate::transcript::content::{
     TranscriptPatchListResponse,
 };
 use crate::transcript::operations::{
-    ChildRunExpandRequest, ChildRunExpandResponse, ReasoningSurfaceReadRequest,
-    ReasoningSurfaceReadResponse, TranscriptReadRequest, TranscriptReadResponse,
+    TranscriptChildRunExpandRequest, TranscriptChildRunExpandResponse, TranscriptReadRequest,
+    TranscriptReadResponse, TranscriptReasoningReadRequest, TranscriptReasoningReadResponse,
 };
 use crate::transcript::search::{TranscriptSearchRequest, TranscriptSearchResponse};
 use crate::typescript::TypeScriptModule;
@@ -26,15 +26,15 @@ methods! {
         /// Reads a run's reasoning, page by page.
         TranscriptReasoningRead = query "transcript.reasoning.read" {
             mutating: false,
-            params: ReasoningSurfaceReadRequest,
-            result: ReasoningSurfaceReadResponse,
+            params: TranscriptReasoningReadRequest,
+            result: TranscriptReasoningReadResponse,
             refusals: [SessionEventCursorUnresolvable],
         },
         /// Expands one summarized child-run row into its own rows.
         TranscriptChildRunExpand = query "transcript.childRun.expand" {
             mutating: false,
-            params: ChildRunExpandRequest,
-            result: ChildRunExpandResponse,
+            params: TranscriptChildRunExpandRequest,
+            result: TranscriptChildRunExpandResponse,
             refusals: [SessionEventCursorUnresolvable],
         },
         /// Reads a row's large body or full output.

@@ -7,7 +7,7 @@ use crate::session::id::SessionId;
 use crate::wire::integer::Port;
 use crate::wire::text::NonEmptyText;
 
-/// The session whose project's dev servers a `preview.devServer.subscribe` subscription streams.
+/// The session whose project's dev servers a `preview.devServer.subscribe` call streams.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

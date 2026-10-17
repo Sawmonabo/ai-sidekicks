@@ -48,7 +48,7 @@ ts_constants! {
     /// plugin.
     PROVIDER_NOT_INSTALLED_CODE = RefusalCode::ProviderNotInstalled;
     /// Nothing runnable sits at the command path the person typed.
-    PROVIDER_COMMAND_NOT_RUNNABLE_CODE = RefusalCode::ProviderCommandPathNotRunnable;
+    PROVIDER_COMMAND_PATH_NOT_RUNNABLE_CODE = RefusalCode::ProviderCommandPathNotRunnable;
 }
 
 /// The provider version as its command printed it.
@@ -367,8 +367,9 @@ pub struct ProviderPlaceRequest {
     pub provider: ProviderId,
     /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
     /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
-    /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
-    /// is, is `request.paramsInvalid`.
+    /// a WSL 2 distribution remains; a place on macOS or Linux is refused with
+    /// `provider.place.notOffered`, and none where a WSL 2 distribution is with
+    /// `provider.place.required`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -411,8 +412,9 @@ pub enum ProviderUpdateRequest {
         provider: ProviderId,
         /// The place: absent on a computer without a WSL 2 distribution and present on one with.
         /// On Windows, `"windows"` names Windows and a distribution is refused by its name,
-        /// whether or not a WSL 2 distribution remains; a place on macOS or Linux, or none where a
-        /// WSL 2 distribution is, is `request.paramsInvalid`.
+        /// whether or not a WSL 2 distribution remains; a place on macOS or Linux is refused with
+        /// `provider.place.notOffered`, and none where a WSL 2 distribution is with
+        /// `provider.place.required`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -457,7 +459,8 @@ pub enum ProviderUpdateRequest {
         /// The place of a per-place switch row: absent on a computer without a WSL 2 distribution
         /// and present on one with. On Windows, `"windows"` names Windows and a distribution is
         /// refused by its name, whether or not a WSL 2 distribution remains; a place on macOS or
-        /// Linux, or none where a WSL 2 distribution is, is `request.paramsInvalid`.
+        /// Linux is refused with `provider.place.notOffered`, and none where a WSL 2 distribution
+        /// is with `provider.place.required`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -520,8 +523,9 @@ pub struct ProviderTerminalPluginUpdateRequest {
     pub provider: ProviderId,
     /// The place: absent on a computer without a WSL 2 distribution and present on one with. On
     /// Windows, `"windows"` names Windows and a distribution is refused by its name, whether or not
-    /// a WSL 2 distribution remains; a place on macOS or Linux, or none where a WSL 2 distribution
-    /// is, is `request.paramsInvalid`.
+    /// a WSL 2 distribution remains; a place on macOS or Linux is refused with
+    /// `provider.place.notOffered`, and none where a WSL 2 distribution is with
+    /// `provider.place.required`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -710,6 +714,9 @@ methods! {
             params: ProviderUpdateRequest,
             result: ProviderSettingsResponse,
             refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
                 ProviderUnavailable,
                 ProviderNotInstalled,
                 ProviderCommandPathNotRunnable,
@@ -726,7 +733,13 @@ methods! {
             mutating: true,
             params: ProviderPlaceRequest,
             result: ProviderSettingsResponse,
-            refusals: [ProviderDistributionNotFound, ProviderDistributionNeedsWsl2],
+            refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
+                ProviderDistributionNotFound,
+                ProviderDistributionNeedsWsl2,
+            ],
         },
         /// Puts the terminal plugin in or takes it out.
         ProviderTerminalPluginUpdate = mutation "provider.terminalPlugin.update" {
@@ -734,6 +747,9 @@ methods! {
             params: ProviderTerminalPluginUpdateRequest,
             result: ProviderSettingsResponse,
             refusals: [
+                ProviderNotFound,
+                ProviderPlaceRequired,
+                ProviderPlaceNotOffered,
                 ProviderNotInstalled,
                 ProviderDistributionNotFound,
                 ProviderDistributionNeedsWsl2,
@@ -745,21 +761,21 @@ methods! {
             mutating: false,
             params: ProviderRequest,
             result: ProviderProtectedPathListResponse,
-            refusals: [],
+            refusals: [ProviderNotFound],
         },
         /// Lists a provider's standing rules.
         ProviderStandingRuleList = query "provider.standingRule.list" {
             mutating: false,
             params: ProviderRequest,
             result: ProviderStandingRuleListResponse,
-            refusals: [],
+            refusals: [ProviderNotFound],
         },
         /// Revokes one standing rule.
         ProviderStandingRuleRevoke = mutation "provider.standingRule.revoke" {
             mutating: true,
             params: ProviderStandingRuleRevokeRequest,
             result: ProviderStandingRuleRevokeResponse,
-            refusals: [],
+            refusals: [ProviderNotFound],
         },
     ];
 }

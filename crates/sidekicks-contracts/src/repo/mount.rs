@@ -47,8 +47,8 @@ pub enum ExecutionMode {
     ProvisionedWorktree,
 }
 
-/// A workspace's lifecycle state. `stale` means its path became unavailable and write runs are
-/// blocked until repair.
+/// A workspace's lifecycle state. `rootLost` means its working root became unavailable and write
+/// runs are blocked until repair.
 #[derive(
     Clone,
     Copy,
@@ -69,8 +69,8 @@ pub enum WorkspaceState {
     Preparing,
     /// Ready for runs.
     Ready,
-    /// Its path became unavailable.
-    Stale,
+    /// Its working root became unavailable.
+    RootLost,
     /// Archived.
     Archived,
 }
@@ -255,7 +255,7 @@ pub(crate) use lifecycle_payload;
 
 lifecycle_payload! {
     /// The payload of a `workspace.*` lifecycle event.
-    pub struct RepoWorkspaceLifecyclePayload(WorkspaceState) {}
+    pub struct WorkspaceLifecyclePayload(WorkspaceState) {}
 }
 
 /// The TypeScript module of a repository mount.
@@ -272,7 +272,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<VcsType>().checked(),
         Definition::read::<RepoMountHealth>().checked(),
         Definition::read::<RepoMountHealthChangedPayload>().checked(),
-        Definition::read::<RepoWorkspaceLifecyclePayload>().checked(),
+        Definition::read::<WorkspaceLifecyclePayload>().checked(),
     ],
     constants: &[],
     method_tables: &[],

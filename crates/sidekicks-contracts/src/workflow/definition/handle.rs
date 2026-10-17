@@ -11,7 +11,7 @@ use crate::wire::integer::{SafeInt, canonical_index};
 
 /// The side of a node a handle stands on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowHandleMode {
     /// Where edges come in.
     Inputs,
@@ -21,7 +21,7 @@ pub enum WorkflowHandleMode {
 
 /// What a handle carries: items on `main`, a capability an agent can call on `tool`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowHandleType {
     /// Items.
     Main,

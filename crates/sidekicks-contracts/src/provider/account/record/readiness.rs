@@ -33,11 +33,11 @@ pub enum ProviderReadinessState {
 }
 
 /// Declares the remedies: each one's `kind` word as a literal and its standalone struct, then
-/// [`ProviderLoginExpiredRemedy`] from the login-expired group and [`ProviderRemedy`] from both
+/// [`ProviderSignInExpiredRemedy`] from the sign-in-expired group and [`ProviderRemedy`] from both
 /// groups, every enum arm repeating its struct's members.
 macro_rules! remedies {
     (
-        login_expired {$(
+        sign_in_expired {$(
             $(#[doc = $expired_doc:literal])+
             $expired_arm:ident($expired_struct:ident, $expired_kind:ident = $expired_word:literal) {
                 $($(#[$expired_attribute:meta])* $expired_member:ident: $expired_type:ty,)*
@@ -62,11 +62,11 @@ macro_rules! remedies {
             }
         )+);
 
-        /// The remedy of one account whose login is gone: the provider's own sign-in, or, on a
+        /// The remedy of one account whose sign-in is gone: the provider's own sign-in, or, on a
         /// token or API-key account, a freshly minted token pasted in.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(tag = "kind", rename_all_fields = "camelCase", deny_unknown_fields)]
-        pub enum ProviderLoginExpiredRemedy {$(
+        pub enum ProviderSignInExpiredRemedy {$(
             $(#[doc = $expired_doc])+
             #[serde(rename = $expired_word)]
             $expired_arm {
@@ -75,7 +75,7 @@ macro_rules! remedies {
         )+}
 
         /// The next step shown for a readiness state that is not `authenticated`. A client renders
-        /// off `kind`, not `state`, since `reauthRequired` takes `sign_in` or `paste_token`.
+        /// off `kind`, not `state`, since `reauthRequired` takes `signIn` or `pasteToken`.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(tag = "kind", rename_all_fields = "camelCase", deny_unknown_fields)]
         pub enum ProviderRemedy {$(
@@ -115,16 +115,16 @@ macro_rules! remedies {
 }
 
 remedies! {
-    login_expired {
+    sign_in_expired {
         /// Remedy for a resolved account that is not authenticated: run the provider's own
         /// sign-in.
-        SignIn(ProviderSignInRemedy, SignInRemedyKind = "sign_in") {
+        SignIn(ProviderSignInRemedy, SignInRemedyKind = "signIn") {
             /// The resolved account.
             account_id: ProviderAccountId,
         }
         /// Remedy for `reauthRequired` on a token or API-key account: it cannot refresh itself,
         /// so the person mints a fresh token at the provider and pastes it.
-        PasteToken(ProviderPasteTokenRemedy, PasteTokenRemedyKind = "paste_token") {
+        PasteToken(ProviderPasteTokenRemedy, PasteTokenRemedyKind = "pasteToken") {
             /// The resolved account.
             account_id: ProviderAccountId,
         }
@@ -136,21 +136,21 @@ remedies! {
             provider: ProviderId,
         }
         /// Remedy for `noDefault`: the person picks one of the listed accounts as the default.
-        ChooseDefault(ProviderChooseDefaultRemedy, ChooseDefaultRemedyKind = "choose_default") {
+        ChooseDefault(ProviderChooseDefaultRemedy, ChooseDefaultRemedyKind = "chooseDefault") {
             /// The candidates; the daemon lists them and never picks one. One account with no
             /// default is still listed rather than elected.
             candidate_account_ids: BoundedVec<ProviderAccountId, 1, { usize::MAX }>,
         }
         /// Remedy for `indeterminate`: nothing wrong can be seen, so the next read may settle it
         /// and `provider.account.probe` asks again. Never a sign-in.
-        LookAgain(ProviderLookAgainRemedy, LookAgainRemedyKind = "look_again") {
+        LookAgain(ProviderLookAgainRemedy, LookAgainRemedyKind = "lookAgain") {
             /// The resolved account.
             account_id: ProviderAccountId,
         }
     }
 }
 
-impl ProviderLoginExpiredRemedy {
+impl ProviderSignInExpiredRemedy {
     /// The account the remedy names.
     pub fn account_id(&self) -> &ProviderAccountId {
         match self {
@@ -214,7 +214,7 @@ pub enum ProviderReadiness {
         #[garde(dive)]
         observed_at: Option<WireInstant>,
         /// Sign in again, or paste a fresh token; which applies is the producer's call.
-        remedy: ProviderLoginExpiredRemedy,
+        remedy: ProviderSignInExpiredRemedy,
     },
     /// The resolved account's credential home is missing.
     #[schemars(extend("allOf" = [{ "type": "object", "properties": { "remedy": {

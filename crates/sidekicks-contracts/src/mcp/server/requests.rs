@@ -95,7 +95,7 @@ binding_addressed! {
 
 binding_addressed! {
     /// A keyed command on one binding with nothing else to say: starting the daemon's sign-in.
-    pub enum McpKeyedBindingRequest in every scope {
+    pub enum McpServerSignInRequest in every scope {
         /// The press's key; a retry reuses it.
         client_idempotency_key: ClientUuid,
     }

@@ -305,7 +305,7 @@ pub struct TerminalOutputFrame {
 
 /// `terminal.write`: input for one shell, written as it arrives; the writer's connection must hold
 /// the shell. The write is bound to `outputSubscriptionId`, the writing pane's own
-/// `terminal.output.subscribe` subscription to that shell: a first write to a shell nobody holds
+/// output feed (`terminal.output.subscribe`) of that shell: a first write to a shell nobody holds
 /// takes it through that subscription, and a holding connection's write binds it to the hold.
 /// `keys` is typed text. A `paste` is pasted text sent in one or more parts, each under the wire's
 /// message cap, all naming the client-minted `pasteId` and the last one `isLastPart`; when the

@@ -4,19 +4,19 @@
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::text::branded_text;
 
-/// The longest node id, in code points.
-pub const NODE_ID_MAX_LEN: usize = 256;
+/// The longest machine id, in code points.
+pub const MACHINE_ID_MAX_LEN: usize = 256;
 
 branded_text! {
     /// The opaque, daemon-minted id of one machine's daemon.
-    pub struct NodeId(1..=NODE_ID_MAX_LEN);
+    pub struct MachineId(1..=MACHINE_ID_MAX_LEN);
 }
 
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "machine/id",
     doc: "The daemon-assigned id of the one machine a daemon runs on.",
-    definitions: &[Definition::read::<NodeId>().checked()],
+    definitions: &[Definition::read::<MachineId>().checked()],
     constants: &[],
     method_tables: &[],
 };

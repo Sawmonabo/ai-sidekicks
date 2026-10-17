@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
-use crate::machine::id::NodeId;
+use crate::machine::id::MachineId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::base64::{Base64Array, Base64Text, Base64UrlText};
 use crate::wire::instant::WireInstant;
@@ -60,7 +60,7 @@ pattern_text! {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum IdentityKeyAlgorithm {
     /// NIST P-256, the only curve a phone's Secure Enclave holds.
     P256,
@@ -73,7 +73,7 @@ pub enum IdentityKeyAlgorithm {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "algorithm",
-    rename_all = "lowercase",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -94,7 +94,7 @@ pub enum IdentityPublicKey {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "algorithm",
-    rename_all = "lowercase",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -112,7 +112,7 @@ pub enum MachineIdentityKey {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "algorithm",
-    rename_all = "lowercase",
+    rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
@@ -141,7 +141,7 @@ pub enum TrustSigner {
     /// A machine's key.
     Machine {
         /// The machine.
-        node_id: NodeId,
+        machine_id: MachineId,
     },
     /// A passkey.
     Passkey {
@@ -171,7 +171,7 @@ pub enum TrustStatementSignature {
     /// A machine key's signature.
     Machine {
         /// The machine.
-        node_id: NodeId,
+        machine_id: MachineId,
         /// The signature, standard base64.
         signature: Base64Text<1, SIGNATURE_PART_MAX_LEN>,
     },
@@ -342,7 +342,7 @@ statements! {
         #[schemars(with = "wire::NullableSchema<TrustStatementHash>")]
         previous_hash: Option<TrustStatementHash>,
         /// The machine.
-        node_id: NodeId,
+        machine_id: MachineId,
         /// The machine's identity key.
         identity_key: MachineIdentityKey,
         /// The machine's channel key.
@@ -356,7 +356,7 @@ statements! {
         kind: MachineRenamedKind,
         previous_hash: TrustStatementHash,
         /// The machine.
-        node_id: NodeId,
+        machine_id: MachineId,
         /// The machine's new name.
         name: TrustName,
     }
@@ -366,7 +366,7 @@ statements! {
         kind: MachineRemovedKind,
         previous_hash: TrustStatementHash,
         /// The machine.
-        node_id: NodeId,
+        machine_id: MachineId,
     }
 }
 
@@ -416,8 +416,8 @@ mod tests {
         let mut statement = json!({
             "kind": "machine.added",
             "issuedAt": "2026-01-01T00:00:00.000Z",
-            "signatures": [{ "signer": "machine", "nodeId": "node-1", "signature": "AAAA" }],
-            "nodeId": "node-1",
+            "signatures": [{ "signer": "machine", "machineId": "machine-1", "signature": "AAAA" }],
+            "machineId": "machine-1",
             "identityKey": {
                 "algorithm": "ed25519",
                 "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",

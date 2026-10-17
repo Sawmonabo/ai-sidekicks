@@ -31,7 +31,7 @@ branded_uuid_id! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DataExportRequest {
+pub struct DaemonDataExportStartRequest {
     /// The new folder's path.
     pub destination: FilesystemPath,
 }
@@ -40,7 +40,7 @@ pub struct DataExportRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DataExportResponse {
+pub struct DaemonDataExportStartResponse {
     /// The job.
     pub job_id: DataExportJobId,
 }
@@ -49,7 +49,7 @@ pub struct DataExportResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct DataExportSubscribeRequest {
+pub struct DaemonDataExportSubscribeRequest {
     /// The job.
     pub job_id: DataExportJobId,
 }
@@ -110,14 +110,14 @@ methods! {
         /// Starts an export.
         DaemonDataExportStart = mutation "daemon.dataExport.start" {
             mutating: true,
-            params: DataExportRequest,
-            result: DataExportResponse,
+            params: DaemonDataExportStartRequest,
+            result: DaemonDataExportStartResponse,
             refusals: [],
         },
         /// Streams an export's progress.
         DaemonDataExportSubscribe = subscription "daemon.dataExport.subscribe" {
             mutating: false,
-            params: DataExportSubscribeRequest,
+            params: DaemonDataExportSubscribeRequest,
             result: SubscribeAckResponse,
             emission: DataExportProgress,
             refusals: [],
@@ -139,9 +139,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           export and erase.",
     definitions: &[
         Definition::read::<DataExportJobId>().checked(),
-        Definition::read::<DataExportRequest>().checked(),
-        Definition::read::<DataExportResponse>().checked(),
-        Definition::read::<DataExportSubscribeRequest>().checked(),
+        Definition::read::<DaemonDataExportStartRequest>().checked(),
+        Definition::read::<DaemonDataExportStartResponse>().checked(),
+        Definition::read::<DaemonDataExportSubscribeRequest>().checked(),
         Definition::read::<DataExportProgress>().checked(),
     ],
     constants: TS_CONSTANTS,

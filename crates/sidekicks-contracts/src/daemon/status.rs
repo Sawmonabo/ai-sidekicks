@@ -192,7 +192,7 @@ pub struct DaemonStatusReadResponse {
     #[schemars(with = "crate::wire::NullableSchema<DaemonMemoryReading>")]
     #[garde(dive)]
     pub memory: Option<DaemonMemoryReading>,
-    /// Where the node stands in its recovery from the last restart; writes wait for `healthy`.
+    /// Where the service stands in its recovery from the last restart; writes wait for `healthy`.
     #[garde(dive)]
     pub recovery: DaemonRecoveryStatus,
     /// The relay, while one is configured.

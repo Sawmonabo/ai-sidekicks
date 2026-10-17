@@ -55,7 +55,7 @@ pub struct AgentRunStepLimitReachedPayload {
 }
 
 /// The `session.spendLimit.reached` payload: the session's spend passed its `Spend limit`, so
-/// every running turn in it stopped. `spend_limit_usd_micros` is the limit, drawn beside `Raise
+/// every running turn in it stopped. `spendLimitUsdMicros` is the limit, drawn beside `Raise
 /// limit`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -174,7 +174,7 @@ pub struct SettingsIgnoredAtKeyNotice {
 
 /// Which kind of notice a provider warning came from: a warning or a deprecation notice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum ProviderWarningSource {
     /// A warning.
     Warning,
@@ -421,7 +421,7 @@ pub enum ModerationReviewSignal {
 }
 
 /// The `approval.reviewer.flagged` payload: a warning or a required review from the provider's own
-/// reviewer, drawn as one row in the provider's words. `event_id` names the item the flag is about;
+/// reviewer, drawn as one row in the provider's words. `eventId` names the item the flag is about;
 /// `text` is the words the row shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
