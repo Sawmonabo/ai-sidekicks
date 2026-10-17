@@ -428,7 +428,10 @@ interface ChildSteerRequest {
   sessionId: SessionId;
   childHandle: ChildHandle;
   content: string;
-  clientIdempotencyKey: string; // a UUID
+  clientIdempotencyKey: string; // a UUID; a retry's key is the failed steer's queue item id
+  // A retry, with its own words, of a child's steer that reads not delivered: it goes again as a new
+  // message at the end of the child's queue, and the failed one reads `superseded`.
+  replacesQueueItemId?: QueueItemId;
 }
 // A child's steer goes onto the child's own queue, held by the daemon, so it answers as a queue
 // send does (QueueItemCreateResponse), and the child's pending rows take the lead's four actions:
@@ -480,9 +483,11 @@ interface ChildrenStopResponse {
   // rest; nothing is atomic.
   children: Array<{
     child: AgentTreeMember; // orchestration-payloads.md §Plan-013: an agent by its id, or a provider's own helper by run and handle
-    // "stopped": the stop reached the child, which ended `stopped` on Claude Code and `interrupted`
-    // on Codex.
+    // "stopped": the stop reached the child.
     outcome: "stopped" | "already_ended" | "failed";
+    // The run state the stop left the child in, present exactly when outcome = 'stopped':
+    // `stopped` where the provider's stop is final, `interrupted` where a send can continue it.
+    state?: RunState;
     reason?: string; // the daemon's reason, present exactly when outcome = 'failed'
   }>;
 }

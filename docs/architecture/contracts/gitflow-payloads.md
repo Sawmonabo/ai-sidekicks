@@ -149,7 +149,7 @@ interface GitActionProgress {
 
 // CommitMessageGenerate / ChangeRequestTextGenerate — a fresh process that carries no conversation,
 // on the provider and model Settings › General's `Commit and pull request text` picks
-// (`commitTextModel`; absent, the session's provider and its lowest-priced model, or the session's
+// (`commitTextModel`; `null` is `Automatic`, the session's provider and its lowest-priced model, or the session's
 // model where none is priced), runs read-only and outside the repository at the lowest effort the
 // model takes, with thinking off where the model allows it, and reads the whole working folder's
 // diff, the branch and recent commit subjects. The diff is never cut or thinned: one request when
@@ -175,6 +175,7 @@ interface CommitMessageGenerateRequest {
 interface CommitMessageGenerateResponse {
   subject: string;
   body: string;
+  unreadPaths: string[]; // each changed file no pass could read, which the text does not cover; empty when every file was read
 }
 interface ChangeRequestTextGenerateRequest {
   sessionId: SessionId;
@@ -182,6 +183,7 @@ interface ChangeRequestTextGenerateRequest {
 interface ChangeRequestTextGenerateResponse {
   title: string;
   description: string;
+  unreadPaths: string[]; // as on CommitMessageGenerateResponse
 }
 
 // ChangeRequestSubscribe — the session's change requests, live. `summary` (state, can-merge, review

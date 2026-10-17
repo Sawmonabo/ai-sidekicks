@@ -213,7 +213,7 @@ A tool call that runs long moves to the background on Claude Code and on Codex a
 - **Codex project file changed since it was read:** the edit is not renamed into place and the write refuses with `mcp.config_write_conflict`; the file is left as it was.
 - **Status source unavailable** (provider down, or the status probe refused on the running build): inventory serves `unknown` with an `observedAt` timestamp; the daemon does not fabricate `connected`/`failed`.
 - **Sign-in did not finish:** `mcp.server_oauth_completed` carries `outcome: 'failure'`, the server keeps reading `needs-auth`, and the next `mcp.oauthLogin` starts a new attempt — through the admitted provider's client where the daemon's own client was not admitted (§OAuth Orchestration).
-- **Binding store unavailable** (storage failure): governance reads degrade to the **degraded entry arm** — a discriminated `bindingStoreUnavailable: true` variant whose store-dependent fields (`tools`, the Claude enabled overlay) are structurally absent rather than fabricated, with provider-observed fields (config view, status, legs) intact; all mutations fail closed.
+- **Binding store unavailable** (storage failure): governance reads degrade to the **degraded entry arm** — a discriminated `bindingStoreUnavailable: true` variant whose store-dependent fields (`tools`, and `enabled` on a binding whose switch the daemon keeps as its enabled overlay) are structurally absent rather than fabricated, with provider-observed fields (config view, status, legs) intact; all mutations fail closed.
 
 ## Interfaces And Contracts
 

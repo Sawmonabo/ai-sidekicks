@@ -110,7 +110,7 @@ type McpServerConfigInput =
       args?: string[];
       env?: Record<string, string>; // write-only values (see above)
       envVars?: string[]; // Codex's `env_vars` — variable NAMES the server inherits from the environment Codex starts in
-      enabled?: boolean; // Codex: native `enabled` field; Claude: maps to the daemon enabled overlay
+      enabled?: boolean; // whether the server is on; unset keeps the provider's value. Written to the provider's own field where it has one, else kept as the daemon's per-server enabled overlay
       required?: boolean; // Codex's `required` — thread start/resume fails if the server cannot initialize
       startupTimeoutSec?: number; // Codex's native timeout
       toolTimeoutSec?: number; // Codex's native timeout
@@ -183,7 +183,7 @@ interface McpServerLegStatus {
 // rows. A DISCRIMINATED PAIR on bindingStoreUnavailable (Spec-024 §Fallback Behavior): the normal arm serves
 // all four sources; the degraded arm (binding store unreachable) serves the provider-observed sources
 // only, with every store-dependent field STRUCTURALLY ABSENT rather than fabricated (tools, whose
-// sources need the override rows, and the Claude enabled overlay live in the unreachable store).
+// sources need the override rows, and the daemon's enabled overlay live in the unreachable store).
 // All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
   config: McpServerConfigView; // the redacted normalized declaration (see above)
@@ -195,12 +195,12 @@ type McpServerInventoryEntry = McpServerBindingRef & {
 } & (
     | {
         bindingStoreUnavailable?: never; // the normal (binding-store-available) arm
-        enabled: boolean; // provider-declared enabled state composed with the daemon's Claude enabled overlay (the overlay lives on the binding row)
+        enabled: boolean; // whether the binding is on: the provider-declared enabled state composed with the daemon's enabled overlay where the binding keeps its switch there (the overlay lives on the binding row)
         tools: McpToolReading[]; // every tool the server offers, in the order the daemon serves them
       }
     | {
         bindingStoreUnavailable: true; // degraded read: binding store unreachable — mutations fail closed (Spec-024 §Fallback Behavior)
-        enabled?: boolean; // the provider-native enabled field only (Codex); ABSENT for Claude bindings — the daemon enabled overlay lives in the unreachable store, and a fabricated value would be a lie
+        enabled?: boolean; // the provider's own enabled field only; ABSENT for a binding whose switch the daemon keeps as its enabled overlay — the overlay lives in the unreachable store, and a fabricated value would be a lie
       }
   );
 
