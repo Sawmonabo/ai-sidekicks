@@ -49,11 +49,11 @@ The relay counts requests on its sign-in routes only — sign-in, token refresh 
 
 | Deployment | Where the sign-in routes are counted |
 | --- | --- |
-| `Workers Relay` (Cloudflare) | The per-identity `RateLimitIdentityDurableObject`, one global count per source address whichever edge location serves it ([Plan-018 D-018-1](../plans/018-rate-limiting-policy.md#design-decisions)) |
-| `Compose Relay` | The relay process's memory ([Plan-018 D-018-2](../plans/018-rate-limiting-policy.md#design-decisions)) |
+| `Workers Relay` (Cloudflare) | The `counted_requests` table in the account object's SQLite storage, one count per source address whichever edge location serves it ([Plan-018 D-018-1](../plans/018-rate-limiting-policy.md#design-decisions)) |
+| `Compose Relay` | The same table in the account's SQLite file ([Plan-018 D-018-2](../plans/018-rate-limiting-policy.md#design-decisions)) |
 | `Single-Device Local` | Nowhere: the daemon is reached through its socket only |
 
-Both relays enforce the same limit through the same interface, chosen by deployment configuration. A counter error fails that one request like any backend error. Nothing is banned and nothing escalates.
+Both relays run the same counter over the same table in the [one schema](./schemas/hosted-account-schema.md), so they enforce the same limit the same way. A counter error fails that one request like any backend error. Nothing is banned and nothing escalates.
 
 ## Relay Scaling Strategy
 
@@ -82,7 +82,7 @@ A person's machines and devices are a handful of connections, so connection coun
 
 Frames either way, agent output and Preview's live picture included, are the term no quota fixes, so they are measured rather than assumed.
 
-**Compose relay.** One native process, `sidekicks-control-plane`'s self-host program, holds every connection under the same backpressure and counts sign-in routes in its own memory.
+**Compose relay.** One native process, `sidekicks-control-plane`'s self-host program, holds every connection under the same backpressure and counts sign-in routes in the account's SQLite file.
 
 **Decision triggers for changing the layout.** Re-evaluate when either is true:
 
