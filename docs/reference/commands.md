@@ -17,6 +17,8 @@ Every command the product ships: what a person types into the `sidekicks` comman
 | `sidekicks account login` | Signs this computer in to the hosted account through the background service, opening the sign-in page in the browser. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md), [Plan-015](../plans/015-hosted-account-and-identity.md) |
 | `sidekicks account logout` | Signs this computer out of the hosted account through the background service. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md), [Plan-015](../plans/015-hosted-account-and-identity.md) |
 | `sidekicks account delete` | Deletes the hosted account and signs this computer out; local data stays. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
+| `sidekicks account show` | Prints the hosted account's id and name. | [Spec-016](../specs/016-hosted-account-and-identity.md), [Plan-015](../plans/015-hosted-account-and-identity.md) |
+| `sidekicks account rename <new name>` | Changes the account's name. | [Spec-016](../specs/016-hosted-account-and-identity.md), [Plan-015](../plans/015-hosted-account-and-identity.md) |
 | `sidekicks data export <folder>` | Writes everything this computer keeps to a folder, as Settings' `Export all data` does. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
 | `sidekicks data erase` | Erases all local data, as Settings' `Erase all data` does; refused while the service runs. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
 | `sidekicks data restore <backup>` | Restores a backup with the service stopped, for a computer with no app. | [Spec-013](../specs/013-persistence-and-recovery.md) |

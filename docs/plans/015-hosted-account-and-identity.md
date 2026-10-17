@@ -39,7 +39,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `crates/sidekicks-control-plane/src/account/name_update.rs` (CREATE — T3.2)
 - `crates/sidekicks-control-plane/src/relay_connection_token_issuer.rs` (CREATE — Plan-015-owned relay connection-token custody, T4.3)
 - `crates/sidekicks-client/src/account.rs` (CREATE — T4.1)
-- `crates/sidekicks-cli/src/commands/users.rs` (CREATE — T4.2) + `crates/sidekicks-cli/src/program.rs` (EXTEND — the `users` subcommand joins the command line's `clap` derive subcommands per Plan-005 CP-005-7)
+- `crates/sidekicks-cli/src/commands/account/show.rs` and `rename.rs` (CREATE — T4.2, beside `login`, `logout` and `delete`) + `crates/sidekicks-cli/src/program.rs` (EXTEND — the `account` group's `show` and `rename` subcommands join the command line's `clap` derive subcommands per Plan-005 CP-005-7)
 - The control plane's account folder, `crates/sidekicks-control-plane/src/account/` (EXTEND — T5.4 the OAuth routes `/oauth/par`, `/oauth/authorize` with the sign-in page, `/oauth/token` and `/oauth/revoke`, and the result pages `/signed-in`, `/signed-in/code` and `/sign-in-failed`)
 - `crates/sidekicks-control-plane/src/account/token/refresh_family.rs` (CREATE — T5.4 the rotating refresh-token family)
 - `crates/sidekicks-daemon` (EXTEND — T5.4 the hosted-account sign-in service and the redirect receiver it shares with the MCP sign-in, [Plan-022](./022-mcp-server-configuration-and-governance.md) T22.5.1)
@@ -207,8 +207,8 @@ Typed SDK (daemon-as-gateway), CLI commands, and the service-layer authz binding
   - **Verifies invariant:** I-015-3
   - Consumes: the T1.1 and T1.2 contracts; the client's daemon connection (Plan-005 Phase 3 T-005p-3-2); `account.*` method strings (CP-015-3)
   - Note: the transport is daemon-as-gateway (ADR-008 transport boundary; the control plane holds the user record, and clients reach it through the daemon).
-- **T4.2 — `users/` CLI commands.**
-  - Files: `crates/sidekicks-cli/src/commands/users.rs` (CREATE) + `crates/sidekicks-cli/src/program.rs` (EXTEND — the `users` subcommand joins the command line's `clap` derive subcommands per Plan-005 CP-005-7)
+- **T4.2 — The `account show` and `account rename` commands.**
+  - Files: `crates/sidekicks-cli/src/commands/account/show.rs` and `rename.rs` (CREATE, beside `login`, `logout` and `delete`) + `crates/sidekicks-cli/src/program.rs` (EXTEND — the `account` group's `show` and `rename` subcommands join the command line's `clap` derive subcommands per Plan-005 CP-005-7)
   - **Spec coverage:** Spec-016 §Required Behavior (partial), Spec-016 §Default Behavior
   - **Verifies invariant:** I-015-3
   - Consumes: T4.1's `crates/sidekicks-client/src/account.rs`; the `crates/sidekicks-cli` scaffold (Plan-005 Phase R3, T-005r-3-1)
@@ -383,7 +383,7 @@ The relying party for the owner's passkeys, which the web client, the iPhone app
 2. Land the daemon credential seam (Phase 5's T5.1, T5.2 and T5.3) before any CP-015-7 caller goes live
 3. Land the account unit (Phase 5's T5.4 and T5.5); a machine enrolls at its sign-in (T5.4)
 4. Land the account read and name update contracts, then enable the account read and the name update with their daemon handlers (Phases 1 and 3, T4.4)
-5. Land the SDK client and the `users` commands (T4.1, T4.2)
+5. Land the SDK client and the `account show` and `account rename` commands (T4.1, T4.2)
 
 ## Rollback Or Fallback
 

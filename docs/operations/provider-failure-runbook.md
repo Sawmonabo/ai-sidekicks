@@ -99,7 +99,7 @@ Recognition is typed and only typed: the refusal is recognized from the driver's
 sidekicks daemon status
 ```
 
-A provider is read and checked again on Settings › Providers or with `sidekicks provider account probe`, and a run is read from its session; the command line has no `driver` or `run` command.
+A provider is read and checked again on Settings › Providers, and an account's sign-in with `sidekicks provider account probe`; a run is read from its session; the command line has no `driver` or `run` command.
 
 ## SLOs and Thresholds
 

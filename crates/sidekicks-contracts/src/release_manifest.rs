@@ -1,5 +1,5 @@
 //! The release manifest: the JSON file a release publishes beside its artifacts, and the version a
-//! release carries. `sidekicks self-update` reads the manifest, checks each download against its
+//! release carries. `sidekicks daemon update` reads the manifest, checks each download against its
 //! SHA-256 and refuses a manifest whose `version` is not above the last one it saw; that record is
 //! the reader's. Members keep the published file's snake case, since tools outside this crate read
 //! it too.
