@@ -12,7 +12,10 @@
 // canceled; once the control scrolls its label out of view, Escape is the page's again and leaves
 // the label to return with its control. Escape over a hovered control puts its label away and goes
 // on to the page, so the open Find field closes on the same press, and the focused control's label
-// returns once the pointer leaves.
+// returns once the pointer leaves. A press on a control grayed in place opens its label and never
+// reaches the control; a touch held still on a live control opens its label and its lift runs
+// nothing, while a quick tap still acts; the next press elsewhere closes the label and does its own
+// job.
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, onTestFinished } from "vitest";
@@ -487,6 +490,123 @@ it("shows a text box's label on keyboard focus inside it, against the box's fram
   expect(gapBetween(label.getBoundingClientRect(), field.getBoundingClientRect())).toBeGreaterThan(
     8,
   );
+});
+
+it("opens a grayed control's label on a press and a live one's on a held touch, running neither", async () => {
+  let grayedPresses = 0;
+  let livePresses = 0;
+  const { getByRole } = render(
+    <div style={{ display: "flex", gap: "64px", padding: "64px" }}>
+      <HoverLabel text="Reload this page" textRole="description">
+        <button
+          type="button"
+          onClick={() => {
+            livePresses += 1;
+          }}
+        >
+          Reload
+        </button>
+      </HoverLabel>
+      <HoverLabel text="No earlier page to go back to." textRole="description">
+        <button
+          type="button"
+          aria-disabled="true"
+          onClick={() => {
+            grayedPresses += 1;
+          }}
+        >
+          Back
+        </button>
+      </HoverLabel>
+      <WindowHoverLabel />
+    </div>,
+  );
+  const grayed = getByRole("button", { name: "Back" });
+  // A press with no hover before it, as a tap lands, so only the press can open the label.
+  act(() => {
+    grayed.click();
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("No earlier page to go back to.");
+  });
+  await act(async () => {
+    grayed.focus();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard(" ");
+  });
+  expect(grayedPresses, "a press on the grayed control reached it").toBe(0);
+
+  const live = getByRole("button", { name: "Reload" });
+  // A touch held still past the hold, then lifted: the label opens and the lift runs nothing.
+  await act(async () => {
+    touch(live, "pointerdown");
+    await new Promise((resolve) => setTimeout(resolve, HOLD_WAIT_MS));
+    touch(live, "pointerup");
+    live.click();
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Reload this page");
+  });
+  expect(livePresses, "the lift that ended the hold ran the control").toBe(0);
+  // A quick tap on the same control still acts.
+  act(() => {
+    touch(live, "pointerdown");
+    touch(live, "pointerup");
+    live.click();
+  });
+  expect(livePresses).toBe(1);
+});
+
+/** Longer than the hold that opens a label on a touch held still. */
+const HOLD_WAIT_MS = 700;
+
+// A touch on the middle of `element`, as the browser raises it, with no hover before it.
+function touch(element: HTMLElement, type: "pointerdown" | "pointerup"): void {
+  const box = element.getBoundingClientRect();
+  element.dispatchEvent(
+    new PointerEvent(type, {
+      pointerType: "touch",
+      bubbles: true,
+      cancelable: true,
+      clientX: box.left + box.width / 2,
+      clientY: box.top + box.height / 2,
+    }),
+  );
+}
+
+it("closes a pressed label on the next press elsewhere, which still does its job", async () => {
+  let otherPresses = 0;
+  const { getByRole } = render(
+    <div style={{ display: "flex", gap: "64px", padding: "64px" }}>
+      <HoverLabel text="No later page to go forward to." textRole="description">
+        <button type="button" aria-disabled="true">
+          Forward
+        </button>
+      </HoverLabel>
+      <button
+        type="button"
+        onClick={() => {
+          otherPresses += 1;
+        }}
+      >
+        Reload
+      </button>
+      <WindowHoverLabel />
+    </div>,
+  );
+  act(() => {
+    getByRole("button", { name: "Forward" }).click();
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("No later page to go forward to.");
+  });
+  act(() => {
+    getByRole("button", { name: "Reload" }).click();
+  });
+  await waitFor(() => {
+    expect(shownLabel()).toBeNull();
+  });
+  expect(otherPresses, "the press that closed the label did not do its own job").toBe(1);
 });
 
 function shownLabel(): HTMLElement | null {

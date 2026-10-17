@@ -2,7 +2,12 @@
 // trigger's label the moment it is over the trigger, keeps it while it is over the label itself,
 // and drops it once it is over anything else or leaves the window; keyboard focus shows the focused
 // trigger's label until focus leaves it, and the pointer's label stands in front of it only while
-// the pointer is on another trigger. A touch never shows one, since a touch has no hover to end it.
+// the pointer is on another trigger. A press shows a label too, since a touch has no hover and a
+// grayed control acts on no press: a click, tap, Enter or Space on a control grayed in place opens
+// its label and never reaches the control; a tap opens a label only where a tap does nothing else,
+// and on a control a tap acts on a touch held still opens it while the tap still acts, unless a
+// held-touch menu answers that hold first. A label a press opened closes on the next press anywhere,
+// which goes on to do its own job, on Escape, on focus leaving it or on a scroll, never on a timer.
 // Focus inside a trigger, as in a text area whose frame carries the label, shows that trigger's
 // label, as the pointer does. The element the pointer and focus are on is kept whether or not it
 // carries a label, and the label is read off it again whenever a label attribute changes, so a
@@ -70,6 +75,9 @@ export function useShownHoverLabel(
     if (anchor === undefined) {
       return;
     }
+    if (anchor === tracked.pressed) {
+      tracked.pressed = undefined;
+    }
     const focusTrigger = triggerOf(tracked.focus);
     const isPointerLabel = anchor === triggerOf(tracked.pointer);
     if (isPointerLabel) {
@@ -82,6 +90,8 @@ export function useShownHoverLabel(
 
   useEffect(() => {
     const tracked = trackedRef.current;
+    // The kind of pointer the last press came from, which tells a tap from a click.
+    let lastPointerType = "";
     const onPointerOver = (event: PointerEvent): void => {
       const { target } = event;
       if (
@@ -140,7 +150,117 @@ export function useShownHoverLabel(
       }
       close();
     };
+    // The press that a press-opened label waits for closes it and goes on; a press on a grayed
+    // control opens that control's label instead and stops there, and on the grayed control whose
+    // label is open it only closes it. A tap where a tap does nothing else opens the label too.
+    // Captured on the document, ahead of every handler the page and its controls hold.
+    const onClick = (event: MouseEvent): void => {
+      const { target } = event;
+      if (!isElement(target) || labelBoxRef.current?.contains(target) === true) {
+        return;
+      }
+      if (isLiftAfterHold) {
+        isLiftAfterHold = false;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      const wasPressed = tracked.pressed;
+      tracked.pressed = undefined;
+      const grayed = grayedTriggerOf(target);
+      if (grayed !== undefined) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        tracked.pressed = grayed === wasPressed ? undefined : grayed;
+      } else if (lastPointerType === "touch" && target.closest(PRESS_TARGETS) === null) {
+        const trigger = triggerOf(target);
+        tracked.pressed = trigger === wasPressed ? undefined : trigger;
+      }
+      readShown();
+    };
+    // Enter and Space on a grayed control that is no native control, which would turn them into a
+    // click, open its label as a click would and reach nothing else.
+    const onActivationKey = (event: KeyboardEvent): void => {
+      if (
+        (event.key !== "Enter" && event.key !== " ") ||
+        event.shiftKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        !isElement(event.target)
+      ) {
+        return;
+      }
+      const grayed = grayedTriggerOf(event.target);
+      if (grayed === undefined || grayed.matches(NATIVE_CONTROLS)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      tracked.pressed = grayed;
+      readShown();
+    };
+    // A touch held still on a trigger opens its label once the hold lasts, unless it moves or
+    // lifts first or a held-touch menu answers it; the lift that ends that hold runs nothing.
+    // Told from pointer events, since iOS raises no context menu event on a held touch.
+    const view = ownerDocument.defaultView;
+    let hold: { timer: number; x: number; y: number } | undefined;
+    let isLiftAfterHold = false;
+    const endHold = (): void => {
+      if (hold !== undefined) {
+        view?.clearTimeout(hold.timer);
+        hold = undefined;
+      }
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      lastPointerType = event.pointerType;
+      isLiftAfterHold = false;
+      endHold();
+      const trigger = isElement(event.target) ? triggerOf(event.target) : undefined;
+      if (event.pointerType !== "touch" || trigger === undefined || view === null) {
+        return;
+      }
+      hold = {
+        x: event.clientX,
+        y: event.clientY,
+        timer: view.setTimeout(() => {
+          hold = undefined;
+          isLiftAfterHold = true;
+          tracked.pressed = trigger;
+          readShown();
+        }, HOLD_MS),
+      };
+    };
+    const onPointerMove = (event: PointerEvent): void => {
+      if (
+        hold !== undefined &&
+        Math.hypot(event.clientX - hold.x, event.clientY - hold.y) > HOLD_SLOP_PX
+      ) {
+        endHold();
+      }
+    };
+    // A held-touch menu the page draws answers the hold's context menu event first and wins.
+    const onContextMenu = (event: MouseEvent): void => {
+      if (lastPointerType === "touch" && event.defaultPrevented) {
+        endHold();
+        if (isLiftAfterHold) {
+          isLiftAfterHold = false;
+          tracked.pressed = undefined;
+          readShown();
+        }
+      }
+    };
+    const onScroll = (): void => {
+      if (tracked.pressed !== undefined) {
+        tracked.pressed = undefined;
+        readShown();
+      }
+    };
     const onFocusOut = (event: FocusEvent): void => {
+      if (isElement(event.target) && tracked.pressed?.contains(event.target) === true) {
+        tracked.pressed = undefined;
+        readShown();
+      }
       if (tracked.focus === event.target) {
         tracked.focus = undefined;
         tracked.dismissedFocus = undefined;
@@ -171,6 +291,14 @@ export function useShownHoverLabel(
     ownerDocument.addEventListener("focusin", onFocusIn);
     ownerDocument.addEventListener("focusout", onFocusOut);
     ownerDocument.addEventListener("keydown", onKeyDown, { capture: true });
+    ownerDocument.addEventListener("keydown", onActivationKey, { capture: true });
+    ownerDocument.addEventListener("click", onClick, { capture: true });
+    ownerDocument.addEventListener("pointerdown", onPointerDown, { capture: true });
+    ownerDocument.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
+    ownerDocument.addEventListener("pointerup", endHold, { capture: true });
+    ownerDocument.addEventListener("pointercancel", endHold, { capture: true });
+    ownerDocument.addEventListener("contextmenu", onContextMenu);
+    ownerDocument.addEventListener("scroll", onScroll, { capture: true, passive: true });
     return () => {
       observer.disconnect();
       ownerDocument.removeEventListener("pointerover", onPointerOver);
@@ -178,6 +306,15 @@ export function useShownHoverLabel(
       ownerDocument.removeEventListener("focusin", onFocusIn);
       ownerDocument.removeEventListener("focusout", onFocusOut);
       ownerDocument.removeEventListener("keydown", onKeyDown, { capture: true });
+      ownerDocument.removeEventListener("keydown", onActivationKey, { capture: true });
+      ownerDocument.removeEventListener("click", onClick, { capture: true });
+      endHold();
+      ownerDocument.removeEventListener("pointerdown", onPointerDown, { capture: true });
+      ownerDocument.removeEventListener("pointermove", onPointerMove, { capture: true });
+      ownerDocument.removeEventListener("pointerup", endHold, { capture: true });
+      ownerDocument.removeEventListener("pointercancel", endHold, { capture: true });
+      ownerDocument.removeEventListener("contextmenu", onContextMenu);
+      ownerDocument.removeEventListener("scroll", onScroll, { capture: true });
     };
   }, [ownerDocument, labelBoxRef, readShown, close]);
 
@@ -185,11 +322,13 @@ export function useShownHoverLabel(
 }
 
 /**
- * The element the pointer is over and the one keyboard focus is on, either absent, with the
+ * The trigger a press opened the label of, the element the pointer is over and the one keyboard
+ * focus is on, each possibly absent, with the
  * trigger each showed when its label was put away, and whether the focused trigger's label was
  * put away only along with the pointer's.
  */
 interface TrackedElements {
+  pressed?: Element | undefined;
   pointer?: Element | undefined;
   focus?: Element | undefined;
   dismissedPointer?: Element | undefined;
@@ -215,10 +354,28 @@ function triggerOf(element: Element | undefined): Element | undefined {
   return element?.closest(TRIGGER_SELECTOR) ?? undefined;
 }
 
+// How long a touch stays still on a trigger before it opens the label, and how far it may drift.
+const HOLD_MS = 500;
+const HOLD_SLOP_PX = 8;
+
+// A press lands on one of these when a tap there does something of its own.
+const PRESS_TARGETS =
+  'a[href], button, input, select, textarea, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [tabindex]:not([tabindex="-1"])';
+
+// The controls whose Enter and Space the browser turns into a click.
+const NATIVE_CONTROLS = "a[href], button, input, select, textarea, summary";
+
+// The labeled control grayed in place that an element is in, if any.
+function grayedTriggerOf(element: Element): Element | undefined {
+  const grayed = element.closest('[aria-disabled="true"]');
+  return grayed === null ? undefined : triggerOf(grayed);
+}
+
 function shownOf(tracked: TrackedElements): ShownHoverLabel | undefined {
   const pointerTrigger = triggerOf(tracked.pointer);
   const focusTrigger = triggerOf(tracked.focus);
   const anchor =
+    triggerOf(tracked.pressed) ??
     (pointerTrigger === tracked.dismissedPointer ? undefined : pointerTrigger) ??
     (focusTrigger === tracked.dismissedFocus ? undefined : focusTrigger);
   if (anchor === undefined) {
