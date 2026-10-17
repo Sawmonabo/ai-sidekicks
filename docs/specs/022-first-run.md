@@ -68,7 +68,7 @@ Out of scope (see Non-Goals):
 ### Where setup lives
 
 - **Providers.** A provider is installed, its accounts registered and signed in on Settings › Providers, and nowhere else: a provider whose command is not installed reads `Not installed.` with `Install`, which runs the provider's own documented installer, and an account that is not signed in names the one remedy that applies to it. The mechanism — the registry, readiness, the sign-in — is [Spec-025](./025-provider-accounts-and-credential-homes.md)'s; this spec adds no step in front of it. A run a provider cannot start is refused with its remedy ([Spec-025 §Fallback Behavior](./025-provider-accounts-and-credential-homes.md#fallback-behavior)); the session itself is always created.
-- **The hosted account.** Only Remote Control needs it, and nothing asks for it at first run. The machine signs in from `Sign in` on Settings › Devices or with `sidekicks sign-in`, and either way the background service runs a browser sign-in that finishes by itself ([Spec-016 §Required Behavior](./016-hosted-account-and-identity.md#required-behavior)).
+- **The hosted account.** Only Remote Control needs it, and nothing asks for it at first run. The machine signs in from `Sign in` on Settings › Devices or with `sidekicks account login`, and either way the background service runs a browser sign-in that finishes by itself ([Spec-016 §Required Behavior](./016-hosted-account-and-identity.md#required-behavior)).
 - **The relay.** The machine reaches the person's own relay once they have deployed one and linked it ([Spec-027](./027-remote-control.md)); until then every session runs on the machine alone.
 - **The command line.** Every `sidekicks` command works on first use, with no setup command before it.
 
@@ -100,7 +100,7 @@ sidekicks relay repin --force        # accept a pinned relay's new key; prompts 
 sidekicks daemon status              # prints the refusal line while a pinned relay is refused
 ```
 
-`sidekicks sign-in` and `sidekicks daemon status` are [Spec-006](./006-local-ipc-and-daemon-control.md)'s; there is no first-run command.
+`sidekicks account login` and `sidekicks daemon status` are [Spec-006](./006-local-ipc-and-daemon-control.md)'s; there is no first-run command.
 
 ### Event Taxonomy Additions
 
