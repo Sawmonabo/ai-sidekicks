@@ -1,8 +1,8 @@
 //! The driver methods a client calls (`provider.model.list`, `provider.mode.list`,
 //! `provider.command.list` and `agent.run.context.compact`), their requests and replies. Every
-//! list answers for every provider as a list grouped by `providerName`, never a merged array: model and
-//! mode ids collide across providers, so grouping keeps one provider's value from being sent
-//! through an agent bound to another.
+//! list answers for every provider as a list grouped by `providerName`, never a merged array:
+//! model and mode ids collide across providers, so grouping keeps one provider's value from being
+//! sent through an agent bound to another.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -108,14 +108,14 @@ pub struct ProviderCommandListRequest {
 methods! {
     /// The driver methods a client calls: their names, how each answers, and their shapes.
     pub const PROVIDER_DRIVER_METHOD_DESCRIPTORS = [
-        /// Lists each driver's models for a session's model control.
+        /// Lists each provider's models for a session's model control.
         ProviderModelList = query "provider.model.list" {
             mutating: false,
             params: ProviderModelListRequest,
             result: ProviderModelListResponse,
             refusals: [SessionNotFound, ProviderUnavailable, ProviderTimeout],
         },
-        /// Lists each driver's modes.
+        /// Lists each provider's modes.
         ProviderModeList = query "provider.mode.list" {
             mutating: false,
             params: EmptyPayload,

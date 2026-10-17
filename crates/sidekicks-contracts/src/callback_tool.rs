@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::length_limits::{
-    DRIVER_TOOL_DESCRIPTION_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
+    PROVIDER_TOOL_DESCRIPTION_MAX_LEN, PROVIDER_TOOL_NAME_MAX_LEN,
 };
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire;
@@ -21,17 +21,17 @@ use crate::wire::text::{BoundedText, FreeFormText};
 #[serde(deny_unknown_fields)]
 pub struct CallbackToolEntry {
     /// The name a provider sees.
-    pub name: FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>,
+    pub name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// The words a person reads.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>")]
-    pub label: Option<FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>")]
+    pub label: Option<FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>>,
     /// What the tool does.
-    pub description: BoundedText<0, DRIVER_TOOL_DESCRIPTION_MAX_LEN>,
+    pub description: BoundedText<0, PROVIDER_TOOL_DESCRIPTION_MAX_LEN>,
 }
 
 /// The daemon's callback tools.

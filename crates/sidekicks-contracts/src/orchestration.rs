@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::definition::{AgentDefinitionId, AgentId};
 use crate::agent::tree::{AgentTreeMember, ChildHandle};
 use crate::method::methods;
-use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use crate::provider::driver::methods::{PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
 use crate::run::id::RunId;
 use crate::run::state::RunState;
@@ -215,8 +215,8 @@ pub struct ChildRunHead {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>")]
-    pub via_agent_name: Option<FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>")]
+    pub via_agent_name: Option<FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>>,
     /// Its tokens.
     pub tokens: SafeInt<0>,
     /// Its spend.

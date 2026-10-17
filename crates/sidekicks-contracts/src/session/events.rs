@@ -11,7 +11,7 @@ use crate::event::envelope::{
 };
 use crate::machine::settings::MACHINE_SETTINGS_NAME_MAX_LEN;
 use crate::place::Place;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
@@ -239,8 +239,8 @@ pub struct SessionProviderStatusReportedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-    pub detail: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     /// The execution epoch a late row is attributed to; comes with `sourcePosition` and `runId`.
     #[serde(
         default,

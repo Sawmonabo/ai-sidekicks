@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 
-use crate::provider::driver::length_limits::DRIVER_FALLBACK_ACTION_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FALLBACK_ACTION_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_REASON_MAX_LEN;
 use crate::run::id::RunId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -127,8 +127,8 @@ pub struct ApplyInterventionResponse {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_FALLBACK_ACTION_MAX_LEN>")]
-    pub fallback_action: Option<FreeFormText<DRIVER_FALLBACK_ACTION_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>")]
+    pub fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     /// The run a delivered message went to, when not the target.
     #[serde(
         default,

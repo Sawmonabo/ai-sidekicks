@@ -11,7 +11,7 @@ use crate::command::ExitCode;
 use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::place::{DistroName, Place};
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
 use crate::provider::id::ProviderId;
 use crate::provider::settings::PROVIDER_VERSION_MAX_LEN;
@@ -233,15 +233,15 @@ pub enum SessionNotice {
         /// Which kind of notice it came from.
         source: ProviderWarningSource,
         /// The provider's words.
-        text: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+        text: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
         /// The provider's details, where it sent any.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-        details: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+        details: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     },
     /// An account switch moved the session onto an account that cannot run the level it left, so
     /// it runs at `ask`; `level` is the level it left.
@@ -310,8 +310,8 @@ pub enum SessionNotice {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-        reason: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+        reason: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     },
     /// The session's provider is not installed where the session runs, so no provider process
     /// started; `place` names where, present on a Windows computer with a WSL 2 distribution.
@@ -437,7 +437,7 @@ pub struct ApprovalReviewerFlaggedPayload {
     /// Which signal it carries.
     pub signal: ModerationReviewSignal,
     /// The words the row shows.
-    pub text: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+    pub text: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
 /// The module's TypeScript face.

@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::length_limits::{
-    DRIVER_MCP_SERVER_NAME_MAX_LEN, DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
-    DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN, DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
+    PROVIDER_COMMAND_DESCRIPTION_MAX_LEN, PROVIDER_COMMAND_NAME_MAX_LEN,
+    PROVIDER_DECLARED_TOKEN_MAX_LEN, PROVIDER_MCP_SERVER_NAME_MAX_LEN,
 };
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
@@ -48,31 +48,31 @@ macro_rules! provider_command_entry {
             $(#[doc = $doc])+
             $kind {
                 /// The word the person types.
-                name: FreeFormText<DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN>,
+                name: FreeFormText<PROVIDER_COMMAND_NAME_MAX_LEN>,
                 /// What it does, absent when the provider publishes none.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>")]
-                description: Option<FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>>,
+                #[schemars(with = "FreeFormText<PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>")]
+                description: Option<FreeFormText<PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>>,
                 /// The provider's hint for what follows the word, where it publishes one.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>")]
-                argument_hint: Option<FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>>,
+                #[schemars(with = "FreeFormText<PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>")]
+                argument_hint: Option<FreeFormText<PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>>,
                 /// The scope the provider declares, where it declares one.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "FreeFormText<DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN>")]
-                scope: Option<FreeFormText<DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN>>,
+                #[schemars(with = "FreeFormText<PROVIDER_DECLARED_TOKEN_MAX_LEN>")]
+                scope: Option<FreeFormText<PROVIDER_DECLARED_TOKEN_MAX_LEN>>,
                 /// Whether it is enabled, where the provider draws that distinction.
                 #[serde(
                     default,
@@ -115,7 +115,7 @@ provider_command_entry! {
     /// A working tool server's prompt, grouped under the server that publishes it.
     Prompt {
         /// The tool server that publishes the prompt.
-        server: FreeFormText<DRIVER_MCP_SERVER_NAME_MAX_LEN>,
+        server: FreeFormText<PROVIDER_MCP_SERVER_NAME_MAX_LEN>,
     }
 }
 

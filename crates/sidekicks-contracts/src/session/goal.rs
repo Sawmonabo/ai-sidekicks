@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
 use crate::method::methods;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::session::controls::methods::SessionAcknowledgment;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -106,15 +106,15 @@ pub struct SessionGoalUpdatedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-    #[garde(custom(|reason: &Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>, (): &()| {
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    #[garde(custom(|reason: &Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>, (): &()| {
         if reason.is_some() == (self.status == SessionGoalStatus::Impossible) {
             Ok(())
         } else {
             Err(garde::Error::new("a goal carries a reason exactly when its status is impossible"))
         }
     }))]
-    pub reason: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+    pub reason: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
 /// The `session.goal.cleared` payload: whose goal was removed.

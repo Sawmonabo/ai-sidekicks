@@ -8,7 +8,7 @@ use strum::{IntoStaticStr, VariantArray};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::provider::driver::intervention::InterventionType;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{
     PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
 };
@@ -267,7 +267,7 @@ intervention_request_response! {
         /// Its dispatch threw, with what it threw.
         Failed {
             /// The thrown error's code, else its message.
-            failure_reason: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+            failure_reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
             /// Never present outside `rejected`.
             #[serde(
                 default,

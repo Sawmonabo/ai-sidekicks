@@ -11,7 +11,7 @@ use crate::event::envelope::SourcePosition;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
 use crate::provider::driver::intervention::InterventionType;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
@@ -241,8 +241,8 @@ run_state_change_payloads! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-        pub provider_failure_detail: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+        pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
         /// How the provider process ended under the turn, where it ended on its own.
         #[serde(
             default,
@@ -315,8 +315,8 @@ run_marker_payloads! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-        pub reason: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+        pub reason: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     }
 }
 
@@ -456,7 +456,7 @@ intervention_event_payloads! {
     /// carry.
     pub struct AgentInterventionFailedPayload: AgentInterventionFailedState {
         /// The thrown error's code, else its message.
-        pub failure_reason: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+        pub failure_reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     }
 }
 

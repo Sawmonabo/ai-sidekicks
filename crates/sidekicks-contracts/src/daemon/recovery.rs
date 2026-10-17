@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::machine::id::MachineId;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::run::control::RunFailureCategory;
 use crate::run::id::RunId;
@@ -355,7 +355,7 @@ pub struct DaemonRecoveryFailedPayload {
     /// What kind of failure it met.
     pub failure_kind: RecoveryFailureKind,
     /// The failure, in the service's own words.
-    pub detail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+    pub detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     /// The runs the pass left live.
     pub runs_left_in_flight: Vec<RunId>,
     /// How long it took, on a monotonic clock, in milliseconds.

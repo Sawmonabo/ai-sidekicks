@@ -17,7 +17,7 @@ use crate::event::envelope::{
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::provider::account::record::{CredentialGeneration, ProviderAccountId};
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
@@ -554,16 +554,16 @@ pub struct AgentTurnReroutedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-    pub sentence: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub sentence: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     /// The provider's explanation, shown as sent.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-    pub explanation: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub explanation: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     /// Why the provider moved the turn.
     pub cause: ModelRerouteCause,
     /// The provider's open safety category, such as `cyber` or `bio`.

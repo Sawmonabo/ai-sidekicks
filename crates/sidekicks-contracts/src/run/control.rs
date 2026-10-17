@@ -12,7 +12,7 @@ use crate::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, stream_frame};
 use crate::method::methods;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
@@ -86,7 +86,7 @@ pub struct ProcessExitWithCode {
     #[schemars(with = "Never")]
     pub signal: Option<Never>,
     /// The last lines it printed.
-    pub output_tail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+    pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
 /// A process a signal ended, and the last lines it printed.
@@ -105,7 +105,7 @@ pub struct ProcessExitWithSignal {
     #[schemars(with = "Never")]
     pub exit_code: Option<Never>,
     /// The last lines it printed.
-    pub output_tail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+    pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
 /// How a process that ended on its own exited: exactly one of its exit code and the signal that
@@ -173,8 +173,8 @@ macro_rules! run_state_change_members {
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-            pub provider_failure_detail: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+            #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+            pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
             /// Whether its turn or its whole task finished.
             #[serde(
                 default,

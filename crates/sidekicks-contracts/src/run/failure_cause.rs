@@ -5,7 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::driver::usage_limit::ProviderUsageLimitResetBoundary;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -56,16 +56,16 @@ pub enum RunFailureCause {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-        sentence: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+        sentence: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
         /// The provider's explanation, shown verbatim, where it sent one.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-        explanation: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+        #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+        explanation: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
         /// The provider's open safety category, such as `cyber`, where it sent one.
         #[serde(
             default,
@@ -111,7 +111,7 @@ pub enum RunFailureCause {
         #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
         code: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
         /// The gate's own words.
-        message: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+        message: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
     /// A turn too long for the context window even after compaction, cut back out of the
     /// conversation: the person's message goes back to the composer as a failed send.
