@@ -20,7 +20,7 @@ It also defines the one trust decision first contact with a relay can involve: w
 
 In scope:
 
-- The desktop app's first launch: the cover while the background service starts, where the service runs on a computer with more than one place for it, and the sessions list's empty state.
+- The desktop app's first launch: the cover while the background service starts, a Windows computer's first launch with WSL installed, and the sessions list's empty state.
 - The first use of the command line.
 - Where each setup act lives, as a pointer to the spec that owns its mechanism.
 - The relay's TLS key pin: which relays are pinned, the refusal when a pinned key changes, and its recovery.
@@ -89,7 +89,7 @@ Out of scope (see Non-Goals):
 
 - **A pinned relay presents a different key.** The connection is refused and recorded as above; the refusal never falls back to connecting, and it names its one recovery.
 - **The pasted hash does not match the key the relay presents.** `sidekicks relay repin --force` refuses, changes nothing, and the pin stays as it was.
-- **The first place chosen for the service has neither provider.** Sessions cannot start, and the one next act is the row that opens `Where Claude Code and Codex are installed` on Settings › Providers.
+- **A session's provider is not installed where its project folder is.** The session cannot start, and the one next act is its row, `Claude Code is not installed in Ubuntu.` with `Install in Ubuntu`, which opens that provider's `Ubuntu (WSL)` row on Settings › Providers.
 
 ## Interfaces And Contracts
 
