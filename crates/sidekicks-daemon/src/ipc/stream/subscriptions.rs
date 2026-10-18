@@ -28,12 +28,15 @@ use crate::ipc::registry::{
     TransportId,
 };
 use crate::ipc::stream::feed::SendGate;
+use crate::recovery::database_file::damage::DatabaseDamageWatch;
 
 /// The daemon's open subscriptions, by id and by connection, shared by the cancel call, the
 /// gateway's connection close and each open subscription.
-#[derive(Default)]
 pub(crate) struct Subscriptions {
     table: Mutex<SubscriptionTable>,
+    /// The watch a feed's failure is told to, so damage a subscription's read meets reaches the
+    /// repair.
+    damage: Arc<DatabaseDamageWatch>,
 }
 
 /// The open subscriptions by id, and each connection's ids, so a close touches only its own.
@@ -69,9 +72,13 @@ impl SubscriptionTable {
 }
 
 impl Subscriptions {
-    /// An empty table, shared by everything that opens, cancels or closes a subscription.
-    pub(crate) fn new() -> Arc<Self> {
-        Arc::new(Self::default())
+    /// An empty table, shared by everything that opens, cancels or closes a subscription, telling
+    /// `damage` of each feed's failure.
+    pub(crate) fn new(damage: Arc<DatabaseDamageWatch>) -> Arc<Self> {
+        Arc::new(Self {
+            table: Mutex::default(),
+            damage,
+        })
     }
 
     /// Registers `$/subscription/cancel`: a read, answered `{canceled: true}` only from the
@@ -283,11 +290,14 @@ impl Subscription {
             Some(Ok(None)) => SubscriptionEndParams::Completed {
                 subscription_id: self.id,
             },
-            Some(Err(error)) => SubscriptionEndParams::Refused {
-                subscription_id: self.id,
-                // Mapped even when no frame goes out, so a fault is still logged once.
-                error: json_rpc_error_of(CallFailure::Dispatch(error)),
-            },
+            Some(Err(error)) => {
+                self.subscriptions.damage.report_dispatch_failure(&error);
+                SubscriptionEndParams::Refused {
+                    subscription_id: self.id,
+                    // Mapped even when no frame goes out, so a fault is still logged once.
+                    error: json_rpc_error_of(CallFailure::Dispatch(error)),
+                }
+            }
         };
         self.subscriptions
             .mark_ended(&self.id)
@@ -338,7 +348,7 @@ mod tests {
     /// A table and a frozen registry serving its cancel call and `test.subscribe`, whose feed's
     /// one emission breaks its rule.
     fn served() -> (Arc<Subscriptions>, MethodRegistry) {
-        let subscriptions = Subscriptions::new();
+        let subscriptions = Subscriptions::new(Arc::new(DatabaseDamageWatch::new()));
         let mut builder = MethodRegistryBuilder::new();
         subscriptions
             .register_cancel(&mut builder)

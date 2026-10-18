@@ -1,8 +1,8 @@
 //! Damage to the database file found while the daemon has it open: the start's check, or any read
 //! or write SQLite failed as corrupt. The file cannot be replaced under open connections, so the
 //! damage is recorded beside the file, the daemon stops, and its next start repairs the file from
-//! the record, before anything opens it. The damage gate tells the watch of every call's failure
-//! and every subscription item's, so damage a read meets reaches the repair.
+//! the record, before anything opens it. The damage gate tells the watch of every call's failure,
+//! and the open subscriptions of every feed's, so damage a read meets reaches the repair.
 
 use std::error::Error;
 use std::io;
@@ -15,11 +15,9 @@ use rusqlite::ErrorCode;
 use tokio::sync::{SetOnce, SetOnceError};
 
 use crate::database::writer::sqlite_error_code;
+use crate::error_description::describe_error;
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use crate::ipc::registry::{
-    Dispatch, DispatchError, EncodedFeed, EncodedValue, HandlerContext, Reply, Request,
-};
-use crate::ipc::stream::feed::SendGate;
+use crate::ipc::registry::{Dispatch, DispatchError, HandlerContext, Reply, Request};
 use crate::missing_entry::MissingEntry as _;
 use crate::recovery::database_file::sibling_path;
 
@@ -39,17 +37,6 @@ pub(crate) fn is_database_damage_error(error: &(dyn Error + 'static)) -> bool {
     )
 }
 
-/// `error`'s message followed by each of its causes', joined by `: `, so one line says the whole
-/// failure.
-pub(crate) fn describe_error(error: &(dyn Error + 'static)) -> String {
-    let mut description = error.to_string();
-    for cause in std::iter::successors(error.source(), |&cause| cause.source()) {
-        description.push_str(": ");
-        description.push_str(&cause.to_string());
-    }
-    description
-}
-
 /// Learns of damage to the database file once, from whichever part of the daemon meets it.
 pub(crate) struct DatabaseDamageWatch {
     found: SetOnce<String>,
@@ -57,6 +44,7 @@ pub(crate) struct DatabaseDamageWatch {
 
 impl DatabaseDamageWatch {
     /// A watch that has found no damage.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new() -> Self {
         Self {
             found: SetOnce::new(),
@@ -64,6 +52,7 @@ impl DatabaseDamageWatch {
     }
 
     /// Resolves with what the first damage found was; never resolves while none is.
+    #[expect(dead_code, reason = "the daemon's start")]
     pub(crate) async fn when_found(&self) -> &str {
         self.found.wait().await
     }
@@ -85,15 +74,41 @@ impl DatabaseDamageWatch {
     /// Records `error` as damage when SQLite raised it for a damaged file; any other failure is
     /// left to its caller. The start, the recovery pass and every read that meets a failure call
     /// it; nothing is built for a failure that is no damage, or once damage is found.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start and its recovery pass, which report each failure they meet"
+        )
+    )]
     pub(crate) fn report(&self, error: &(dyn Error + 'static)) {
         if !self.is_found() && is_database_damage_error(error) {
             self.find(describe_error(error));
+        }
+    }
+
+    /// Records a call's or a feed's failure as damage as [`DatabaseDamageWatch::report`] does.
+    /// An internal fault forwards its message and sources straight through, so its source walk
+    /// skips the fault itself; the fault is reported directly, where its own SQLite code is read.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start, which puts the damage gate in front of the registry and gives the watch to the subscriptions"
+        )
+    )]
+    pub(crate) fn report_dispatch_failure(&self, error: &DispatchError) {
+        if let DispatchError::Internal(fault) = error {
+            self.report(fault.as_ref());
+        } else {
+            self.report(error);
         }
     }
 }
 
 /// Records the damage beside the database file, durably, so the next start repairs the file.
 /// Fails with the crash-safe write's failure.
+#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) async fn record_database_damage(
     database_path: &Path,
     damage: &str,
@@ -108,6 +123,7 @@ pub(crate) async fn record_database_damage(
 
 /// The damage a run recorded for the next start to repair, `None` when none was. Fails with the
 /// file system's error.
+#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) async fn read_database_damage(database_path: &Path) -> io::Result<Option<String>> {
     tokio::fs::read_to_string(damage_record_path(database_path))
         .await
@@ -116,6 +132,7 @@ pub(crate) async fn read_database_damage(database_path: &Path) -> io::Result<Opt
 
 /// Removes the damage record once the file it named is replaced or gone; a missing record is
 /// already removed. Fails with the file system's error.
+#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) async fn remove_database_damage(database_path: &Path) -> io::Result<()> {
     tokio::fs::remove_file(damage_record_path(database_path))
         .await
@@ -127,8 +144,15 @@ fn damage_record_path(database_path: &Path) -> PathBuf {
     sibling_path(database_path, DAMAGE_RECORD_SUFFIX)
 }
 
-/// The gate that tells the watch of every failure a call or a subscription item meets, then hands
-/// the failure on to the caller unchanged.
+/// The gate that tells the watch of every failure a call meets, then hands the failure on to the
+/// caller unchanged.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which puts the gate in front of the registry"
+    )
+)]
 pub(crate) struct DamageReportGate {
     /// The dispatch the calls go on to.
     next: Arc<dyn Dispatch>,
@@ -138,6 +162,7 @@ pub(crate) struct DamageReportGate {
 
 impl DamageReportGate {
     /// The gate over `next`, telling `watch` of each failure.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(next: Arc<dyn Dispatch>, watch: Arc<DatabaseDamageWatch>) -> Self {
         Self { next, watch }
     }
@@ -152,58 +177,13 @@ impl Dispatch for DamageReportGate {
         let call = self.next.dispatch(request, context);
         let watch = Arc::clone(&self.watch);
         async move {
-            match call.await {
-                Ok(reply @ Reply::Result(_)) => Ok(reply),
-                Ok(Reply::Subscription {
-                    acknowledgment,
-                    method,
-                    subscription_id,
-                    feed,
-                }) => Ok(Reply::Subscription {
-                    acknowledgment,
-                    method,
-                    subscription_id,
-                    feed: Box::new(DamageReportingFeed { feed, watch }),
-                }),
-                Err(error) => {
-                    report_dispatch_failure(&watch, &error);
-                    Err(error)
-                }
+            let answer = call.await;
+            if let Err(error) = &answer {
+                watch.report_dispatch_failure(error);
             }
+            answer
         }
         .boxed()
-    }
-}
-
-/// A subscription's feed whose failed items are told to the watch before they reach the gateway.
-struct DamageReportingFeed {
-    feed: Box<dyn EncodedFeed>,
-    watch: Arc<DatabaseDamageWatch>,
-}
-
-impl EncodedFeed for DamageReportingFeed {
-    fn next<'a>(
-        &'a mut self,
-        gate: &'a dyn SendGate,
-    ) -> BoxFuture<'a, Result<Option<EncodedValue>, DispatchError>> {
-        async move {
-            let item = self.feed.next(gate).await;
-            if let Err(error) = &item {
-                report_dispatch_failure(&self.watch, error);
-            }
-            item
-        }
-        .boxed()
-    }
-}
-
-// An internal fault forwards its message and sources straight through, so its source walk skips
-// the fault itself; the fault is told to the watch directly, where its own SQLite code is read.
-fn report_dispatch_failure(watch: &DatabaseDamageWatch, error: &DispatchError) {
-    if let DispatchError::Internal(fault) = error {
-        watch.report(fault.as_ref());
-    } else {
-        watch.report(error);
     }
 }
 

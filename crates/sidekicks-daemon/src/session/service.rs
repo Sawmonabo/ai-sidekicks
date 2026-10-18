@@ -118,7 +118,7 @@ pub(crate) struct EventsReadAfterSequenceRequest {
     /// The most events the page holds; every later event when `None`.
     pub(crate) limit: Option<u32>,
     /// Only events of these types; every type when `None`.
-    pub(crate) event_types: Option<Vec<String>>,
+    pub(crate) event_types: Option<Arc<[String]>>,
     /// Only events before this sequence; every later event when `None`.
     pub(crate) before_sequence: Option<i64>,
 }

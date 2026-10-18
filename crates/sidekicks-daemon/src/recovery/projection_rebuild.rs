@@ -50,6 +50,7 @@ pub(crate) const REBUILD_PAGE_SIZE: u32 = 1_000;
 
 /// The statements the rebuild's own reads run: the sessions to rebuild, a session's cursor and its
 /// log's head. Its pages are read through the session service, whose set counts those.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const PROJECTION_REBUILD_STATEMENT_CAPACITY: usize = 3;
 
 /// Where a session's projection cursor stands: current at its last sequence, being rebuilt, or
@@ -218,6 +219,10 @@ pub(crate) enum ProjectionRebuildError {
 /// `before_sequence` folds only the events before that one, leaving the cursor stale, and `stop`
 /// ends it before its next page with the cursor left `rebuilding`.
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's recovery pass at start")
+)]
 pub(crate) struct ProjectionRebuildRequest {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -250,8 +255,9 @@ pub(crate) struct ProjectionRebuildService {
     session_events: Arc<SessionService>,
     damage: Arc<DatabaseDamageWatch>,
     projections: Vec<RebuiltProjection>,
-    // Every type some projection reads, each once, as the page reads name them.
-    event_types: Vec<String>,
+    // Every type some projection reads, each once, as the page reads name them; shared with each
+    // page's read rather than copied into it.
+    event_types: Arc<[String]>,
 }
 
 // A projection and the types its fold reads, as a set the fold loop checks each event against.
@@ -283,6 +289,13 @@ impl ProjectionRebuildService {
     /// The service reading cursors and heads through `pool`, the log's pages through
     /// `session_events`, writing through `writer` and telling `damage` of each store failure;
     /// `projections` are the ones a rebuild replaces, in the order their statements run.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start, which hands it the projections a rebuild replaces"
+        )
+    )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
@@ -317,6 +330,7 @@ impl ProjectionRebuildService {
     /// Every session but the service's own whose projections do not reflect its newest event: its
     /// cursor was left stale or mid-rebuild, or a repair marked it. Fails with
     /// [`ProjectionRebuildError::Database`] or [`ProjectionRebuildError::Pool`].
+    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
     pub(crate) async fn list_sessions_to_rebuild(
         &self,
     ) -> Result<Vec<SessionId>, ProjectionRebuildError> {
@@ -342,6 +356,7 @@ impl ProjectionRebuildService {
     /// The last event sequence the session's projection rows reflect, by its cursor; `None` when
     /// the session has no cursor or its rows reflect no event. Fails as
     /// [`ProjectionRebuildService::list_sessions_to_rebuild`] does.
+    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
     pub(crate) async fn read_last_applied_sequence(
         &self,
         session_id: SessionId,
@@ -367,6 +382,10 @@ impl ProjectionRebuildService {
     /// fold, after marking the session's cursor stale, when the log cannot be folded into rows;
     /// with [`ProjectionRebuildError::Stopped`] once `stop` is canceled; any other failure is the
     /// store's own.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's recovery pass at start")
+    )]
     pub(crate) async fn rebuild(
         &self,
         request: ProjectionRebuildRequest,
@@ -542,7 +561,7 @@ impl ProjectionRebuildService {
                 session_id: range.session_id,
                 after_sequence,
                 limit: Some(REBUILD_PAGE_SIZE),
-                event_types: Some(self.event_types.clone()),
+                event_types: Some(Arc::clone(&self.event_types)),
                 before_sequence: range.before_sequence,
             })
             .await;
@@ -621,7 +640,7 @@ fn page_write_failure(
     event_ends: &[(usize, i64)],
     error: WriteError,
 ) -> FoldFailure {
-    let event = refused_statement_index(&error)
+    let event = contradicted_statement_index(&error)
         .and_then(|index| event_ends.get(event_ends.partition_point(|(end, _)| *end <= index)));
     match event {
         Some(&(_, sequence)) => FoldFailure::Projection(ProjectionFailure {
@@ -635,24 +654,16 @@ fn page_write_failure(
 
 // The statement a guard refused or a constraint failed, which only a contradicting log makes; any
 // other SQLite failure is the store's own.
-fn refused_statement_index(error: &WriteError) -> Option<usize> {
-    match error {
-        WriteError::Refused {
-            statement_index, ..
-        } => Some(*statement_index),
-        WriteError::Failed(WriteJobFailure::Statement {
-            statement_index,
-            source,
-        }) => (source.sqlite_error_code() == Some(ErrorCode::ConstraintViolation))
-            .then_some(*statement_index),
-        WriteError::Failed(WriteJobFailure::Savepoint(_) | WriteJobFailure::EventRow(_))
-        | WriteError::BatchFailed(_)
-        | WriteError::TooLarge { .. }
-        | WriteError::Ended(_)
-        | WriteError::ClosedWhileHeld
-        | WriteError::ClosedAtDrainBound
-        | WriteError::Closed => None,
+fn contradicted_statement_index(error: &WriteError) -> Option<usize> {
+    if let WriteError::Failed(WriteJobFailure::Statement {
+        statement_index,
+        source,
+    }) = error
+    {
+        return (source.sqlite_error_code() == Some(ErrorCode::ConstraintViolation))
+            .then_some(*statement_index);
     }
+    error.refused_statement_index()
 }
 
 fn session_binding(session_id: &SessionId) -> (Cow<'static, str>, Value) {
@@ -699,192 +710,4 @@ fn advance_cursor_statement(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::borrow::Cow;
-    use std::sync::Arc;
-
-    use rstest::rstest;
-    use rusqlite::types::Value;
-    use sidekicks_contracts::event::envelope::EventEnvelope;
-    use sidekicks_contracts::event::registry::SessionEventType;
-    use sidekicks_contracts::event::session::SessionEvent;
-    use sidekicks_contracts::session::id::SessionId;
-    use tokio_util::sync::CancellationToken;
-
-    use super::{
-        PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionContradiction, ProjectionRebuildError,
-        ProjectionRebuildRequest, ProjectionRebuildService, SessionProjection,
-        SessionProjectionFold,
-    };
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::statement::{StatementBindings, WriteStatement};
-    use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::events::session::read::DamagedFromSequenceReader;
-    use crate::recovery::database_file::damage::DatabaseDamageWatch;
-    use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
-
-    const PINNED_ROWS_TABLE_SQL: &str =
-        "CREATE TABLE pinned_rows (session_id TEXT NOT NULL, sequence INTEGER NOT NULL) STRICT";
-
-    fn statement(
-        sql: &'static str,
-        bindings: StatementBindings,
-        expected_row_count: Option<usize>,
-    ) -> WriteStatement {
-        WriteStatement {
-            sql: Cow::Borrowed(sql),
-            bindings,
-            expected_row_count,
-        }
-    }
-
-    // A row per pinned event, its own fold too; for the event at `refused_sequence` it adds a guard
-    // that matches no row, so that event's page write is refused at its own statement.
-    #[derive(Clone, Copy)]
-    struct PinnedRows {
-        refused_sequence: Option<i64>,
-    }
-
-    impl SessionProjection for PinnedRows {
-        fn name(&self) -> &'static str {
-            "pinned rows"
-        }
-
-        fn event_types(&self) -> &[SessionEventType] {
-            &[SessionEventType::SessionPinned]
-        }
-
-        fn clear_statements(&self, session_id: &SessionId) -> Vec<WriteStatement> {
-            vec![statement(
-                "DELETE FROM pinned_rows WHERE session_id = ?",
-                StatementBindings::Positional(vec![Value::Text(session_id.to_string())]),
-                None,
-            )]
-        }
-
-        fn fold(&self, _session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
-            Box::new(*self)
-        }
-    }
-
-    impl SessionProjectionFold for PinnedRows {
-        fn apply(
-            &mut self,
-            envelope: &EventEnvelope,
-            _event: &SessionEvent,
-            statements: &mut Vec<WriteStatement>,
-        ) -> Result<(), ProjectionContradiction> {
-            let sequence = i64::from(envelope.sequence);
-            statements.push(statement(
-                "INSERT INTO pinned_rows (session_id, sequence) VALUES (?, ?)",
-                StatementBindings::Positional(vec![
-                    Value::Text(envelope.session_id.to_string()),
-                    Value::Integer(sequence),
-                ]),
-                None,
-            ));
-            if self.refused_sequence == Some(sequence) {
-                statements.push(statement(
-                    "UPDATE pinned_rows SET sequence = sequence WHERE sequence < 0",
-                    StatementBindings::None,
-                    Some(1),
-                ));
-            }
-            Ok(())
-        }
-    }
-
-    // How a rebuild ends.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum Outcome {
-        // A projection failure naming the event at this sequence.
-        FailsAt(i64),
-        // Folded, its rows reflecting the log up to this sequence.
-        Folded(i64),
-        // Stopped before its first page.
-        Stopped,
-    }
-
-    // A refused statement named by the wrong event (an off-by-one in the statement ranges) or
-    // read as the store's failure, a stale mark skipped, a rebuild ended early marked current, or
-    // a stop token checked after the first page or not at all, each fails a case.
-    #[rstest]
-    #[case::a_refused_event(Some(1), None, false, Outcome::FailsAt(1), "stale", -1)]
-    #[case::ended_before_an_event(None, Some(2), false, Outcome::Folded(1), "stale", 1)]
-    #[case::stopped(None, None, true, Outcome::Stopped, "rebuilding", -1)]
-    #[tokio::test]
-    async fn a_rebuild_leaves_its_cursor_where_its_fold_ended(
-        #[case] refused_sequence: Option<i64>,
-        #[case] before_sequence: Option<i64>,
-        #[case] is_stopped: bool,
-        #[case] outcome: Outcome,
-        #[case] cursor_state: &str,
-        #[case] cursor_sequence: i64,
-    ) {
-        let database = TestDatabase::new();
-        let writer = Arc::new(
-            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-                .await
-                .expect("the writer opens its database"),
-        );
-        database
-            .reader()
-            .execute_batch(PINNED_ROWS_TABLE_SQL)
-            .expect("the projection's table is made");
-        let session_id = test_session_id();
-        // Three events, at sequences 0, 1 and 2.
-        writer
-            .append_events(
-                (0..3).map(|_| session_event_row(&session_id)).collect(),
-                Vec::new(),
-            )
-            .await
-            .expect("the session's events are stored");
-        let pool = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            PROJECTION_REBUILD_STATEMENT_CAPACITY + SESSION_SERVICE_STATEMENT_CAPACITY,
-        ));
-        let reads_whole: Arc<DamagedFromSequenceReader> =
-            Arc::new(|_session_id: &SessionId| -> Option<i64> { None });
-        let service = ProjectionRebuildService::new(
-            Arc::clone(&pool),
-            writer,
-            Arc::new(SessionService::new(pool, reads_whole)),
-            Arc::new(DatabaseDamageWatch::new()),
-            vec![Box::new(PinnedRows { refused_sequence })],
-        );
-        let stop = CancellationToken::new();
-        if is_stopped {
-            stop.cancel();
-        }
-
-        let rebuilt = service
-            .rebuild(ProjectionRebuildRequest {
-                session_id,
-                is_forced: true,
-                before_sequence,
-                stop: Some(stop),
-            })
-            .await;
-
-        let ended = match rebuilt {
-            Ok(response) => Outcome::Folded(response.as_of_sequence),
-            Err(ProjectionRebuildError::ProjectionFailure(failure)) => {
-                Outcome::FailsAt(failure.original().sequence)
-            }
-            Err(ProjectionRebuildError::Stopped) => Outcome::Stopped,
-            Err(error) => panic!("the rebuild failed as the store: {error}"),
-        };
-        assert_eq!(ended, outcome);
-        let cursor: (String, i64) = database
-            .reader()
-            .query_row(
-                "SELECT state, last_sequence FROM projection_cursors WHERE session_id = ?",
-                [session_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("the session has a cursor");
-        assert_eq!(cursor, (cursor_state.to_owned(), cursor_sequence));
-    }
-}
+mod tests;

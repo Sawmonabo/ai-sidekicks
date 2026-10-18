@@ -7,11 +7,13 @@
 //! and so does a session whose history is damaged, except its own two recovery actions; every
 //! other session takes its writes.
 
+use std::fmt;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Deserialize;
+use serde::de::{Deserializer, IgnoredAny, MapAccess, Visitor};
 use serde_json::value::RawValue;
 use sidekicks_contracts::daemon::lifecycle::{DaemonFlush, DaemonRestart, DaemonStop};
 use sidekicks_contracts::daemon::recovery::{
@@ -46,6 +48,13 @@ const METHODS_TAKEN_BY_A_DAMAGED_SESSION: [&str; 2] = [
 /// stop, the restart and the flush is refused `daemon.writeRefused` while the daemon takes no
 /// writes, and one naming a session the pass is still rebuilding, or one with damaged history, is
 /// refused `session.rebuilding` or `session.history.damaged`. A call it takes goes on untouched.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which puts the gate in front of the registry"
+    )
+)]
 pub(crate) struct RecoveryWriteGate {
     /// The dispatch the calls go on to.
     next: Arc<dyn Dispatch>,
@@ -58,6 +67,13 @@ pub(crate) struct RecoveryWriteGate {
 impl RecoveryWriteGate {
     /// The gate over `next`; `registry` says which method mutates and `status` where the recovery
     /// stands.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start, which puts the gate in front of the registry"
+        )
+    )]
     pub(crate) fn new(
         next: Arc<dyn Dispatch>,
         registry: Arc<MethodRegistry>,
@@ -71,6 +87,13 @@ impl RecoveryWriteGate {
     }
 
     /// The refusal of `request`, `None` when the gate takes it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start, which puts the gate in front of the registry"
+        )
+    )]
     fn refusal_of(&self, request: &Request) -> Option<DomainError> {
         let method = request.method.as_str();
         let is_mutating = self
@@ -104,18 +127,76 @@ impl Dispatch for RecoveryWriteGate {
     }
 }
 
-/// The one member the gate reads of a call's params before the registry parses them; every other
-/// member is skipped unread.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NamedSession {
-    session_id: SessionId,
+/// The `sessionId` member of a call's params, read before the registry parses them: the last one
+/// written, as a JSON object reader keeps it, every member borrowed or skipped unread.
+struct NamedSession(Option<SessionId>);
+
+impl<'de> Deserialize<'de> for NamedSession {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(NamedSessionVisitor)
+    }
 }
 
-// The session a call names: the `sessionId` member of params written as an object. Params written
-// as an array name none here, since serde would read their first item as the member, and the
-// registry's own check refuses them; a member that is no session id names none, and the method's
-// own check refuses it, so a failed read here is left to that check.
+struct NamedSessionVisitor;
+
+impl<'de> Visitor<'de> for NamedSessionVisitor {
+    type Value = NamedSession;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("params written as an object")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut members: A) -> Result<Self::Value, A::Error> {
+        let mut last = None;
+        while let Some(name) = members.next_key::<MemberName>()? {
+            match name {
+                MemberName::SessionId => last = Some(members.next_value::<&'de RawValue>()?),
+                MemberName::Other => {
+                    members.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        // A member that is no session id names none, as the method's own check refuses it.
+        Ok(NamedSession(last.and_then(|value| {
+            serde_json::from_str::<SessionId>(value.get()).ok()
+        })))
+    }
+}
+
+// A member's name as the peek tells them apart, compared where it is read.
+enum MemberName {
+    SessionId,
+    Other,
+}
+
+impl<'de> Deserialize<'de> for MemberName {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_identifier(MemberNameVisitor)
+    }
+}
+
+struct MemberNameVisitor;
+
+impl Visitor<'_> for MemberNameVisitor {
+    type Value = MemberName;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a member name")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, name: &str) -> Result<Self::Value, E> {
+        Ok(if name == "sessionId" {
+            MemberName::SessionId
+        } else {
+            MemberName::Other
+        })
+    }
+}
+
+// The session a call names: the last `sessionId` member of params written as an object. Params
+// written as an array, or that do not read as an object, name none here, and the registry's own
+// check refuses them once the pass lets calls through; while it runs, a call naming no session is
+// refused whole.
 fn named_session(params: Option<&RawValue>) -> Option<SessionId> {
     let text = params?.get();
     if !text.trim_start().starts_with('{') {
@@ -123,7 +204,7 @@ fn named_session(params: Option<&RawValue>) -> Option<SessionId> {
     }
     serde_json::from_str::<NamedSession>(text)
         .ok()
-        .map(|named| named.session_id)
+        .and_then(|named| named.0)
 }
 
 fn daemon_write_refused(method: &str, recovery: DaemonWriteRefusedRecovery) -> DomainError {
@@ -145,7 +226,8 @@ mod tests {
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use rstest::rstest;
-    use serde_json::{Value, json};
+    use serde_json::json;
+    use serde_json::value::RawValue;
     use sidekicks_contracts::daemon::lifecycle::DaemonStop;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::method::Method;
@@ -180,6 +262,9 @@ mod tests {
         Object,
         // An array holding the session's id, as a positional call would send it.
         Array,
+        // An object naming another session first and the session last, which a JSON object reader
+        // reads as the last.
+        DuplicatedKey,
     }
 
     // A dispatch answering every call, recording the methods it takes.
@@ -243,9 +328,11 @@ mod tests {
     }
 
     // Dropping the exemption of the stop or of a damaged session's recovery action, refusing
-    // nothing while the pass lists, skipping the named session's own refusal, or peeking array
-    // params by position (which would refuse the array case `session.rebuilding`) each fails a
-    // case.
+    // nothing while the pass lists, skipping the named session's own refusal, peeking array params
+    // by position (which would refuse the array case `session.rebuilding`), or reading the first
+    // of two `sessionId` members, or none of them, each fails a case. The array params answer as
+    // `readNamedSession` in the TypeScript `recovery/write-gate.ts` answers them: they name no
+    // session, so the pass refuses them whole and, once it ends, the registry's check does.
     #[rstest]
     #[case::the_stop_while_listing(
         Stage::Listing,
@@ -258,6 +345,18 @@ mod tests {
         SessionArchive::DESCRIPTOR.method,
         Params::Object,
         Some(RefusalCode::DaemonWriteRefused)
+    )]
+    #[case::array_params_while_listing(
+        Stage::Listing,
+        SessionArchive::DESCRIPTOR.method,
+        Params::Array,
+        Some(RefusalCode::DaemonWriteRefused)
+    )]
+    #[case::a_write_naming_a_rebuilding_session_last(
+        Stage::Rebuilding,
+        SessionArchive::DESCRIPTOR.method,
+        Params::DuplicatedKey,
+        Some(RefusalCode::SessionRebuilding)
     )]
     #[case::a_write_naming_a_rebuilding_session(
         Stage::Rebuilding,
@@ -301,14 +400,25 @@ mod tests {
             registry,
             Arc::new(tracker_at(stage, &session_id)),
         );
-        let params: Value = match params {
-            Params::Object => json!({ "sessionId": session_id }),
-            Params::Array => json!([session_id]),
+        let call = match params {
+            Params::Object => request(method, Some(&json!({ "sessionId": session_id }))),
+            Params::Array => request(method, Some(&json!([session_id]))),
+            Params::DuplicatedKey => {
+                let other =
+                    SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+                Request {
+                    params: Some(
+                        RawValue::from_string(format!(
+                            r#"{{"sessionId": "{other}", "sessionId": "{session_id}"}}"#
+                        ))
+                        .expect("the params are JSON"),
+                    ),
+                    ..request(method, None)
+                }
+            }
         };
 
-        let answer = gate
-            .dispatch(request(method, Some(&params)), context(1))
-            .await;
+        let answer = gate.dispatch(call, context(1)).await;
 
         let taken = taken
             .lock()

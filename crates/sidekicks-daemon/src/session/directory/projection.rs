@@ -10,7 +10,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::statement::WriteStatement;
-use crate::recovery::database_file::damage::describe_error;
+use crate::error_description::describe_error;
 use crate::recovery::projection_rebuild::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
@@ -21,6 +21,10 @@ use crate::session::records::SessionDirectoryRow;
 
 /// The `sessions` row as a rebuild replaces it. Almost every event moves the row's last activity,
 /// so the fold reads every registered event type.
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which registers the projection with the rebuild"
+)]
 pub(crate) struct SessionDirectoryProjection;
 
 impl SessionProjection for SessionDirectoryProjection {
@@ -43,6 +47,10 @@ impl SessionProjection for SessionDirectoryProjection {
 }
 
 // The row as folded so far; `None` until the log's `session.created`.
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which registers the projection with the rebuild"
+)]
 struct DirectoryFold {
     row: Option<SessionDirectoryRow>,
 }
