@@ -5,7 +5,7 @@
 use std::error::Error;
 use std::io;
 use std::process::ExitStatus;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{Ordering, fence};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -304,10 +304,13 @@ where
             self.end_output();
             return self.read_buffer.len();
         }
-        // Set before the count, so a take between the count and the wait still wakes the loop.
+        // Set before the count, so a take between the count and the wait still wakes the loop: the
+        // fence here and the one after the caller gives its room back are both sequentially
+        // consistent, so either the count here sees the room or the caller sees the flag.
         self.control
             .is_waiting_for_room
             .store(true, Ordering::SeqCst);
+        fence(Ordering::SeqCst);
         let room = self.output_budget.available_permits();
         if room > 0 {
             self.control

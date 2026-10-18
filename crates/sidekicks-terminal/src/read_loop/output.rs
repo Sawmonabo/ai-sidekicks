@@ -2,7 +2,7 @@
 //! bytes' room in the output's budget until the caller takes it, then the program's exit.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{Ordering, fence};
 
 use bytes::Bytes;
 use tokio::sync::{OwnedSemaphorePermit, mpsc};
@@ -56,6 +56,9 @@ impl TerminalOutput {
         match chunk {
             Some(OutputChunk { bytes, room }) => {
                 drop(room);
+                // Pairs with the loop's fence after it sets the flag: either the loop counts this
+                // room or the flag read here shows it waiting.
+                fence(Ordering::SeqCst);
                 if self
                     .control
                     .is_waiting_for_room
