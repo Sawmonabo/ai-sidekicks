@@ -1,5 +1,6 @@
 //! A pane's writes to a shell: past the per-shell window keys join into the next write, sent as an
-//! answer returns, and an interrupt goes at once with the keys typed before it.
+//! answer returns, an interrupt goes at once with the keys typed before it, and keys may be typed
+//! from a thread outside the runtime, as the desktop's JavaScript thread types them.
 
 use std::time::Duration;
 
@@ -54,4 +55,21 @@ async fn keys_past_the_window_join_and_an_interrupt_goes_at_once() {
         interrupt["params"]["data"], "c\u{3}",
         "an interrupt goes at once, after the keys typed before it"
     );
+}
+
+#[tokio::test]
+async fn keys_typed_from_a_thread_outside_the_runtime_are_written() {
+    let client = JsonRpcClient::new();
+    let (_link, mut daemon) = open_link(&client).await;
+    let (input, _failures) = ShellInput::new(client.clone(), target());
+
+    let typing = std::thread::spawn(move || {
+        input.type_keys("x");
+        input
+    });
+    let _input = typing
+        .join()
+        .expect("typing outside the runtime does not panic");
+    let write = daemon.next_message().await;
+    assert_eq!(write["params"]["data"], "x");
 }

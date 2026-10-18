@@ -12,6 +12,7 @@ use sidekicks_contracts::terminal::{
     TERMINAL_WRITE_MAX_BYTES, TERMINAL_WRITES_WAITING_LIMIT, TERMINAL_WRITES_WAITING_PER_SHELL,
     TerminalId, TerminalWrite, TerminalWriteRequest,
 };
+use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
 use crate::error::ClientError;
@@ -32,8 +33,8 @@ pub struct ShellTarget {
     pub output_subscription_id: SubscriptionId,
 }
 
-/// One pane's input to one shell. Each write that fails is sent on the receiver [`ShellInput::new`]
-/// returns beside it.
+/// One pane's input to one shell, typed into from any thread. Each write that fails is sent on the
+/// receiver [`ShellInput::new`] returns beside it.
 pub struct ShellInput {
     input: Arc<WriteWindow>,
 }
@@ -42,6 +43,8 @@ pub struct ShellInput {
 struct WriteWindow {
     client: JsonRpcClient,
     target: ShellTarget,
+    /// The runtime each write's answer is awaited on.
+    runtime: Handle,
     state: Mutex<WindowState>,
     failures: mpsc::Sender<ClientError>,
 }
@@ -55,13 +58,15 @@ struct WindowState {
 
 impl ShellInput {
     /// The input to `target` over `client`, and the receiver of its failed writes. Must be called
-    /// inside a tokio runtime, which each write's answer is awaited on.
+    /// inside a tokio runtime: every write's answer is awaited on that runtime, so a write needs
+    /// it running, while [`ShellInput::type_keys`] may be called from any thread.
     pub fn new(client: JsonRpcClient, target: ShellTarget) -> (Self, mpsc::Receiver<ClientError>) {
-        // Each write in flight fails at most once, so the window bounds the failures held.
+        // A pane that stops reading its failures loses each one past this many, with a log line.
         let (failures, failed_writes) = mpsc::channel(TERMINAL_WRITES_WAITING_LIMIT);
         let input = Arc::new(WriteWindow {
             client,
             target,
+            runtime: Handle::current(),
             state: Mutex::new(WindowState::default()),
             failures,
         });
@@ -114,18 +119,25 @@ impl WriteWindow {
                 data,
             });
         let window = Arc::clone(self);
-        tokio::spawn(async move {
-            if let Err(failure) = answer.await
-                && let Err(unread) = window.failures.send(failure).await
+        self.runtime.spawn(async move {
+            let failure = answer.await.err();
             {
+                let mut state = window.lock();
+                state.waiting -= 1;
+                window.send_what_fits(&mut state);
+            }
+            if let Some(failure) = failure
+                && let Err(unread) = window.failures.try_send(failure)
+            {
+                let failure = match unread {
+                    mpsc::error::TrySendError::Full(failure)
+                    | mpsc::error::TrySendError::Closed(failure) => failure,
+                };
                 tracing::warn!(
-                    error = &unread.0 as &(dyn std::error::Error + 'static),
-                    "A write to a shell failed after its pane stopped reading failures"
+                    error = &failure as &(dyn std::error::Error + 'static),
+                    "A failed write to a shell went unreported: its pane is not reading failures"
                 );
             }
-            let mut state = window.lock();
-            state.waiting -= 1;
-            window.send_what_fits(&mut state);
         });
     }
 
