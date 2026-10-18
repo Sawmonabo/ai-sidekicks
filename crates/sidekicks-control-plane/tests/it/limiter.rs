@@ -1,8 +1,10 @@
 //! The sliding window over a real account file: the shared scenario table, and the cleanup that
 //! leaves nothing counted once every window has passed.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::task::{Context, Waker};
 use std::time::Duration;
 
 use jiff::Timestamp;
@@ -104,6 +106,12 @@ async fn nothing_counted_outlives_its_window() {
     count(&admission, "198.51.100.7").await;
     count(&admission, "203.0.113.9").await;
     assert_eq!(account.count_held_requests(), 2);
+    // The test, the admission and one cleanup task hold the file.
+    assert_eq!(
+        Arc::strong_count(&account.connection),
+        3,
+        "one cleanup task runs"
+    );
 
     // A count after the task has ended starts another.
     for round in 1..=2 {
@@ -126,4 +134,58 @@ async fn nothing_counted_outlives_its_window() {
             assert_eq!(account.count_held_requests(), 1);
         }
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_count_dropped_mid_step_still_starts_the_cleanup() {
+    let account = create_account_file();
+    let admission = AccountFileAdmission::new(Arc::clone(&account.connection), read_test_clock);
+    let held = account
+        .connection
+        .lock()
+        .expect("no test panicked holding the file");
+    let mut dropped = Box::pin(admission.check_admission(
+        RateLimitCheckRequest {
+            identity: "198.51.100.7".to_owned(),
+            endpoint: RateLimitEndpointGroup::AuthEndpoint,
+        },
+        None,
+    ));
+    // One poll starts the blocking step, which waits on the file; then its caller goes away.
+    let polled = dropped
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()));
+    assert!(polled.is_pending());
+    drop(dropped);
+    drop(held);
+    // The blocking step runs on without its caller.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        account.count_held_requests(),
+        1,
+        "the dropped count still counted"
+    );
+
+    CLOCK_MS.store(START_MS + 60_000, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_secs(61)).await;
+    assert_eq!(
+        account.count_held_requests(),
+        0,
+        "its cleanup ran a window later"
+    );
+
+    // A later count starts the cleanup again.
+    count(&admission, "203.0.113.9").await;
+    CLOCK_MS.store(START_MS + 120_000, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_secs(61)).await;
+    assert_eq!(
+        account.count_held_requests(),
+        0,
+        "the later count's window has passed"
+    );
+    assert_eq!(
+        Arc::strong_count(&account.connection),
+        2,
+        "no cleanup task is left"
+    );
 }

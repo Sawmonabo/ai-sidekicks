@@ -63,6 +63,7 @@ mod file {
 
     use jiff::Timestamp;
     use rusqlite::Connection;
+    use tokio::runtime::Handle;
     use tokio::task::JoinHandle;
 
     use super::{AdmissionCheck, AdmissionError};
@@ -124,44 +125,44 @@ mod file {
         ) -> impl Future<Output = Result<RateLimitCheckResponse, AdmissionError>> + Send {
             let counter = Arc::clone(&self.counter);
             async move {
-                let connection = Arc::clone(&counter.connection);
-                let is_cleanup_running = Arc::clone(&counter.is_cleanup_running);
-                let clock = counter.clock;
-                let (response, cleanup_at) = tokio::task::spawn_blocking(move || {
+                // The task starts inside the blocking step, so a caller that goes away mid-step
+                // never leaves the flag set with no task.
+                let runtime = Handle::current();
+                let response = tokio::task::spawn_blocking(move || {
+                    let connection = Arc::clone(&counter.connection);
                     let mut connection = connection.lock().unwrap_or_else(PoisonError::into_inner);
                     let transaction = connection.transaction().map_err(wrap_store_error)?;
-                    let response = check(&*transaction, &request, clock()?)?;
+                    let response = check(&*transaction, &request, (counter.clock)()?)?;
                     // Only a counted request leaves a row, and only a missing task needs one.
                     let cleanup_at =
-                        if response.allowed && !is_cleanup_running.load(Ordering::SeqCst) {
+                        if response.allowed && !counter.is_cleanup_running.load(Ordering::SeqCst) {
                             find_next_cleanup_at(&*transaction)?
                         } else {
                             None
                         };
                     transaction.commit().map_err(wrap_store_error)?;
-                    if cleanup_at.is_some() {
-                        is_cleanup_running.store(true, Ordering::SeqCst);
+                    if let Some(at) = cleanup_at {
+                        counter.start_cleanup(&runtime, at);
                     }
-                    Ok::<_, RateLimiterError>((response, cleanup_at))
+                    Ok::<_, RateLimiterError>(response)
                 })
                 .await??;
-                if let Some(at) = cleanup_at {
-                    counter.start_cleanup(at);
-                }
                 Ok(response)
             }
         }
     }
 
     impl AccountFileCounter {
-        fn start_cleanup(&self, at: Timestamp) {
-            let task = tokio::spawn(clean_up(
+        // Called while the file is held: marks the task running and starts it.
+        fn start_cleanup(&self, runtime: &Handle, at: Timestamp) {
+            self.is_cleanup_running.store(true, Ordering::SeqCst);
+            let task = runtime.spawn(clean_up(
                 Arc::clone(&self.connection),
                 Arc::clone(&self.is_cleanup_running),
                 self.clock,
                 at,
             ));
-            // The task that ran before has ended, so its handle is only replaced.
+            // The task before has cleared the flag and is ending, so its handle is only replaced.
             *self.cleanup.lock().unwrap_or_else(PoisonError::into_inner) = Some(task);
         }
     }

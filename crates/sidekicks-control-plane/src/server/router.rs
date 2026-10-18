@@ -37,16 +37,20 @@ pub struct RequestId(pub String);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoggedFailure(());
 
+/// A refusal's code and its sentence for a person, kept private so no caller builds a 500 that
+/// skips its log.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlainRefusal {
+    code: RefusalCode,
+    message: String,
+}
+
 /// A refusal a caller tells apart by its code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControlPlaneRefusal {
-    /// A refusal whose body carries no fields of the code's own.
-    Plain {
-        /// The refusal's code, which sets its category and status.
-        code: RefusalCode,
-        /// A sentence for a person.
-        message: String,
-    },
+    /// A refusal whose body carries no fields of the code's own, built only by this module's
+    /// constructors, none of which answers the internal code.
+    Plain(PlainRefusal),
     /// A body that parses into the wrong shape: `request.paramsInvalid` with its issues.
     ParamsInvalid {
         /// Where the body breaks its shape, in the body's own names.
@@ -63,11 +67,11 @@ pub enum ControlPlaneRefusal {
 impl ControlPlaneRefusal {
     /// The refusal of a counted route whose request carries no source address the relay can count.
     pub fn refuse_unresolvable_source_address() -> Self {
-        Self::Plain {
+        Self::Plain(PlainRefusal {
             code: RefusalCode::RelaySourceAddressUnresolvable,
             message: "The request carries no source address the relay can count, so it is refused."
                 .to_owned(),
-        }
+        })
     }
 
     /// Logs `error` with the request's id and answers the fixed internal refusal.
@@ -89,10 +93,10 @@ impl From<JsonRejection> for ControlPlaneRefusal {
             return Self::BodyTooLarge;
         }
         if !matches!(rejection, JsonRejection::JsonDataError(_)) {
-            return Self::Plain {
+            return Self::Plain(PlainRefusal {
                 code: RefusalCode::RequestEnvelopeInvalid,
                 message: "The request's body is not JSON this route reads.".to_owned(),
-            };
+            });
         }
         let mut source: Option<&(dyn Error + 'static)> = Some(&rejection);
         let mut path = Vec::new();
@@ -118,7 +122,9 @@ impl From<JsonRejection> for ControlPlaneRefusal {
 impl IntoResponse for ControlPlaneRefusal {
     fn into_response(self) -> Response {
         match self {
-            Self::Plain { code, message } => build_refusal_response(code, &message, Map::new()),
+            Self::Plain(PlainRefusal { code, message }) => {
+                build_refusal_response(code, &message, Map::new())
+            }
             Self::ParamsInvalid { issues } => {
                 let mut fields = Map::new();
                 fields.insert("issues".to_owned(), json!(issues));
@@ -202,15 +208,15 @@ pub fn add_refusal_fallbacks<S: Clone + Send + Sync + 'static>(routes: Router<S>
 }
 
 async fn refuse_method_not_found() -> ControlPlaneRefusal {
-    ControlPlaneRefusal::Plain {
+    ControlPlaneRefusal::Plain(PlainRefusal {
         code: RefusalCode::RequestMethodNotFound,
         message: "No route of the control plane serves this path.".to_owned(),
-    }
+    })
 }
 
 async fn refuse_method_not_allowed() -> ControlPlaneRefusal {
-    ControlPlaneRefusal::Plain {
+    ControlPlaneRefusal::Plain(PlainRefusal {
         code: RefusalCode::RequestMethodNotAllowed,
         message: "This route does not serve this HTTP method.".to_owned(),
-    }
+    })
 }

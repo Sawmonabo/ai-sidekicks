@@ -193,7 +193,8 @@ pub enum AccountStoreError {
 /// The account's SQLite database, reached through its one writer, which runs one request's
 /// statements at a time, so a read and the write that depends on it see no other request between.
 pub trait AccountStore {
-    /// Runs `script`, statements with no parameters, in one call with nothing awaited between.
+    /// Runs `script`, statements with no parameters, as one transaction: it commits whole or not
+    /// at all.
     fn run_script(&self, script: &str) -> Result<(), AccountStoreError>;
 
     /// Runs one statement that returns no rows, with its parameters.
@@ -215,7 +216,8 @@ pub(crate) fn apply_schema<S: AccountStore>(store: &S) -> Result<(), AccountStor
         present: i64,
     }
 
-    // The script's last object stands for the whole schema, so a script cut short reads as unbuilt.
+    // The script runs in one transaction, so any object it creates tells a built database from an
+    // empty one.
     let probe: Vec<Probe> = store.query(
         "SELECT COUNT(*) AS present FROM sqlite_schema \
          WHERE type = 'index' AND name = 'idx_counted_requests_expires'",
@@ -338,8 +340,8 @@ mod object {
     }
 
     impl AccountStore for SqlStorage {
-        // The object commits the writes of one call together; `apply_schema` reads the script's
-        // last object, so a script cut short reads as unbuilt.
+        // The script runs in one transaction, so any object it creates tells a built database from
+        // an empty one.
         fn run_script(&self, script: &str) -> Result<(), AccountStoreError> {
             self.exec(script, None)?;
             Ok(())
