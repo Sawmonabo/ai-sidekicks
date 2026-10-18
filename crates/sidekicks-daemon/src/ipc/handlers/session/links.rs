@@ -1,0 +1,263 @@
+//! The person's session link verbs: `session.link.add` and `session.link.remove` for a `related`
+//! link, and `session.relatedSession.subscribe`, a session's ranked related list, live. The
+//! subscription's first emission is the whole list, read before the call is answered, and each
+//! later one the whole list again once the ranking says it may read differently; a slow reader
+//! is sent only the newest list.
+
+use std::sync::Arc;
+
+use futures::FutureExt as _;
+use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
+use sidekicks_contracts::method_descriptor::EmptyPayload;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::links::{
+    SessionLinkAdd, SessionLinkRemove, SessionLinkRequest, SessionRelatedListUpdate,
+    SessionRelatedSessionSubscribe, SessionRelatedSessionSubscribeRequest,
+};
+
+use crate::database::connection::read_pool::DatabaseReadError;
+use crate::ipc::registry::{
+    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
+};
+use crate::ipc::stream::feed::Feed;
+use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
+use crate::session::links::service::{SessionLinkError, SessionLinkService};
+use crate::session::related::ranking::{SessionRelatedRanking, SessionRelatedReadError};
+
+/// Registers the two link verbs over `links` and `session.relatedSession.subscribe` over
+/// `ranking`. A link change naming a session the daemon does not hold is refused
+/// `session.notFound`, and a removal of a link an event recorded `session.link.notRemovable`; a
+/// subscription to a session the daemon does not hold is refused `session.notFound` with nothing
+/// left open. Fails the start when a method is already registered.
+pub(crate) fn register_session_links(
+    registry: &mut MethodRegistryBuilder,
+    links: &Arc<SessionLinkService>,
+    ranking: &Arc<SessionRelatedRanking>,
+) -> Result<(), RegistrationError> {
+    let adding = Arc::clone(links);
+    registry.register::<SessionLinkAdd, _>(
+        move |request: SessionLinkRequest, _context: HandlerContext| {
+            let links = Arc::clone(&adding);
+            async move {
+                links.add(&request).await?;
+                Ok(EmptyPayload {})
+            }
+            .boxed()
+        },
+    )?;
+    let removing = Arc::clone(links);
+    registry.register::<SessionLinkRemove, _>(
+        move |request: SessionLinkRequest, _context: HandlerContext| {
+            let links = Arc::clone(&removing);
+            async move {
+                links.remove(&request).await?;
+                Ok(EmptyPayload {})
+            }
+            .boxed()
+        },
+    )?;
+    let ranking = Arc::clone(ranking);
+    registry.register_subscription::<SessionRelatedSessionSubscribe, _>(
+        move |request: SessionRelatedSessionSubscribeRequest,
+              _context: HandlerContext,
+              subscription_id: SubscriptionId| {
+            let ranking = Arc::clone(&ranking);
+            async move {
+                let feed = LatestValueFeed::open(|outlet| {
+                    follow_related_list(ranking, request.session_id, outlet)
+                })
+                .await?;
+                let feed: Box<dyn Feed<Emission = SessionRelatedListUpdate>> = Box::new(feed);
+                Ok((SubscribeAcknowledgmentResponse { subscription_id }, feed))
+            }
+            .boxed()
+        },
+    )
+}
+
+/// Sends `session_id`'s list through `outlet` now, then again each time the ranking raises the
+/// list's count, until the returned detach runs. The first read's failure is the subscribe call's;
+/// a later one ends the stream refused, and the read pool closing under the daemon's stop ends it
+/// finished.
+async fn follow_related_list(
+    ranking: Arc<SessionRelatedRanking>,
+    session_id: SessionId,
+    outlet: LatestValueOutlet<SessionRelatedListUpdate>,
+) -> Result<impl FnOnce() + Send, HandlerError> {
+    // Taken before the first read, so a raise while it reads makes one more read, never a miss.
+    let mut count = ranking.follow(&session_id);
+    outlet.send(ranking.read(session_id).await?);
+    let following = tokio::spawn(async move {
+        while count.changed().await.is_ok() {
+            match ranking.read(session_id).await {
+                Ok(list) => outlet.send(list),
+                Err(SessionRelatedReadError::Pool(DatabaseReadError::Closed)) => return,
+                Err(failure) => {
+                    outlet.fail(failure.into());
+                    return;
+                }
+            }
+        }
+    });
+    Ok(move || following.abort())
+}
+
+impl From<SessionLinkError> for HandlerError {
+    /// A refused change answers by its code; a write not kept or a failed read is a fault in the
+    /// daemon.
+    fn from(error: SessionLinkError) -> Self {
+        match error {
+            SessionLinkError::Refused(refusal) => Self::Refused(refusal),
+            fault @ (SessionLinkError::Write(_)
+            | SessionLinkError::Database(_)
+            | SessionLinkError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
+}
+
+impl From<SessionRelatedReadError> for HandlerError {
+    /// A session the daemon does not hold answers `session.notFound`; a failed read is a fault in
+    /// the daemon.
+    fn from(error: SessionRelatedReadError) -> Self {
+        match error {
+            SessionRelatedReadError::Refused(refusal) => Self::Refused(refusal),
+            fault @ (SessionRelatedReadError::Database(_) | SessionRelatedReadError::Pool(_)) => {
+                Self::Internal(Box::new(fault))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use serde_json::json;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::method::Method as _;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::session::links::{
+        SessionLinkAdd, SessionRelatedListUpdate, SessionRelatedSessionSubscribe,
+    };
+
+    use super::register_session_links;
+    use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::events::log_service::tests::open_log;
+    use crate::ipc::call_fixtures::{context, request};
+    use crate::ipc::registry::{
+        Dispatch as _, DispatchError, EncodedFeed, MethodRegistryBuilder, Reply,
+    };
+    use crate::ipc::stream::feed::CreditGate;
+    use crate::session::links::service::{
+        SESSION_LINK_SERVICE_STATEMENT_CAPACITY, SessionLinkService,
+    };
+    use crate::session::related::ranking::{
+        RELATED_RANKING_STATEMENT_CAPACITY, SessionRelatedRanking,
+    };
+
+    /// Long enough for a re-score round to store and raise, many times over.
+    const ROUND_WAIT: Duration = Duration::from_secs(10);
+
+    /// The tables the link verbs and the ranking name, with only the columns they read.
+    const LINK_TABLES_SQL: &str = "
+CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT);
+CREATE TABLE session_links (
+  source_session_id TEXT NOT NULL, target_session_id TEXT NOT NULL, kind TEXT NOT NULL,
+  use_count INTEGER NOT NULL, first_at TEXT NOT NULL, last_at TEXT NOT NULL,
+  UNIQUE (source_session_id, target_session_id, kind));
+CREATE TABLE session_related (
+  session_id TEXT NOT NULL, related_session_id TEXT NOT NULL, score REAL NOT NULL);";
+
+    /// The related sessions the next emission lists.
+    async fn next_related(feed: &mut Box<dyn EncodedFeed>, gate: &CreditGate) -> Vec<SessionId> {
+        let value = tokio::time::timeout(ROUND_WAIT, feed.next(gate))
+            .await
+            .expect("an emission comes")
+            .expect("the list reads")
+            .expect("the stream goes on");
+        let update: SessionRelatedListUpdate =
+            serde_json::from_slice(&value.json).expect("the emission reads as its type");
+        update
+            .related
+            .into_iter()
+            .map(|entry| entry.session_id)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_related_list_comes_whole_first_and_whole_again_after_a_rescore() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let (followed, linked) = (test_session_id(), test_session_id());
+        let reader = database.reader();
+        reader
+            .execute_batch(LINK_TABLES_SQL)
+            .expect("the link tables are made");
+        for session_id in [followed, linked] {
+            reader
+                .execute(
+                    "INSERT INTO sessions (id) VALUES (?1)",
+                    [session_id.text().as_str()],
+                )
+                .expect("the session is written");
+        }
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            RELATED_RANKING_STATEMENT_CAPACITY + SESSION_LINK_SERVICE_STATEMENT_CAPACITY,
+        ));
+        let ranking = Arc::new(SessionRelatedRanking::new(
+            Arc::clone(&reads),
+            Arc::clone(&log.writer),
+        ));
+        let rescoring = ranking.start(&log.followers);
+        let links = Arc::new(SessionLinkService::new(
+            reads,
+            Arc::clone(&log.writer),
+            Arc::clone(&ranking),
+        ));
+        let mut builder = MethodRegistryBuilder::new();
+        register_session_links(&mut builder, &links, &ranking).expect("the link methods register");
+        let registry = builder.freeze();
+        let subscribe = |session_id: SessionId| {
+            registry.dispatch(
+                request(
+                    SessionRelatedSessionSubscribe::DESCRIPTOR.method,
+                    Some(&json!({ "sessionId": session_id })),
+                ),
+                context(1),
+            )
+        };
+
+        let refused = subscribe(test_session_id()).await;
+        let Err(DispatchError::Refused(refusal)) = refused else {
+            panic!("a session the daemon does not hold is refused before anything opens");
+        };
+        assert_eq!(refusal.code, RefusalCode::SessionNotFound);
+
+        let Ok(Reply::Subscription { mut feed, .. }) = subscribe(followed).await else {
+            panic!("a held session's subscribe answers a subscription");
+        };
+        let gate = CreditGate::with_credit(1);
+        assert_eq!(
+            next_related(&mut feed, &gate).await,
+            Vec::<SessionId>::new()
+        );
+
+        let added: Result<Reply, DispatchError> = registry
+            .dispatch(
+                request(
+                    SessionLinkAdd::DESCRIPTOR.method,
+                    Some(&json!({ "sessionId": followed, "targetSessionId": linked })),
+                ),
+                context(1),
+            )
+            .await;
+        assert!(added.is_ok(), "the link is added");
+        assert_eq!(next_related(&mut feed, &gate).await, [linked]);
+
+        drop(feed);
+        rescoring.stop().await.expect("the re-scoring task ends");
+    }
+}
