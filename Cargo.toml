@@ -278,31 +278,11 @@ zstd = "0.14.2"
 
 # The JavaScript engines: QuickJS and the web APIs the bundled modules call, held at the commit
 # whose crates build against this exact engine release.
-llrt_abort = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
 llrt_buffer = {
   git = "https://github.com/awslabs/llrt",
   rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
 }
 llrt_crypto = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_exceptions = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_stream_web = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_timers = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_util = {
   git = "https://github.com/awslabs/llrt",
   rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
 }

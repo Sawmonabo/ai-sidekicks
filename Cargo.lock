@@ -4589,32 +4589,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "llrt_logging"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "itoa",
- "llrt_context",
- "llrt_encoding",
- "llrt_json",
- "llrt_numbers",
- "llrt_utils",
- "rquickjs",
- "ryu",
-]
-
-[[package]]
-name = "llrt_numbers"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "itoa",
- "llrt_utils",
- "rquickjs",
- "ryu",
-]
-
-[[package]]
 name = "llrt_stream_web"
 version = "0.9.0-beta"
 source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
@@ -4636,19 +4610,6 @@ dependencies = [
  "once_cell",
  "rquickjs",
  "tokio",
-]
-
-[[package]]
-name = "llrt_util"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "llrt_context",
- "llrt_encoding",
- "llrt_logging",
- "llrt_stream_web",
- "llrt_utils",
- "rquickjs",
 ]
 
 [[package]]
@@ -7775,13 +7736,8 @@ dependencies = [
  "jwt-simple",
  "lettre",
  "libsqlite3-sys",
- "llrt_abort",
  "llrt_buffer",
  "llrt_crypto",
- "llrt_exceptions",
- "llrt_stream_web",
- "llrt_timers",
- "llrt_util",
  "lru 0.18.5",
  "memchr",
  "minidumper",

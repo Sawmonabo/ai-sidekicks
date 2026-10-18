@@ -130,13 +130,8 @@ jwt-simple.workspace = true
 lettre.workspace = true
 # Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
 libsqlite3-sys.workspace = true
-llrt_abort.workspace = true
 llrt_buffer.workspace = true
 llrt_crypto.workspace = true
-llrt_exceptions.workspace = true
-llrt_stream_web.workspace = true
-llrt_timers.workspace = true
-llrt_util.workspace = true
 lru.workspace = true
 memchr.workspace = true
 minidumper.workspace = true
