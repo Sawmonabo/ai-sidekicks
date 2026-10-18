@@ -17,12 +17,12 @@
               attribute list, its job's creation and access list, the handles it inherits and \
               the wait for its exit), the user-namespace check's `unshare` and map writes, the \
               boot id's `sysctl`, the Windows host-name, free-room and file-information calls, \
-              the Windows replacing rename's `MoveFileExW`, the caller \
-              reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
-              checked process reads and responsible-process reads), macOS's code-signature \
-              checks, the start as its own responsible process (its thread count, its \
-              program's path, its marker's removal from the environment and the disclaiming exec), the socket pair a \
-              shell's start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
+              the Windows replacing rename's `MoveFileExW`, the caller reads (Linux's peer \
+              process descriptor and `pidfd_open`, macOS's audit token, checked process reads \
+              and responsible-process reads), macOS's code-signature checks, the start as its \
+              own responsible process (its thread count, its program's path, its marker's \
+              removal from the environment and the disclaiming exec), the socket pair a shell's \
+              start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
               memory and the measurement tests' footprint share, Windows' `OpenProcess` and \
               `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
@@ -57,6 +57,7 @@ mod pinned_process;
 mod posix;
 mod program_start;
 mod run_folder;
+mod running_program;
 mod shell_start;
 mod socket_listener;
 mod socket_path;
@@ -213,6 +214,7 @@ pub use posix::uptime::uptime_line;
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use program_start::{ProgramStart, program_start};
 pub use run_folder::{DaemonRunFolder, RunFolderRefused};
+pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(not(target_os = "macos"))]
 pub use shell_start::ShellStartConfirmation;
 pub use shell_start::{ShellStart, ShellStartError};

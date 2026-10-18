@@ -8421,6 +8421,7 @@ dependencies = [
  "security-framework",
  "serde",
  "serde_json",
+ "sidekicks-contracts",
  "sysinfo",
  "tempfile",
  "thiserror 2.0.21",

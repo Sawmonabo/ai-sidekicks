@@ -33,6 +33,7 @@ process-wrap = { workspace = true, features = ["creation-flags", "process-sessio
 regex.workspace = true
 secrecy.workspace = true
 serde.workspace = true
+sidekicks-contracts.workspace = true
 sysinfo.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
