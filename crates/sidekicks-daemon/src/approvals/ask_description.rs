@@ -258,6 +258,11 @@ mod tests {
         None,
         ApprovalCategory::DestructiveGit
     )]
+    #[case::one_command_not_read_whole(
+        r#"git push origin main "unterminated"#,
+        None,
+        ApprovalCategory::ToolExecution
+    )]
     #[case::whole_line(
         "git push origin main",
         Some("git push"),
