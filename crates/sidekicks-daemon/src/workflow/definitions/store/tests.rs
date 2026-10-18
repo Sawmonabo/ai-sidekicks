@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::builder::{
-    SavedWorkflowDraftUpdateRequest, WorkflowDraftUpdateRequest,
+    NewWorkflowDraftUpdateRequest, SavedWorkflowDraftUpdateRequest, WorkflowDraftUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowDocument, WorkflowVersionId,
@@ -201,6 +201,54 @@ async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
     assert_eq!(definition_name(&rows, weekly), "Weekly");
     let held = drafts.read(Some(weekly)).await.expect("the draft reads");
     assert!(held.draft.is_some(), "a refused save leaves its draft held");
+}
+
+/// A create from the builder's new-workflow draft clears that draft in its own write; a file
+/// import leaves it held, since the builder was not saving it. Mutations: drop the draft's clear
+/// from the create; clear it for every origin.
+#[tokio::test]
+async fn a_create_from_the_new_workflow_draft_clears_it_and_an_import_leaves_it() {
+    let database = TestDatabase::new();
+    let (store, drafts) = open_stores(&database).await;
+    let hold_new_draft = || async {
+        drafts
+            .update(&WorkflowDraftUpdateRequest::New(
+                NewWorkflowDraftUpdateRequest {
+                    definition_id: None,
+                    based_on_version_number: None,
+                    document: serde_json::from_value(document("Unsaved", "draft.md"))
+                        .expect("the test's draft reads"),
+                },
+            ))
+            .await
+            .expect("the draft is held");
+    };
+
+    hold_new_draft().await;
+    create_from(
+        &store,
+        "Imported",
+        "notes.md",
+        WorkflowCreateOrigin::FileImport {},
+    )
+    .await
+    .expect("the import commits");
+    let held = drafts.read(None).await.expect("the draft reads");
+    assert!(
+        held.draft.is_some(),
+        "an import leaves the new workflow's draft held"
+    );
+
+    create_from(
+        &store,
+        "Drafted",
+        "draft.md",
+        WorkflowCreateOrigin::NewWorkflowDraft {},
+    )
+    .await
+    .expect("the create commits");
+    let cleared = drafts.read(None).await.expect("the draft reads");
+    assert_eq!(cleared.draft, None);
 }
 
 fn definition_name(rows: &Connection, definition_id: WorkflowDefinitionId) -> String {
