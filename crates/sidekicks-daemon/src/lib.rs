@@ -19,7 +19,6 @@ pub(crate) mod helper_mode;
 pub mod highlight;
 pub mod interventions;
 pub mod ipc;
-pub mod issue_path;
 pub mod keyed_lock;
 pub mod mcp;
 pub mod missing_entry;

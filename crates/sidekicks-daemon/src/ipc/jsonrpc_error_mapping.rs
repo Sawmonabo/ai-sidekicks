@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::issue::{
-    ISSUE_PATH_SEGMENTS_MAX, ISSUES_MAX, Issue, IssuePathSegment, UNREADABLE_VALUE_ISSUE_MESSAGE,
+    ISSUE_PATH_SEGMENTS_MAX, Issue, IssuePathSegment, received_issues, rule_issues,
 };
 use sidekicks_contracts::jsonrpc::message::{
     JsonRpcError, JsonRpcErrorData, JsonRpcId, JsonRpcMessage, MessageError,
@@ -23,18 +23,12 @@ use sidekicks_contracts::jsonrpc::message::{
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::SessionEventCursorUnresolvable;
 use sidekicks_contracts::wire::AnyValue;
-use sidekicks_contracts::wire::attachment::ReceivedError;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
-use sidekicks_contracts::wire::record::{JsonRecord, Record};
-use sidekicks_contracts::workflow::definition::document::{
-    NODE_ID_DUPLICATE_MESSAGE, WorkflowNodeId,
-};
-use sidekicks_contracts::workflow::definition::refusals::WorkflowDefinitionFinding;
+use sidekicks_contracts::wire::record::Record;
 
 use crate::events::log_service::{EventLogFollowError, EventLogReadError};
 use crate::ipc::domain_error::{DomainError, refusal_fields};
 use crate::ipc::registry::{DispatchError, HandlerError};
-use crate::issue_path::resolve_issue_path;
 use crate::session::not_found::session_not_found;
 use crate::text_cut::cut_to_code_points;
 
@@ -174,26 +168,9 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
             Some(refusal_data(RefusalCode::RequestMethodNotFound, None)),
         ),
         DispatchError::ParamsInvalid(refusal) => {
-            let issues = match refusal {
-                ReceivedError::Check(check_error) => return internal_failure(&check_error),
-                ReceivedError::Json(_) => Vec::new(),
-                ReceivedError::Shape { faults } => faults
-                    .into_iter()
-                    .take(ISSUES_MAX)
-                    .map(|fault| {
-                        let message = format!("breaks the schema's \"{}\" rule", fault.keyword);
-                        issue(fault.path, &message, None)
-                    })
-                    .collect(),
-                ReceivedError::Read { path, .. } => {
-                    vec![issue(path, UNREADABLE_VALUE_ISSUE_MESSAGE, None)]
-                }
-                ReceivedError::Unreferenced { index } => vec![issue(
-                    Vec::new(),
-                    &format!("attachment {index} is named by no placeholder"),
-                    None,
-                )],
-                ReceivedError::Rule { report, received } => rule_issues(&report, &received),
+            let issues = match received_issues(refusal) {
+                Ok(issues) => issues.into_iter().map(capped_issue).collect(),
+                Err(check_error) => return internal_failure(&check_error),
             };
             json_rpc_error(
                 RefusalCode::RequestParamsInvalid.json_rpc_code(),
@@ -224,7 +201,10 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
                 error = &report as &(dyn Error + 'static),
                 "The daemon's answer breaks its contract"
             );
-            let issues = rule_issues(&report, &value);
+            let issues = rule_issues(&report, &value)
+                .into_iter()
+                .map(capped_issue)
+                .collect();
             json_rpc_error(
                 RefusalCode::RequestResultInvalid.json_rpc_code(),
                 &message,
@@ -244,50 +224,16 @@ fn internal_failure(fault: &(dyn Error + 'static)) -> JsonRpcError {
     json_rpc_error(JsonRpcErrorCode::InternalError, &fault.to_string(), None)
 }
 
-/// The first [`ISSUES_MAX`] broken rules of `report`, each at its path resolved against `checked`,
-/// the JSON the value was read from or written as, with garde's message; no path past them is
-/// resolved. A repeated workflow node id also carries its `nodeIdDuplicate` finding over the id
-/// at that path.
-fn rule_issues(report: &garde::Report, checked: &Value) -> Vec<Issue> {
-    report
-        .iter()
-        .take(ISSUES_MAX)
-        .map(|(check_path, rule_error)| {
-            let path = resolve_issue_path(check_path, checked);
-            let params = (rule_error.message() == NODE_ID_DUPLICATE_MESSAGE)
-                .then(|| node_id_duplicate_finding(&path, checked))
-                .flatten();
-            issue(path, rule_error.message(), params)
-        })
-        .collect()
-}
-
-/// The `nodeIdDuplicate` finding over the node id `checked` holds at `path`; `None` where the
-/// path stops short of the id.
-fn node_id_duplicate_finding(path: &[IssuePathSegment], checked: &Value) -> Option<JsonRecord> {
-    let node_id = path
-        .iter()
-        .try_fold(checked, |at, segment| match segment {
-            IssuePathSegment::Member(name) => at.get(name),
-            IssuePathSegment::Index(index) => at.get(usize::try_from(index.get()).ok()?),
-        })
-        .and_then(Value::as_str)
-        .and_then(|text| WorkflowNodeId::new(text.to_owned()))?;
-    let finding = WorkflowDefinitionFinding::NodeIdDuplicate {
-        node_ids: vec![node_id],
-    };
-    let members = refusal_fields(finding)
-        .into_iter()
-        .map(|(name, value)| (name, AnyValue(value)))
-        .collect();
-    Some(Record::new(members).expect("a finding has no member __proto__"))
-}
-
-/// One issue as the wire carries it: `path` cut before its first step past
+/// `issue` as the wire carries it: its path cut before its first step past
 /// [`ISSUE_PATH_SEGMENTS_MAX`], or a member name longer than [`FIELDS_VALUE_MAX_LEN`] or holding
 /// an absolute path, so it names an ancestor of the fault and holds the caps the sanitizer holds
-/// with no marker; `message` path-redacted and capped as a field is.
-fn issue(path: Vec<IssuePathSegment>, message: &str, params: Option<JsonRecord>) -> Issue {
+/// with no marker; its message path-redacted and capped as a field is.
+fn capped_issue(issue: Issue) -> Issue {
+    let Issue {
+        path,
+        message,
+        params,
+    } = issue;
     let path = path
         .into_iter()
         .take(ISSUE_PATH_SEGMENTS_MAX)
@@ -300,7 +246,7 @@ fn issue(path: Vec<IssuePathSegment>, message: &str, params: Option<JsonRecord>)
         .collect();
     Issue {
         path,
-        message: cap_text(redact_paths(message), FIELDS_VALUE_MAX_LEN),
+        message: cap_text(redact_paths(&message), FIELDS_VALUE_MAX_LEN),
         params,
     }
 }

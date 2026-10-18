@@ -7,19 +7,14 @@
 use std::collections::BTreeMap;
 
 use bytes::Bytes;
-use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
-use sidekicks_contracts::jsonrpc::issue::{
-    ISSUES_MAX, IssuePathSegment, UNREADABLE_VALUE_ISSUE_MESSAGE,
-};
+use sidekicks_contracts::jsonrpc::issue::{Issue, received_issues};
 use sidekicks_contracts::jsonrpc::message::{JsonRpcError, JsonRpcErrorData};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method::ProcedureType;
 use sidekicks_contracts::method_descriptor;
-use sidekicks_contracts::schema::ReceivedCheckError;
 use sidekicks_contracts::wire::AnyValue;
-use sidekicks_contracts::wire::attachment::ReceivedError;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 
@@ -53,7 +48,7 @@ pub fn checked_request(
     let params = RawValue::from_string(params_json)
         .map_err(|error| params_refusal(&method, &format!("are not JSON ({error})"), Vec::new()))?;
     if let Err(refused) = (descriptor.check_params)(params.get().as_bytes(), attachments.clone()) {
-        return Err(match params_issues(refused) {
+        return Err(match received_issues(refused) {
             Ok(issues) => params_refusal(&method, "break its contract", issues),
             Err(error) => internal_error(format!(
                 "The contract check of {method} could not be built: {error}"
@@ -64,37 +59,6 @@ pub fn checked_request(
         descriptor,
         params: Some(params),
         attachments,
-    })
-}
-
-/// The issues a refusal of received params names: each place and rule, never a value. A broken
-/// garde rule is named at the whole params, since its path is in the Rust type's names. Fails
-/// where the contract's check could not be built, which is no fault of the params.
-fn params_issues(refused: ReceivedError) -> Result<Vec<Value>, ReceivedCheckError> {
-    let issue = |path: Vec<IssuePathSegment>, message: String| serde_json::json!({ "path": path, "message": message });
-    Ok(match refused {
-        ReceivedError::Check(error) => return Err(error),
-        ReceivedError::Json(_) => Vec::new(),
-        ReceivedError::Shape { faults } => faults
-            .into_iter()
-            .take(ISSUES_MAX)
-            .map(|fault| {
-                let message = format!("breaks the schema's \"{}\" rule", fault.keyword);
-                issue(fault.path, message)
-            })
-            .collect(),
-        ReceivedError::Read { path, .. } => {
-            vec![issue(path, UNREADABLE_VALUE_ISSUE_MESSAGE.to_owned())]
-        }
-        ReceivedError::Unreferenced { index } => vec![issue(
-            Vec::new(),
-            format!("attachment {index} is named by no placeholder"),
-        )],
-        ReceivedError::Rule { report, .. } => report
-            .iter()
-            .take(ISSUES_MAX)
-            .map(|(_, rule)| issue(Vec::new(), rule.message().to_owned()))
-            .collect(),
     })
 }
 
@@ -123,8 +87,9 @@ pub fn wire_error(error: &ClientError) -> JsonRpcError {
     }
 }
 
-fn params_refusal(method: &str, what: &str, issues: Vec<Value>) -> JsonRpcError {
-    let fields = BTreeMap::from([("issues".to_owned(), AnyValue(Value::Array(issues)))]);
+fn params_refusal(method: &str, what: &str, issues: Vec<Issue>) -> JsonRpcError {
+    let issues = serde_json::to_value(issues).expect("an issue is plain text and lists");
+    let fields = BTreeMap::from([("issues".to_owned(), AnyValue(issues))]);
     refusal(
         RefusalCode::RequestParamsInvalid,
         format!("The params of {method} {what}"),
@@ -170,9 +135,13 @@ fn error_text(error: &ClientError) -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
     use super::checked_request;
+
+    /// A session id, which a session cannot be linked to itself under.
+    const SESSION_ID: &str = "0199f0a4-5c2e-7a3b-8c1d-2e3f4a5b6c7d";
 
     #[test]
     fn params_that_break_their_contract_are_refused_before_anything_is_sent() {
@@ -190,5 +159,29 @@ mod tests {
         let request = checked_request("daemon.ping".to_owned(), "{}".to_owned(), Vec::new(), false)
             .expect("empty params pass");
         assert_eq!(request.descriptor.method, "daemon.ping");
+    }
+
+    // The schema's rule against linking a session to itself compares two members, which the
+    // shape check leaves to garde, so only garde's step refuses it, at the member that breaks it.
+    #[test]
+    fn params_that_break_a_rule_only_garde_holds_are_refused_at_the_member() {
+        let params = json!({ "sessionId": SESSION_ID, "targetSessionId": SESSION_ID });
+        let refused = checked_request(
+            "session.link.add".to_owned(),
+            params.to_string(),
+            Vec::new(),
+            false,
+        )
+        .expect_err("a session is never linked to itself");
+        let data = refused.data.expect("a refusal carries its code");
+        assert_eq!(data.refusal, RefusalCode::RequestParamsInvalid.as_str());
+        let fields = serde_json::to_value(&data.fields).expect("the fields write as JSON");
+        assert_eq!(
+            fields["issues"],
+            json!([{
+                "path": ["targetSessionId"],
+                "message": "a session cannot be linked to itself",
+            }]),
+        );
     }
 }
