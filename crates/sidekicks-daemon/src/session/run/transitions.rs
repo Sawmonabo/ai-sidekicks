@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
-use sidekicks_contracts::transcript::run_facts::RunStateEventType;
+use sidekicks_contracts::transcript::run_facts::{RUN_STATE_EVENT_TYPES, RunStateEventType};
 use strum::VariantArray as _;
 
 use crate::database::sql_list::sql_list_of;
@@ -18,6 +18,18 @@ pub(crate) fn is_run_terminal_event_type(event_type: &str) -> bool {
 /// The terminal states as a SQL list of quoted words, for a `state IN (…)` condition.
 pub(crate) static RUN_TERMINAL_STATES_SQL: LazyLock<String> =
     LazyLock::new(|| sql_list_of(RUN_TERMINAL_STATES.map(<&'static str>::from)));
+
+/// The run terminal event types as a SQL list of quoted words, in the order the unique index on
+/// terminal records spells its predicate, so a read spelled the same way uses that index.
+pub(crate) static RUN_TERMINAL_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
+    let mut names: Vec<&'static str> = RUN_STATE_EVENT_TYPES
+        .iter()
+        .filter(|event_type| event_type.state().is_terminal())
+        .map(|event_type| event_type.session_event_type().as_str())
+        .collect();
+    names.sort_unstable();
+    sql_list_of(names)
+});
 
 /// The states from which a run may move to `to`, in the states' declared order.
 pub(crate) fn states_that_may_enter(to: RunStateChangeState) -> Vec<RunState> {

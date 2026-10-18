@@ -1,0 +1,445 @@
+//! How a run a restart left live ends when recovery cannot resume it: interrupted when the person
+//! had asked to stop it or it was a child held when the daemon went down, interrupted or stopped
+//! with its limit when the daemon itself was stopping it at one, left alone when it is queued
+//! behind a message still waiting to start it, failed otherwise. A run with an open turn ends that
+//! turn in the same write, as the daemon's own report.
+
+use std::borrow::Cow;
+use std::sync::LazyLock;
+
+use rusqlite::{Connection, OptionalExtension as _, named_params};
+use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::orchestration::InterruptReason;
+use sidekicks_contracts::run::control::StopTrigger;
+use sidekicks_contracts::run::events::{
+    AgentInterventionAppliedPayload, AgentInterventionAppliedState, DaemonInterventionActor,
+    InterventionActor, InterventionDeviceActor, TurnEndCause,
+};
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::{
+    InterruptInterventionRecord, InterventionId, InterventionState, InterventionType, RunLimit,
+};
+use sidekicks_contracts::run::state::RunState;
+
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::stored_column::{closed_word, optional_text_column, text_column};
+use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
+use crate::interventions::store::{
+    InterventionTransition, UnresolvedInterventionState, move_intervention_statement,
+};
+use crate::queue::store::QueueItemReader;
+use crate::session::run::read::LiveRun;
+use crate::session::run::state_change::RunStateChangeCompanions;
+
+// An interrupt that has no outcome yet, the person's or the daemon's own at a limit. An applied one
+// ends its run in the outcome's own write, so a live run never holds one.
+static SELECT_PENDING_INTERRUPT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id, state, device_id, payload FROM interventions
+  WHERE target_run_id = @run_id
+    AND type = '{}'
+    AND state IN ('{}', '{}')
+  LIMIT 1",
+        <&'static str>::from(InterventionType::Interrupt),
+        <&'static str>::from(InterventionState::Requested),
+        <&'static str>::from(InterventionState::Accepted)
+    )
+});
+
+/// An interrupt a restart found with no outcome: its row, the state it leaves, who asked, and its
+/// stored record, which says whether the daemon was stopping the run at a limit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingInterrupt {
+    /// The intervention.
+    pub(crate) intervention_id: InterventionId,
+    /// Where it stands.
+    pub(crate) state: UnresolvedInterventionState,
+    /// Who it is from: the device a person's came from, or the daemon for its own.
+    pub(crate) actor: InterventionActor,
+    /// Its stored record: a person's, or the daemon's own stop at a limit.
+    pub(crate) record: InterruptInterventionRecord,
+}
+
+/// What a restart reads of a live run to decide how it settles: its pending interrupt, and
+/// whether a message still waits in the queue for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RestartFacts {
+    /// The run's interrupt with no outcome yet, if one is.
+    pub(crate) pending_interrupt: Option<PendingInterrupt>,
+    /// Whether a queued message targets the run, which starts it when its queue reaches it.
+    pub(crate) has_queued_item: bool,
+}
+
+/// The end a restart gives a live run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RestartSettlement {
+    /// `interrupted`, with the daemon's own reason where the interrupt was its own.
+    Interrupted {
+        /// Why the daemon interrupted the run; `None` for a person's interrupt.
+        trigger: Option<InterruptReason>,
+    },
+    /// `stopped`, by the daemon at a limit.
+    Stopped {
+        /// Why the daemon stopped the run.
+        trigger: StopTrigger,
+    },
+    /// `failed`, by the restart.
+    Failed,
+}
+
+/// How a restart ends a run's open turn, in the run's own end write, reported by the daemon.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RestartTurnEnd {
+    /// `agent.turn.interrupted`, with why.
+    Interrupted {
+        /// Why the turn ended.
+        cause: TurnEndCause,
+    },
+    /// `agent.turn.failed`, with why.
+    Failed {
+        /// Why the turn ended.
+        cause: TurnEndCause,
+    },
+}
+
+/// How a restart settles one live run: its end, and the end its open turn takes where it has one.
+/// A queued run never started a turn, so its end carries none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RestartDecision {
+    /// The run's end.
+    pub(crate) settlement: RestartSettlement,
+    /// The end of the run's open turn; `None` where the run started none.
+    pub(crate) open_turn_end: Option<RestartTurnEnd>,
+}
+
+/// Reads what [`decide_restart_settlement`] needs of `run` on `reader`: a queued run's waiting
+/// messages, any other run's pending interrupt. Fails when SQLite refuses a read or a stored row
+/// does not read as its type, an interrupt's record among them.
+pub(crate) fn read_restart_facts(
+    reader: &Connection,
+    run: &LiveRun,
+) -> rusqlite::Result<RestartFacts> {
+    if run.run.state == RunState::Queued {
+        let has_queued_item = !QueueItemReader::new(reader)
+            .list_waiting_for_run(&run.run_id)?
+            .is_empty();
+        return Ok(RestartFacts {
+            pending_interrupt: None,
+            has_queued_item,
+        });
+    }
+    Ok(RestartFacts {
+        pending_interrupt: read_pending_interrupt(reader, &run.run_id)?,
+        has_queued_item: false,
+    })
+}
+
+/// Decides how `run` settles, or `None` for a run left as it is. A queued run is left while a
+/// message waits to start it and fails otherwise, since nothing else will; a pending interrupt
+/// settles by its limit, or as the person's own; a child held in a pause the restart orphaned reads
+/// interrupted and continues from its own box; any other run fails.
+pub(crate) fn decide_restart_settlement(
+    run: &LiveRun,
+    facts: &RestartFacts,
+) -> Option<RestartDecision> {
+    if run.run.state == RunState::Queued {
+        return (!facts.has_queued_item).then_some(RestartDecision {
+            settlement: RestartSettlement::Failed,
+            open_turn_end: None,
+        });
+    }
+    let interrupted_by_restart = RestartDecision {
+        settlement: RestartSettlement::Interrupted {
+            trigger: Some(InterruptReason::DaemonRestart),
+        },
+        open_turn_end: Some(RestartTurnEnd::Interrupted {
+            cause: TurnEndCause::DaemonRestart,
+        }),
+    };
+    if let Some(pending) = &facts.pending_interrupt {
+        return Some(match pending.record.limit() {
+            Some(RunLimit::StepLimit) => {
+                limit_interrupt(InterruptReason::StepLimit, TurnEndCause::StepLimit)
+            }
+            Some(RunLimit::SpendLimit) => {
+                limit_interrupt(InterruptReason::SpendLimit, TurnEndCause::SpendLimit)
+            }
+            Some(RunLimit::TokenLimit) => RestartDecision {
+                settlement: RestartSettlement::Stopped {
+                    trigger: StopTrigger::TokenLimit,
+                },
+                open_turn_end: Some(RestartTurnEnd::Interrupted {
+                    cause: TurnEndCause::TokenLimit,
+                }),
+            },
+            // The person's interrupt stays theirs: the run carries no trigger of the daemon's.
+            None => RestartDecision {
+                settlement: RestartSettlement::Interrupted { trigger: None },
+                ..interrupted_by_restart
+            },
+        });
+    }
+    if run.parent_run_id.is_some() && matches!(run.run.state, RunState::Paused | RunState::Pausing)
+    {
+        return Some(interrupted_by_restart);
+    }
+    Some(RestartDecision {
+        settlement: RestartSettlement::Failed,
+        open_turn_end: Some(RestartTurnEnd::Failed {
+            cause: TurnEndCause::DaemonRestart,
+        }),
+    })
+}
+
+// A run the daemon was interrupting at a step or spend limit, its turn cut by that limit.
+fn limit_interrupt(trigger: InterruptReason, cause: TurnEndCause) -> RestartDecision {
+    RestartDecision {
+        settlement: RestartSettlement::Interrupted {
+            trigger: Some(trigger),
+        },
+        open_turn_end: Some(RestartTurnEnd::Interrupted { cause }),
+    }
+}
+
+/// The interrupt of `run_id` that has no outcome yet, read on `reader`, or `None`. Fails when
+/// SQLite refuses the read or a stored column does not read as its type; a stored record that is
+/// neither a person's interrupt nor the daemon's at a limit fails it too.
+pub(crate) fn read_pending_interrupt(
+    reader: &Connection,
+    run_id: &RunId,
+) -> rusqlite::Result<Option<PendingInterrupt>> {
+    reader
+        .prepare_cached(&SELECT_PENDING_INTERRUPT_SQL)?
+        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+            Ok(PendingInterrupt {
+                intervention_id: text_column(row, 0, |text| InterventionId::new(&text))?,
+                state: text_column(row, 1, |text| {
+                    closed_word::<InterventionState>(text)
+                        .map_err(UnresolvedStateError::Unreadable)
+                        .and_then(unresolved_state)
+                })?,
+                // A row the daemon wrote for itself names no device.
+                actor: optional_text_column(row, 2, closed_word::<InterventionDeviceActor>)?
+                    .map_or(
+                        InterventionActor::Daemon(DaemonInterventionActor::Value),
+                        InterventionActor::Device,
+                    ),
+                record: text_column(row, 3, |text| {
+                    serde_json::from_str::<InterruptInterventionRecord>(&text)
+                })?,
+            })
+        })
+        .optional()
+}
+
+// Why a stored state is not one an interrupt leaves.
+#[derive(Debug, thiserror::Error)]
+enum UnresolvedStateError {
+    #[error("the stored state is not an intervention state")]
+    Unreadable(#[source] serde_json::Error),
+    #[error("an intervention in {} has an outcome", <&'static str>::from(*.0))]
+    Resolved(InterventionState),
+}
+
+// The read selects only the two states before an outcome; any other reads as a broken row.
+fn unresolved_state(
+    state: InterventionState,
+) -> Result<UnresolvedInterventionState, UnresolvedStateError> {
+    match state {
+        InterventionState::Requested => Ok(UnresolvedInterventionState::Requested),
+        InterventionState::Accepted => Ok(UnresolvedInterventionState::Accepted),
+        InterventionState::Applied
+        | InterventionState::Rejected
+        | InterventionState::Degraded
+        | InterventionState::Expired
+        | InterventionState::Failed => Err(UnresolvedStateError::Resolved(state)),
+    }
+}
+
+/// The statement that refuses a settle decided with no pending interrupt once one has appeared, so
+/// the settle never contradicts the person's last word.
+pub(crate) fn no_pending_interrupt_statement(run_id: &RunId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(SELECT_PENDING_INTERRUPT_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
+        expected_row_count: Some(0),
+    }
+}
+
+/// The pending interrupt of `run` moved to `applied`, with its event, for the write that ends the
+/// run. Fails when the event breaks a check of its type.
+pub(crate) fn applied_pending_interrupt_of(
+    run: &LiveRun,
+    pending_interrupt: &PendingInterrupt,
+) -> Result<RunStateChangeCompanions, SessionEventDraftError> {
+    let applied = AgentInterventionAppliedPayload {
+        session_id: run.run.session_id,
+        intervention_id: pending_interrupt.intervention_id,
+        target_run_id: run.run_id,
+        intervention_type: InterventionType::Interrupt,
+        state: AgentInterventionAppliedState::Value,
+        actor: pending_interrupt.actor.clone(),
+    };
+    Ok(RunStateChangeCompanions {
+        statements: vec![move_intervention_statement(
+            &pending_interrupt.intervention_id,
+            &InterventionTransition::Apply {
+                from: pending_interrupt.state,
+            },
+        )],
+        preceding_events: vec![SessionEventDraft::of_session(
+            run.run.session_id,
+            &SessionEvent::AgentInterventionApplied(applied),
+        )?],
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use sidekicks_contracts::orchestration::InterruptReason;
+    use sidekicks_contracts::run::control::StopTrigger;
+    use sidekicks_contracts::run::events::{
+        DaemonInterventionActor, InterventionActor, TurnEndCause,
+    };
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::intervention::{InterruptInterventionRecord, InterventionId};
+    use sidekicks_contracts::run::state::RunState;
+
+    use super::{
+        PendingInterrupt, RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
+        decide_restart_settlement,
+    };
+    use crate::database::writer::test_file::test_session_id;
+    use crate::interventions::store::UnresolvedInterventionState;
+    use crate::session::run::read::{LiveRun, RunRead};
+    use crate::uuid_v7::mint_uuid_v7;
+
+    fn ends(settlement: RestartSettlement, turn_end: RestartTurnEnd) -> Option<RestartDecision> {
+        Some(RestartDecision {
+            settlement,
+            open_turn_end: Some(turn_end),
+        })
+    }
+
+    fn interrupted(
+        trigger: Option<InterruptReason>,
+        cause: TurnEndCause,
+    ) -> Option<RestartDecision> {
+        ends(
+            RestartSettlement::Interrupted { trigger },
+            RestartTurnEnd::Interrupted { cause },
+        )
+    }
+
+    fn failed_with_its_turn() -> Option<RestartDecision> {
+        ends(
+            RestartSettlement::Failed,
+            RestartTurnEnd::Failed {
+                cause: TurnEndCause::DaemonRestart,
+            },
+        )
+    }
+
+    // Killed by leaving every queued run alone or failing one a message still waits to start
+    // (`queued_*`), by reading a limit from the person's reason text (`person_naming_step_limit`),
+    // by settling a limit stop as the person's or another limit's (`*_limit`), by dropping the
+    // held child's rule (`held_child_*`), and by giving a run the wrong turn end or none.
+    #[rstest]
+    #[case::queued_behind_a_message(RunState::Queued, false, None, true, None)]
+    #[case::queued_with_nothing_to_start_it(
+        RunState::Queued,
+        false,
+        None,
+        false,
+        Some(RestartDecision { settlement: RestartSettlement::Failed, open_turn_end: None })
+    )]
+    #[case::person_interrupt(
+        RunState::Running,
+        false,
+        Some(r#"{"pending":"nextTurn"}"#),
+        false,
+        interrupted(None, TurnEndCause::DaemonRestart)
+    )]
+    #[case::person_naming_step_limit(
+        RunState::Running,
+        false,
+        Some(r#"{"pending":"returnToDraft","reason":"stepLimit"}"#),
+        false,
+        interrupted(None, TurnEndCause::DaemonRestart)
+    )]
+    #[case::step_limit(
+        RunState::Running,
+        false,
+        Some(r#"{"limit":"stepLimit"}"#),
+        false,
+        interrupted(Some(InterruptReason::StepLimit), TurnEndCause::StepLimit)
+    )]
+    #[case::spend_limit(
+        RunState::WaitingForApproval,
+        false,
+        Some(r#"{"limit":"spendLimit"}"#),
+        false,
+        interrupted(Some(InterruptReason::SpendLimit), TurnEndCause::SpendLimit)
+    )]
+    #[case::token_limit(
+        RunState::Paused,
+        true,
+        Some(r#"{"limit":"tokenLimit"}"#),
+        false,
+        ends(
+            RestartSettlement::Stopped { trigger: StopTrigger::TokenLimit },
+            RestartTurnEnd::Interrupted { cause: TurnEndCause::TokenLimit },
+        )
+    )]
+    #[case::held_child_paused(
+        RunState::Paused,
+        true,
+        None,
+        false,
+        interrupted(Some(InterruptReason::DaemonRestart), TurnEndCause::DaemonRestart)
+    )]
+    #[case::held_child_pausing(
+        RunState::Pausing,
+        true,
+        None,
+        false,
+        interrupted(Some(InterruptReason::DaemonRestart), TurnEndCause::DaemonRestart)
+    )]
+    #[case::paused_lead(RunState::Paused, false, None, false, failed_with_its_turn())]
+    #[case::running_child(RunState::Running, true, None, false, failed_with_its_turn())]
+    #[case::running(RunState::Running, false, None, false, failed_with_its_turn())]
+    fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
+        #[case] state: RunState,
+        #[case] has_parent: bool,
+        #[case] pending_record: Option<&str>,
+        #[case] has_queued_item: bool,
+        #[case] expected: Option<RestartDecision>,
+    ) {
+        let run = LiveRun {
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+            run: RunRead {
+                version: 4,
+                session_id: test_session_id(),
+                state,
+            },
+            parent_run_id: has_parent
+                .then(|| RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")),
+            reached_by: None,
+        };
+        let pending_interrupt = pending_record.map(|record| PendingInterrupt {
+            intervention_id: InterventionId::try_from(mint_uuid_v7())
+                .expect("a minted UUID is an intervention id"),
+            state: UnresolvedInterventionState::Accepted,
+            actor: InterventionActor::Daemon(DaemonInterventionActor::Value),
+            record: serde_json::from_str::<InterruptInterventionRecord>(record)
+                .expect("the test's record reads as stored"),
+        });
+        let facts = RestartFacts {
+            pending_interrupt,
+            has_queued_item,
+        };
+
+        assert_eq!(decide_restart_settlement(&run, &facts), expected);
+    }
+}
