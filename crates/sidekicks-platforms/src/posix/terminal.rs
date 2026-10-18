@@ -231,7 +231,8 @@ const CHILD_KEY: usize = 1;
 
 /// What a terminal's read loop waits on: the terminal's output and input, the program's exit (its
 /// `SIGCHLD` pipe in `alacritty_terminal`), its waker and a deadline, all through one poller whose
-/// descriptor the runtime watches.
+/// descriptor the runtime watches. It ends through [`Self::release`]: dropped while its program
+/// runs, it drops the PTY in place, which blocks until the program exits.
 pub struct TerminalWatch {
     /// The PTY until its program is reaped; dropped right after the reap, since its drop sends a
     /// hangup to the program's id.
@@ -539,49 +540,6 @@ impl TerminalWatch {
                 error = &error as &(dyn Error + 'static),
                 "a terminal's watch could not be moved onto its master"
             );
-        }
-    }
-}
-
-impl Drop for TerminalWatch {
-    /// Hands a PTY still held, when the loop ended without its release, to a thread of its own,
-    /// since its release waits for the program; a drop on a runtime's worker never blocks.
-    fn drop(&mut self) {
-        let Some(mut pty) = self.pty.take() else {
-            return;
-        };
-        if let Err(error) = pty.deregister(self.poller.get_ref()) {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "a terminal's watch could not be undone"
-            );
-        }
-        // Held in a slot the thread takes from, so a thread that cannot start hands the PTY back
-        // rather than dropping it here, where its drop would wait for the program.
-        let slot = Arc::new(std::sync::Mutex::new(Some(pty)));
-        let thread_slot = Arc::clone(&slot);
-        let started = std::thread::Builder::new()
-            .name("terminal release".to_owned())
-            .spawn(move || {
-                let pty = thread_slot
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .take();
-                if let Some(pty) = pty {
-                    release_terminal(pty, || {});
-                }
-            });
-        if let Err(error) = started {
-            tracing::error!(
-                error = &error as &(dyn Error + 'static),
-                "a dropped terminal's release thread could not start, so its program is left \
-                 running"
-            );
-            let pty = slot
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take();
-            std::mem::forget(pty);
         }
     }
 }

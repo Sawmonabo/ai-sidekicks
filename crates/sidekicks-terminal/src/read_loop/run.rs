@@ -79,7 +79,7 @@ where
         let pty = lock_ignoring_poison(&pty_slot)
             .take()
             .expect("the slot holds the PTY until the loop takes it");
-        let mut watch = match TerminalWatch::new(pty, &self.control.waker, &self.input_refusal) {
+        let watch = match TerminalWatch::new(pty, &self.control.waker, &self.input_refusal) {
             Ok(watch) => watch,
             Err((error, pty)) => {
                 tracing::error!(
@@ -98,23 +98,24 @@ where
                 return;
             }
         };
-        match self.watch_child(&mut watch).await {
-            LoopEnd::ChildExited(status) => self.drain_to_exit(&mut watch, status).await,
+        // Released as it drops, at the loop's end or when the runtime drops the loop midway.
+        let mut held = HeldWatch {
+            watch: Some(watch),
+            name: self.name.clone(),
+            control: Arc::clone(&self.control),
+        };
+        let watch = held
+            .watch
+            .as_mut()
+            .expect("the watch is held until the loop ends");
+        match self.watch_child(watch).await {
+            LoopEnd::ChildExited(status) => self.drain_to_exit(watch, status).await,
             LoopEnd::WaitFailed => {
                 self.control.report_exit(TerminalExit::unconfirmed());
             }
         }
         // The report comes before the output's end, so the caller reads it once the output ends.
         self.end_output();
-        let control = Arc::clone(&self.control);
-        if control.has_child_exited() {
-            watch.release(|| control.mark_exited());
-        } else {
-            release_off_runtime(
-                &self.name,
-                Box::new(move || watch.release(|| control.mark_exited())),
-            );
-        }
     }
 
     /// Reads, writes and serves commands until the program exits or a read or the wait fails.
@@ -396,6 +397,32 @@ where
         self.control
             .is_waiting_for_room
             .store(false, Ordering::SeqCst);
+    }
+}
+
+/// The loop's watch, released as it drops: in place once the program was reaped, otherwise on a
+/// thread of its own, since the release waits for the program; so a loop the runtime drops midway
+/// still ends its program without blocking a worker.
+struct HeldWatch {
+    watch: Option<TerminalWatch>,
+    name: String,
+    control: Arc<TerminalControl>,
+}
+
+impl Drop for HeldWatch {
+    fn drop(&mut self) {
+        let Some(watch) = self.watch.take() else {
+            return;
+        };
+        let control = Arc::clone(&self.control);
+        if control.has_child_exited() {
+            watch.release(|| control.mark_exited());
+        } else {
+            release_off_runtime(
+                &self.name,
+                Box::new(move || watch.release(|| control.mark_exited())),
+            );
+        }
     }
 }
 

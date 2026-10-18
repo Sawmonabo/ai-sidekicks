@@ -146,7 +146,8 @@ where
 }
 
 /// Runs `release` on a thread of its own, since it may wait for a program that has not exited;
-/// when no thread can start, the runtime's blocking pool runs it, never one of its workers.
+/// when no thread can start, it runs here, its wait bounded by the release's own grace and kill,
+/// so the program still ends and nothing is left held.
 pub(super) fn release_off_runtime(name: &str, release: Release) {
     let slot = Arc::new(Mutex::new(Some(release)));
     let thread_slot = Arc::clone(&slot);
@@ -157,9 +158,9 @@ pub(super) fn release_off_runtime(name: &str, release: Release) {
         tracing::warn!(
             error = &error as &(dyn Error + 'static),
             terminal = name,
-            "a terminal's release thread could not start, so the blocking pool releases it"
+            "a terminal's release thread could not start, so the release runs in place"
         );
-        tokio::task::spawn_blocking(move || run_release(&slot));
+        run_release(&slot);
     }
 }
 
