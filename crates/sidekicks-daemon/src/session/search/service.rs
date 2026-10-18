@@ -570,3 +570,186 @@ fn page_hit_of(hit_line: HitLine) -> Result<PageHit, EventCursorPositionOutOfRan
         },
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::{Arc, mpsc};
+    use std::thread;
+    use std::time::{Duration, Instant, SystemTime};
+
+    use rusqlite::Connection;
+    use sidekicks_contracts::session::methods::{
+        SessionSearchCursor, SessionSearchLimit, SessionSearchRequest, SessionSearchResponse,
+    };
+    use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_search::index::SearchIndex;
+    use tempfile::TempDir;
+
+    use super::{SessionSearchError, SessionSearchService};
+    use crate::session::search::cursor::decode_search_cursor;
+    use crate::session::search::index::outbox::OutboxReader;
+    use crate::session::search::index::rebuild::{
+        SearchIndexOpening, build_search_index, open_search_index,
+    };
+    use crate::session::search::index::rows::IndexRowReader;
+    use crate::session::search::index::schema::{add_titled_session, make_search_source_tables};
+    use crate::session::search::snapshots::SearchSnapshot;
+
+    // How long a page the test expects is waited for before the test fails.
+    const PAGE_BOUND: Duration = Duration::from_secs(30);
+
+    // Titled sessions in a database file, their index, and the service paging them; each page
+    // reads on a connection of its own, as the read pool lends one to each search.
+    struct HeldSearches {
+        folder: TempDir,
+        index: SearchIndex,
+        service: SessionSearchService,
+    }
+
+    impl HeldSearches {
+        async fn open() -> Arc<Self> {
+            let folder = tempfile::tempdir().expect("the test makes a temporary folder");
+            let connection =
+                Connection::open(folder.path().join("daemon.db")).expect("the database opens");
+            make_search_source_tables(&connection);
+            for number in 1..=3 {
+                add_titled_session(
+                    &connection,
+                    &format!("0190a5a0-0000-7000-8000-00000000000{number}"),
+                );
+            }
+            let highest_id_given = OutboxReader::new(&connection)
+                .highest_id_given()
+                .expect("the outbox's highest id reads");
+            let index_folder = folder.path().join("search-index");
+            build_search_index(
+                &index_folder,
+                &IndexRowReader::new(&connection),
+                highest_id_given,
+            )
+            .expect("the index is built");
+            let SearchIndexOpening::Opened(index) =
+                open_search_index(index_folder, highest_id_given)
+                    .await
+                    .expect("the index opens")
+            else {
+                panic!("a built index serves");
+            };
+            Arc::new(Self {
+                folder,
+                index: *index,
+                service: SessionSearchService::new(),
+            })
+        }
+
+        fn database_path(&self) -> PathBuf {
+            self.folder.path().join("daemon.db")
+        }
+
+        // One page of `query`, a hit a page, from `after_cursor` when it is given.
+        fn page(
+            &self,
+            query: &str,
+            after_cursor: Option<SessionSearchCursor>,
+        ) -> Result<SessionSearchResponse, SessionSearchError> {
+            let reader = Connection::open(self.database_path()).expect("the database opens");
+            let request = SessionSearchRequest {
+                query: FreeFormText::new(query.to_owned()).expect("a query"),
+                after_cursor,
+                limit: Some(SessionSearchLimit::new(1).expect("a limit")),
+            };
+            self.service
+                .search(&reader, &self.index, &request, 0, SystemTime::now())
+        }
+
+        // A first page of `query`, whose search is held, and the cursor that continues it.
+        fn held_search(&self, query: &str) -> (Arc<SearchSnapshot>, SessionSearchCursor) {
+            let page = match self.page(query, None) {
+                Ok(SessionSearchResponse::Continuing(page)) => page,
+                other => panic!("a hit a page over three sessions continues: {other:?}"),
+            };
+            let snapshot_id = decode_search_cursor(&page.next_cursor)
+                .expect("the cursor reads")
+                .snapshot_id;
+            let snapshot = self
+                .service
+                .snapshots
+                .find(&snapshot_id, SystemTime::now())
+                .expect("the search is held");
+            (snapshot, page.next_cursor)
+        }
+
+        // Pages `query` from `cursor` on a thread of its own, sending its answer.
+        fn page_on_a_thread(
+            self: &Arc<Self>,
+            query: &'static str,
+            cursor: SessionSearchCursor,
+            answers: mpsc::Sender<Result<SessionSearchResponse, SessionSearchError>>,
+        ) {
+            let searches = Arc::clone(self);
+            thread::spawn(move || {
+                answers
+                    .send(searches.page(query, Some(cursor)))
+                    .expect("the test waits for the answer");
+            });
+        }
+    }
+
+    #[tokio::test]
+    async fn a_page_of_one_held_search_never_waits_on_another_s_page() {
+        let searches = HeldSearches::open().await;
+        let (first, _) = searches.held_search("billing");
+        let (_, second_cursor) = searches.held_search("fix");
+        // A page of the first search under way.
+        let first_view = first.lock_view();
+        let (answers, answered) = mpsc::channel();
+
+        searches.page_on_a_thread("fix", second_cursor, answers);
+
+        let answer = answered
+            .recv_timeout(PAGE_BOUND)
+            .expect("the second search pages while the first's page reads");
+        assert!(
+            answer.is_ok(),
+            "the second search's page answers: {answer:?}"
+        );
+        drop(first_view);
+    }
+
+    #[tokio::test]
+    async fn two_pages_of_one_held_search_read_at_once() {
+        let searches = HeldSearches::open().await;
+        let (held, cursor) = searches.held_search("billing");
+        // Holds both pages at the view, past the lookup that finds their search.
+        let view = held.lock_view();
+        let (answers, answered) = mpsc::channel();
+
+        searches.page_on_a_thread("billing", cursor.clone(), answers.clone());
+        searches.page_on_a_thread("billing", cursor, answers);
+        // The test's, the held set's and each page's hold on the search; a page that does not find
+        // its search answers at once instead.
+        let deadline = Instant::now() + PAGE_BOUND;
+        let mut early = Vec::new();
+        while Arc::strong_count(&held) < 4 && early.is_empty() && Instant::now() < deadline {
+            early.extend(answered.try_recv());
+            thread::sleep(Duration::from_millis(1));
+        }
+        drop(view);
+        let mut pages = early;
+        while pages.len() < 2 {
+            pages.push(
+                answered
+                    .recv_timeout(PAGE_BOUND)
+                    .expect("each page answers once the view is free"),
+            );
+        }
+
+        for page in pages {
+            assert!(
+                matches!(page, Ok(SessionSearchResponse::Continuing(_))),
+                "both pages of the held search answer its next page: {page:?}"
+            );
+        }
+    }
+}
