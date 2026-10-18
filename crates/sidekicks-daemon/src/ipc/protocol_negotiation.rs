@@ -10,7 +10,9 @@
 //! when its caller is the desktop's signed client; any other latches the connection refused. Each
 //! connection's first handshake decides it: a handshake sent while the first's caller check runs
 //! waits for that outcome and gets it, so a wrong token followed by the right one is refused, and a
-//! repeated or hostile handshake cannot flip the gate.
+//! repeated or hostile handshake cannot flip the gate. A repeat on an admitted connection is
+//! answered only when it carries the token, or none on a connection its caller's signature
+//! admitted; any other is refused `auth.token.invalid` and changes nothing latched.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -140,7 +142,7 @@ enum LatchedHandshake {
 }
 
 /// How a connection's first handshake was admitted.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Admission {
     /// By the caller's signature, without a token.
     Signature,
@@ -195,8 +197,8 @@ enum ConnectionNegotiation {
 enum HandshakeTurn {
     /// The handshake that latched it.
     First(LatchedHandshake),
-    /// A later handshake, which finds the first latched.
-    Repeat(LatchedHandshake),
+    /// A later handshake, which finds the first latched, and how the first was admitted.
+    Repeat(LatchedHandshake, Admission),
 }
 
 /// A handshake the daemon could not answer: a fault, never the client's.
@@ -244,9 +246,8 @@ impl ProtocolNegotiator {
     /// Registers the `connection.initialize` of a service still repairing its database file: a
     /// handshake the negotiator admits is refused `daemon.repairing` with the progress
     /// `read_progress` reads, every time, and latches the handshake as any handshake does, so the
-    /// gate lets that connection's lifecycle calls through; a repeat is admitted as the first was,
-    /// by the caller's signature or by the token, and any other handshake is refused as a first
-    /// one is.
+    /// gate lets that connection's lifecycle calls through; a repeat's token is checked as on the
+    /// normal handshake.
     pub(crate) fn register_repairing_handshake(
         self: &Arc<Self>,
         registry: &mut MethodRegistryBuilder,
@@ -316,10 +317,7 @@ impl ProtocolNegotiator {
     ) -> Result<ConnectionInitializeResponse, HandlerError> {
         // Read before anything latches, so a connection wired with no device latches nothing.
         let device_id = context.calling_device(CONNECTION_INITIALIZE_METHOD)?;
-        let turn = match self.latched(context.transport_id) {
-            Some((handshake, _)) => HandshakeTurn::Repeat(handshake),
-            None => self.latch_handshake(&request, &context).await?,
-        };
+        let turn = self.take_turn(&request, &context).await?;
         Ok(acknowledgment(turn, device_id))
     }
 
@@ -329,24 +327,7 @@ impl ProtocolNegotiator {
         context: HandlerContext,
         read_progress: RepairProgressReader,
     ) -> Result<ConnectionInitializeResponse, HandlerError> {
-        let is_repeat = match self.latched(context.transport_id) {
-            None => matches!(
-                self.latch_handshake(&request, &context).await?,
-                HandshakeTurn::Repeat(_)
-            ),
-            Some(_) => true,
-        };
-        // A repeat on a connection its token admitted carries that token, whether it came before
-        // or during the first handshake's caller read.
-        if is_repeat
-            && matches!(
-                self.latched(context.transport_id),
-                Some((_, Admission::Token))
-            )
-            && !self.is_session_token(request.session_token.as_ref())
-        {
-            return Err(ConnectionRefusal::TokenInvalid.error().into());
-        }
+        self.take_turn(&request, &context).await?;
         // A handshake always fails, so a client keeps waiting for the repair to end.
         Err(
             DomainError::new(REPAIRING_MESSAGE, RefusalCode::DaemonRepairing)
@@ -355,6 +336,29 @@ impl ProtocolNegotiator {
                 })
                 .into(),
         )
+    }
+
+    /// Which handshake on its connection `request` is: the first, which latches it, or a repeat,
+    /// whether it came before or during the first's caller read. A repeat that carries a wrong
+    /// token, or none on a connection the token admitted, is refused `auth.token.invalid`, and
+    /// what is latched stays.
+    async fn take_turn(
+        &self,
+        request: &ConnectionInitializeRequest,
+        context: &HandlerContext,
+    ) -> Result<HandshakeTurn, HandlerError> {
+        let turn = match self.latched(context.transport_id) {
+            Some((handshake, admission)) => HandshakeTurn::Repeat(handshake, admission),
+            None => self.latch_handshake(request, context).await?,
+        };
+        if let HandshakeTurn::Repeat(_, admission) = turn {
+            let is_tokenless_signature =
+                request.session_token.is_none() && admission == Admission::Signature;
+            if !is_tokenless_signature && !self.is_session_token(request.session_token.as_ref()) {
+                return Err(ConnectionRefusal::TokenInvalid.error().into());
+            }
+        }
+        Ok(turn)
     }
 
     /// Refuses a handshake from a caller the daemon refuses or the system could not name, then one
@@ -380,8 +384,8 @@ impl ProtocolNegotiator {
                 Some(ConnectionNegotiation::Refused(refusal)) => {
                     return Err(refusal.error().into());
                 }
-                Some(ConnectionNegotiation::Latched(handshake, _)) => {
-                    return Ok(HandshakeTurn::Repeat(handshake.clone()));
+                Some(ConnectionNegotiation::Latched(handshake, admission)) => {
+                    return Ok(HandshakeTurn::Repeat(handshake.clone(), *admission));
                 }
                 Some(ConnectionNegotiation::ReadingCaller(caller_read, first)) => {
                     (caller_read.clone(), first.clone(), false)
@@ -411,11 +415,11 @@ impl ProtocolNegotiator {
         let caller_admission = caller_read
             .await
             .map_err(|error| HandlerError::Internal(Box::new(CallerReadFault(error))))?;
-        let turn = |handshake: LatchedHandshake| {
+        let turn = |handshake: LatchedHandshake, admission: Admission| {
             if is_first {
                 HandshakeTurn::First(handshake)
             } else {
-                HandshakeTurn::Repeat(handshake)
+                HandshakeTurn::Repeat(handshake, admission)
             }
         };
         let mut connections = self.connections();
@@ -427,7 +431,9 @@ impl ProtocolNegotiator {
             }
             Some(ConnectionNegotiation::Refused(refusal)) => Err(refusal.error().into()),
             // Latched by a handshake that woke first, from the same first handshake.
-            Some(ConnectionNegotiation::Latched(handshake, _)) => Ok(turn(handshake.clone())),
+            Some(ConnectionNegotiation::Latched(handshake, admission)) => {
+                Ok(turn(handshake.clone(), *admission))
+            }
             Some(ConnectionNegotiation::ReadingCaller(..)) => {
                 match first.outcome(caller_admission) {
                     Ok((handshake, admission)) => {
@@ -435,7 +441,7 @@ impl ProtocolNegotiator {
                             transport,
                             ConnectionNegotiation::Latched(handshake.clone(), admission),
                         );
-                        Ok(turn(handshake))
+                        Ok(turn(handshake, admission))
                     }
                     Err(refusal) => {
                         connections.insert(transport, ConnectionNegotiation::Refused(refusal));
@@ -563,6 +569,7 @@ fn acknowledgment(turn: HandshakeTurn, device_id: DeviceId) -> ConnectionInitial
                 daemon_newest: version,
                 ..
             },
+            _,
         ) => (
             false,
             version,

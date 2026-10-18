@@ -239,29 +239,52 @@ async fn the_gate_and_the_handshake_answer_each_connection_state(
 }
 
 #[rstest]
-#[case::signed_client_repeats_without_a_token(CallerAdmission::Signature, None)]
-#[case::token_holder_repeats_with_it(CallerAdmission::TokenRequired, TOKEN)]
+#[case::signed_client(false, CallerAdmission::Signature, None)]
+#[case::token_holder(false, CallerAdmission::TokenRequired, TOKEN)]
+#[case::signed_client_while_repairing(true, CallerAdmission::Signature, None)]
+#[case::token_holder_while_repairing(true, CallerAdmission::TokenRequired, TOKEN)]
 #[tokio::test]
-async fn a_repairing_service_answers_a_repeat_as_it_admitted_the_first(
+async fn a_repeat_is_answered_only_with_the_token_or_none_as_its_connection_was_admitted(
+    #[case] is_repairing: bool,
     #[case] admission: CallerAdmission,
     #[case] token: Option<&'static str>,
 ) {
-    let gate = gate_over(admitting(admission), true);
-    let repairing = Answer::Refused(RefusalCode::DaemonRepairing);
+    let gate = gate_over(admitting(admission), is_repairing);
+    let (first, repeat) = if is_repairing {
+        let repairing = Answer::Refused(RefusalCode::DaemonRepairing);
+        (repairing, repairing)
+    } else {
+        (
+            Answer::Ack(true, None),
+            Answer::Ack(
+                false,
+                Some(NegotiationIncompatibleReason::HandshakeAlreadyCompleted),
+            ),
+        )
+    };
+    let refused = Answer::Refused(RefusalCode::AuthTokenInvalid);
+    // The token is answered on every connection, no token only on one its signature admitted.
+    let (other_token, other_answer) = if token.is_none() {
+        (TOKEN, repeat)
+    } else {
+        (None, refused)
+    };
     expect_answers(
         &gate,
         true,
         &[
-            (Call::Handshake(token, CURRENT_PROTOCOL_VERSION), repairing),
-            (Call::Handshake(token, CURRENT_PROTOCOL_VERSION), repairing),
+            (Call::Handshake(token, CURRENT_PROTOCOL_VERSION), first),
+            (Call::Handshake(token, CURRENT_PROTOCOL_VERSION), repeat),
             (
                 Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION),
-                if token.is_none() {
-                    repairing
-                } else {
-                    Answer::Refused(RefusalCode::AuthTokenInvalid)
-                },
+                refused,
             ),
+            (
+                Call::Handshake(other_token, CURRENT_PROTOCOL_VERSION),
+                other_answer,
+            ),
+            // A refused repeat leaves the connection as it was latched.
+            (Call::Read, Answer::Served),
         ],
     )
     .await;
