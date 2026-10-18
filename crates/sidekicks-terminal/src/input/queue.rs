@@ -211,7 +211,7 @@ struct PendingWrite {
     written: usize,
     answer: Option<WriteAnswer>,
     /// Held until the write leaves the queue; dropped with it.
-    _answer_bytes: Option<AnswerBytes>,
+    answer_bytes: Option<AnswerBytes>,
     signal_key: Option<Arc<SignalKeyClaim>>,
 }
 
@@ -307,7 +307,7 @@ impl WriteQueue {
             bytes,
             written: 0,
             answer: written,
-            _answer_bytes: answer_bytes,
+            answer_bytes,
             signal_key,
         });
     }
@@ -334,6 +334,9 @@ impl WriteQueue {
         }
         if let Some(claim) = &head.signal_key {
             claim.mark_written();
+        }
+        if let Some(answer_bytes) = &head.answer_bytes {
+            answer_bytes.count_written();
         }
         if let Some(answer) = head.answer {
             answer_write(answer, Ok(()));

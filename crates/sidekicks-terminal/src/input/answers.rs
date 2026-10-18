@@ -17,7 +17,8 @@ use crate::input::queue::{QueuedWrite, WriteIntake};
 /// The most bytes of the screen copy's answers one shell holds before the terminal has written
 /// them; an answer past it is dropped, so a program that asks without reading its input cannot
 /// grow the intake, and answers a caller holds back for a while keep to the same bound. It is also
-/// how many answer bytes the terminal writes between two readings of a console's waiting input.
+/// how many answer bytes, written or dropped, come between two readings of a console's waiting
+/// input.
 pub const ANSWER_BYTES_LIMIT: usize = 64 * 1024;
 
 /// Reads how many input events wait unread on a shell's console, through the console helper;
@@ -25,15 +26,16 @@ pub const ANSWER_BYTES_LIMIT: usize = 64 * 1024;
 pub(crate) type ConsoleInputRead =
     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = io::Result<u32>> + Send>> + Send + Sync>;
 
-/// A shell's console, read after each [`ANSWER_BYTES_LIMIT`] of answers written: while its
-/// waiting input count has not fallen since the reading before, the program reads none of its
-/// input, so newer answers are dropped. A dropped answer asks for a new reading, so the answers
-/// start again once the count falls.
+/// A shell's console, read once after each [`ANSWER_BYTES_LIMIT`] of answers written or dropped:
+/// while its waiting input count has not fallen since the reading before, the program reads none
+/// of its input, so newer answers are dropped. Dropped answers count toward the next reading like
+/// written ones, so the answers start again once a reading finds the count fallen, and a program
+/// that keeps asking costs one reading per bound of its answers, never one per answer.
 struct ConsoleInputWatch {
     read: ConsoleInputRead,
     runtime: Handle,
-    /// The answer bytes written since the last reading was asked for.
-    written_since_reading: AtomicUsize,
+    /// The answer bytes written or dropped since the last reading was asked for.
+    answered_since_reading: AtomicUsize,
     /// Set while a reading runs, so at most one runs at a time.
     is_reading: AtomicBool,
     /// The last count read, which the next reading is weighed against.
@@ -74,15 +76,20 @@ impl ConsoleInputWatch {
         });
     }
 
-    /// Counts `length` answer bytes written, asking for a reading after each
+    /// Counts `length` answer bytes written or dropped, asking for a reading after each
     /// [`ANSWER_BYTES_LIMIT`].
-    fn count_written(self: &Arc<Self>, length: usize) {
-        let written = self
-            .written_since_reading
-            .fetch_add(length, Ordering::SeqCst)
-            + length;
-        if written >= ANSWER_BYTES_LIMIT {
-            self.written_since_reading.store(0, Ordering::SeqCst);
+    fn count_answered(self: &Arc<Self>, length: usize) {
+        let before =
+            self.answered_since_reading
+                .update(Ordering::SeqCst, Ordering::SeqCst, |answered| {
+                    let answered = answered + length;
+                    if answered >= ANSWER_BYTES_LIMIT {
+                        0
+                    } else {
+                        answered
+                    }
+                });
+        if before + length >= ANSWER_BYTES_LIMIT {
             self.ask_for_reading();
         }
     }
@@ -103,14 +110,21 @@ pub(crate) struct AnswerBytes {
     length: usize,
 }
 
+impl AnswerBytes {
+    /// Counts the answer as written toward the console's next reading; an answer refused with a
+    /// failed write or the terminal's stop counts toward none.
+    pub(crate) fn count_written(&self) {
+        if let Some(console) = &self.count.console {
+            console.count_answered(self.length);
+        }
+    }
+}
+
 impl Drop for AnswerBytes {
     fn drop(&mut self) {
         let before = self.count.bytes.fetch_sub(self.length, Ordering::SeqCst);
         if before == self.length {
             self.count.has_logged_drop.store(false, Ordering::SeqCst);
-        }
-        if let Some(console) = &self.count.console {
-            console.count_written(self.length);
         }
     }
 }
@@ -126,7 +140,7 @@ pub struct TerminalAnswers {
 
 impl TerminalAnswers {
     /// Answers handed into `intake`, none yet waiting; with `console_read`, the shell's console is
-    /// read on `runtime` after each [`ANSWER_BYTES_LIMIT`] of answers written.
+    /// read on `runtime` after each [`ANSWER_BYTES_LIMIT`] of answers written or dropped.
     pub(crate) fn new(
         intake: WriteIntake,
         console_read: Option<ConsoleInputRead>,
@@ -141,7 +155,7 @@ impl TerminalAnswers {
                     Arc::new(ConsoleInputWatch {
                         read,
                         runtime: runtime.clone(),
-                        written_since_reading: AtomicUsize::new(0),
+                        answered_since_reading: AtomicUsize::new(0),
                         is_reading: AtomicBool::new(false),
                         last_count: Mutex::new(None),
                         is_input_stalled: AtomicBool::new(false),
@@ -154,7 +168,8 @@ impl TerminalAnswers {
     /// Queues `answer` for the program behind every earlier write, unless the answers not yet
     /// written would pass [`ANSWER_BYTES_LIMIT`] or the shell's console shows its program reading
     /// none of its input: then it is dropped, logged once until every answer waiting has been
-    /// written. Nothing is queued once the terminal has closed.
+    /// written, and counted toward the console's next reading. Nothing is queued once the terminal
+    /// has closed.
     pub fn queue(&self, answer: Bytes) {
         if answer.is_empty() {
             return;
@@ -178,8 +193,8 @@ impl TerminalAnswers {
                     "a program asked its terminal more than it read, so later answers are dropped"
                 );
             }
-            if is_input_stalled && let Some(console) = console {
-                console.ask_for_reading();
+            if let Some(console) = console {
+                console.count_answered(length);
             }
             return;
         }
@@ -301,30 +316,58 @@ mod tests {
                 .expect("the test reads no more counts than it holds");
             Box::pin(async move { Ok(count) })
         });
+        let readings_left = || counts.lock().expect("no test panicked").len();
         let (intake, mut receiver) = mpsc::unbounded_channel();
         let answers = TerminalAnswers::new(intake, Some(console_read), &Handle::current());
         let answer = Bytes::from_static(ANSWER);
-        let fitting = ANSWER_BYTES_LIMIT.div_ceil(answer.len());
-        let mut queue = WriteQueue::new();
+        let fitting = ANSWER_BYTES_LIMIT / answer.len();
+
+        // Answers refused by the terminal's stop count toward no reading.
+        let mut stopped = WriteQueue::new();
+        answers.queue(answer.clone());
+        write_everything(&mut stopped, &mut receiver);
+        for _ in 0..fitting {
+            answers.queue(answer.clone());
+        }
+        stopped.take_from(&mut receiver);
+        stopped.close();
+        assert_eq!(readings_left(), 3, "a stop's answers ask for no reading");
 
         // Two bounds of answers written: two readings, the second finding the count not fallen.
+        let mut queue = WriteQueue::new();
         for _ in 0..2 {
-            for _ in 0..fitting {
+            for _ in 0..=fitting {
                 answers.queue(answer.clone());
                 write_everything(&mut queue, &mut receiver);
             }
             reading_done(&answers).await;
         }
-        answers.queue(answer.clone());
+        assert_eq!(readings_left(), 1);
+
+        // A program that keeps asking while its input has stalled: its answers drop, and a
+        // thousand of them start no reading of their own.
+        for _ in 0..1_000 {
+            answers.queue(answer.clone());
+        }
         assert!(
             write_everything(&mut queue, &mut receiver).is_empty(),
             "an answer while the console's input has stalled is dropped"
         );
+        assert_eq!(readings_left(), 1, "dropped answers start no reading each");
 
-        // The drop asked for a reading, which finds the count fallen: answers flow again.
+        // The drops that complete a bound ask for one reading, which finds the count fallen.
+        let mut dropped = 1_000;
+        while readings_left() == 1 && dropped <= fitting {
+            answers.queue(answer.clone());
+            dropped += 1;
+        }
+        assert_eq!(
+            readings_left(),
+            0,
+            "a bound of dropped answers asks for one reading"
+        );
         reading_done(&answers).await;
         answers.queue(answer.clone());
         assert_eq!(write_everything(&mut queue, &mut receiver), ANSWER);
-        assert!(counts.lock().expect("no test panicked").is_empty());
     }
 }
