@@ -129,14 +129,5 @@ fn seed_owner(connection: &Connection, session_id: &str, run_id: &str) -> rusqli
 
 /// The refusal code `failure` carries, or `None` for a fault that is no refusal.
 pub(crate) fn refusal_code_of(failure: &ArtifactError) -> Option<RefusalCode> {
-    match failure {
-        ArtifactError::Refused(refusal) => Some(refusal.code),
-        ArtifactError::Disk(_)
-        | ArtifactError::Interrupted(_)
-        | ArtifactError::StreamWriteDropped
-        | ArtifactError::Write(_)
-        | ArtifactError::Read(_)
-        | ArtifactError::Database(_)
-        | ArtifactError::WithCleanup(_) => None,
-    }
+    failure.refusal().map(|refusal| refusal.code)
 }

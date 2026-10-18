@@ -66,6 +66,15 @@ impl ArtifactError {
             )))
         }
     }
+
+    /// The refusal this failure is, or none for a fault.
+    #[cfg(test)]
+    pub(crate) fn refusal(&self) -> Option<&DomainError> {
+        let Self::Refused(refusal) = self else {
+            return None;
+        };
+        Some(refusal)
+    }
 }
 
 /// `artifact.ingest.streamInvalid`: the call on `ingest_id` cannot proceed and cannot be retried

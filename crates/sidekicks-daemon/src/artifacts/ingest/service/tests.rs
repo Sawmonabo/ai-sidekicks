@@ -100,21 +100,12 @@ async fn complete(
 
 /// The refusal's code and the `reason` its detail names.
 fn refusal_of(failure: &ArtifactError) -> (Option<RefusalCode>, Option<String>) {
-    let reason = match failure {
-        ArtifactError::Refused(refusal) => refusal
-            .detail
-            .as_ref()
-            .and_then(|detail| detail.get("reason"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        ArtifactError::Disk(_)
-        | ArtifactError::Interrupted(_)
-        | ArtifactError::StreamWriteDropped
-        | ArtifactError::Write(_)
-        | ArtifactError::Read(_)
-        | ArtifactError::Database(_)
-        | ArtifactError::WithCleanup(_) => None,
-    };
+    let reason = failure
+        .refusal()
+        .and_then(|refusal| refusal.detail.as_ref())
+        .and_then(|detail| detail.get("reason"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     (refusal_code_of(failure), reason)
 }
 
