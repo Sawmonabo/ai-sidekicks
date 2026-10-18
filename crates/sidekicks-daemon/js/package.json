@@ -19,6 +19,7 @@
     "re2js": "2.8.6"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "tm-grammars": "1.32.22"
   }
 }

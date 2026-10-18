@@ -4,15 +4,17 @@
 //
 // It also writes the TextMate grammars the daemon's colorer runs into `dist/grammars/`: one
 // `<name>.json` per grammar the colorable languages' modules carry, `notices.txt` with the license
-// of the package they come from, and `scopes-named-from-text.json`, the scope names of the
-// grammars that build a scope name from the text they match, directly or through a grammar they
-// include, whose highlighter the colorer rebuilds after a set amount of such source.
+// of the package they come from and each grammar's upstream source and license, and
+// `scopes-named-from-text.json`, the scope names of the grammars that build a scope name from the
+// text they match, directly or through a grammar they include, whose highlighter the colorer
+// rebuilds after a set amount of such source.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
+import { grammars as grammarSources } from "tm-grammars";
 
 const PACKAGE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIRECTORY = path.join(PACKAGE_DIRECTORY, "src");
@@ -40,6 +42,19 @@ const COLORABLE_LANGUAGE_MODULES = [
 
 /** A capture reference in a scope name, `$1` or `${1:/downcase}`, which the engine fills in. */
 const CAPTURE_REFERENCE = /\$(?:\d+|\{\d+:\/(?:downcase|upcase)\})/;
+
+/**
+ * The license of a grammar whose `tm-grammars` record names none, read from its upstream source at
+ * the commit the record names; a record at another commit fails the bundle until it is read again.
+ */
+const UNRECORDED_GRAMMAR_LICENSES = {
+  yaml: {
+    sha: "e54ceae3b719506dba7e481a77cea4a8b576ae46",
+    license: "MIT",
+    licenseUrl:
+      "https://github.com/textmate/yaml.tmbundle/blob/e54ceae3b719506dba7e481a77cea4a8b576ae46/Syntaxes/YAML-license.txt",
+  },
+};
 
 /** A package's legal files, by the names packages ship them under (`LICENSE.md`, `COPYING`, …). */
 const LEGAL_FILE_NAME = /^(licen[cs]e|copying|notice)/i;
@@ -224,10 +239,35 @@ writeFileSync(
   path.join(GRAMMAR_DIRECTORY, "scopes-named-from-text.json"),
   `${JSON.stringify(findScopesNamedFromText(grammarsByScopeName))}\n`,
 );
+/**
+ * A grammar's upstream source and license, from `tm-grammars` at the version `@shikijs/langs` was
+ * built from. Throws when neither its record nor `UNRECORDED_GRAMMAR_LICENSES` names a license.
+ */
+function composeGrammarNotice(grammar) {
+  const record = grammarSources.find((source) => source.scopeName === grammar.scopeName);
+  if (record === undefined) {
+    throw new Error(`tm-grammars has no record of ${grammar.scopeName}`);
+  }
+  const unrecorded = UNRECORDED_GRAMMAR_LICENSES[record.name];
+  const { license, licenseUrl } =
+    record.license === undefined && unrecorded?.sha === record.sha ? unrecorded : record;
+  if (license === undefined || licenseUrl === undefined) {
+    throw new Error(`${record.name} at ${record.sha} names no license to carry`);
+  }
+  return [
+    `${record.displayName} grammar (${grammar.scopeName}, ${license})`,
+    `Source: ${record.source}`,
+    `License: ${licenseUrl}`,
+  ].join("\n");
+}
+
 const grammarPackageDirectory = findPackageDirectory(
   fileURLToPath(import.meta.resolve("@shikijs/langs/bash")),
 );
+const grammarNotices = [...grammarsByScopeName.values()]
+  .sort((left, right) => left.scopeName.localeCompare(right.scopeName))
+  .map(composeGrammarNotice);
 writeFileSync(
   path.join(GRAMMAR_DIRECTORY, "notices.txt"),
-  `${composeNotice(grammarPackageDirectory)}\n`,
+  `${[composeNotice(grammarPackageDirectory), ...grammarNotices].join("\n\n---\n\n")}\n`,
 );
