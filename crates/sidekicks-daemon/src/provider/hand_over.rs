@@ -2,3 +2,4 @@
 //! folds one run's logged events into ordered turns, rebuilt from the session log on every call.
 
 pub(crate) mod canonical_transcript;
+pub(crate) mod transform_pipeline;
