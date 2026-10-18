@@ -7755,6 +7755,7 @@ dependencies = [
 name = "sidekicks-daemon"
 version = "0.0.0"
 dependencies = [
+ "alacritty_terminal",
  "anyhow",
  "axum",
  "base16ct 1.0.0",
@@ -7866,6 +7867,7 @@ dependencies = [
  "unicode-segmentation",
  "url",
  "uuid",
+ "vte",
  "web-push-native",
  "webp",
  "x-wing",

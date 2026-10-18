@@ -3,7 +3,10 @@
 //! on it.
 
 pub(crate) mod already_running_error;
+pub(crate) mod data_folder_lock;
+pub(crate) mod machine;
 pub(crate) mod process_tree_usage;
 pub(crate) mod scheduler;
 pub mod service_log;
 pub(crate) mod start_stopped_error;
+pub(crate) mod stop_drain;
