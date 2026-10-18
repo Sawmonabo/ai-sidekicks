@@ -16,13 +16,22 @@ use exit_codes::ProcessEnding;
 
 fn main() -> std::process::ExitCode {
     let (stdout, stderr) = (io::stdout(), io::stderr());
-    let is_styled = stdout.is_terminal() && stderr.is_terminal();
     let mut context = CommandContext {
+        is_stdout_styled: shows_styles(stdout.is_terminal()),
+        is_stderr_styled: shows_styles(stderr.is_terminal()),
         stdout: stdout.lock(),
         stderr: stderr.lock(),
-        is_styled,
     };
     match program::run_program(std::env::args_os(), &mut context) {
         ProcessEnding::Exit(code) => code.into(),
     }
+}
+
+/// Whether a stream shows styles, as clap's own output decides: never under `NO_COLOR`, always
+/// under `CLICOLOR_FORCE`, and otherwise when it is a terminal that shows colors, so no file or
+/// pipe receives an escape code unasked.
+fn shows_styles(is_terminal: bool) -> bool {
+    !anstyle_query::no_color()
+        && (anstyle_query::clicolor_force()
+            || (is_terminal && anstyle_query::term_supports_color()))
 }

@@ -24,6 +24,10 @@ name = "sidekicks"
 path = "src/main.rs"
 
 [dependencies]
+# Whether each output stream shows styles, read as clap's own output reads it (`NO_COLOR`,
+# `CLICOLOR_FORCE`, the terminal's color support): picked over `anstream`, whose stream wrappers
+# the command line has no use for, since clap's text is rendered into the run's own writers.
+anstyle-query.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 fast_qr.workspace = true

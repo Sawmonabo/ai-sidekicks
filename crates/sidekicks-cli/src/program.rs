@@ -33,7 +33,9 @@ enum Command {}
 /// Runs the program over `args` (the program's name first) and answers how the process ends. Help
 /// and the version go to stdout; a refused argument, a bare `sidekicks` among them, goes to stderr
 /// with its usage and exits 64; a command's failure or panic goes through [`report_failure`], a
-/// panic with no output of its own, since the command's panic hook writes nothing.
+/// panic with no output of its own, since the command's panic hook writes nothing. That hook is
+/// the process's own while the command runs, so this crate's tests run under nextest, one process
+/// each.
 pub(crate) fn run_program<Output: Write, ErrorOutput: Write>(
     args: impl IntoIterator<Item = OsString>,
     context: &mut CommandContext<Output, ErrorOutput>,
@@ -61,19 +63,22 @@ fn run_command<Output: Write, ErrorOutput: Write>(
 }
 
 /// Writes clap's help, version or refusal to the stream clap names for it, in clap's styles when
-/// the context is styled: exit 0 for help and the version, 64 for a refusal, 141 when that
+/// that stream shows them: exit 0 for help and the version, 64 for a refusal, 141 when that
 /// stream's reader went away.
 fn report_parse_refusal<Output: Write, ErrorOutput: Write>(
     refusal: &clap::Error,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
     let rendered = refusal.render();
-    let text = if context.is_styled {
-        rendered.ansi().to_string()
-    } else {
-        rendered.to_string()
+    let render = |is_styled: bool| {
+        if is_styled {
+            rendered.ansi().to_string()
+        } else {
+            rendered.to_string()
+        }
     };
     let (written, code) = if refusal.use_stderr() {
+        let text = render(context.is_stderr_styled);
         (write_all(&mut context.stderr, &text), ExitCode::Usage)
     } else {
         let code = if refusal.exit_code() == 0 {
@@ -81,6 +86,7 @@ fn report_parse_refusal<Output: Write, ErrorOutput: Write>(
         } else {
             ExitCode::Usage
         };
+        let text = render(context.is_stdout_styled);
         (write_all(&mut context.stdout, &text), code)
     };
     match written {
@@ -159,7 +165,8 @@ mod tests {
         CommandContext {
             stdout: Vec::new(),
             stderr: Vec::new(),
-            is_styled: false,
+            is_stdout_styled: false,
+            is_stderr_styled: false,
         }
     }
 
@@ -199,7 +206,8 @@ mod tests {
         let mut context = CommandContext {
             stdout: ClosedPipe,
             stderr: Vec::new(),
-            is_styled: false,
+            is_stdout_styled: false,
+            is_stderr_styled: false,
         };
         let ending = run_program(["sidekicks", "--help"].map(OsString::from), &mut context);
         assert_eq!(ending, ProcessEnding::Exit(ExitCode::BrokenPipe));

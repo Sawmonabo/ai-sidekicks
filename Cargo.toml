@@ -30,6 +30,7 @@ sidekicks-search = { path = "crates/sidekicks-search" }
 sidekicks-terminal = { path = "crates/sidekicks-terminal" }
 
 # Runtime, errors and logs.
+anstyle-query = "1.1.5"
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 flexi_logger = { version = "0.31.10", default-features = false }
