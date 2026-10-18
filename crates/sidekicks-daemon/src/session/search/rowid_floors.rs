@@ -4,8 +4,8 @@
 //! delete logs the table's new highest rowid. A row the view indexed is still that row while its
 //! source rowid is no higher than every highest rowid logged since the view's database state; one
 //! higher was deleted since, whatever sits at its rowid now. This holds while the source tables
-//! insert without naming a rowid and never `REPLACE`, whose deletes fire no trigger. The search
-//! thread lets go of the entries no held search and no newer view needs, through the database
+//! insert without naming a rowid and never `REPLACE`, whose deletes fire no trigger. The live
+//! index lets go of the entries no held search and no newer view needs, through the database
 //! writer.
 
 use std::borrow::Cow;
