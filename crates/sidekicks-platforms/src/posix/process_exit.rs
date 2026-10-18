@@ -12,23 +12,20 @@ use polling::{Events, Poller};
 const EXIT_KEY: usize = 0;
 
 /// Blocks until the child `pid` has exited, leaving it unreaped, or until `bound` passes; answers
-/// whether it exited. Fails with the system's error when the child cannot be waited for or its
-/// exit event cannot be watched.
+/// whether it exited. `pid` must be the caller's own child, not yet reaped, so no other process
+/// can take its id during the wait. Fails with the system's error when the child cannot be waited
+/// for or its exit event cannot be watched.
 pub(crate) fn wait_for_exit(pid: u32, bound: Option<Duration>) -> io::Result<bool> {
     let Some(bound) = bound else {
         wait_without_reaping(pid, 0)?;
         return Ok(true);
     };
-    let give_up_at = Instant::now() + bound;
-    if has_exited(pid)? {
-        return Ok(true);
-    }
-    watch_exit_event(pid, give_up_at)
+    watch_exit_event(pid, Instant::now() + bound)
 }
 
 /// Waits on `pid`'s exit event through a poller of its own until the child has exited or
-/// `give_up_at` passes; the child's state is read again after each event and after the watch is
-/// set up, so an exit before it is not missed.
+/// `give_up_at` passes; the child's state is read only once the watch is set up, so an exit
+/// before it is not missed.
 #[cfg(target_os = "linux")]
 fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
     use polling::Event;
@@ -36,7 +33,14 @@ fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
     use crate::linux::caller_process::open_process_descriptor;
 
     // Declared before the poller, so it outlives the poller and the registration in it.
-    let descriptor = open_process_descriptor(pid)?;
+    let descriptor = match open_process_descriptor(pid) {
+        Ok(descriptor) => descriptor,
+        // No process has the id, so the child has exited; the blocking wait answers at once.
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+            return wait_without_reaping(pid, 0);
+        }
+        Err(error) => return Err(error),
+    };
     let poller = Poller::new()?;
     // SAFETY: the descriptor is declared before the poller, so it stays open until the poller and
     // its registration are gone.
@@ -45,8 +49,8 @@ fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
 }
 
 /// Waits on `pid`'s exit event through a poller of its own until the child has exited or
-/// `give_up_at` passes; the child's state is read again after each event and after the watch is
-/// set up, so an exit before it is not missed.
+/// `give_up_at` passes; the child's state is read only once the watch is set up, since the exit
+/// filter reports only an exit after it is attached, so an exit before it is not missed.
 #[cfg(target_os = "macos")]
 fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
     use std::num::NonZeroI32;
@@ -64,9 +68,10 @@ fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
     let process = unsafe { Process::from_pid(raw_pid, ProcessOps::Exit) };
     match poller.add_filter(process, EXIT_KEY, PollMode::Oneshot) {
         Ok(()) => {}
-        // The kernel refuses the filter for a child that already exited.
-        Err(error) if error.raw_os_error() == Some(libc::ESRCH) && has_exited(pid)? => {
-            return Ok(true);
+        // The kernel refuses the filter for a child already exiting, which may not yet read as
+        // exited; its exit is under way, so the blocking wait returns at once.
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+            return wait_without_reaping(pid, 0);
         }
         Err(error) => return Err(error),
     }
@@ -74,7 +79,9 @@ fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
 }
 
 /// Waits on `poller`, which watches `pid`'s exit event, until the child has exited or
-/// `give_up_at` passes.
+/// `give_up_at` passes. Once the event comes, a process descriptor's readiness or hangup or the
+/// exit filter's note, the exit is under way, so a blocking wait returns at once: macOS posts the
+/// event before the exit reads as one to `waitid`, and its one-shot filter posts no second.
 fn wait_on_exit_event(poller: &Poller, pid: u32, give_up_at: Instant) -> io::Result<bool> {
     let mut events = Events::new();
     loop {
@@ -87,6 +94,7 @@ fn wait_on_exit_event(poller: &Poller, pid: u32, give_up_at: Instant) -> io::Res
         }
         events.clear();
         match poller.wait(&mut events, Some(timeout)) {
+            Ok(count) if count > 0 => return wait_without_reaping(pid, 0),
             Ok(_) => {}
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(error) => return Err(error),
@@ -100,8 +108,8 @@ fn has_exited(pid: u32) -> io::Result<bool> {
 }
 
 /// One `waitid` for the child `pid`'s exit with `options` added, leaving it unreaped; answers
-/// whether it found the exit, which a wait without `WNOHANG` always does. Fails with the system's
-/// error from the wait.
+/// whether it found the exit, which a wait without `WNOHANG` always does. A child already gone
+/// (`ECHILD`) has exited. Fails with the system's error from the wait.
 fn wait_without_reaping(pid: u32, options: libc::c_int) -> io::Result<bool> {
     loop {
         let mut information = MaybeUninit::<libc::siginfo_t>::zeroed();
@@ -117,10 +125,11 @@ fn wait_without_reaping(pid: u32, options: libc::c_int) -> io::Result<bool> {
         };
         if result != 0 {
             let error = io::Error::last_os_error();
-            if error.kind() == ErrorKind::Interrupted {
-                continue;
+            match error.raw_os_error() {
+                Some(libc::EINTR) => continue,
+                Some(libc::ECHILD) => return Ok(true),
+                _ => return Err(error),
             }
-            return Err(error);
         }
         // SAFETY: the zeroed struct is a valid `siginfo_t`, which a `WNOHANG` wait that found no
         // exit leaves with a zero process id.

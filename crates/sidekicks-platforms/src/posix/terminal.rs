@@ -71,7 +71,7 @@ pub fn end_process_tree(
     pid: u32,
 ) -> impl Future<Output = io::Result<ProcessTreeEnd>> + Send {
     // The kill is one system call, so the future is ready at once.
-    ready(kill_process_group(pid))
+    ready(signal_process_group(pid, TerminalSignal::Kill))
 }
 
 /// Runs the console helper, which only Windows has: always fails with `Unsupported`.
@@ -179,13 +179,17 @@ pub fn run_terminal_loop(
 const RELEASE_HANGUP_GRACE: Duration = Duration::from_secs(2);
 
 /// Ends the program in `pty`, which the caller found not yet exited, and drops the PTY; blocking,
-/// so it runs on a thread of its own. The program gets a hangup, then `SIGKILL` when its exit event
-/// has not come within a short grace, and is waited for; `mark_exited` runs once it has exited and
-/// before its process id is freed, so a caller that sends signals under the same lock as the mark
-/// never reaches a process that took the id.
+/// so it runs on a thread of its own. The program's process group gets a hangup, then `SIGKILL`
+/// when the program's exit event has not come within a short grace or cannot be watched, and the
+/// program is waited for; `mark_exited` runs once it has exited and before its process id is
+/// freed, so a caller that sends signals under the same lock as the mark never reaches a process
+/// that took the id. Both signals go to the group the program leads (its start made it a session
+/// leader), so the commands it started end with it; a job it moved into a group of its own is
+/// outside the send. The program stays unreaped until the drop, so its id, which is its group's,
+/// cannot be taken by another process while the signals are sent.
 pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
     let process_id = pty.child().id();
-    if let Err(error) = send_signal(process_id, TerminalSignal::Hangup) {
+    if let Err(error) = signal_process_group(process_id, TerminalSignal::Hangup) {
         tracing::warn!(
             process_id,
             error = &error as &(dyn Error + 'static),
@@ -195,12 +199,21 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
     // The program is left unreaped, so its id stays its own until the drop below reaps it.
     let waited = match wait_for_exit(process_id, Some(RELEASE_HANGUP_GRACE)) {
         Ok(true) => Ok(true),
-        Ok(false) => {
-            tracing::warn!(
-                process_id,
-                "a released terminal's program ignored its hangup, so it is killed"
-            );
-            if let Err(error) = send_signal(process_id, TerminalSignal::Kill) {
+        bounded => {
+            match bounded {
+                Ok(_) => tracing::warn!(
+                    process_id,
+                    "a released terminal's program ignored its hangup, so it is killed"
+                ),
+                // The program may still run, so it is killed, which a program already exited and
+                // unreaped ignores, before the wait that has no bound.
+                Err(error) => tracing::warn!(
+                    process_id,
+                    error = &error as &(dyn Error + 'static),
+                    "a released terminal's program's exit could not be watched, so it is killed"
+                ),
+            }
+            if let Err(error) = signal_process_group(process_id, TerminalSignal::Kill) {
                 tracing::error!(
                     process_id,
                     error = &error as &(dyn Error + 'static),
@@ -209,7 +222,6 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
             }
             wait_for_exit(process_id, None)
         }
-        Err(error) => Err(error),
     };
     if let Err(error) = waited {
         tracing::error!(
@@ -562,8 +574,11 @@ fn is_hang_up(error: &io::Error) -> bool {
     error.raw_os_error() == Some(libc::EIO)
 }
 
-fn kill_process_group(pid: u32) -> io::Result<ProcessTreeEnd> {
-    match killpg(process_id(pid)?, Signal::SIGKILL) {
+/// Sends `signal` to the process group `pid` leads, answering whether the group was still there.
+/// Fails with `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the send
+/// is refused.
+fn signal_process_group(pid: u32, signal: TerminalSignal) -> io::Result<ProcessTreeEnd> {
+    match killpg(process_id(pid)?, posix_signal(signal)) {
         Ok(()) => Ok(ProcessTreeEnd::Ended),
         Err(Errno::ESRCH) => Ok(ProcessTreeEnd::AlreadyGone),
         Err(errno) => Err(io::Error::from(errno)),
