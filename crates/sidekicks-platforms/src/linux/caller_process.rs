@@ -178,11 +178,13 @@ mod tests {
     use interprocess::local_socket::tokio::Stream;
     use interprocess::os::unix::uds_local_socket::tokio::Stream as UnixSocketStream;
 
-    use super::{read_parent_process, read_peer_process};
+    use std::sync::Arc;
+
+    use super::{PinnedProcess, open_process_descriptor, read_parent_process, read_peer_process};
     use crate::caller_process::ParentProcess;
 
     #[test]
-    fn pins_this_process_as_its_own_peer_and_its_parent() {
+    fn pins_this_process_as_its_own_peer_and_its_parent_until_each_ends() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .build()
@@ -206,7 +208,24 @@ mod tests {
             ParentProcess::Pinned(parent) => {
                 assert_eq!(parent.id(), std::os::unix::process::parent_id());
             }
-            other => panic!("expected the parent, got {other:?}"),
+            other @ (ParentProcess::Root | ParentProcess::Ended) => {
+                panic!("expected the parent, got {other:?}")
+            }
         }
+
+        // A descriptor whose process was reaped pins nothing, though the id beside it still runs.
+        let mut child = std::process::Command::new("/bin/true")
+            .spawn()
+            .expect("the child starts");
+        let descriptor = open_process_descriptor(child.id()).expect("the child's descriptor opens");
+        child.wait().expect("the child is reaped");
+        let reaped = PinnedProcess {
+            id: std::process::id(),
+            descriptor: Arc::new(descriptor),
+        };
+        assert!(matches!(
+            read_parent_process(&reaped).expect("a reaped process reads"),
+            ParentProcess::Ended
+        ));
     }
 }

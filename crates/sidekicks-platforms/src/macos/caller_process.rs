@@ -5,6 +5,7 @@
 
 use std::io;
 use std::os::fd::AsRawFd as _;
+use std::sync::OnceLock;
 
 use interprocess::local_socket::tokio::Stream;
 
@@ -45,19 +46,27 @@ struct UniqueIdentifiers {
 
 const _: () = assert!(size_of::<UniqueIdentifiers>() == 56);
 
-unsafe extern "C" {
-    /// A process-information read that the kernel answers only while `pid` names the process
-    /// `flags` and `ext_id` pin, failing with `ESRCH` otherwise.
-    fn __proc_info_extended_id(
-        callnum: i32,
-        pid: i32,
-        flavor: u32,
-        flags: u32,
-        ext_id: u64,
-        arg: u64,
-        buffer: u64,
-        buffersize: i32,
-    ) -> libc::c_int;
+/// `__proc_info_extended_id(callnum, pid, flavor, flags, ext_id, arg, buffer, buffersize)`: a
+/// process-information read that the kernel answers only while `pid` names the process `flags`
+/// and `ext_id` pin, failing with `ESRCH` otherwise.
+type CheckedProcessRead =
+    unsafe extern "C" fn(i32, i32, u32, u32, u64, u64, u64, i32) -> libc::c_int;
+
+/// A private `libsystem_kernel` call no SDK header declares; used because it is the one process
+/// read the kernel refuses atomically when the id names any process but the pinned one, where a
+/// public `sysctl` start-time read is a read-then-compare race. Looked up once at run time, so a
+/// macOS without it refuses callers instead of failing to load the daemon; `None` there.
+fn checked_process_read() -> Option<CheckedProcessRead> {
+    static READ: OnceLock<Option<CheckedProcessRead>> = OnceLock::new();
+    *READ.get_or_init(|| {
+        // SAFETY: `RTLD_DEFAULT` searches every loaded image, and the name is a C string.
+        let symbol =
+            unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"__proc_info_extended_id".as_ptr()) };
+        (!symbol.is_null()).then(|| {
+            // SAFETY: the symbol is libsystem_kernel's function of exactly this signature.
+            unsafe { std::mem::transmute::<*mut libc::c_void, CheckedProcessRead>(symbol) }
+        })
+    })
 }
 
 /// A process held by its unique id, so a read made through it names that process or finds it
@@ -197,7 +206,8 @@ fn read_unique_identifiers(id: u32, flags: u32, pin: u64) -> io::Result<Option<U
 
 /// Fills `record` with process `id`'s `flavor` record, answering `false` when `id` names no
 /// process `flags` and `pin` accept. `Record` must be the C struct of integers `flavor` writes.
-/// Fails with the system's error, and with `Other` when the record comes back short.
+/// Fails with the system's error, with `Other` when the record comes back short, and with
+/// `Unsupported` on a macOS without the checked read.
 fn read_checked<Record>(
     id: u32,
     flavor: libc::c_int,
@@ -205,6 +215,12 @@ fn read_checked<Record>(
     pin: u64,
     record: &mut Record,
 ) -> io::Result<bool> {
+    let Some(read) = checked_process_read() else {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this macOS has no id-checked process read",
+        ));
+    };
     // No process id passes `i32::MAX`, the largest the call takes.
     let Ok(pid) = i32::try_from(id) else {
         return Ok(false);
@@ -215,7 +231,7 @@ fn read_checked<Record>(
     // SAFETY: `record` is a live, writable `Record` of the length given, the struct `flavor` asks
     // the call to fill, and nothing else reads it until the call returns.
     let written = unsafe {
-        __proc_info_extended_id(
+        read(
             PROCESS_INFORMATION_CALL,
             pid,
             flavor,
@@ -246,7 +262,10 @@ mod tests {
     use interprocess::local_socket::tokio::Stream;
     use interprocess::os::unix::uds_local_socket::tokio::Stream as UnixSocketStream;
 
-    use super::{pinned, read_parent_process, read_peer_process};
+    use super::{
+        COMPARE_ID_VERSION, COMPARE_NOTHING, PinnedProcess, pinned, read_parent_process,
+        read_peer_process, read_unique_identifiers,
+    };
     use crate::caller_process::ParentProcess;
 
     #[test]
@@ -267,8 +286,28 @@ mod tests {
             ParentProcess::Pinned(parent) => {
                 assert_eq!(parent.id(), std::os::unix::process::parent_id());
             }
-            other => panic!("expected the parent, got {other:?}"),
+            other @ (ParentProcess::Root | ParentProcess::Ended) => {
+                panic!("expected the parent, got {other:?}")
+            }
         }
+        // A read pinned to another id version, or to another unique id, finds nothing.
+        let own = read_unique_identifiers(peer.id(), COMPARE_NOTHING, 0)
+            .expect("this process reads its own record")
+            .expect("this process runs");
+        let wrong_version = u64::from(own.id_version.cast_unsigned().wrapping_add(1));
+        assert!(
+            read_unique_identifiers(peer.id(), COMPARE_ID_VERSION, wrong_version)
+                .expect("a pinned read answers")
+                .is_none()
+        );
+        let wrong_unique_id = PinnedProcess {
+            id: peer.id(),
+            unique_id: own.unique_id + 1,
+        };
+        assert!(matches!(
+            read_parent_process(&wrong_unique_id).expect("a pinned read answers"),
+            ParentProcess::Ended
+        ));
         // macOS names no peer once the other end has closed.
         drop(far);
         assert!(
