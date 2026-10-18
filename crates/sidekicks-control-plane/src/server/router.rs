@@ -170,7 +170,7 @@ pub(crate) fn build_refusal_body(
     mut fields: Map<String, Value>,
 ) -> Value {
     fields.insert("code".to_owned(), json!(code.as_str()));
-    fields.insert("category".to_owned(), json!(code.category().as_str()));
+    fields.insert("category".to_owned(), json!(code.known_category().as_str()));
     fields.insert("message".to_owned(), json!(message));
     Value::Object(fields)
 }
