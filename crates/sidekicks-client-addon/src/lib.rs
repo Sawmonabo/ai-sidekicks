@@ -214,7 +214,7 @@ impl DaemonClient {
 
     /// Opens a pane's input to one shell; a write that fails goes to `on_failure` in the wire's
     /// error shape. Fails when an id is malformed.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn open_shell_input(
         &self,
         session_id: String,
