@@ -7,7 +7,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 Shapes below are canonical per [Plan-018](../../plans/018-rate-limiting-policy.md) (D-018-3/D-018-4/D-018-5). The relay counts requests on its sign-in routes only; code home is the control plane's `crates/sidekicks-control-plane/src/rate_limit/` for the limiter and its check types, and `crates/sidekicks-contracts/src/rate_limiter.rs` for what a device reads (its generated TypeScript at `packages/contracts/src/rate-limiter.ts`): the 429 envelope `RateLimitResponse`, and the sign-in routes' two refusal codes, `RELAY_RATE_LIMITED_CODE` and `RELAY_SOURCE_ADDRESS_UNRESOLVABLE_CODE` (Plan-018 Phase 1). Endpoint-group keys come from [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry).
 
 ```ts
-// RateLimitCheck (internal operation, both backends). A counter error fails that one request like
+// RateLimitCheck (internal operation, both relays). A counter error fails that one request like
 // any backend error.
 interface RateLimitCheckRequest {
   // the caller's source address, canonical form (D-018-4): IPv4 exact dotted-quad / IPv6 normalized

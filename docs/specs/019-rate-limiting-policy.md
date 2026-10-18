@@ -45,7 +45,7 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 
 ## Required Behavior
 
-### Deployment-Aware Abstraction
+### One Counter On Both Relays
 
 - Both deployments count the sign-in routes with one counter over one table, `counted_requests`, in the account's [one schema](../architecture/schemas/hosted-account-schema.md), so they enforce the same limit the same way. The Workers relay keeps the table in the account object's SQLite storage, and the one account object answers every edge location, so a caller rotating through locations meets one count. The sign-in routes see a handful of requests per device per day, so the object round trip on them (10 to 50 ms) is never felt. The self-hosted relay keeps the table in the account's SQLite file, which its one process writes.
 - Only where the table lives differs between the two, and each relay's host supplies it; the counter's code is the same.

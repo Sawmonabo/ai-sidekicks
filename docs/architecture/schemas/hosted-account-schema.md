@@ -1,6 +1,6 @@
 # Hosted Account Schema
 
-Canonical schema for the hosted account's SQLite database, which lives inside the relay: in the account object's own SQLite storage on the Workers relay, and in a SQLite file the relay's one process writes on the Compose relay ([Deployment Topology §Account Storage](../deployment-topology.md#account-storage)). It is one schema, built whole: there are no numbered migration steps, and every table is in this one schema and its test. The writer creates the whole schema in one transaction when it opens an empty database.
+Canonical schema for the hosted account's SQLite database, which lives inside the relay: in the account object's own SQLite storage on the Workers relay, and in a SQLite file the relay's one process writes on the Compose relay ([Deployment Topology §Account Storage](../deployment-topology.md#account-storage)). It is one schema, built whole: there are no numbered migration steps, and every table is in this one schema and its test. The writer creates the whole schema in one transaction when it opens an empty database. On the Workers relay the script is one `sql.exec()` call, which Cloudflare runs as one transaction ([Cloudflare: SQLite-backed Durable Object Storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/), whose methods table notes that each method is implicitly wrapped inside a transaction), so the schema is built whole or not at all and the build check only tells an empty database from a built one.
 
 **Types.** Every table is `STRICT`, and every `REFERENCES` is enforced: the Compose relay opens its file with `PRAGMA foreign_keys = ON`, and the relay's first test confirms a Durable Object's SQLite enforces them on the Workers relay. An id the writer mints is a UUID held as `TEXT`; a time is Unix seconds as `INTEGER`, the unit a token's `iat` and `exp` carry, defaulting to `unixepoch()`, except `counted_requests`, whose window frees to the millisecond ([§Counted Requests](#counted-requests-plan-018)); a key or a signed statement is a `BLOB`; a list or a JSON value is `TEXT` holding JSON.
 
@@ -184,7 +184,7 @@ CREATE INDEX idx_authorization_requests_expires ON authorization_requests(expire
 
 ## Counted Requests (Plan-018)
 
-The sign-in routes' rate limit counts each request per source address in this one table, the same counter on both relays ([Spec-019 §Deployment-Aware Abstraction](../../specs/019-rate-limiting-policy.md#deployment-aware-abstraction)).
+The sign-in routes' rate limit counts each request per source address in this one table, the same counter on both relays ([Spec-019 §One Counter On Both Relays](../../specs/019-rate-limiting-policy.md#one-counter-on-both-relays)).
 
 ```sql
 -- Owner: Plan-018 (Phase 2)

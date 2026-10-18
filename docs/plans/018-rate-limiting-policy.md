@@ -231,7 +231,7 @@ The phase builds on the contracts crate (Plan-001 Phase 1 T1.2).
 #### Tasks
 
 - **T18.1-1 — `crates/sidekicks-control-plane/src/rate_limit/limiter.rs` and `crates/sidekicks-contracts/src/rate_limiter.rs`.** In the control plane's file, author `RateLimitEndpointGroup` (registry-key enum, D-018-3), `RateLimitCheckRequest` and `RateLimitCheckResponse`. In contracts, author the `RateLimitResponse` wire body as a serde type (both timing fields required, [Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)); its generated TypeScript is reached at its own subpath, `@ai-sidekicks/contracts/rate-limiter`, with nothing to re-export.
-  - **Spec coverage:** Spec-019 §Interfaces And Contracts (RateLimitCheck shape), Spec-019 §Deployment-Aware Abstraction (one counter on both deployments), Spec-019 §Overflow Response (standard RateLimitResponse body)
+  - **Spec coverage:** Spec-019 §Interfaces And Contracts (RateLimitCheck shape), Spec-019 §One Counter On Both Relays (one counter on both deployments), Spec-019 §Overflow Response (standard RateLimitResponse body)
   - **Verifies invariant:** I-018-4
   - **Consumes:** [Spec-019 §Canonical Endpoint Group Registry](../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) (a doc contract); `serde` (workspace dependency).
 - **T18.1-2 — api-payload-contracts.md parity verification.** Verify, field-for-field, that each shape the contracts doc carries — the `interface RateLimitResponse` (timing pair required) under §Error Responses; the `RateLimitCheckRequest` and `RateLimitCheckResponse` — matches the T18.1-1 typed exports, and land ONLY drift fixes. No-drift outcome = no doc edit; record the parity check in the PR description.
@@ -256,19 +256,19 @@ The phase builds on the contracts crate (Plan-001 Phase 1 T1.2).
 #### Tasks
 
 - **T18.2-1 — `endpoint_groups.rs`.** Canonical endpoint-group → `{ limit, period }` table transcribed from the Spec-019 registry; the single config source for the counter and for header values.
-  - **Spec coverage:** Spec-019 §Canonical Endpoint Group Registry (registry table header — single enumeration), Spec-019 §Deployment-Aware Abstraction (the same limit)
+  - **Spec coverage:** Spec-019 §Canonical Endpoint Group Registry (registry table header — single enumeration), Spec-019 §One Counter On Both Relays (the same limit)
   - **Verifies invariant:** I-018-2
   - **Consumes:** `RateLimitEndpointGroup` ← T18.1-1.
 - **T18.2-2 — The counter and `counted_requests`.** The table and its indexes in `account_store.rs`'s one schema; `check`, `prune` and `find_next_cleanup_at` in `limiter.rs` per §Data And Storage Changes, over `AccountStore`, so the account object's `SqlStorage` and the Compose relay's `rusqlite` connection run the same statements. Its tests are the scenario table's (T18.2-4).
-  - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (one counter over one table), Spec-019 §Implementation Notes (sliding window), Spec-019 §State And Data Implications (counters not persisted beyond their window)
+  - **Spec coverage:** Spec-019 §One Counter On Both Relays (one counter over one table), Spec-019 §Implementation Notes (sliding window), Spec-019 §State And Data Implications (counters not persisted beyond their window)
   - **Verifies invariant:** I-018-2, I-018-3
   - **Consumes:** `endpoint_groups.rs` ← T18.2-1; the account store's schema and calls.
 - **T18.2-3 — The account object.** `AccountObject`, a `#[durable_object]` in the Worker entry module, `crates/sidekicks-control-plane/src/worker.rs`, its SQLite storage holding the account's schema, built fallibly on its first request or alarm: `POST /rate-limit/check` runs `check` and sets the cleanup alarm only when none is pending; `alarm()` runs `prune` and re-arms while rows remain (§Cleanup). A failure inside it is logged with the `X-Request-Id` the Worker sent and answered 500. Its tests stay TypeScript under `@cloudflare/vitest-plugin` against the Rust build: restart persistence (rows survive; the alarm stays armed), the alarm dropping every row past its window and leaving the account's tables, and the counter row (the 21st `auth.endpoint` count from one address in 60 s refused atomically whichever location sent it, `resetAt` = window expiry).
-  - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (the sign-in routes counted once in the account object), Spec-019 §State And Data Implications (counters not persisted beyond their window)
+  - **Spec coverage:** Spec-019 §One Counter On Both Relays (the sign-in routes counted once in the account object), Spec-019 §State And Data Implications (counters not persisted beyond their window)
   - **Verifies invariant:** I-018-3
   - **Consumes:** the counter ← T18.2-2; Cloudflare DO runtime through `worker` 0.8.7; wrangler DO binding + migration declaration (§Target Areas wrangler deliverable).
 - **T18.2-4 — The scenario table + runners.** `tests/fixtures/rate_limiter_scenarios.json` holds the one scenario set: under-limit allow; at-limit deny; header-source fields present + internally consistent; a denial reports the window's `resetAt` and a check at exactly that instant is allowed, one a millisecond earlier refused; window expiry re-allow after refusals inside the window (a refusal is never recorded); per-address isolation. Runners: a Rust test in `crates/sidekicks-control-plane/tests/it/` against the counter over an account file, its clock injected, and a test in the Workers project T18.4-1 adds, against the real account object under `workerd` rather than a storage fake, which would be code kept forever that proves less. Fidelity caveat: local `workerd` does not reproduce production edge distribution, so I-018-2 parity is asserted at the contract level, not the edge-distribution level. The Workers runner drives time by faking only `Date` with Vitest's fake timers, starting a day ahead of the real clock so no Durable Object alarm comes due mid-test; the fake clock reaches the Durable Object because the Workers project runs it in the test's own isolate, where the Rust build reads `Date` through `time` and `js_sys`.
-  - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (the same limit — the parity proof), Spec-019 §Acceptance Criteria
+  - **Spec coverage:** Spec-019 §One Counter On Both Relays (the same limit — the parity proof), Spec-019 §Acceptance Criteria
   - **Verifies invariant:** I-018-2
   - **Consumes:** all Phase-2 tasks.
 
