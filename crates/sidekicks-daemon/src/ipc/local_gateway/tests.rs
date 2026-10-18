@@ -481,7 +481,8 @@ impl TestClient {
             .incoming
             .receive(frame)
             .expect("the daemon keeps to its credit and lane order");
-        if let Some(credit) = received.credit {
+        // Owed credit is released into this client's own count whether or not it is sent.
+        if let Some(credit) = received.credit.and_then(|owed| self.incoming.release(owed)) {
             self.grant(credit).await;
         }
         let message = received.message?;

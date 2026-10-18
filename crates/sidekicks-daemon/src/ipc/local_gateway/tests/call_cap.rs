@@ -2,7 +2,6 @@
 //! and freed as its reply's last piece is cut, and the replies to slotless messages bounded too.
 
 use bytes::Bytes;
-use futures::SinkExt as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::framing::frame::{Frame, LaneId};
 use sidekicks_contracts::jsonrpc::framing::{INITIAL_LANE_CREDIT, MAX_CHUNK_BYTES, MessageBody};
@@ -192,8 +191,9 @@ async fn slotless_messages_never_keep_the_reader_from_a_call_or_the_credit_that_
     } = harness.connect(1 << 20);
     client.grants_credit = false;
 
-    // Slotless calls still running hold no reply place, so a call after them is taken.
-    let writes: Vec<Value> = (1..=100_u64)
+    // Slotless calls still running hold no reply place, only a running count, so a call after
+    // them is taken.
+    let writes: Vec<Value> = (1..=99_u64)
         .map(|id| call(id, "terminal.write", &json!({})))
         .collect();
     client.send_all(&writes).await;
@@ -202,58 +202,88 @@ async fn slotless_messages_never_keep_the_reader_from_a_call_or_the_credit_that_
     settle().await;
     assert_eq!(harness.script.dispatched("test.large").len(), 1);
 
-    // A hundred refusals wait behind it, every reply place held; the next message waits untaken,
-    // and the client's CREDIT frame is still read.
+    // A hundred refusals wait behind it, every reply place held; the next message waits untaken.
     let responses: Vec<Value> = (1001..=1101_u64)
         .map(|id| json!({ "jsonrpc": "2.0", "id": id, "result": {} }))
         .collect();
     client.send_all(&responses).await;
     settle().await;
     assert_eq!(outbox.held().control_lane, 101, "{:?}", outbox.held());
+
+    // A message past the window while one waits gets no credit back, so nothing more is buffered.
+    client.read_until_quiet().await;
+    let window = usize::try_from(client.outgoing.available(LaneId::CONTROL)).expect("fits");
+    let past_the_window = MessageBody {
+        json: Bytes::from(
+            serde_json::to_vec(&call(
+                1200,
+                "test.read",
+                &json!({ "pad": "p".repeat(400_000) }),
+            ))
+            .expect("a test message writes"),
+        ),
+        attachments: Vec::new(),
+    }
+    .encode()
+    .expect("a test message is within its caps");
+    for chunk in past_the_window[..window].chunks(MAX_CHUNK_BYTES as usize) {
+        let length = u32::try_from(chunk.len()).expect("a chunk fits a u32");
+        assert!(client.outgoing.spend(LaneId::CONTROL, length));
+        client
+            .send_frame(Frame::Data {
+                lane: LaneId::CONTROL,
+                is_end: false,
+                closes_lane: false,
+                body: Bytes::copy_from_slice(chunk),
+            })
+            .await;
+    }
+    client.read_until_quiet().await;
+    assert_eq!(client.outgoing.available(LaneId::CONTROL), 0);
+
+    // The client's CREDIT frame is still read: every reply drains, then the owed credit follows.
     client
         .send_frame(Frame::Credit {
             lane: LaneId::CONTROL,
             granted: INITIAL_LANE_CREDIT,
         })
         .await;
-
     assert_eq!(client.answer().await["id"], json!(101));
     for id in 1001..=1101_u64 {
         assert_eq!(client.answer().await["id"], json!(id));
     }
+    client.read_until_quiet().await;
+    assert!(usize::try_from(client.outgoing.available(LaneId::CONTROL)).expect("fits") >= window);
 }
 
 #[tokio::test(start_paused = true)]
-async fn lane_0_holds_at_most_a_hundred_unsent_slotless_answers() {
+async fn at_most_a_hundred_slotless_calls_run_while_more_wait_untaken() {
     let harness = harness();
-    let Connection {
-        mut client, outbox, ..
-    } = harness.connect(64);
+    let mut connection = harness.connect(1024);
+    let (values, _taken, feed) = channel_feed();
+    harness.script.prepare(feed);
+    connection.client.send(&subscribe(1)).await;
+    connection.client.answer().await;
+    values.send(json!("ready")).expect("the feed is held");
+    connection.client.notification().await;
 
-    // A client that answers the daemon, which takes no answer, and never reads; the messages past
-    // the hundredth wait untaken, their credit unreturned.
-    let flood = tokio::spawn(async move {
-        for id in 1..=150_u64 {
-            let response = json!({ "jsonrpc": "2.0", "id": id, "result": {} });
-            let message = MessageBody {
-                json: Bytes::from(serde_json::to_vec(&response).expect("a response writes")),
-                attachments: Vec::new(),
-            }
-            .encode()
-            .expect("a response is within its caps");
-            for frame in Frame::data_chunks(LaneId::CONTROL, message, MAX_CHUNK_BYTES, false) {
-                if client.frames.send(frame).await.is_err() {
-                    return;
-                }
-            }
-        }
-    });
+    // The client stops reading under a large answer, so no ABORT reaches the socket and each
+    // cancel of the subscription waits for its lane to close.
+    connection
+        .client
+        .send(&call(2, "test.big", &json!({})))
+        .await;
+    let cancel = json!({ "subscriptionId": subscription_id(0) });
+    let cancels: Vec<Value> = (3..=103_u64)
+        .map(|id| call(id, "$/subscription/cancel", &cancel))
+        .collect();
+    connection.client.send_all(&cancels).await;
     settle().await;
 
-    let held = outbox.held();
-    assert_eq!(held.control_lane, 100, "{held:?}");
-    assert!(held.pieces_in_hand <= 1, "{held:?}");
-    flood.abort();
+    assert_eq!(
+        harness.script.dispatched("$/subscription/cancel").len(),
+        100
+    );
 }
 
 /// The credit `json` spends as one message.

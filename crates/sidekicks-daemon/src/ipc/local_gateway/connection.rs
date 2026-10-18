@@ -1,7 +1,10 @@
 //! One connection of the local socket: the reader, which returns each message's credit as it takes
 //! it and holds every request to its gates in order (the id's bound, the envelope's
 //! `protocolVersion`, a call slot, the subscription limit) before it dispatches it; the table of
-//! calls a `$/cancelRequest` can reach; and the close every path ends in.
+//! calls a `$/cancelRequest` can reach; and the close every path ends in. Calls that take no slot
+//! are bounded too: at most `MAX_CALLS_IN_FLIGHT` run at once, and at most `SLOTLESS_REPLIES_MAX`
+//! of their replies wait unsent; past either the reader takes no message, though it reads frames,
+//! and the client's own credit bounds what it sends meanwhile.
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
@@ -14,7 +17,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::daemon::lifecycle::DaemonStop;
 use sidekicks_contracts::jsonrpc::framing::frame::{Frame, FrameCodec};
-use sidekicks_contracts::jsonrpc::framing::incoming::{IncomingLanes, IncomingMessage};
+use sidekicks_contracts::jsonrpc::framing::incoming::{IncomingLanes, IncomingMessage, OwedCredit};
 use sidekicks_contracts::jsonrpc::framing::{FramingError, MessageBody};
 use sidekicks_contracts::jsonrpc::message::{
     CANCEL_REQUEST_METHOD, CancelRequestParams, ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
@@ -43,7 +46,7 @@ use crate::ipc::registry::{DispatchError, HandlerContext, Reply, Request, Transp
 use crate::ipc::stream::subscriptions::subscription_limit_reached;
 
 /// The methods that take no call slot: the daemon answers each without waiting on another call,
-/// so a client sends them past the cap.
+/// so a client sends them past the cap. A running one takes a count of its own instead.
 const SLOTLESS_METHODS: [&str; 3] = [
     SUBSCRIPTION_CANCEL_METHOD,
     <DaemonStop as Method>::DESCRIPTOR.method,
@@ -85,6 +88,7 @@ pub(crate) async fn serve_connection<S>(
         calls: calls.clone(),
         call_slots: Arc::new(Semaphore::new(MAX_CALLS_IN_FLIGHT)),
         slotless_replies: Arc::new(Semaphore::new(SLOTLESS_REPLIES_MAX)),
+        slotless_running: Arc::new(Semaphore::new(MAX_CALLS_IN_FLIGHT)),
         cancel_table: Arc::new(CancelTable::default()),
         incoming: IncomingLanes::default(),
         next_call: 0,
@@ -234,9 +238,19 @@ struct ConnectionReader {
     call_slots: Arc<Semaphore>,
     /// The places of replies to messages that took no slot, held until each reply is cut.
     slotless_replies: Arc<Semaphore>,
+    /// One count per slotless call still running, held until its reply takes its place.
+    slotless_running: Arc<Semaphore>,
     cancel_table: Arc<CancelTable>,
     incoming: IncomingLanes,
     next_call: u64,
+}
+
+/// What the reader holds before it takes a message: a reply place for a refusal it answers
+/// itself, and a running count for a slotless call it dispatches.
+#[derive(Default)]
+struct Reserve {
+    place: Option<OwnedSemaphorePermit>,
+    running: Option<OwnedSemaphorePermit>,
 }
 
 impl ConnectionReader {
@@ -248,22 +262,39 @@ impl ConnectionReader {
     ) where
         S: AsyncRead + Send,
     {
-        // A reply place taken before each message is taken, for a refusal the reader answers
-        // itself; a message waits here, unread, while lane 0 holds as many such replies as it may.
-        let mut reserve: Option<OwnedSemaphorePermit> = None;
+        // A reply place and a running count taken before each message is taken; a message waits
+        // here, untaken, while lane 0 holds as many slotless replies, or as many slotless calls
+        // run, as they may.
+        let mut reserve = Reserve::default();
         // Whole messages not yet taken. Their credit stays unreturned, so the client's credit
         // bounds them; frames, CREDIT and ABORT included, are still read meanwhile.
         let mut waiting: VecDeque<IncomingMessage> = VecDeque::new();
+        // Credit owed for partial messages, sent only once no message waits, so a client cannot
+        // send past its window while messages wait untaken.
+        let mut owed: Vec<OwedCredit> = Vec::new();
         loop {
             while !waiting.is_empty() {
-                if reserve.is_none() {
+                if reserve.place.is_none() {
                     match Arc::clone(&self.slotless_replies).try_acquire_owned() {
-                        Ok(place) => reserve = Some(place),
+                        Ok(place) => reserve.place = Some(place),
                         Err(_no_place) => break,
+                    }
+                }
+                if reserve.running.is_none() {
+                    match Arc::clone(&self.slotless_running).try_acquire_owned() {
+                        Ok(count) => reserve.running = Some(count),
+                        Err(_no_count) => break,
                     }
                 }
                 if let Some(message) = waiting.pop_front() {
                     self.take(message, &mut reserve);
+                }
+            }
+            if waiting.is_empty() {
+                for credit in owed.drain(..) {
+                    if let Some(Frame::Credit { lane, granted }) = self.incoming.release(credit) {
+                        self.outbox.return_credit(lane, granted);
+                    }
                 }
             }
             let next = tokio::select! {
@@ -274,9 +305,17 @@ impl ConnectionReader {
                     return;
                 }
                 acquired = Arc::clone(&self.slotless_replies).acquire_owned(),
-                    if reserve.is_none() && !waiting.is_empty() =>
+                    if reserve.place.is_none() && !waiting.is_empty() =>
                 {
-                    reserve = Some(acquired.expect("the slotless replies' semaphore is never closed"));
+                    reserve.place =
+                        Some(acquired.expect("the slotless replies' semaphore is never closed"));
+                    continue;
+                }
+                acquired = Arc::clone(&self.slotless_running).acquire_owned(),
+                    if reserve.running.is_none() && !waiting.is_empty() =>
+                {
+                    reserve.running =
+                        Some(acquired.expect("the slotless calls' semaphore is never closed"));
                     continue;
                 }
                 next = frames.next() => next,
@@ -286,7 +325,7 @@ impl ConnectionReader {
                     self.close.end(SupervisionDisconnectReason::ClientClose);
                     return;
                 }
-                Some(frame) => frame.and_then(|frame| self.receive(frame, &mut waiting)),
+                Some(frame) => frame.and_then(|frame| self.receive(frame, &mut waiting, &mut owed)),
             };
             if let Err(error) = received {
                 self.fail_framing(&error);
@@ -295,19 +334,21 @@ impl ConnectionReader {
         }
     }
 
-    /// Applies one frame; a message it completes waits to be taken.
+    /// Applies one frame; a message it completes waits to be taken, and credit it owes waits to be
+    /// sent.
     fn receive(
         &mut self,
         frame: Frame,
         waiting: &mut VecDeque<IncomingMessage>,
+        owed: &mut Vec<OwedCredit>,
     ) -> Result<(), FramingError> {
         if let Frame::Credit { lane, granted } = frame {
             self.outbox.grant(lane, granted);
             return Ok(());
         }
         let received = self.incoming.receive(frame)?;
-        if let Some(Frame::Credit { lane, granted }) = received.credit {
-            self.outbox.return_credit(lane, granted);
+        if let Some(credit) = received.credit {
+            owed.push(credit);
         }
         if let Some(message) = received.message {
             waiting.push_back(message);
@@ -346,7 +387,7 @@ impl ConnectionReader {
 
     /// Takes one whole message: its credit goes back at once, a refused one's too, then it is
     /// read and answered or dispatched.
-    fn take(&mut self, message: IncomingMessage, reserve: &mut Option<OwnedSemaphorePermit>) {
+    fn take(&mut self, message: IncomingMessage, reserve: &mut Reserve) {
         let IncomingMessage {
             lane,
             body,
@@ -357,7 +398,11 @@ impl ConnectionReader {
         }
         let MessageBody { json, attachments } = body;
         match JsonRpcMessage::from_slice(&json) {
-            Err(error) => self.reply(CallFailure::Message(error), JsonRpcId::Null, reserve.take()),
+            Err(error) => self.reply(
+                CallFailure::Message(error),
+                JsonRpcId::Null,
+                reserve.place.take(),
+            ),
             Ok(JsonRpcMessage::Request {
                 id,
                 method,
@@ -386,13 +431,13 @@ impl ConnectionReader {
                 self.reply(
                     CallFailure::Message(MessageError::NotAMessage),
                     id,
-                    reserve.take(),
+                    reserve.place.take(),
                 );
             }
         }
     }
 
-    /// Holds a request to its gates in order, then dispatches it before the next message is read,
+    /// Holds a request to its gates in order, then dispatches it before the next message is taken,
     /// so an order-bound method's admit step runs in arrival order; its answer runs on its own
     /// task.
     fn admit(
@@ -400,14 +445,14 @@ impl ConnectionReader {
         id: JsonRpcId,
         request: Request,
         protocol_version: Option<&Value>,
-        reserve: &mut Option<OwnedSemaphorePermit>,
+        reserve: &mut Reserve,
     ) {
         // Echoing an id past the bound is the write this gate prevents.
         if !is_within_bound(&id) {
             self.reply(
                 CallFailure::Message(MessageError::NotAMessage),
                 JsonRpcId::Null,
-                reserve.take(),
+                reserve.place.take(),
             );
             return;
         }
@@ -417,12 +462,14 @@ impl ConnectionReader {
                 RefusalCode::RequestProtocolVersionInvalid,
             )
             .with_detail(details);
-            self.reply(refused(refusal), id, reserve.take());
+            self.reply(refused(refusal), id, reserve.place.take());
             return;
         }
         // A slotless method's reply takes its place once it is ready, so a call still running
-        // holds none.
+        // holds only its running count.
+        let mut running = None;
         let permit = if SLOTLESS_METHODS.contains(&request.method.as_str()) {
+            running = reserve.running.take();
             None
         } else if let Ok(slot) = Arc::clone(&self.call_slots).try_acquire_owned() {
             Some(slot)
@@ -432,7 +479,7 @@ impl ConnectionReader {
                 RefusalCode::ConnectionCallLimitReached,
             )
             .with_detail(json!({ "limit": MAX_CALLS_IN_FLIGHT }));
-            self.reply(refused(refusal), id, reserve.take());
+            self.reply(refused(refusal), id, reserve.place.take());
             return;
         };
         let is_subscribe = self
@@ -462,6 +509,7 @@ impl ConnectionReader {
             id,
             call,
             permit,
+            running,
             transport: self.transport,
             services: Arc::clone(&self.services),
             outbox: Arc::clone(&self.outbox),
@@ -506,6 +554,8 @@ struct PendingCall {
     call: u64,
     /// The call's slot; `None` for a slotless method, whose reply takes a place once it is ready.
     permit: Option<OwnedSemaphorePermit>,
+    /// A slotless call's running count, given up once its reply holds its place.
+    running: Option<OwnedSemaphorePermit>,
     transport: TransportId,
     services: Arc<GatewayServices>,
     outbox: Arc<Outbox>,
@@ -535,6 +585,7 @@ impl PendingCall {
                 },
             };
             self.permit = Some(place);
+            drop(self.running.take());
         }
         match outcome {
             Ok(Reply::Result(value)) => match encode_response(self.id, value) {

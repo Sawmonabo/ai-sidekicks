@@ -1,5 +1,6 @@
 //! The receiving side of a connection's lanes: it reassembles each lane's messages from their
-//! chunks, holds every lane to the credit it granted, and returns credit as messages are taken.
+//! chunks, holds every lane to the credit it granted, and returns credit as messages are taken or
+//! as owed credit is released; a lane is credited only when its CREDIT frame goes out.
 
 use std::collections::HashMap;
 
@@ -25,14 +26,24 @@ pub struct IncomingMessage {
     pub credit_due: u32,
 }
 
+/// Credit owed back to the sender: a partial message's bytes when its lane's credit ran out before
+/// its end, or a dropped partial message's bytes. The lane takes no more until
+/// [`IncomingLanes::release`] credits it and answers the CREDIT frame to send.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwedCredit {
+    /// The lane the credit belongs to.
+    pub lane: LaneId,
+    /// The bytes owed.
+    pub granted: u32,
+}
+
 /// What one frame produced.
 #[derive(Debug, Default)]
 pub struct Received {
     /// The message the frame completed.
     pub message: Option<IncomingMessage>,
-    /// A CREDIT frame to send at once: the partial message's bytes when its lane's credit ran out
-    /// before its end, or a dropped partial message's bytes.
-    pub credit: Option<Frame>,
+    /// Credit owed back, released when the consumer chooses to send it.
+    pub credit: Option<OwedCredit>,
 }
 
 /// One open lane's receive state.
@@ -94,6 +105,12 @@ impl IncomingLanes {
         }
     }
 
+    /// Credits `owed`'s lane and answers the CREDIT frame returning it, or `None` once its lane
+    /// has closed.
+    pub fn release(&mut self, owed: OwedCredit) -> Option<Frame> {
+        self.take(owed.lane, owed.granted)
+    }
+
     /// The CREDIT frame returning a taken message's bytes, or `None` once its lane has closed.
     pub fn take(&mut self, lane: LaneId, credit_due: u32) -> Option<Frame> {
         let state = self.lanes.get_mut(&lane)?;
@@ -136,14 +153,13 @@ impl IncomingLanes {
         check_partial_caps(&state.partial)?;
 
         if !is_end {
-            // A message larger than the window would stall with no credit left: return what
-            // has arrived of it, so the sender can send the rest.
+            // A message larger than the window would stall with no credit left: owe back what
+            // has arrived of it, so the sender can send the rest once it is released.
             if state.outstanding_credit == 0 && state.unreturned > 0 {
                 let granted = std::mem::take(&mut state.unreturned);
-                state.outstanding_credit = granted;
                 return Ok(Received {
                     message: None,
-                    credit: Some(Frame::Credit { lane, granted }),
+                    credit: Some(OwedCredit { lane, granted }),
                 });
             }
             return Ok(Received::default());
@@ -186,10 +202,9 @@ impl IncomingLanes {
         if granted == 0 {
             return Received::default();
         }
-        state.outstanding_credit = state.outstanding_credit.saturating_add(granted);
         Received {
             message: None,
-            credit: Some(Frame::Credit { lane, granted }),
+            credit: Some(OwedCredit { lane, granted }),
         }
     }
 }

@@ -197,7 +197,7 @@ mod tests {
     use tokio_util::codec::{Decoder, Encoder};
 
     use super::frame::{Frame, FrameCodec, LaneId};
-    use super::incoming::{IncomingLanes, MAX_OPEN_LANES};
+    use super::incoming::{IncomingLanes, MAX_OPEN_LANES, OwedCredit};
     use super::{
         FramingError, INITIAL_LANE_CREDIT, MAX_ATTACHMENT_BYTES, MAX_CHUNK_BYTES,
         MAX_MESSAGE_BYTES, MessageBody, MessagePart,
@@ -347,20 +347,42 @@ mod tests {
         let early = lanes
             .receive(data(1, false, &window))
             .expect("the window is the credit");
+        let owed = early
+            .credit
+            .expect("a message past the window owes its partial bytes back before it stalls");
         assert_eq!(
-            early.credit,
+            owed,
+            OwedCredit {
+                lane: LaneId::new(1),
+                granted: INITIAL_LANE_CREDIT
+            }
+        );
+        assert!(
+            matches!(
+                lanes.receive(data(1, false, b"x")),
+                Err(FramingError::DataBeyondCredit { lane: 1 })
+            ),
+            "owed credit is no credit until it is released"
+        );
+        let mut lanes = IncomingLanes::default();
+        let owed = lanes
+            .receive(data(1, false, &window))
+            .expect("the window is the credit")
+            .credit
+            .expect("the partial bytes are owed");
+        assert_eq!(
+            lanes.release(owed),
             Some(Frame::Credit {
                 lane: LaneId::new(1),
                 granted: INITIAL_LANE_CREDIT
-            }),
-            "a message past the window gets its partial bytes back before it stalls"
+            })
         );
         let again = lanes
             .receive(data(1, false, &window))
-            .expect("the returned credit is spent again");
-        assert_eq!(
-            again.credit, early.credit,
-            "each window of a message longer than several is returned, so it never stalls"
+            .expect("the released credit is spent again");
+        assert!(
+            again.credit.is_some(),
+            "each window of a message longer than several is owed back, so it never stalls"
         );
         let past_the_credit = vec![0; window.len() + 1];
         assert!(matches!(
@@ -416,12 +438,19 @@ mod tests {
         );
 
         // A JSON length of 0, then zeros as one attachment section that keeps growing, in chunks
-        // that spend the window exactly, as a sender sizing each chunk to its credit does.
+        // that spend the window exactly, as a sender sizing each chunk to its credit does, with
+        // each owed window released.
         let chunk = vec![0; usize::try_from(INITIAL_LANE_CREDIT / 8).expect("fits")];
         let mut lanes = IncomingLanes::default();
         let chunks_past_the_cap = MAX_ATTACHMENT_BYTES / chunk.len() + 2;
         let outcome = (0..chunks_past_the_cap)
-            .map(|_| lanes.receive(data(0, false, &chunk)))
+            .map(|_| {
+                let received = lanes.receive(data(0, false, &chunk))?;
+                if let Some(owed) = received.credit {
+                    lanes.release(owed);
+                }
+                Ok(received)
+            })
             .find(Result::is_err);
         assert!(
             matches!(
