@@ -19,7 +19,6 @@ use strum::VariantArray;
 use crate::color::HexColor;
 use crate::command::ExitCode;
 use crate::event::registry::SessionEventType;
-use crate::jsonrpc::byte_length::fits_budget;
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::jsonrpc::streaming::{
     STREAM_FRAME_MAX_CHANGES, SubscribeAcknowledgmentResponse, SubscriptionId,
@@ -50,7 +49,8 @@ ts_constants! {
     /// title the shell sets to whole graphemes within it, and within it to whole code points only
     /// when one grapheme alone is longer.
     pub const SHELL_TITLE_MAX_LEN: usize = 256;
-    /// The most bytes one `terminal.write`'s `data` measures as its JSON travels.
+    /// The most UTF-8 bytes one `terminal.write`'s `data` holds, counted on its text before JSON
+    /// escapes it, so a client splits a paste by the text's own bytes.
     pub const TERMINAL_WRITE_MAX_BYTES: usize = 65_536;
     /// How many writes to one shell a client keeps waiting for an answer before it joins its next
     /// typed keys into later writes, sent in order as answers return.
@@ -325,7 +325,7 @@ pub struct TerminalOutputFrame {
 /// program in the shell asked for pasted text to be marked as pasted, the daemon marks the whole
 /// paste once around all its parts. Each pane has one paste open at a time: a part naming a new
 /// `pasteId` closes the pane's earlier paste first. Each write's `data` is at most
-/// `TERMINAL_WRITE_MAX_BYTES`. The daemon answers a write once the shell's write queue takes it,
+/// `TERMINAL_WRITE_MAX_BYTES` of UTF-8. The daemon answers a write once the shell's write queue takes it,
 /// which it does while the queue holds less than 64 KiB, so typing into a program that is not
 /// reading holds no call open and a paste past the queue's bound is paced by the shell. A write
 /// takes no slot of the connection's call cap: a client keeps at most
@@ -349,9 +349,9 @@ pub enum TerminalWriteRequest {
         terminal_id: TerminalId,
         /// The writing pane's output subscription.
         output_subscription_id: SubscriptionId,
-        /// The text, at most [`TERMINAL_WRITE_MAX_BYTES`] as its JSON travels.
-        #[garde(custom(|data: &String, (): &()| fits_budget(data, TERMINAL_WRITE_MAX_BYTES)))]
-        #[schemars(extend("maxJsonBytes" = TERMINAL_WRITE_MAX_BYTES))]
+        /// The text, at most [`TERMINAL_WRITE_MAX_BYTES`] of UTF-8.
+        #[garde(length(bytes, max = TERMINAL_WRITE_MAX_BYTES))]
+        #[schemars(extend("maxUtf8Bytes" = TERMINAL_WRITE_MAX_BYTES))]
         data: String,
     },
     /// One part of a paste.
@@ -362,9 +362,9 @@ pub enum TerminalWriteRequest {
         terminal_id: TerminalId,
         /// The writing pane's output subscription.
         output_subscription_id: SubscriptionId,
-        /// The part's text, at most [`TERMINAL_WRITE_MAX_BYTES`] as its JSON travels.
-        #[garde(custom(|data: &String, (): &()| fits_budget(data, TERMINAL_WRITE_MAX_BYTES)))]
-        #[schemars(extend("maxJsonBytes" = TERMINAL_WRITE_MAX_BYTES))]
+        /// The part's text, at most [`TERMINAL_WRITE_MAX_BYTES`] of UTF-8.
+        #[garde(length(bytes, max = TERMINAL_WRITE_MAX_BYTES))]
+        #[schemars(extend("maxUtf8Bytes" = TERMINAL_WRITE_MAX_BYTES))]
         data: String,
         /// The paste, minted by the client.
         paste_id: ClientUuid,
@@ -603,7 +603,7 @@ mod tests {
     use super::{TERMINAL_WRITE_MAX_BYTES, TerminalWriteRequest};
 
     #[test]
-    fn a_write_s_data_fits_its_byte_cap_as_its_json_travels_on_both_arms() {
+    fn a_write_s_data_fits_its_byte_cap_in_utf8_on_both_arms() {
         let write = |kind: &str, data: String| -> TerminalWriteRequest {
             let mut request = json!({
                 "kind": kind,
@@ -618,16 +618,13 @@ mod tests {
             }
             serde_json::from_value(request).expect("a well-formed write")
         };
-        // The two quotes count toward the cap, as do an escape's extra bytes.
-        let fitting = "a".repeat(TERMINAL_WRITE_MAX_BYTES - 2);
+        // Newlines and quotes at the cap fit, though their JSON escapes double them; text one
+        // byte past it does not, though it holds about half as many characters.
+        let fitting = "\n\"".repeat(TERMINAL_WRITE_MAX_BYTES / 2);
+        let over = "é".repeat(TERMINAL_WRITE_MAX_BYTES / 2) + "a";
         for kind in ["keys", "paste"] {
             assert!(write(kind, fitting.clone()).validate().is_ok(), "{kind}");
-            for over in [
-                fitting.clone() + "a",
-                "\n".repeat(TERMINAL_WRITE_MAX_BYTES / 2),
-            ] {
-                assert!(write(kind, over).validate().is_err(), "{kind}");
-            }
+            assert!(write(kind, over.clone()).validate().is_err(), "{kind}");
         }
     }
 }
