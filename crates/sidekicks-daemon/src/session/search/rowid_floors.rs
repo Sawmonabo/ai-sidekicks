@@ -5,10 +5,12 @@
 //! source rowid is no higher than every highest rowid logged since the view's database state; one
 //! higher was deleted since, whatever sits at its rowid now. This holds while the source tables
 //! insert without naming a rowid and never `REPLACE`, whose deletes fire no trigger. The live
-//! index lets go of the entries no held search and no newer view needs, through the database
-//! writer.
+//! index lets go of the entries no search being read, no held search and no newer view needs,
+//! through the database writer.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -125,5 +127,70 @@ impl<'connection> RowidFloorLog<'connection> {
             is_any_logged = true;
         }
         Ok(is_any_logged.then_some(check))
+    }
+}
+
+/// The places in the floor log the searches being read stand at, a first page among them before
+/// its search is held, so the entries a page in flight relies on are kept. Shared by `Arc`.
+#[derive(Default)]
+pub(crate) struct FloorPositionsInFlight {
+    /// Each place a search being read stands at, with how many stand there.
+    positions: Mutex<BTreeMap<i64, usize>>,
+}
+
+impl FloorPositionsInFlight {
+    /// Enters a search at the place `read_position` answers, read under the lock [`Self::oldest`]
+    /// takes: a kept floor reads the searches after the place it keeps from has moved, so a
+    /// search entered before that read is counted and one entered after it reads the moved place.
+    /// The search leaves when the answer drops.
+    pub(crate) fn enter(
+        self: &Arc<Self>,
+        read_position: impl FnOnce() -> i64,
+    ) -> FloorPositionInFlight {
+        let mut positions = self.lock_positions();
+        let position = read_position();
+        *positions.entry(position).or_default() += 1;
+        FloorPositionInFlight {
+            positions: Arc::clone(self),
+            position,
+        }
+    }
+
+    /// The lowest place a search being read stands at; `None` while none is read.
+    pub(crate) fn oldest(&self) -> Option<i64> {
+        self.lock_positions().keys().next().copied()
+    }
+
+    fn lock_positions(&self) -> MutexGuard<'_, BTreeMap<i64, usize>> {
+        // The counts hold no invariant a panicking holder could break.
+        self.positions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// One search being read, at its place in the floor log, until it drops.
+pub(crate) struct FloorPositionInFlight {
+    positions: Arc<FloorPositionsInFlight>,
+    position: i64,
+}
+
+impl FloorPositionInFlight {
+    /// The place in the floor log the search reads from.
+    pub(crate) fn position(&self) -> i64 {
+        self.position
+    }
+}
+
+impl Drop for FloorPositionInFlight {
+    fn drop(&mut self) {
+        let mut positions = self.positions.lock_positions();
+        let count = positions
+            .get_mut(&self.position)
+            .expect("an entered search's place is counted until it leaves");
+        *count -= 1;
+        if *count == 0 {
+            positions.remove(&self.position);
+        }
     }
 }

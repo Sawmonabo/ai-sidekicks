@@ -37,6 +37,7 @@ use crate::session::search::index::rebuild::{
     SearchIndexRebuildReason, build_search_index_in_child, open_search_index,
 };
 use crate::session::search::merging::SearchIndexMerging;
+use crate::session::search::rowid_floors::{FloorPositionInFlight, FloorPositionsInFlight};
 use crate::session::search::service::{SessionSearchError, SessionSearchService};
 use crate::session::search::transcript::{TranscriptSearchError, search_transcript};
 
@@ -141,6 +142,8 @@ struct LiveIndexShared {
     // taken.
     searches: Arc<RwLock<()>>,
     reads: Arc<DatabaseReadPool>,
+    // Where in the floor log each search being read stands, until it is answered.
+    floors_in_flight: Arc<FloorPositionsInFlight>,
     session_search: SessionSearchService,
     scheduler: Arc<Scheduler>,
     held_search_expiry: Mutex<Option<HeldSearchExpiry>>,
@@ -273,13 +276,17 @@ impl LiveIndex {
         Failure: Send + 'static,
     {
         let (open, taken) = self.take_search().await?;
-        let applied_floor_position = open.applier.floor_position();
+        let in_flight = self.shared.enter_search(&open);
         let answer = self
             .shared
             .reads
             .read(ReadLength::Long, move |connection| {
                 let _taken = taken;
-                Ok::<_, DatabaseReadError>(search(connection, &open.index, applied_floor_position))
+                // Left once the search has answered, after a first page held its search.
+                let floor_position = in_flight.position();
+                let answer = search(connection, &open.index, floor_position);
+                drop(in_flight);
+                Ok::<_, DatabaseReadError>(answer)
             })
             .await?;
         // An apply that failed while the search ran leaves the index behind its answer.
@@ -330,6 +337,7 @@ impl LiveIndexShared {
             state: watch::Sender::new(LiveIndexState::Opening),
             searches: Arc::new(RwLock::new(())),
             reads,
+            floors_in_flight: Arc::default(),
             session_search: SessionSearchService::new(),
             scheduler,
             held_search_expiry: Mutex::new(None),
@@ -355,15 +363,23 @@ impl LiveIndexShared {
         failure.map_or(Ok(()), Err)
     }
 
-    // The kept floor: the lowest floor log entry the applier's caught-up read or a held search
-    // still reads.
+    // A search about to read, at the floor the index last matched the database at; it counts in
+    // the kept floor until it has answered.
+    fn enter_search(&self, open: &OpenIndex) -> FloorPositionInFlight {
+        self.floors_in_flight
+            .enter(|| open.applier.floor_position())
+    }
+
+    // The kept floor: the lowest floor log entry the applier's caught-up read, a search being read
+    // or a held search still reads. The searches being read are read before the held ones, since a
+    // first page holds its search before it leaves them.
     fn kept_floor_position(&self, applier: &SearchIndexApplier) -> i64 {
-        cmp::min(
-            applier.floor_position(),
-            self.session_search
-                .oldest_held_floor_position()
-                .unwrap_or(i64::MAX),
-        )
+        let in_flight = self.floors_in_flight.oldest().unwrap_or(i64::MAX);
+        let held = self
+            .session_search
+            .oldest_held_floor_position()
+            .unwrap_or(i64::MAX);
+        cmp::min(applier.floor_position(), cmp::min(in_flight, held))
     }
 
     // Lets go of every held search and of the job that would expire them.
@@ -513,8 +529,9 @@ async fn serve(
     {
         failures.push(LiveIndexError::Task(failure));
     }
-    shared.let_go_of_held_searches();
+    // The searches taken finish first, so none holds its search after the let-go.
     let _searches = shared.searches.write().await;
+    shared.let_go_of_held_searches();
     let closing = Arc::clone(&open.index);
     match tokio::task::spawn_blocking(move || closing.close()).await {
         Ok(Ok(())) => {}
@@ -650,142 +667,4 @@ async fn delete_applied(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use sidekicks_platforms::{Spawner, WallClockTimer};
-    use sidekicks_search::index::SearchIndex;
-    use tokio::runtime::Handle;
-    use tokio::sync::{Notify, watch};
-
-    use super::{LiveIndex, LiveIndexOptions, LiveIndexShared, OpenIndex, catch_up};
-    use crate::daemon::scheduler::Scheduler;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::session::search::index::applier::SearchIndexApplier;
-    use crate::session::search::index::outbox::{
-        AppliedOutbox, OUTBOX_STATEMENT_CAPACITY, OutboxReader,
-    };
-    use crate::session::search::index::rebuild::{
-        SearchIndexOpening, make_index_at, open_search_index,
-    };
-    use crate::session::search::index::schema::{add_titled_session, make_search_source_tables};
-
-    // The daemon's scheduler on the system's wall-clock timer.
-    fn scheduler() -> Arc<Scheduler> {
-        Arc::new(Scheduler::start(
-            Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-            None,
-        ))
-    }
-
-    // A file the stand-in build writes beside the index folder.
-    fn build_marker(index_folder: &Path, name: &str) -> PathBuf {
-        let mut path = index_folder.as_os_str().to_owned();
-        path.push(format!(".{name}"));
-        PathBuf::from(path)
-    }
-
-    #[tokio::test]
-    async fn a_close_during_a_build_settles_once_the_build_has_exited() {
-        let database = TestDatabase::new();
-        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens its database");
-        // The outbox's id sequence alone: the open reads only its highest id before it builds.
-        database
-            .reader()
-            .execute_batch(
-                "CREATE TABLE session_search_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT);",
-            )
-            .expect("the outbox table is made");
-        let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-        let index_folder = folder.path().join("search-index");
-        let live = LiveIndex::start(LiveIndexOptions {
-            database_path: database.path(),
-            index_folder: index_folder.clone(),
-            program: Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/search_index_build.sh"),
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            reads: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                OUTBOX_STATEMENT_CAPACITY,
-            )),
-            writer: Arc::new(writer),
-            scheduler: scheduler(),
-        });
-        let started = build_marker(&index_folder, "started");
-        tokio::time::timeout(Duration::from_secs(30), async {
-            while !started.exists() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("the missing index's build starts");
-
-        live.close().await.expect("the close ends the build");
-
-        assert!(
-            build_marker(&index_folder, "exited").exists(),
-            "the close settles only once the build's process has exited"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_start_reports_the_newest_commit_before_it_applies_what_waits() {
-        let database = TestDatabase::new();
-        let connection = database.reader();
-        make_search_source_tables(&connection);
-        let committed_id = add_titled_session(&connection, "session-1");
-        add_titled_session(&connection, "session-2");
-        add_titled_session(&connection, "session-3");
-        // Lowers the sessions' highest rowid, so the floor log holds an entry the start keeps.
-        connection
-            .execute("DELETE FROM sessions WHERE id = 'session-3'", [])
-            .expect("the session is deleted");
-        let highest_id_given = OutboxReader::new(&connection)
-            .highest_id_given()
-            .expect("the outbox's highest id reads");
-        let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-        let index_folder = folder.path().join("search-index");
-        make_index_at(&index_folder, committed_id);
-        let SearchIndexOpening::Opened(index) = open_search_index(index_folder, highest_id_given)
-            .await
-            .expect("the index opens")
-        else {
-            panic!("an index at an id the outbox gave serves");
-        };
-        let reads = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            OUTBOX_STATEMENT_CAPACITY,
-        ));
-        let shared = LiveIndexShared::new(Arc::clone(&reads), scheduler());
-        let index: Arc<SearchIndex> = Arc::from(index);
-        let open = OpenIndex {
-            applier: Arc::new(SearchIndexApplier::new(Arc::clone(&index), reads)),
-            index,
-        };
-        let (deletes, _applied) = watch::channel(None);
-
-        catch_up(&shared, &open, &deletes, &Notify::new())
-            .await
-            .expect("the index catches up");
-
-        assert!(
-            open.applier.floor_position() > 0,
-            "the delete logged a floor the applier reads"
-        );
-        assert_eq!(
-            *deletes.borrow(),
-            Some(AppliedOutbox {
-                last_outbox_id: highest_id_given,
-                kept_floor_position: open.applier.floor_position(),
-            }),
-            "the last rows reported are the newest applied, with the applier's floor kept"
-        );
-        open.index.close().expect("the index closes");
-    }
-}
+mod tests;
