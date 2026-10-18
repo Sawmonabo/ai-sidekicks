@@ -8437,6 +8437,7 @@ dependencies = [
  "rstest",
  "secret-service",
  "security-framework",
+ "serde_json",
  "sysinfo",
  "tempfile",
  "thiserror 2.0.21",

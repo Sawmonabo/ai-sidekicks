@@ -9,19 +9,19 @@
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Stdio};
+use std::process::ExitStatus;
 
 use sidekicks_platforms::{Spawner, flush_folder, remove_tree, rename_replacing};
 use sidekicks_search::index::{
     IndexBatch, IndexRowKind, SearchIndex, SearchIndexError, SearchIndexOptions,
 };
 use strum::VariantArray;
-use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::helper_mode::child::{HelperModeChildError, HelperModeEnd, run_helper_mode_child};
 use crate::session::search::index::build_mode::SEARCH_INDEX_BUILD_MODE;
 use crate::session::search::index::columns::source_rowid_of;
 use crate::session::search::index::rows::{
@@ -198,9 +198,6 @@ pub(crate) async fn build_search_index_in_child(
     request: &SearchIndexBuildRequest,
     cancellation: &CancellationToken,
 ) -> Result<(), SearchIndexChildError> {
-    if cancellation.is_cancelled() {
-        return Err(SearchIndexChildError::Canceled);
-    }
     let mut command = Command::new(program);
     command
         .arg(SEARCH_INDEX_BUILD_MODE)
@@ -208,70 +205,24 @@ pub(crate) async fn build_search_index_in_child(
         .arg(&request.index_folder)
         .arg(request.last_outbox_id.to_string())
         // Freed memory goes back to the system at once, for the lowest peak footprint.
-        .env("MIMALLOC_PURGE_DELAY", "0")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    let mut child = spawner
-        .run(move || command.spawn())
+        .env("MIMALLOC_PURGE_DELAY", "0");
+    let ended = run_helper_mode_child(spawner, command, cancellation, STANDARD_ERROR_TAIL_BYTES)
         .await
-        .and_then(|spawned| spawned)
-        .map_err(SearchIndexChildError::Spawn)?;
-    // Held until the build ends or is canceled: the build stops once its standard input ends.
-    let standard_input = child.stdin.take();
-    let standard_error = child
-        .stderr
-        .take()
-        .expect("the build's standard error is piped");
-    let waiting = async {
-        let ended = tokio::select! {
-            status = child.wait() => Some(status),
-            () = cancellation.cancelled() => None,
-        };
-        if let Some(status) = ended {
-            (status, false)
-        } else {
-            drop(standard_input);
-            (child.wait().await, true)
-        }
-    };
-    let ((status, is_canceled), tail) = tokio::join!(waiting, read_tail(standard_error));
-    let status = status.map_err(SearchIndexChildError::Wait)?;
-    let standard_error = tail.map_err(SearchIndexChildError::Wait)?;
-    if status.success() {
-        return Ok(());
+        .map_err(|failure| match failure {
+            HelperModeChildError::Start(failure) => SearchIndexChildError::Spawn(failure),
+            HelperModeChildError::Wait(failure) => SearchIndexChildError::Wait(failure),
+        })?;
+    match ended {
+        HelperModeEnd::Succeeded => Ok(()),
+        HelperModeEnd::Stopped => Err(SearchIndexChildError::Canceled),
+        HelperModeEnd::Failed {
+            status,
+            error_output,
+        } => Err(SearchIndexChildError::Failed {
+            status,
+            standard_error: error_output,
+        }),
     }
-    if is_canceled {
-        return Err(SearchIndexChildError::Canceled);
-    }
-    Err(SearchIndexChildError::Failed {
-        status,
-        standard_error,
-    })
-}
-
-// The last `STANDARD_ERROR_TAIL_BYTES` of `stream`, read to its end, decoded once and starting on
-// a whole character.
-async fn read_tail(mut stream: impl AsyncRead + Unpin) -> io::Result<String> {
-    let mut kept = Vec::new();
-    let mut chunk = [0_u8; 8 * 1024];
-    loop {
-        let read = stream.read(&mut chunk).await?;
-        if read == 0 {
-            break;
-        }
-        kept.extend_from_slice(&chunk[..read]);
-        // Trimmed only past twice the bound, so a long stream is not shifted on every read.
-        if kept.len() > 2 * STANDARD_ERROR_TAIL_BYTES {
-            kept.drain(..kept.len() - STANDARD_ERROR_TAIL_BYTES);
-        }
-    }
-    let mut start = kept.len().saturating_sub(STANDARD_ERROR_TAIL_BYTES);
-    // A cut inside a character moves on to the next character's first byte.
-    while kept.get(start).is_some_and(|byte| byte & 0xC0 == 0x80) {
-        start += 1;
-    }
-    Ok(String::from_utf8_lossy(&kept[start..]).into_owned())
 }
 
 // Where a build has read one kind's rows to, and its table's highest rowid when the build started:

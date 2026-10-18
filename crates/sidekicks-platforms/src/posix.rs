@@ -4,15 +4,18 @@
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) mod allocator;
 pub(crate) mod askpass;
+pub(crate) mod child_command;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
 pub(crate) mod error_codes;
+pub(crate) mod file_facts;
 pub(crate) mod file_system;
 pub(crate) mod login_shell;
 pub(crate) mod memory;
 pub(crate) mod private_folder;
 pub(crate) mod process_exit;
 pub(crate) mod real_path;
+pub(crate) mod run_folder;
 pub(crate) mod shell_start;
 pub(crate) mod socket_listener;
 pub(crate) mod socket_path;
