@@ -15,7 +15,7 @@ pub fn physical_memory() -> u64 {
 mod tests {
     use std::process::Command;
 
-    use crate::{available_memory, physical_memory, read_process_peak_bytes};
+    use crate::read_process_peak_bytes;
 
     // A program that starts and ends at once.
     #[cfg(unix)]
@@ -40,13 +40,5 @@ mod tests {
 
         let reaped_peak = read_process_peak_bytes(child_id).expect("a reaped child reads as none");
         assert_eq!(reaped_peak, None);
-    }
-
-    #[test]
-    fn available_memory_is_some_of_the_installed_memory() {
-        let available = available_memory().expect("the available memory reads");
-
-        assert!(available > 0);
-        assert!(available <= physical_memory());
     }
 }

@@ -39,8 +39,9 @@ use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
-    ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute,
-    TerminalWake, TerminalWaker,
+    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
+    TerminalInputRefusal, TerminalSignal, TerminalSignalRoute, TerminalWake, TerminalWaker,
+    read_waiting_input_line, waiting_input_line,
 };
 
 /// How many process ids the first console process list read makes room for.
@@ -64,24 +65,14 @@ pub fn terminal_ending_route(_signal: TerminalSignal) -> TerminalSignalRoute {
 }
 
 /// Whether a terminal's paused read holds the program's input back too: yes on Windows, whose
-/// console stops taking input while its output pipe is full.
+/// console stops taking input while its output pipe is full. A write the terminal takes at once
+/// may still wait in `ConPTY`'s own pipe, so any write since the pause counts as waiting until a
+/// read finds the output empty.
 pub const DOES_PAUSED_READ_HOLD_INPUT: bool = true;
 
-/// A terminal's keys that its settings turn into signals: none on Windows, whose console turns
-/// Ctrl+C typed as `0x03` into its own event as it reads it.
-pub struct TerminalKeySignals;
-
-impl TerminalKeySignals {
-    /// The signal keys of `pty`'s terminal: none on Windows. Never fails.
-    pub fn new(_pty: &Pty) -> io::Result<Self> {
-        Ok(Self)
-    }
-
-    /// Sends no key as a signal on Windows, answering `false`. Never fails.
-    pub fn send_signal_key(&self, _key: u8) -> io::Result<bool> {
-        Ok(false)
-    }
-}
+/// Whether the system counts the input waiting on a shell's console, which the console helper
+/// reads: yes on Windows.
+pub const DOES_CONSOLE_COUNT_WAITING_INPUT: bool = true;
 
 /// Sends a POSIX signal, which Windows has none of: always fails with `Unsupported`.
 pub fn send_signal(_pid: u32, _signal: TerminalSignal) -> io::Result<()> {
@@ -152,6 +143,46 @@ async fn run_bounded(spawner: &Spawner, mut command: Command) -> io::Result<Exit
         .map_err(|elapsed| io::Error::new(ErrorKind::TimedOut, elapsed))?
 }
 
+/// Runs the console helper `program` with `arguments`, [`CONSOLE_WAITING_INPUT_ARGUMENT`] and then
+/// `pid` in decimal, started on `spawner`'s thread, and answers how many input events wait unread
+/// on that process's console, which the helper writes. Fails as [`run_console_helper`] does, and
+/// with `InvalidData` when the helper wrote no count.
+pub async fn read_console_waiting_input(
+    spawner: &Spawner,
+    program: &OsStr,
+    arguments: &[OsString],
+    pid: u32,
+) -> io::Result<u32> {
+    let mut command = hidden_command(program);
+    command
+        .args(arguments)
+        .arg(CONSOLE_WAITING_INPUT_ARGUMENT)
+        .arg(pid.to_string())
+        .stdout(Stdio::piped());
+    let child = spawner.run(move || command.spawn()).await??;
+    let output = tokio::time::timeout(HELPER_PROGRAM_TIME_LIMIT, child.wait_with_output())
+        .await
+        .map_err(|elapsed| io::Error::new(ErrorKind::TimedOut, elapsed))??;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "the console helper exited with {}",
+            output.status
+        )));
+    }
+    read_waiting_input_line(&output.stdout)
+}
+
+/// Writes to `output` how many input events wait unread on the console of the process `pid`, as
+/// [`read_console_waiting_input`] reads it; run inside the console helper, which it moves onto
+/// that console. Fails with the system's error when the helper cannot attach or read the console's
+/// input, or `output` refuses the line.
+pub fn write_console_waiting_input(pid: u32, output: &mut impl Write) -> io::Result<()> {
+    attach_to_console(pid)?;
+    let ConsoleInput { waiting_events, .. } = read_console_input()?;
+    output.write_all(waiting_input_line(waiting_events).as_bytes())?;
+    output.flush()
+}
+
 /// Sends a break to every process on the console of the process `pid`; run inside the console
 /// helper, which it moves onto that console. Fails with the system's error when the helper cannot
 /// attach to the console or send the break.
@@ -172,21 +203,17 @@ pub fn send_console_break(pid: u32) -> io::Result<()> {
 }
 
 /// Reads which processes the console of the process `pid`, the `shell` mode's process that started
-/// the shell, holds, how it takes input and how much input waits on it; run inside the console helper, which it moves onto that
-/// console. Fails with the system's error when the helper cannot attach, list the console's
-/// processes or read its input mode and waiting input.
+/// the shell, holds and how it takes input; run inside the console helper, which it moves onto
+/// that console. Fails with the system's error when the helper cannot attach, list the console's
+/// processes or read its input mode.
 pub fn read_console(pid: u32) -> io::Result<ConsoleReading> {
     attach_to_console(pid)?;
     let process_ids = console_process_ids(pid)?;
-    let ConsoleInput {
-        mode,
-        waiting_events,
-    } = read_console_input()?;
+    let ConsoleInput { mode, .. } = read_console_input()?;
     Ok(ConsoleReading {
         process_ids,
         is_echo_input: mode & ENABLE_ECHO_INPUT != 0,
         is_line_input: mode & ENABLE_LINE_INPUT != 0,
-        waiting_input_events: waiting_events,
     })
 }
 
@@ -260,6 +287,8 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
 pub struct TerminalWatch {
     pty: Pty,
     waker: TerminalWaker,
+    /// Set while the terminal's input pipe can take none of a waiting write.
+    input_refusal: TerminalInputRefusal,
     events: Events,
     /// The interest the PTY is registered with, `None` before the first wait registers it.
     interest: Option<Event>,
@@ -269,11 +298,17 @@ pub struct TerminalWatch {
 }
 
 impl TerminalWatch {
-    /// Makes the watch over `pty`, woken by `waker`; never fails on Windows.
-    pub fn new(pty: Pty, waker: &TerminalWaker) -> Result<Self, (io::Error, Box<Pty>)> {
+    /// Makes the watch over `pty`, woken by `waker`, keeping `input_refusal` set while the
+    /// terminal's input pipe refuses a waiting write; never fails on Windows.
+    pub fn new(
+        pty: Pty,
+        waker: &TerminalWaker,
+        input_refusal: &TerminalInputRefusal,
+    ) -> Result<Self, (io::Error, Box<Pty>)> {
         Ok(Self {
             pty,
             waker: waker.clone(),
+            input_refusal: input_refusal.clone(),
             events: Events::new(),
             interest: None,
             is_child_event_pending: true,
@@ -300,6 +335,9 @@ impl TerminalWatch {
     ) -> io::Result<TerminalWake> {
         // Registered before the first answer, so an exit after it posts an event.
         self.register(Event::new(0, read_into.is_some(), write_from.is_some()))?;
+        if write_from.is_none() {
+            self.input_refusal.set(false);
+        }
         if self.is_child_event_pending {
             self.is_child_event_pending = false;
             return Ok(TerminalWake::ChildEvent);
@@ -307,7 +345,12 @@ impl TerminalWatch {
         if self.waker.take_wake() {
             return Ok(TerminalWake::Woken);
         }
-        if let Some(wake) = transfer(&mut self.pty, read_into.as_deref_mut(), write_from)? {
+        if let Some(wake) = transfer(
+            &mut self.pty,
+            &self.input_refusal,
+            read_into.as_deref_mut(),
+            write_from,
+        )? {
             return Ok(wake);
         }
         self.events.clear();
@@ -327,7 +370,7 @@ impl TerminalWatch {
         if self.waker.take_wake() {
             return Ok(TerminalWake::Woken);
         }
-        if let Some(wake) = transfer(&mut self.pty, read_into, write_from)? {
+        if let Some(wake) = transfer(&mut self.pty, &self.input_refusal, read_into, write_from)? {
             return Ok(wake);
         }
         // One wait per call: one that came with nothing to do answers `Woken`, and the caller asks
@@ -344,6 +387,12 @@ impl TerminalWatch {
     /// system's error from the read.
     pub fn read_now(&mut self, read_into: &mut [u8]) -> io::Result<usize> {
         self.pty.reader().read(read_into)
+    }
+
+    /// Sends no key as a signal on Windows, whose console turns Ctrl+C typed as `0x03` into its own
+    /// event as it reads it, answering `false`. Never fails.
+    pub fn send_signal_key(&self, _key: u8) -> io::Result<bool> {
+        Ok(false)
     }
 
     /// The program's status once it has exited; the PTY stays, since `ConPTY`'s output is still
@@ -403,10 +452,12 @@ impl TerminalWatch {
 }
 
 /// Reads into `read_into` and writes from `write_from` once each without waiting, answering the
-/// first that moved any bytes or a refused write. `ConPTY`'s pipes answer 0 for nothing yet and
+/// first that moved any bytes, a refused write or a write that began finding no room, and setting
+/// `input_refusal` by whether the write found room. `ConPTY`'s pipes answer 0 for nothing yet and
 /// for a full pipe.
 fn transfer(
     pty: &mut Pty,
+    input_refusal: &TerminalInputRefusal,
     read_into: Option<&mut [u8]>,
     write_from: Option<&[u8]>,
 ) -> io::Result<Option<TerminalWake>> {
@@ -418,8 +469,15 @@ fn transfer(
     }
     if let Some(bytes) = write_from {
         match pty.writer().write(bytes) {
-            Ok(0) => {}
-            Ok(count) => return Ok(Some(TerminalWake::Wrote(count))),
+            Ok(0) => {
+                if input_refusal.set(true) {
+                    return Ok(Some(TerminalWake::InputRefused));
+                }
+            }
+            Ok(count) => {
+                input_refusal.set(false);
+                return Ok(Some(TerminalWake::Wrote(count)));
+            }
             Err(error) => return Ok(Some(TerminalWake::WriteFailed(error))),
         }
     }
@@ -590,6 +648,63 @@ pub fn interruptible_sleeper() -> AbnormalExit {
         program: shell_script("echo ready& ping -n 21 127.0.0.1 >nul"),
         exit_code: 3_221_225_786,
         signal_code: None,
+    }
+}
+
+/// A shell that takes its interrupt key as input, prints `ready`, reads one input line and prints
+/// `got:<line>`, then reads one key and prints `^C` when it is the interrupt key.
+#[cfg(any(test, feature = "test-support"))]
+pub fn echoing_line_reader() -> TestProgram {
+    TestProgram {
+        program: "powershell.exe".to_owned(),
+        arguments: vec![
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            "[Console]::TreatControlCAsInput = $true; 'ready'; $line = [Console]::ReadLine(); \
+             \"got:$line\"; if ([Console]::ReadKey($true).KeyChar -eq [char]3) { '^C' }"
+                .to_owned(),
+        ],
+    }
+}
+
+/// A shell that takes its interrupt key as input, asks its terminal for its device attributes,
+/// prints `ready`, copies the next `byte_count` input bytes to the file `path`, then prints `done`.
+#[cfg(any(test, feature = "test-support"))]
+pub fn input_recorder(path: &Path, byte_count: usize) -> TestProgram {
+    let path = path.display().to_string().replace('\'', "''");
+    TestProgram {
+        program: "powershell.exe".to_owned(),
+        arguments: vec![
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            format!(
+                "[Console]::TreatControlCAsInput = $true; [Console]::Out.Write([char]27 + '[c'); \
+                 'ready'; $in = [Console]::OpenStandardInput(); $bytes = New-Object byte[] \
+                 {byte_count}; $read = 0; while ($read -lt {byte_count}) {{ $count = \
+                 $in.Read($bytes, $read, {byte_count} - $read); if ($count -le 0) {{ break }}; \
+                 $read += $count }}; [IO.File]::WriteAllBytes('{path}', $bytes); 'done'"
+            ),
+        ],
+    }
+}
+
+/// A shell that asks its terminal for its device attributes `question_count` times, prints
+/// `asked`, and a second later reads every key waiting on its console, printing
+/// `read <keys> key <count>`, where the count is of `Z` keys among them.
+#[cfg(any(test, feature = "test-support"))]
+pub fn device_attribute_asker(question_count: usize) -> TestProgram {
+    TestProgram {
+        program: "powershell.exe".to_owned(),
+        arguments: vec![
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            format!(
+                "[Console]::Out.Write(([char]27 + '[c') * {question_count}); 'asked'; \
+                 Start-Sleep 1; $n = 0; $z = 0; while ([Console]::KeyAvailable) {{ \
+                 $k = [Console]::ReadKey($true); $n++; if ($k.KeyChar -eq 'Z') {{ $z++ }} }}; \
+                 \"read $n key $z\""
+            ),
+        ],
     }
 }
 

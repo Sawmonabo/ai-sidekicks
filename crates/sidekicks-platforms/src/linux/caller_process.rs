@@ -144,25 +144,32 @@ fn descriptor_process_id(descriptor: RawFd) -> io::Result<Option<u32>> {
             "a process descriptor's fdinfo names no process",
         )
     };
-    let id: i64 = fdinfo
+    let Ok(id) = fdinfo
         .lines()
         .find_map(|line| line.strip_prefix(FDINFO_PROCESS_PREFIX))
         .ok_or_else(invalid)?
         .trim()
-        .parse()
-        .map_err(|_| invalid())?;
+        .parse::<i64>()
+    else {
+        return Err(invalid());
+    };
     match id {
         -1 => Ok(None),
         0 => Err(io::Error::other(
             "the process lies outside this pid namespace",
         )),
-        id => u32::try_from(id).map(Some).map_err(|_| invalid()),
+        id => match u32::try_from(id) {
+            Ok(id) => Ok(Some(id)),
+            Err(_) => Err(invalid()),
+        },
     }
 }
 
 /// A new descriptor holding process `id`. Fails with `ESRCH` when no process has the id.
 fn open_process_descriptor(id: u32) -> io::Result<OwnedFd> {
-    let pid = libc::pid_t::try_from(id).map_err(|_| io::Error::from_raw_os_error(libc::ESRCH))?;
+    let Ok(pid) = libc::pid_t::try_from(id) else {
+        return Err(io::Error::from_raw_os_error(libc::ESRCH));
+    };
     // SAFETY: `pidfd_open` takes a pid and no flags and returns a new descriptor or -1.
     let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
     if descriptor < 0 {

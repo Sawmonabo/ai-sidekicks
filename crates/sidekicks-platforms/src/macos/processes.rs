@@ -43,10 +43,11 @@ pub fn list_user_process_ids(user_id: u32) -> io::Result<Vec<u32>> {
     let written_bytes = usize::try_from(written_bytes)
         .map_err(io::Error::other)?
         .min(buffer.len());
-    Ok(buffer[..written_bytes]
-        .chunks_exact(PROCESS_ID_BYTES)
+    let (process_ids, _partial) = buffer[..written_bytes].as_chunks::<PROCESS_ID_BYTES>();
+    Ok(process_ids
+        .iter()
         .filter_map(|bytes| {
-            let process_id = libc::pid_t::from_ne_bytes(bytes.try_into().ok()?);
+            let process_id = libc::pid_t::from_ne_bytes(*bytes);
             u32::try_from(process_id).ok().filter(|id| *id > 0)
         })
         .collect())
@@ -58,12 +59,11 @@ pub fn list_user_process_ids(user_id: u32) -> io::Result<Vec<u32>> {
 /// fails with the system's error on any other refusal.
 pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String>>> {
     let pid = libc::c_int::try_from(process_id).map_err(io::Error::other)?;
-    let argument_bytes = match ARGUMENT_BYTES.get() {
-        Some(bytes) => *bytes,
-        None => {
-            let bytes = read_argument_bytes()?;
-            *ARGUMENT_BYTES.get_or_init(|| bytes)
-        }
+    let argument_bytes = if let Some(bytes) = ARGUMENT_BYTES.get() {
+        *bytes
+    } else {
+        let bytes = read_argument_bytes()?;
+        *ARGUMENT_BYTES.get_or_init(|| bytes)
     };
     // Allocated per read and freed after it, so no buffer the size of the limit stays held.
     let mut buffer = vec![0_u8; argument_bytes];

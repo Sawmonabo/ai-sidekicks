@@ -13,12 +13,13 @@
               entry-identity calls, the Windows replacing rename's `MoveFileExW`, the caller reads \
               (Linux's peer process descriptor and `pidfd_open`, macOS's audit token and checked \
               process reads), macOS's `proc_pid_rusage`, which a process's peak memory and the \
-              measurement tests' footprint share, Windows' `K32GetProcessMemoryInfo`, the \
-              available-memory reads (macOS's `host_statistics64`, Windows' \
-              `GlobalMemoryStatusEx`), macOS's process list (`proc_listpids`) and environment read \
-              (`sysctl` of `KERN_PROCARGS2`), mimalloc's `mi_collect`, tree-sitter's \
-              `set_allocator`, and the power notifications and wall-clock timers of macOS and \
-              Windows are C interfaces"
+              measurement tests' footprint share, Windows' `OpenProcess` and \
+              `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
+              `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
+              (`proc_listpids`) and environment read (`sysctl` of `KERN_ARGMAX` and \
+              `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`), \
+              mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \
+              and wall-clock timers of macOS and Windows are C interfaces"
 )]
 
 mod atomic_replace;
@@ -56,8 +57,14 @@ pub use footprint::ProcessFootprint;
 pub use linux::caller_process::this_process;
 #[cfg(target_os = "linux")]
 pub use linux::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
+#[cfg(target_os = "linux")]
+pub use linux::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::process_footprint;
+#[cfg(target_os = "linux")]
+pub use linux::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
 #[cfg(target_os = "linux")]
@@ -72,13 +79,24 @@ pub use macos::caller_process::{PinnedProcess, read_parent_process, read_peer_pr
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
+pub use macos::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
+#[cfg(target_os = "macos")]
+pub use macos::processes::{list_user_process_ids, read_process_environment};
+#[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
+pub use memory::physical_memory;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::PathRules;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub use posix::allocator::{
+    GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
+};
 #[cfg(unix)]
 pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
@@ -113,17 +131,21 @@ pub use posix::socket_listener::bind_socket_listener;
 pub use posix::socket_path::check_socket_path;
 #[cfg(unix)]
 pub use posix::terminal::{
-    DOES_PAUSED_READ_HOLD_INPUT, TerminalKeySignals, TerminalWatch, child_process_id,
-    end_process_tree, exit_signal, read_console, release_terminal, restrict_library_search,
-    run_console_helper, run_terminal_loop, send_console_break, send_signal, terminal_ending_route,
-    terminal_options, terminal_signal_route,
+    DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
+    end_process_tree, exit_signal, read_console, read_console_waiting_input, release_terminal,
+    restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
+    send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
+    write_console_waiting_input,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::{
-    abnormal_exit, echo_program, interruptible_sleeper, pass_through_start, waiting_printer,
+    abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
+    interruptible_sleeper, pass_through_start, waiting_printer,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
+#[cfg(unix)]
+pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use shell_start::{ShellStart, ShellStartError};
 pub use socket_listener::ExistingSocket;
 pub use socket_path::SocketPathRefused;
@@ -132,11 +154,15 @@ pub use system_folder::SystemFolderBase;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
-    ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute,
-    TerminalWake, TerminalWaker,
+    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
+    TerminalInputRefusal, TerminalSignal, TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
+#[cfg(target_os = "windows")]
+pub use windows::allocator::{
+    GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
+};
 #[cfg(target_os = "windows")]
 pub use windows::askpass::askpass_listener;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
@@ -169,7 +195,13 @@ pub use windows::machine_name::machine_name;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::measurement::{process_footprint, uptime_line};
 #[cfg(target_os = "windows")]
+pub use windows::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
+#[cfg(target_os = "windows")]
 pub use windows::private_folder::create_private_folder;
+#[cfg(target_os = "windows")]
+pub use windows::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "windows")]
 pub use windows::real_path::real_path;
 #[cfg(target_os = "windows")]
@@ -182,50 +214,19 @@ pub use windows::socket_listener::bind_socket_listener;
 pub use windows::socket_path::check_socket_path;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
-    DOES_PAUSED_READ_HOLD_INPUT, TerminalKeySignals, TerminalWatch, child_process_id,
-    end_process_tree, exit_signal, read_console, release_terminal, restrict_library_search,
-    run_console_helper, run_terminal_loop, send_console_break, send_signal, terminal_ending_route,
-    terminal_options, terminal_signal_route,
+    DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
+    end_process_tree, exit_signal, read_console, read_console_waiting_input, release_terminal,
+    restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
+    send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
+    write_console_waiting_input,
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::terminal::{
-    abnormal_exit, echo_program, interruptible_sleeper, pass_through_start, waiting_printer,
+    abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
+    interruptible_sleeper, pass_through_start, waiting_printer,
 };
+#[cfg(target_os = "windows")]
+pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 #[cfg(target_os = "windows")]
 pub use windows::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use wsl::{DistributionPath, distribution_of};
-
-#[cfg(unix)]
-pub use posix::allocator::{
-    GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
-};
-#[cfg(target_os = "windows")]
-pub use windows::allocator::{
-    GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
-};
-
-#[cfg(target_os = "linux")]
-pub use linux::memory::{
-    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
-};
-#[cfg(target_os = "macos")]
-pub use macos::memory::{
-    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
-};
-pub use memory::physical_memory;
-#[cfg(target_os = "windows")]
-pub use windows::memory::{
-    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
-};
-
-#[cfg(target_os = "linux")]
-pub use linux::processes::{list_user_process_ids, read_process_environment};
-#[cfg(target_os = "macos")]
-pub use macos::processes::{list_user_process_ids, read_process_environment};
-#[cfg(target_os = "windows")]
-pub use windows::processes::{list_user_process_ids, read_process_environment};
-
-#[cfg(unix)]
-pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
-#[cfg(target_os = "windows")]
-pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;

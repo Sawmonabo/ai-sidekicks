@@ -1,6 +1,6 @@
-//! The macOS and Linux side of the terminal interface: POSIX signals, the keys a terminal turns into
-//! signals, the PTY's window size and a poller over the terminal and its program's exit, whose
-//! descriptor the runtime watches.
+//! The macOS and Linux side of the terminal interface: POSIX signals, the keys a terminal turns
+//! into signals, the PTY's window size and a poller over the terminal and its program's exit,
+//! whose descriptor the runtime watches.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -29,8 +29,8 @@ use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
-    ConsoleReading, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute, TerminalWake,
-    TerminalWaker,
+    ConsoleReading, ProcessTreeEnd, TerminalInputRefusal, TerminalSignal, TerminalSignalRoute,
+    TerminalWake, TerminalWaker,
 };
 
 /// How `signal` reaches a shell's program: on macOS and Linux every signal is sent as itself.
@@ -57,61 +57,9 @@ pub fn send_signal(pid: u32, signal: TerminalSignal) -> io::Result<()> {
 /// where the terminal takes input while its output waits unread.
 pub const DOES_PAUSED_READ_HOLD_INPUT: bool = false;
 
-/// A terminal's keys that its settings turn into signals, sent as those signals rather than as
-/// input bytes, so they reach a program that reads none of its input. Holds its own copy of the
-/// terminal's master.
-pub struct TerminalKeySignals {
-    master: File,
-}
-
-impl TerminalKeySignals {
-    /// The signal keys of `pty`'s terminal. Fails with the system's error when its master cannot be
-    /// duplicated.
-    pub fn new(pty: &Pty) -> io::Result<Self> {
-        Ok(Self {
-            master: pty.file().try_clone()?,
-        })
-    }
-
-    /// Sends `key` as `SIGINT`, `SIGQUIT` or `SIGTSTP` to the terminal's foreground program when the
-    /// terminal's settings have `ISIG` on and `key` is their interrupt, quit or suspend character,
-    /// answering whether it did. Fails with the system's error when the settings cannot be read or
-    /// the signal cannot be sent.
-    pub fn send_signal_key(&self, key: u8) -> io::Result<bool> {
-        let descriptor = self.master.as_raw_fd();
-        let mut settings = MaybeUninit::<libc::termios>::uninit();
-        // SAFETY: the descriptor is this value's open copy of the master, and the pointer names a
-        // live local the call fills on success. Linux hands back the program's side's settings,
-        // and macOS keeps one record for both sides.
-        if unsafe { libc::tcgetattr(descriptor, settings.as_mut_ptr()) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: `tcgetattr` succeeded, so it filled the whole struct.
-        let settings = unsafe { settings.assume_init() };
-        if settings.c_lflag & libc::ISIG == 0 {
-            return Ok(false);
-        }
-        let bound = [
-            (libc::VINTR, libc::SIGINT),
-            (libc::VQUIT, libc::SIGQUIT),
-            (libc::VSUSP, libc::SIGTSTP),
-        ]
-        .into_iter()
-        .find(|(character, _signal)| {
-            let bound_key = settings.c_cc[*character];
-            bound_key != libc::_POSIX_VDISABLE && bound_key == key
-        });
-        let Some((_character, signal)) = bound else {
-            return Ok(false);
-        };
-        // SAFETY: the descriptor is this value's open copy of the master, and `TIOCSIG` takes the
-        // signal number itself as its argument.
-        if unsafe { libc::ioctl(descriptor, libc::c_ulong::from(libc::TIOCSIG), signal) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(true)
-    }
-}
+/// Whether the system counts the input waiting on a shell's console, which the console helper
+/// reads: no on macOS and Linux, which have no console.
+pub const DOES_CONSOLE_COUNT_WAITING_INPUT: bool = false;
 
 /// Ends the process group `pid` leads with `SIGKILL`; no stop takes this route on macOS or Linux,
 /// and a job an interactive shell moved into a group of its own is outside it. Fails with
@@ -143,6 +91,29 @@ pub fn send_console_break(_pid: u32) -> io::Result<()> {
     Err(io::Error::new(
         ErrorKind::Unsupported,
         "a console break exists only on Windows",
+    ))
+}
+
+/// Asks the console helper how much input waits on a console, which only Windows has: always
+/// fails with `Unsupported`.
+pub fn read_console_waiting_input(
+    _spawner: &Spawner,
+    _program: &OsStr,
+    _arguments: &[OsString],
+    _pid: u32,
+) -> impl Future<Output = io::Result<u32>> + Send {
+    ready(Err(io::Error::new(
+        ErrorKind::Unsupported,
+        "the console helper runs only on Windows",
+    )))
+}
+
+/// Writes how much input waits on a console, which only Windows has: always fails with
+/// `Unsupported`.
+pub fn write_console_waiting_input(_pid: u32, _output: &mut impl Write) -> io::Result<()> {
+    Err(io::Error::new(
+        ErrorKind::Unsupported,
+        "a console exists only on Windows",
     ))
 }
 
@@ -202,10 +173,18 @@ pub fn run_terminal_loop(
     Ok(())
 }
 
+/// How long a released terminal's program has to exit on its hangup before it is killed, so a
+/// program that ignores the hangup cannot hold the release.
+const RELEASE_HANGUP_GRACE: Duration = Duration::from_secs(2);
+
+/// How often a release looks again for the hungup program's exit during its grace.
+const RELEASE_EXIT_CHECK_INTERVAL: Duration = Duration::from_millis(20);
+
 /// Ends the program in `pty`, which the caller found not yet exited, and drops the PTY; blocking,
-/// so it runs on a thread of its own. The program gets a hangup and is waited for; `mark_exited`
-/// runs once it has exited and before its process id is freed, so a caller that sends signals
-/// under the same lock as the mark never reaches a process that took the id.
+/// so it runs on a thread of its own. The program gets a hangup, then `SIGKILL` when it has not
+/// exited within a short grace, and is waited for; `mark_exited` runs once it has exited and
+/// before its process id is freed, so a caller that sends signals under the same lock as the mark
+/// never reaches a process that took the id.
 pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
     let process_id = pty.child().id();
     if let Err(error) = send_signal(process_id, TerminalSignal::Hangup) {
@@ -216,7 +195,25 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
         );
     }
     // The program is left unreaped, so its id stays its own until the drop below reaps it.
-    if let Err(error) = wait_without_reaping(process_id) {
+    let waited = match wait_without_reaping(process_id, Some(RELEASE_HANGUP_GRACE)) {
+        Ok(true) => Ok(true),
+        Ok(false) => {
+            tracing::warn!(
+                process_id,
+                "a released terminal's program ignored its hangup, so it is killed"
+            );
+            if let Err(error) = send_signal(process_id, TerminalSignal::Kill) {
+                tracing::error!(
+                    process_id,
+                    error = &error as &(dyn Error + 'static),
+                    "a released terminal's program could not be killed"
+                );
+            }
+            wait_without_reaping(process_id, None)
+        }
+        Err(error) => Err(error),
+    };
+    if let Err(error) = waited {
         tracing::error!(
             process_id,
             error = &error as &(dyn Error + 'static),
@@ -246,16 +243,22 @@ pub struct TerminalWatch {
     master: File,
     poller: AsyncFd<Arc<Poller>>,
     waker: TerminalWaker,
+    /// Set while the terminal can take none of a waiting write.
+    input_refusal: TerminalInputRefusal,
     events: Events,
     /// The interest the terminal is registered with.
     interest: Event,
 }
 
 impl TerminalWatch {
-    /// Makes the watch over `pty`, woken by `waker`; called inside the read loop, since it needs
-    /// the runtime. Fails, handing the PTY back, when the master cannot be duplicated or the poller
-    /// cannot be watched.
-    pub fn new(mut pty: Pty, waker: &TerminalWaker) -> Result<Self, (io::Error, Box<Pty>)> {
+    /// Makes the watch over `pty`, woken by `waker`, keeping `input_refusal` set while the terminal
+    /// refuses a waiting write; called inside the read loop, since it needs the runtime. Fails,
+    /// handing the PTY back, when the master cannot be duplicated or the poller cannot be watched.
+    pub fn new(
+        mut pty: Pty,
+        waker: &TerminalWaker,
+        input_refusal: &TerminalInputRefusal,
+    ) -> Result<Self, (io::Error, Box<Pty>)> {
         let master = match pty.file().try_clone() {
             Ok(master) => master,
             Err(error) => return Err((error, Box::new(pty))),
@@ -283,6 +286,7 @@ impl TerminalWatch {
             master,
             poller,
             waker: waker.clone(),
+            input_refusal: input_refusal.clone(),
             events: Events::new(),
             interest,
         })
@@ -304,6 +308,9 @@ impl TerminalWatch {
             read_into.is_some(),
             write_from.is_some(),
         ))?;
+        if write_from.is_none() {
+            self.input_refusal.set(false);
+        }
         loop {
             if self.waker.take_wake() {
                 return Ok(TerminalWake::Woken);
@@ -346,6 +353,46 @@ impl TerminalWatch {
             Err(error) if is_hang_up(&error) || is_retry(&error) => Ok(0),
             Err(error) => Err(error),
         }
+    }
+
+    /// Sends `key` as `SIGINT`, `SIGQUIT` or `SIGTSTP` to the terminal's foreground program when
+    /// the terminal's settings have `ISIG` on and `key` is their interrupt, quit or suspend
+    /// character, answering whether it did, so the key reaches a program that reads none of its
+    /// input. Fails with the system's error when the settings cannot be read or the signal cannot
+    /// be sent.
+    pub fn send_signal_key(&self, key: u8) -> io::Result<bool> {
+        let descriptor = self.master.as_raw_fd();
+        let mut settings = MaybeUninit::<libc::termios>::uninit();
+        // SAFETY: the descriptor is the watch's open duplicate of the master, and the pointer names
+        // a live local the call fills on success. Linux hands back the program's side's settings,
+        // and macOS keeps one record for both sides.
+        if unsafe { libc::tcgetattr(descriptor, settings.as_mut_ptr()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `tcgetattr` succeeded, so it filled the whole struct.
+        let settings = unsafe { settings.assume_init() };
+        if settings.c_lflag & libc::ISIG == 0 {
+            return Ok(false);
+        }
+        let bound = [
+            (libc::VINTR, libc::SIGINT),
+            (libc::VQUIT, libc::SIGQUIT),
+            (libc::VSUSP, libc::SIGTSTP),
+        ]
+        .into_iter()
+        .find(|(character, _signal)| {
+            let bound_key = settings.c_cc[*character];
+            bound_key != libc::_POSIX_VDISABLE && bound_key == key
+        });
+        let Some((_character, signal)) = bound else {
+            return Ok(false);
+        };
+        // SAFETY: the descriptor is the watch's open duplicate of the master, and `TIOCSIG` takes
+        // the signal number itself as its argument.
+        if unsafe { libc::ioctl(descriptor, libc::c_ulong::from(libc::TIOCSIG), signal) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(true)
     }
 
     /// Reaps the program when it has exited, answering its status; the caller holds its signal
@@ -423,6 +470,9 @@ impl TerminalWatch {
             is_readable |= event.readable;
             is_writable |= event.writable;
         }
+        // The poll just asked whether the terminal takes input, so a write it found no room for is
+        // refused until a later poll finds room.
+        let is_newly_refused = write_from.is_some() && !is_writable && self.input_refusal.set(true);
         if is_readable && let Some(buffer) = read_into {
             match (&self.master).read(buffer) {
                 Ok(0) => return Ok(Some(TerminalWake::OutputEnded)),
@@ -438,13 +488,21 @@ impl TerminalWatch {
                     let error = io::Error::new(ErrorKind::WriteZero, "the terminal took no input");
                     return Ok(Some(TerminalWake::WriteFailed(error)));
                 }
-                Ok(count) => return Ok(Some(TerminalWake::Wrote(count))),
+                Ok(count) => {
+                    self.input_refusal.set(false);
+                    return Ok(Some(TerminalWake::Wrote(count)));
+                }
                 Err(error) if is_hang_up(&error) => return Ok(Some(TerminalWake::InputEnded)),
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    if self.input_refusal.set(true) {
+                        return Ok(Some(TerminalWake::InputRefused));
+                    }
+                }
                 Err(error) if is_retry(&error) => {}
                 Err(error) => return Ok(Some(TerminalWake::WriteFailed(error))),
             }
         }
-        Ok(None)
+        Ok(is_newly_refused.then_some(TerminalWake::InputRefused))
     }
 
     /// Registers the terminal with `interest` when it changed.
@@ -487,6 +545,49 @@ impl TerminalWatch {
     }
 }
 
+impl Drop for TerminalWatch {
+    /// Hands a PTY still held, when the loop ended without its release, to a thread of its own,
+    /// since its release waits for the program; a drop on a runtime's worker never blocks.
+    fn drop(&mut self) {
+        let Some(mut pty) = self.pty.take() else {
+            return;
+        };
+        if let Err(error) = pty.deregister(self.poller.get_ref()) {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a terminal's watch could not be undone"
+            );
+        }
+        // Held in a slot the thread takes from, so a thread that cannot start hands the PTY back
+        // rather than dropping it here, where its drop would wait for the program.
+        let slot = Arc::new(std::sync::Mutex::new(Some(pty)));
+        let thread_slot = Arc::clone(&slot);
+        let started = std::thread::Builder::new()
+            .name("terminal release".to_owned())
+            .spawn(move || {
+                let pty = thread_slot
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take();
+                if let Some(pty) = pty {
+                    release_terminal(pty, || {});
+                }
+            });
+        if let Err(error) = started {
+            tracing::error!(
+                error = &error as &(dyn Error + 'static),
+                "a dropped terminal's release thread could not start, so its program is left \
+                 running"
+            );
+            let pty = slot
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            std::mem::forget(pty);
+        }
+    }
+}
+
 /// Completes when `deadline` passes, and never without one.
 async fn sleep_until_deadline(deadline: Option<Instant>) {
     match deadline {
@@ -495,11 +596,13 @@ async fn sleep_until_deadline(deadline: Option<Instant>) {
     }
 }
 
-/// Blocks until the process `pid` has exited, leaving it unreaped so its id stays its own. Fails
-/// with the system's error from the wait.
-fn wait_without_reaping(pid: u32) -> io::Result<()> {
-    let mut information = MaybeUninit::<libc::siginfo_t>::zeroed();
+/// Blocks until the process `pid` has exited, leaving it unreaped so its id stays its own, or
+/// until `bound` passes; answers whether it exited. Fails with the system's error from the wait.
+fn wait_without_reaping(pid: u32, bound: Option<Duration>) -> io::Result<bool> {
+    let give_up_at = bound.map(|bound| Instant::now() + bound);
+    let options = libc::WEXITED | libc::WNOWAIT | if bound.is_some() { libc::WNOHANG } else { 0 };
     loop {
+        let mut information = MaybeUninit::<libc::siginfo_t>::zeroed();
         // SAFETY: the information pointer names a live local the call writes at most one
         // `siginfo_t` into, and `WNOWAIT` leaves the process unreaped.
         let result = unsafe {
@@ -507,16 +610,28 @@ fn wait_without_reaping(pid: u32) -> io::Result<()> {
                 libc::P_PID,
                 libc::id_t::from(pid),
                 information.as_mut_ptr(),
-                libc::WEXITED | libc::WNOWAIT,
+                options,
             )
         };
-        if result == 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != ErrorKind::Interrupted {
+        if result != 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == ErrorKind::Interrupted {
+                continue;
+            }
             return Err(error);
         }
+        // SAFETY: the zeroed struct is a valid `siginfo_t`, which a `WNOHANG` wait that found no
+        // exit leaves with a zero process id.
+        if unsafe { information.assume_init_ref().si_pid() } != 0 {
+            return Ok(true);
+        }
+        let Some(give_up_at) = give_up_at else {
+            return Ok(true);
+        };
+        if Instant::now() >= give_up_at {
+            return Ok(false);
+        }
+        std::thread::sleep(RELEASE_EXIT_CHECK_INTERVAL);
     }
 }
 
@@ -600,6 +715,42 @@ pub fn interruptible_sleeper() -> AbnormalExit {
         exit_code: 0,
         signal_code: Some(libc::SIGINT),
     }
+}
+
+/// A shell that ignores its interrupt, has its terminal echo its input with the interrupt key
+/// shown as `^C` and keep the input on that key, prints `ready`, reads one input line and prints
+/// `got:<line>`, then exits after one more line, so input written behind the first line is
+/// echoed before it exits.
+#[cfg(any(test, feature = "test-support"))]
+pub fn echoing_line_reader() -> TestProgram {
+    shell_script(concat!(
+        "trap '' INT; stty echo echoctl noflsh; echo ready; ",
+        "read line; echo \"got:$line\"; read rest"
+    ))
+}
+
+/// A shell that turns its terminal raw with no echo, asks it for its device attributes, prints
+/// `ready`, copies the next `byte_count` input bytes to the file `path`, then prints `done`.
+#[cfg(any(test, feature = "test-support"))]
+pub fn input_recorder(path: &std::path::Path, byte_count: usize) -> TestProgram {
+    let path = path.display().to_string().replace('\'', "'\\''");
+    shell_script(&format!(
+        "stty raw -echo; printf '\\033[c'; echo ready; head -c {byte_count} > '{path}'; echo done"
+    ))
+}
+
+/// A shell that takes its input unread and byte by byte, asks its terminal for its device
+/// attributes `question_count` times, prints `asked`, and a second later reads every input byte
+/// until two seconds pass with none, printing `read <bytes> key <count>`, where the count is of
+/// `Z` bytes among them.
+#[cfg(any(test, feature = "test-support"))]
+pub fn device_attribute_asker(question_count: usize) -> TestProgram {
+    shell_script(&format!(
+        "stty -icanon -echo; i=0; while [ $i -lt {question_count} ]; do printf '\\033[c'; \
+         i=$((i+1)); done; echo asked; sleep 1; stty min 0 time 20; cat | od -An -tx1 -v | \
+         awk '{{for(i=1;i<=NF;i++){{n++; if($i==\"5a\")z++}}}} \
+         END{{print \"read \" n+0 \" key \" z+0}}'"
+    ))
 }
 
 #[cfg(any(test, feature = "test-support"))]

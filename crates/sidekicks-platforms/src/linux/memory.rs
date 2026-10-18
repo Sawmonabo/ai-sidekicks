@@ -1,10 +1,12 @@
 //! A process's peak memory and the machine's available memory as Linux reports them, its control
 //! group's limits counted, and the switch that keeps transparent huge pages off the daemon.
 
+use std::error::Error;
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::linux::read_process_file;
 use crate::posix::memory::page_bytes;
@@ -31,41 +33,36 @@ const CGROUP2_NO_LIMIT: &[u8] = b"max\n";
 
 const KIBIBYTE: u64 = 1024;
 
+// Set once a control group file failed to read for a reason other than its absence.
+static HAS_LOGGED_CGROUP_READ_FAILURE: AtomicBool = AtomicBool::new(false);
+
 /// The most memory process `process_id` has held since it started, in bytes, from `VmHWM` in its
-/// status file; `None` when no process has the id or it has exited and holds no memory. Blocks on
-/// the read; fails with `InvalidData` when a live process's status shows no peak, and with the
-/// read's error otherwise.
+/// status file; `None` when no process has the id or it holds no memory of its own, as a process
+/// that exited and is not yet reaped and a kernel thread show no memory lines. Blocks on the
+/// read; fails with `InvalidData` when the peak passes the largest size, and with the read's error
+/// otherwise.
 pub fn read_process_peak_bytes(process_id: u32) -> io::Result<Option<u64>> {
     let Some(status) = read_process_file(process_id, "status")? else {
         return Ok(None);
     };
-    let lines = || status.split(|byte| *byte == b'\n');
-    if let Some(kibibytes) = lines().find_map(|line| kibibytes_after(line, b"VmHWM:")) {
-        return kibibytes.checked_mul(KIBIBYTE).map(Some).ok_or_else(|| {
-            io::Error::new(ErrorKind::InvalidData, "the peak passes the largest size")
-        });
-    }
-    // A process that has exited and is not yet reaped keeps its status but no memory lines.
-    let is_zombie = lines().any(|line| {
-        line.strip_prefix(b"State:").is_some_and(|state| {
-            state.first().is_some_and(u8::is_ascii_whitespace)
-                && state.trim_ascii_start().starts_with(b"Z")
-        })
-    });
-    if is_zombie {
+    let Some(kibibytes) = status
+        .split(|byte| *byte == b'\n')
+        .find_map(|line| kibibytes_after(line, b"VmHWM:"))
+    else {
         return Ok(None);
-    }
-    Err(io::Error::new(
-        ErrorKind::InvalidData,
-        format!("the status of process {process_id} shows no VmHWM"),
-    ))
+    };
+    kibibytes
+        .checked_mul(KIBIBYTE)
+        .map(Some)
+        .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "the peak passes the largest size"))
 }
 
 /// The memory the machine can give this process, in bytes: when its control group sets a limit no
 /// larger than the installed memory, that limit less the group's use (0 past it), else the
-/// kernel's `MemAvailable`, else the free memory `sysinfo(2)` reports. Blocks on the reads; fails
-/// with the read's error when a file other than a missing one cannot be read, or when `sysinfo(2)`
-/// fails.
+/// kernel's `MemAvailable`, else the free memory `sysinfo(2)` reports. A control group file that
+/// cannot be read counts as no limit, as libuv reads it. Blocks on the reads; fails with the read's
+/// error when `/proc/self/cgroup` cannot be read, when `/proc/meminfo` is there but cannot be
+/// read, or when `sysinfo(2)` fails.
 pub fn available_memory() -> io::Result<u64> {
     let cgroup = std::fs::read(PROCESS_CGROUP_PATH)?;
     let constrained = constrained_memory(&cgroup)?;
@@ -73,9 +70,9 @@ pub fn available_memory() -> io::Result<u64> {
         return free_memory();
     }
     let current = if is_cgroup2(&cgroup) {
-        read_cgroup_value(CGROUP2_ROOT, cgroup2_path(&cgroup), "memory.current")?
+        read_cgroup_value(CGROUP2_ROOT, cgroup2_path(&cgroup), "memory.current")
     } else {
-        cgroup1_current_memory(&cgroup)?
+        cgroup1_current_memory(&cgroup)
     };
     // A group's use can pass its limit for a moment.
     Ok(constrained.saturating_sub(current))
@@ -93,8 +90,8 @@ fn constrained_memory(cgroup: &[u8]) -> io::Result<u64> {
     let (high, max) = if is_cgroup2(cgroup) {
         let path = cgroup2_path(cgroup);
         (
-            read_cgroup_value(CGROUP2_ROOT, path, "memory.high")?,
-            read_cgroup_value(CGROUP2_ROOT, path, "memory.max")?,
+            read_cgroup_value(CGROUP2_ROOT, path, "memory.high"),
+            read_cgroup_value(CGROUP2_ROOT, path, "memory.max"),
         )
     } else {
         cgroup1_limits(cgroup)?
@@ -112,14 +109,14 @@ fn cgroup1_limits(cgroup: &[u8]) -> io::Result<(u64, u64)> {
     let mut limits = (0, 0);
     if let Some(path) = cgroup1_memory_path(cgroup) {
         limits = (
-            read_cgroup_value(CGROUP1_MEMORY_ROOT, path, "memory.soft_limit_in_bytes")?,
-            read_cgroup_value(CGROUP1_MEMORY_ROOT, path, "memory.limit_in_bytes")?,
+            read_cgroup_value(CGROUP1_MEMORY_ROOT, path, "memory.soft_limit_in_bytes"),
+            read_cgroup_value(CGROUP1_MEMORY_ROOT, path, "memory.limit_in_bytes"),
         );
     }
     if limits.0 == 0 || limits.1 == 0 {
         limits = (
-            read_cgroup_value(CGROUP1_MEMORY_ROOT, b"", "memory.soft_limit_in_bytes")?,
-            read_cgroup_value(CGROUP1_MEMORY_ROOT, b"", "memory.limit_in_bytes")?,
+            read_cgroup_value(CGROUP1_MEMORY_ROOT, b"", "memory.soft_limit_in_bytes"),
+            read_cgroup_value(CGROUP1_MEMORY_ROOT, b"", "memory.limit_in_bytes"),
         );
     }
     let page_mask = page_bytes()? - 1;
@@ -129,11 +126,11 @@ fn cgroup1_limits(cgroup: &[u8]) -> io::Result<(u64, u64)> {
 }
 
 // The version 1 group's memory use, or the root group's when the group's own file reads as none.
-fn cgroup1_current_memory(cgroup: &[u8]) -> io::Result<u64> {
+fn cgroup1_current_memory(cgroup: &[u8]) -> u64 {
     if let Some(path) = cgroup1_memory_path(cgroup) {
-        let current = read_cgroup_value(CGROUP1_MEMORY_ROOT, path, "memory.usage_in_bytes")?;
+        let current = read_cgroup_value(CGROUP1_MEMORY_ROOT, path, "memory.usage_in_bytes");
         if current != 0 {
-            return Ok(current);
+            return current;
         }
     }
     read_cgroup_value(CGROUP1_MEMORY_ROOT, b"", "memory.usage_in_bytes")
@@ -173,8 +170,9 @@ fn line_start(text: &[u8]) -> &[u8] {
 
 // The number in the control group file `<root>/<group path>/<file>`, joined as text so an empty
 // group path names the root group's file: its leading digits after any whitespace, `u64::MAX` for
-// version 2's `max`, and 0 when the file is missing or holds neither.
-fn read_cgroup_value(root: &[u8], group_path: &[u8], file: &str) -> io::Result<u64> {
+// version 2's `max`, and 0, which reads as no limit, when the file cannot be read or holds
+// neither. A failure other than a missing file is logged once for the daemon's life.
+fn read_cgroup_value(root: &[u8], group_path: &[u8], file: &str) -> u64 {
     let mut path = Vec::with_capacity(root.len() + group_path.len() + file.len() + 2);
     path.extend_from_slice(root);
     path.push(b'/');
@@ -183,16 +181,24 @@ fn read_cgroup_value(root: &[u8], group_path: &[u8], file: &str) -> io::Result<u
     path.extend_from_slice(file.as_bytes());
     let contents = match std::fs::read(PathBuf::from(OsString::from_vec(path))) {
         Ok(contents) => contents,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(0),
-        Err(error) => return Err(error),
+        Err(error) => {
+            if error.kind() != ErrorKind::NotFound
+                && !HAS_LOGGED_CGROUP_READ_FAILURE.swap(true, Ordering::Relaxed)
+            {
+                tracing::warn!(
+                    file,
+                    error = &error as &(dyn Error + 'static),
+                    "a control group file could not be read, so its limit counts as none"
+                );
+            }
+            return 0;
+        }
     };
-    Ok(
-        leading_number(&contents).unwrap_or(if contents == CGROUP2_NO_LIMIT {
-            u64::MAX
-        } else {
-            0
-        }),
-    )
+    leading_number(&contents).unwrap_or(if contents == CGROUP2_NO_LIMIT {
+        u64::MAX
+    } else {
+        0
+    })
 }
 
 // The kernel's `MemAvailable`, or, when it reads as none, the free memory `sysinfo(2)` reports.

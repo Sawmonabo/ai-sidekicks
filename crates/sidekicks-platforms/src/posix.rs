@@ -1,6 +1,7 @@
 //! What macOS and Linux share behind the interface; what one of them alone does is in its own
 //! module.
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod disk;
