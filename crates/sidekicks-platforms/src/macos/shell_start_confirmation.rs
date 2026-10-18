@@ -107,12 +107,6 @@ pub(crate) fn receive_confirmation() -> io::Result<()> {
     end.read_exact(&mut confirmed)?;
     let writer = read_peer_id(&end)?;
     let parent = std::os::unix::process::parent_id();
-    if writer != parent {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("process {writer}, not the parent {parent}, wrote the confirmation"),
-        ));
-    }
     if u32::from_ne_bytes(confirmed) != std::process::id() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -120,18 +114,31 @@ pub(crate) fn receive_confirmation() -> io::Result<()> {
         ));
     }
     let is_own_root = read_responsible_id(parent)? == Some(parent);
-    // A parent that ended re-parents this process, so an unchanged parent is the one read, never
-    // another process given its id.
-    if std::os::unix::process::parent_id() != parent {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("the parent {parent} ended while the confirmation was read"),
-        ));
-    }
+    check_confirming_parent(writer, parent, std::os::unix::process::parent_id())?;
     if !is_own_root {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("the parent {parent} is not its own responsible process"),
+        ));
+    }
+    Ok(())
+}
+
+/// Checks that the confirmation's writer is this process's parent, read as `parent` before the
+/// parent's responsible read and as `parent_after` after it. A parent that ended re-parents this
+/// process, so an unchanged parent is the one read, never another process given its id. Fails with
+/// `PermissionDenied` when another process wrote it or the parent changed between the reads.
+fn check_confirming_parent(writer: u32, parent: u32, parent_after: u32) -> io::Result<()> {
+    if writer != parent {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("process {writer}, not the parent {parent}, wrote the confirmation"),
+        ));
+    }
+    if parent_after != parent {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("the parent {parent} ended while the confirmation was read"),
         ));
     }
     Ok(())
@@ -196,7 +203,7 @@ mod tests {
     use std::os::fd::OwnedFd;
     use std::process::{Command, Output, Stdio};
 
-    use super::{ShellStartConfirmation, receive_confirmation};
+    use super::{ShellStartConfirmation, check_confirming_parent, receive_confirmation};
     use crate::macos::responsibility::{
         read_responsible_id, run_test_as_own_root, this_test_program,
     };
@@ -308,6 +315,14 @@ mod tests {
             &Writer::AnotherProcessNamingTheChild
         )));
         writeln!(std::io::stdout(), "{PARENT_CHECKED}").expect("the stand-in writes its output");
+    }
+
+    #[test]
+    fn a_parent_that_changed_while_it_was_read_is_refused() {
+        // The parent wrote the confirmation and ended before its responsible read, so this process
+        // was re-parented and the id read may name another process.
+        let error = check_confirming_parent(500, 500, 1).expect_err("the confirmation is refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
     }
 
     #[test]
