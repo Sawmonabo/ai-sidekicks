@@ -19,7 +19,7 @@ pub(crate) fn read_stored_event_row<DamagedFrom>(
     event_id: &str,
 ) -> Result<Option<StoredEventContentRow>, TranscriptReadError>
 where
-    DamagedFrom: Fn(&SessionId) -> Option<i64>,
+    DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
 {
     let reads = SessionEventReads::new(reader, read_damaged_from_sequence);
     let stored_row = reads.read_stored_row(session_id, event_id)?;

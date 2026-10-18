@@ -30,6 +30,7 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::scheduler::{ScheduledJobHandle, Scheduler};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::writer::DatabaseWriter;
+use crate::ipc::registry::HandlerError;
 use crate::session::search::index::applier::{SearchIndexApplier, SearchIndexApplyError};
 use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
 use crate::session::search::index::rebuild::{
@@ -112,6 +113,31 @@ pub(crate) enum LiveIndexSearchError<Failure> {
     /// The search itself failed.
     #[error(transparent)]
     Search(Failure),
+}
+
+impl From<LiveIndexSearchError<TranscriptSearchError>> for HandlerError {
+    /// A session the daemon does not hold answers `session.notFound`, a cursor it cannot read
+    /// `session.event.cursorUnresolvable`; an index that cannot answer or a failed read is a
+    /// fault in the daemon.
+    fn from(error: LiveIndexSearchError<TranscriptSearchError>) -> Self {
+        match error {
+            LiveIndexSearchError::Search(TranscriptSearchError::Refused(refusal)) => {
+                Self::Refused(refusal)
+            }
+            LiveIndexSearchError::Search(TranscriptSearchError::CursorUnresolvable(
+                unresolvable,
+            )) => unresolvable.into(),
+            LiveIndexSearchError::Search(
+                fault @ (TranscriptSearchError::Database(_)
+                | TranscriptSearchError::Index(_)
+                | TranscriptSearchError::HitPosition(_)
+                | TranscriptSearchError::HitRowId(_)),
+            ) => Self::Internal(Box::new(fault)),
+            fault @ (LiveIndexSearchError::Closed
+            | LiveIndexSearchError::Failed(_)
+            | LiveIndexSearchError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 // Where the live index stands; searches wait while it opens.

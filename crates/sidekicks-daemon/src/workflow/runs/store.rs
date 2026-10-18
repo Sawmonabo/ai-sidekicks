@@ -5,6 +5,7 @@
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, Row, named_params};
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
@@ -239,7 +240,7 @@ impl<'connection> WorkflowRunStore<'connection> {
         let page_row_limit = i64::from(page_size_plus_one(page_size));
         let mut statement = self.reader.prepare_cached(&LIST_RUNS_SQL)?;
         let mut rows = statement.query(named_params! {
-            "@session_id": request.session_id.map(|id| id.text()).as_ref().map(|id| id.as_str()),
+            "@session_id": request.session_id.map(|id| id.text()).as_ref().map(UuidText::as_str),
             "@statuses_json": statuses_json,
             "@trigger_kinds_json": trigger_kinds_json,
             "@started_after": started_after.as_ref().map(WireInstant::as_str),
@@ -248,14 +249,14 @@ impl<'connection> WorkflowRunStore<'connection> {
                 .definition_id
                 .map(|id| id.text())
                 .as_ref()
-                .map(|id| id.as_str()),
+                .map(UuidText::as_str),
             "@workflow_version_id": request
                 .workflow_version_id
                 .map(|id| id.text())
                 .as_ref()
-                .map(|id| id.as_str()),
+                .map(UuidText::as_str),
             "@after_started_at": after.as_ref().map(|after| after.started_at.as_str()),
-            "@after_run_id": after.as_ref().map(|after| after.workflow_run_id.text()).as_ref().map(|id| id.as_str()),
+            "@after_run_id": after.as_ref().map(|after| after.workflow_run_id.text()).as_ref().map(UuidText::as_str),
             "@page_row_limit": page_row_limit,
         })?;
         let mut total_count = None;

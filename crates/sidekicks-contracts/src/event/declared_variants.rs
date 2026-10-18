@@ -30,7 +30,7 @@ ts_constants! {
     /// The payload key marking a body stored as a prefix. Present only as `true`, never `false`,
     /// so a complete row's canonical bytes are what they would be without the bound.
     pub const CONTENT_TRUNCATED_PAYLOAD_KEY: &str = "contentTruncated";
-    /// The largest body one stored row keeps, in UTF-8 bytes. A longer body is cut at a code point
+    /// The largest body one stored row keeps, in code points. A longer body is cut at a code point
     /// boundary, never refused, so the turn is never lost.
     pub const CONTENT_PAYLOAD_PLAINTEXT_MAX: usize = 262_144;
 }

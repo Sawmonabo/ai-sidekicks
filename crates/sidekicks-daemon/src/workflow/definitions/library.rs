@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::tag::TagList;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -291,7 +292,7 @@ impl<'connection> WorkflowLibrary<'connection> {
             .map_or(NO_ROW_LIMIT, |limit| i64::from(limit).saturating_add(1));
         let mut statement = self.reader.prepare_cached(LIST_DEFINITIONS_SQL)?;
         let mut rows = statement.query(named_params! {
-            "@cursor": after_text.as_ref().map(|text| text.as_str()),
+            "@cursor": after_text.as_ref().map(UuidText::as_str),
             "@row_limit": row_limit,
         })?;
         let mut definitions = Vec::new();
