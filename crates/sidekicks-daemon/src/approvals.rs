@@ -6,5 +6,6 @@ pub(crate) mod events;
 pub(crate) mod projection;
 pub(crate) mod refusals;
 pub(crate) mod request_create;
+pub(crate) mod rules;
 pub(crate) mod schema;
 pub(crate) mod store;
