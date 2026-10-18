@@ -5,23 +5,25 @@
 //! user and project rule when one rule file does not load, so a rule Codex would refuse is refused
 //! before anything is written. A command allow a prefix rule would stretch over a force push or a
 //! branch delete is never written: the daemon answers each ask it covers. The rules in force are
-//! read from every rule file, the person's own among them, through Codex's own grammar.
+//! read from every rule file Codex loads, the person's own among them, through Codex's own grammar
+//! and checks.
 
-use std::error::Error;
+mod reader;
+
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
-use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
+use sidekicks_contracts::approval::RememberedRuleSense;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
-use starlark_syntax::syntax::ast::{ArgumentP, AstExpr, AstLiteral, ExprP, StmtP};
-use starlark_syntax::syntax::top_level_stmts::top_level_stmts;
-use starlark_syntax::syntax::{AstModule, Dialect};
+use sidekicks_platforms::PathRules;
 
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry;
 use crate::policy::destructive_git::covers_destructive_git;
+use crate::provider::driver::codex::rules::reader::{RuleFileReader, RuleFileReading};
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 
 // The folder Codex reads a project's rule files from, and the extension it reads.
@@ -37,6 +39,12 @@ const CODEX_PROJECT_RULE_FILE_MODE: u32 = 0o644;
 
 // A host's rule covers both protocols a fetch takes.
 const CODEX_NETWORK_RULE_PROTOCOLS: [&str; 2] = ["https", "http"];
+
+// The folder of a Codex home Codex reads the person's own rule files from.
+const CODEX_HOME_RULES_FOLDER: &str = "rules";
+
+// Held on the daemon's rule file across its read and write, so two edits never drop each other's.
+static PROJECT_RULE_FILE_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
 
 /// Why a Codex project rule could not be written, removed or read.
 #[derive(Debug, thiserror::Error)]
@@ -74,14 +82,33 @@ pub(crate) enum CodexRulesError {
     /// The rule file could not be listed in the repository's exclude list.
     #[error("keeping the project's rule file out of commits failed")]
     Exclude(#[source] ExcludeError),
-    /// A rule file is not one Codex loads, so Codex keeps none of the project's rules.
-    #[error("Codex does not load the rule file {}", path.display())]
+    /// A rule file is not one Codex loads, so Codex keeps none of the person's or the project's
+    /// rules.
+    #[error("Codex does not load the rule file {}: {reason}", path.display())]
     Unloadable {
         /// The rule file.
         path: PathBuf,
         /// Why Codex refuses it.
+        reason: String,
+    },
+    /// The daemon's rule file could not be deleted once its last rule went.
+    #[error("deleting the emptied rule file {} failed", path.display())]
+    Delete {
+        /// The rule file.
+        path: PathBuf,
+        /// The file system's failure.
         #[source]
-        failure: Box<dyn Error + Send + Sync>,
+        failure: io::Error,
+    },
+    /// A revoked rule is in no rule file of the project the daemon reads.
+    #[error("the rule is in none of the project's rule files")]
+    RuleNotFound,
+    /// A revoked rule is kept in a rule file of the person's own, which the daemon never edits, so
+    /// it still applies.
+    #[error("the rule is kept in {}, which the daemon does not edit", path.display())]
+    RuleInUneditedFile {
+        /// The file that keeps it.
+        path: PathBuf,
     },
 }
 
@@ -94,16 +121,46 @@ pub(crate) struct CodexProjectRule {
     pub(crate) rule: ProviderAskRule,
 }
 
+/// A rule file Codex loads that the daemon cannot read without running it, and why; its rules are
+/// never listed in part.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CodexUnreadRuleFile {
+    /// The rule file.
+    pub(crate) file: PathBuf,
+    /// What in it only running the file would show.
+    pub(crate) reason: String,
+}
+
+/// The project's rules Codex enforces, and the rule files bearing on them the daemon cannot read.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CodexProjectRules {
+    /// Every allow and block in the project's readable rule files.
+    pub(crate) rules: Vec<CodexProjectRule>,
+    /// The person's and the project's rule files the daemon cannot read.
+    pub(crate) unread_files: Vec<CodexUnreadRuleFile>,
+}
+
+/// Where Codex reads the rules of one project's sessions.
+pub(crate) struct CodexRuleSources<'a> {
+    /// The Codex home the sessions run on, whose `rules/` Codex reads first.
+    pub(crate) codex_home: &'a Path,
+    /// The project's folder, whose `.codex/rules/` Codex reads next.
+    pub(crate) project_folder: &'a Path,
+    /// Whether Codex trusts the project; it reads no rule file of a project it does not trust.
+    pub(crate) is_project_trusted: bool,
+    /// How the place the sessions run in spells paths.
+    pub(crate) path_rules: PathRules,
+}
+
 /// Writes `rule` into the project's own rule file, replacing a rule of the other sense over the
-/// same subject, after listing the file in the exclude list of `common_git_folder`, the repository
-/// the project folder belongs to, where it is one. Holds `lock` on each file across its read and
-/// write. Refuses, with nothing written, a kind Codex keeps no project rule on, a command with no
-/// word and a host Codex would refuse.
+/// same subject; a file the daemon creates is first listed in the exclude list of
+/// `common_git_folder`, the repository the project folder belongs to, where it is one. One edit at
+/// a time on the file. Refuses, with nothing written, a kind Codex keeps no project rule on, a
+/// command with no word and a host Codex would refuse.
 pub(crate) async fn write_codex_project_rule(
     project_folder: &Path,
     common_git_folder: Option<&Path>,
     rule: &ProviderAskRule,
-    lock: &KeyedLock<PathBuf>,
 ) -> Result<(), CodexRulesError> {
     let written = compose_rule_lines(rule)?;
     if written.is_empty() {
@@ -113,14 +170,18 @@ pub(crate) async fn write_codex_project_rule(
         sense: opposite_sense(rule.sense),
         ..rule.clone()
     })?;
-    if let Some(common_git_folder) = common_git_folder {
-        add_repository_exclude(common_git_folder, CODEX_PROJECT_RULE_EXCLUDE_PATTERN, lock)
-            .await
-            .map_err(CodexRulesError::Exclude)?;
-    }
     let file_path = project_rule_file(project_folder);
-    let _hold = lock.acquire(file_path.clone()).await;
-    let text = read_if_present(&file_path).await?.unwrap_or_default();
+    let _hold = PROJECT_RULE_FILE_LOCK.acquire(file_path.clone()).await;
+    let text = if let Some(text) = read_if_present(&file_path).await? {
+        text
+    } else {
+        if let Some(common_git_folder) = common_git_folder {
+            add_repository_exclude(common_git_folder, CODEX_PROJECT_RULE_EXCLUDE_PATTERN)
+                .await
+                .map_err(CodexRulesError::Exclude)?;
+        }
+        String::new()
+    };
     let mut lines: Vec<&str> = rule_lines(&text)
         .filter(|line| {
             !opposite
@@ -133,42 +194,141 @@ pub(crate) async fn write_codex_project_rule(
     write_rule_file(&file_path, &lines).await
 }
 
-/// Removes a revoked rule from the project's own rule file, holding `lock` on it; a folder with no
-/// such file holds none, and no file is made for it. Refuses the rules
-/// [`write_codex_project_rule`] refuses.
+/// Removes a revoked rule from the project's own rule file, one edit at a time on it, and deletes
+/// the file once it holds no rule. Refuses the rules [`write_codex_project_rule`] refuses, and a
+/// rule the file does not hold: `RuleInUneditedFile` where another of the project's rule files,
+/// read in a place that spells paths by `path_rules`, keeps it, else `RuleNotFound`.
 pub(crate) async fn remove_codex_project_rule(
     project_folder: &Path,
     rule: &ProviderAskRule,
-    lock: &KeyedLock<PathBuf>,
+    path_rules: PathRules,
 ) -> Result<(), CodexRulesError> {
     let removed = compose_rule_lines(rule)?;
     let file_path = project_rule_file(project_folder);
-    let _hold = lock.acquire(file_path.clone()).await;
-    let Some(text) = read_if_present(&file_path).await? else {
-        return Ok(());
-    };
-    let lines: Vec<&str> = rule_lines(&text)
+    let _hold = PROJECT_RULE_FILE_LOCK.acquire(file_path.clone()).await;
+    let text = read_if_present(&file_path).await?.unwrap_or_default();
+    let lines: Vec<&str> = rule_lines(&text).collect();
+    let kept: Vec<&str> = lines
+        .iter()
+        .copied()
         .filter(|line| !removed.iter().any(|rule_line| rule_line == line))
         .collect();
-    write_rule_file(&file_path, &lines).await
+    if kept.len() == lines.len() {
+        return Err(find_rule_elsewhere(project_folder, &file_path, rule, path_rules).await?);
+    }
+    if kept.is_empty() {
+        return tokio::fs::remove_file(&file_path).await.map_err(|failure| {
+            CodexRulesError::Delete {
+                path: file_path.clone(),
+                failure,
+            }
+        });
+    }
+    write_rule_file(&file_path, &kept).await
 }
 
-/// Every allow and block in the project's rule files, read as Codex reads them: each `.rules` file
-/// in `.codex/rules/`, in name order. A rule Codex asks on (`prompt`) is neither and is left out,
-/// as is one built by a loop, a variable or a function, which only running the file would show.
-/// Fails when a file does not parse or holds a rule Codex refuses, since Codex then keeps no rule
-/// of the project at all.
+/// Every allow and block Codex enforces from the project's rule files, read as Codex loads them:
+/// each `.rules` file of the Codex home's `rules/`, then of the project's `.codex/rules/`, each
+/// folder in name order, none of the project's where Codex does not trust it. A rule Codex asks on
+/// (`prompt`) is neither and is left out. A file only running would read is listed among the
+/// unread files with its reason, none of its rules among the rules. Fails with `Unloadable` when a
+/// file is one Codex refuses, since Codex then keeps none of the person's or the project's rules.
 pub(crate) async fn read_codex_project_rules(
+    sources: &CodexRuleSources<'_>,
+) -> Result<CodexProjectRules, CodexRulesError> {
+    let mut read = CodexProjectRules::default();
+    if !sources.is_project_trusted {
+        return Ok(read);
+    }
+    let mut reader = RuleFileReader::new(sources.path_rules);
+    let home_folder = sources.codex_home.join(CODEX_HOME_RULES_FOLDER);
+    let project_folder = project_rules_folder(sources.project_folder);
+    for (folder, is_project) in [(home_folder, false), (project_folder, true)] {
+        for file in list_rule_files(&folder).await? {
+            let text = read_rule_file(&file).await?;
+            let reading = reader
+                .read(&file.to_string_lossy(), text)
+                .map_err(|reason| CodexRulesError::Unloadable {
+                    path: file.clone(),
+                    reason,
+                })?;
+            match reading {
+                RuleFileReading::Read(rules) if is_project => {
+                    read.rules
+                        .extend(rules.into_iter().map(|rule| CodexProjectRule {
+                            file: file.clone(),
+                            rule,
+                        }));
+                }
+                RuleFileReading::Read(_) => {}
+                RuleFileReading::Unread(reason) => {
+                    read.unread_files.push(CodexUnreadRuleFile { file, reason });
+                }
+            }
+        }
+    }
+    Ok(read)
+}
+
+// Why a revoked rule the daemon's file does not hold cannot be revoked: another of the project's
+// rule files keeps it, or none does.
+async fn find_rule_elsewhere(
     project_folder: &Path,
-) -> Result<Vec<CodexProjectRule>, CodexRulesError> {
-    let folder = CODEX_RULES_FOLDER
-        .iter()
-        .fold(project_folder.to_path_buf(), |path, part| path.join(part));
+    own_file: &Path,
+    rule: &ProviderAskRule,
+    path_rules: PathRules,
+) -> Result<CodexRulesError, CodexRulesError> {
+    let wanted = normalize_rule_subject(rule)?;
+    let mut reader = RuleFileReader::new(path_rules);
+    for file in list_rule_files(&project_rules_folder(project_folder)).await? {
+        if file == own_file {
+            continue;
+        }
+        let text = read_rule_file(&file).await?;
+        // A file Codex refuses or the daemon cannot read names no rule the daemon can point at.
+        if let Ok(RuleFileReading::Read(rules)) = reader.read(&file.to_string_lossy(), text)
+            && rules.contains(&wanted)
+        {
+            return Ok(CodexRulesError::RuleInUneditedFile { path: file });
+        }
+    }
+    Ok(CodexRulesError::RuleNotFound)
+}
+
+// A rule with its subject as a rule file reads back: a command's words joined by one space, a
+// host as Codex keeps it.
+fn normalize_rule_subject(rule: &ProviderAskRule) -> Result<ProviderAskRule, CodexRulesError> {
+    let subject = match rule.action {
+        ProviderAskActionKind::Command => rule
+            .subject
+            .split(is_ecmascript_whitespace)
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "),
+        ProviderAskActionKind::Network => {
+            normalize_network_rule_host(&rule.subject).map_err(CodexRulesError::RefusedHost)?
+        }
+        ProviderAskActionKind::Plan
+        | ProviderAskActionKind::CommandInput
+        | ProviderAskActionKind::FileChange
+        | ProviderAskActionKind::FileRead
+        | ProviderAskActionKind::Tool => {
+            return Err(CodexRulesError::UnkeptKind(rule.action.into()));
+        }
+    };
+    Ok(ProviderAskRule {
+        subject,
+        ..rule.clone()
+    })
+}
+
+// The `.rules` files of one folder in name order, as Codex lists them; none where it is missing.
+async fn list_rule_files(folder: &Path) -> Result<Vec<PathBuf>, CodexRulesError> {
     let read_failure = |failure| CodexRulesError::Read {
-        path: folder.clone(),
+        path: folder.to_path_buf(),
         failure,
     };
-    let Some(mut entries) = tokio::fs::read_dir(&folder)
+    let Some(mut entries) = tokio::fs::read_dir(folder)
         .await
         .none_if_missing()
         .map_err(read_failure)?
@@ -187,33 +347,26 @@ pub(crate) async fn read_codex_project_rules(
         }
     }
     files.sort();
-    let mut rules = Vec::new();
-    for file in files {
-        let text =
-            tokio::fs::read_to_string(&file)
-                .await
-                .map_err(|failure| CodexRulesError::Read {
-                    path: file.clone(),
-                    failure,
-                })?;
-        let file_rules =
-            read_rule_file(&file, text).map_err(|failure| CodexRulesError::Unloadable {
-                path: file.clone(),
-                failure,
-            })?;
-        rules.extend(file_rules.into_iter().map(|rule| CodexProjectRule {
-            file: file.clone(),
-            rule,
-        }));
-    }
-    Ok(rules)
+    Ok(files)
 }
 
-fn project_rule_file(project_folder: &Path) -> PathBuf {
+async fn read_rule_file(file: &Path) -> Result<String, CodexRulesError> {
+    tokio::fs::read_to_string(file)
+        .await
+        .map_err(|failure| CodexRulesError::Read {
+            path: file.to_path_buf(),
+            failure,
+        })
+}
+
+fn project_rules_folder(project_folder: &Path) -> PathBuf {
     CODEX_RULES_FOLDER
         .iter()
         .fold(project_folder.to_path_buf(), |path, part| path.join(part))
-        .join(CODEX_PROJECT_RULE_FILE_NAME)
+}
+
+fn project_rule_file(project_folder: &Path) -> PathBuf {
+    project_rules_folder(project_folder).join(CODEX_PROJECT_RULE_FILE_NAME)
 }
 
 fn opposite_sense(sense: RememberedRuleSense) -> RememberedRuleSense {
@@ -352,406 +505,5 @@ async fn write_rule_file(file_path: &Path, lines: &[&str]) -> Result<(), CodexRu
         .map_err(CodexRulesError::Write)
 }
 
-// One rule file's allows and blocks, from the calls at its top level whose arguments are written
-// out; a file Codex would refuse is an error.
-fn read_rule_file(
-    file: &Path,
-    text: String,
-) -> Result<Vec<ProviderAskRule>, Box<dyn Error + Send + Sync>> {
-    let dialect = Dialect {
-        enable_f_strings: true,
-        ..Dialect::Extended
-    };
-    let module = AstModule::parse(&file.to_string_lossy(), text, &dialect)
-        .map_err(|failure| Box::<dyn Error + Send + Sync>::from(failure.into_anyhow()))?;
-    let mut rules: Vec<ProviderAskRule> = Vec::new();
-    for statement in top_level_stmts(module.statement()) {
-        let StmtP::Expression(expression) = &**statement else {
-            continue;
-        };
-        let ExprP::Call(callee, call) = &**expression else {
-            continue;
-        };
-        let ExprP::Identifier(name) = &***callee else {
-            continue;
-        };
-        let read = match name.ident.as_str() {
-            "prefix_rule" => read_prefix_rule(&call.args)?,
-            "network_rule" => read_network_rule(&call.args)?,
-            _ => continue,
-        };
-        for rule in read {
-            if !rules.contains(&rule) {
-                rules.push(rule);
-            }
-        }
-    }
-    Ok(rules)
-}
-
-// The arguments of a call by its parameters' names, positional ones in the parameters' order;
-// `None` when one is computed or passed with `*` or `**`, which only running the file would read.
-fn read_call_arguments<'call>(
-    arguments: &'call [starlark_syntax::syntax::ast::AstArgument],
-    parameters: &[&str],
-) -> Option<Vec<(String, &'call AstExpr)>> {
-    let mut read = Vec::with_capacity(arguments.len());
-    for (index, argument) in arguments.iter().enumerate() {
-        match &argument.node {
-            ArgumentP::Positional(value) => {
-                read.push(((*parameters.get(index)?).to_owned(), value));
-            }
-            ArgumentP::Named(name, value) => read.push((name.node.clone(), value)),
-            ArgumentP::Args(_) | ArgumentP::KwArgs(_) => return None,
-        }
-    }
-    Some(read)
-}
-
-fn read_string_literal(expression: &AstExpr) -> Option<&str> {
-    if let ExprP::Literal(AstLiteral::String(text)) = &expression.node {
-        Some(&text.node)
-    } else {
-        None
-    }
-}
-
-// A `prefix_rule` as Codex's own builtin reads it: a non-empty pattern of words or lists of
-// alternative words, each alternative making a rule of its own, and a decision of `allow` (the
-// default), `prompt` or `forbidden`.
-fn read_prefix_rule(
-    arguments: &[starlark_syntax::syntax::ast::AstArgument],
-) -> Result<Vec<ProviderAskRule>, Box<dyn Error + Send + Sync>> {
-    let Some(arguments) = read_call_arguments(
-        arguments,
-        &["pattern", "decision", "match", "not_match", "justification"],
-    ) else {
-        return Ok(Vec::new());
-    };
-    let mut pattern = None;
-    let mut sense = Some(RememberedRuleSense::Allow);
-    for (name, value) in arguments {
-        match name.as_str() {
-            "pattern" => {
-                let ExprP::List(tokens) = &value.node else {
-                    return Ok(Vec::new());
-                };
-                let mut alternatives = Vec::with_capacity(tokens.len());
-                for token in tokens {
-                    let token_alternatives = if let ExprP::List(words) = &token.node {
-                        words
-                            .iter()
-                            .map(read_string_literal)
-                            .collect::<Option<Vec<&str>>>()
-                    } else {
-                        read_string_literal(token).map(|word| vec![word])
-                    };
-                    let Some(token_alternatives) = token_alternatives else {
-                        return Ok(Vec::new());
-                    };
-                    if token_alternatives.is_empty() {
-                        return Err("a pattern's alternatives are empty".into());
-                    }
-                    alternatives.push(token_alternatives);
-                }
-                if alternatives.is_empty() {
-                    return Err("a pattern is empty".into());
-                }
-                pattern = Some(alternatives);
-            }
-            "decision" => {
-                sense = match read_string_literal(value) {
-                    Some("allow") => Some(RememberedRuleSense::Allow),
-                    Some("forbidden") => Some(RememberedRuleSense::Block),
-                    Some("prompt") => None,
-                    Some(_) => return Err("a prefix rule's decision is not one Codex reads".into()),
-                    None => return Ok(Vec::new()),
-                };
-            }
-            _ => {}
-        }
-    }
-    let (Some(pattern), Some(sense)) = (pattern, sense) else {
-        return Ok(Vec::new());
-    };
-    let mut subjects = vec![String::new()];
-    for alternatives in pattern {
-        subjects = subjects
-            .iter()
-            .flat_map(|prefix| {
-                alternatives.iter().map(move |word| {
-                    if prefix.is_empty() {
-                        (*word).to_owned()
-                    } else {
-                        format!("{prefix} {word}")
-                    }
-                })
-            })
-            .collect();
-    }
-    Ok(subjects
-        .into_iter()
-        .map(|subject| ProviderAskRule {
-            kind: RememberedScopeKind::Project,
-            sense,
-            action: ProviderAskActionKind::Command,
-            subject,
-        })
-        .collect())
-}
-
-// A `network_rule` as Codex's own builtin reads it: a host Codex keeps, a protocol it knows and a
-// decision of `allow`, `prompt`, or `deny` or `forbidden`.
-fn read_network_rule(
-    arguments: &[starlark_syntax::syntax::ast::AstArgument],
-) -> Result<Vec<ProviderAskRule>, Box<dyn Error + Send + Sync>> {
-    let Some(arguments) = read_call_arguments(
-        arguments,
-        &["host", "protocol", "decision", "justification"],
-    ) else {
-        return Ok(Vec::new());
-    };
-    let mut host = None;
-    let mut sense = None;
-    for (name, value) in arguments {
-        let Some(text) = read_string_literal(value) else {
-            return Ok(Vec::new());
-        };
-        match name.as_str() {
-            "host" => host = Some(normalize_network_rule_host(text)?),
-            "protocol" => {
-                if !matches!(
-                    text,
-                    "http"
-                        | "https"
-                        | "https_connect"
-                        | "http-connect"
-                        | "socks5_tcp"
-                        | "socks5_udp"
-                ) {
-                    return Err("a network rule's protocol is not one Codex reads".into());
-                }
-            }
-            "decision" => {
-                sense = match text {
-                    "allow" => Some(RememberedRuleSense::Allow),
-                    "deny" | "forbidden" => Some(RememberedRuleSense::Block),
-                    "prompt" => None,
-                    _ => return Err("a network rule's decision is not one Codex reads".into()),
-                };
-            }
-            _ => {}
-        }
-    }
-    let (Some(host), Some(sense)) = (host, sense) else {
-        return Ok(Vec::new());
-    };
-    Ok(vec![ProviderAskRule {
-        kind: RememberedScopeKind::Project,
-        sense,
-        action: ProviderAskActionKind::Network,
-        subject: host,
-    }])
-}
-
 #[cfg(test)]
-mod tests {
-    use std::path::{Path, PathBuf};
-
-    use rstest::rstest;
-    use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
-
-    use super::{
-        CodexRulesError, read_codex_project_rules, remove_codex_project_rule,
-        write_codex_project_rule,
-    };
-    use crate::keyed_lock::KeyedLock;
-    use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
-
-    fn rule(
-        sense: RememberedRuleSense,
-        action: ProviderAskActionKind,
-        subject: &str,
-    ) -> ProviderAskRule {
-        ProviderAskRule {
-            kind: RememberedScopeKind::Project,
-            sense,
-            action,
-            subject: subject.to_owned(),
-        }
-    }
-
-    fn rule_file(project_folder: &Path) -> PathBuf {
-        project_folder.join(".codex/rules/sidekicks.rules")
-    }
-
-    #[tokio::test]
-    async fn a_block_replaces_the_allow_and_the_file_is_excluded_once() {
-        let project = tempfile::tempdir().expect("a project folder");
-        let git_folder = tempfile::tempdir().expect("a git folder");
-        let lock = KeyedLock::<PathBuf>::new();
-        let allow = rule(
-            RememberedRuleSense::Allow,
-            ProviderAskActionKind::Network,
-            "example.com",
-        );
-        let block = rule(
-            RememberedRuleSense::Block,
-            ProviderAskActionKind::Network,
-            "example.com",
-        );
-        let command = rule(
-            RememberedRuleSense::Allow,
-            ProviderAskActionKind::Command,
-            "npm  test",
-        );
-
-        for written in [&allow, &command, &block] {
-            write_codex_project_rule(project.path(), Some(git_folder.path()), written, &lock)
-                .await
-                .expect("the rule is written");
-        }
-
-        assert_eq!(
-            std::fs::read_to_string(rule_file(project.path())).expect("the rule file reads"),
-            "prefix_rule(pattern=[\"npm\", \"test\"], decision=\"allow\")\n\
-             network_rule(host=\"example.com\", protocol=\"https\", decision=\"deny\")\n\
-             network_rule(host=\"example.com\", protocol=\"http\", decision=\"deny\")\n"
-        );
-        assert_eq!(
-            std::fs::read_to_string(git_folder.path().join("info/exclude"))
-                .expect("the exclude list reads"),
-            "/.codex/rules/sidekicks.rules\n"
-        );
-
-        remove_codex_project_rule(project.path(), &block, &lock)
-            .await
-            .expect("the block is removed");
-        assert_eq!(
-            read_codex_project_rules(project.path())
-                .await
-                .expect("the rules read")
-                .into_iter()
-                .map(|kept| kept.rule)
-                .collect::<Vec<_>>(),
-            [rule(
-                RememberedRuleSense::Allow,
-                ProviderAskActionKind::Command,
-                "npm test"
-            )]
-        );
-    }
-
-    #[rstest]
-    #[case::the_whole_of_git(ProviderAskActionKind::Command, "git", None)]
-    #[case::a_push(ProviderAskActionKind::Command, "git push", None)]
-    #[case::a_branch_change(ProviderAskActionKind::Command, "git branch", None)]
-    #[case::no_word(
-        ProviderAskActionKind::Command,
-        " \u{3000}",
-        Some("a command rule names no word")
-    )]
-    #[case::a_url(
-        ProviderAskActionKind::Network,
-        "https://x",
-        Some("Codex refuses this network rule's host: the host names a scheme or a path")
-    )]
-    #[case::a_wildcard(
-        ProviderAskActionKind::Network,
-        "*.example.com",
-        Some("Codex refuses this network rule's host: the host holds a wildcard")
-    )]
-    #[case::a_file(
-        ProviderAskActionKind::FileChange,
-        "src/a.rs",
-        Some("Codex keeps no project rule on a fileChange ask")
-    )]
-    #[tokio::test]
-    async fn an_allow_codex_would_stretch_or_refuse_leaves_the_file_untouched(
-        #[case] action: ProviderAskActionKind,
-        #[case] subject: &str,
-        #[case] refusal: Option<&str>,
-    ) {
-        let project = tempfile::tempdir().expect("a project folder");
-        let existing = "prefix_rule(pattern=[\"ls\"], decision=\"allow\")\n";
-        std::fs::create_dir_all(project.path().join(".codex/rules")).expect("the folder is made");
-        std::fs::write(rule_file(project.path()), existing).expect("the rule file is written");
-
-        let outcome = write_codex_project_rule(
-            project.path(),
-            None,
-            &rule(RememberedRuleSense::Allow, action, subject),
-            &KeyedLock::new(),
-        )
-        .await;
-
-        assert_eq!(
-            outcome
-                .err()
-                .map(|error: CodexRulesError| error.to_string())
-                .as_deref(),
-            refusal
-        );
-        assert_eq!(
-            std::fs::read_to_string(rule_file(project.path())).expect("the rule file reads"),
-            existing
-        );
-    }
-
-    #[tokio::test]
-    async fn the_persons_own_rule_files_are_read_as_codex_reads_them() {
-        let project = tempfile::tempdir().expect("a project folder");
-        let folder = project.path().join(".codex/rules");
-        std::fs::create_dir_all(&folder).expect("the folder is made");
-        std::fs::write(
-            folder.join("team.rules"),
-            "prefix_rule(pattern = [[\"npm\", \"pnpm\"], \"install\"])\n\
-             prefix_rule([\"rm\"], \"forbidden\")\n\
-             prefix_rule(pattern = [\"curl\"], decision = \"prompt\")\n\
-             for tool in [\"cargo\"]:\n    prefix_rule(pattern = [tool])\n\
-             network_rule(host = \"Example.COM:443\", protocol = \"https\", decision = \"deny\")\n",
-        )
-        .expect("the person's file is written");
-        std::fs::write(folder.join("notes.txt"), "not a rule file").expect("a note is written");
-
-        let rules: Vec<ProviderAskRule> = read_codex_project_rules(project.path())
-            .await
-            .expect("the rules read")
-            .into_iter()
-            .map(|kept| kept.rule)
-            .collect();
-
-        assert_eq!(
-            rules,
-            [
-                rule(
-                    RememberedRuleSense::Allow,
-                    ProviderAskActionKind::Command,
-                    "npm install"
-                ),
-                rule(
-                    RememberedRuleSense::Allow,
-                    ProviderAskActionKind::Command,
-                    "pnpm install"
-                ),
-                rule(
-                    RememberedRuleSense::Block,
-                    ProviderAskActionKind::Command,
-                    "rm"
-                ),
-                rule(
-                    RememberedRuleSense::Block,
-                    ProviderAskActionKind::Network,
-                    "example.com"
-                ),
-            ]
-        );
-
-        std::fs::write(folder.join("broken.rules"), "prefix_rule(pattern = [\n")
-            .expect("a broken file is written");
-        assert!(matches!(
-            read_codex_project_rules(project.path()).await,
-            Err(CodexRulesError::Unloadable { .. })
-        ));
-    }
-}
+mod tests;
