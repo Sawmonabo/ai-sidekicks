@@ -16,7 +16,7 @@ use std::io;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
-use sidekicks_platforms::{ParentProcess, PinnedProcess, ResponsibleProcess};
+use sidekicks_platforms::{ParentProcess, PinnedProcess, ResponsibleProcess, SignatureCheck};
 use tokio::sync::Semaphore;
 
 use crate::ipc::caller_process::contract::CallerProcessReader;
@@ -80,8 +80,9 @@ impl CallerCheck {
 
     /// How `caller` is admitted: refused when the daemon or a held provider service started it or
     /// nothing vouches for it; admitted by its signature when `is_tokenless` and it is the
-    /// desktop's signed client helper; otherwise only with the session token. Fails when the system
-    /// refuses a read.
+    /// desktop's signed client helper; otherwise only with the session token. A signature that does
+    /// not meet the requirement is logged at debug with its status. Fails when the system refuses
+    /// a read.
     async fn admit(
         &self,
         caller: PinnedProcess,
@@ -114,10 +115,16 @@ impl CallerCheck {
             .acquire()
             .await
             .expect("the signature checks' semaphore is never closed");
-        Ok(if self.reader.is_desktop_client(caller, app).await? {
-            CallerAdmission::Signed
-        } else {
-            CallerAdmission::TokenRequired
+        Ok(match self.reader.check_desktop_client(caller, app).await? {
+            Some(SignatureCheck::Met) => CallerAdmission::Signature,
+            Some(SignatureCheck::NotMet { status }) => {
+                tracing::debug!(
+                    status,
+                    "A tokenless caller's signature did not meet the desktop client's requirement"
+                );
+                CallerAdmission::TokenRequired
+            }
+            None => CallerAdmission::TokenRequired,
         })
     }
 
@@ -174,7 +181,9 @@ mod tests {
     use futures::future::BoxFuture;
     use interprocess::local_socket::tokio::Stream;
     use rstest::rstest;
-    use sidekicks_platforms::{ParentProcess, PinnedProcess, ResponsibleProcess, this_process};
+    use sidekicks_platforms::{
+        ParentProcess, PinnedProcess, ResponsibleProcess, SignatureCheck, this_process,
+    };
 
     use super::CallerCheck;
     use crate::ipc::caller_process::contract::{CallerProcessReader, PeerRead};
@@ -209,13 +218,18 @@ mod tests {
             futures::future::ready(Ok(self.responsible.clone())).boxed()
         }
 
-        fn is_desktop_client(
+        fn check_desktop_client(
             &self,
             _caller: PinnedProcess,
             _responsible: PinnedProcess,
-        ) -> BoxFuture<'_, io::Result<bool>> {
+        ) -> BoxFuture<'_, io::Result<Option<SignatureCheck>>> {
             self.was_signature_read.store(true, Ordering::SeqCst);
-            futures::future::ready(Ok(self.is_desktop_client)).boxed()
+            let check = if self.is_desktop_client {
+                SignatureCheck::Met
+            } else {
+                SignatureCheck::NotMet { status: -67050 }
+            };
+            futures::future::ready(Ok(Some(check))).boxed()
         }
     }
 
@@ -248,7 +262,7 @@ mod tests {
         ParentProcess::Root,
         true,
         false,
-        CallerAdmission::Signed
+        CallerAdmission::Signature
     )]
     #[case::an_unsigned_caller(
         ResponsibleProcess::Another(this_process()),
@@ -326,7 +340,7 @@ mod tests {
         assert_eq!(
             with_token,
             match expected {
-                CallerAdmission::Signed => CallerAdmission::TokenRequired,
+                CallerAdmission::Signature => CallerAdmission::TokenRequired,
                 CallerAdmission::Refused | CallerAdmission::TokenRequired => expected,
             }
         );

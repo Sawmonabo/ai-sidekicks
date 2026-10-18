@@ -10,7 +10,7 @@ use interprocess::local_socket::tokio::Stream;
 use sidekicks_contracts::app_identity::APP_BUNDLE_IDENTIFIER;
 use sidekicks_platforms::{
     CodeSignatureError, DesktopClientRequirement, ParentProcess, PinnedProcess, ResponsibleProcess,
-    read_parent_process, read_peer_process, read_responsible_process,
+    SignatureCheck, read_parent_process, read_peer_process, read_responsible_process,
 };
 
 use crate::ipc::caller_process::contract::{CallerProcessReader, PeerRead};
@@ -74,19 +74,20 @@ impl CallerProcessReader for ProcessTableReader {
         .boxed()
     }
 
-    fn is_desktop_client(
+    fn check_desktop_client(
         &self,
         caller: PinnedProcess,
         responsible: PinnedProcess,
-    ) -> BoxFuture<'_, io::Result<bool>> {
+    ) -> BoxFuture<'_, io::Result<Option<SignatureCheck>>> {
         let desktop_client = self.desktop_client.clone();
         async move {
             let Some(desktop_client) = desktop_client else {
-                return Ok(false);
+                return Ok(None);
             };
-            tokio::task::spawn_blocking(move || desktop_client.admits(&caller, &responsible))
+            tokio::task::spawn_blocking(move || desktop_client.check(&caller, &responsible))
                 .await
                 .map_err(io::Error::other)?
+                .map(Some)
         }
         .boxed()
     }

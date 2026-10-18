@@ -7,9 +7,10 @@
 //! system could not name or trace, latches the connection refused whatever the handshake carries,
 //! so reading the token file is not enough to be the machine's own client. Then a handshake with
 //! this start's session token is admitted (the command line), and one without a token is admitted
-//! when its caller is the desktop's signed client; any other latches the connection refused, a
-//! second guess included. Each connection's first outcome is latched, so a repeated or hostile
-//! handshake cannot flip the gate.
+//! when its caller is the desktop's signed client; any other latches the connection refused. Each
+//! connection's first handshake decides it: a handshake sent while the first's caller check runs
+//! waits for that outcome and gets it, so a wrong token followed by the right one is refused, and a
+//! repeated or hostile handshake cannot flip the gate.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -29,6 +30,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::PinnedProcess;
 use subtle::ConstantTimeEq as _;
+use tracing::Instrument as _;
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
@@ -41,8 +43,9 @@ use crate::ipc::registry::{
 pub(crate) enum CallerAdmission {
     /// The caller is an agent's, or nothing vouches for it: refused whatever the handshake carries.
     Refused,
-    /// The caller is the desktop's signed client, admitted without the session token.
-    Signed,
+    /// The caller is the desktop's signed client, admitted by its signature without the session
+    /// token.
+    Signature,
     /// The caller is admitted only with this start's session token.
     TokenRequired,
 }
@@ -79,10 +82,10 @@ static DAEMON_VERSIONS: LazyLock<BoundedVec<ProtocolVersion, 0, SUPPORTED_PROTOC
         BoundedVec::new(versions).expect("the daemon speaks no more versions than a list may carry")
     });
 
-/// The message every refusal of a connection without the session token or the desktop's signature
-/// carries, so a refusal says nothing about the token.
+/// The message every refusal of a connection without the session token carries, so a refusal says
+/// nothing about the token.
 const TOKEN_INVALID_MESSAGE: &str = "The connection.initialize call lacked this daemon's session \
-     token and came from no signed client of this app, so nothing is served on it";
+     token, so nothing is served on it";
 
 /// The message of a refusal of an agent's connection, or one the system could not name.
 const CALLER_REFUSED_MESSAGE: &str = "The connection was opened by a process this daemon or a \
@@ -145,10 +148,43 @@ enum Admission {
     Token,
 }
 
+/// What a connection's first handshake carried, read when its caller read starts, so the outcome
+/// is the same whichever handshake waiting on the read latches it.
+#[derive(Clone)]
+struct FirstHandshake {
+    /// The handshake it negotiates.
+    handshake: LatchedHandshake,
+    /// Whether it carried this start's session token.
+    has_session_token: bool,
+    /// Whether it carried no token at all.
+    is_tokenless: bool,
+}
+
+impl FirstHandshake {
+    /// How the connection is decided once its caller reads `caller_admission`.
+    fn outcome(
+        &self,
+        caller_admission: CallerAdmission,
+    ) -> Result<(LatchedHandshake, Admission), ConnectionRefusal> {
+        let admission = match caller_admission {
+            CallerAdmission::Refused => return Err(ConnectionRefusal::CallerRefused),
+            // A handshake that carries a token is admitted by that token alone.
+            CallerAdmission::Signature if self.is_tokenless => Admission::Signature,
+            CallerAdmission::Signature | CallerAdmission::TokenRequired => {
+                if !self.has_session_token {
+                    return Err(ConnectionRefusal::TokenInvalid);
+                }
+                Admission::Token
+            }
+        };
+        Ok((self.handshake.clone(), admission))
+    }
+}
+
 /// One connection's negotiation; a connection with no entry is before its handshake.
 enum ConnectionNegotiation {
-    /// A handshake is reading its caller; nothing is latched yet.
-    ReadingCaller(CallerRead),
+    /// The first handshake is reading its caller; nothing is latched yet.
+    ReadingCaller(CallerRead, FirstHandshake),
     /// Nothing is served on the connection.
     Refused(ConnectionRefusal),
     /// The first handshake's outcome and how it was admitted.
@@ -253,7 +289,7 @@ impl ProtocolNegotiator {
     ) -> Option<DomainError> {
         match self.connections().get(&transport) {
             Some(ConnectionNegotiation::Refused(refusal)) => Some(refusal.error()),
-            None | Some(ConnectionNegotiation::ReadingCaller(_)) => {
+            None | Some(ConnectionNegotiation::ReadingCaller(..)) => {
                 (method != CONNECTION_INITIALIZE_METHOD).then(|| {
                     DomainError::new(
                         HANDSHAKE_REQUIRED_MESSAGE,
@@ -318,7 +354,8 @@ impl ProtocolNegotiator {
     /// that carries a wrong token, or no token from a caller that is not the desktop's signed
     /// client, latching the refusal; otherwise latches the version the handshake negotiates. A
     /// handshake whose connection closed during its caller read latches nothing, a refusal latched
-    /// meanwhile wins, and a second handshake during the read finds the first latched.
+    /// meanwhile wins, and a later handshake during the read waits for it and gets the first
+    /// handshake's outcome: its refusal, or the latched handshake as a repeat.
     async fn latch_handshake(
         &self,
         request: &ConnectionInitializeRequest,
@@ -330,7 +367,7 @@ impl ProtocolNegotiator {
                 .refuse(transport, ConnectionRefusal::CallerRefused)
                 .into());
         };
-        let caller_read = {
+        let (caller_read, first, is_first) = {
             let mut connections = self.connections();
             match connections.get(&transport) {
                 Some(ConnectionNegotiation::Refused(refusal)) => {
@@ -339,21 +376,41 @@ impl ProtocolNegotiator {
                 Some(ConnectionNegotiation::Latched(handshake, _)) => {
                     return Ok(HandshakeTurn::Repeat(handshake.clone()));
                 }
-                Some(ConnectionNegotiation::ReadingCaller(caller_read)) => caller_read.clone(),
+                Some(ConnectionNegotiation::ReadingCaller(caller_read, first)) => {
+                    (caller_read.clone(), first.clone(), false)
+                }
                 None => {
-                    let is_tokenless = request.session_token.is_none();
-                    let caller_read = (self.admit_caller)(caller_process, is_tokenless).shared();
+                    let first = FirstHandshake {
+                        handshake: negotiate(request),
+                        has_session_token: self.is_session_token(request.session_token.as_ref()),
+                        is_tokenless: request.session_token.is_none(),
+                    };
+                    // The connection's id rides on every line the caller check logs.
+                    let caller_read = (self.admit_caller)(caller_process, first.is_tokenless)
+                        .instrument(tracing::debug_span!(
+                            "caller_check",
+                            connection = transport.0
+                        ))
+                        .boxed()
+                        .shared();
                     connections.insert(
                         transport,
-                        ConnectionNegotiation::ReadingCaller(caller_read.clone()),
+                        ConnectionNegotiation::ReadingCaller(caller_read.clone(), first.clone()),
                     );
-                    caller_read
+                    (caller_read, first, true)
                 }
             }
         };
         let caller_admission = caller_read
             .await
             .map_err(|error| HandlerError::Internal(Box::new(CallerReadFault(error))))?;
+        let turn = |handshake: LatchedHandshake| {
+            if is_first {
+                HandshakeTurn::First(handshake)
+            } else {
+                HandshakeTurn::Repeat(handshake)
+            }
+        };
         let mut connections = self.connections();
         match connections.get(&transport) {
             // An ordinary disconnect: nothing can be sent, and no fault is logged.
@@ -362,32 +419,16 @@ impl ProtocolNegotiator {
                 Err(HandlerError::Canceled)
             }
             Some(ConnectionNegotiation::Refused(refusal)) => Err(refusal.error().into()),
-            Some(ConnectionNegotiation::Latched(handshake, _)) => {
-                Ok(HandshakeTurn::Repeat(handshake.clone()))
-            }
-            Some(ConnectionNegotiation::ReadingCaller(_)) => {
-                let outcome = match caller_admission {
-                    CallerAdmission::Refused => Err(ConnectionRefusal::CallerRefused),
-                    // A handshake that carries a token is admitted by that token alone.
-                    CallerAdmission::Signed if request.session_token.is_none() => {
-                        Ok(Admission::Signature)
-                    }
-                    CallerAdmission::Signed | CallerAdmission::TokenRequired => {
-                        if self.is_session_token(request.session_token.as_ref()) {
-                            Ok(Admission::Token)
-                        } else {
-                            Err(ConnectionRefusal::TokenInvalid)
-                        }
-                    }
-                };
-                match outcome {
-                    Ok(admission) => {
-                        let handshake = negotiate(request);
+            // Latched by a handshake that woke first, from the same first handshake.
+            Some(ConnectionNegotiation::Latched(handshake, _)) => Ok(turn(handshake.clone())),
+            Some(ConnectionNegotiation::ReadingCaller(..)) => {
+                match first.outcome(caller_admission) {
+                    Ok((handshake, admission)) => {
                         connections.insert(
                             transport,
                             ConnectionNegotiation::Latched(handshake.clone(), admission),
                         );
-                        Ok(HandshakeTurn::First(handshake))
+                        Ok(turn(handshake))
                     }
                     Err(refusal) => {
                         connections.insert(transport, ConnectionNegotiation::Refused(refusal));
@@ -410,7 +451,7 @@ impl ProtocolNegotiator {
             Some(ConnectionNegotiation::Latched(handshake, admission)) => {
                 Some((handshake.clone(), *admission))
             }
-            Some(ConnectionNegotiation::ReadingCaller(_) | ConnectionNegotiation::Refused(_))
+            Some(ConnectionNegotiation::ReadingCaller(..) | ConnectionNegotiation::Refused(_))
             | None => None,
         }
     }

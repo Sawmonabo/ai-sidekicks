@@ -214,11 +214,11 @@ async fn expect_answers(gate: &NegotiationGate, is_caller_named: bool, calls: &[
         Answer::Refused(RefusalCode::AuthCallerRefused)),
     (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
 ])]
-#[case::signed_client_without_a_token(true, CallerAdmission::Signed, &[
+#[case::signed_client_without_a_token(true, CallerAdmission::Signature, &[
     (Call::Handshake(None, CURRENT_PROTOCOL_VERSION), Answer::Ack(true, None)),
     (Call::Write, Answer::Served),
 ])]
-#[case::signed_client_with_a_wrong_token(true, CallerAdmission::Signed, &[
+#[case::signed_client_with_a_wrong_token(true, CallerAdmission::Signature, &[
     (Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION),
         Answer::Refused(RefusalCode::AuthTokenInvalid)),
     (Call::Read, Answer::Refused(RefusalCode::AuthTokenInvalid)),
@@ -239,7 +239,7 @@ async fn the_gate_and_the_handshake_answer_each_connection_state(
 }
 
 #[rstest]
-#[case::signed_client_repeats_without_a_token(CallerAdmission::Signed, None)]
+#[case::signed_client_repeats_without_a_token(CallerAdmission::Signature, None)]
 #[case::token_holder_repeats_with_it(CallerAdmission::TokenRequired, TOKEN)]
 #[tokio::test]
 async fn a_repairing_service_answers_a_repeat_as_it_admitted_the_first(
@@ -268,7 +268,7 @@ async fn a_repairing_service_answers_a_repeat_as_it_admitted_the_first(
 }
 
 #[tokio::test]
-async fn a_refusal_latched_during_the_caller_read_wins_over_its_success() {
+async fn a_handshake_during_the_first_ones_caller_read_gets_the_first_ones_outcome() {
     let (read_started, mut has_read_started) = mpsc::unbounded_channel();
     let release = Arc::new(Notify::new());
     let read_release = Arc::clone(&release);
@@ -285,53 +285,45 @@ async fn a_refusal_latched_during_the_caller_read_wins_over_its_success() {
         false,
     );
 
-    // A wrong guess starts the caller read; the right token's handshake joins it.
-    let wrong = tokio::spawn(gate.dispatch(
+    // A wrong guess starts the caller read and waits on it.
+    let mut wrong = gate.dispatch(
         request(Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION)),
         caller_context(true),
-    ));
+    );
+    assert!(
+        futures::poll!(&mut wrong).is_pending(),
+        "the guess waits for its caller read"
+    );
     has_read_started
-        .recv()
-        .await
-        .expect("the caller read starts");
-    let right = tokio::spawn(gate.dispatch(
-        request(Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION)),
-        caller_context(true),
-    ));
-    tokio::task::yield_now().await;
-    release.notify_one();
-    let wrong = wrong.await.expect("the wrong guess ran");
-    let right = right.await.expect("the handshake ran");
+        .try_recv()
+        .expect("the guess started the caller read");
 
-    // Whichever latched first decides the connection: a refusal is never overturned by the
-    // handshake that carried the token, and a latched handshake answers the guess as a repeat.
-    let is_refused = |answer: &Result<Reply, DispatchError>| {
-        matches!(
-            answer,
-            Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
+    // The right token's handshake joins the read and, once it ends, wakes first.
+    release.notify_one();
+    let right = gate
+        .dispatch(
+            request(Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION)),
+            caller_context(true),
         )
-    };
+        .await;
+    let wrong = wrong.await;
     let read = gate
         .dispatch(request(Call::Read), caller_context(true))
         .await;
-    if is_refused(&wrong) {
-        assert!(
-            is_refused(&right),
-            "the latched refusal answers the token's handshake"
-        );
-        assert!(is_refused(&read), "the connection stays refused");
-    } else {
-        assert!(
-            matches!(right, Ok(Reply::Result(_))),
-            "the token's handshake latched"
-        );
-        assert!(
-            matches!(wrong, Ok(Reply::Result(_))),
-            "the guess reads the latched handshake"
-        );
-        assert!(
-            matches!(read, Ok(Reply::Result(_))),
-            "the connection is served"
-        );
+
+    // The first handshake decides the connection: its wrong token refuses it, the token's
+    // handshake included.
+    for (answer, what) in [
+        (wrong, "the guess"),
+        (right, "the token's handshake"),
+        (read, "a later call"),
+    ] {
+        match answer {
+            Err(DispatchError::Refused(refusal)) => {
+                assert_eq!(refusal.code, RefusalCode::AuthTokenInvalid, "{what}");
+            }
+            Err(error) => panic!("{what}: expected a refusal, got {error:?}"),
+            Ok(_) => panic!("{what}: expected a refusal, got a reply"),
+        }
     }
 }
