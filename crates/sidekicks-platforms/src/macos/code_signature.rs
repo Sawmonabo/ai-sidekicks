@@ -171,20 +171,17 @@ fn owned<T: objc2_core_foundation::Type>(
 /// by its id, taken only once the process is read still running afterward. Fails only when the
 /// system cannot check.
 fn meets(process: &PinnedProcess, requirement: &Requirement) -> io::Result<bool> {
-    let attributes = match process.audit_token() {
-        Some(token) => {
-            let token = CFData::from_bytes(&token.to_bytes());
-            // SAFETY: the key is the Security framework's own constant.
-            let key = unsafe { kSecGuestAttributeAudit };
-            CFDictionary::<CFString, CFType>::from_slices(&[key], &[token.as_ref()])
-        }
-        None => {
-            let pid = i32::try_from(process.id()).map_err(io::Error::other)?;
-            let pid = CFNumber::new_i32(pid);
-            // SAFETY: the key is the Security framework's own constant.
-            let key = unsafe { kSecGuestAttributePid };
-            CFDictionary::<CFString, CFType>::from_slices(&[key], &[pid.as_ref()])
-        }
+    let attributes = if let Some(token) = process.audit_token() {
+        let token = CFData::from_bytes(&token.to_bytes());
+        // SAFETY: the key is the Security framework's own constant.
+        let key = unsafe { kSecGuestAttributeAudit };
+        CFDictionary::<CFString, CFType>::from_slices(&[key], &[token.as_ref()])
+    } else {
+        let pid = i32::try_from(process.id()).map_err(io::Error::other)?;
+        let pid = CFNumber::new_i32(pid);
+        // SAFETY: the key is the Security framework's own constant.
+        let key = unsafe { kSecGuestAttributePid };
+        CFDictionary::<CFString, CFType>::from_slices(&[key], &[pid.as_ref()])
     };
     let mut code: *mut SecCode = std::ptr::null_mut();
     // SAFETY: the attributes are a dictionary of the keys and value types the call reads, and

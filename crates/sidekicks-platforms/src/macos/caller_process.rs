@@ -40,8 +40,13 @@ impl AuditToken {
     /// The token's bytes, as the system lays them out.
     pub(crate) fn to_bytes(self) -> [u8; size_of::<Self>()] {
         let mut bytes = [0; size_of::<Self>()];
-        for (chunk, word) in bytes.chunks_exact_mut(size_of::<u32>()).zip(self.val) {
-            chunk.copy_from_slice(&word.to_ne_bytes());
+        for (chunk, word) in bytes
+            .as_chunks_mut::<{ size_of::<u32>() }>()
+            .0
+            .iter_mut()
+            .zip(self.val)
+        {
+            *chunk = word.to_ne_bytes();
         }
         bytes
     }

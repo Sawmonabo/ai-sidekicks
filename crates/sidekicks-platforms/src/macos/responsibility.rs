@@ -376,11 +376,8 @@ mod tests {
         // A pipe closed on exec, so the parent reads its end once the child has become `sleep`.
         let mut ends = [0; 2];
         // SAFETY: `ends` is a live array of the two descriptors the call fills.
-        assert_eq!(
-            unsafe { libc::pipe(ends.as_mut_ptr()) },
-            0,
-            "the pipe opens"
-        );
+        let status = unsafe { libc::pipe(ends.as_mut_ptr()) };
+        assert_eq!(status, 0, "the pipe opens");
         // SAFETY: the call succeeded, so both descriptors are new and owned here alone.
         let (read_end, write_end) =
             unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
