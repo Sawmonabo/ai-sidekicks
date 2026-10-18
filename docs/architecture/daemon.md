@@ -40,7 +40,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 
 - Primary implementation root: `crates/sidekicks-daemon/`
 - Shared contracts consumed here: `crates/sidekicks-contracts/` (its generated TypeScript in `packages/contracts/`)
-- The daemon client its local clients use: `crates/sidekicks-client/` (its addon package `packages/client-sdk/`)
+- The daemon client its local clients use: `crates/sidekicks-client/` (its addon crate `crates/sidekicks-client-addon/` and that addon's Node-API package `packages/client-sdk/`)
 
 ## PTY Backend Strategy
 

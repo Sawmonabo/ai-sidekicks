@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
+use crate::method::KeyedRequest;
 use crate::place::WslPlace;
 use crate::project::ProjectId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::id::ClientUuid;
 use crate::wire::integer::BoundedInt;
 use crate::wire::text::{FreeFormText, pattern_text};
 use crate::wire::{NullableSchema, nullable};
@@ -63,7 +65,11 @@ pub struct ProjectCloneStartRequest {
     )]
     #[schemars(with = "ProjectId")]
     pub project_id: Option<ProjectId>,
+    /// The key that makes a repeated start one clone, answering the first clone's project.
+    pub client_idempotency_key: ClientUuid,
 }
+
+impl KeyedRequest for ProjectCloneStartRequest {}
 
 /// The details of a `project.clone.refused` refusal: `destinationNotEmpty` when the destination
 /// holds something, `noDirectoryName` when git can name no folder from the address, with git's

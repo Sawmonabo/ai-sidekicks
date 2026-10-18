@@ -70,6 +70,16 @@ async fn a_call_past_the_cap_is_refused_before_any_gate_while_slotless_calls_go_
         json!({ "method": "daemon.stop" }),
         "{answer}"
     );
+    connection
+        .client
+        .send(&call(104, "daemon.ping", &json!({})))
+        .await;
+    let answer = connection.client.answer().await;
+    assert_eq!(
+        answer["result"],
+        json!({ "method": "daemon.ping" }),
+        "{answer}"
+    );
     assert_eq!(harness.script.dispatched("test.wait").len(), 100);
 }
 

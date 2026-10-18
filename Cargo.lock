@@ -8146,17 +8146,18 @@ dependencies = [
 name = "sidekicks-cli"
 version = "0.0.0"
 dependencies = [
+ "anstream",
+ "anstyle-query",
  "anyhow",
  "clap",
  "fast_qr",
  "rpassword",
+ "rstest",
  "secrecy",
- "serde",
- "serde_json",
  "sidekicks-client",
  "sidekicks-contracts",
  "sidekicks-platforms",
- "tokio",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -8164,15 +8165,33 @@ name = "sidekicks-client"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "futures",
+ "garde",
  "interprocess",
- "napi",
- "napi-build",
- "napi-derive",
  "serde",
  "serde_json",
  "sidekicks-contracts",
  "sidekicks-platforms",
+ "subtle",
+ "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "sidekicks-client-addon"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "serde_json",
+ "sidekicks-client",
+ "sidekicks-contracts",
  "tokio",
  "tokio-util",
  "tracing",

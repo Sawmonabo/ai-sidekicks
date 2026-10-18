@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::artifacts::id::ArtifactId;
 use crate::free_form_string::FILE_PATH_MAX_LEN;
+use crate::method::KeyedRequest;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -56,6 +57,8 @@ pub struct ArtifactIngestStartRequest {
     /// The key that makes a resent opening one stream.
     pub client_idempotency_key: ClientUuid,
 }
+
+impl KeyedRequest for ArtifactIngestStartRequest {}
 
 /// The opened stream: `ingestId` is a single-use handle, bound to the session and to the stream's
 /// lifetime, that every chunk and the completion name.

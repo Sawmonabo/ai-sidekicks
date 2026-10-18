@@ -15,6 +15,8 @@ ignored = [
   # passes it on.
   "rpassword",
   "secrecy",
+  # The Ctrl-C ending the command line takes behind the platforms interface.
+  "sidekicks-platforms",
 ]
 
 [[bin]]
@@ -22,17 +24,24 @@ name = "sidekicks"
 path = "src/main.rs"
 
 [dependencies]
+# Whether each output stream shows styles: `anstream`'s own choice for a stream, the rule clap's
+# output follows, picked over writing that rule again with `anstyle-query`; `anstyle-query` turns on
+# a Windows console's escape codes, as `anstream` does before it writes styles to one. Only the
+# choice is used, since clap's text is rendered into the run's own writers.
+anstream.workspace = true
+anstyle-query.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 fast_qr.workspace = true
 rpassword.workspace = true
 secrecy.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 sidekicks-client.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
-tokio.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
 
 [lints]
 workspace = true

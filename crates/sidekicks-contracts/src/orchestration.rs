@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::{AgentDefinitionId, AgentId};
 use crate::agent::tree::{AgentTreeMember, ChildHandle};
-use crate::method::methods;
+use crate::method::{KeyedRequest, methods};
 use crate::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use crate::provider::driver::methods::{PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
 use crate::run::id::RunId;
@@ -24,6 +24,7 @@ use crate::session::cost::{
 use crate::session::id::SessionId;
 use crate::transcript::child_run_summary::refuse_self_parenting_run;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
@@ -72,6 +73,8 @@ macro_rules! run_create_request {
             /// The session.
             pub session_id: SessionId,
             $($target)*
+            /// The key that makes a repeated create one run.
+            pub client_idempotency_key: ClientUuid,
             /// The run the new run is a child of.
             #[serde(
                 default,
@@ -120,6 +123,8 @@ pub enum AgentRunCreateRequest {
     /// Aimed at a saved definition.
     Definition(DefinitionRunCreateRequest),
 }
+
+impl KeyedRequest for AgentRunCreateRequest {}
 
 /// The admitted run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]

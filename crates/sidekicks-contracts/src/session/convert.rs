@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
+use crate::method::KeyedRequest;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -31,6 +32,8 @@ pub struct SessionConvertRequest {
     /// The key that makes a repeated convert one conversion.
     pub client_idempotency_key: ClientUuid,
 }
+
+impl KeyedRequest for SessionConvertRequest {}
 
 /// Why one of the workspace's files was not copied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

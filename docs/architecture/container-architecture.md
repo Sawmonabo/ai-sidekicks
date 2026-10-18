@@ -38,7 +38,7 @@ The monorepo layout for implementation is:
 | --- | --- |
 | `crates/sidekicks-contracts/` | Shared protocol contracts: the Rust types (serde shapes, garde checks) every cross-container type comes from, the method table and the frame codec. |
 | `packages/contracts/` | The TypeScript types and Ajv validators generated from `crates/sidekicks-contracts`, committed and never edited, beside the hand-written pieces a schema cannot carry. |
-| `crates/sidekicks-client/` | The typed daemon client the CLI links and the desktop loads through its addon package, `packages/client-sdk/`, in the client helper process. |
+| `crates/sidekicks-client/` | The typed daemon client the CLI links and the desktop loads through its addon crate, `crates/sidekicks-client-addon/`, whose Node-API package is `packages/client-sdk/`, in the client helper process. |
 | `crates/sidekicks-daemon/` | Local Runtime Daemon implementation and local execution services. |
 | `crates/sidekicks-control-plane/` | Control Plane services: the statement chain, device linking, machine registration and the relay. |
 | `apps/desktop/` | Desktop application package. Main process under `src/main/`, preload bridge under `src/preload/`, desktop-only contracts the three processes share under `src/shared/`, and the renderer under `src/renderer/`, with its code rooted at `src/renderer/src/`, per the electron-vite zero-config convention ([electron-vite Development guide](https://electron-vite.org/guide/dev) — Project Structure conventions for sibling `main` / `preload` / `renderer` directories under `src/`). [Desktop Architecture](./desktop.md) gives the folders inside each. |

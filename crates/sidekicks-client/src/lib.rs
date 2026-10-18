@@ -1,5 +1,8 @@
-//! The typed daemon client: the command line's, and the desktop's through Node-API in a helper
-//! process.
+//! The typed daemon client: the command line's, and the desktop's through its Node-API addon in a
+//! helper process.
 
-#[cfg(feature = "node-api")]
-pub mod node_api;
+pub mod daemon_connection;
+pub mod error;
+pub mod terminal_write;
+pub mod transport;
+pub mod untyped_call;

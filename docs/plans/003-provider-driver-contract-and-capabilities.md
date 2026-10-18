@@ -267,7 +267,7 @@ A phase of its own rather than growth on Phases 1–2: both legs are **additive-
 
 ### Phase 4 — Client SDK exposure + degraded-fallback
 
-**Goal:** Author the typed SDK surface for the model and mode reads and the console-parity verbs as `provider.model.list`, `provider.mode.list`, `provider.command.list` and `agent.run.context.compact` (per Plan-005 CP-005-4). Daemon-side IPC handlers + the `sidekicks-client` methods ship together. Subscription primitive reuses `LocalSubscriptionProducer<T>` per Plan-005 CP-005-3 precedent.
+**Goal:** Author the typed SDK surface for the model and mode reads and the console-parity verbs as `provider.model.list`, `provider.mode.list`, `provider.command.list` and `agent.run.context.compact` (per Plan-005 CP-005-4). Daemon-side IPC handlers + the `sidekicks-client` methods ship together. A subscription rides the daemon's subscription lane (`crates/sidekicks-daemon/src/ipc/stream/subscriptions.rs`) and the frames in `crates/sidekicks-contracts/src/jsonrpc/streaming.rs`, per Plan-005 CP-005-3 precedent.
 
 **Precondition:** Phases 1 and 2 merged.
 
