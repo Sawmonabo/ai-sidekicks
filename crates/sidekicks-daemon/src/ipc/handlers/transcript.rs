@@ -81,15 +81,10 @@ async fn read_body(
     let stored_body = stored_row
         .content_payload
         .map(|body| StoredBodyText::new(body).expect("a stored body within its cap"));
-    // An offset past what `usize` holds lies past every body's end, so it is refused as one.
-    let offset = request
-        .offset
-        .map_or(Ok(0), |offset| usize::try_from(offset.get()))
-        .unwrap_or(usize::MAX);
     Ok(stored_body_content_of(
         Some(&stored_row.envelope.payload),
         stored_body.as_ref(),
-        offset,
+        request.offset.map_or(0, |offset| offset.get()),
     )?)
 }
 

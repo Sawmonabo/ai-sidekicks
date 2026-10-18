@@ -124,8 +124,8 @@ pub fn hydrated_content_of(
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("offset {offset} is inside a character or past the body's {body_length} bytes")]
 pub struct BodyReadOffsetRefused {
-    /// The refused offset.
-    pub offset: usize,
+    /// The refused offset, as the client sent it.
+    pub offset: u64,
     /// The body's UTF-8 byte length.
     pub body_length: usize,
 }
@@ -138,7 +138,7 @@ pub struct BodyReadOffsetRefused {
 pub fn stored_body_content_of(
     payload: Option<&Map<String, Value>>,
     stored_body: Option<&StoredBodyText>,
-    offset: usize,
+    offset: u64,
 ) -> Result<TranscriptBodyReadResponse, BodyReadOffsetRefused> {
     let Some(stored_body) = stored_body else {
         return Ok(TranscriptBodyReadResponse::Unavailable {
@@ -146,18 +146,21 @@ pub fn stored_body_content_of(
         });
     };
     let body = stored_body.as_str();
-    if !body.is_char_boundary(offset) {
+    let Some(start) = usize::try_from(offset)
+        .ok()
+        .filter(|start| body.is_char_boundary(*start))
+    else {
         return Err(BodyReadOffsetRefused {
             offset,
             body_length: body.len(),
         });
-    }
-    let end = page_end(body, offset);
+    };
+    let end = page_end(body, start);
     let (content_length, content_truncated) = echoed_body_facts_of(payload);
     Ok(TranscriptBodyReadResponse::Available {
-        body: StoredBodyText::new(body[offset..end].to_owned())
+        body: StoredBodyText::new(body[start..end].to_owned())
             .expect("a part of a stored body is within the stored body's cap"),
-        offset: byte_offset(offset),
+        offset: byte_offset(start),
         next_offset: (end < body.len()).then(|| byte_offset(end)),
         content_length,
         content_truncated,
@@ -583,7 +586,7 @@ mod tests {
 
     /// Reads `body` part by part from `offset` until a part names no next one, answering the parts
     /// joined and how many there were.
-    fn read_from(body: &str, offset: usize) -> Result<(String, usize), BodyReadOffsetRefused> {
+    fn read_from(body: &str, offset: u64) -> Result<(String, usize), BodyReadOffsetRefused> {
         let stored = StoredBodyText::new(body.to_owned()).expect("a body within its cap");
         let mut joined = String::new();
         let mut part_count = 0;
@@ -597,9 +600,7 @@ mod tests {
             };
             joined.push_str(body.as_str());
             part_count += 1;
-            next = next_offset.map(|next_offset| {
-                usize::try_from(next_offset.get()).expect("an offset fits usize")
-            });
+            next = next_offset.map(SafeInt::get);
         }
         Ok((joined, part_count))
     }
@@ -613,12 +614,15 @@ mod tests {
     #[case::past_the_end("ab".to_owned(), 3, None)]
     fn a_body_read_in_parts_joins_back_whole_from_any_character_boundary(
         #[case] body: String,
-        #[case] offset: usize,
+        #[case] offset: u64,
         #[case] part_count: Option<usize>,
     ) {
         let read = read_from(&body, offset);
         match part_count {
-            Some(part_count) => assert_eq!(read, Ok((body[offset..].to_owned(), part_count))),
+            Some(part_count) => {
+                let start = usize::try_from(offset).expect("a test offset fits usize");
+                assert_eq!(read, Ok((body[start..].to_owned(), part_count)));
+            }
             None => assert_eq!(
                 read,
                 Err(BodyReadOffsetRefused {
