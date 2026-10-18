@@ -198,7 +198,7 @@ CREATE TABLE session_drafts (
             Arc::new(SessionInboxAddresses::new(
                 PathRules::Windows,
                 vec![Some(Place::Windows(WindowsPlace::Value))],
-                Arc::new(FixedInboxFolder("/tmp/cc-socks")),
+                Arc::new(FixedInboxFolder("/run/inboxes")),
             )),
         )
         .expect("session.read registers");

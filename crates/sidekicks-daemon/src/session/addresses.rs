@@ -117,7 +117,7 @@ pub(crate) mod tests {
     fn each_place_gets_its_own_form_and_the_session_s_own_place_comes_first() {
         let session_id = test_session_id();
         let id = session_id.text();
-        let socket = format!("/tmp/cc-socks/sidekicks-{}.sock", id.as_str());
+        let socket = format!("/run/inboxes/sidekicks-{}.sock", id.as_str());
         let pipe = format!(r"\\.\pipe\sidekicks-{}", id.as_str());
         let ubuntu: Place =
             serde_json::from_value(json!({ "distro": "Ubuntu" })).expect("a WSL place");
@@ -126,7 +126,7 @@ pub(crate) mod tests {
             let addresses = SessionInboxAddresses::new(
                 rules,
                 installed,
-                Arc::new(FixedInboxFolder("/tmp/cc-socks")),
+                Arc::new(FixedInboxFolder("/run/inboxes")),
             );
             serde_json::to_value(addresses.addresses_of(&session_id, own))
                 .expect("the addresses serialize")
