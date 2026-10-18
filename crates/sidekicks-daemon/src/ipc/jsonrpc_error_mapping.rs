@@ -20,6 +20,7 @@ use sidekicks_contracts::jsonrpc::message::{
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::SessionEventCursorUnresolvable;
+use sidekicks_contracts::transcript::content::BodyReadOffsetRefused;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::record::Record;
@@ -395,6 +396,25 @@ impl From<SessionEventCursorUnresolvable> for DomainError {
 /// A handler refuses an unresolvable cursor with `?`.
 impl From<SessionEventCursorUnresolvable> for HandlerError {
     fn from(error: SessionEventCursorUnresolvable) -> Self {
+        Self::Refused(error.into())
+    }
+}
+
+/// A body offset that is no place to resume from is refused `transcript.body.offsetInvalid`,
+/// carrying the offset and the body's length in bytes.
+impl From<BodyReadOffsetRefused> for DomainError {
+    fn from(error: BodyReadOffsetRefused) -> Self {
+        Self::new(
+            "The offset is no place in the body to read from.",
+            RefusalCode::TranscriptBodyOffsetInvalid,
+        )
+        .with_detail(json!({ "offset": error.offset, "bodyLength": error.body_length }))
+    }
+}
+
+/// A handler refuses a body offset that is no place to resume from with `?`.
+impl From<BodyReadOffsetRefused> for HandlerError {
+    fn from(error: BodyReadOffsetRefused) -> Self {
         Self::Refused(error.into())
     }
 }

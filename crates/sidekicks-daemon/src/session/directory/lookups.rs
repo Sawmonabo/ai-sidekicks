@@ -15,6 +15,7 @@ use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::session::not_found::session_not_found;
 
 /// The states of a session that has ended, closed or being purged, as a SQL list of quoted words
@@ -66,6 +67,17 @@ pub(crate) enum SessionWriteError {
     /// The write was not kept.
     #[error(transparent)]
     Write(#[from] WriteError),
+}
+
+impl From<SessionWriteError> for HandlerError {
+    /// A session the daemon does not hold answers `session.notFound`; a write not kept is a fault
+    /// in the daemon.
+    fn from(error: SessionWriteError) -> Self {
+        match error {
+            SessionWriteError::Refused(refusal) => Self::Refused(refusal),
+            SessionWriteError::Write(fault) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 /// Writes `change` only while `session_id` has a directory row, the check and the change in one

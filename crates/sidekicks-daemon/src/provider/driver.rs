@@ -32,6 +32,10 @@ pub(crate) mod session_control;
 pub(crate) mod streamed_text;
 pub(crate) mod unified_diff;
 
+// The shared session tests compose addresses with the one real addresser.
+#[cfg(test)]
+pub(crate) use claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
 #[expect(

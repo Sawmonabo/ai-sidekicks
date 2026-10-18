@@ -13,6 +13,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::DatabaseWriter;
+use crate::ipc::registry::HandlerError;
 use crate::session::directory::lookups::{SessionWriteError, write_while_session_exists};
 
 /// The statements the store's reads run: the held draft.
@@ -39,6 +40,19 @@ pub(crate) enum SessionDraftError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl From<SessionDraftError> for HandlerError {
+    /// A store refused for its session answers as that refusal does; a failed read is a fault in
+    /// the daemon.
+    fn from(error: SessionDraftError) -> Self {
+        match error {
+            SessionDraftError::Write(write) => write.into(),
+            fault @ (SessionDraftError::Database(_) | SessionDraftError::Pool(_)) => {
+                Self::Internal(Box::new(fault))
+            }
+        }
+    }
 }
 
 /// Reads each session's draft through the daemon's read pool and stores it through its writer.

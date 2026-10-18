@@ -330,7 +330,7 @@ impl TerminalControlChangedPayload {
 }
 
 methods! {
-    /// The two `session.*` methods that act on one shell: the lease take and flow control.
+    /// The two `terminal.*` methods that act on one shell: the lease take and flow control.
     pub const TERMINAL_CONTROL_METHOD_DESCRIPTORS = [
         /// Takes one shell's lease.
         TerminalControlTake = mutation "terminal.control.take" {

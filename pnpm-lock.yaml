@@ -379,6 +379,9 @@ importers:
 
   crates/sidekicks-daemon/js:
     dependencies:
+      '@shikijs/langs':
+        specifier: 4.5.0
+        version: 4.5.0
       '@simplewebauthn/server':
         specifier: 14.0.3
         version: 14.0.3
@@ -395,6 +398,9 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      tm-grammars:
+        specifier: 1.32.22
+        version: 1.32.22
 
   packages/client-sdk:
     dependencies:
@@ -7730,6 +7736,9 @@ packages:
   tinyrainbow@3.2.0:
     resolution: {integrity: sha512-LgO3D9yZJjApUiuUfl9iFAwrtaX4+lok3wJIqttGoKCHlWUqHqbQpnxCf82L8FjgKsh4iGo78hqJwgL8F6To2A==}
     engines: {node: '>=14.0.0'}
+
+  tm-grammars@1.32.22:
+    resolution: {integrity: sha512-VKWL+UiqlGqbGHonRbrBc0kkqDIHUUiVO/A2rBTBz5LBXKA8Fe2f34O1YiBI7ED37tTUlT3MGmLf9+0F/H4/Ww==}
 
   tmp-promise@3.0.3:
     resolution: {integrity: sha512-RwM7MoPojPxsOBYnyd2hy0bxtIlVrihNs9pj5SUvY8Zz1sQcQG2tG1hSr8PDxfgEB8RNKDhqbIlroIarSNDNsQ==}
@@ -16020,6 +16029,8 @@ snapshots:
   tinykeys@4.0.1: {}
 
   tinyrainbow@3.2.0: {}
+
+  tm-grammars@1.32.22: {}
 
   tmp-promise@3.0.3:
     dependencies:

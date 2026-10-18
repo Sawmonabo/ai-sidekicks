@@ -15,6 +15,7 @@ use crate::database::statement::{
 };
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::session::directory::lookups::session_exists_statement;
 use crate::session::not_found::session_not_found;
 use crate::session::related::ranking::SessionRelatedRanking;
@@ -72,6 +73,19 @@ pub(crate) enum SessionLinkError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl From<SessionLinkError> for HandlerError {
+    /// A refused change answers by its code; a write not kept or a failed read is a fault in the
+    /// daemon.
+    fn from(error: SessionLinkError) -> Self {
+        match error {
+            SessionLinkError::Refused(refusal) => Self::Refused(refusal),
+            fault @ (SessionLinkError::Write(_)
+            | SessionLinkError::Database(_)
+            | SessionLinkError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 /// Adds and removes the `related` link between two sessions, reading through the daemon's read

@@ -666,6 +666,9 @@ refusal_codes! {
     TerminalOutputSubscriptionNotFound = "terminal.output.subscriptionNotFound" (NotFound, 404);
     /// A terminal write that found its connection's writes to that shell at their waiting limit.
     TerminalWriteLimitReached = "terminal.write.limitReached" (ResourceExhausted);
+    /// A `transcript.body.read` offset that is no place to resume from: inside a character or past
+    /// the body's end (`data.fields`: `offset`, `bodyLength`).
+    TranscriptBodyOffsetInvalid = "transcript.body.offsetInvalid" (InvalidArgument, 422);
     /// A transcript read named a row the session does not hold: an anchor cursor or a row id at
     /// which no row of the session's transcript stands.
     TranscriptRowNotFound = "transcript.row.notFound" (NotFound, 404);
