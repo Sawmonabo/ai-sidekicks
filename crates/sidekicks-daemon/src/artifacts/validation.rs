@@ -16,6 +16,8 @@ use std::future::Future;
 use std::path::PathBuf;
 
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
+use sidekicks_contracts::wire::AnyValue;
+use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{BoundedText, is_ecmascript_whitespace};
 use unicode_normalization::UnicodeNormalization as _;
 use unicode_properties::{GeneralCategory, UnicodeGeneralCategory as _};
@@ -37,6 +39,9 @@ const TEXT_MEDIA_TYPES_OUTSIDE_TEXT: [&str; 2] = ["application/json", "image/svg
 
 // The name kept when nothing of the caller's is left once its invisible characters are taken out.
 const FALLBACK_FILE_NAME: &str = "attachment";
+
+/// The metadata member that records a file's name, which an attachment's line to an agent shows.
+pub(crate) const FILE_NAME_MEMBER: &str = "fileName";
 
 /// A payload spooled to a file, with what was counted as it was written.
 pub(crate) struct SpooledPayload {
@@ -151,6 +156,17 @@ pub(crate) fn normalize_file_name(file_name: &str) -> BoundedText<1, FILE_PATH_M
         normalized
     };
     BoundedText::new(kept.to_owned()).expect("a kept name is 1 to FILE_PATH_MAX_LEN code points")
+}
+
+/// A caller's `metadata` with its text [`FILE_NAME_MEMBER`] normalized as [`normalize_file_name`]
+/// does, so no line break or invisible character of a name reaches storage or an agent's prompt.
+pub(crate) fn normalize_metadata_file_name(metadata: JsonRecord) -> JsonRecord {
+    let mut members = metadata.into_map();
+    if let Some(AnyValue(serde_json::Value::String(file_name))) = members.get_mut(FILE_NAME_MEMBER)
+    {
+        *file_name = normalize_file_name(file_name).into_string();
+    }
+    JsonRecord::new(members).expect("a record with no __proto__ gains none from a renamed value")
 }
 
 /// Whether a payload written in chunks is valid UTF-8, checked chunk by chunk: a character cut

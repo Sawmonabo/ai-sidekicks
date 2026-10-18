@@ -60,7 +60,8 @@ use crate::artifacts::refusals::{
     ingest_stream_invalid,
 };
 use crate::artifacts::validation::{
-    SpooledPayload, Utf8Check, keep_leading_bytes, normalize_file_name, validate_and_store,
+    FILE_NAME_MEMBER, SpooledPayload, Utf8Check, keep_leading_bytes, normalize_file_name,
+    validate_and_store,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
@@ -71,9 +72,6 @@ use crate::uuid_v7::mint_uuid_v7;
 
 // The mode of a spool file: its owner's alone.
 const SPOOL_FILE_MODE: u32 = 0o600;
-
-// The metadata member that records an ingested file's name.
-const FILE_NAME_MEMBER: &str = "fileName";
 
 /// A start's key within its session.
 type StartKey = (SessionId, ClientUuid);
