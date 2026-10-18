@@ -815,3 +815,24 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use strum::VariantArray as _;
+
+    use super::{KnownRefusalCategory, RefusalCategory};
+
+    // The untagged form takes its first arm that reads, so a known category's text must read as
+    // `Known`, and each one's `as_str` must be the text serde writes.
+    #[test]
+    fn every_known_category_reads_from_its_text_as_known_and_writes_as_its_text() {
+        for &known in KnownRefusalCategory::VARIANTS {
+            let read: RefusalCategory =
+                serde_json::from_value(json!(known.as_str())).expect("a category's text reads");
+            assert_eq!(read, RefusalCategory::Known(known));
+            let written = serde_json::to_value(known).expect("a category writes");
+            assert_eq!(written, json!(known.as_str()));
+        }
+    }
+}
