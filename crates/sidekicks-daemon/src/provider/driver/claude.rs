@@ -82,6 +82,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         linux: CommandSandboxNeeds {
             programs: &["bwrap", "socat"],
             user_namespace: true,
+            service_readiness: false,
         },
         windows: CommandSandboxNeeds::NOTHING,
     },

@@ -17,24 +17,9 @@ mod capability_probe;
 mod delivery;
 mod input_limit;
 mod intervention;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start resolves the program the lasting service runs"
-    )
-)]
 mod native_program;
 mod permission_level;
 mod rules;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start and its planned restart start, find, compare and stop the \
-                  Codex services"
-    )
-)]
 mod service;
 mod tools;
 mod usage_limit_signal;
@@ -96,8 +81,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         }),
     },
     // It sandboxes its commands on every system with helpers of its own, its own bubblewrap among
-    // them, which on Linux makes a user namespace; on Windows the service reports whether its
-    // sandbox is set up.
+    // them, which on Linux makes a user namespace.
     command_sandbox: PerSystem {
         macos: true,
         linux: true,
@@ -108,8 +92,16 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         linux: CommandSandboxNeeds {
             programs: &[],
             user_namespace: true,
+            service_readiness: false,
         },
-        windows: CommandSandboxNeeds::NOTHING,
+        // On Windows its sandbox needs a setup the service reports: the driver asks the service's
+        // `windowsSandbox/readiness` over its connection, and offers the sandbox only on `Ready`,
+        // never on `NotConfigured` or `UpdateRequired`.
+        windows: CommandSandboxNeeds {
+            programs: &[],
+            user_namespace: false,
+            service_readiness: true,
+        },
     },
     // The whole service measured at 53 to 61 MB, and each conversation on a running service at
     // 1.8 to 3.0 MB more.
