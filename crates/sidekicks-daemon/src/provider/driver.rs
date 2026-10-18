@@ -113,8 +113,9 @@ impl ProviderDescriptor {
     /// provider's own, with `working_folder` and `skipped_folders` as the executable search takes
     /// them, and a user namespace is made where the sandbox needs one. It reads the file system
     /// and starts a short check process, so it runs on the daemon's spawner thread; the WSL
-    /// server, a Linux build, answers Linux's. Fails with the system's error from the namespace
-    /// check.
+    /// server, a Linux build, answers Linux's. It covers the computer's facts alone: a readiness
+    /// the provider's own service reports is read from that service. Fails with the system's
+    /// error from the namespace check.
     pub(crate) fn can_run_command_sandbox(
         &self,
         environment: &[(String, String)],

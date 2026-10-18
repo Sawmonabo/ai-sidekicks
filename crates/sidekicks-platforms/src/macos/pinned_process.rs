@@ -197,8 +197,8 @@ impl PinnedProcess {
         let mut token = AuditToken { val: [0; 8] };
         token.val[TOKEN_PROCESS_ID] = self.id;
         token.val[TOKEN_ID_VERSION] = identifiers.id_version.cast_unsigned();
-        // SAFETY: `token` is a live `audit_token_t` the call only reads, and the signal is a
-        // valid number.
+        // SAFETY: `proc_signal_with_audittoken`, declared in the SDK's `libproc.h`, takes `token`,
+        // a live `audit_token_t` it only reads, and a valid signal number.
         let status = unsafe { proc_signal_with_audittoken(&raw mut token, signal as libc::c_int) };
         match status {
             0 => Ok(true),

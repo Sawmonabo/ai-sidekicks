@@ -79,12 +79,18 @@ pub(crate) async fn open_provider_service_log(log_file: &Path) -> io::Result<std
             "the provider service's previous log tail could not be kept"
         );
     }
+    // Emptied through a write open, since an append-only open on Windows lacks the right to cut.
+    tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(log_file)
+        .await?;
     let log = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(log_file)
         .await?;
-    log.set_len(0).await?;
     Ok(log.into_std().await)
 }
 
