@@ -308,6 +308,8 @@ CREATE TABLE runs (
   reached_by     TEXT                           -- how a child run was reached; NULL on a lead run
                  CHECK(reached_by IS NULL
                    OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
+  is_apart       INTEGER NOT NULL DEFAULT 0     -- 1 on a run whose turn runs in a process of its own; such a run is never the lead run
+                 CHECK(is_apart IN (0, 1)),
   state          TEXT NOT NULL
     CHECK(state IN ('queued', 'starting', 'running', 'waitingForApproval', 'waitingForInput',
                     'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
