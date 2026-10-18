@@ -9,6 +9,8 @@ use sidekicks_contracts::event::declared_variants::{
 };
 use sidekicks_contracts::event::registry::SessionEventType;
 
+use crate::text_cut::cut_to_code_points;
+
 /// The `payload` members only this module may set; `contentType` is the producer's.
 const CONTENT_DESCRIPTION_PAYLOAD_KEYS: [&str; 2] =
     [CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_TRUNCATED_PAYLOAD_KEY];
@@ -79,8 +81,9 @@ fn body_bearing_type_names() -> String {
 
 /// Adds to `payload` the description of `body`, an event of `event_type`'s machine-authored prose,
 /// and returns the bytes `content_payload` holds: the body's UTF-8, or its prefix when it is over
-/// `CONTENT_PAYLOAD_PLAINTEXT_MAX` bytes, cut at a character boundary, not refused, since refusing
-/// would drop the turn. Fails on a type that declares no content members.
+/// `CONTENT_PAYLOAD_PLAINTEXT_MAX` code points, the cap a stored body is read back under, cut at a
+/// character boundary, not refused, since refusing would drop the turn. Fails on a type that
+/// declares no content members.
 pub(crate) fn compose_content_payload(
     event_type: SessionEventType,
     payload: &mut Map<String, Value>,
@@ -92,7 +95,7 @@ pub(crate) fn compose_content_payload(
         });
     }
     // The length reported is the whole body's, so a cut row still says how much was dropped.
-    let stored_body = &body[..body.floor_char_boundary(CONTENT_PAYLOAD_PLAINTEXT_MAX)];
+    let stored_body = cut_to_code_points(body, CONTENT_PAYLOAD_PLAINTEXT_MAX);
     payload.insert(
         CONTENT_LENGTH_PAYLOAD_KEY.to_owned(),
         Value::from(body.len()),
