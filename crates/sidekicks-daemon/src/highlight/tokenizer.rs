@@ -164,8 +164,12 @@ pub(crate) struct Tokenizer {
     line_time_limit: Duration,
     /// Run before each line inside its time limit, so a test can hold a line past it.
     #[cfg(test)]
-    before_line: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    before_line: Option<LineHook>,
 }
+
+/// A test's hook on each line the tokenizer colors, handed the line's text.
+#[cfg(test)]
+pub(crate) type LineHook = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Tokenizer {
     /// Registers every grammar and the theme, and bounds every regex search the engine runs by

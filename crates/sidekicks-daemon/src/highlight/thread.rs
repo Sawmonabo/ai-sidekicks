@@ -29,6 +29,8 @@ use memchr::memrchr;
 use sidekicks_contracts::highlight::HighlightLanguage;
 use tokio::sync::oneshot;
 
+#[cfg(test)]
+use crate::highlight::tokenizer::LineHook;
 use crate::highlight::tokenizer::{
     SettledLines, TokenizeEnd, TokenizeError, Tokenizer, TokenizerBuildError,
 };
@@ -94,7 +96,7 @@ pub(crate) struct TokenizerThreadOptions {
     pub(crate) scope_naming_bytes_budget: usize,
     /// Run before each line inside its time limit, so a test can hold the thread on a line.
     #[cfg(test)]
-    pub(crate) before_line: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    pub(crate) before_line: Option<LineHook>,
 }
 
 impl Default for TokenizerThreadOptions {
