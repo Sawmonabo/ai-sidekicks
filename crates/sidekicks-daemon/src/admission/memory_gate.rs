@@ -46,13 +46,14 @@ pub(crate) type ProcessPeakRead = Arc<dyn Fn(u32) -> io::Result<Option<u64>> + S
 
 /// The machine's figures the gate weighs by, each in bytes.
 #[derive(Clone, Copy, Debug)]
+#[expect(clippy::struct_field_names, reason = "each figure names its unit")]
 pub(crate) struct MemoryGateFigures {
     /// The machine's physical memory, which sets the headroom.
-    pub(crate) physical_memory: u64,
+    pub(crate) physical_memory_bytes: u64,
     /// A quick Code step's thread beyond its interpreter's budget.
-    pub(crate) quick_thread: u64,
+    pub(crate) quick_thread_bytes: u64,
     /// An ingest worker's own memory beyond the file it reads and the picture it draws.
-    pub(crate) ingest_worker: u64,
+    pub(crate) ingest_worker_bytes: u64,
 }
 
 /// A provider process's starting footprint, which its driver supplies: `kind` names the start the
@@ -251,7 +252,7 @@ impl MemoryGate {
         let changed = Arc::new(Notify::new());
         let shared = Arc::new(GateShared {
             figures,
-            headroom_bytes: (figures.physical_memory / 5).max(HEADROOM_FLOOR_BYTES),
+            headroom_bytes: (figures.physical_memory_bytes / 5).max(HEADROOM_FLOOR_BYTES),
             read_available,
             read_peak,
             state: Mutex::new(GateState {
@@ -541,14 +542,14 @@ impl GateState {
                 ..
             } => {
                 node_peak.unwrap_or(*budget_bytes)
-                    + figures.quick_thread
+                    + figures.quick_thread_bytes
                     + input_bytes
                     + output_max_bytes
             }
             AdmissionWork::Ingest {
                 file_bytes,
                 picture_pixels,
-            } => file_bytes + picture_pixels * INGEST_BYTES_PER_PIXEL + figures.ingest_worker,
+            } => file_bytes + picture_pixels * INGEST_BYTES_PER_PIXEL + figures.ingest_worker_bytes,
             AdmissionWork::Provider { start, .. } => node_peak
                 .or_else(|| {
                     self.learned_peak_by_kind

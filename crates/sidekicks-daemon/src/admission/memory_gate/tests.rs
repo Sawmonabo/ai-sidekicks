@@ -26,9 +26,9 @@ fn open_gate(peak_bytes: u64) -> (MemoryGate, Arc<AtomicU64>) {
     let reading = Arc::clone(&available);
     let gate = MemoryGate::new(
         MemoryGateFigures {
-            physical_memory: 4 * GIBIBYTE,
-            quick_thread: 0,
-            ingest_worker: 0,
+            physical_memory_bytes: 4 * GIBIBYTE,
+            quick_thread_bytes: 0,
+            ingest_worker_bytes: 0,
         },
         Arc::new(move || Ok(reading.load(Ordering::SeqCst))),
         Arc::new(move |_process_id| Ok(Some(peak_bytes))),
