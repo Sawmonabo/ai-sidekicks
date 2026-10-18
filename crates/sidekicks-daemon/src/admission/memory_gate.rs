@@ -600,7 +600,7 @@ async fn weigh_until_gone(shared: Weak<GateShared>, changed: Arc<Notify>) {
         if is_wake_armed {
             tokio::select! {
                 () = changed.notified() => {}
-                () = wake.as_mut() => is_wake_armed = false,
+                () = wake.as_mut() => {}
             }
         } else {
             changed.notified().await;
