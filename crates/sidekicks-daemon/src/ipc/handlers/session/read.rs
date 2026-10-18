@@ -18,26 +18,29 @@ use crate::session::draft_store::SessionDraftStore;
 use crate::session::service::{SessionLogRead, SessionReadRecord, SessionService};
 use crate::session::staged_attachments::StagedAttachments;
 
-/// What `session.read` composes its answer from.
-pub(crate) struct SessionReadSources {
-    /// The session's row, cursors, live runs and standing events.
-    pub(crate) sessions: Arc<SessionService>,
-    /// The unsent draft.
-    pub(crate) drafts: Arc<SessionDraftStore>,
-    /// The staged files.
-    pub(crate) attachments: Arc<dyn StagedAttachments>,
-    /// The inbox addresses.
-    pub(crate) addresses: Arc<SessionInboxAddresses>,
+// What `session.read` composes its answer from.
+struct SessionReadSources {
+    sessions: Arc<SessionService>,
+    drafts: Arc<SessionDraftStore>,
+    attachments: Arc<dyn StagedAttachments>,
+    addresses: Arc<SessionInboxAddresses>,
 }
 
-/// Registers `session.read` over `sources`. Refuses a session the daemon does not hold
-/// `session.notFound`; a failed read is a fault in the daemon. Fails the start when the method is
-/// already registered.
+/// Registers `session.read`, refusing a session the daemon does not hold `session.notFound`.
+/// Fails the start when the method is already registered.
 pub(crate) fn register_session_read(
     registry: &mut MethodRegistryBuilder,
-    sources: SessionReadSources,
+    sessions: Arc<SessionService>,
+    drafts: Arc<SessionDraftStore>,
+    attachments: Arc<dyn StagedAttachments>,
+    addresses: Arc<SessionInboxAddresses>,
 ) -> Result<(), RegistrationError> {
-    let sources = Arc::new(sources);
+    let sources = Arc::new(SessionReadSources {
+        sessions,
+        drafts,
+        attachments,
+        addresses,
+    });
     registry.register::<SessionRead, _>(
         move |request: SessionReadRequest, _context: HandlerContext| {
             let sources = Arc::clone(&sources);
@@ -110,7 +113,7 @@ mod tests {
     use sidekicks_contracts::session::methods::SessionRead;
     use sidekicks_platforms::PathRules;
 
-    use super::{SessionReadSources, register_session_read};
+    use super::register_session_read;
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
@@ -186,19 +189,17 @@ CREATE TABLE session_drafts (
             .expect("session.draft.update registers");
         register_session_read(
             &mut builder,
-            SessionReadSources {
-                sessions: Arc::new(SessionService::new(
-                    reads,
-                    Arc::new(|_session_id: &SessionId| None),
-                )),
-                drafts,
-                attachments: Arc::new(NoStagedAttachments),
-                addresses: Arc::new(SessionInboxAddresses::new(
-                    PathRules::Windows,
-                    vec![Some(Place::Windows(WindowsPlace::Value))],
-                    Arc::new(FixedInboxFolder("/tmp/cc-socks")),
-                )),
-            },
+            Arc::new(SessionService::new(
+                reads,
+                Arc::new(|_session_id: &SessionId| None),
+            )),
+            drafts,
+            Arc::new(NoStagedAttachments),
+            Arc::new(SessionInboxAddresses::new(
+                PathRules::Windows,
+                vec![Some(Place::Windows(WindowsPlace::Value))],
+                Arc::new(FixedInboxFolder("/tmp/cc-socks")),
+            )),
         )
         .expect("session.read registers");
         let registry = builder.freeze();

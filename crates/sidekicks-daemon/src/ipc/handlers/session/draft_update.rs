@@ -12,9 +12,8 @@ use sidekicks_contracts::session::draft::{
 use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use crate::session::draft_store::SessionDraftStore;
 
-/// Registers `session.draft.update` over `drafts`, answering the session and when the draft was
-/// stored. Refuses a session the daemon does not hold `session.notFound`, keeping nothing. Fails
-/// the start when the method is already registered.
+/// Registers `session.draft.update`, refusing a session the daemon does not hold
+/// `session.notFound` and keeping nothing. Fails the start when the method is already registered.
 pub(crate) fn register_session_draft_update(
     registry: &mut MethodRegistryBuilder,
     drafts: Arc<SessionDraftStore>,

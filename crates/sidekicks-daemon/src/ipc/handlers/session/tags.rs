@@ -12,14 +12,13 @@ use sidekicks_contracts::session::tags::{
 use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use crate::session::tags::SessionTagService;
 
-/// Registers the three tag verbs over `tags`. A change to a session the daemon does not hold is
-/// refused `session.notFound`, keeping nothing. Fails the start when a verb is already
-/// registered.
+/// Registers the three tag verbs, refusing a change to a session the daemon does not hold
+/// `session.notFound` and keeping nothing. Fails the start when a verb is already registered.
 pub(crate) fn register_session_tags(
     registry: &mut MethodRegistryBuilder,
-    tags: &Arc<SessionTagService>,
+    tags: Arc<SessionTagService>,
 ) -> Result<(), RegistrationError> {
-    let adding = Arc::clone(tags);
+    let adding = Arc::clone(&tags);
     registry.register::<SessionTagAdd, _>(
         move |request: SessionTagRequest, _context: HandlerContext| {
             let tags = Arc::clone(&adding);
@@ -30,7 +29,7 @@ pub(crate) fn register_session_tags(
             .boxed()
         },
     )?;
-    let removing = Arc::clone(tags);
+    let removing = Arc::clone(&tags);
     registry.register::<SessionTagRemove, _>(
         move |request: SessionTagRequest, _context: HandlerContext| {
             let tags = Arc::clone(&removing);
@@ -41,9 +40,10 @@ pub(crate) fn register_session_tags(
             .boxed()
         },
     )?;
-    let listing = Arc::clone(tags);
-    registry.register::<SessionTagList, _>(move |_request: EmptyPayload, _context| {
-        let tags = Arc::clone(&listing);
-        async move { Ok(tags.list().await?) }.boxed()
-    })
+    registry.register::<SessionTagList, _>(
+        move |_request: EmptyPayload, _context: HandlerContext| {
+            let tags = Arc::clone(&tags);
+            async move { Ok(tags.list().await?) }.boxed()
+        },
+    )
 }

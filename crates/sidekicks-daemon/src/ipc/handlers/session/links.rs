@@ -23,17 +23,15 @@ use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
 use crate::session::links::service::SessionLinkService;
 use crate::session::related::ranking::SessionRelatedRanking;
 
-/// Registers the two link verbs over `links` and `session.relatedSession.subscribe` over
-/// `ranking`. A link change naming a session the daemon does not hold is refused
-/// `session.notFound`, and a removal of a link an event recorded `session.link.notRemovable`; a
-/// subscription to a session the daemon does not hold is refused `session.notFound` with nothing
-/// left open. Fails the start when a method is already registered.
+/// Registers the two link verbs and `session.relatedSession.subscribe`, each refusing by the codes
+/// its method lists, a refused subscription leaving nothing open. Fails the start when a method is
+/// already registered.
 pub(crate) fn register_session_links(
     registry: &mut MethodRegistryBuilder,
-    links: &Arc<SessionLinkService>,
-    ranking: &Arc<SessionRelatedRanking>,
+    links: Arc<SessionLinkService>,
+    ranking: Arc<SessionRelatedRanking>,
 ) -> Result<(), RegistrationError> {
-    let adding = Arc::clone(links);
+    let adding = Arc::clone(&links);
     registry.register::<SessionLinkAdd, _>(
         move |request: SessionLinkRequest, _context: HandlerContext| {
             let links = Arc::clone(&adding);
@@ -44,7 +42,7 @@ pub(crate) fn register_session_links(
             .boxed()
         },
     )?;
-    let removing = Arc::clone(links);
+    let removing = Arc::clone(&links);
     registry.register::<SessionLinkRemove, _>(
         move |request: SessionLinkRequest, _context: HandlerContext| {
             let links = Arc::clone(&removing);
@@ -55,7 +53,6 @@ pub(crate) fn register_session_links(
             .boxed()
         },
     )?;
-    let ranking = Arc::clone(ranking);
     registry.register_subscription::<SessionRelatedSessionSubscribe, _>(
         move |request: SessionRelatedSessionSubscribeRequest,
               _context: HandlerContext,
@@ -191,7 +188,8 @@ CREATE TABLE session_related (
             Arc::clone(&ranking),
         ));
         let mut builder = MethodRegistryBuilder::new();
-        register_session_links(&mut builder, &links, &ranking).expect("the link methods register");
+        register_session_links(&mut builder, links, Arc::clone(&ranking))
+            .expect("the link methods register");
         let registry = builder.freeze();
         let subscribe = |session_id: SessionId| {
             registry.dispatch(
