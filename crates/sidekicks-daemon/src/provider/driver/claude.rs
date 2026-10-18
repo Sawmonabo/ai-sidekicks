@@ -2,7 +2,6 @@
 
 use sidekicks_contracts::mcp::server::config::McpTransport;
 use sidekicks_contracts::voice::VoiceKind;
-
 use sidekicks_platforms::SystemFolderBase;
 
 use crate::provider::driver::{
