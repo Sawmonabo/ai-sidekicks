@@ -26,7 +26,7 @@ use sidekicks_contracts::run::queue::UserMessageSentPayload;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::events::session::read::{SessionEventFilter, SessionEventReads, SessionLogReadError};
+use crate::events::session::read::{SessionEventReads, SessionLogReadError};
 
 /// Who wrote a turn. The transcript has no third author.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -203,10 +203,8 @@ where
         session_id,
         run_id,
         START_OF_LOG_POSITION,
-        SessionEventFilter {
-            event_types: Some(TRANSCRIPT_EVENT_TYPES.as_slice()),
-            before_sequence: bound.before_sequence(),
-        },
+        TRANSCRIPT_EVENT_TYPES.as_slice(),
+        bound.before_sequence(),
     )?;
     // Read after the rows, so the head is at or past every row the fold holds.
     let built_at_position = reads.read_head(session_id)?.map_or(0, |head| {

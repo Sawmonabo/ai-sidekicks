@@ -157,39 +157,23 @@ static AT_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// One run's rows through the event log's run-and-type index, each with its stored body.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the provider switch's hand-over brief")
-)]
-static RUN_AFTER_HYDRATED_SQL: LazyLock<String> =
-    LazyLock::new(|| run_rows_after_hydrated_sql("TRUE"));
-
+// One run's readable rows of the given types after a position, through the event log's
+// run-and-type index, each with its stored body, in sequence order.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the provider switch's hand-over brief")
 )]
 static RUN_AFTER_OF_TYPES_HYDRATED_SQL: LazyLock<String> = LazyLock::new(|| {
-    run_rows_after_hydrated_sql("type IN (SELECT value FROM json_each(@event_types))")
-});
-
-/// The statement of one run's readable rows after `@after_position` that `type_condition` takes,
-/// each with its stored body, in sequence order.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the provider switch's hand-over brief")
-)]
-fn run_rows_after_hydrated_sql(type_condition: &str) -> String {
     format!(
         "SELECT {SELECTED_COLUMNS}, content_payload
        FROM session_events AS event
       WHERE session_id = @session_id AND run_id = @run_id AND sequence > @after_position
-        AND {type_condition}
+        AND type IN (SELECT value FROM json_each(@event_types))
         AND {}
       ORDER BY sequence ASC",
         readable_event_sql("event")
     )
-}
+});
 
 static STORED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -294,8 +278,9 @@ where
         }
     }
 
-    /// Every event of run `run_id` with a sequence greater than `after_position` that `filter`
-    /// takes, each paired with its stored body.
+    /// Every event of run `run_id` of one of `event_types` with a sequence greater than
+    /// `after_position` and, where `before_sequence` is given, below it, each paired with its
+    /// stored body.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the provider switch's hand-over brief")
@@ -305,32 +290,21 @@ where
         session_id: &SessionId,
         run_id: &RunId,
         after_position: i64,
-        filter: SessionEventFilter<'_>,
+        event_types: &[&str],
+        before_sequence: Option<i64>,
     ) -> Result<Vec<HydratedSessionEvent>, SessionLogReadError> {
-        let read_bound = self.read_bound(session_id, filter.before_sequence);
-        let (session_id, run_id) = (session_id.text(), run_id.text());
-        match filter.event_types {
-            None => self.read_hydrated_rows(
-                &RUN_AFTER_HYDRATED_SQL,
-                named_params! {
-                    "@session_id": session_id.as_str(),
-                    "@run_id": run_id.as_str(),
-                    "@after_position": after_position,
-                    "@read_bound": read_bound,
-                },
-            ),
-            Some(event_types) => self.read_hydrated_rows(
-                &RUN_AFTER_OF_TYPES_HYDRATED_SQL,
-                named_params! {
-                    "@session_id": session_id.as_str(),
-                    "@run_id": run_id.as_str(),
-                    "@after_position": after_position,
-                    "@event_types": serde_json::to_string(event_types)
-                        .expect("a list of strings serializes"),
-                    "@read_bound": read_bound,
-                },
-            ),
-        }
+        let read_bound = self.read_bound(session_id, before_sequence);
+        self.read_hydrated_rows(
+            &RUN_AFTER_OF_TYPES_HYDRATED_SQL,
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@run_id": run_id.text().as_str(),
+                "@after_position": after_position,
+                "@event_types": serde_json::to_string(event_types)
+                    .expect("a list of strings serializes"),
+                "@read_bound": read_bound,
+            },
+        )
     }
 
     /// The newest `limit` events with a sequence at or below `before_position`.
