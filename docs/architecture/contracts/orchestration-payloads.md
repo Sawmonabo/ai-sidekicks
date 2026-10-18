@@ -34,7 +34,7 @@ type AgentRunCreateRequest = OrchestrationRunTarget & {
   sessionId: SessionId;
   parentRunId?: RunId; // present = child run; a child may create a child of its own to any depth, and no level is ever refused for being deep
   config?: OrchestrationRunConfig; // per-run override; admission resolves against session defaults and persists the merged result durably on agent.run.queued (effectiveRunConfig — D-013-5 rebuild-stable enforcement)
-  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first run, never a second
+  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first run, never a second (return-or-conflict on the call's own record)
 };
 interface AgentRunCreateResponse {
   runId: RunId; // minted at Plan-002 queue admission (agent.run.queued); orchestration adds no second id

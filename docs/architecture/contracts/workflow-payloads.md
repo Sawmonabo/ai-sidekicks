@@ -158,7 +158,7 @@ interface WorkflowVersionReadResponse {
 // trigger fires, is judged under the SA-36 named Cedar operation action `workflow::start` and
 // refused with `workflow.run.startDenied`; the person's own start passes no policy check.
 interface WorkflowRunStartRequest {
-  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first start's run, never a second
+  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first start's run, never a second (return-or-conflict on the call's own record)
   // The opaque server-minted version reference — the immutable version row's
   // primary key, returned verbatim by workflow.version.read,
   // workflow.definition.read, workflow.definition.list, and

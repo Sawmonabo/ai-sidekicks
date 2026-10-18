@@ -1,5 +1,5 @@
 //! A database file for tests, opened as the daemon opens its own, holding the two tables an event
-//! row write touches, and the event rows tests write to it.
+//! row write touches unless a test makes its own, and the event rows tests write to it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -71,12 +71,24 @@ impl TestDatabase {
     /// The opener a writer runs on its thread: the file in WAL mode with every connection's
     /// setup, and the event tables created. Fails as SQLite does.
     pub(crate) fn opener(&self) -> impl FnOnce() -> rusqlite::Result<Connection> + Send + 'static {
+        let open = self.opener_without_event_tables();
+        move || {
+            let connection = open()?;
+            connection.execute_batch(EVENT_TABLES_SQL)?;
+            Ok(connection)
+        }
+    }
+
+    /// The opener for a file whose tables the test makes itself: the file in WAL mode with every
+    /// connection's setup. Fails as SQLite does.
+    pub(crate) fn opener_without_event_tables(
+        &self,
+    ) -> impl FnOnce() -> rusqlite::Result<Connection> + Send + 'static {
         let path = self.path();
         move || {
             let connection = Connection::open(path)?;
             connection.pragma_update(None, "journal_mode", "WAL")?;
             apply_connection_pragmas(&connection)?;
-            connection.execute_batch(EVENT_TABLES_SQL)?;
             Ok(connection)
         }
     }
