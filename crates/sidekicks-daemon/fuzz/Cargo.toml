@@ -10,6 +10,12 @@ publish.workspace = true
 [package.metadata]
 cargo-fuzz = true
 
+[package.metadata.cargo-shear]
+ignored = [
+  # Used by the detection module the target includes by path, which the tool does not follow.
+  "file-format",
+]
+
 [[bin]]
 bench = false
 doc = false
