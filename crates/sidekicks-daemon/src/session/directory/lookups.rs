@@ -2,12 +2,22 @@
 //! row, and the project it sits in. A session's project is the project of the attached mount its
 //! latest workspace binds, or, before its workspace is bound (its project still cloning), the
 //! project its create named; a chat's managed mount is no project, and a forgotten project is none.
+//! Also the states of a session that has ended: closed, or being purged.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 
+use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+
+/// The states of a session that has ended, closed or being purged, as a SQL list of quoted words
+/// for a `state IN (…)` condition: such a session takes no message, ask or rule.
+pub(crate) static ENDED_SESSION_STATES_SQL: LazyLock<String> = LazyLock::new(|| {
+    sql_list_of([SessionState::Closed, SessionState::PurgeRequested].map(<&'static str>::from))
+});
 
 /// The subquery answering the project id of the session whose id `session_id_sql` reads (a bound
 /// parameter such as `@sessionId`, or a column such as `s.id`), or NULL for a chat, a session whose

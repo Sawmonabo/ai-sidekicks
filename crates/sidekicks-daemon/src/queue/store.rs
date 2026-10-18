@@ -34,6 +34,7 @@ use crate::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
 use crate::provider::driver::run_control::PickedSkill;
+use crate::session::directory::lookups::ENDED_SESSION_STATES_SQL;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// What a queued message carries, as its payload stores it: the words and what rides with them.
@@ -247,7 +248,7 @@ static RUN_LIVE_SQL: LazyLock<String> = LazyLock::new(|| {
 static SESSION_TAKES_MESSAGES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT 1 FROM sessions WHERE id = @session_id AND state NOT IN ({})",
-        sql_list_of([SessionState::Closed, SessionState::PurgeRequested].map(<&'static str>::from))
+        *ENDED_SESSION_STATES_SQL
     )
 });
 
