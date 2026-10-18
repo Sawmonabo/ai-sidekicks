@@ -8,7 +8,6 @@
 //!   write tells an absent receipt, the same handle already stored, and a different one apart.
 
 use std::borrow::Cow;
-use std::error::Error;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -19,7 +18,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use strum::IntoStaticStr;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::writer::{DatabaseWriter, WriteError};
+use crate::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
 use crate::mcp::tool_calls::{McpTaskHandleObservation, McpTaskHandleSink};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -215,10 +214,7 @@ impl McpTaskHandleRecorder {
         observation: &McpTaskHandleObservation,
         error: &WriteError,
     ) -> McpTaskHandleRecordOutcome {
-        let sqlite_code = std::iter::successors(Some(error as &(dyn Error + 'static)), |&error| {
-            error.source()
-        })
-        .find_map(|error| error.downcast_ref::<rusqlite::Error>()?.sqlite_error_code());
+        let sqlite_code = sqlite_error_code(error);
         let mut details = dispatch_details(observation);
         details.insert("writeError".to_owned(), Value::from(error.to_string()));
         emit_driver_diagnostic(&DriverDiagnosticRecord {

@@ -672,7 +672,7 @@ impl ThreadStop {
 
 /// The SQLite result code `error` or the first of its sources to carry one holds; `None` when
 /// none does.
-fn sqlite_error_code(error: &(dyn Error + 'static)) -> Option<ErrorCode> {
+pub(crate) fn sqlite_error_code(error: &(dyn Error + 'static)) -> Option<ErrorCode> {
     std::iter::successors(Some(error), |&error| error.source())
         .find_map(|error| error.downcast_ref::<rusqlite::Error>()?.sqlite_error_code())
 }
