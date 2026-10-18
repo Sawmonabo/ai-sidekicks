@@ -100,7 +100,7 @@ pub(crate) async fn record_database_damage(
 ) -> Result<(), AtomicWriteError> {
     write_file_atomically(
         &damage_record_path(database_path),
-        damage,
+        damage.to_owned(),
         DAMAGE_RECORD_MODE,
     )
     .await
