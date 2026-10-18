@@ -263,10 +263,11 @@ fn null_terminated(strings: &[CString]) -> Vec<*mut c_char> {
 
 /// Makes this program its own responsible process: when it is not yet, and no other instance of
 /// this program is responsible for it, it re-runs itself in place with the same id, arguments and
-/// environment and the start begins again from the first line of `main`. Called first, while only the main thread runs and before any folder change. Fails with
-/// [`OwnRootError::ThreadsRunning`] when other threads run, [`OwnRootError::StillNotRoot`] when a
-/// re-run did not take, [`OwnRootError::Read`] when a read fails, and [`OwnRootError::Exec`] when
-/// the re-run cannot start.
+/// environment and the start begins again from the first line of `main`. Called first, while only
+/// the main thread runs and before any folder change. Fails with [`OwnRootError::ThreadsRunning`]
+/// when other threads run, [`OwnRootError::StillNotRoot`] when a re-run did not take,
+/// [`OwnRootError::Read`] when a read fails, a responsible process whose program file is gone
+/// among them, and [`OwnRootError::Exec`] when the re-run cannot start.
 pub fn become_own_root() -> Result<(), OwnRootError> {
     let count = read_thread_count().map_err(OwnRootError::Read)?;
     if count > 1 {

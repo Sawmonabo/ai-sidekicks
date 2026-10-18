@@ -258,7 +258,8 @@ fn own_unique_id() -> io::Result<u64> {
 
 /// The path of the program `process` runs, as the system names it, taken only once `process` is
 /// read still running after it, since a reused id would name another process's program; `None`
-/// once `process` has ended. Fails with the system's error.
+/// once `process` has ended. Fails with the system's error, `ENOENT` when the program's file is
+/// gone, so a start whose responsible process runs a deleted program fails.
 pub(crate) fn read_program_path(process: &PinnedProcess) -> io::Result<Option<PathBuf>> {
     let Ok(pid) = libc::pid_t::try_from(process.id) else {
         return Ok(None);
