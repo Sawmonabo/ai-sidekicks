@@ -2,7 +2,6 @@
 //! module.
 
 pub(crate) mod askpass;
-pub(crate) mod caller_process;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
 pub(crate) mod error_codes;
@@ -11,6 +10,7 @@ pub(crate) mod login_shell;
 pub(crate) mod private_folder;
 pub(crate) mod real_path;
 pub(crate) mod shell_start;
+pub(crate) mod socket_listener;
 pub(crate) mod socket_path;
 pub(crate) mod terminal;
 #[cfg(any(test, feature = "test-support"))]

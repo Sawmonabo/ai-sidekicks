@@ -649,7 +649,13 @@ methods! {
             mutating: true,
             params: SessionTargetRequest,
             result: EmptyPayload,
-            refusals: [SessionNotFound, ProviderUnavailable, ProviderCapabilityUnsupported],
+            refusals: [
+                SessionNotFound,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderCapabilityUnsupported,
+                ProviderAccountNotAuthenticated,
+            ],
         },
         /// `Continue from here`: the session's last good point becomes its end, its damaged events
         /// are skipped from then on, and it takes new work again.

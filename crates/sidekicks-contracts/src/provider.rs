@@ -21,7 +21,6 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &driver::commands::TYPESCRIPT_MODULE,
     &driver::compaction::TYPESCRIPT_MODULE,
     &driver::declared_loss::TYPESCRIPT_MODULE,
-    &driver::intervention::TYPESCRIPT_MODULE,
     &driver::length_limits::TYPESCRIPT_MODULE,
     &driver::methods::TYPESCRIPT_MODULE,
     &driver::output_speed::TYPESCRIPT_MODULE,

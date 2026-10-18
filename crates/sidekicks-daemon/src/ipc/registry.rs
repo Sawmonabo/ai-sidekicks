@@ -18,6 +18,7 @@ use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType, SubscriptionMethod};
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::attachment::{ReceivedError, parse_received, write};
+use sidekicks_platforms::PinnedProcess;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -34,16 +35,37 @@ pub(crate) struct TransportId(pub(crate) u64);
 pub(crate) struct HandlerContext {
     /// The connection the call arrived on.
     pub(crate) transport_id: TransportId,
-    /// The device that connection comes from, which a handler records as the call's author.
-    pub(crate) device_id: DeviceId,
-    /// The process the system names at the client's end of the connection; `None` where the
-    /// system could not name it.
-    pub(crate) caller_process_id: Option<u32>,
-    /// Canceled when the client sends `$/cancelRequest` for this call.
+    /// The device that connection comes from, which a handler records as the call's author;
+    /// `None` on the socket of a service repairing its database file, which holds the device's row.
+    pub(crate) device_id: Option<DeviceId>,
+    /// The process the system names at the client's end of the connection, pinned at the
+    /// connect; `None` where the system could not name it.
+    pub(crate) caller_process: Option<PinnedProcess>,
+    /// Canceled when the client sends `$/cancelRequest` for this call, or when its connection
+    /// closes.
     pub(crate) cancellation: CancellationToken,
     /// The call's place among the mutating calls the daemon is running, which a flush or a stop
     /// waits behind; `None` for a call that is not recorded.
     pub(crate) recorded_call: Option<RecordedCallId>,
+}
+
+impl HandlerContext {
+    /// The device the call came from, for `method`'s handler. Fails `Internal` when the connection
+    /// carries none: a handler that needs one was wired on a repairing service's socket, a fault in
+    /// the daemon.
+    pub(crate) fn calling_device(&self, method: &'static str) -> Result<DeviceId, HandlerError> {
+        self.device_id
+            .clone()
+            .ok_or_else(|| HandlerError::Internal(Box::new(CallingDeviceMissing { method })))
+    }
+}
+
+/// A call whose handler needs the calling device arrived on a connection that carries none.
+#[derive(Debug, thiserror::Error)]
+#[error("{method} needs the calling device")]
+struct CallingDeviceMissing {
+    /// The method whose handler asked.
+    method: &'static str,
 }
 
 /// A handler's failure: a classified refusal, or a fault the client is told nothing of.
@@ -237,6 +259,49 @@ impl MethodRegistryBuilder {
         self.insert(const { &M::DESCRIPTOR }, call)
     }
 
+    /// Registers a query or a mutation whose calls on one connection must be admitted in the order
+    /// they arrive: `admit` runs inside the dispatch, before the gateway reads the connection's
+    /// next message, and takes the call's place; `run` is the rest, which runs as `register`'s
+    /// handlers do. `admit` never waits; its refusal answers the call. Fails as `register` does.
+    pub(crate) fn register_ordered<M, Admit, Run, Admitted>(
+        &mut self,
+        admit: Admit,
+        run: Run,
+    ) -> Result<(), RegistrationError>
+    where
+        M: Method + 'static,
+        M::Params: Send + 'static,
+        M::Result: Send + 'static,
+        Admit: Fn(&HandlerContext, &M::Params) -> Result<Admitted, HandlerError>
+            + Send
+            + Sync
+            + 'static,
+        Run: Fn(Admitted) -> HandlerAnswer<M::Result> + Send + Sync + 'static,
+        Admitted: 'static,
+    {
+        if M::DESCRIPTOR.procedure_type == ProcedureType::Subscription {
+            return Err(RegistrationError::WrongForm {
+                method: M::DESCRIPTOR.method,
+            });
+        }
+        let call: Call = Box::new(
+            move |params: Option<Box<RawValue>>,
+                  attachments: Vec<Bytes>,
+                  context: HandlerContext| {
+                if context.cancellation.is_cancelled() {
+                    return futures::future::ready(Err(DispatchError::Canceled)).boxed();
+                }
+                let admitted = read_params::<M>(params.as_deref(), attachments)
+                    .and_then(|params| admit(&context, &params).map_err(DispatchError::from));
+                match admitted {
+                    Ok(admitted) => finish_call::<M>(run(admitted), context.cancellation).boxed(),
+                    Err(error) => futures::future::ready(Err(error)).boxed(),
+                }
+            },
+        );
+        self.insert(const { &M::DESCRIPTOR }, call)
+    }
+
     /// Registers a subscribe call's `handler`, which gets the subscription's id the registry mints
     /// and answers the acknowledgment carrying it and the typed feed; fails as `register` does.
     /// The handler is dropped when its call is canceled before it answers.
@@ -350,7 +415,18 @@ where
     }
     let params = read_params::<M>(params.as_deref(), attachments)?;
     let cancellation = context.cancellation.clone();
-    let answer = (*handler)(params, context);
+    finish_call::<M>((*handler)(params, context), cancellation).await
+}
+
+/// A query's or mutation's `answer` awaited (a query's dropped once `cancellation` is canceled),
+/// and its result checked and encoded.
+async fn finish_call<M>(
+    answer: HandlerAnswer<M::Result>,
+    cancellation: CancellationToken,
+) -> Result<Reply, DispatchError>
+where
+    M: Method + 'static,
+{
     let result = match M::DESCRIPTOR.procedure_type {
         ProcedureType::Mutation => answer.await?,
         ProcedureType::Query | ProcedureType::Subscription => cancellation

@@ -1,0 +1,149 @@
+{
+  "description": "The sign-in routes' sliding window, 20 requests per 60 s per address. Each step sends `times` requests from `identity` at `atMs` after the scenario's start, each one answered `allowed`; `remaining` and `resetAtMs` (after the start) are the last answer's.",
+  "scenarios": [
+    {
+      "name": "counts down then refuses",
+      "endpoint": "auth.endpoint",
+      "steps": [
+        {
+          "atMs": 0,
+          "identity": "198.51.100.7",
+          "times": 1,
+          "allowed": true,
+          "remaining": 19,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 1000,
+          "identity": "198.51.100.7",
+          "times": 18,
+          "allowed": true,
+          "remaining": 1,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 2000,
+          "identity": "198.51.100.7",
+          "times": 1,
+          "allowed": true,
+          "remaining": 0,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 3000,
+          "identity": "198.51.100.7",
+          "times": 1,
+          "allowed": false,
+          "remaining": 0,
+          "resetAtMs": 60000
+        }
+      ]
+    },
+    {
+      "name": "frees at exactly the reported reset",
+      "endpoint": "auth.endpoint",
+      "steps": [
+        {
+          "atMs": 0,
+          "identity": "198.51.100.7",
+          "times": 10,
+          "allowed": true,
+          "remaining": 10,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 30000,
+          "identity": "198.51.100.7",
+          "times": 10,
+          "allowed": true,
+          "remaining": 0,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 59999,
+          "identity": "198.51.100.7",
+          "times": 1,
+          "allowed": false,
+          "remaining": 0,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 60000,
+          "identity": "198.51.100.7",
+          "times": 1,
+          "allowed": true,
+          "remaining": 9,
+          "resetAtMs": 90000
+        }
+      ]
+    },
+    {
+      "name": "a refusal never extends the window",
+      "endpoint": "auth.endpoint",
+      "steps": [
+        {
+          "atMs": 0,
+          "identity": "198.51.100.7",
+          "times": 20,
+          "allowed": true,
+          "remaining": 0,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 10000,
+          "identity": "198.51.100.7",
+          "times": 5,
+          "allowed": false,
+          "remaining": 0,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 59000,
+          "identity": "198.51.100.7",
+          "times": 5,
+          "allowed": false,
+          "remaining": 0,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 60000,
+          "identity": "198.51.100.7",
+          "times": 1,
+          "allowed": true,
+          "remaining": 19,
+          "resetAtMs": 120000
+        }
+      ]
+    },
+    {
+      "name": "addresses are counted apart",
+      "endpoint": "auth.endpoint",
+      "steps": [
+        {
+          "atMs": 0,
+          "identity": "198.51.100.7",
+          "times": 20,
+          "allowed": true,
+          "remaining": 0,
+          "resetAtMs": 60000
+        },
+        {
+          "atMs": 1000,
+          "identity": "2001:db8:1:2::/64",
+          "times": 1,
+          "allowed": true,
+          "remaining": 19,
+          "resetAtMs": 61000
+        },
+        {
+          "atMs": 2000,
+          "identity": "198.51.100.7",
+          "times": 1,
+          "allowed": false,
+          "remaining": 0,
+          "resetAtMs": 60000
+        }
+      ]
+    }
+  ]
+}

@@ -11,7 +11,7 @@ use crate::wire::list::BoundedVec;
 use crate::wire::literal;
 
 /// The pre-computed answer to what run admission will ask. The first four are the resolved
-/// account's stored health state; `noAccount` and `noDefault` stand where resolution reached no
+/// account's stored health state; `noAccount` and `noCurrent` stand where resolution reached no
 /// account. It authorizes nothing: admission checks again.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
@@ -28,8 +28,8 @@ pub enum ProviderReadinessState {
     Indeterminate,
     /// No account is registered.
     NoAccount,
-    /// No account is the default.
-    NoDefault,
+    /// No account is the provider's current account.
+    NoCurrent,
 }
 
 /// Declares the remedies: each one's `kind` word as a literal and its standalone struct, then
@@ -135,10 +135,11 @@ remedies! {
             /// The provider.
             provider: ProviderId,
         }
-        /// Remedy for `noDefault`: the person picks one of the listed accounts as the default.
-        ChooseDefault(ProviderChooseDefaultRemedy, ChooseDefaultRemedyKind = "chooseDefault") {
-            /// The candidates; the daemon lists them and never picks one. One account with no
-            /// default is still listed rather than elected.
+        /// Remedy for `noCurrent`: the person picks one of the listed accounts as the provider's
+        /// current account.
+        ChooseCurrent(ProviderChooseCurrentRemedy, ChooseCurrentRemedyKind = "chooseCurrent") {
+            /// The candidates; the daemon lists them and never picks one. One account that is not
+            /// current is still listed rather than elected.
             candidate_account_ids: BoundedVec<ProviderAccountId, 1, { usize::MAX }>,
         }
         /// Remedy for `indeterminate`: nothing wrong can be seen, so the next read may settle it
@@ -284,8 +285,8 @@ pub enum ProviderReadiness {
         /// Register an account.
         remedy: ProviderRegisterRemedy,
     },
-    /// Accounts are registered but none is the default.
-    NoDefault {
+    /// Accounts are registered but none is the provider's current account.
+    NoCurrent {
         /// The provider.
         provider: ProviderId,
         /// The account resolution reached, when it reached exactly one.
@@ -305,8 +306,8 @@ pub enum ProviderReadiness {
         #[schemars(with = "WireInstant")]
         #[garde(dive)]
         observed_at: Option<WireInstant>,
-        /// Choose the default.
-        remedy: ProviderChooseDefaultRemedy,
+        /// Choose the current account.
+        remedy: ProviderChooseCurrentRemedy,
     },
 }
 
@@ -334,7 +335,7 @@ fn remedy_names_resolved_account(readiness: &ProviderReadiness, (): &()) -> gard
         } => (resolved_account_id, &remedy.account_id),
         ProviderReadiness::Authenticated { .. }
         | ProviderReadiness::NoAccount { .. }
-        | ProviderReadiness::NoDefault { .. } => return Ok(()),
+        | ProviderReadiness::NoCurrent { .. } => return Ok(()),
     };
     if resolved == named {
         Ok(())

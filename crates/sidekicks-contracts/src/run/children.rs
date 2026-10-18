@@ -10,7 +10,7 @@ use strum::VariantArray;
 
 use crate::agent::tree::{AgentTreeMember, ChildHandle};
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::provider::driver::methods::DRIVER_WIRE_REASON_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_REASON_MAX_LEN;
 use crate::run::id::RunId;
 use crate::run::queue::{MessageContent, QueueItemId};
 use crate::run::state::RunState;
@@ -232,7 +232,7 @@ pub enum ChildStopOutcome {
         #[schemars(with = "Never")]
         state: Option<Never>,
         /// The daemon's reason.
-        reason: FreeFormText<DRIVER_WIRE_REASON_MAX_LEN>,
+        reason: FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>,
     },
 }
 

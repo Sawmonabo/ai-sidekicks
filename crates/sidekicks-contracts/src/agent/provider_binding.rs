@@ -136,7 +136,7 @@ pub struct AgentBindingSwitchTarget {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "ProviderId")]
-    pub driver_name: Option<ProviderId>,
+    pub provider_name: Option<ProviderId>,
     /// The model.
     #[serde(
         default,

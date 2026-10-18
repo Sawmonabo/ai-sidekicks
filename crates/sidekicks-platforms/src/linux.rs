@@ -1,8 +1,9 @@
 //! What Linux alone supplies: the machine's pretty host name, inside a WSL distribution the folders
 //! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
-//! process's fields from its stat file, the bound on a program's argument, the machine's wakes from
-//! sleep and a wall-clock timer.
+//! process's fields from its stat file, a local connection's caller pinned, the bound on a
+//! program's argument, the machine's wakes from sleep and a wall-clock timer.
 
+pub(crate) mod caller_process;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 
@@ -35,9 +36,6 @@ const MOUNT_TABLE_PATH: &str = "/proc/self/mounts";
 
 // The first field of a process's stat file after its name, which proc(5) numbers 3.
 const FIRST_FIELD_AFTER_NAME: usize = 3;
-
-// The stat file's field holding the parent's id.
-const PARENT_FIELD: usize = 4;
 
 // The pages one argument string, its NUL included, may fill (`MAX_ARG_STRLEN`, execve(2)).
 const ARGUMENT_PAGES: usize = 32;
@@ -81,19 +79,6 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
 /// Whether a reader that keeps a file open reads it through a memory map rather than by reads at
 /// an offset: no, since only macOS's footprint measures a mapped file smaller.
 pub const SHOULD_MEMORY_MAP_READS: bool = false;
-
-/// The id of the parent of process `process_id`, field 4 of its stat file; `None` when no process
-/// has the id. Fails with `InvalidData` when the field is missing or no id, and with the read's
-/// error otherwise.
-pub fn read_parent_process_id(process_id: u32) -> io::Result<Option<u32>> {
-    let Some(parent) = read_process_stat_field(process_id, PARENT_FIELD)? else {
-        return Ok(None);
-    };
-    parent
-        .parse()
-        .map(Some)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
-}
 
 /// A bound in bytes that no single argument a program can start with reaches: 32 pages, the
 /// kernel's limit on one argument string, which counts its NUL. Fails with the system's error when

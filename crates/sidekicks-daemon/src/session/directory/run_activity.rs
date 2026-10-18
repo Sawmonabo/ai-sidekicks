@@ -43,6 +43,9 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::AgentRunRolledBack
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
+        | SessionEventType::AgentTurnCompleted
+        | SessionEventType::AgentTurnInterrupted
+        | SessionEventType::AgentTurnFailed
         | SessionEventType::AgentRunWorkerShuttingDown
         | SessionEventType::AgentRunStepLimitReached
         | SessionEventType::AgentRunTokenLimitReached

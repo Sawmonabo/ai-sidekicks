@@ -35,7 +35,7 @@ interface EventEnvelope {
 // Plan-002 T3.10's late-append leg on pre-rollback-epoch rows (the pair from the straggler's
 // per-event operation association — (epoch, turn) recorded at operation open — falling back to the
 // closed delivery generation's always-superseding retained pair; Spec-003 §Required Behavior owns
-// the fence and generation-rotation mechanics) of the four late-append families — assistantOutput,
+// the fence and generation-rotation mechanics) of the four late-append families — agentOutput,
 // toolActivity, usageTelemetry and artifactPublication (a provider permission ask from before a cut
 // is absorbed, never appended): sourceEpoch names the pre-rollback execution epoch, sourcePosition
 // the normalized session position (the Spec-003 targetPosition turn-boundary vocabulary) the row
@@ -67,7 +67,7 @@ type SourcePosition = number;
 
 type EventCategory =
   | "runLifecycle"
-  | "assistantOutput"
+  | "agentOutput"
   | "toolActivity"
   | "interactiveRequest"
   | "artifactPublication"
@@ -97,7 +97,7 @@ type EventCategory =
 // ---------------------------------------------------------------------------
 // Payload variants authored in crates/sidekicks-contracts/src/event/declared_variants.rs
 // (session.event.compacted and the eventMaintenance base) and
-// crates/sidekicks-contracts/src/event/variant_types.rs (agent.turn.rerouted, its
+// crates/sidekicks-contracts/src/event/usage.rs (agent.turn.rerouted, its
 // arm in crates/sidekicks-contracts/src/event/session.rs), which Plan-004
 // owns, rather than imported from an emitting plan's module (contrast the
 // repoMount/workspace/worktree family, authored in repo/mount.rs / worktree/lifecycle.rs under
@@ -143,7 +143,7 @@ interface AgentTurnReroutedPayload {
   safetyCategory?: string; // the provider's open safety category, such as "cyber" or "bio"
 }
 
-// agent.message.sent payload (assistantOutput), per Spec-005 §Assistant Output, the shape
+// agent.message.sent payload (agentOutput), per Spec-005 §Agent Output, the shape
 // agent.thinking.updated carries too. The body itself
 // travels out-of-payload in `session_events.content_payload`. `runId` is absent only on a Codex
 // voice call's answer, which comes outside any run and carries `origin: "voice"`.

@@ -150,7 +150,7 @@ pub struct AgentConfigUpdateRequest {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "ProviderId")]
-    pub driver_name: Option<ProviderId>,
+    pub provider_name: Option<ProviderId>,
     /// The model.
     #[serde(
         default,
@@ -210,7 +210,7 @@ pub struct AgentConfigUpdateRequest {
     reason = "garde passes a check's context by reference"
 )]
 fn update_moves_a_member(request: &AgentConfigUpdateRequest, (): &()) -> garde::Result {
-    let moves_a_member = request.driver_name.is_some()
+    let moves_a_member = request.provider_name.is_some()
         || request.model_id.is_some()
         || request.effort.is_some()
         || request.output_speed.is_some()
@@ -218,7 +218,7 @@ fn update_moves_a_member(request: &AgentConfigUpdateRequest, (): &()) -> garde::
         || request.larger_window.is_some();
     if !moves_a_member {
         return Err(garde::Error::new(
-            "an update moves at least one of driverName, modelId, largerWindow, effort, \
+            "an update moves at least one of providerName, modelId, largerWindow, effort, \
              outputSpeed or options",
         ));
     }
@@ -228,7 +228,7 @@ fn update_moves_a_member(request: &AgentConfigUpdateRequest, (): &()) -> garde::
 /// The schema twin of the first half of [`update_moves_a_member`].
 fn add_moves_a_member_rule(schema: &mut Schema) {
     let moves = [
-        "driverName",
+        "providerName",
         "modelId",
         "effort",
         "outputSpeed",

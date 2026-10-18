@@ -268,6 +268,9 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentRunRolledBack
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
+        | SessionEventType::AgentTurnCompleted
+        | SessionEventType::AgentTurnInterrupted
+        | SessionEventType::AgentTurnFailed
         | SessionEventType::AgentRunWorkerShuttingDown
         | SessionEventType::AgentRunStepLimitReached
         | SessionEventType::AgentRunTokenLimitReached

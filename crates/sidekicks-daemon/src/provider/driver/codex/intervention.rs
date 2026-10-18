@@ -12,14 +12,14 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::provider::driver::intervention::{
-    ApplyInterventionResponse, InterruptRunRequest, InterventionResultStatus,
-};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::run_control::{ApplyInterventionParams, PickedSkill};
+use crate::provider::driver::run_control::{
+    ApplyInterventionParams, ApplyInterventionResponse, InterruptRunRequest,
+    InterventionResultStatus, PickedSkill,
+};
 
 /// One steer, as handed to the runtime.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,11 +105,16 @@ impl CodexInterventionDispatcher {
                     InterventionResultStatus::Degraded
                 }
             }
-            ApplyInterventionParams::Interrupt(request) => {
+            ApplyInterventionParams::Interrupt {
+                target_run_id,
+                payload,
+                expected_run_version: _,
+                client_idempotency_key: _,
+            } => {
                 self.runtime
                     .interrupt_run(InterruptRunRequest {
-                        run_id: request.target_run_id,
-                        reason: request.payload.reason,
+                        run_id: target_run_id,
+                        reason: payload.reason,
                     })
                     .await?;
                 InterventionResultStatus::Applied
@@ -129,9 +134,6 @@ mod tests {
 
     use futures::future::BoxFuture;
     use rstest::rstest;
-    use sidekicks_contracts::provider::driver::intervention::{
-        InterruptRunRequest, InterventionResultStatus,
-    };
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
     use sidekicks_contracts::wire::integer::SafeInt;
@@ -141,7 +143,9 @@ mod tests {
         CodexSteerRunRequest,
     };
     use crate::provider::driver::contract::DriverError;
-    use crate::provider::driver::run_control::{ApplyInterventionParams, SteerPayload};
+    use crate::provider::driver::run_control::{
+        ApplyInterventionParams, InterruptRunRequest, InterventionResultStatus, SteerPayload,
+    };
 
     /// A runtime whose steer is acknowledged on `acknowledged_turn_id` after targeting `turn-1`.
     struct AcknowledgingRuntime {

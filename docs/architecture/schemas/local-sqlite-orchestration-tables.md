@@ -30,7 +30,7 @@ CREATE TABLE agents (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
   name            TEXT NOT NULL,
-  driver_name     TEXT NOT NULL,                        -- the provider's open id, checked against the registered drivers (Plan-003)
+  provider_name     TEXT NOT NULL,                        -- the provider's open id, checked against the registered drivers (Plan-003)
   model_id        TEXT NOT NULL,
   provider_account_id TEXT,                             -- D-013-17: the binding's own account, the Plan-023 `provider_accounts.account_id`
                                                         -- this agent spawns under; NULL = follow the provider's current account, whichever it
@@ -70,7 +70,7 @@ CREATE TABLE agents (
                                                         -- included so the stored blob is self-identifying rather than a wire artifact
                                                         -- reproduced in a column: a row read in isolation names what it is -- {status:
                                                         -- 'pending', switchId, appliesAt: 'turnBoundary'|'runBoundary',
-                                                        -- interruptRequested, pendingAxes: {driverName?, modelId?, providerAccountId?,
+                                                        -- interruptRequested, pendingAxes: {providerName?, modelId?, providerAccountId?,
                                                         -- effort?, outputSpeed?}, replacedSwitchId?} -- shared with the mutation reply and
                                                         -- the `pendingSwitch` member agent.subscribe returns, so what a client was told and what
                                                         -- a restart re-arms from are the same record. What is stored here is a SUPERSET of
@@ -124,7 +124,7 @@ CREATE TABLE session_budgets (
 -- fan-out count is read from here.
 CREATE TABLE agent_tree_nodes (
   run_id            TEXT NOT NULL,                  -- the run the agent was started in
-  driver_name       TEXT NOT NULL,                  -- provider driver key, as on `agents`
+  provider_name       TEXT NOT NULL,                  -- provider driver key, as on `agents`
   subagent_id       TEXT NOT NULL,                  -- the provider's own id for the agent, verbatim: the Claude Code task id or the
                                                     -- Codex thread id, which is also what a restart resumes it by
   parent_reference  TEXT,                           -- the provider's own parent link, verbatim: the Claude Code parent tool-call id or
@@ -135,7 +135,7 @@ CREATE TABLE agent_tree_nodes (
                     -- child turn's frame), never from the lead's result
   started_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
-  PRIMARY KEY (run_id, driver_name, subagent_id)   -- one row per agent: a second start for the same agent is refused
+  PRIMARY KEY (run_id, provider_name, subagent_id)   -- one row per agent: a second start for the same agent is refused
 );
 
 -- Two sessions trading messages. [Spec-014 §State And Data Implications](../../specs/014-multi-agent-orchestration.md#state-and-data-implications)

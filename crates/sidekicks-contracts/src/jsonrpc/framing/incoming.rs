@@ -1,5 +1,8 @@
 //! The receiving side of a connection's lanes: it reassembles each lane's messages from their
-//! chunks, holds every lane to the credit it granted, and returns credit as messages are taken.
+//! chunks, holds every lane to the credit it granted, and returns credit as messages are taken or
+//! as owed credit is released; a lane is credited only when its CREDIT frame goes out. Beside lane
+//! 0 the peer opens only lanes its owner admitted, so what a peer can make a receiver hold is lane
+//! 0's window plus each admitted lane's.
 
 use std::collections::HashMap;
 
@@ -25,14 +28,22 @@ pub struct IncomingMessage {
     pub credit_due: u32,
 }
 
-/// What one frame produced.
-#[derive(Debug, Default)]
-pub struct Received {
-    /// The message the frame completed.
-    pub message: Option<IncomingMessage>,
-    /// A CREDIT frame to send at once: the partial message's bytes when its lane's credit ran out
-    /// before its end, or a dropped partial message's bytes.
-    pub credit: Option<Frame>,
+/// Credit to return to the sender on one lane, sent as a CREDIT frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LaneCredit {
+    /// The lane the credit is for.
+    pub lane: LaneId,
+    /// The bytes it returns.
+    pub granted: u32,
+}
+
+impl From<LaneCredit> for Frame {
+    fn from(credit: LaneCredit) -> Self {
+        Self::Credit {
+            lane: credit.lane,
+            granted: credit.granted,
+        }
+    }
 }
 
 /// One open lane's receive state.
@@ -44,6 +55,10 @@ struct IncomingLane {
     partial: BytesMut,
     /// The partial message's bytes no CREDIT has returned yet.
     unreturned: u32,
+    /// Credit owed back and not yet released: a partial message's grant, which leaves the lane at
+    /// no credit until released, and the bytes of dropped partial messages, which add to the lane's
+    /// credit only once released.
+    owed: u32,
     /// Whether the lane closes once the current message ends.
     is_closing: bool,
 }
@@ -54,18 +69,31 @@ impl IncomingLane {
             outstanding_credit: INITIAL_LANE_CREDIT,
             partial: BytesMut::new(),
             unreturned: 0,
+            owed: 0,
             is_closing: false,
         }
     }
+
+    /// Adds `granted` to the lane's owed credit; answers whether the lane owed nothing before.
+    fn owe(&mut self, granted: u32) -> bool {
+        let was_clear = self.owed == 0;
+        self.owed = self.owed.saturating_add(granted);
+        was_clear
+    }
 }
 
-/// Every lane the peer sends on, for one connection.
+/// Every lane the peer sends on, for one connection. Beside lane 0 the peer opens only lanes its
+/// owner admitted, one per call whose answer opens a lane.
 #[derive(Debug)]
 pub struct IncomingLanes {
     /// The open lanes; a lane at or below `highest_opened` that is absent here has closed.
     lanes: HashMap<LaneId, IncomingLane>,
     /// The highest lane number the peer has opened.
     highest_opened: u32,
+    /// Lanes the owner admitted that the peer has not opened yet.
+    admitted: usize,
+    /// Each lane holding owed credit, once.
+    owing: Vec<LaneId>,
 }
 
 impl Default for IncomingLanes {
@@ -73,15 +101,18 @@ impl Default for IncomingLanes {
         Self {
             lanes: HashMap::from([(LaneId::CONTROL, IncomingLane::new())]),
             highest_opened: 0,
+            admitted: 0,
+            owing: Vec::new(),
         }
     }
 }
 
 impl IncomingLanes {
-    /// Applies one frame from the peer. A CREDIT frame is the outgoing side's, so it changes
-    /// nothing here. Refuses data past a lane's credit or on a closed lane, and a message whose
-    /// lengths or caps are wrong.
-    pub fn receive(&mut self, frame: Frame) -> Result<Received, FramingError> {
+    /// Applies one frame from the peer and answers the message it completed. A CREDIT frame is the
+    /// outgoing side's, so it changes nothing here. Refuses data past a lane's credit or on a
+    /// closed lane, a frame on a lane the owner never admitted, and a message whose lengths or caps
+    /// are wrong.
+    pub fn receive(&mut self, frame: Frame) -> Result<Option<IncomingMessage>, FramingError> {
         match frame {
             Frame::Data {
                 lane,
@@ -89,19 +120,61 @@ impl IncomingLanes {
                 closes_lane,
                 body,
             } => self.receive_data(lane, is_end, closes_lane, &body),
-            Frame::Abort { lane, closes_lane } => Ok(self.receive_abort(lane, closes_lane)),
-            Frame::Credit { .. } => Ok(Received::default()),
+            Frame::Abort { lane, closes_lane } => {
+                self.receive_abort(lane, closes_lane)?;
+                Ok(None)
+            }
+            Frame::Credit { .. } => Ok(None),
         }
     }
 
-    /// The CREDIT frame returning a taken message's bytes, or `None` once its lane has closed.
-    pub fn take(&mut self, lane: LaneId, credit_due: u32) -> Option<Frame> {
+    /// Admits one more lane the peer may open, for a call whose answer opens one. The owner admits
+    /// it before it receives the frame after that answer, since the peer may open the lane at once;
+    /// a frame on a lane not yet admitted is `LaneNotAdmitted`, which closes the connection.
+    pub fn admit_lane(&mut self) {
+        self.admitted += 1;
+    }
+
+    /// Credits every lane its owed credit and answers the credit to send, one per lane for the sum.
+    pub fn release_owed(&mut self) -> Vec<LaneCredit> {
+        let owing = std::mem::take(&mut self.owing);
+        owing
+            .into_iter()
+            .filter_map(|lane| {
+                let state = self.lanes.get_mut(&lane)?;
+                let granted = std::mem::take(&mut state.owed);
+                state.outstanding_credit = state.outstanding_credit.saturating_add(granted);
+                Some(LaneCredit { lane, granted })
+            })
+            .collect()
+    }
+
+    /// The credit returning a taken message's bytes, or `None` once its lane has closed.
+    pub fn take(&mut self, lane: LaneId, credit_due: u32) -> Option<LaneCredit> {
         let state = self.lanes.get_mut(&lane)?;
         state.outstanding_credit = state.outstanding_credit.saturating_add(credit_due);
-        Some(Frame::Credit {
+        Some(LaneCredit {
             lane,
             granted: credit_due,
         })
+    }
+
+    /// Opens `lane` above every lane opened so far, spending one admission.
+    fn open(&mut self, lane: LaneId) -> Result<(), FramingError> {
+        if self.admitted == 0 {
+            return Err(FramingError::LaneNotAdmitted {
+                lane: lane.number(),
+            });
+        }
+        // Lane 0 is always in the map and never counts against the limit.
+        if self.lanes.len() > MAX_OPEN_LANES {
+            return Err(FramingError::TooManyLanes {
+                lane: lane.number(),
+            });
+        }
+        self.admitted -= 1;
+        self.highest_opened = lane.number();
+        Ok(())
     }
 
     fn receive_data(
@@ -110,15 +183,9 @@ impl IncomingLanes {
         is_end: bool,
         closes_lane: bool,
         body: &[u8],
-    ) -> Result<Received, FramingError> {
+    ) -> Result<Option<IncomingMessage>, FramingError> {
         if lane.number() > self.highest_opened {
-            // Lane 0 is always in the map and never counts against the limit.
-            if self.lanes.len() > MAX_OPEN_LANES {
-                return Err(FramingError::TooManyLanes {
-                    lane: lane.number(),
-                });
-            }
-            self.highest_opened = lane.number();
+            self.open(lane)?;
             self.lanes.insert(lane, IncomingLane::new());
         }
         let length = u32::try_from(body.len()).expect("a decoded chunk fits a u32");
@@ -136,17 +203,15 @@ impl IncomingLanes {
         check_partial_caps(&state.partial)?;
 
         if !is_end {
-            // A message larger than the window would stall with no credit left: return what
-            // has arrived of it, so the sender can send the rest.
+            // A message larger than the window would stall with no credit left: owe back what
+            // has arrived of it, so the sender can send the rest once it is released.
             if state.outstanding_credit == 0 && state.unreturned > 0 {
                 let granted = std::mem::take(&mut state.unreturned);
-                state.outstanding_credit = granted;
-                return Ok(Received {
-                    message: None,
-                    credit: Some(Frame::Credit { lane, granted }),
-                });
+                if state.owe(granted) {
+                    self.owing.push(lane);
+                }
             }
-            return Ok(Received::default());
+            return Ok(None);
         }
 
         let message = std::mem::take(&mut state.partial).freeze();
@@ -155,42 +220,41 @@ impl IncomingLanes {
             self.lanes.remove(&lane);
         }
         let body = MessageBody::decode(message)?;
-        Ok(Received {
-            message: Some(IncomingMessage {
-                lane,
-                body,
-                credit_due,
-            }),
-            credit: None,
-        })
+        Ok(Some(IncomingMessage {
+            lane,
+            body,
+            credit_due,
+        }))
     }
 
-    fn receive_abort(&mut self, lane: LaneId, closes_lane: bool) -> Received {
+    fn receive_abort(&mut self, lane: LaneId, closes_lane: bool) -> Result<(), FramingError> {
         if lane.number() > self.highest_opened {
-            // A lane closed before it carried anything never opens.
-            if closes_lane {
-                self.highest_opened = lane.number();
+            // A lane closed before it carried anything never opens, though closing it spends its
+            // admission; an ABORT that leaves it open checks the admission without spending it.
+            if self.admitted == 0 {
+                return Err(FramingError::LaneNotAdmitted {
+                    lane: lane.number(),
+                });
             }
-            return Received::default();
+            if closes_lane {
+                self.open(lane)?;
+            }
+            return Ok(());
         }
         if closes_lane {
             self.lanes.remove(&lane);
-            return Received::default();
+            return Ok(());
         }
         let Some(state) = self.lanes.get_mut(&lane) else {
-            return Received::default();
+            return Ok(());
         };
         state.partial.clear();
         state.is_closing = false;
         let granted = std::mem::take(&mut state.unreturned);
-        if granted == 0 {
-            return Received::default();
+        if granted > 0 && state.owe(granted) {
+            self.owing.push(lane);
         }
-        state.outstanding_credit = state.outstanding_credit.saturating_add(granted);
-        Received {
-            message: None,
-            credit: Some(Frame::Credit { lane, granted }),
-        }
+        Ok(())
     }
 }
 

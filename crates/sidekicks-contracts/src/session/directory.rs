@@ -16,7 +16,7 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::Place;
 use crate::project::ProjectId;
-use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::repo::mount::ExecutionMode;
 use crate::session::convert::{SessionConvertRequest, SessionConvertResponse};
@@ -511,7 +511,7 @@ pub struct SessionOverviewReadRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionOverviewAgent {
     /// The agent's name.
-    pub name: FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>,
+    pub name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// Its provider.
     pub provider: ProviderId,
     /// What it is doing.
