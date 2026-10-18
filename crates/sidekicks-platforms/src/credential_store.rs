@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use keyring_core::Entry;
 use keyring_core::error::PlatformError;
+use secrecy::zeroize::Zeroize;
 use secrecy::{ExposeSecret, SecretString};
 
 #[cfg(target_os = "linux")]
@@ -68,7 +69,12 @@ impl CredentialStore {
         account: &str,
     ) -> Result<Option<SecretString>, CredentialStoreError> {
         match self.entry(service, account)?.get_password() {
-            Ok(value) => Ok(Some(SecretString::from(value))),
+            Ok(mut value) => {
+                // Built from the text, so the store's own copy is wiped here, not left behind.
+                let secret = SecretString::from(value.as_str());
+                value.zeroize();
+                Ok(Some(secret))
+            }
             Err(keyring_core::Error::NoEntry) => Ok(None),
             Err(failure) => Err(CredentialStoreError::from_store_error(failure)),
         }
@@ -178,8 +184,12 @@ impl From<keyring_core::Error> for StoreFailure {
         match error {
             keyring_core::Error::PlatformFailure(platform_error) => Self::Platform(platform_error),
             keyring_core::Error::NoStorageAccess(platform_error) => Self::NoAccess(platform_error),
-            keyring_core::Error::BadEncoding(_stored_bytes) => Self::BadEncoding,
-            keyring_core::Error::BadDataFormat(_stored_bytes, platform_error) => {
+            keyring_core::Error::BadEncoding(mut stored_bytes) => {
+                stored_bytes.zeroize();
+                Self::BadEncoding
+            }
+            keyring_core::Error::BadDataFormat(mut stored_bytes, platform_error) => {
+                stored_bytes.zeroize();
                 Self::BadDataFormat(platform_error)
             }
             keyring_core::Error::Ambiguous(entries) => Self::Ambiguous {

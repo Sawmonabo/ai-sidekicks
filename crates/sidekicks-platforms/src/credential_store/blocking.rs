@@ -10,7 +10,7 @@ use keyring_core::{Credential, Entry};
 use tokio::sync::watch;
 
 /// A credential store whose calls each wait until [`BlockingCredentialStore::release`], then answer
-/// as a store holding nothing: a write is kept, a read and a removal find no value. Every call
+/// as a store holding nothing: a write succeeds, a read and a removal find no value. Every call
 /// waiting must be released before the test's runtime drops, since the drop waits on it.
 #[derive(Debug)]
 pub struct BlockingCredentialStore {

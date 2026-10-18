@@ -83,8 +83,6 @@ ignored = [
   "zip",
   # Editing the providers' and tool servers' TOML settings in place.
   "toml_edit",
-  # Wiping the command channel's keys.
-  "zeroize",
   # The stored-body codec: a transcript body of 1 KiB or more kept compressed.
   "zstd",
 ]

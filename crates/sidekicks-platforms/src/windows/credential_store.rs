@@ -41,16 +41,33 @@ mod tests {
     }
 
     /// An entry is written with local persistence, so it never roams to the account's other
-    /// machines. Writes one entry to the Credential Manager and removes it. Mutation: build with
-    /// no modifiers.
+    /// machines. Writes one entry to the Credential Manager and removes it however the test ends.
+    /// Mutation: build with no modifiers.
     #[test]
     fn a_credential_store_entry_is_kept_on_this_machine() {
         const SERVICE: &str = "ai-sidekicks-credential-store-test";
         const ACCOUNT: &str = "persistence";
+
+        // Removes the test's entry when it drops, a panic's unwinding included.
+        struct EntryRemoval<'store> {
+            store: &'store CredentialStore,
+        }
+
+        impl Drop for EntryRemoval<'_> {
+            fn drop(&mut self) {
+                let removed = self.store.remove(SERVICE, ACCOUNT);
+                // A second panic while unwinding would abort the run and hide the first.
+                if !std::thread::panicking() {
+                    assert!(removed.expect("the entry is removed"));
+                }
+            }
+        }
+
         let store = CredentialStore::open().expect("the Credential Manager opens");
         store
             .write(SERVICE, ACCOUNT, &SecretString::from("value"))
             .expect("the entry is written");
+        let removal = EntryRemoval { store: &store };
         let attributes = store
             .entry(SERVICE, ACCOUNT)
             .and_then(|entry| {
@@ -59,11 +76,7 @@ mod tests {
                     .map_err(CredentialStoreError::from_store_error)
             })
             .expect("the entry's attributes read");
-        assert!(
-            store
-                .remove(SERVICE, ACCOUNT)
-                .expect("the entry is removed")
-        );
+        drop(removal);
         assert_eq!(
             attributes.get("persistence").map(String::as_str),
             Some("Local")

@@ -6,7 +6,9 @@
 //! it gets no answer within its time. The calls on one entry run one at a time, and the entry stays
 //! held until the store's answer even after its caller stopped waiting, so a locked store holds at
 //! most one blocking thread per entry. A call that is still queued for its entry when its caller
-//! stops waiting never reaches the store, so a call answered `locked` changes nothing later.
+//! stops waiting leaves the queue and never reaches the store, so a queued call answered `locked`
+//! changes nothing later; a call already running when its caller stops waiting may still land once
+//! the store answers.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,13 +23,7 @@ use crate::keyed_lock::KeyedLock;
 use crate::workflow::secrets::store::{SecretKeychain, WorkflowSecretStoreUnavailable};
 
 // How long one keychain call may take, its wait for the entry and an unlock prompt included.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the tests build the store with a call timeout short enough to wait out"
-    )
-)]
+#[expect(dead_code, reason = "the daemon's start passes it")]
 const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The operating system's credential store and the lock each of its entries is called under,
@@ -59,19 +55,13 @@ pub(crate) struct OsCredentialStore {
     )
 )]
 impl OsCredentialStore {
-    /// The calls on `credentials`, each answered within 30 seconds.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the tests build the store with a call timeout short enough to wait out"
-        )
-    )]
-    pub(crate) fn new(credentials: CredentialStore) -> Arc<Self> {
+    /// The calls on `credentials`, each answered within `call_timeout`, its wait for the entry
+    /// included.
+    pub(crate) fn new(credentials: CredentialStore, call_timeout: Duration) -> Arc<Self> {
         Arc::new(Self {
             credentials,
             entries: KeyedLock::new(),
-            call_timeout: KEYCHAIN_CALL_TIMEOUT,
+            call_timeout,
         })
     }
 
@@ -87,7 +77,7 @@ impl OsCredentialStore {
     // Runs `operation` on the entry under `service` and `account` once every earlier call on it has
     // answered, on a blocking thread, and answers `locked` when that takes longer than the call's
     // time. The entry is held in a task of its own, so it stays held until the store answers even
-    // after the caller stops waiting.
+    // after the caller stops waiting; a task still queued for the entry then leaves the queue.
     async fn call<Answer: Send + 'static>(
         self: &Arc<Self>,
         service: &str,
@@ -97,11 +87,17 @@ impl OsCredentialStore {
         + 'static,
     ) -> Result<Answer, WorkflowSecretStoreUnavailable> {
         // The caller holds the receiver while it waits and drops it when its time runs out.
-        let (still_waiting, _caller_waits) = oneshot::channel::<()>();
+        let (mut still_waiting, _caller_waits) = oneshot::channel::<()>();
         let store = Arc::clone(self);
         let entry = (service.to_owned(), account.to_owned());
         let held_call = tokio::spawn(async move {
-            let _held = store.entries.acquire(entry.clone()).await;
+            // Leaving the queue drops the task's store handle and the operation, with any value it
+            // carries, at once.
+            let _held = tokio::select! {
+                held = store.entries.acquire(entry.clone()) => held,
+                () = still_waiting.closed() => return None,
+            };
+            // The caller's time may run out just as the entry comes free.
             if still_waiting.is_closed() {
                 return None;
             }
@@ -137,8 +133,8 @@ impl OsCredentialStore {
             Ok(Ok(None)) | Err(_) => Err(WorkflowSecretStoreUnavailable::new(
                 KeychainRefusalCause::Locked,
                 format!(
-                    "the credential store gave no answer within {} s",
-                    self.call_timeout.as_secs()
+                    "the credential store gave no answer within {:?}",
+                    self.call_timeout
                 ),
             )),
         }
@@ -209,25 +205,24 @@ mod tests {
     use sidekicks_platforms::{BlockingCredentialStore, CredentialStore};
 
     use super::OsCredentialStore;
-    use crate::keyed_lock::KeyedLock;
     use crate::workflow::secrets::store::SecretKeychain;
 
     const SERVICE: &str = "ai-sidekicks-workflow-secrets";
 
     /// A call the store does not answer in time reads `locked`; a second call on the same entry
-    /// while the first holds it reads `locked` too and never reaches the store, even once the
-    /// first's call ends. Mutations: await the call with no timeout (the outer timeout fails the
-    /// test); drop the check that the caller still waits, so the second call reaches the store
-    /// once the first answers.
+    /// while the first holds it reads `locked` too, leaves the entry's queue at once with its store
+    /// handle, and never reaches the store, even once the first's call ends. Mutation: race no
+    /// `select!` against the caller giving up, so the second call's task stays queued holding the
+    /// store until the first's call ends (the outer timeout fails the test).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_held_entry_answers_locked_and_a_call_given_up_never_reaches_the_store() {
         let blocking_store = BlockingCredentialStore::new();
-        let store = Arc::new(OsCredentialStore {
-            credentials: CredentialStore::from_store(blocking_store.clone()),
-            entries: KeyedLock::new(),
-            call_timeout: Duration::from_millis(200),
-        });
+        let store = OsCredentialStore::new(
+            CredentialStore::from_store(blocking_store.clone()),
+            Duration::from_millis(200),
+        );
         let keychain = Arc::new(store.keychain(SERVICE));
+        let handles_idle = Arc::strong_count(&store);
 
         let scenario = async {
             let first = tokio::spawn({
@@ -235,18 +230,38 @@ mod tests {
                 async move { keychain.read("secret").await.map(drop) }
             });
             blocking_store.wait_for_calls(1).await;
+            let handles_before_second = Arc::strong_count(&store);
             let second = keychain.read("secret").await.map(drop);
+            // The second call's task lets go of its store handle as soon as its caller gives up.
+            while Arc::strong_count(&store) > handles_before_second {
+                tokio::task::yield_now().await;
+            }
+            let handles_after_second = Arc::strong_count(&store);
             let first = first.await.expect("the first call's task ends");
             let calls_while_held = blocking_store.calls();
 
             blocking_store.release();
-            // Queued behind the second call's task, so it answers once that task has looked.
-            let third = keychain.read("secret").await;
-            (first, second, calls_while_held, third)
+            // Once the first call's task lets go of the entry, the next call takes it at once.
+            while Arc::strong_count(&store) > handles_idle {
+                tokio::task::yield_now().await;
+            }
+            let third = tokio::spawn({
+                let keychain = Arc::clone(&keychain);
+                async move { keychain.read("secret").await.map(drop) }
+            });
+            blocking_store.wait_for_calls(2).await;
+            drop(third.await.expect("the third call's task ends"));
+            (
+                first,
+                second,
+                handles_before_second,
+                handles_after_second,
+                calls_while_held,
+            )
         };
         let outcome = tokio::time::timeout(Duration::from_secs(5), scenario).await;
         blocking_store.release();
-        let (first, second, calls_while_held, third) =
+        let (first, second, handles_before_second, handles_after_second, calls_while_held) =
             outcome.expect("every call answers within its time");
 
         for refused in [first, second] {
@@ -257,8 +272,8 @@ mod tests {
                 KeychainRefusalCause::Locked
             );
         }
+        assert_eq!(handles_after_second, handles_before_second);
         assert_eq!(calls_while_held, 1);
-        assert!(third.expect("the released store answers").is_none());
         assert_eq!(blocking_store.calls(), 2);
     }
 }

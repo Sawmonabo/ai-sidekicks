@@ -4,9 +4,10 @@
 use std::error::Error;
 use std::sync::Arc;
 
-// The keychain refuses a call that would prompt where no prompt can be shown, as while it is
-// locked (`errSecInteractionNotAllowed`).
-const LOCKED_STATUS: i32 = -25308;
+// The statuses of a locked keychain: a call that would prompt where no prompt can be shown
+// (`errSecInteractionNotAllowed`), and an unlock prompt the person dismissed
+// (`errSecUserCanceled`), so either way the person is told to unlock it and retry.
+const LOCKED_STATUSES: [i32; 2] = [-25308, -128];
 
 /// The settings every entry is built with: the login keychain's own.
 pub(crate) const ENTRY_MODIFIERS: &[(&str, &str)] = &[];
@@ -18,12 +19,13 @@ pub(crate) fn open_store() -> keyring_core::Result<Arc<keyring_core::CredentialS
     Ok(store)
 }
 
-/// Whether the keychain's `failure` says it is locked; every other status, -25291 (no keychain
-/// available) and -25294 (no such keychain) among them, means it cannot be used.
+/// Whether the keychain's `failure` says it is locked or its unlock prompt was dismissed; every
+/// other status, -25291 (no keychain available) and -25294 (no such keychain) among them, means it
+/// cannot be used.
 pub(crate) fn is_locked(failure: &(dyn Error + 'static)) -> bool {
     failure
         .downcast_ref::<security_framework::base::Error>()
-        .is_some_and(|status| status.code() == LOCKED_STATUS)
+        .is_some_and(|status| LOCKED_STATUSES.contains(&status.code()))
 }
 
 #[cfg(test)]
@@ -33,10 +35,11 @@ mod tests {
     use crate::credential_store::CredentialStoreError;
 
     /// Each keychain status, whichever store error carries it, reads the cause the person is told.
-    /// Mutation: map -25308 to `unavailable`.
+    /// Mutations: map -25308 to `unavailable`; map -128 to `unavailable`.
     #[rstest]
     #[case::locked_as_a_failure(keyring_core::Error::PlatformFailure(status(-25308)), true)]
     #[case::locked_as_no_access(keyring_core::Error::NoStorageAccess(status(-25308)), true)]
+    #[case::unlock_dismissed(keyring_core::Error::PlatformFailure(status(-128)), true)]
     #[case::not_available(keyring_core::Error::NoStorageAccess(status(-25291)), false)]
     #[case::no_such_keychain(keyring_core::Error::NoStorageAccess(status(-25294)), false)]
     #[case::other_failure(keyring_core::Error::PlatformFailure(status(-25293)), false)]
