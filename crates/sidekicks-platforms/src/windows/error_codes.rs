@@ -49,8 +49,9 @@ pub fn is_held_file_error(error: &io::Error) -> bool {
         || error.raw_os_error() == Some(WSAEACCES)
 }
 
-// The error's system code as Windows types it; std holds it as an `i32`.
-fn win32_code(error: &io::Error) -> Option<u32> {
+/// The error's system code as Windows types it, which std holds as an `i32`; `None` when the
+/// error carries no system code.
+pub(crate) fn win32_code(error: &io::Error) -> Option<u32> {
     error
         .raw_os_error()
         .and_then(|code| u32::try_from(code).ok())

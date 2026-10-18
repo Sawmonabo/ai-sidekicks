@@ -1,20 +1,15 @@
-//! A shell's PTY: how it opens, the environment it hands the `shell` mode, and the queue that
-//! carries writes to the terminal in order.
+//! A shell's PTY: how it opens, the environment it hands the `shell` mode, and the confirmation of
+//! the shell's start that stays with it.
 
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::{self, Pty};
-use bytes::Bytes;
-use tokio::sync::oneshot;
-
-/// The most bytes a terminal's write queue takes before a writer waits for room.
-pub(crate) const WRITE_QUEUE_BYTES: usize = 64 * 1024;
+use sidekicks_platforms::ShellStartConfirmation;
 
 /// A program and the arguments it starts with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,12 +41,31 @@ pub struct SpawnRequest {
     pub shell_start: CommandLine,
 }
 
-/// Opens the shell's PTY and starts its program through the `shell` mode; blocking, so it
-/// runs on the daemon's spawner thread. Fails with `InvalidInput` for an environment entry with
-/// an empty name, an `=` in its name or a NUL, with `NotADirectory` when the working folder is not
-/// a folder, and with the system's error when the terminal cannot be opened or the program
-/// started.
-pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
+/// A shell's open PTY and the daemon's end of its start's confirmation, which the `shell` mode
+/// reads only while that end is open, so the two are released together once the shell has ended.
+pub(crate) struct OpenedPty {
+    /// The shell's PTY.
+    pub(crate) pty: Pty,
+    /// The daemon's end of the confirmation that it started the shell's `shell` mode.
+    pub(crate) start_confirmation: ShellStartConfirmation,
+}
+
+impl OpenedPty {
+    /// Ends the shell's program and releases the PTY, `mark_exited` running once the program has
+    /// exited, then closes the confirmation; blocking, so it runs off the runtime's workers.
+    pub(crate) fn release(self, mark_exited: impl FnOnce()) {
+        sidekicks_platforms::release_terminal(self.pty, mark_exited);
+        drop(self.start_confirmation);
+    }
+}
+
+/// Opens the shell's PTY and starts its program through the `shell` mode, confirming to the mode
+/// that the daemon started it; blocking, so it runs on the daemon's spawner thread, which starts no
+/// other child between the confirmation's opening and its writing. Fails with `InvalidInput` for an
+/// environment entry with an empty name, an `=` in its name or a NUL, with `NotADirectory` when the
+/// working folder is not a folder, and with the system's error when the terminal cannot be opened,
+/// the program started or its start confirmed; a start not confirmed ends the program.
+pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<OpenedPty> {
     check_environment(&request.environment)?;
     if !request.working_directory.is_dir() {
         return Err(io::Error::new(
@@ -62,10 +76,13 @@ pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
     let mut arguments = request.shell_start.arguments.clone();
     arguments.push(request.program.clone());
     arguments.extend(request.arguments.iter().cloned());
+    let mut start_confirmation = ShellStartConfirmation::new()?;
+    let mut environment = encode_shell_environment(&request.environment);
+    environment.extend(start_confirmation.environment_entry());
     let options = sidekicks_platforms::terminal_options(
         tty::Shell::new(request.shell_start.program.clone(), arguments),
         Some(request.working_directory.clone()),
-        encode_shell_environment(&request.environment),
+        environment,
     );
     let window_size = WindowSize {
         num_lines: request.rows,
@@ -73,7 +90,20 @@ pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
         cell_width: 0,
         cell_height: 0,
     };
-    tty::new(&options, window_size, 0)
+    let pty = tty::new(&options, window_size, 0)?;
+    // A system that reports no process id confirms no start.
+    let confirmed = sidekicks_platforms::child_process_id(&pty)
+        .map_or(Ok(()), |process_id| start_confirmation.confirm(process_id));
+    if let Err(error) = confirmed {
+        // Closed first, so the mode reads its end closed and refuses, and the release is quick.
+        drop(start_confirmation);
+        sidekicks_platforms::release_terminal(pty, || {});
+        return Err(error);
+    }
+    Ok(OpenedPty {
+        pty,
+        start_confirmation,
+    })
 }
 
 /// Refuses an environment the `shell` mode could not hand on as given: an empty name, an `=`
@@ -189,233 +219,16 @@ pub fn shell_environment(
         .collect()
 }
 
-/// Why a write to a terminal was not made.
-#[derive(Debug, thiserror::Error)]
-pub enum TerminalWriteError {
-    /// The terminal was closed before the write was made.
-    #[error("the terminal closed before this write")]
-    Closed,
-    /// The terminal's input ended, its other side having hung up, before the write was made.
-    #[error("the terminal's input ended before this write")]
-    Ended,
-    /// The system refused the write.
-    #[error("the write to the terminal failed")]
-    Failed(#[source] Arc<io::Error>),
-}
-
-/// The answer a write is waiting for.
-type WriteAnswer = oneshot::Sender<Result<(), TerminalWriteError>>;
-
-/// One write waiting for the terminal, and how much of it is written.
-struct PendingWrite {
-    bytes: Bytes,
-    written: usize,
-    answer: WriteAnswer,
-}
-
-/// Why a queue takes no more writes.
-#[derive(Clone, Copy)]
-enum WriteStop {
-    Closed,
-    Ended,
-}
-
-impl WriteStop {
-    fn error(self) -> TerminalWriteError {
-        match self {
-            Self::Closed => TerminalWriteError::Closed,
-            Self::Ended => TerminalWriteError::Ended,
-        }
-    }
-}
-
-/// A terminal's writes in order, the head the one in flight; each is answered once all its bytes
-/// are written, or with the error that left it unwritten.
-pub(crate) struct WriteQueue {
-    pending: VecDeque<PendingWrite>,
-    /// The bytes the waiting writes still hold.
-    pending_byte_count: usize,
-    stop: Option<WriteStop>,
-}
-
-impl WriteQueue {
-    /// An open queue holding no write.
-    pub(crate) fn new() -> Self {
-        Self {
-            pending: VecDeque::new(),
-            pending_byte_count: 0,
-            stop: None,
-        }
-    }
-
-    /// Whether the queue takes another write: it holds fewer than [`WRITE_QUEUE_BYTES`] bytes.
-    pub(crate) fn has_room(&self) -> bool {
-        self.pending_byte_count < WRITE_QUEUE_BYTES
-    }
-
-    /// Queues `bytes` behind every earlier write; once the queue is closed or ended the write is
-    /// answered with that error at once, and an empty write is answered at once.
-    pub(crate) fn push(&mut self, bytes: Bytes, answer: WriteAnswer) {
-        if let Some(stop) = self.stop {
-            answer_write(answer, Err(stop.error()));
-        } else if bytes.is_empty() {
-            answer_write(answer, Ok(()));
-        } else {
-            self.pending_byte_count += bytes.len();
-            self.pending.push_back(PendingWrite {
-                bytes,
-                written: 0,
-                answer,
-            });
-        }
-    }
-
-    /// The bytes of the head write not yet written; `None` with no write waiting.
-    pub(crate) fn pending_bytes(&self) -> Option<&[u8]> {
-        self.pending
-            .front()
-            .map(|write| &write.bytes[write.written..])
-    }
-
-    /// Records that `written` bytes of the head write were written, answering it once it is whole;
-    /// `written` is at most what [`Self::pending_bytes`] gave.
-    pub(crate) fn advance(&mut self, written: usize) {
-        let mut head = self
-            .pending
-            .pop_front()
-            .expect("a write is advanced only after its pending bytes were offered");
-        head.written += written;
-        self.pending_byte_count -= written;
-        if head.written < head.bytes.len() {
-            self.pending.push_front(head);
-        } else {
-            answer_write(head.answer, Ok(()));
-        }
-    }
-
-    /// Answers every waiting write, a partly written one included, as closed, and every later one.
-    pub(crate) fn close(&mut self) {
-        self.stop_with(WriteStop::Closed);
-    }
-
-    /// Answers every waiting write, a partly written one included, as ended, and every later one.
-    pub(crate) fn end(&mut self) {
-        self.stop_with(WriteStop::Ended);
-    }
-
-    /// Answers every waiting write with `error`, shared among them; later writes are taken as
-    /// before.
-    pub(crate) fn fail(&mut self, error: io::Error) {
-        let error = Arc::new(error);
-        self.pending_byte_count = 0;
-        for write in self.pending.drain(..) {
-            answer_write(
-                write.answer,
-                Err(TerminalWriteError::Failed(Arc::clone(&error))),
-            );
-        }
-    }
-
-    fn stop_with(&mut self, stop: WriteStop) {
-        self.stop = Some(stop);
-        self.pending_byte_count = 0;
-        for write in self.pending.drain(..) {
-            answer_write(write.answer, Err(stop.error()));
-        }
-    }
-}
-
-/// Sends a write's answer; a writer that stopped waiting has dropped its receiver, which is not an
-/// error.
-fn answer_write(answer: WriteAnswer, result: Result<(), TerminalWriteError>) {
-    if answer.send(result).is_err() {
-        tracing::debug!("a terminal write's answer had no reader: its writer stopped waiting");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
     use std::ffi::OsString;
     use std::io;
 
-    use bytes::Bytes;
-    use rstest::rstest;
-    use tokio::sync::oneshot::{self, error::TryRecvError};
-
     use super::{
-        ShellEnvironmentError, TerminalWriteError, WriteQueue, check_environment,
-        encode_shell_environment, shell_environment, shell_environment_name,
+        ShellEnvironmentError, check_environment, encode_shell_environment, shell_environment,
+        shell_environment_name,
     };
-
-    type Answer = oneshot::Receiver<Result<(), TerminalWriteError>>;
-
-    fn push(queue: &mut WriteQueue, bytes: &'static [u8]) -> Answer {
-        let (answer, receiver) = oneshot::channel();
-        queue.push(Bytes::from_static(bytes), answer);
-        receiver
-    }
-
-    fn is_waiting(receiver: &mut Answer) -> bool {
-        matches!(receiver.try_recv(), Err(TryRecvError::Empty))
-    }
-
-    fn is_written(receiver: &mut Answer) -> bool {
-        matches!(receiver.try_recv(), Ok(Ok(())))
-    }
-
-    fn is_closed(error: &TerminalWriteError) -> bool {
-        matches!(error, TerminalWriteError::Closed)
-    }
-
-    fn is_ended(error: &TerminalWriteError) -> bool {
-        matches!(error, TerminalWriteError::Ended)
-    }
-
-    type Stop = (fn(&mut WriteQueue), fn(&TerminalWriteError) -> bool);
-
-    #[rstest]
-    // A full terminal leaves the rest of the head write waiting, and writes answer in order.
-    #[case::waits_while_full_in_order(None)]
-    // After a close no byte is written: the partly written head, the queued write and a later one
-    // are all refused.
-    #[case::never_after_close(Some((
-        WriteQueue::close as fn(&mut WriteQueue),
-        is_closed as fn(&TerminalWriteError) -> bool,
-    )))]
-    #[case::never_after_end(Some((
-        WriteQueue::end as fn(&mut WriteQueue),
-        is_ended as fn(&TerminalWriteError) -> bool,
-    )))]
-    fn writes_go_in_order_and_never_after_the_terminal_stops(#[case] stop: Option<Stop>) {
-        let mut queue = WriteQueue::new();
-        let mut first = push(&mut queue, b"abcd");
-        let mut second = push(&mut queue, b"ef");
-
-        queue.advance(2);
-        assert!(is_waiting(&mut first));
-        assert!(is_waiting(&mut second));
-        assert_eq!(queue.pending_bytes(), Some(&b"cd"[..]));
-
-        if let Some((stop, is_refusal)) = stop {
-            stop(&mut queue);
-            for receiver in [&mut first, &mut second] {
-                assert!(matches!(receiver.try_recv(), Ok(Err(error)) if is_refusal(&error)));
-            }
-            assert_eq!(queue.pending_bytes(), None);
-            let mut later = push(&mut queue, b"gh");
-            assert!(matches!(later.try_recv(), Ok(Err(error)) if is_refusal(&error)));
-            assert_eq!(queue.pending_bytes(), None);
-        } else {
-            queue.advance(2);
-            assert!(is_written(&mut first));
-            assert!(is_waiting(&mut second));
-            assert_eq!(queue.pending_bytes(), Some(&b"ef"[..]));
-            queue.advance(2);
-            assert!(is_written(&mut second));
-            assert_eq!(queue.pending_bytes(), None);
-        }
-    }
 
     #[test]
     fn the_shell_mode_reads_back_exactly_the_environment_it_was_handed() {

@@ -54,6 +54,8 @@ pub enum TerminalWake {
     InputEnded,
     /// The system refused the offered input; the terminal may still take later input.
     WriteFailed(io::Error),
+    /// The terminal began refusing the offered input, having no room for any of it.
+    InputRefused,
     /// The program may have exited; the watch's `take_child_exit` says whether it did.
     ChildEvent,
     /// Its waker was woken.
@@ -122,6 +124,79 @@ impl TerminalWaker {
     }
 }
 
+/// Whether a terminal refuses its input now: its watch sets it when the terminal could take none
+/// of a waiting write, and clears it once a write goes through or no write waits, so the read loop
+/// sends a key typed while the input is backed up as its signal instead.
+#[derive(Clone, Debug, Default)]
+pub struct TerminalInputRefusal {
+    is_refused: Arc<AtomicBool>,
+}
+
+impl TerminalInputRefusal {
+    /// A terminal taking its input, as every terminal starts.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether the terminal's watch last found it unable to take a waiting write.
+    pub fn is_refused(&self) -> bool {
+        self.is_refused.load(Ordering::SeqCst)
+    }
+
+    /// Sets whether the terminal refuses its input, answering whether it began refusing it now.
+    pub(crate) fn set(&self, is_refused: bool) -> bool {
+        let was_refused = self.is_refused.swap(is_refused, Ordering::SeqCst);
+        is_refused && !was_refused
+    }
+}
+
+/// The argument, after the console helper's own and before the process id, that asks the helper
+/// how many input events wait unread on that process's console rather than to send it a break.
+pub const CONSOLE_WAITING_INPUT_ARGUMENT: &str = "input";
+
+/// The start of the line the console helper writes the waiting input count on.
+#[cfg_attr(
+    not(any(target_os = "windows", test)),
+    expect(
+        dead_code,
+        reason = "only the Windows console helper writes the line and reads it back"
+    )
+)]
+const WAITING_INPUT_LINE_START: &str = "waiting-input-events ";
+
+/// The line the console helper writes `waiting_input_events` on, for [`read_waiting_input_line`].
+#[cfg_attr(
+    not(any(target_os = "windows", test)),
+    expect(
+        dead_code,
+        reason = "only the Windows console helper writes the line and reads it back"
+    )
+)]
+pub(crate) fn waiting_input_line(waiting_input_events: u32) -> String {
+    format!("{WAITING_INPUT_LINE_START}{waiting_input_events}\n")
+}
+
+/// The waiting input count in the console helper's output, read from its one line that starts as
+/// [`waiting_input_line`] writes it. Fails with `InvalidData` when no line carries a count.
+#[cfg_attr(
+    not(any(target_os = "windows", test)),
+    expect(
+        dead_code,
+        reason = "only the Windows console helper writes the line and reads it back"
+    )
+)]
+pub(crate) fn read_waiting_input_line(output: &[u8]) -> io::Result<u32> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .find_map(|line| line.strip_prefix(WAITING_INPUT_LINE_START)?.parse().ok())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the console helper wrote no waiting input count",
+            )
+        })
+}
+
 /// A program a test runs in a terminal, with its arguments.
 #[cfg(any(test, feature = "test-support"))]
 #[derive(Clone, Debug)]
@@ -142,4 +217,20 @@ pub struct AbnormalExit {
     pub exit_code: i64,
     /// The signal the terminal reports, where the system reports one.
     pub signal_code: Option<i32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{read_waiting_input_line, waiting_input_line};
+
+    #[test]
+    fn the_helper_s_waiting_input_line_reads_back_among_other_output() {
+        let output = format!(
+            "running 1 test\n{}test result: ok\n",
+            waiting_input_line(4_096)
+        );
+
+        assert_eq!(read_waiting_input_line(output.as_bytes()).ok(), Some(4_096));
+        assert!(read_waiting_input_line(b"waiting-input-events many\n").is_err());
+    }
 }

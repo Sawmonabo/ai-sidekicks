@@ -2,10 +2,13 @@
 //!
 //! [`Terminals`] starts each shell, carries its input, resize, pause and stops, and drains every
 //! shell at the service's stop; each shell's output and exit reach the caller through its
-//! [`TerminalOutput`], and its screen copy and scrollback through its [`TerminalScreen`].
+//! [`TerminalOutput`], its screen copy and scrollback through its [`TerminalScreen`], and the
+//! screen's answers to a program's questions go back through its [`TerminalAnswers`].
 
 mod exit;
+mod input;
 mod kill;
+mod osc_limit;
 mod pty;
 mod read_loop;
 mod screen;
@@ -30,16 +33,18 @@ use tokio::task::{JoinError, JoinSet};
 use uuid::Uuid;
 
 pub use exit::TerminalExit;
+pub use input::answers::{ANSWER_BYTES_LIMIT, TerminalAnswers};
+pub use input::queue::TerminalWriteError;
 pub use kill::KillError;
-pub use pty::{
-    CommandLine, ShellEnvironmentError, SpawnRequest, TerminalWriteError, shell_environment,
-};
-pub use read_loop::{OutputFilter, TerminalEvent, TerminalOutput};
-pub use screen::{ScrollbackRead, TerminalScreen};
+pub use pty::{CommandLine, ShellEnvironmentError, SpawnRequest, shell_environment};
+pub use read_loop::control::WriteTaken;
+pub use read_loop::output::{OutputFilter, TerminalEvent, TerminalOutput};
+pub use screen::{ScreenListener, ScrollbackRead, TerminalScreen};
 pub use sidekicks_platforms::TerminalSignal;
 
+use crate::input::answers::ConsoleInputRead;
 use crate::kill::{ChildEnding, Escalation};
-use crate::read_loop::TerminalControl;
+use crate::read_loop::control::TerminalControl;
 
 /// One terminal's handle for its life, minted at its spawn and stored nowhere.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -118,7 +123,8 @@ type LiveTerminals = Arc<Mutex<HashMap<TerminalHandle, Arc<TerminalEntry>>>>;
 pub struct Terminals {
     /// The thread every shell, `taskkill.exe` and console helper starts on.
     spawner: Spawner,
-    /// The daemon's `console` mode, which ends a terminal on Windows.
+    /// The daemon's `console` mode, which ends a terminal on Windows and reads how much input
+    /// waits on its console.
     console_helper: Arc<CommandLine>,
     /// The live terminals, by handle.
     live: LiveTerminals,
@@ -130,8 +136,9 @@ pub struct Terminals {
 
 impl Terminals {
     /// Terminals whose shells, `taskkill.exe` and console helper start on `spawner`'s thread,
-    /// ended on Windows through `console_helper` (the daemon's `console` mode, to which each
-    /// call adds the program's process id).
+    /// ended on Windows, and their consoles' waiting input read, through `console_helper` (the
+    /// daemon's `console` mode, to which each call adds the program's process id, after
+    /// `input` for a reading).
     pub fn new(spawner: Spawner, console_helper: CommandLine) -> Self {
         Self {
             spawner,
@@ -142,18 +149,19 @@ impl Terminals {
         }
     }
 
-    /// Starts a shell on the spawner thread and its read loop on the current runtime. `listener`
-    /// hears the screen copy's events under its lock and must not block; `filter` takes each chunk
-    /// of output first. Refused while draining; fails with `InvalidInput` for a size the terminal
-    /// cannot take or an environment `open` refuses, and when the shell or its loop cannot start.
+    /// Starts a shell on the spawner thread and its read loop on the current runtime. `listen`
+    /// makes, from the shell's answers, the listener that hears the screen copy under its lock and
+    /// must not block; `filter` takes each chunk of output first. Refused while draining; fails
+    /// with `InvalidInput` for a size the terminal cannot take or an environment `open` refuses,
+    /// and when the shell or its loop cannot start.
     pub async fn spawn<L, F>(
         &self,
         request: SpawnRequest,
-        listener: L,
+        listen: impl FnOnce(TerminalAnswers) -> L,
         filter: F,
     ) -> Result<SpawnedTerminal<L>, TerminalError>
     where
-        L: EventListener + Clone + Send + 'static,
+        L: ScreenListener,
         F: OutputFilter,
     {
         if self.is_draining.load(Ordering::SeqCst) {
@@ -161,20 +169,22 @@ impl Terminals {
         }
         let (rows, columns) = (request.rows, request.columns);
         screen::check_screen_size(rows, columns).map_err(TerminalError::Spawn)?;
-        let pty = self
+        let opened = self
             .spawner
             .run(move || pty::open_pty(&request))
             .await
             .and_then(|opened| opened)
             .map_err(TerminalError::Spawn)?;
         let handle = TerminalHandle::mint();
+        let console_read = sidekicks_platforms::child_process_id(&opened.pty)
+            .filter(|_| sidekicks_platforms::DOES_CONSOLE_COUNT_WAITING_INPUT)
+            .map(|process_id| self.console_input_read(process_id));
         let started = read_loop::start_read_loop(
             &Handle::current(),
             &format!("terminal {handle}"),
-            pty,
-            rows,
-            columns,
-            listener,
+            opened,
+            console_read,
+            move |answers| TerminalScreen::new(rows, columns, listen(answers)),
             filter,
         )
         .map_err(TerminalError::Spawn)?;
@@ -231,11 +241,17 @@ impl Terminals {
             .map_err(TerminalError::Resize)
     }
 
-    /// Writes `bytes` to the terminal's input, answering once every byte is written; fails for an
-    /// unknown handle and for a write the terminal's close or end left unwritten.
-    pub async fn write(&self, handle: TerminalHandle, bytes: Bytes) -> Result<(), TerminalError> {
-        let entry = self.entry(handle)?;
-        Ok(entry.control.write(bytes).await?)
+    /// Hands `bytes` to the terminal's input behind every write and answer handed over before it,
+    /// at once and without waiting, so writes keep the order of the calls; the [`WriteTaken`]
+    /// resolves once the terminal's write queue takes the write, which it does while the queue
+    /// holds fewer than 64 KiB. Fails at once for an unknown handle and a terminal closing or
+    /// ended.
+    pub fn queue_write(
+        &self,
+        handle: TerminalHandle,
+        bytes: Bytes,
+    ) -> Result<WriteTaken, TerminalError> {
+        Ok(self.entry(handle)?.control.queue_write(bytes)?)
     }
 
     /// Stops reading the terminal, so its output waits in the system's buffer and the program
@@ -343,6 +359,31 @@ impl Terminals {
             .filter(|entry| !entry.control.has_child_exited())
             .filter_map(|entry| entry.control.process_id())
             .collect()
+    }
+
+    /// Reads how much input waits on the console of the program `process_id`, through the console
+    /// helper.
+    fn console_input_read(&self, process_id: u32) -> ConsoleInputRead {
+        let spawner = self.spawner.clone();
+        let console_helper = Arc::clone(&self.console_helper);
+        Arc::new(move || {
+            let spawner = spawner.clone();
+            let console_helper = Arc::clone(&console_helper);
+            Box::pin(async move {
+                let arguments: Vec<OsString> = console_helper
+                    .arguments
+                    .iter()
+                    .map(OsString::from)
+                    .collect();
+                sidekicks_platforms::read_console_waiting_input(
+                    &spawner,
+                    OsStr::new(&console_helper.program),
+                    &arguments,
+                    process_id,
+                )
+                .await
+            })
+        })
     }
 
     /// The live terminal `handle` names; fails with `UnknownTerminal` once it is gone.
