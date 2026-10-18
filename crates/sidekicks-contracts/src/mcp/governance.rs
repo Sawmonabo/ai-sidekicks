@@ -190,7 +190,12 @@ methods! {
             mutating: true,
             params: McpServerDeleteRequest,
             result: McpServerDeleteResponse,
-            refusals: [McpBindingStoreUnavailable, McpServerNotFound, McpServerConfigWriteConflict],
+            refusals: [
+                McpBindingStoreUnavailable,
+                McpServerNotFound,
+                McpServerConfigWriteConflict,
+                ApprovalRuleNotKept,
+            ],
         },
         /// Turns a binding on or off.
         McpServerEnabledUpdate = mutation "mcp.server.enabled.update" {

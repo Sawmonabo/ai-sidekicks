@@ -1,13 +1,18 @@
 //! Protocol negotiation: the `connection.initialize` exchange and the gate in front of every other
-//! call. A connection is served nothing until a handshake carrying this start's session token has
+//! call. A connection is served nothing until a handshake from the person's own client has
 //! completed, and no mutating call after an incompatible one.
 //!
-//! A handshake without the token, or with a wrong one, latches the connection refused, so nothing
-//! more is served on it, a second guess included. A handshake with the token latches it refused too
-//! when its caller is an agent's: a process the daemon started outside the person's terminals, one
-//! a provider service the daemon holds a connection to started, or one the system could not name or
-//! trace. Reading the token file is not enough to be the machine's own client. Each connection's
-//! first outcome is latched, so a repeated or hostile handshake cannot flip the gate.
+//! The caller is checked first: an agent's process (one the daemon started outside the person's
+//! terminals, or one a provider service the daemon holds a connection to started), or one the
+//! system could not name or trace, latches the connection refused whatever the handshake carries,
+//! so reading the token file is not enough to be the machine's own client. Then a handshake with
+//! this start's session token is admitted (the command line), and one without a token is admitted
+//! when its caller is the desktop's signed client; any other latches the connection refused. Each
+//! connection's first handshake decides it: a handshake sent while the first's caller check runs
+//! waits for that outcome and gets it, so a wrong token followed by the right one is refused, and a
+//! repeated or hostile handshake cannot flip the gate. A repeat on an admitted connection is
+//! answered only when it carries the token, or none on a connection its caller's signature
+//! admitted; any other is refused `auth.token.invalid` and changes nothing latched.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -25,7 +30,9 @@ use sidekicks_contracts::jsonrpc::negotiation::{
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_platforms::PinnedProcess;
 use subtle::ConstantTimeEq as _;
+use tracing::Instrument as _;
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
@@ -33,17 +40,35 @@ use crate::ipc::registry::{
     RegistrationError, Reply, Request, TransportId,
 };
 
-/// Answers whether a handshake carrying the session token from the process with this id is still
-/// refused because the process is an agent's; a failed read answers the handshake `-32603`.
-pub(crate) type RefusedCallerCheck = Arc<
-    dyn Fn(u32) -> BoxFuture<'static, Result<bool, Arc<dyn Error + Send + Sync>>> + Send + Sync,
+/// How a handshake's caller is admitted, read once per connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CallerAdmission {
+    /// The caller is an agent's, or nothing vouches for it: refused whatever the handshake carries.
+    Refused,
+    /// The caller is the desktop's signed client, admitted by its signature without the session
+    /// token.
+    Signature,
+    /// The caller is admitted only with this start's session token.
+    TokenRequired,
+}
+
+/// Answers how a handshake from this pinned process is admitted; the flag says whether the
+/// handshake carried no token, the only handshake whose caller's signature is read. A failed read
+/// answers the handshake `-32603`.
+pub(crate) type CallerAdmissionCheck = Arc<
+    dyn Fn(
+            PinnedProcess,
+            bool,
+        ) -> BoxFuture<'static, Result<CallerAdmission, Arc<dyn Error + Send + Sync>>>
+        + Send
+        + Sync,
 >;
 
 /// Reads how far a database file's repair has come; `None` while the step it is on gives no count.
 pub(crate) type RepairProgressReader = Arc<dyn Fn() -> Option<DaemonRepairProgress> + Send + Sync>;
 
 /// A connection's caller read, shared by every handshake on it.
-type CallerRead = Shared<BoxFuture<'static, Result<bool, Arc<dyn Error + Send + Sync>>>>;
+type CallerRead = Shared<BoxFuture<'static, Result<CallerAdmission, Arc<dyn Error + Send + Sync>>>>;
 
 /// The daemon's own versions, read once from the contract's list, as the incompatible ack lists
 /// them.
@@ -61,8 +86,8 @@ static DAEMON_VERSIONS: LazyLock<BoundedVec<ProtocolVersion, 0, SUPPORTED_PROTOC
 
 /// The message every refusal of a connection without the session token carries, so a refusal says
 /// nothing about the token.
-const TOKEN_INVALID_MESSAGE: &str =
-    "The connection.initialize call lacked this daemon's session token, so nothing is served on it";
+const TOKEN_INVALID_MESSAGE: &str = "The connection.initialize call lacked this daemon's session \
+     token, so nothing is served on it";
 
 /// The message of a refusal of an agent's connection, or one the system could not name.
 const CALLER_REFUSED_MESSAGE: &str = "The connection was opened by a process this daemon or a \
@@ -84,7 +109,8 @@ const REPAIRING_MESSAGE: &str =
 /// Why a connection is latched refused.
 #[derive(Clone, Copy)]
 enum ConnectionRefusal {
-    /// Its handshake carried no session token or a wrong one.
+    /// Its handshake carried a wrong session token, or none from a caller that is not the
+    /// desktop's signed client.
     TokenInvalid,
     /// Its handshake came from an agent's process, or one the system could not name.
     CallerRefused,
@@ -115,22 +141,64 @@ enum LatchedHandshake {
     },
 }
 
+/// How a connection's first handshake was admitted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Admission {
+    /// By the caller's signature, without a token.
+    Signature,
+    /// By this start's session token.
+    Token,
+}
+
+/// What a connection's first handshake carried, read when its caller read starts, so the outcome
+/// is the same whichever handshake waiting on the read latches it.
+#[derive(Clone)]
+struct FirstHandshake {
+    /// The handshake it negotiates.
+    handshake: LatchedHandshake,
+    /// Whether it carried this start's session token.
+    has_session_token: bool,
+    /// Whether it carried no token at all.
+    is_tokenless: bool,
+}
+
+impl FirstHandshake {
+    /// How the connection is decided once its caller reads `caller_admission`.
+    fn outcome(
+        &self,
+        caller_admission: CallerAdmission,
+    ) -> Result<(LatchedHandshake, Admission), ConnectionRefusal> {
+        let admission = match caller_admission {
+            CallerAdmission::Refused => return Err(ConnectionRefusal::CallerRefused),
+            // A handshake that carries a token is admitted by that token alone.
+            CallerAdmission::Signature if self.is_tokenless => Admission::Signature,
+            CallerAdmission::Signature | CallerAdmission::TokenRequired => {
+                if !self.has_session_token {
+                    return Err(ConnectionRefusal::TokenInvalid);
+                }
+                Admission::Token
+            }
+        };
+        Ok((self.handshake.clone(), admission))
+    }
+}
+
 /// One connection's negotiation; a connection with no entry is before its handshake.
 enum ConnectionNegotiation {
-    /// A handshake with the token is reading its caller; nothing is latched yet.
-    ReadingCaller(CallerRead),
+    /// The first handshake is reading its caller; nothing is latched yet.
+    ReadingCaller(CallerRead, FirstHandshake),
     /// Nothing is served on the connection.
     Refused(ConnectionRefusal),
-    /// The first handshake's outcome.
-    Latched(LatchedHandshake),
+    /// The first handshake's outcome and how it was admitted.
+    Latched(LatchedHandshake, Admission),
 }
 
 /// Which handshake on its connection an answer is for.
 enum HandshakeTurn {
     /// The handshake that latched it.
     First(LatchedHandshake),
-    /// A later handshake, which finds the first latched.
-    Repeat(LatchedHandshake),
+    /// A later handshake, which finds the first latched, and how the first was admitted.
+    Repeat(LatchedHandshake, Admission),
 }
 
 /// A handshake the daemon could not answer: a fault, never the client's.
@@ -143,19 +211,19 @@ struct CallerReadFault(#[source] Arc<dyn Error + Send + Sync>);
 pub(crate) struct ProtocolNegotiator {
     /// The token this start wrote to its token file.
     session_token: String,
-    /// Whether a handshake with the token from a process is still refused.
-    is_refused_caller: RefusedCallerCheck,
+    /// How a handshake from a process is admitted.
+    admit_caller: CallerAdmissionCheck,
     /// Each connection's negotiation.
     connections: Mutex<HashMap<TransportId, ConnectionNegotiation>>,
 }
 
 impl ProtocolNegotiator {
     /// A negotiator for this start: `session_token` is the token it wrote to its token file, and
-    /// `is_refused_caller` answers whether a handshake carrying it from a process is still refused.
-    pub(crate) fn new(session_token: String, is_refused_caller: RefusedCallerCheck) -> Arc<Self> {
+    /// `admit_caller` answers how a handshake from a process is admitted.
+    pub(crate) fn new(session_token: String, admit_caller: CallerAdmissionCheck) -> Arc<Self> {
         Arc::new(Self {
             session_token,
-            is_refused_caller,
+            admit_caller,
             connections: Mutex::new(HashMap::new()),
         })
     }
@@ -176,10 +244,10 @@ impl ProtocolNegotiator {
     }
 
     /// Registers the `connection.initialize` of a service still repairing its database file: a
-    /// handshake with the token is refused `daemon.repairing` with the progress `read_progress`
-    /// reads, every time, and latches the handshake as any handshake does, so the gate lets that
-    /// connection's lifecycle calls through; one without the token is refused as any wrong token
-    /// is.
+    /// handshake the negotiator admits is refused `daemon.repairing` with the progress
+    /// `read_progress` reads, every time, and latches the handshake as any handshake does, so the
+    /// gate lets that connection's lifecycle calls through; a repeat's token is checked as on the
+    /// normal handshake.
     pub(crate) fn register_repairing_handshake(
         self: &Arc<Self>,
         registry: &mut MethodRegistryBuilder,
@@ -222,7 +290,7 @@ impl ProtocolNegotiator {
     ) -> Option<DomainError> {
         match self.connections().get(&transport) {
             Some(ConnectionNegotiation::Refused(refusal)) => Some(refusal.error()),
-            None | Some(ConnectionNegotiation::ReadingCaller(_)) => {
+            None | Some(ConnectionNegotiation::ReadingCaller(..)) => {
                 (method != CONNECTION_INITIALIZE_METHOD).then(|| {
                     DomainError::new(
                         HANDSHAKE_REQUIRED_MESSAGE,
@@ -231,13 +299,14 @@ impl ProtocolNegotiator {
                 })
             }
             // An unregistered method passes, so the registry answers that it is not served.
-            Some(ConnectionNegotiation::Latched(LatchedHandshake::Incompatible {
-                reason, ..
-            })) => registry
+            Some(ConnectionNegotiation::Latched(
+                LatchedHandshake::Incompatible { reason, .. },
+                _,
+            )) => registry
                 .descriptor(method)
                 .is_some_and(|descriptor| descriptor.is_mutating)
                 .then(|| version_mismatch(*reason)),
-            Some(ConnectionNegotiation::Latched(LatchedHandshake::Compatible { .. })) => None,
+            Some(ConnectionNegotiation::Latched(LatchedHandshake::Compatible { .. }, _)) => None,
         }
     }
 
@@ -246,11 +315,10 @@ impl ProtocolNegotiator {
         request: ConnectionInitializeRequest,
         context: HandlerContext,
     ) -> Result<ConnectionInitializeResponse, HandlerError> {
-        let turn = match self.latched(context.transport_id) {
-            Some(handshake) => HandshakeTurn::Repeat(handshake),
-            None => self.latch_handshake(&request, &context).await?,
-        };
-        Ok(acknowledgment(turn, context.device_id))
+        // Read before anything latches, so a connection wired with no device latches nothing.
+        let device_id = context.calling_device(CONNECTION_INITIALIZE_METHOD)?;
+        let turn = self.take_turn(&request, &context).await?;
+        Ok(acknowledgment(turn, device_id))
     }
 
     async fn answer_repairing_handshake(
@@ -259,11 +327,7 @@ impl ProtocolNegotiator {
         context: HandlerContext,
         read_progress: RepairProgressReader,
     ) -> Result<ConnectionInitializeResponse, HandlerError> {
-        if self.latched(context.transport_id).is_none() {
-            self.latch_handshake(&request, &context).await?;
-        } else if !self.is_session_token(request.session_token.as_ref()) {
-            return Err(ConnectionRefusal::TokenInvalid.error().into());
-        }
+        self.take_turn(&request, &context).await?;
         // A handshake always fails, so a client keeps waiting for the repair to end.
         Err(
             DomainError::new(REPAIRING_MESSAGE, RefusalCode::DaemonRepairing)
@@ -274,50 +338,90 @@ impl ProtocolNegotiator {
         )
     }
 
-    /// Refuses a handshake without this start's token, then one from a caller the daemon refuses or
-    /// the system could not name, latching the refusal; otherwise latches the version the handshake
-    /// negotiates. A handshake whose connection closed during its caller read latches nothing, a
-    /// refusal latched meanwhile wins, and a second handshake during the read finds the first
-    /// latched.
+    /// Which handshake on its connection `request` is: the first, which latches it, or a repeat,
+    /// whether it came before or during the first's caller read. A repeat that carries a wrong
+    /// token, or none on a connection the token admitted, is refused `auth.token.invalid`, and
+    /// what is latched stays.
+    async fn take_turn(
+        &self,
+        request: &ConnectionInitializeRequest,
+        context: &HandlerContext,
+    ) -> Result<HandshakeTurn, HandlerError> {
+        let turn = match self.latched(context.transport_id) {
+            Some((handshake, admission)) => HandshakeTurn::Repeat(handshake, admission),
+            None => self.latch_handshake(request, context).await?,
+        };
+        if let HandshakeTurn::Repeat(_, admission) = turn {
+            let is_tokenless_signature =
+                request.session_token.is_none() && admission == Admission::Signature;
+            if !is_tokenless_signature && !self.is_session_token(request.session_token.as_ref()) {
+                return Err(ConnectionRefusal::TokenInvalid.error().into());
+            }
+        }
+        Ok(turn)
+    }
+
+    /// Refuses a handshake from a caller the daemon refuses or the system could not name, then one
+    /// that carries a wrong token, or no token from a caller that is not the desktop's signed
+    /// client, latching the refusal; otherwise latches the version the handshake negotiates. A
+    /// handshake whose connection closed during its caller read latches nothing, a refusal latched
+    /// meanwhile wins, and a later handshake during the read waits for it and gets the first
+    /// handshake's outcome: its refusal, or the latched handshake as a repeat.
     async fn latch_handshake(
         &self,
         request: &ConnectionInitializeRequest,
         context: &HandlerContext,
     ) -> Result<HandshakeTurn, HandlerError> {
         let transport = context.transport_id;
-        if !self.is_session_token(request.session_token.as_ref()) {
-            return Err(self
-                .refuse(transport, ConnectionRefusal::TokenInvalid)
-                .into());
-        }
-        let Some(caller_process_id) = context.caller_process_id else {
+        let Some(caller_process) = context.caller_process.clone() else {
             return Err(self
                 .refuse(transport, ConnectionRefusal::CallerRefused)
                 .into());
         };
-        let caller_read = {
+        let (caller_read, first, is_first) = {
             let mut connections = self.connections();
             match connections.get(&transport) {
                 Some(ConnectionNegotiation::Refused(refusal)) => {
                     return Err(refusal.error().into());
                 }
-                Some(ConnectionNegotiation::Latched(handshake)) => {
-                    return Ok(HandshakeTurn::Repeat(handshake.clone()));
+                Some(ConnectionNegotiation::Latched(handshake, admission)) => {
+                    return Ok(HandshakeTurn::Repeat(handshake.clone(), *admission));
                 }
-                Some(ConnectionNegotiation::ReadingCaller(caller_read)) => caller_read.clone(),
+                Some(ConnectionNegotiation::ReadingCaller(caller_read, first)) => {
+                    (caller_read.clone(), first.clone(), false)
+                }
                 None => {
-                    let caller_read = (self.is_refused_caller)(caller_process_id).shared();
+                    let first = FirstHandshake {
+                        handshake: negotiate(request),
+                        has_session_token: self.is_session_token(request.session_token.as_ref()),
+                        is_tokenless: request.session_token.is_none(),
+                    };
+                    // The connection's id rides on every line the caller check logs.
+                    let caller_read = (self.admit_caller)(caller_process, first.is_tokenless)
+                        .instrument(tracing::debug_span!(
+                            "caller_check",
+                            connection = transport.0
+                        ))
+                        .boxed()
+                        .shared();
                     connections.insert(
                         transport,
-                        ConnectionNegotiation::ReadingCaller(caller_read.clone()),
+                        ConnectionNegotiation::ReadingCaller(caller_read.clone(), first.clone()),
                     );
-                    caller_read
+                    (caller_read, first, true)
                 }
             }
         };
-        let is_refused_caller = caller_read
+        let caller_admission = caller_read
             .await
             .map_err(|error| HandlerError::Internal(Box::new(CallerReadFault(error))))?;
+        let turn = |handshake: LatchedHandshake, admission: Admission| {
+            if is_first {
+                HandshakeTurn::First(handshake)
+            } else {
+                HandshakeTurn::Repeat(handshake, admission)
+            }
+        };
         let mut connections = self.connections();
         match connections.get(&transport) {
             // An ordinary disconnect: nothing can be sent, and no fault is logged.
@@ -326,22 +430,24 @@ impl ProtocolNegotiator {
                 Err(HandlerError::Canceled)
             }
             Some(ConnectionNegotiation::Refused(refusal)) => Err(refusal.error().into()),
-            Some(ConnectionNegotiation::ReadingCaller(_) | ConnectionNegotiation::Latched(_))
-                if is_refused_caller =>
-            {
-                connections.insert(
-                    transport,
-                    ConnectionNegotiation::Refused(ConnectionRefusal::CallerRefused),
-                );
-                Err(ConnectionRefusal::CallerRefused.error().into())
+            // Latched by a handshake that woke first, from the same first handshake.
+            Some(ConnectionNegotiation::Latched(handshake, admission)) => {
+                Ok(turn(handshake.clone(), *admission))
             }
-            Some(ConnectionNegotiation::Latched(handshake)) => {
-                Ok(HandshakeTurn::Repeat(handshake.clone()))
-            }
-            Some(ConnectionNegotiation::ReadingCaller(_)) => {
-                let handshake = negotiate(request);
-                connections.insert(transport, ConnectionNegotiation::Latched(handshake.clone()));
-                Ok(HandshakeTurn::First(handshake))
+            Some(ConnectionNegotiation::ReadingCaller(..)) => {
+                match first.outcome(caller_admission) {
+                    Ok((handshake, admission)) => {
+                        connections.insert(
+                            transport,
+                            ConnectionNegotiation::Latched(handshake.clone(), admission),
+                        );
+                        Ok(turn(handshake, admission))
+                    }
+                    Err(refusal) => {
+                        connections.insert(transport, ConnectionNegotiation::Refused(refusal));
+                        Err(refusal.error().into())
+                    }
+                }
             }
         }
     }
@@ -353,10 +459,12 @@ impl ProtocolNegotiator {
         refusal.error()
     }
 
-    fn latched(&self, transport: TransportId) -> Option<LatchedHandshake> {
+    fn latched(&self, transport: TransportId) -> Option<(LatchedHandshake, Admission)> {
         match self.connections().get(&transport) {
-            Some(ConnectionNegotiation::Latched(handshake)) => Some(handshake.clone()),
-            Some(ConnectionNegotiation::ReadingCaller(_) | ConnectionNegotiation::Refused(_))
+            Some(ConnectionNegotiation::Latched(handshake, admission)) => {
+                Some((handshake.clone(), *admission))
+            }
+            Some(ConnectionNegotiation::ReadingCaller(..) | ConnectionNegotiation::Refused(_))
             | None => None,
         }
     }
@@ -461,6 +569,7 @@ fn acknowledgment(turn: HandshakeTurn, device_id: DeviceId) -> ConnectionInitial
                 daemon_newest: version,
                 ..
             },
+            _,
         ) => (
             false,
             version,
@@ -491,243 +600,4 @@ fn acknowledgment(turn: HandshakeTurn, device_id: DeviceId) -> ConnectionInitial
 }
 
 #[cfg(test)]
-mod tests {
-    use std::error::Error;
-    use std::sync::Arc;
-
-    use futures::FutureExt as _;
-    use rstest::rstest;
-    use serde_json::json;
-    use serde_json::value::RawValue;
-    use sidekicks_contracts::jsonrpc::negotiation::{
-        CONNECTION_INITIALIZE_METHOD, CURRENT_PROTOCOL_VERSION, ConnectionInitializeResponse,
-        NegotiationIncompatibleReason,
-    };
-    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
-    use sidekicks_contracts::schema::received_check;
-    use sidekicks_contracts::typescript::TypeName;
-    use tokio::sync::{Notify, mpsc};
-
-    use super::{NegotiationGate, ProtocolNegotiator, RefusedCallerCheck};
-    use crate::ipc::call_fixtures::{Nothing, context};
-    use crate::ipc::registry::{
-        Dispatch, DispatchError, HandlerContext, MethodRegistryBuilder, Reply, Request,
-    };
-
-    const SESSION_TOKEN: &str = "the-session-token";
-
-    /// A method that reads (`false`) or mutates (`true`).
-    struct Probe<const IS_MUTATING: bool>;
-
-    impl<const IS_MUTATING: bool> Method for Probe<IS_MUTATING> {
-        type Params = Nothing;
-        type Result = Nothing;
-        const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
-            method: if IS_MUTATING {
-                "test.write"
-            } else {
-                "test.read"
-            },
-            procedure_type: if IS_MUTATING {
-                ProcedureType::Mutation
-            } else {
-                ProcedureType::Query
-            },
-            is_mutating: IS_MUTATING,
-            params: TypeName::of::<Nothing>(),
-            result: TypeName::of::<Nothing>(),
-            emission: None,
-            refusals: &[],
-            received_check: received_check::<Nothing>,
-        };
-    }
-
-    /// One call on the connection.
-    #[derive(Clone, Copy, Debug)]
-    enum Call {
-        /// A handshake with this token, offering this one version.
-        Handshake(&'static str, &'static str),
-        Read,
-        Write,
-    }
-
-    /// What the call answers.
-    #[derive(Clone, Copy, Debug)]
-    enum Answer {
-        /// A handshake's ack: whether compatible, and its reason.
-        Ack(bool, Option<NegotiationIncompatibleReason>),
-        /// A read's or a write's result.
-        Served,
-        Refused(RefusalCode),
-    }
-
-    fn request(call: Call) -> Request {
-        let (method, params) = match call {
-            Call::Handshake(token, version) => (
-                CONNECTION_INITIALIZE_METHOD,
-                json!({ "protocolVersion": version, "sessionToken": token }),
-            ),
-            Call::Read => ("test.read", json!({})),
-            Call::Write => ("test.write", json!({})),
-        };
-        Request {
-            method: method.to_owned(),
-            params: Some(RawValue::from_string(params.to_string()).expect("the params are JSON")),
-            attachments: Vec::new(),
-        }
-    }
-
-    /// The negotiation gate over a registry serving the handshake, a read and a write, its callers
-    /// checked by `is_refused_caller`.
-    fn gate_over(is_refused_caller: RefusedCallerCheck) -> NegotiationGate {
-        let negotiator = ProtocolNegotiator::new(SESSION_TOKEN.to_owned(), is_refused_caller);
-        let mut builder = MethodRegistryBuilder::new();
-        negotiator
-            .register_handshake(&mut builder)
-            .expect("the handshake registers");
-        builder
-            .register::<Probe<false>, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
-            .expect("the read registers");
-        builder
-            .register::<Probe<true>, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
-            .expect("the write registers");
-        let registry = Arc::new(builder.freeze());
-        negotiator.gate(Arc::clone(&registry) as Arc<dyn Dispatch>, registry)
-    }
-
-    /// The context of a call on connection 1 from the process `caller_process_id`.
-    fn caller_context(caller_process_id: Option<u32>) -> HandlerContext {
-        HandlerContext {
-            caller_process_id,
-            ..context(1)
-        }
-    }
-
-    #[rstest]
-    #[case::wrong_token_latches_refused(Some(7), false, &[
-        (Call::Handshake("a-wrong-token", CURRENT_PROTOCOL_VERSION),
-            Answer::Refused(RefusalCode::AuthTokenInvalid)),
-        (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
-            Answer::Refused(RefusalCode::AuthTokenInvalid)),
-        (Call::Read, Answer::Refused(RefusalCode::AuthTokenInvalid)),
-    ])]
-    #[case::floor(Some(7), false, &[
-        (Call::Handshake(SESSION_TOKEN, "2000-01-01"),
-            Answer::Ack(false, Some(NegotiationIncompatibleReason::FloorExceeded))),
-        (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
-        (Call::Read, Answer::Served),
-    ])]
-    #[case::ceiling(Some(7), false, &[
-        (Call::Handshake(SESSION_TOKEN, "2999-12-31"),
-            Answer::Ack(false, Some(NegotiationIncompatibleReason::CeilingExceeded))),
-        (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
-        (Call::Read, Answer::Served),
-    ])]
-    #[case::compatible(Some(7), false, &[
-        (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION), Answer::Ack(true, None)),
-        (Call::Write, Answer::Served),
-        (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
-            Answer::Ack(false, Some(NegotiationIncompatibleReason::HandshakeAlreadyCompleted))),
-    ])]
-    #[case::before_the_handshake(Some(7), false, &[
-        (Call::Read, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
-        (Call::Write, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
-    ])]
-    #[case::agent_process(Some(7), true, &[
-        (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
-            Answer::Refused(RefusalCode::AuthCallerRefused)),
-        (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
-    ])]
-    #[case::unnamed_caller(None, false, &[
-        (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
-            Answer::Refused(RefusalCode::AuthCallerRefused)),
-        (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
-    ])]
-    #[tokio::test]
-    async fn the_gate_and_the_handshake_answer_each_connection_state(
-        #[case] caller_process_id: Option<u32>,
-        #[case] is_agent_process: bool,
-        #[case] calls: &[(Call, Answer)],
-    ) {
-        let gate = gate_over(Arc::new(move |_process_id: u32| {
-            futures::future::ready(Ok::<_, Arc<dyn Error + Send + Sync>>(is_agent_process)).boxed()
-        }));
-        for &(call, expected) in calls {
-            let answer = gate
-                .dispatch(request(call), caller_context(caller_process_id))
-                .await;
-            match (answer, expected) {
-                (Ok(Reply::Result(encoded)), Answer::Ack(compatible, reason)) => {
-                    let ack: ConnectionInitializeResponse =
-                        serde_json::from_slice(&encoded.json).expect("the ack is JSON");
-                    assert_eq!(
-                        (ack.compatible, ack.reason),
-                        (compatible, reason),
-                        "{call:?}"
-                    );
-                }
-                (Ok(Reply::Result(_)), Answer::Served) => {}
-                (Err(DispatchError::Refused(refusal)), Answer::Refused(code)) => {
-                    assert_eq!(refusal.code, code, "{call:?}");
-                    assert!(
-                        !refusal.message.contains("test."),
-                        "the message names no method"
-                    );
-                }
-                (Err(error), _) => panic!("{call:?}: expected {expected:?}, got {error:?}"),
-                (Ok(_), _) => panic!("{call:?}: expected {expected:?}, got another reply"),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn a_refusal_latched_during_the_caller_read_wins_over_its_success() {
-        let (read_started, mut has_read_started) = mpsc::unbounded_channel();
-        let release = Arc::new(Notify::new());
-        let read_release = Arc::clone(&release);
-        let gate = gate_over(Arc::new(move |_process_id: u32| {
-            read_started.send(()).expect("the test listens");
-            let release = Arc::clone(&read_release);
-            async move {
-                release.notified().await;
-                Ok::<_, Arc<dyn Error + Send + Sync>>(false)
-            }
-            .boxed()
-        }));
-
-        let handshake = tokio::spawn(gate.dispatch(
-            request(Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION)),
-            caller_context(Some(7)),
-        ));
-        has_read_started
-            .recv()
-            .await
-            .expect("the caller read starts");
-        let wrong = gate
-            .dispatch(
-                request(Call::Handshake("a-wrong-token", CURRENT_PROTOCOL_VERSION)),
-                caller_context(Some(7)),
-            )
-            .await;
-        assert!(matches!(
-            wrong,
-            Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
-        ));
-
-        // The read then finds the caller is no agent's, and the latched refusal still answers.
-        release.notify_one();
-        let answer = handshake.await.expect("the handshake ran");
-        assert!(matches!(
-            answer,
-            Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
-        ));
-        let read = gate
-            .dispatch(request(Call::Read), caller_context(Some(7)))
-            .await;
-        assert!(matches!(
-            read,
-            Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
-        ));
-    }
-}
+mod tests;

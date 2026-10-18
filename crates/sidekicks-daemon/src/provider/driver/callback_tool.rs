@@ -1,32 +1,32 @@
-//! A callback tool's call as a driver hands it to the daemon, and the daemon's answer the driver
-//! relays to the provider, so no call the provider makes goes unanswered.
+//! A callback tool's call as the daemon's `sidekicks` tool route hands it to the callback-tool
+//! host, and the host's answer the route returns to the provider, so no call the provider makes
+//! goes unanswered.
 
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 use sidekicks_contracts::command::COMMAND_ID_MAX_LEN;
-use sidekicks_contracts::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 /// The longest provider correlation id a callback-tool call carries, in code points: the same cap
 /// as a command's id.
-pub(crate) const DRIVER_TOOL_CALL_ID_MAX_LEN: usize = COMMAND_ID_MAX_LEN;
+pub(crate) const PROVIDER_TOOL_CALL_ID_MAX_LEN: usize = COMMAND_ID_MAX_LEN;
 
-/// One callback-tool call the provider made, built by the driver from provider output; the bounds
-/// its text members hold are the only checks made here. The daemon answers an unknown tool
-/// `failed` and checks `arguments` against the tool's input schema before any approval, and
-/// copies `tool_call_id` onto its answer unchanged, since a tool's start and end pair on it.
+/// One callback-tool call the provider made, built by the `sidekicks` tool route from arguments it
+/// has already checked against the tool's input schema. The host answers an unknown tool `failed`
+/// and copies `tool_call_id` onto its answer unchanged, since a tool's start and end pair on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CallbackToolInvocation {
     /// The tool the provider called.
-    pub(crate) tool_name: FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>,
+    pub(crate) tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// The call's arguments as the provider sent them.
     pub(crate) arguments: Map<String, Value>,
     /// The provider's id for the call.
-    pub(crate) tool_call_id: FreeFormText<DRIVER_TOOL_CALL_ID_MAX_LEN>,
+    pub(crate) tool_call_id: FreeFormText<PROVIDER_TOOL_CALL_ID_MAX_LEN>,
     /// The session.
     pub(crate) session_id: SessionId,
     /// The run whose turn made the call.
@@ -54,7 +54,7 @@ pub(crate) enum CallbackToolResult {
     },
 }
 
-/// The dispatcher the daemon hands a driver at spawn: the driver calls it for each callback-tool
-/// call and answers the provider with what it returns.
+/// The token-bound dispatcher for one spawn: the `sidekicks` tool route calls it for each
+/// callback-tool call and answers the provider with what it returns.
 pub(crate) type CallbackToolDispatcher =
     Arc<dyn Fn(CallbackToolInvocation) -> BoxFuture<'static, CallbackToolResult> + Send + Sync>;

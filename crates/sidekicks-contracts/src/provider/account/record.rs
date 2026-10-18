@@ -663,7 +663,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderAccount>().checked(),
         Definition::read::<readiness::ProviderReadinessState>().checked(),
         Definition::read::<readiness::ProviderRegisterRemedy>(),
-        Definition::read::<readiness::ProviderChooseDefaultRemedy>(),
+        Definition::read::<readiness::ProviderChooseCurrentRemedy>(),
         Definition::read::<readiness::ProviderSignInRemedy>(),
         Definition::read::<readiness::ProviderPasteTokenRemedy>(),
         Definition::read::<readiness::ProviderLookAgainRemedy>(),

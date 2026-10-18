@@ -133,7 +133,7 @@ Phase 1 also waits on Plan-003 Phase 1: T1.1's `agent.queueItem.create` uses the
 - **Files:** `crates/sidekicks-contracts/src/run/intervention.rs` (CREATE)
 - **Spec coverage:** Spec-003 §Interfaces And Contracts (AgentRunInterveneRequest — target run id, type, mandatory expectedRunVersion guard; the interrupt's `pending` and `deliverFirst`)
 - **Verifies invariant:** I-002-4
-- **Consumes:** `RunId`, `InterventionType` (`'interrupt' | 'fasterModelRetry'` — Plan-003-owned, `crates/sidekicks-contracts/src/provider/driver/intervention.rs` §Shared Enums per CP-003-4, imported upward; the driver's `steer`, the delivery of a queued message, T3.8, is no intervention type)
+- **Consumes:** `RunId`, `InterventionType` (`'interrupt' | 'fasterModelRetry'` — declared in `crates/sidekicks-contracts/src/run/intervention.rs` beside the intervention record; the driver's `steer`, the delivery of a queued message, T3.8, is no intervention type)
 - **T1.3 — `AgentRunInterveneResponse` + `RunStateChangeEvent`** — the response is discriminated on `state` and carries no `result`, since no intervention returns one; a `rejected` response carries the machine-readable `rejectionReason` so a refusal rides the lifecycle response, not the `JsonRpcError` channel. `RunStateChangeEvent` carries `newState`, `pausing` among the values.
 - **Files:** `crates/sidekicks-contracts/src/run/intervention.rs` (EXTEND — `AgentRunInterveneResponse`) + `crates/sidekicks-contracts/src/run/control.rs` (CREATE — `RunStateChangeEvent`)
 - **Spec coverage:** Spec-003 §Interfaces And Contracts (AgentRunInterveneResponse + RunStateChange event)

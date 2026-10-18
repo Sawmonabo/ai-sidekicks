@@ -23,7 +23,7 @@ This record takes the OSS developer-tool posture as the V1 deployment model.
 
 Related architectural choices already in place:
 
-- `deployment-topology.md` §Rate Limiting By Deployment names where each relay counts its sign-in routes: the per-identity Durable Object on the Workers relay, memory on the Compose relay.
+- `deployment-topology.md` §Rate Limiting By Deployment names where each relay counts its sign-in routes: one counter over the account's `counted_requests` table, in the account object's SQLite storage on the Workers relay and in the account's SQLite file on the Compose relay.
 - `deployment-topology.md` §Relay Scaling Strategy describes how the Workers relay uses Cloudflare Workers + Durable Objects for one person: one account object for the account's data, and one forwarding object per machine for its channels.
 - ADR-008 carries a device's channel straight across the network wherever the device and the machine can reach each other, so the relay carries the channels that cannot go direct, the direct path's setup, and every relay connection's reachability and presence.
 - ADR-004 commits to SQLite for local state, and to SQLite inside the relay for the hosted account on both relays.
@@ -72,17 +72,18 @@ Both backends implement the v2 relay protocol behind one shared contract so prot
 
 Both relays hold the same admission rules:
 
-- The relay counts requests on its sign-in routes (sign-in, token refresh, device linking) only, and answers one past the limit with 429 and a retry time. On the Workers relay they count in the per-identity Durable Object, one global counter that rotating edge locations does not reset; on the one-process Compose relay they count in memory. A counter error fails that one request like any backend error.
+- The relay counts requests on its sign-in routes (sign-in, token refresh, device linking) only, and answers one past the limit with 429 and a retry time. Both relays run one counter over the account's `counted_requests` table: on the Workers relay in the account object's SQLite storage, one global count that rotating edge locations do not reset; on the Compose relay in the account's SQLite file. A counter error fails that one request like any backend error.
 - Each relay hands out a STUN address when a device or a machine negotiates its connection, Cloudflare's `stun.cloudflare.com:3478` on the Workers relay and its own answer on UDP 3478 on the Compose relay, and offers no TURN: the relay itself is the direct path's fallback.
 - On the WebSocket the relay sees only encrypted frames and counts none of them. The machine reads each method inside the sealed connection and keeps the last `presence.heartbeat.send` per device.
 - The relay forwards each device's frames as fast as the machine drains them; backpressure on the channel bounds frames and bytes in both directions.
 
-### Rate-Limiter Backends (Ships Both in V1)
+### One Rate Limiter On Both Relays
 
-- Workers relay: the per-identity Durable Object for the sign-in routes.
-- Compose relay: `InMemoryRateLimiter`, a sliding window per source address in the one relay process, for the same routes. No library: `rate-limiter-flexible`'s memory limiter counts a fixed window, and both relays answer one sliding-window `RateLimiter` contract whose retry time is when the oldest counted request ages out.
+- One sliding-window counter per source address over the account's `counted_requests` table counts the sign-in routes on both relays; its retry time is when the oldest counted request leaves the window. No library: `rate-limiter-flexible`'s limiters count a fixed window.
+- Workers relay: the table sits in the account object's SQLite storage.
+- Compose relay: the table sits in the account's SQLite file.
 
-Both ship in V1 under the deployment-aware abstraction already named in `deployment-topology.md` §Rate Limiting By Deployment.
+`deployment-topology.md` §Rate Limiting By Deployment says where each relay keeps the table.
 
 ### Thesis — Why This Option
 
@@ -94,13 +95,13 @@ A permissive license matches the category-norm for developer tools and signals o
 
 ### Antithesis — The Strongest Case Against
 
-Asking the person to deploy a relay before a phone can reach their machine is friction a project-operated default relay would remove: the category's zero-config expectation (install, link a phone, it works) points at running a public relay for everyone. Two relay implementations also double part of the QA matrix (two relay backends, two rate-limiter backends), and community support drag alone can burn 20–30% of a small team's weekly capacity once the project has any traction. The managed-SaaS-first posture is how most successful commercial dev tools launched: Linear, Notion, Figma, Cursor, Warp — all hosted-only at V1, some opened self-host later, many never.
+Asking the person to deploy a relay before a phone can reach their machine is friction a project-operated default relay would remove: the category's zero-config expectation (install, link a phone, it works) points at running a public relay for everyone. Two relay implementations also double part of the QA matrix (two relay backends), and community support drag alone can burn 20–30% of a small team's weekly capacity once the project has any traction. The managed-SaaS-first posture is how most successful commercial dev tools launched: Linear, Notion, Figma, Cursor, Warp — all hosted-only at V1, some opened self-host later, many never.
 
 ### Synthesis — Why It Still Holds
 
-A public relay serves other people, and serving other people brings billing, bans, per-person credentials and witnessing that one user does not need. Linear / Notion / Figma / Warp are not counter-examples — they are hosted-only products whose value is the hosted surface (sync, collaboration UX, account-side features). This product's value is the agent runtime itself, which works identically on either relay. The Workers relay deploys into the person's own Cloudflare account with nothing to keep running, which keeps the setup cost to one deployment. Two relays cost some QA-matrix work (bounded, covered by the rate-limiter abstraction and the shared protocol contract). The community-support drag is real and is managed via the Tripwires below.
+A public relay serves other people, and serving other people brings billing, bans, per-person credentials and witnessing that one user does not need. Linear / Notion / Figma / Warp are not counter-examples — they are hosted-only products whose value is the hosted surface (sync, collaboration UX, account-side features). This product's value is the agent runtime itself, which works identically on either relay. The Workers relay deploys into the person's own Cloudflare account with nothing to keep running, which keeps the setup cost to one deployment. Two relays cost some QA-matrix work (bounded, covered by the one rate limiter and the shared protocol contract). The community-support drag is real and is managed via the Tripwires below.
 
-The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The self-hostable relay is the same crate's native program, which adds mostly "here is the WebSocket server loop and here is the sign-in counter, kept in the program's own memory" — one codebase, not two.
+The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The self-hostable relay is the same crate's native program, which adds mostly "here is the WebSocket server loop and here is the sign-in counter over the account's SQLite file" — one codebase, not two.
 
 ## Alternatives Considered
 
@@ -108,7 +109,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 - **What:** Decision above.
 - **Steel man:** Matches developer-category norm; single codebase contains the full product; the person's traffic stays on infrastructure they hold; the Workers relay needs no server of their own; same V1 feature set on both relays; license open; revisit gates named.
-- **Weaknesses:** QA matrix for two relay backends + two rate-limiter implementations (bounded by shared protocol contract); community-support drag if adoption is uneven; the person deploys a relay before a second device can reach the machine; license commitment reduces future monetization flexibility.
+- **Weaknesses:** QA matrix for two relay backends (bounded by shared protocol contract); community-support drag if adoption is uneven; the person deploys a relay before a second device can reach the machine; license commitment reduces future monetization flexibility.
 
 ### Option B: V1 Hosted-Only (Rejected)
 
@@ -139,7 +140,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Target audience is developers who expect OSS-first tooling. | Vision's Product Goal section names "Codex and Claude support first" and targets software engineers building with agents; the developer-category norm for this audience is OSS tools with optional hosted tier (VS Code, Neovim, tmate, Supabase, Sentry pre-BSL). | Hosted-only posture (Option B) becomes more defensible; re-evaluate if audience signal skews enterprise-first. |
-| 2 | One codebase can serve both relays without fragmenting engineering. | Shared protocol contract + deployment-aware rate-limiter abstraction; precedents at Supabase, PostHog, Sentry, Mattermost, GitLab. | QA matrix doubles; consider dropping one relay. |
+| 2 | One codebase can serve both relays without fragmenting engineering. | Shared protocol contract + one rate limiter over the account's store on both relays; precedents at Supabase, PostHog, Sentry, Mattermost, GitLab. | QA matrix doubles; consider dropping one relay. |
 | 3 | One person's traffic is light work for a relay object. | Measured on a Rust relay object ([Deployment Topology §Relay Cost And Delay](../architecture/deployment-topology.md#relay-cost-and-delay)): the object hibernates while its sockets are idle, and each incoming message costs well under a millisecond of processor time at the median. | The Workers relay costs the person more than a small server; the Compose relay is the cheaper path. |
 | 4 | Community-support drag is bounded by decisions we control (scope of support, GitHub Issues triage cadence). | Sentry, PostHog, Supabase have managed this drag; explicit scope-of-support policies limit it. | Community drag exceeds sustainable capacity; Tripwire 2 fires. |
 | 5 | A permissive license does not preclude future relicensing to FSL/BSL/ELv2 for the competitive-re-host case. | Sentry BSL→FSL precedent shows the path works; new code under new license, old code stays permissive, new-deployment enforcement via CLI bundling. | If enforcement proves impossible, revisit license pre-emptively. |
@@ -174,7 +175,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 ### Negative (accepted trade-offs)
 
 - The person deploys a relay before a second device can reach the machine: one deployment into their own Cloudflare account, or a Compose stack on their own server.
-- QA matrix has two relay backends and two rate-limiter backends (bounded by shared protocol contract and deployment-aware abstraction).
+- QA matrix has two relay backends (bounded by the shared protocol contract and the one rate limiter).
 - Community-support channel (GitHub Issues / Security Advisories) is a public-facing support surface with no SLA commitment, which still attracts drag on engineering capacity.
 - Permissive license reduces future monetization flexibility (reversible via Sentry-precedent relicensing if triggered).
 
@@ -253,5 +254,5 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 - [Deployment Topology](../architecture/deployment-topology.md) — the `Workers Relay` and `Compose Relay` topology rows cross-link to this ADR.
 - [V1 Feature Scope](../architecture/v1-feature-scope.md) — the Deployment Options section cites this ADR.
-- [Spec-019: Rate Limiting Policy](../specs/019-rate-limiting-policy.md) — deployment-aware rate-limiter abstraction.
+- [Spec-019: Rate Limiting Policy](../specs/019-rate-limiting-policy.md) — one rate limiter over the account's store on both relays.
 - [Spec-023: Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) — normative secure-defaults posture for the `Compose Relay` topology committed to by this ADR; the person's step-by-step companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-023 Acceptance Criterion).

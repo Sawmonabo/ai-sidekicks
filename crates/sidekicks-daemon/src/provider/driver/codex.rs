@@ -2,17 +2,24 @@
 
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::voice::VoiceKind;
+use sidekicks_platforms::SystemFolderBase;
 
-use crate::provider::driver::ProviderDescriptor;
+use crate::provider::driver::{
+    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ManagedSettingsFolders,
+    ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
+};
 
 mod ask_option_sets;
+mod capability_probe;
 mod delivery;
 mod input_limit;
 mod intervention;
 mod permission_level;
+mod rules;
 mod service;
 mod tools;
 mod usage_limit_signal;
+mod version;
 
 /// Codex's fixed facts.
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
@@ -38,9 +45,49 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         ("edu_pro", "Edu Pro"),
     ],
     built_in_tools: &tools::CODEX_BUILT_IN_TOOLS,
+    command: ProviderCommand {
+        windows: Some(ProviderCommandLookup {
+            names: &["codex"],
+            install_folders: &[InstallFolder {
+                base: InstallFolderBase::UserPrograms,
+                components: &["OpenAI", "Codex", "bin"],
+            }],
+        }),
+        unix: Some(ProviderCommandLookup {
+            names: &["codex"],
+            install_folders: &[InstallFolder {
+                base: InstallFolderBase::Home,
+                components: &[".local", "bin"],
+            }],
+        }),
+    },
+    // Where its system `config.toml` and `requirements.toml` sit; macOS reads the Unix folder.
+    managed_settings_folders: ManagedSettingsFolders {
+        macos: Some(ManagedSettingsFolder {
+            base: SystemFolderBase::Etc,
+            components: &["codex"],
+        }),
+        linux: Some(ManagedSettingsFolder {
+            base: SystemFolderBase::Etc,
+            components: &["codex"],
+        }),
+        windows: Some(ManagedSettingsFolder {
+            base: SystemFolderBase::ProgramData,
+            components: &["OpenAI", "Codex"],
+        }),
+    },
+    // Listed first on every model that publishes a tier, and requested by clearing the thread's.
+    standard_output_speed: "default",
+    // It lists its service tiers on each model of its catalog.
+    output_speed_levels: None,
+    // It documents no update switch; the driver runs one exact build path instead.
+    process_environment: &[],
     // Carries the app-server binary's path into the launch prelude, which never interpolates it.
-    app_set_environment_names: &["CODEX_APP_SERVER_BIN"],
-    screen_reader_environment_name: None,
+    launch_environment_names: &["CODEX_APP_SERVER_BIN"],
+    // The account's own `CODEX_HOME`.
+    credential_home_environment_names: &["CODEX_HOME"],
+    withheld_environment_names: &[],
+    screen_reader_environment_names: &[],
     voice_kinds: &[VoiceKind::Call],
     // It reaches no server over server-sent events.
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http],

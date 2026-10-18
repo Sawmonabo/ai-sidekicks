@@ -1,6 +1,7 @@
 //! What a subscription's feed is pulled through: the send gate the gateway opens before each frame,
 //! the stored record a change stream reads at its cursor, and the typed feed a subscribe handler
-//! answers. A feed holds a place, never a queue, so a slow reader costs no memory.
+//! answers. A feed holds a place, never a queue, so a slow reader costs no more than the one
+//! message its lane has begun.
 
 use std::error::Error;
 
@@ -49,6 +50,10 @@ pub(crate) trait ChangeRecord: Send + Sync {
     /// change once that change is readable, so a reader can count the changes signaled since it
     /// last looked. The signal is gone once the record's sender is dropped.
     fn change_count(&self) -> watch::Receiver<u64>;
+
+    /// Whether `error` is the store closing under the daemon's stop, which ends the stream as
+    /// finished rather than as a fault.
+    fn is_store_closed(error: &Self::Error) -> bool;
 }
 
 /// A subscription's typed emissions: what a subscribe handler answers.
@@ -64,19 +69,30 @@ pub(crate) trait Feed: Send {
     ) -> BoxFuture<'a, Result<Option<Self::Emission>, HandlerError>>;
 }
 
-/// A test gate open while its lane holds credit; it spends none, so one permit keeps it open.
+/// A test gate open while its lane holds credit; one made `with_credit` spends none, so one permit
+/// keeps it open, and one made `spending` spends a permit on each readiness check.
 #[cfg(test)]
 pub(crate) struct CreditGate {
     /// The lane's credit; a closed semaphore is a closed subscription.
     pub(crate) credit: tokio::sync::Semaphore,
+    is_spending: bool,
 }
 
 #[cfg(test)]
 impl CreditGate {
-    /// A gate holding `permits` of credit.
+    /// A gate holding `permits` of credit that spends none.
     pub(crate) fn with_credit(permits: usize) -> Self {
         Self {
             credit: tokio::sync::Semaphore::new(permits),
+            is_spending: false,
+        }
+    }
+
+    /// A gate holding `permits` of credit that spends one on each readiness check.
+    pub(crate) fn spending(permits: usize) -> Self {
+        Self {
+            credit: tokio::sync::Semaphore::new(permits),
+            is_spending: true,
         }
     }
 }
@@ -86,7 +102,12 @@ impl SendGate for CreditGate {
     fn ready(&self) -> BoxFuture<'_, Result<(), SubscriptionClosed>> {
         Box::pin(async move {
             match self.credit.acquire().await {
-                Ok(_permit) => Ok(()),
+                Ok(permit) => {
+                    if self.is_spending {
+                        permit.forget();
+                    }
+                    Ok(())
+                }
                 Err(_closed) => Err(SubscriptionClosed),
             }
         })

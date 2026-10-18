@@ -187,7 +187,7 @@ Plan-012 implementation lands as a sequence of small PRs. Each PR exercises one 
   - **Ownership note:** `runtime_binding_store.rs` is Owner=Plan-003, Extender=Plan-012 ("extends the store with recovery-aware persistence methods"). Plan-012 must EXTEND, not re-CREATE — Plan-003 Phase 2 is the upstream producer.
   - **Consumes (by SHAPE):**
     - `runtime_binding_store.rs` (Plan-003-owned module).
-    - `RuntimeBindingRead` { runId } → { runId, driverName, contractVersion, resumeHandle?, runtimeMetadata } ← `docs/architecture/contracts/persistence-payloads.md §Plan-012 — Persistence And Recovery`.
+    - `RuntimeBindingRead` { runId } → { runId, providerName, contractVersion, resumeHandle?, runtimeMetadata } ← `docs/architecture/contracts/persistence-payloads.md §Plan-012 — Persistence And Recovery`.
     - `DriverResumeResult` tagged enum incl. `recoveryCondition: RecoveryCondition` ← `docs/architecture/contracts/provider-driver-payloads.md §Plan-003 — Provider Driver Contract (Internal Interface)`; [Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior), per [Spec-013 §In-Flight Receipts After A Restart](../specs/013-persistence-and-recovery.md#in-flight-receipts-after-a-restart).
     - `RunFailureCategory` ∈ {`providerFailure`, `transportFailure`, `localPersistenceFailure`, `projectionFailure`, `refused`, `setupFailure`} ← `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`.
     - `command_receipts` in-flight predicate (`started_at IS NOT NULL AND completed_at IS NULL`) ← [Spec-013 §In-Flight Receipts After A Restart](../specs/013-persistence-and-recovery.md#in-flight-receipts-after-a-restart).

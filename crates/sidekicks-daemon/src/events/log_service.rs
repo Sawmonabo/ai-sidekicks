@@ -22,6 +22,7 @@
 
 use std::sync::Arc;
 
+use rusqlite::Connection;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::session::event_cursor::{
@@ -31,6 +32,7 @@ use sidekicks_contracts::session::event_cursor::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use tokio::sync::watch;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::WriteStatement;
@@ -54,9 +56,11 @@ use crate::ipc::domain_error::DomainError;
 /// The most events a read after a cursor returns when the caller names no limit.
 const DEFAULT_EVENT_READ_LIMIT: u32 = 100;
 
-/// The distinct statements the service's reads run: the head, the rows after a position, and a
-/// window of rows.
-pub(crate) const EVENT_LOG_STATEMENT_CAPACITY: usize = 3;
+/// The distinct statements run on the service's read connections: the head, the rows after a
+/// position, those rows of chosen types, and a window of rows; and the three turn attribution
+/// reads a session's event stream runs on the same connection, the rollbacks before a position,
+/// the turns between two, and a tool call's opening.
+pub(crate) const EVENT_LOG_STATEMENT_CAPACITY: usize = 7;
 
 /// How the append path names itself in a refusal.
 const APPEND_REFUSER: &str = "EventLogService::append";
@@ -160,6 +164,56 @@ pub(crate) enum EventLogReadError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl EventLogReadError {
+    /// Whether the read failed because the read pool is closed, as it is at the daemon's stop.
+    pub(crate) fn is_pool_closed(&self) -> bool {
+        match self {
+            Self::Pool(DatabaseReadError::Closed) => true,
+            Self::Pool(DatabaseReadError::Open(_) | DatabaseReadError::Join(_))
+            | Self::CursorUnresolvable(_)
+            | Self::Read(_)
+            | Self::CursorOutOfRange(_) => false,
+        }
+    }
+}
+
+/// Where a follow of a session's log starts.
+#[derive(Clone, Debug)]
+pub(crate) enum FollowStart {
+    /// Before the session's first event.
+    StartOfLog,
+    /// After the session's newest readable event.
+    Newest,
+    /// After the event this cursor names.
+    After(EventCursor),
+}
+
+/// Why a follow of a session's log could not start.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum EventLogFollowError {
+    /// The session has no events and no damaged history, so the daemon holds no such session.
+    #[error("session {0} has no events to follow")]
+    SessionNotFound(SessionId),
+    /// The cursor could not be resolved, or the read failed.
+    #[error(transparent)]
+    Read(#[from] EventLogReadError),
+}
+
+impl From<DatabaseReadError> for EventLogFollowError {
+    fn from(error: DatabaseReadError) -> Self {
+        Self::Read(error.into())
+    }
+}
+
+/// One page a change stream reads of a session's log: the session's head when the page's read
+/// began, then the events after the page's position.
+pub(crate) struct EventStreamPage {
+    /// The session's newest readable sequence, read before the events, `None` when it has none.
+    pub(crate) head: Option<i64>,
+    /// The events after the position, of the page's types, in sequence order.
+    pub(crate) events: Vec<EventEnvelope>,
 }
 
 /// What [`EventLogService::read_after_cursor`] reads.
@@ -309,7 +363,7 @@ impl EventLogService {
         &self,
         request: EventReadAfterCursorRequest,
     ) -> Result<EventReadAfterCursorResponse, EventLogReadError> {
-        self.read(ReadLength::Long, move |reads| {
+        self.read(ReadLength::Long, move |reads, _, _| {
             let EventReadAfterCursorRequest {
                 session_id,
                 after_cursor,
@@ -346,11 +400,97 @@ impl EventLogService {
         &self,
         session_id: SessionId,
     ) -> Result<EventCursor, EventLogReadError> {
-        self.read(ReadLength::Short, move |reads| {
+        self.read(ReadLength::Short, move |reads, _, _| {
             let head = reads.read_head(&session_id)?;
             Ok(encode_event_cursor(head.unwrap_or(START_OF_LOG_POSITION))?)
         })
         .await
+    }
+
+    /// The position a follow of `session_id` starts after, as a cursor: the start of its log, its
+    /// newest readable event, or the event `start` names, checked against its head. Fails with
+    /// [`EventLogFollowError::SessionNotFound`] for a session with no events and no damaged
+    /// history, with [`EventLogReadError::CursorUnresolvable`] for a cursor that names no position
+    /// or one past the head, and as the read fails.
+    pub(crate) async fn read_follow_start(
+        &self,
+        session_id: SessionId,
+        start: FollowStart,
+    ) -> Result<EventCursor, EventLogFollowError> {
+        self.read(
+            ReadLength::Short,
+            move |reads, _, read_damaged_from_sequence| {
+                let head = reads
+                    .read_head(&session_id)
+                    .map_err(EventLogReadError::from)?;
+                if head.is_none() && read_damaged_from_sequence(&session_id).is_none() {
+                    return Err(EventLogFollowError::SessionNotFound(session_id));
+                }
+                let position = match start {
+                    FollowStart::StartOfLog => START_OF_LOG_POSITION,
+                    FollowStart::Newest => head.unwrap_or(START_OF_LOG_POSITION),
+                    FollowStart::After(cursor) => resolve_event_cursor(Some(&cursor), head)
+                        .map_err(EventLogReadError::from)?,
+                };
+                Ok(encode_event_cursor(position).map_err(EventLogReadError::from)?)
+            },
+        )
+        .await
+    }
+
+    /// Reads one page of a change stream over `session_id`'s log: its head, then at most `max`
+    /// events after `after_position`, only of `event_types` when given, and answers what
+    /// `changes_of` makes of them on the same connection, which may read more of the log. Fails
+    /// with `changes_of`'s failure, and as the read fails.
+    pub(crate) async fn read_stream_page<Changes, Failure>(
+        &self,
+        session_id: SessionId,
+        after_position: i64,
+        max: usize,
+        event_types: Option<&'static [&'static str]>,
+        changes_of: impl FnOnce(
+            &Connection,
+            &DamagedFromSequenceReader,
+            EventStreamPage,
+        ) -> Result<Changes, Failure>
+        + Send
+        + 'static,
+    ) -> Result<Changes, Failure>
+    where
+        Changes: Send + 'static,
+        Failure: From<EventLogReadError> + From<DatabaseReadError> + Send + 'static,
+    {
+        self.read(
+            ReadLength::Long,
+            move |reads, connection, read_damaged_from_sequence| {
+                let head = reads
+                    .read_head(&session_id)
+                    .map_err(EventLogReadError::from)?;
+                let events = reads
+                    .read_after(
+                        &session_id,
+                        after_position,
+                        i64::try_from(max).unwrap_or(i64::MAX),
+                        SessionEventFilter {
+                            event_types,
+                            before_sequence: None,
+                        },
+                    )
+                    .map_err(EventLogReadError::from)?;
+                changes_of(
+                    connection,
+                    read_damaged_from_sequence,
+                    EventStreamPage { head, events },
+                )
+            },
+        )
+        .await
+    }
+
+    /// The change count of `session_id`'s log, which a change stream over it waits on: it grows by
+    /// one per event committed once that event can be read.
+    pub(crate) fn change_count(&self, session_id: &SessionId) -> watch::Receiver<u64> {
+        self.followers.change_count(session_id)
     }
 
     /// The events with a sequence from the request's first to its last, in sequence order. Fails
@@ -359,7 +499,7 @@ impl EventLogService {
         &self,
         request: EventReadWindowRequest,
     ) -> Result<EventReadWindowResponse, EventLogReadError> {
-        self.read(ReadLength::Long, move |reads| {
+        self.read(ReadLength::Long, move |reads, _, _| {
             let events = reads.read_window(
                 &request.session_id,
                 request.from_sequence,
@@ -377,19 +517,31 @@ impl EventLogService {
         Arc::ptr_eq(&self.writer, writer)
     }
 
-    /// Runs `read` on a borrowed connection on a blocking thread.
-    async fn read<Output: Send + 'static>(
+    /// Runs `read` on a borrowed connection on a blocking thread, handing it the log's reads on it,
+    /// the connection itself and where a damaged session's reads stop.
+    async fn read<Output, Failure>(
         &self,
         length: ReadLength,
-        read: impl FnOnce(&LogReads<'_>) -> Result<Output, EventLogReadError> + Send + 'static,
-    ) -> Result<Output, EventLogReadError> {
+        read: impl FnOnce(
+            &LogReads<'_>,
+            &Connection,
+            &DamagedFromSequenceReader,
+        ) -> Result<Output, Failure>
+        + Send
+        + 'static,
+    ) -> Result<Output, Failure>
+    where
+        Output: Send + 'static,
+        Failure: From<DatabaseReadError> + Send + 'static,
+    {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(length, move |connection| {
-                read(&SessionEventReads::new(
+                read(
+                    &SessionEventReads::new(connection, &*read_damaged_from_sequence),
                     connection,
                     &*read_damaged_from_sequence,
-                ))
+                )
             })
             .await
     }
@@ -509,242 +661,4 @@ fn compose_row(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-
-    use serde_json::json;
-    use sidekicks_contracts::session::id::SessionId;
-    use tokio::sync::oneshot;
-
-    use super::{
-        EVENT_LOG_STATEMENT_CAPACITY, EventAppendError, EventLogAppendOptions, EventLogService,
-        EventLogServiceDependencies, EventReadAfterCursorRequest, UnsequencedEventEnvelope,
-    };
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WritesHeldError};
-    use crate::events::session::append_lock::SESSION_APPEND_LOCK;
-    use crate::events::session::followers::SessionEventFollowers;
-    use crate::uuid_v7::mint_uuid_v7;
-
-    /// Bounds an append the test expects to answer, so one that waits on a lock fails the test.
-    const APPEND_WAIT: Duration = Duration::from_secs(5);
-
-    /// A held writer, the service on the same file, and the followers it publishes to.
-    struct TestLog {
-        /// Lets the writer's held writes go.
-        release: oneshot::Sender<Result<(), WritesHeldError>>,
-        writer: Arc<DatabaseWriter>,
-        followers: Arc<SessionEventFollowers>,
-        service: EventLogService,
-    }
-
-    /// A writer on `database` holding its writes until `release` answers, and the service on the
-    /// same file.
-    async fn open_log(database: &TestDatabase) -> TestLog {
-        let (release, writes_held_until) = oneshot::channel();
-        let writer = Arc::new(
-            DatabaseWriter::open(
-                database.opener(),
-                DatabaseWriterOptions {
-                    writes_held_until: Some(writes_held_until),
-                    on_write_failed: None,
-                },
-            )
-            .await
-            .expect("the writer opens its database"),
-        );
-        let followers = Arc::new(SessionEventFollowers::default());
-        let service = EventLogService::new(EventLogServiceDependencies {
-            writer: Arc::clone(&writer),
-            pool: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                EVENT_LOG_STATEMENT_CAPACITY,
-            )),
-            followers: Arc::clone(&followers),
-            projection_statements: None,
-            refuse_session_write: None,
-            read_damaged_from_sequence: None,
-        });
-        TestLog {
-            release,
-            writer,
-            followers,
-            service,
-        }
-    }
-
-    /// An `agent.toolCall.invoked` event of `session_id` in the run `run_id`.
-    fn tool_invoked(session_id: &SessionId, run_id: &str) -> UnsequencedEventEnvelope {
-        let event = serde_json::from_value(json!({
-            "type": "agent.toolCall.invoked",
-            "payload": { "sessionId": session_id, "runId": run_id, "toolName": "Read" },
-        }))
-        .expect("the test writes a agent.toolCall.invoked event");
-        test_envelope(*session_id, &event)
-    }
-
-    #[tokio::test]
-    async fn every_committed_event_is_published_in_commit_order_though_its_caller_left() {
-        let database = TestDatabase::new();
-        let TestLog {
-            release,
-            writer,
-            followers,
-            service,
-        } = open_log(&database).await;
-        let heard = Arc::new(Mutex::new(Vec::new()));
-        let _attachment = followers.follow_all({
-            let heard = Arc::clone(&heard);
-            move |event| {
-                heard
-                    .lock()
-                    .expect("the test's list is not poisoned")
-                    .push(event.sequence.get());
-                Ok(())
-            }
-        });
-        let session_id = test_session_id();
-        let run_id = mint_uuid_v7().to_string();
-        let mut appends = [(); 3].map(|()| {
-            Box::pin(service.append(
-                tool_invoked(&session_id, &run_id),
-                EventLogAppendOptions::default(),
-            ))
-        });
-        // Polled once each, every write is queued behind the hold.
-        for append in &mut appends {
-            assert!(futures::poll!(append).is_pending());
-        }
-        let [first, middle, last] = appends;
-        drop(middle);
-
-        release.send(Ok(())).expect("the writer waits on its hold");
-
-        assert_eq!(
-            first
-                .await
-                .expect("the first append commits")
-                .sequence
-                .get(),
-            0
-        );
-        assert_eq!(
-            last.await.expect("the last append commits").sequence.get(),
-            2
-        );
-        assert_eq!(
-            *heard.lock().expect("the test's list is not poisoned"),
-            [0, 1, 2]
-        );
-        assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
-    }
-
-    #[tokio::test]
-    async fn a_session_changes_only_once_its_event_can_be_read() {
-        let database = TestDatabase::new();
-        let TestLog {
-            release,
-            writer,
-            followers,
-            service,
-        } = open_log(&database).await;
-        let session_id = test_session_id();
-        let mut change_count = followers.change_count(&session_id);
-        let run_id = mint_uuid_v7().to_string();
-        let mut appended = Box::pin(service.append(
-            tool_invoked(&session_id, &run_id),
-            EventLogAppendOptions::default(),
-        ));
-        assert!(futures::poll!(&mut appended).is_pending());
-        assert!(
-            !change_count
-                .has_changed()
-                .expect("the followers keep the count")
-        );
-
-        release.send(Ok(())).expect("the writer waits on its hold");
-        change_count
-            .changed()
-            .await
-            .expect("the followers keep the count");
-
-        let page = service
-            .read_after_cursor(EventReadAfterCursorRequest {
-                session_id,
-                after_cursor: None,
-                limit: None,
-            })
-            .await
-            .expect("the log reads");
-        let sequences: Vec<u64> = page
-            .events
-            .iter()
-            .map(|event| event.sequence.get())
-            .collect();
-        assert_eq!(sequences, [0]);
-        assert!(!page.has_more);
-        // The run the payload names is the row's own column, which run reads seek on.
-        let run_columns: (Option<String>, Option<i64>) = database
-            .reader()
-            .query_row(
-                "SELECT run_id, run_version FROM session_events",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("the test reads the row's run columns");
-        assert_eq!(run_columns, (Some(run_id), None));
-        assert_eq!(
-            appended.await.expect("the append commits").sequence.get(),
-            0
-        );
-        assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
-    }
-
-    #[tokio::test]
-    async fn an_append_under_a_hold_goes_without_the_lock_and_only_on_the_held_session() {
-        let database = TestDatabase::new();
-        let TestLog {
-            release,
-            writer,
-            service,
-            ..
-        } = open_log(&database).await;
-        release.send(Ok(())).expect("the writer waits on its hold");
-        let (held_session_id, other_session_id) = (test_session_id(), test_session_id());
-        let run_id = mint_uuid_v7().to_string();
-        let hold = SESSION_APPEND_LOCK.acquire(held_session_id).await;
-
-        let refused = tokio::time::timeout(
-            APPEND_WAIT,
-            service.append_held(
-                &hold,
-                tool_invoked(&other_session_id, &run_id),
-                EventLogAppendOptions::default(),
-            ),
-        )
-        .await
-        .expect("the append answers");
-        assert!(matches!(
-            refused,
-            Err(EventAppendError::HoldOfAnotherSession { held_session_id: held, session_id })
-                if held == held_session_id && session_id == other_session_id
-        ));
-
-        let appended = tokio::time::timeout(
-            APPEND_WAIT,
-            service.append_held(
-                &hold,
-                tool_invoked(&held_session_id, &run_id),
-                EventLogAppendOptions::default(),
-            ),
-        )
-        .await
-        .expect("the append under the hold never waits on the lock it holds")
-        .expect("the append commits");
-        assert_eq!(appended.sequence.get(), 0);
-        drop(hold);
-        assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
-    }
-}
+pub(crate) mod tests;

@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::length_limits::{
-    DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN, DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
+    PROVIDER_COMMAND_DESCRIPTION_MAX_LEN, PROVIDER_DECLARED_TOKEN_MAX_LEN,
 };
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -15,9 +15,9 @@ use crate::provider::record_readers::read_present_member;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProviderAskOption {
     /// What a chooser sends back.
-    pub(crate) value: FreeFormText<DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN>,
+    pub(crate) value: FreeFormText<PROVIDER_DECLARED_TOKEN_MAX_LEN>,
     /// What a person reads.
-    pub(crate) label: FreeFormText<DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>,
+    pub(crate) label: FreeFormText<PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>,
 }
 
 /// What one ask's payload yielded when read for a choice set. `Absent` (no choices) differs from

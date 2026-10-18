@@ -2,6 +2,7 @@
 //! and each helper's `<slug>-agent-<agent id>.md`, in the plans folder its `plansDirectory`
 //! setting names, relative to the project and inside it, else `<config folder>/plans`.
 
+use std::collections::BTreeMap;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
@@ -12,30 +13,47 @@ use crate::provider::driver::claude::session::settings_file::{
     is_unreadable_path, read_claude_settings_file,
 };
 
-/// The plan files of the conversation named `plan_slug`, in the configured plans folder and the
-/// default one, since the setting may have changed while the conversation lived; a folder counts as
-/// inside the project lexically, as Claude Code reads it, so a link inside it still reaches out.
-/// Fails with `InvalidData` on a folder that is not UTF-8, and with any read failure but an
-/// unreadable path.
+/// One conversation with a plan: the folder it started in, the local settings file Claude Code
+/// keeps for that project (at the repository's root in the normal case), and the name its plan
+/// files carry.
+pub(crate) struct ClaudePlan<'a> {
+    /// The folder the conversation started in.
+    pub(crate) project_folder: &'a Path,
+    /// The project's local settings file Claude Code reads.
+    pub(crate) root_local_settings: PathBuf,
+    /// The name of the conversation's plan files.
+    pub(crate) plan_slug: String,
+}
+
+/// The plan files of each of `plans`, in the plans folder its settings name and the default one,
+/// since the setting may have changed while the conversation lived, each folder listed once for
+/// them all. A folder counts as inside the project lexically, as Claude Code reads it, so a link
+/// inside it still reaches out. Fails with `InvalidData` on a folder that is not UTF-8, and with
+/// any read failure but an unreadable path.
 pub(crate) async fn find_claude_plan_files(
     config_folder: &Path,
-    project_folder: &Path,
-    plan_slug: &str,
+    plans: &[ClaudePlan<'_>],
 ) -> io::Result<Vec<PathBuf>> {
     let default_folder = resolve_path(to_folder_text(&config_folder.join("plans"))?)?;
-    let configured_folder = read_configured_plans_folder(config_folder, project_folder).await?;
-    let mut folders = vec![default_folder];
-    if let Some(configured_folder) = configured_folder
-        && !folders.contains(&configured_folder)
-    {
-        folders.push(configured_folder);
+    let mut plans_by_folder: BTreeMap<String, Vec<PlanFileNames>> = BTreeMap::new();
+    for plan in plans {
+        let names = PlanFileNames::new(&plan.plan_slug);
+        let configured_folder = read_configured_plans_folder(
+            config_folder,
+            plan.project_folder,
+            &plan.root_local_settings,
+        )
+        .await?;
+        for folder in std::iter::once(default_folder.clone()).chain(configured_folder) {
+            let folder_plans = plans_by_folder.entry(folder).or_default();
+            if !folder_plans.contains(&names) {
+                folder_plans.push(names.clone());
+            }
+        }
     }
 
-    let plan_file_name = format!("{plan_slug}.md");
-    let workshop_file_name = format!("{plan_slug}.workshop.md");
-    let helper_file_prefix = format!("{plan_slug}-agent-");
     let mut found = Vec::new();
-    for folder in folders {
+    for (folder, folder_plans) in plans_by_folder {
         let mut entries = match tokio::fs::read_dir(folder).await {
             Ok(entries) => entries,
             Err(error) if is_unreadable_path(&error) => continue,
@@ -47,13 +65,9 @@ pub(crate) async fn find_claude_plan_files(
             let Some(file_name) = file_name.to_str() else {
                 continue;
             };
-            if file_name == plan_file_name
-                || file_name == workshop_file_name
-                // The prefix leaves a stem, so the extension is exactly the `.md` the name ends in.
-                || (file_name.starts_with(&helper_file_prefix)
-                    && Path::new(file_name)
-                        .extension()
-                        .is_some_and(|extension| extension == "md"))
+            if folder_plans
+                .iter()
+                .any(|names| names.is_plan_file(file_name))
             {
                 found.push(entry.path());
             }
@@ -62,20 +76,53 @@ pub(crate) async fn find_claude_plan_files(
     Ok(found)
 }
 
-// The folder the settings name, resolved, or `None` when none names one inside the project or it
-// holds a backslash where that separates nothing, either of which makes Claude Code fall back to
-// the default folder.
-// Where Claude Code reads `plansDirectory`, lowest precedence first: the home's settings, the
-// project's shared settings, then its local settings; an empty value names nothing.
+// The names of one conversation's plan files: its plan, its workshop and each helper's.
+#[derive(Clone, PartialEq, Eq)]
+struct PlanFileNames {
+    plan_file_name: String,
+    workshop_file_name: String,
+    helper_file_prefix: String,
+}
+
+impl PlanFileNames {
+    fn new(plan_slug: &str) -> Self {
+        Self {
+            plan_file_name: format!("{plan_slug}.md"),
+            workshop_file_name: format!("{plan_slug}.workshop.md"),
+            helper_file_prefix: format!("{plan_slug}-agent-"),
+        }
+    }
+
+    fn is_plan_file(&self, file_name: &str) -> bool {
+        file_name == self.plan_file_name
+            || file_name == self.workshop_file_name
+            // The prefix leaves a stem, so the extension is exactly the `.md` the name ends in.
+            || (file_name.starts_with(&self.helper_file_prefix)
+                && Path::new(file_name)
+                    .extension()
+                    .is_some_and(|extension| extension == "md"))
+    }
+}
+
+// The plans folder the settings name, resolved, read where Claude Code reads `plansDirectory`,
+// lowest precedence first: the home's settings, the project's shared settings, the starting
+// folder's local settings, then the root's, whose value wins where both set it. `None` where none
+// names one inside the project, or it is empty or holds a backslash where that separates nothing,
+// each of which makes Claude Code fall back to the default folder.
 async fn read_configured_plans_folder(
     config_folder: &Path,
     project_folder: &Path,
+    root_local_settings: &Path,
 ) -> io::Result<Option<String>> {
-    let settings_files = [
+    let local_settings = project_folder.join(".claude").join("settings.local.json");
+    let mut settings_files = vec![
         config_folder.join("settings.json"),
         project_folder.join(".claude").join("settings.json"),
-        project_folder.join(".claude").join("settings.local.json"),
     ];
+    if root_local_settings != local_settings {
+        settings_files.push(local_settings);
+    }
+    settings_files.push(root_local_settings.to_path_buf());
     let mut configured = None;
     for settings_file in settings_files {
         let settings = read_claude_settings_file(&settings_file).await?;
@@ -120,7 +167,7 @@ mod tests {
     use serde_json::json;
     use sidekicks_platforms::PathRules;
 
-    use super::find_claude_plan_files;
+    use super::{ClaudePlan, find_claude_plan_files};
 
     const PLAN_SLUG: &str = "brave-otter";
 
@@ -195,7 +242,13 @@ mod tests {
             in_scratch(local_setting).as_deref(),
         );
 
-        let mut found = find_claude_plan_files(&config_folder, &project_folder, PLAN_SLUG)
+        let local_settings = project_folder.join(".claude").join("settings.local.json");
+        let plan = ClaudePlan {
+            project_folder: &project_folder,
+            root_local_settings: local_settings,
+            plan_slug: PLAN_SLUG.to_owned(),
+        };
+        let mut found = find_claude_plan_files(&config_folder, &[plan])
             .await
             .unwrap();
 

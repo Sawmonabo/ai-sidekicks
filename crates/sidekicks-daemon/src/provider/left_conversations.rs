@@ -36,7 +36,7 @@ pub(crate) struct LeftConversationRecord {
     /// The conversation left.
     pub(crate) conversation: LeftConversation,
     /// The provider whose binding recorded it.
-    pub(crate) driver_name: ProviderId,
+    pub(crate) provider_name: ProviderId,
     /// When the session left it.
     pub(crate) left_at: String,
 }
@@ -45,14 +45,14 @@ pub(crate) struct LeftConversationRecord {
 // provider from that binding.
 const INSERT_LEFT_CONVERSATION_SQL: &str = "
   INSERT OR IGNORE INTO left_conversations
-    (session_id, driver_name, provider_account_id, conversation_id, left_at)
-  SELECT @session_id, driver_name, @provider_account_id, @conversation_id, @left_at
+    (session_id, provider_name, provider_account_id, conversation_id, left_at)
+  SELECT @session_id, provider_name, @provider_account_id, @conversation_id, @left_at
     FROM runtime_bindings
    WHERE id = @binding_id AND updated_at = @left_at";
 
 // Every row it returns is the asked session's, so the session id is not read back.
 const SELECT_LEFT_CONVERSATIONS_SQL: &str = "
-  SELECT driver_name, provider_account_id, conversation_id, left_at
+  SELECT provider_name, provider_account_id, conversation_id, left_at
     FROM left_conversations
    WHERE session_id = ?
    ORDER BY left_at, conversation_id";
@@ -94,8 +94,8 @@ pub(crate) fn read_left_conversations(
 ) -> rusqlite::Result<Vec<LeftConversationRecord>> {
     let mut statement = reader.prepare_cached(SELECT_LEFT_CONVERSATIONS_SQL)?;
     let rows = statement.query_map([session_id.text().as_str()], |row| {
-        let stored_driver_name: String = row.get(0)?;
-        let driver_name = ProviderId::new(stored_driver_name).ok_or_else(|| {
+        let stored_provider_name: String = row.get(0)?;
+        let provider_name = ProviderId::new(stored_provider_name).ok_or_else(|| {
             rusqlite::Error::FromSqlConversionFailure(
                 0,
                 Type::Text,
@@ -108,7 +108,7 @@ pub(crate) fn read_left_conversations(
                 provider_account_id: read_provider_account_id(row.get(1)?)?,
                 conversation_id: row.get(2)?,
             },
-            driver_name,
+            provider_name,
             left_at: row.get(3)?,
         })
     })?;

@@ -1,7 +1,8 @@
-//! A shell's screen copy: the terminal state its output draws, and the byte history window beside
-//! it.
+//! A shell's screen copy: the terminal state its output draws, the byte history window beside
+//! it, and the listener that answers the questions a program asks its terminal.
 
 use std::io;
+use std::mem;
 
 use alacritty_terminal::Term;
 use alacritty_terminal::event::{Event, EventListener};
@@ -38,19 +39,36 @@ pub struct ScrollbackRead {
     pub output_offset: u64,
 }
 
-/// A shell's screen copy and its scrollback window, held under one lock. The caller's
-/// `EventListener::send_event` runs under this lock while output is drawn, so it must not block
-/// and must not call back into the terminal synchronously.
+/// What hears a shell's screen copy: the screen's events, and the questions a program asks its
+/// terminal that the screen copy leaves unanswered. Every call runs under the screen's lock while
+/// output is drawn, so none may block or call back into the terminal synchronously.
+pub trait ScreenListener: EventListener + Clone + Send + 'static {
+    /// Reads `output`, the next bytes the screen copy draws, for the questions the screen copy
+    /// leaves unanswered, appending to `ends` the offset just past each one in `output`, in order;
+    /// a question split across chunks ends in the chunk that completes it.
+    fn find_questions(&mut self, output: &[u8], ends: &mut Vec<usize>);
+
+    /// Answers the oldest question [`Self::find_questions`] found and has not answered, once the
+    /// screen copy has drawn every byte before its end, so its answer follows the screen copy's own
+    /// answers to the questions asked before it.
+    fn answer_question(&mut self);
+}
+
+/// A shell's screen copy and its scrollback window, held under one lock. The listener runs under
+/// this lock while output is drawn, so it must not block and must not call back into the terminal
+/// synchronously.
 pub struct TerminalScreen<L: EventListener> {
     term: Term<L>,
-    /// The listener's own copy, which hears that a synchronized update's held output was drawn.
+    /// The listener's own copy, which finds and answers the questions the screen leaves.
     listener: L,
     scrollback: ScrollbackWindow,
     /// How many bytes of output the screen has taken since the shell started.
     output_offset: u64,
+    /// The ends of the questions the listener found in the chunk being drawn, kept for its room.
+    question_ends: Vec<usize>,
 }
 
-impl<L: EventListener + Clone> TerminalScreen<L> {
+impl<L: ScreenListener> TerminalScreen<L> {
     /// A blank screen of `rows` by `columns` cells that keeps no history of its own, since the
     /// scrollback window holds it.
     pub(crate) fn new(rows: u16, columns: u16, listener: L) -> Self {
@@ -63,8 +81,10 @@ impl<L: EventListener + Clone> TerminalScreen<L> {
             listener,
             scrollback: ScrollbackWindow::new(),
             output_offset: 0,
+            question_ends: Vec::new(),
         }
     }
+
     /// The terminal state the shell's output has drawn.
     pub fn term(&self) -> &Term<L> {
         &self.term
@@ -78,24 +98,54 @@ impl<L: EventListener + Clone> TerminalScreen<L> {
         }
     }
 
-    /// Adds `output` to the scrollback window and draws it on the screen through `processor`.
+    /// Adds `output` to the scrollback window and draws it on the screen through `processor`, up
+    /// to the end of each question the listener finds and then the answer to it, so every answer
+    /// leaves in the order its question was asked.
     pub(crate) fn take_output(&mut self, processor: &mut Processor, output: Bytes) {
         self.output_offset +=
             u64::try_from(output.len()).expect("a chunk's length fits in 64 bits");
-        processor.advance(&mut self.term, &output);
+        let mut question_ends = mem::take(&mut self.question_ends);
+        question_ends.clear();
+        self.listener.find_questions(&output, &mut question_ends);
+        let mut drawn = 0;
+        for &end in &question_ends {
+            self.draw(processor, &output[drawn..end]);
+            self.listener.answer_question();
+            drawn = end;
+        }
+        self.draw(processor, &output[drawn..]);
+        self.question_ends = question_ends;
         self.scrollback.append(output);
     }
 
-    /// Draws what a synchronized update held back, once its deadline has passed, and tells the
-    /// listener the screen changed.
-    pub(crate) fn stop_sync(&mut self, processor: &mut Processor) {
-        processor.stop_sync(&mut self.term);
-        self.listener.send_event(Event::Wakeup);
+    /// Draws `output` through `processor`, and at once any synchronized update it holds back: the
+    /// screen copy shows nothing, so holding it would only hold the screen's answers back, and a
+    /// pane draws the update from the raw output itself.
+    fn draw(&mut self, processor: &mut Processor, output: &[u8]) {
+        processor.advance(&mut self.term, output);
+        if processor.sync_timeout().sync_timeout().is_some() {
+            processor.stop_sync(&mut self.term);
+            self.listener.send_event(Event::Wakeup);
+        }
     }
 
     /// Resizes the screen to `rows` by `columns` cells.
     pub(crate) fn resize(&mut self, rows: u16, columns: u16) {
         self.term.resize(TerminalSize { rows, columns });
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl<L: ScreenListener> TerminalScreen<L> {
+    /// A screen copy of `rows` by `columns` cells with no shell behind it, for another crate's
+    /// tests of its listener.
+    pub fn without_shell(rows: u16, columns: u16, listener: L) -> Self {
+        Self::new(rows, columns, listener)
+    }
+
+    /// Draws `output` through `processor` as a shell's read loop draws each chunk.
+    pub fn draw_output(&mut self, processor: &mut Processor, output: &[u8]) {
+        self.take_output(processor, Bytes::copy_from_slice(output));
     }
 }
 

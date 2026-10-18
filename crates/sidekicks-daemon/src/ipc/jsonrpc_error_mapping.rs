@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::issue::{
-    ISSUE_PATH_SEGMENTS_MAX, ISSUES_MAX, Issue, IssuePathSegment,
+    ISSUE_PATH_SEGMENTS_MAX, ISSUES_MAX, Issue, IssuePathSegment, UNREADABLE_VALUE_ISSUE_MESSAGE,
 };
 use sidekicks_contracts::jsonrpc::message::{
     JsonRpcError, JsonRpcErrorData, JsonRpcId, JsonRpcMessage, MessageError,
@@ -31,9 +31,11 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowDefinitionFinding;
 
+use crate::events::log_service::{EventLogFollowError, EventLogReadError};
 use crate::ipc::domain_error::{DomainError, refusal_fields};
 use crate::ipc::registry::{DispatchError, HandlerError};
 use crate::issue_path::resolve_issue_path;
+use crate::session::not_found::session_not_found;
 use crate::text_cut::cut_to_code_points;
 
 /// What replaces an absolute path in a message or a field.
@@ -78,9 +80,6 @@ const NOT_A_MESSAGE: &str = "the JSON is not a JSON-RPC 2.0 message";
 
 /// The message of a message over its size cap.
 const MESSAGE_TOO_LARGE: &str = "the message is over its size limit";
-
-/// The issue of a value the schema accepts but its type refuses.
-const UNREADABLE_VALUE: &str = "this value does not read as its type";
 
 /// A Unix path at a token boundary, with an optional `:line:col`; the leading group stands for
 /// the boundary (`regex` has no look-behind) and is written back, so `feature/login` stays.
@@ -186,7 +185,9 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
                         issue(fault.path, &message, None)
                     })
                     .collect(),
-                ReceivedError::Read { path, .. } => vec![issue(path, UNREADABLE_VALUE, None)],
+                ReceivedError::Read { path, .. } => {
+                    vec![issue(path, UNREADABLE_VALUE_ISSUE_MESSAGE, None)]
+                }
                 ReceivedError::Unreferenced { index } => vec![issue(
                     Vec::new(),
                     &format!("attachment {index} is named by no placeholder"),
@@ -452,6 +453,26 @@ impl From<SessionEventCursorUnresolvable> for DomainError {
 impl From<SessionEventCursorUnresolvable> for HandlerError {
     fn from(error: SessionEventCursorUnresolvable) -> Self {
         Self::Refused(error.into())
+    }
+}
+
+impl From<EventLogFollowError> for HandlerError {
+    /// A session the daemon does not hold answers `session.notFound`, a cursor it cannot read
+    /// `session.event.cursorUnresolvable`, and a failed read is a fault in the daemon.
+    fn from(error: EventLogFollowError) -> Self {
+        match error {
+            EventLogFollowError::SessionNotFound(session_id) => {
+                session_not_found(&session_id).into()
+            }
+            EventLogFollowError::Read(EventLogReadError::CursorUnresolvable(unresolvable)) => {
+                unresolvable.into()
+            }
+            EventLogFollowError::Read(
+                fault @ (EventLogReadError::Read(_)
+                | EventLogReadError::CursorOutOfRange(_)
+                | EventLogReadError::Pool(_)),
+            ) => Self::Internal(Box::new(fault)),
+        }
     }
 }
 

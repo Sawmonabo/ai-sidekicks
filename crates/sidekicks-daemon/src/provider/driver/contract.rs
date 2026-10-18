@@ -10,8 +10,9 @@ use std::error::Error;
 
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::place::Place;
@@ -25,11 +26,8 @@ use sidekicks_contracts::provider::driver::capabilities::{
 };
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
-use sidekicks_contracts::provider::driver::intervention::{
-    ApplyInterventionResponse, InterruptRunRequest,
-};
 use sidekicks_contracts::provider::driver::length_limits::{
-    DRIVER_BINDING_ID_MAX_LEN, DRIVER_FAILURE_DETAIL_MAX_LEN, DRIVER_FALLBACK_ACTION_MAX_LEN,
+    PROVIDER_BINDING_ID_MAX_LEN, PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
@@ -41,14 +39,17 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, is_ecmascript_whitespace};
 
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
+use crate::provider::capability_probe::CapabilityProbeError;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
-    FasterModelRetryOutcome, FasterModelRetryParams, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
+    InterruptRunRequest, OverrideDenialParams, PauseRunParams, ResumeRunParams,
+    SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ProviderBuildChange,
@@ -64,7 +65,7 @@ pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.
-const DRIVER_AUTH_DETAIL_MAX_LEN: usize = 512;
+const PROVIDER_AUTH_DETAIL_MAX_LEN: usize = 512;
 
 /// Why a driver operation did not answer: a refusal a client reads by its code, a steer whose turn
 /// ended before it was sent (the message waits for the next turn), or a failure inside the driver,
@@ -77,9 +78,33 @@ pub(crate) enum DriverError {
     /// The turn a steer was handed for ended before it was sent.
     #[error(transparent)]
     SteerTurnEnded(#[from] SteerTurnEndedError),
+    /// The capability probe could not read the provider, so nothing is declared from it.
+    #[error("the provider's capability probe failed")]
+    CapabilityProbe(#[source] CapabilityProbeError),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl From<DriverError> for HandlerError {
+    /// A driver's refusal answers the call by its code, and a failed capability probe as
+    /// `provider.unavailable` naming the probe; a steer whose turn ended, reaching a handler, is a
+    /// fault in the daemon, as is the driver's own failure.
+    fn from(error: DriverError) -> Self {
+        match error {
+            DriverError::Refused(refusal) => Self::Refused(refusal),
+            DriverError::CapabilityProbe(probe) => Self::Refused(
+                DomainError::new(
+                    "The provider's capabilities could not be read",
+                    RefusalCode::ProviderUnavailable,
+                )
+                .with_detail(json!({ "providerFailureDetail": probe.to_string() }))
+                .with_source(probe),
+            ),
+            DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
+            DriverError::Internal(fault) => Self::Internal(fault),
+        }
+    }
 }
 
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
@@ -382,8 +407,8 @@ pub(crate) struct CreateSessionParams {
     /// machine's default for the provider. The spawn path pins the account's credential home, so
     /// the driver only carries it.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The daemon's callback-tool dispatcher (gated on `callbackTools`); every call it gets goes
-    /// through the approval pipeline, and the driver answers the provider with what it returns.
+    /// The daemon's callback-tool dispatcher (gated on `callbackTools`); its presence tells the
+    /// driver the registry is served, and the driver never calls it.
     pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
     /// cannot report for another leg and needs no id for the census it reports while opening.
@@ -427,8 +452,8 @@ pub(crate) struct ResumeSessionParams {
     /// The account read back from the stored spawn record, never resolved again, so a live run's
     /// spend never moves onto an account it was not admitted against.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The callback-tool dispatcher, injected again at every spawn; left out, the resumed leg's
-    /// callback-tool calls would go unanswered.
+    /// The callback-tool dispatcher, injected again at every spawn; its presence tells the resumed
+    /// leg the registry is served, and the driver never calls it.
     pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// The status sink, bound to the resumed leg, through which it reports its census again.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
@@ -551,7 +576,7 @@ pub(crate) enum DriverResumeResult {
     /// The conversation resumed.
     Resumed {
         /// The new binding, stored by the daemon.
-        binding_id: FreeFormText<DRIVER_BINDING_ID_MAX_LEN>,
+        binding_id: FreeFormText<PROVIDER_BINDING_ID_MAX_LEN>,
         /// The driver's monotonic session position (a turn or event ordinal), which the daemon
         /// compares with its recorded one to catch a provider that answered with a fresh session.
         session_position: SafeInt<0>,
@@ -564,7 +589,7 @@ pub(crate) enum DriverResumeResult {
         /// What recovery the run needs.
         recovery_condition: RecoveryCondition,
         /// The provider's failure, fitted by [`bound_failure_detail`].
-        provider_failure_detail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+        provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
 }
 
@@ -572,14 +597,14 @@ pub(crate) enum DriverResumeResult {
 /// both ends, cut to the cap in code points, and `empty_fallback` where nothing is left.
 pub(crate) fn bound_failure_detail(
     detail: &str,
-    empty_fallback: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
-) -> FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN> {
+    empty_fallback: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
     let without_nuls = detail.replace('\0', "");
     let trimmed = without_nuls.trim_matches(is_ecmascript_whitespace);
     if trimmed.is_empty() {
         return empty_fallback;
     }
-    FreeFormText::new(cut_to_code_points(trimmed, DRIVER_FAILURE_DETAIL_MAX_LEN).to_owned())
+    FreeFormText::new(cut_to_code_points(trimmed, PROVIDER_FAILURE_DETAIL_MAX_LEN).to_owned())
         .expect("trimmed, NUL-free text cut to the cap is non-blank and within it")
 }
 
@@ -609,7 +634,7 @@ pub(crate) enum MoveSessionToForkResult {
     /// The driver took a fallback instead.
     Degraded {
         /// The fallback it took.
-        fallback_action: Option<FreeFormText<DRIVER_FALLBACK_ACTION_MAX_LEN>>,
+        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     },
 }
 
@@ -621,7 +646,7 @@ pub(crate) enum DriverGoalResult {
     /// The provider did not take it.
     Degraded {
         /// The fallback the driver took.
-        fallback_action: Option<FreeFormText<DRIVER_FALLBACK_ACTION_MAX_LEN>>,
+        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     },
 }
 
@@ -676,7 +701,7 @@ pub(crate) struct DriverAuthProbeResult {
     pub(crate) status: DriverAuthProbeStatus,
     /// The provider's account or plan descriptor, which can hold an email address: shown to the
     /// person and never stored or carried on an event.
-    pub(crate) detail: Option<FreeFormText<DRIVER_AUTH_DETAIL_MAX_LEN>>,
+    pub(crate) detail: Option<FreeFormText<PROVIDER_AUTH_DETAIL_MAX_LEN>>,
 }
 
 /// A probe's answer with `detail` cut to its cap, and dropped where it is still not valid text,
@@ -687,7 +712,7 @@ pub(crate) fn build_auth_probe_result(
 ) -> DriverAuthProbeResult {
     // A blank or NUL-holding descriptor is dropped: it only explains the status.
     let detail =
-        FreeFormText::new(cut_to_code_points(detail, DRIVER_AUTH_DETAIL_MAX_LEN).to_owned()).ok();
+        FreeFormText::new(cut_to_code_points(detail, PROVIDER_AUTH_DETAIL_MAX_LEN).to_owned()).ok();
     DriverAuthProbeResult { status, detail }
 }
 

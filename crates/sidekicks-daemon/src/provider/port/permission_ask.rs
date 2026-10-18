@@ -5,6 +5,7 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use futures::future::BoxFuture;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sidekicks_contracts::approval::{ApprovalRequestId, RememberedRuleSense, RememberedScopeKind};
 use sidekicks_contracts::run::id::RunId;
@@ -15,18 +16,25 @@ use strum::{EnumDiscriminants, IntoStaticStr};
 /// send input to the running command the ask's tool call names, change files, read one file or
 /// folder, reach a host, leave plan mode with the plan it proposed, or call a tool none of those
 /// covers. Its kind without the subject, as a standing rule names it, is
-/// [`ProviderAskActionKind`], spelled as the approval store writes it.
-#[derive(Clone, Debug, PartialEq, Eq, EnumDiscriminants)]
+/// [`ProviderAskActionKind`], spelled as the approval store writes it; the store keeps the whole
+/// action as JSON tagged by its `kind`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, EnumDiscriminants)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 #[strum_discriminants(
     name(ProviderAskActionKind),
     doc = "The kind of action a held call would take, without its subject, as a standing rule \
            names it.",
-    derive(IntoStaticStr),
+    derive(IntoStaticStr, Hash),
     strum(serialize_all = "camelCase")
 )]
 pub(crate) enum ProviderAskAction {
     /// Leave plan mode with the plan it proposed.
-    Plan,
+    Plan {},
     /// Run a command.
     Command {
         /// The command line.
@@ -108,7 +116,7 @@ pub(crate) struct ProviderPermissionAskWithdrawal {
 /// network decline, for the session or in the project's own rule file. `subject` is the words the
 /// card named, of the kind of action the ask was: a command's program and first subcommand, a
 /// file's path, a host, or a tool's name.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ProviderAskRule {
     /// The rule's reach.
     pub(crate) kind: RememberedScopeKind,

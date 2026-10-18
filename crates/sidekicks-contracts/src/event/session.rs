@@ -52,7 +52,8 @@ use crate::run::events::{
     AgentRunInterruptedPayload, AgentRunPausedPayload, AgentRunPausingPayload,
     AgentRunProviderInitializedPayload, AgentRunRunningPayload, AgentRunStartingPayload,
     AgentRunStoppedPayload, AgentRunWaitingForApprovalPayload, AgentRunWaitingForInputPayload,
-    AgentRunWorkerShuttingDownPayload, AgentTurnStartedPayload,
+    AgentRunWorkerShuttingDownPayload, AgentTurnCompletedPayload, AgentTurnFailedPayload,
+    AgentTurnInterruptedPayload, AgentTurnStartedPayload,
 };
 use crate::run::id::RunId;
 use crate::run::provider_choice::{
@@ -268,6 +269,12 @@ session_events! {
         = "agent.run.providerInitialized" => versioned,
     /// Emitted when a turn opens within a run; it moves no state.
     AgentTurnStarted(AgentTurnStartedPayload) = "agent.turn.started" => versioned,
+    /// Emitted when a turn ends normally; it moves no state.
+    AgentTurnCompleted(AgentTurnCompletedPayload) = "agent.turn.completed" => versioned,
+    /// Emitted when a turn is cut, its partial output kept; it moves no state.
+    AgentTurnInterrupted(AgentTurnInterruptedPayload) = "agent.turn.interrupted" => versioned,
+    /// Emitted when a turn fails; it moves no state.
+    AgentTurnFailed(AgentTurnFailedPayload) = "agent.turn.failed" => versioned,
     /// Emitted when the provider says its worker is shutting down mid-run; never the run's end.
     AgentRunWorkerShuttingDown(AgentRunWorkerShuttingDownPayload) = "agent.run.workerShuttingDown"
         => versioned,

@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 use serde_json::value::RawValue;
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
@@ -25,6 +26,11 @@ ts_constants! {
     /// The largest JSON-RPC `id`, in bytes once JSON-encoded (a UUID id is 38). A response echoes
     /// its request's `id`, so the gateway refuses a longer one before dispatch.
     pub const JSON_RPC_ID_MAX_BYTES: usize = 256;
+    /// The most calls one connection holds in flight; a call past it is refused at once with
+    /// `connection.call.limitReached`, and a client holds its calls past it, sending each as a
+    /// slot frees. A subscription cancel, a stop and a terminal write take no slot. It changes only
+    /// with a new dated protocol version, so a conforming client is never refused.
+    pub const MAX_CALLS_IN_FLIGHT: usize = 100;
     /// The refusal a client reports when the daemon cannot be reached: nothing listens on its
     /// socket, or the link to it is down; `fields.reason` says why.
     CONNECTION_UNAVAILABLE_CODE = RefusalCode::ConnectionUnavailable;
@@ -168,8 +174,9 @@ pub enum JsonRpcMessage {
         method: String,
         /// The params, read later by the method's contract.
         params: Option<Box<RawValue>>,
-        /// The protocol version the client negotiated, absent only on `connection.initialize`.
-        protocol_version: Option<String>,
+        /// The protocol version the client negotiated, absent only on `connection.initialize`; any
+        /// JSON value as sent, so a wrong type is refused with the request's own id.
+        protocol_version: Option<Value>,
     },
     /// A call that gets no response.
     Notification {
@@ -210,7 +217,7 @@ struct Envelope {
     #[serde(default, deserialize_with = "wire::present")]
     error: Option<JsonRpcError>,
     #[serde(default, deserialize_with = "wire::present")]
-    protocol_version: Option<String>,
+    protocol_version: Option<Value>,
 }
 
 /// Why a message's JSON is not a JSON-RPC 2.0 message.
@@ -296,7 +303,7 @@ impl JsonRpcMessage {
                 envelope.id = Some(id);
                 envelope.method = Some(method.as_str());
                 envelope.params = params.as_deref();
-                envelope.protocol_version = protocol_version.as_deref();
+                envelope.protocol_version = protocol_version.as_ref();
             }
             Self::Notification { method, params } => {
                 envelope.method = Some(method.as_str());
@@ -331,7 +338,7 @@ struct OutgoingEnvelope<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<&'a JsonRpcError>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    protocol_version: Option<&'a str>,
+    protocol_version: Option<&'a Value>,
 }
 
 /// Declares the JSON Schema of each kind of message, for TypeScript's types; each type is only
@@ -443,6 +450,66 @@ impl JsonSchema for JsonRpcMessage {
     }
 }
 
+/// Why a request's `protocolVersion` is refused, the `fields.reason` of
+/// `request.protocolVersion.invalid`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProtocolVersionInvalidReason {
+    /// The request carries no `protocolVersion`.
+    Missing,
+    /// The member is present but no string, `null` included.
+    WrongType,
+    /// The member is a string but no `YYYY-MM-DD` date.
+    InvalidFormat,
+}
+
+/// A refused value's JSON type, named so the value itself is never echoed: `object` for an object
+/// or an array.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ObservedType {
+    /// `null`.
+    Null,
+    /// An object or an array.
+    Object,
+    /// `true` or `false`.
+    Boolean,
+    /// A number.
+    Number,
+    /// A string.
+    String,
+}
+
+impl ObservedType {
+    /// The JSON type of `value`.
+    pub const fn of(value: &Value) -> Self {
+        match value {
+            Value::Null => Self::Null,
+            Value::Object(_) | Value::Array(_) => Self::Object,
+            Value::Bool(_) => Self::Boolean,
+            Value::Number(_) => Self::Number,
+            Value::String(_) => Self::String,
+        }
+    }
+}
+
+/// The `request.protocolVersion.invalid` refusal's `data.fields`: why, and for a wrong type the
+/// value's JSON type, never the value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtocolVersionInvalidDetails {
+    /// Why the member is refused.
+    pub reason: ProtocolVersionInvalidReason,
+    /// The member's JSON type, present only when `reason` is `wrongType`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "wire::present"
+    )]
+    #[schemars(with = "ObservedType")]
+    pub observed_type: Option<ObservedType>,
+}
+
 /// Why a socket cannot reach the daemon, the `fields.reason` of `connection.unavailable`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -459,7 +526,8 @@ pub enum ConnectionUnavailableReason {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "jsonrpc/message",
     doc: "JSON-RPC 2.0 messages shared by the daemon and its clients: the kinds of message, the \
-          error a response carries and the bound on a request's id.",
+          error a response carries, the bound on a request's id, the calls a connection holds in \
+          flight and why a request's protocol version is refused.",
     definitions: &[
         Definition::read::<JsonRpcId>(),
         Definition::read::<JsonRpcErrorData>(),
@@ -472,6 +540,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<JsonRpcMessage>(),
         Definition::read::<JsonRpcServerMessageSchema>().checked(),
         Definition::read::<ConnectionUnavailableReason>(),
+        Definition::read::<ProtocolVersionInvalidReason>(),
+        Definition::read::<ObservedType>(),
+        Definition::read::<ProtocolVersionInvalidDetails>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

@@ -3,7 +3,8 @@
 //! gateway writes for one once its acknowledgment is on the wire. A subscription owns its feed;
 //! what the feed follows is released in its `Drop`, which runs on every end, after the entry leaves
 //! the table. The daemon's own end sends one `$/subscription/end` frame; a client's cancel and a
-//! closed connection send none.
+//! closed connection send none. The gateway drops a subscription only once its lane's last frame
+//! is written, so a cancel's answer, which waits for that drop, follows the lane's close.
 
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::{HashMap, HashSet};
@@ -17,7 +18,7 @@ use sidekicks_contracts::jsonrpc::streaming::{
     SubscriptionCancel, SubscriptionCancelRequest, SubscriptionCancelResponse,
     SubscriptionEndParams, SubscriptionId,
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 use tracing::Instrument as _;
 
 use crate::ipc::domain_error::DomainError;
@@ -42,10 +43,14 @@ struct SubscriptionTable {
     by_transport: HashMap<TransportId, HashSet<SubscriptionId>>,
 }
 
-/// One open subscription's entry: the connection that owns it and what ends it from outside.
+/// One open subscription's entry: the connection that owns it, what ends it from outside, whether
+/// it already ended on its own, and the signal its lane closed, which fires when the gateway drops
+/// the subscription.
 struct OpenSubscription {
     transport: TransportId,
     cancellation: CancellationToken,
+    has_ended: bool,
+    lane_closed: CancellationToken,
 }
 
 impl SubscriptionTable {
@@ -71,8 +76,10 @@ impl Subscriptions {
 
     /// Registers `$/subscription/cancel`: a read, answered `{canceled: true}` only from the
     /// connection that owns the subscription, which then ends with no end frame. An unknown id
-    /// and another connection's both answer `{canceled: false}`, so no connection can probe for
-    /// another's. Fails the start when the method is already registered.
+    /// and another connection's both answer `{canceled: false}` at once, so no connection can probe
+    /// for another's. The owner's cancel answers only once the subscription's lane closed: `true`
+    /// after the lane's abort, `false` after the end frame of a stream that ended first. Fails the
+    /// start when the method is already registered.
     pub(crate) fn register_cancel(
         self: &Arc<Self>,
         registry: &mut MethodRegistryBuilder,
@@ -80,8 +87,18 @@ impl Subscriptions {
         let subscriptions = Arc::clone(self);
         registry.register::<SubscriptionCancel, _>(
             move |params: SubscriptionCancelRequest, context: HandlerContext| {
-                let canceled = subscriptions.cancel(&params.subscription_id, context.transport_id);
-                futures::future::ready(Ok(SubscriptionCancelResponse { canceled })).boxed()
+                let outcome = subscriptions.cancel(&params.subscription_id, context.transport_id);
+                async move {
+                    let canceled = match outcome {
+                        None => false,
+                        Some((canceled, lane_closed)) => {
+                            lane_closed.cancelled().await;
+                            canceled
+                        }
+                    };
+                    Ok(SubscriptionCancelResponse { canceled })
+                }
+                .boxed()
             },
         )
     }
@@ -108,6 +125,7 @@ impl Subscriptions {
         feed: Box<dyn EncodedFeed>,
     ) -> Result<Subscription, DomainError> {
         let cancellation = CancellationToken::new();
+        let lane_closed = CancellationToken::new();
         {
             let mut guard = self.lock();
             let table = &mut *guard;
@@ -121,6 +139,8 @@ impl Subscriptions {
                 OpenSubscription {
                     transport,
                     cancellation: cancellation.clone(),
+                    has_ended: false,
+                    lane_closed: lane_closed.clone(),
                 },
             );
         }
@@ -131,6 +151,7 @@ impl Subscriptions {
             cancellation,
             has_ended: false,
             feed,
+            _lane_closed: lane_closed.drop_guard(),
         })
     }
 
@@ -146,17 +167,38 @@ impl Subscriptions {
         }
     }
 
-    /// A client's cancel from `transport`: true when it owns `subscription_id` and had not canceled
-    /// it yet, which cancels it; it leaves the table when the gateway drops it.
-    fn cancel(&self, subscription_id: &SubscriptionId, transport: TransportId) -> bool {
+    /// A client's cancel from `transport`: `None` when it owns no subscription `subscription_id`;
+    /// otherwise its answer and the signal its lane closed, which the answer waits for. The answer
+    /// is true when the subscription had neither ended nor been canceled, which cancels it; it
+    /// leaves the table when the gateway drops it.
+    fn cancel(
+        &self,
+        subscription_id: &SubscriptionId,
+        transport: TransportId,
+    ) -> Option<(bool, CancellationToken)> {
         let table = self.lock();
-        let Some(open) = table.by_id.get(subscription_id) else {
+        let open = table
+            .by_id
+            .get(subscription_id)
+            .filter(|open| open.transport == transport)?;
+        let canceled = !open.has_ended && !open.cancellation.is_cancelled();
+        if canceled {
+            open.cancellation.cancel();
+        }
+        Some((canceled, open.lane_closed.clone()))
+    }
+
+    /// Marks `subscription_id` ended on its own, unless a cancel came first; answers whether it
+    /// did, so the end frame goes out only when no cancel won.
+    fn mark_ended(&self, subscription_id: &SubscriptionId) -> bool {
+        let mut table = self.lock();
+        let Some(open) = table.by_id.get_mut(subscription_id) else {
             return false;
         };
-        if open.transport != transport || open.cancellation.is_cancelled() {
+        if open.cancellation.is_cancelled() {
             return false;
         }
-        open.cancellation.cancel();
+        open.has_ended = true;
         true
     }
 
@@ -165,8 +207,9 @@ impl Subscriptions {
     }
 }
 
-/// The refusal of a subscribe call on a connection that holds `MAX_OPEN_LANES` subscriptions.
-fn subscription_limit_reached() -> DomainError {
+/// The refusal of a subscribe call on a connection that holds `MAX_OPEN_LANES` subscriptions,
+/// which the gateway also answers when `has_room` says no.
+pub(crate) fn subscription_limit_reached() -> DomainError {
     DomainError::new(
         "the connection holds as many subscriptions as it may open",
         RefusalCode::ConnectionSubscriptionLimitReached,
@@ -183,7 +226,8 @@ pub(crate) enum SubscriptionFrame {
 }
 
 /// One open subscription, which the gateway drives only once the acknowledgment's END chunk is
-/// written. Dropping it takes it out of the table, then drops its feed.
+/// written. Dropping it takes it out of the table, then drops its feed, then signals its lane
+/// closed to a cancel waiting on it.
 pub(crate) struct Subscription {
     subscriptions: Arc<Subscriptions>,
     /// The subscribe method's wire name, which the subscription's log lines carry.
@@ -193,6 +237,8 @@ pub(crate) struct Subscription {
     /// Set once the subscription ended, so no frame follows its end.
     has_ended: bool,
     feed: Box<dyn EncodedFeed>,
+    /// Signals the lane closed when the subscription drops, after its feed.
+    _lane_closed: DropGuard,
 }
 
 impl Subscription {
@@ -230,23 +276,22 @@ impl Subscription {
             .await;
         // A subscription canceled from outside ends with no frame: its client asked, or is gone.
         // Its gate closes only once it is canceled, so a feed stopped by its gate lands here too.
-        let is_canceled = self.cancellation.is_cancelled();
+        // The end is marked under the table's lock, so a cancel either wins or answers false.
         let end = match read {
             Some(Ok(Some(value))) => return Some(SubscriptionFrame::Notify(value)),
-            None => None,
-            Some(Ok(None)) => (!is_canceled).then(|| SubscriptionEndParams::Completed {
+            None => return None,
+            Some(Ok(None)) => SubscriptionEndParams::Completed {
                 subscription_id: self.id,
-            }),
-            Some(Err(error)) => {
+            },
+            Some(Err(error)) => SubscriptionEndParams::Refused {
+                subscription_id: self.id,
                 // Mapped even when no frame goes out, so a fault is still logged once.
-                let error = json_rpc_error_of(CallFailure::Dispatch(error));
-                (!is_canceled).then(|| SubscriptionEndParams::Refused {
-                    subscription_id: self.id,
-                    error,
-                })
-            }
+                error: json_rpc_error_of(CallFailure::Dispatch(error)),
+            },
         };
-        end.map(SubscriptionFrame::End)
+        self.subscriptions
+            .mark_ended(&self.id)
+            .then_some(SubscriptionFrame::End(end))
     }
 }
 
@@ -260,79 +305,18 @@ impl Drop for Subscription {
 #[cfg(test)]
 mod tests {
     use futures::future::BoxFuture;
-    use serde_json::value::RawValue;
     use serde_json::{Value, json};
     use sidekicks_contracts::jsonrpc::streaming::{
         SUBSCRIPTION_CANCEL_METHOD, SubscribeAcknowledgmentResponse,
     };
-    use sidekicks_contracts::method::{
-        Method, MethodDescriptor, ProcedureType, SubscriptionMethod,
-    };
-    use sidekicks_contracts::schema::received_check;
-    use sidekicks_contracts::typescript::TypeName;
-    use tokio::sync::mpsc;
-    use uuid::Uuid;
 
     use super::*;
-    use crate::ipc::call_fixtures::{Named, context};
-    use crate::ipc::registry::{
-        Dispatch as _, DispatchError, HandlerError, MethodRegistry, Reply, Request,
+    use crate::ipc::call_fixtures::{
+        Named, NamedSubscribe, SUBSCRIBE_METHOD as METHOD, channel_feed, context, request,
+        subscription_id,
     };
+    use crate::ipc::registry::{Dispatch as _, DispatchError, HandlerError, MethodRegistry, Reply};
     use crate::ipc::stream::feed::{CreditGate, Feed};
-
-    /// A feed sending each JSON its channel carries, finished once the sender is dropped.
-    struct ChannelFeed {
-        values: mpsc::UnboundedReceiver<Vec<u8>>,
-    }
-
-    impl EncodedFeed for ChannelFeed {
-        fn next<'a>(
-            &'a mut self,
-            gate: &'a dyn SendGate,
-        ) -> BoxFuture<'a, Result<Option<EncodedValue>, DispatchError>> {
-            async move {
-                if gate.ready().await.is_err() {
-                    return Ok(None);
-                }
-                Ok(self.values.recv().await.map(|json| EncodedValue {
-                    json,
-                    attachments: Vec::new(),
-                }))
-            }
-            .boxed()
-        }
-    }
-
-    /// The subscribe method the tests' subscriptions answer.
-    const METHOD: &str = "test.subscribe";
-
-    /// A channel feed and its sender, which reads closed once the feed is released.
-    fn channel_feed() -> (mpsc::UnboundedSender<Vec<u8>>, Box<dyn EncodedFeed>) {
-        let (sender, values) = mpsc::unbounded_channel();
-        (sender, Box::new(ChannelFeed { values }))
-    }
-
-    /// A subscribe method whose emissions are `Named`.
-    struct NamedSubscribe;
-
-    impl Method for NamedSubscribe {
-        type Params = Named;
-        type Result = SubscribeAcknowledgmentResponse;
-        const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
-            method: METHOD,
-            procedure_type: ProcedureType::Subscription,
-            is_mutating: false,
-            params: TypeName::of::<Named>(),
-            result: TypeName::of::<SubscribeAcknowledgmentResponse>(),
-            emission: Some(TypeName::of::<Named>()),
-            refusals: &[],
-            received_check: received_check::<Named>,
-        };
-    }
-
-    impl SubscriptionMethod for NamedSubscribe {
-        type Emission = Named;
-    }
 
     /// A typed feed whose emission breaks its length rule.
     struct OverlongName;
@@ -348,20 +332,6 @@ mod tests {
                 name: "far too long".to_owned(),
             })))
             .boxed()
-        }
-    }
-
-    fn subscription_id(number: u128) -> SubscriptionId {
-        // A version-7 layout, so the id reads as the UUID text form.
-        let uuid = Uuid::from_u128(0x7000_8000_0000_0000_0000 | number);
-        SubscriptionId::try_from(uuid).expect("the layout is a UUID's")
-    }
-
-    fn request(method: &str, params: &Value) -> Request {
-        Request {
-            method: method.to_owned(),
-            params: Some(RawValue::from_string(params.to_string()).expect("the params are JSON")),
-            attachments: Vec::new(),
         }
     }
 
@@ -398,7 +368,7 @@ mod tests {
         let params = json!({ "subscriptionId": subscription_id });
         let reply = registry
             .dispatch(
-                request(SUBSCRIPTION_CANCEL_METHOD, &params),
+                request(SUBSCRIPTION_CANCEL_METHOD, Some(&params)),
                 context(transport),
             )
             .await;
@@ -414,39 +384,38 @@ mod tests {
     async fn only_the_owning_connection_cancels_and_its_cancel_sends_no_frame() {
         let gate = CreditGate::with_credit(1);
         let (subscriptions, registry) = served();
-        let (values, feed) = channel_feed();
+        let (values, _taken, feed) = channel_feed();
         let mut subscription = subscriptions
             .open(TransportId(1), METHOD, subscription_id(1), feed)
             .expect("the connection is under its limit");
 
         assert!(!cancel_from(&registry, 2, &subscription_id(1)).await);
-        values.send(b"1".to_vec()).expect("the feed is still held");
+        values.send(json!(1)).expect("the feed is still held");
         assert!(matches!(
             subscription.next_frame(&gate).await,
             Some(SubscriptionFrame::Notify(_))
         ));
 
-        // The feed waits on a source that is still open; the owner's cancel ends it.
+        // The feed waits on a source that is still open; the owner's cancel ends it, and answers
+        // once the gateway drops the subscription after closing its lane.
         let owned = subscription_id(1);
-        let (frame, canceled) = tokio::join!(
-            subscription.next_frame(&gate),
-            cancel_from(&registry, 1, &owned)
-        );
+        let (canceled, ()) = tokio::join!(cancel_from(&registry, 1, &owned), async {
+            assert!(subscription.next_frame(&gate).await.is_none());
+            drop(subscription);
+        });
         assert!(canceled);
-        assert!(frame.is_none());
+        assert!(values.is_closed(), "the feed was released");
         assert!(
             !cancel_from(&registry, 1, &owned).await,
-            "a second cancel finds it canceled"
+            "a second cancel finds it gone"
         );
-        drop(subscription);
-        assert!(values.is_closed(), "the feed was released");
     }
 
     #[tokio::test]
     async fn a_finished_feed_sends_one_completed_end_frame() {
         let gate = CreditGate::with_credit(1);
         let (subscriptions, _registry) = served();
-        let (values, feed) = channel_feed();
+        let (values, _taken, feed) = channel_feed();
         let mut subscription = subscriptions
             .open(TransportId(1), METHOD, subscription_id(1), feed)
             .expect("the connection is under its limit");
@@ -464,7 +433,7 @@ mod tests {
     async fn a_closed_connection_ends_its_subscriptions_with_no_frame_and_releases_their_feeds() {
         let gate = CreditGate::with_credit(1);
         let (subscriptions, _registry) = served();
-        let (values, feed) = channel_feed();
+        let (values, _taken, feed) = channel_feed();
         let mut subscription = subscriptions
             .open(TransportId(1), METHOD, subscription_id(1), feed)
             .expect("the connection is under its limit");
@@ -488,7 +457,7 @@ mod tests {
         let (subscriptions, registry) = served();
         let reply = registry
             .dispatch(
-                request("test.subscribe", &json!({ "name": "ok" })),
+                request("test.subscribe", Some(&json!({ "name": "ok" }))),
                 context(1),
             )
             .await;
@@ -575,8 +544,12 @@ mod tests {
                 .expect("another connection has its own limit"),
         );
         assert!(!subscriptions.has_room(TransportId(1)));
-        assert!(cancel_from(&registry, 1, &subscription_id(0)).await);
-        drop(open.remove(0));
+        let first = open.remove(0);
+        let first_id = subscription_id(0);
+        let (canceled, ()) = tokio::join!(cancel_from(&registry, 1, &first_id), async {
+            drop(first);
+        });
+        assert!(canceled);
         assert!(subscriptions.has_room(TransportId(1)));
         open.push(
             subscriptions

@@ -5,8 +5,23 @@ use std::io::{self, ErrorKind};
 
 use interprocess::local_socket::tokio::Stream;
 
+use crate::caller_process::ParentProcess;
+
+/// A process, held by its id alone: Windows pins none yet.
+#[derive(Clone, Debug)]
+pub struct PinnedProcess {
+    id: u32,
+}
+
+impl PinnedProcess {
+    /// The process's id.
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+}
+
 /// Reads no peer: Windows has no caller check yet. Always fails with `Unsupported`.
-pub fn read_peer_process_id(_stream: &Stream) -> io::Result<Option<u32>> {
+pub fn read_peer_process(_stream: &Stream) -> io::Result<Option<PinnedProcess>> {
     Err(io::Error::new(
         ErrorKind::Unsupported,
         "Windows reads no local connection's peer process yet",
@@ -14,9 +29,17 @@ pub fn read_peer_process_id(_stream: &Stream) -> io::Result<Option<u32>> {
 }
 
 /// Reads no parent: Windows has no caller check yet. Always fails with `Unsupported`.
-pub fn read_parent_process_id(_process_id: u32) -> io::Result<Option<u32>> {
+pub fn read_parent_process(_process: &PinnedProcess) -> io::Result<ParentProcess> {
     Err(io::Error::new(
         ErrorKind::Unsupported,
         "Windows reads no process's parent yet",
     ))
+}
+
+/// This process, held by its id.
+#[cfg(any(test, feature = "test-support"))]
+pub fn this_process() -> PinnedProcess {
+    PinnedProcess {
+        id: std::process::id(),
+    }
 }

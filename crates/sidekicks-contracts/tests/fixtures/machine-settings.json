@@ -318,7 +318,7 @@
     {
       "file": {
         "lastLeadModel": {
-          "driverName": "codex",
+          "providerName": "codex",
           "modelId": "gpt-5",
           "effort": null
         }
@@ -332,7 +332,7 @@
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
         "lastLeadModel": {
-          "driverName": "codex",
+          "providerName": "codex",
           "modelId": "gpt-5",
           "effort": null
         },

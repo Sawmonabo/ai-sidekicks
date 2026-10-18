@@ -45,10 +45,10 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 
 ## Required Behavior
 
-### Deployment-Aware Abstraction
+### One Counter On Both Relays
 
-- Both deployments count the sign-in routes, with the same limit and the same programmatic interface. The Workers relay counts them in a per-identity Durable Object, one global counter per identity, so a caller rotating through edge locations meets one count. The sign-in routes see a handful of requests per device per day, so the Durable Object round trip on them (10 to 50 ms) is never felt. The self-hosted relay, one process, counts them in that process's memory.
-- The implementation must swap via deployment configuration, not application code changes.
+- Both deployments count the sign-in routes with one counter over one table, `counted_requests`, in the account's [one schema](../architecture/schemas/hosted-account-schema.md), so they enforce the same limit the same way. The Workers relay keeps the table in the account object's SQLite storage, and the one account object answers every edge location, so a caller rotating through locations meets one count. The sign-in routes see a handful of requests per device per day, so the object round trip on them (10 to 50 ms) is never felt. The self-hosted relay keeps the table in the account's SQLite file, which its one process writes.
+- Only where the table lives differs between the two, and each relay's host supplies it; the counter's code is the same.
 
 ### Canonical Endpoint Group Registry
 
@@ -83,7 +83,7 @@ Nothing else on the relay is counted.
 
 ## State And Data Implications
 
-- Rate limit counters are ephemeral and must not be persisted beyond their sliding window.
+- Rate limit counters are ephemeral and must not be persisted beyond their sliding window: each counted request is one row, dropped once it leaves its window, and a cleanup due when an address's window empties drops what no later request did.
 
 ## Example Flows
 
@@ -91,7 +91,7 @@ Nothing else on the relay is counted.
 
 ## Implementation Notes
 
-- The abstraction layer should present a single `RateLimiter` interface that the Durable Object counter and the in-memory counter both implement. Configuration selects the implementation at startup.
+- The counter is one set of statements over the account store, which both relays implement over their own SQLite: the account object's storage on Workers, the relay's file on the Compose relay.
 - Sliding window counters are preferred over fixed windows to avoid burst-at-boundary behavior.
 
 ## Pitfalls To Avoid
@@ -103,7 +103,7 @@ Nothing else on the relay is counted.
 ## Acceptance Criteria
 
 - [ ] Sign-in route requests exceeding 20 per source address per minute on `auth.endpoint` receive HTTP 429 with `Retry-After`.
-- [ ] The Workers relay counts the sign-in routes in a per-identity Durable Object and the self-hosted relay in its process's memory; both enforce the same limit.
+- [ ] The Workers relay counts the sign-in routes in the account object's SQLite storage and the self-hosted relay in its SQLite file, both with the one counter over the `counted_requests` table; both enforce the same limit.
 - [ ] On the Workers relay, requests to the sign-in routes count once across every edge location: the 21st `auth.endpoint` request from one address in a minute is refused whichever location serves it.
 - [ ] A counter error fails only the request it occurred on.
 - [ ] Local daemon endpoints are not rate-limited.
@@ -117,4 +117,4 @@ None.
 - [Deployment Topology](../architecture/deployment-topology.md)
 - [Security Architecture](../architecture/security-architecture.md)
 - [OWASP API Security Top 10 (2023) — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/) — the governing class for per-caller rate limits
-- [Cloudflare Workers — rate-limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) — `simple.period` accepts only 10 s or 60 s; the counter is per-Cloudflare-location rather than global; the binding is documented as "intentionally designed to not be used as an accurate accounting system". The source for why the sign-in routes count in the per-identity Durable Object (read 2026-08-25).
+- [Cloudflare Workers — rate-limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) — `simple.period` accepts only 10 s or 60 s; the counter is per-Cloudflare-location rather than global; the binding is documented as "intentionally designed to not be used as an accurate accounting system". The source for why the sign-in routes count in the account object rather than in the binding (read 2026-08-25).

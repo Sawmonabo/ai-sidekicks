@@ -42,27 +42,33 @@ impl ProviderServiceProcesses {
         }
     }
 
-    /// Holds the process serving the dialed `stream` until the returned hold drops. An error when
-    /// the system cannot name the process, the service having closed its end included.
-    pub(crate) fn hold_serving(
+    /// Holds the process serving the dialed `stream` until the returned hold drops, handing the
+    /// stream back beside it. An error when the system cannot name the process, the service having
+    /// closed its end included.
+    pub(crate) async fn hold_serving(
         &self,
-        stream: &Stream,
-    ) -> Result<ProviderServiceHold, HoldServingError> {
-        let process_id = self
+        stream: Stream,
+    ) -> Result<(Stream, ProviderServiceHold), HoldServingError> {
+        let (stream, read) = self
             .reader
-            .read_peer_process_id(stream)
+            .read_peer_process(stream)
+            .await
+            .map_err(HoldServingError::Read)?;
+        let process_id = read
             .map_err(HoldServingError::Read)?
-            .ok_or(HoldServingError::PeerClosed)?;
+            .ok_or(HoldServingError::PeerClosed)?
+            .id();
         *self
             .holds
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(process_id)
             .or_default() += 1;
-        Ok(ProviderServiceHold {
+        let hold = ProviderServiceHold {
             holds: Arc::clone(&self.holds),
             process_id,
-        })
+        };
+        Ok((stream, hold))
     }
 
     /// Whether the process with `process_id` serves a provider service connection the daemon
@@ -72,6 +78,15 @@ impl ProviderServiceProcesses {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .contains_key(&process_id)
+    }
+
+    /// Whether the daemon holds a connection to any provider service now.
+    pub(crate) fn is_holding_any(&self) -> bool {
+        !self
+            .holds
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty()
     }
 }
 

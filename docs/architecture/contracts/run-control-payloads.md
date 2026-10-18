@@ -383,7 +383,8 @@ interface RunStateChangeEvent {
   // console has no runs pane to render it in: a stopped run's cause is told on the working line,
   // which is where a run is paused and interrupted, and in the transcript's own state-changing rows
   // ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
-  trigger?: "stepLimit" | "spendLimit" | "tokenLimit" | "workflowPhaseCanceled" | "daemonRestart";
+  // Typed per state: InterruptReason on interrupted, "tokenLimit" on stopped, never elsewhere.
+  trigger?: InterruptReason | "tokenLimit";
   // A run's linkage and its admission stamps ride the agent.run.queued row alone
   // (AgentRunQueuedPayload, orchestration-payloads.md §Plan-013), never this stream.
   timestamp: string;

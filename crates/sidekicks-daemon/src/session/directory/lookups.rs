@@ -2,12 +2,26 @@
 //! row, and the project it sits in. A session's project is the project of the attached mount its
 //! latest workspace binds, or, before its workspace is bound (its project still cloning), the
 //! project its create named; a chat's managed mount is no project, and a forgotten project is none.
+//! Also the states of a session that has ended, closed or being purged, and a write kept only while
+//! its session has a row.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 
+use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::writer::{DatabaseWriter, WriteError};
+use crate::ipc::domain_error::DomainError;
+use crate::session::not_found::session_not_found;
+
+/// The states of a session that has ended, closed or being purged, as a SQL list of quoted words
+/// for a `state IN (…)` condition: such a session takes no message, ask or rule.
+pub(crate) static ENDED_SESSION_STATES_SQL: LazyLock<String> = LazyLock::new(|| {
+    sql_list_of([SessionState::Closed, SessionState::PurgeRequested].map(<&'static str>::from))
+});
 
 /// The subquery answering the project id of the session whose id `session_id_sql` reads (a bound
 /// parameter such as `@sessionId`, or a column such as `s.id`), or NULL for a chat, a session whose
@@ -40,5 +54,37 @@ pub(crate) fn session_exists_statement(session_id: &SessionId) -> WriteStatement
             session_id.text().as_str(),
         )]),
         expected_row_count: Some(1),
+    }
+}
+
+/// Why a write kept only while its session has a row was not kept.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SessionWriteError {
+    /// The session is not one this daemon holds (`session.notFound`).
+    #[error(transparent)]
+    Refused(#[from] DomainError),
+    /// The write was not kept.
+    #[error(transparent)]
+    Write(#[from] WriteError),
+}
+
+/// Writes `change` only while `session_id` has a directory row, the check and the change in one
+/// write, so a purge cannot land between them. Fails with [`SessionWriteError::Refused`]
+/// (`session.notFound`) for a session with no row, and with [`SessionWriteError::Write`] when the
+/// write is not kept.
+pub(crate) async fn write_while_session_exists(
+    writer: &DatabaseWriter,
+    session_id: &SessionId,
+    change: WriteStatement,
+) -> Result<(), SessionWriteError> {
+    match writer
+        .write(vec![session_exists_statement(session_id), change])
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(WriteError::Refused {
+            statement_index: 0, ..
+        }) => Err(session_not_found(session_id).into()),
+        Err(error) => Err(error.into()),
     }
 }

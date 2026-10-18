@@ -32,7 +32,7 @@ interface PlatformBridge {
   // daemon RPC over the Spec-006 JSON-RPC contract, and the supervisor main runs beside it
   daemon: {
     // one daemon method, carried over the client helper's port and forwarded on the helper's own
-    // connection, which presented the session token
+    // connection, which presented the session token or, on macOS, was admitted by its signature
     call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
     // one daemon subscription and its request; the `daemon.status` topic, opened with `{}`, carries
     // the connection state and the version range. `onEnded` hears, once, a subscription that ended

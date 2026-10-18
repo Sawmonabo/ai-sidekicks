@@ -9,6 +9,7 @@
 use futures::future::BoxFuture;
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::tools::IdempotencyClass;
+use strum::IntoStaticStr;
 
 use crate::provider::record_readers::read_non_empty_string;
 
@@ -38,6 +39,17 @@ pub(crate) struct McpTaskDispatchIdentity {
     pub(crate) tool_name: String,
 }
 
+/// Which MCP Tasks protocol a task handle belongs to, stored beside the handle so recovery polls
+/// it the way its server answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
+pub(crate) enum McpTaskGeneration {
+    /// A task on a 2025-11-25 server, whose result `tasks/result` reads.
+    V1,
+    /// A task on a 2026-07-28 server, whose result `tasks/get` carries inline.
+    V2,
+}
+
 /// A dispatch whose acceptance carried a receiver-generated task id, ready to be recorded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct McpTaskHandleObservation {
@@ -45,6 +57,8 @@ pub(crate) struct McpTaskHandleObservation {
     pub(crate) dispatch: McpTaskDispatchIdentity,
     /// The task id the receiver generated.
     pub(crate) mcp_task_id: String,
+    /// The protocol of the server that accepted the task.
+    pub(crate) mcp_task_generation: McpTaskGeneration,
 }
 
 /// Where an observed task handle lands: the task handle recorder, which stores it on the
@@ -61,8 +75,9 @@ pub(crate) fn extract_mcp_task_id(acceptance_result: &Value) -> Option<&str> {
     read_non_empty_string(acceptance_result.get("task")?.as_object()?, "taskId")
 }
 
-/// Hands `sink` an observation only when the acceptance carries a handle; otherwise nothing is
-/// stored, and after a restart the call stays halted, never run again.
+/// Hands `sink` an observation only when the acceptance carries a handle, with the generation of
+/// the server that sent it; otherwise nothing is stored, and after a restart the call stays
+/// halted, never run again.
 #[expect(
     dead_code,
     reason = "the MCP client hands each task acceptance here with the task handle recorder as the \
@@ -71,6 +86,7 @@ pub(crate) fn extract_mcp_task_id(acceptance_result: &Value) -> Option<&str> {
 pub(crate) async fn observe_mcp_task_acceptance(
     sink: &dyn McpTaskHandleSink,
     dispatch: McpTaskDispatchIdentity,
+    mcp_task_generation: McpTaskGeneration,
     acceptance_result: &Value,
 ) {
     let Some(mcp_task_id) = extract_mcp_task_id(acceptance_result) else {
@@ -79,6 +95,7 @@ pub(crate) async fn observe_mcp_task_acceptance(
     sink.record(McpTaskHandleObservation {
         dispatch,
         mcp_task_id: mcp_task_id.to_owned(),
+        mcp_task_generation,
     })
     .await;
 }

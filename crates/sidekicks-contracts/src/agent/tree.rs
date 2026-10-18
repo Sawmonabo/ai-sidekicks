@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::AgentId;
-use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::run::id::RunId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::text::branded_text;
@@ -13,7 +13,7 @@ use crate::wire::text::branded_text;
 branded_text! {
     /// The daemon-minted handle of a provider's own helper inside its parent's run: opaque, and
     /// resolved only by the daemon's parent-to-child index that minted it.
-    pub struct ChildHandle(1..=DRIVER_WIRE_HANDLE_MAX_LEN);
+    pub struct ChildHandle(1..=PROVIDER_WIRE_HANDLE_MAX_LEN);
 }
 
 /// One agent in the session's tree as the daemon's index names it: an agent with an id (the lead,

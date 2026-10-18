@@ -4,17 +4,16 @@
 use std::fs::OpenOptions;
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
     FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_READ_ATTRIBUTES,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileAttributeTagInfo, FileIdInfo,
-    GetFileInformationByHandleEx,
 };
 
 use crate::entry_identity::{EntryIdentity, IdentifiedEntry};
+use crate::windows::file_information::read_information;
 
 // The reparse-tag bit that marks a name surrogate: a link or a junction, which names another
 // entry. A reparse point without it (a cloud-file placeholder) is the entry itself.
@@ -32,38 +31,8 @@ pub fn entry_identity(path: &Path) -> io::Result<IdentifiedEntry> {
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)?;
-    let mut identity = FILE_ID_INFO::default();
-    let identity_length =
-        u32::try_from(size_of::<FILE_ID_INFO>()).expect("the record's size fits in a u32");
-    // SAFETY: the handle is the open entry's, alive for the call; the buffer is a live
-    // `FILE_ID_INFO`, the record `FileIdInfo` fills, of the length given.
-    let has_identity = unsafe {
-        GetFileInformationByHandleEx(
-            opened.as_raw_handle(),
-            FileIdInfo,
-            (&raw mut identity).cast(),
-            identity_length,
-        )
-    };
-    if has_identity == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let mut attributes = FILE_ATTRIBUTE_TAG_INFO::default();
-    let attributes_length = u32::try_from(size_of::<FILE_ATTRIBUTE_TAG_INFO>())
-        .expect("the record's size fits in a u32");
-    // SAFETY: the handle is the open entry's, alive for the call; the buffer is a live
-    // `FILE_ATTRIBUTE_TAG_INFO`, the record `FileAttributeTagInfo` fills, of the length given.
-    let has_attributes = unsafe {
-        GetFileInformationByHandleEx(
-            opened.as_raw_handle(),
-            FileAttributeTagInfo,
-            (&raw mut attributes).cast(),
-            attributes_length,
-        )
-    };
-    if has_attributes == 0 {
-        return Err(io::Error::last_os_error());
-    }
+    let identity: FILE_ID_INFO = read_information(&opened, FileIdInfo)?;
+    let attributes: FILE_ATTRIBUTE_TAG_INFO = read_information(&opened, FileAttributeTagInfo)?;
     let is_link = attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
         && attributes.ReparseTag & NAME_SURROGATE_TAG_BIT != 0;
     Ok(IdentifiedEntry {

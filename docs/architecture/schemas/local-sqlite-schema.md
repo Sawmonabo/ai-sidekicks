@@ -39,11 +39,11 @@ CREATE TABLE session_events (
   sequence               INTEGER NOT NULL,           -- monotonic per session
   occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)
   monotonic_ns           INTEGER NOT NULL,           -- nanoseconds since the daemon's start on std::time::Instant at emit; within-daemon ordering only (see Spec-013 §Clock Handling)
-  category               TEXT NOT NULL,              -- e.g. 'runLifecycle', 'assistantOutput', 'toolActivity'
+  category               TEXT NOT NULL,              -- e.g. 'runLifecycle', 'agentOutput', 'toolActivity'
   type                   TEXT NOT NULL,              -- specific event type within category
   actor                  TEXT,                       -- the payload's own actor: the device a connection sent the event from, the agent_id, or 'daemon' on an intervention the daemon made itself; NULL when the payload names none
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer.denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, eventMaintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
+  content_payload        BLOB,                       -- Agent- and tool-generated prose (Spec-005 §Agent Output + §Tool Activity): the agent message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer.denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, eventMaintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
@@ -95,13 +95,13 @@ END;
 
 **Turn-end once backstop.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle)).
 
-**Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with zstd at level 3 before it is written, and the encoding is recorded in the payload as `contentEncoding`, so every reader decodes it through the daemon's one codec (`crates/sidekicks-daemon/src/events/content/codec.rs`); a smaller body is stored as its UTF-8 bytes.
+**Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the agent message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with zstd at level 3 before it is written, and the encoding is recorded in the payload as `contentEncoding`, so every reader decodes it through the daemon's one codec (`crates/sidekicks-daemon/src/events/content/codec.rs`); a smaller body is stored as its UTF-8 bytes.
 
 **Long bodies.** Unlike a person's message, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. A body is kept whole, never truncated, refused or dropped, and a client fetches a long one on demand through the daemon's read rather than receiving it inside the event. Nothing removes a body in the background: a session's rows, bodies included, are kept until the person deletes the session with `Delete old data` ([Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy)).
 
 **Purge.** Deleting a session deletes its rows outright, `content_payload` with them, with `secure_delete` on (§Pragmas), so the freed pages hold nothing readable.
 
-**Relay disposition — the column stays on its machine.** `content_payload` is **never relayed**: the bytes stay on the machine that wrote them, and a linked device reads a body only through the daemon's read, paired with the event and never merged into `payload` ([Spec-005 §Assistant Output](../../specs/005-session-event-taxonomy-and-audit-log.md#assistant-output-assistantoutput)).
+**Relay disposition — the column stays on its machine.** `content_payload` is **never relayed**: the bytes stay on the machine that wrote them, and a linked device reads a body only through the daemon's read, paired with the event and never merged into `payload` ([Spec-005 §Agent Output](../../specs/005-session-event-taxonomy-and-audit-log.md#agent-output-agentoutput)).
 
 **A second machine holding a body is unreachable in V1.** A session executes on exactly one bound machine ([Spec-027 §Required Behavior](../../specs/027-remote-control.md#required-behavior)), and every row in that session's log is authored by that machine. No other daemon holds a row of this session, so there is no projection anywhere that would show a body it does not hold.
 
@@ -450,7 +450,7 @@ CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
 CREATE TABLE runtime_bindings (
   id                  TEXT PRIMARY KEY,
   run_id              TEXT NOT NULL,
-  driver_name         TEXT NOT NULL,            -- e.g. 'claude', 'codex'
+  provider_name         TEXT NOT NULL,            -- e.g. 'claude', 'codex'
   contract_version    TEXT NOT NULL             -- canonical, identifying semver of driver contract (build metadata rejected by the T2.2 write-path garde check)
                       CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
   cli_version_raw     TEXT NOT NULL             -- the provider-printed CLI version verbatim (`rawVersion`), captured at every binding write (Spec-004 §Required Behavior `cliVersion` report)
@@ -476,19 +476,19 @@ CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
 -- account's config folder.
 CREATE TABLE left_conversations (
   session_id           TEXT NOT NULL,
-  driver_name          TEXT NOT NULL,           -- 'claude' or 'codex'
+  provider_name          TEXT NOT NULL,           -- 'claude' or 'codex'
   provider_account_id  TEXT,                    -- NULL on the machine's default home
   conversation_id      TEXT NOT NULL            -- provider-owned, bounded as resume_handle is
                        CHECK (length(conversation_id) > 0 AND length(conversation_id) <= 4096 AND instr(conversation_id, char(0)) = 0),
   left_at              TEXT NOT NULL,
-  PRIMARY KEY (driver_name, conversation_id)
+  PRIMARY KEY (provider_name, conversation_id)
 ) STRICT;
 
 CREATE INDEX idx_left_conversations_session ON left_conversations(session_id);
 
 -- Owner: Plan-003
 CREATE TABLE driver_capabilities (
-  driver_name       TEXT NOT NULL,
+  provider_name       TEXT NOT NULL,
   capability_flag   TEXT NOT NULL
                     CHECK(capability_flag IN (
                       'resume', 'steer', 'interactiveRequests', 'mcp',
@@ -498,12 +498,12 @@ CREATE TABLE driver_capabilities (
                       'providerCommands', 'outputSpeed'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
-                    -- The CHECK above lists every flag the capability union declares. Every driver_name holds one
+                    -- The CHECK above lists every flag the capability union declares. Every provider_name holds one
                     -- row per flag, supported=0 where the driver does not declare it (undeclared = unsupported,
                     -- I-003-2), because the hydrator's exact-cardinality guard refuses a cache whose row count
                     -- differs from the union's. This CHECK lists every flag in the union.
   refreshed_at      TEXT NOT NULL,
-  PRIMARY KEY (driver_name, capability_flag)
+  PRIMARY KEY (provider_name, capability_flag)
 ) STRICT;
 
 -- Owner: Plan-003
@@ -511,7 +511,7 @@ CREATE TABLE driver_capabilities (
 -- without round-tripping the driver; recovery never branches on it (Spec-004 §Required Behavior). Normalized per-tool rows
 -- mirror the per-flag-row shape of driver_capabilities.
 CREATE TABLE driver_tools (
-  driver_name        TEXT NOT NULL,
+  provider_name        TEXT NOT NULL,
   tool_name          TEXT NOT NULL,
   idempotency_class  TEXT NOT NULL
                      CHECK(idempotency_class IN (
@@ -519,11 +519,11 @@ CREATE TABLE driver_tools (
                      )),
   description        TEXT,
   refreshed_at       TEXT NOT NULL,
-  PRIMARY KEY (driver_name, tool_name)
+  PRIMARY KEY (provider_name, tool_name)
 ) STRICT;
 
 -- Owner: Plan-003
--- Per-driver capability-contract metadata. The capability cache is keyed by driver_name
+-- Per-driver capability-contract metadata. The capability cache is keyed by provider_name
 -- (driver_capabilities + driver_tools are per-driver children); this parent row holds the
 -- single per-driver contract_version so cold-start hydration can reconstruct
 -- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
@@ -538,7 +538,7 @@ CREATE TABLE driver_tools (
 -- two byte-different strings can never denote the same contract version (which
 -- would otherwise report a changed capability snapshot on a non-change).
 CREATE TABLE driver_contract_meta (
-  driver_name         TEXT PRIMARY KEY,
+  provider_name         TEXT PRIMARY KEY,
   contract_version    TEXT NOT NULL             -- canonical, identifying semver of the driver's advertised capability contract (build metadata rejected by the T2.4 write-path garde check)
                       CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
   cli_version_raw     TEXT                      -- cached `cliVersion.rawVersion` from the last capability refresh (Spec-004 §Required Behavior); NULL until the first refresh writes it
@@ -594,6 +594,8 @@ CREATE TABLE artifact_manifests (
   run_id             TEXT,
   -- The device the request that made it came from; NULL for an artifact the daemon produced.
   created_by         TEXT,
+  -- A client's publish's own key, so a resent publish answers this manifest; NULL otherwise.
+  client_idempotency_key TEXT,
   artifact_type      TEXT NOT NULL
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design',
                                              'workflowOutput')),
@@ -611,6 +613,9 @@ CREATE TABLE artifact_manifests (
 CREATE INDEX idx_artifact_manifests_session ON artifact_manifests(session_id);
 CREATE INDEX idx_artifact_manifests_run ON artifact_manifests(run_id) WHERE run_id IS NOT NULL;
 CREATE INDEX idx_artifact_manifests_hash ON artifact_manifests(content_hash);
+-- SQLite treats each NULL as distinct, so only a client's publishes dedupe.
+CREATE UNIQUE INDEX idx_artifact_manifests_client_idempotency_key
+  ON artifact_manifests(session_id, client_idempotency_key);
 CREATE UNIQUE INDEX idx_artifact_manifests_path_version
   ON artifact_manifests(session_id, workspace_path, version_number) WHERE workspace_path IS NOT NULL;
 CREATE INDEX idx_artifact_manifests_plan ON artifact_manifests(plan_id) WHERE plan_id IS NOT NULL;

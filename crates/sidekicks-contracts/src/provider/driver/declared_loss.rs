@@ -23,6 +23,16 @@ pub enum DeclaredLossKind {
     ToolCallHistoryRepaired,
     /// Verbatim exchanges were replaced by a bounded prose rendering.
     ConversationHistorySummarized,
+    /// The old provider's helper conversations: their conclusions survive in the transcript, the
+    /// conversations themselves do not.
+    HelperConversations,
+    /// Earlier steps travel as one-line notes, so the bodies of their output do not; files touched
+    /// on disk are unchanged.
+    ToolOutputBodies,
+    /// Tool calls arrive as history, never as work in flight; a call about to run does not run.
+    LiveToolCalls,
+    /// The old provider's own skills and commands name nothing on the new one.
+    ProviderSkillAndCommandNames,
     /// A logged turn's body could not be read, so the turn is carried with its position and an
     /// empty body.
     TurnContentUnavailable,

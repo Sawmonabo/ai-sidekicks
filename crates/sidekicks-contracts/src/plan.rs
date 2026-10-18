@@ -99,7 +99,7 @@ pub struct PlanHandedOffPayload {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanFreshSession {
     /// The provider.
-    pub driver_name: ProviderId,
+    pub provider_name: ProviderId,
     /// The level.
     pub level: PermissionLevel,
 }

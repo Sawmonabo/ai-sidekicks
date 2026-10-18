@@ -237,7 +237,7 @@ literal! {
     /// A call frame carrying the words the call heard, settled.
     pub enum VoiceCallUserTranscriptDoneKind = "userTranscriptDone";
     /// A call frame carrying the voice's reply, settled.
-    pub enum VoiceCallAssistantTranscriptDoneKind = "assistantTranscriptDone";
+    pub enum VoiceCallAgentTranscriptDoneKind = "agentTranscriptDone";
     /// A call frame saying the call ended.
     pub enum VoiceCallEndedKind = "ended";
     /// The daemon stopped the call.
@@ -282,7 +282,7 @@ call_frame! {
         pub text: String,
     }
     /// The voice's reply, settled.
-    VoiceCallAssistantTranscriptDoneFrame(VoiceCallAssistantTranscriptDoneKind) {
+    VoiceCallAgentTranscriptDoneFrame(VoiceCallAgentTranscriptDoneKind) {
         /// The words.
         pub text: String,
     }
@@ -322,7 +322,7 @@ pub enum VoiceCallFrame {
     /// Words heard, settled.
     UserTranscriptDone(VoiceCallUserTranscriptDoneFrame),
     /// The reply, settled.
-    AssistantTranscriptDone(VoiceCallAssistantTranscriptDoneFrame),
+    AgentTranscriptDone(VoiceCallAgentTranscriptDoneFrame),
     /// The daemon stopped the call.
     Stopped(VoiceCallStoppedFrame),
     /// The provider closed the call.

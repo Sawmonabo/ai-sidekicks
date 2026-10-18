@@ -452,7 +452,7 @@ interface PlanResolveRequest {
   // Accounts And Credential Homes). Everything else is the planning session's — same project, same
   // worktree, and the plan as the seed.
   fresh?: {
-    driverName: ProviderId;
+    providerName: ProviderId;
     // The planning session's level, or the level the person picked in the `Fresh session with` list
     // where that provider cannot give it. A level that provider, its account or the model cannot
     // run is refused with `session.permissionLevel.notOffered`, naming the level, and no session is

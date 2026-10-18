@@ -5,9 +5,10 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use interprocess::local_socket::tokio::Listener;
-use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 
+use crate::posix::socket_listener::bind_socket_listener;
 use crate::posix::socket_path::check_socket_path;
+use crate::socket_listener::ExistingSocket;
 
 // The socket's name in the folder.
 const SOCKET_NAME: &str = "askpass.sock";
@@ -23,9 +24,6 @@ pub fn askpass_listener(folder: &Path) -> io::Result<(Listener, PathBuf)> {
         .map_err(|refusal| io::Error::new(ErrorKind::InvalidInput, refusal))?;
     // The data folder's hold makes this daemon the only one, so a socket file already there is a
     // stopped daemon's and is replaced.
-    let listener = ListenerOptions::new()
-        .name(socket_path.as_path().to_fs_name::<GenericFilePath>()?)
-        .try_overwrite(true)
-        .create_tokio()?;
+    let listener = bind_socket_listener(&socket_path, ExistingSocket::Replace)?;
     Ok((listener, socket_path))
 }

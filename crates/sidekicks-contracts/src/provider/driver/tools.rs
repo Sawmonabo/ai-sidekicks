@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 use strum::VariantArray;
 
 use crate::provider::driver::length_limits::{
-    DRIVER_TOOL_DESCRIPTION_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
+    PROVIDER_TOOL_DESCRIPTION_MAX_LEN, PROVIDER_TOOL_NAME_MAX_LEN,
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::text::FreeFormText;
@@ -48,7 +48,7 @@ ts_constants! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProviderToolMetadata {
     /// The tool's name.
-    pub name: FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>,
+    pub name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// The tool's idempotency.
     #[serde(default)]
     pub idempotency_class: IdempotencyClass,
@@ -58,8 +58,8 @@ pub struct ProviderToolMetadata {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_TOOL_DESCRIPTION_MAX_LEN>")]
-    pub description: Option<FreeFormText<DRIVER_TOOL_DESCRIPTION_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_TOOL_DESCRIPTION_MAX_LEN>")]
+    pub description: Option<FreeFormText<PROVIDER_TOOL_DESCRIPTION_MAX_LEN>>,
 }
 
 /// A tool the daemon offers the model: a name, a description and a JSON Schema input. Every call
