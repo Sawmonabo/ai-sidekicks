@@ -107,6 +107,7 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
 
     remove_claude_project_rule(
         &folders,
+        &home.join("managed-settings.json"),
         &home.join(".claude"),
         &home,
         PathRules::Posix,
@@ -264,7 +265,7 @@ async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case
 }
 
 #[tokio::test]
-async fn a_revoke_of_a_rule_no_local_file_holds_names_where_it_is_kept_and_makes_no_file() {
+async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_changes_nothing() {
     let folder = tempfile::tempdir().expect("a project folder");
     let config_folder = tempfile::tempdir().expect("a config folder");
     let shared_file = folder.path().join(".claude").join("settings.json");
@@ -280,15 +281,26 @@ async fn a_revoke_of_a_rule_no_local_file_holds_names_where_it_is_kept_and_makes
         "{\"permissions\": {\"allow\": [\"Bash(cargo build *)\"]}}",
     )
     .expect("the user settings are written");
-    let folders = [ClaudeProjectFolder {
-        working_folder: folder.path(),
+    let managed_file = config_folder.path().join("managed-settings.json");
+    fs::write(
+        &managed_file,
+        "{\"permissions\": {\"allow\": [\"Bash(make *)\"]}}",
+    )
+    .expect("the managed settings are written");
+    // The local file holds the rule the shared file keeps, which the revoke leaves in place.
+    let local_text = "{\"permissions\": {\"allow\": [\"Bash(npm test *)\"]}}";
+    fs::write(local_settings(folder.path()), local_text).expect("the local file is written");
+    let other_folder = tempfile::tempdir().expect("another project folder");
+    let folders = [folder.path(), other_folder.path()].map(|working_folder| ClaudeProjectFolder {
+        working_folder,
         repository: None,
-    }];
+    });
     let mut outcomes = Vec::new();
-    for subject in ["npm test", "cargo build", "ls"] {
+    for subject in ["npm test", "cargo build", "make", "ls"] {
         outcomes.push(
             remove_claude_project_rule(
                 &folders,
+                &managed_file,
                 config_folder.path(),
                 folder.path(),
                 PathRules::Posix,
@@ -297,8 +309,8 @@ async fn a_revoke_of_a_rule_no_local_file_holds_names_where_it_is_kept_and_makes
             .await,
         );
     }
-    let [in_shared_file, in_user_file, nowhere] =
-        <[_; 3]>::try_from(outcomes).expect("three revokes ran");
+    let [in_shared_file, in_user_file, in_managed_file, nowhere] =
+        <[_; 4]>::try_from(outcomes).expect("four revokes ran");
 
     assert!(matches!(
         in_shared_file,
@@ -308,8 +320,13 @@ async fn a_revoke_of_a_rule_no_local_file_holds_names_where_it_is_kept_and_makes
         in_user_file,
         Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == user_file
     ));
+    assert!(matches!(
+        in_managed_file,
+        Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == managed_file
+    ));
     assert!(matches!(nowhere, Err(ClaudeRulesError::RuleNotFound)));
-    assert!(!local_settings(folder.path()).exists());
+    assert_eq!(read(&local_settings(folder.path())), local_text);
+    assert!(!local_settings(other_folder.path()).exists());
 }
 
 #[tokio::test]
@@ -366,6 +383,7 @@ async fn a_revoke_keeps_every_byte_of_the_list_but_the_entry_and_its_separator(
 
     remove_claude_project_rule(
         &folders,
+        &folder.path().join("managed-settings.json"),
         folder.path(),
         folder.path(),
         PathRules::Posix,

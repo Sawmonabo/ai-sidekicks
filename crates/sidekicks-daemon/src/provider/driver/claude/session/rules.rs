@@ -308,27 +308,27 @@ pub(crate) async fn write_claude_project_rule(
 
 /// Removes a revoked project rule from the local settings of each of `folders`: the file Claude
 /// Code keeps for the folder and the one in the folder itself, since Claude Code applies the rules
-/// of both. A file that does not exist holds none and is not made. Refuses a rule no local file
-/// held: `RuleInUneditedFile` where a file Claude Code reads and the daemon does not edit keeps
-/// it, the user settings of `config_folder` or a folder's shared `.claude/settings.json`, else
-/// `RuleNotFound`.
+/// of both. A file that does not exist holds none and is not made. First searches every file
+/// Claude Code reads and the daemon does not edit, the managed settings at
+/// `managed_settings_file`, the user settings of `config_folder` and each folder's shared
+/// `.claude/settings.json`: where one keeps the rule it answers `RuleInUneditedFile` and changes
+/// nothing, since the rule would still apply. Refuses a rule no file holds with `RuleNotFound`.
 pub(crate) async fn remove_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
+    managed_settings_file: &Path,
     config_folder: &Path,
     home_folder: &Path,
     path_rules: PathRules,
     rule: &ProviderAskRule,
 ) -> Result<(), ClaudeRulesError> {
-    let mut is_removed = false;
-    for file in every_local_settings_file(folders, home_folder, path_rules) {
-        is_removed |= remove_rule_from_file(&file, rule, path_rules).await?;
-    }
-    if is_removed {
-        return Ok(());
-    }
     let entries = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    let unedited_files = std::iter::once(config_folder.join(CLAUDE_USER_SETTINGS_FILE)).chain(
+    let unedited_files = [
+        managed_settings_file.to_path_buf(),
+        config_folder.join(CLAUDE_USER_SETTINGS_FILE),
+    ]
+    .into_iter()
+    .chain(
         folders
             .iter()
             .map(|folder| settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE)),
@@ -352,7 +352,15 @@ pub(crate) async fn remove_claude_project_rule(
             return Err(ClaudeRulesError::RuleInUneditedFile { path: file });
         }
     }
-    Err(ClaudeRulesError::RuleNotFound)
+    let mut is_removed = false;
+    for file in every_local_settings_file(folders, home_folder, path_rules) {
+        is_removed |= remove_rule_from_file(&file, rule, path_rules).await?;
+    }
+    if is_removed {
+        Ok(())
+    } else {
+        Err(ClaudeRulesError::RuleNotFound)
+    }
 }
 
 /// Removes every allow and block over a removed tool server's tools from the local settings of
