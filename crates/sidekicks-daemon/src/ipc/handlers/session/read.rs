@@ -82,6 +82,7 @@ async fn read_session(
         id,
         state,
         shape,
+        place,
         name,
         muted,
         pending_working_folder,
@@ -95,7 +96,7 @@ async fn read_session(
             id,
             state,
             shape,
-            place: None,
+            place,
             name,
             muted,
             pending_working_folder,
@@ -155,7 +156,7 @@ mod tests {
     const SESSION_TABLES_SQL: &str = "
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY, state TEXT NOT NULL, shape TEXT NOT NULL, name TEXT, muted_at TEXT,
-  pending_working_folder TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  pending_working_folder TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, place TEXT);
 CREATE TABLE session_tags (session_id TEXT NOT NULL, tag TEXT NOT NULL, tag_folded TEXT NOT NULL);
 CREATE TABLE session_console_state (session_id TEXT PRIMARY KEY, max_steps_per_turn INTEGER);
 CREATE TABLE runs (
@@ -176,7 +177,7 @@ CREATE TABLE session_drafts (
     }
 
     #[tokio::test]
-    async fn a_read_carries_the_draft_last_saved_and_an_empty_one_once_cleared() {
+    async fn a_read_carries_the_place_and_the_draft_last_saved_and_an_empty_one_once_cleared() {
         let database = TestDatabase::new();
         let writer = open_log(&database, None).await.writer;
         let session_id = test_session_id();
@@ -186,9 +187,9 @@ CREATE TABLE session_drafts (
             .expect("the session tables are made");
         reader
             .execute(
-                "INSERT INTO sessions (id, state, shape, created_at, updated_at)
+                "INSERT INTO sessions (id, state, shape, created_at, updated_at, place)
                  VALUES (?1, 'active', 'chat', '2026-10-18T09:00:00.000Z',
-                         '2026-10-18T09:00:00.000Z')",
+                         '2026-10-18T09:00:00.000Z', '{\"distro\":\"Ubuntu\"}')",
                 [session_id.text().as_str()],
             )
             .expect("the session is written");
@@ -232,6 +233,7 @@ CREATE TABLE session_drafts (
             .await;
             let read = call(&registry, SessionRead::DESCRIPTOR.method, &read_params).await;
             assert_eq!(read["session"]["draft"], draft);
+            assert_eq!(read["session"]["place"], json!({ "distro": "Ubuntu" }));
         }
     }
 }

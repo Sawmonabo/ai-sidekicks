@@ -13,6 +13,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
@@ -58,8 +59,8 @@ pub(crate) const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5;
 const NO_LIMIT: i64 = -1;
 
 /// One session as its stored row, tags and console settings answer `session.read`: every member
-/// of the wire's session record but the held draft, the staged files and the address, which the
-/// handler composes.
+/// of the wire's session record but the held draft, the staged files and the inbox addresses,
+/// which the handler composes.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SessionReadRecord {
     /// The session.
@@ -68,6 +69,8 @@ pub(crate) struct SessionReadRecord {
     pub(crate) state: SessionState,
     /// Its shape.
     pub(crate) shape: SessionShape,
+    /// Where it runs; `None` on macOS and Linux.
+    pub(crate) place: Option<Place>,
     /// Its name, `None` while untitled.
     pub(crate) name: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
     /// Whether the person muted its notifications.
@@ -154,7 +157,7 @@ pub(crate) enum SessionServiceError {
 }
 
 const SELECT_ROW_SQL: &str = "SELECT state, shape, name, muted_at, pending_working_folder,
-       created_at, updated_at
+       created_at, updated_at, place
   FROM sessions
  WHERE id = ?";
 
@@ -441,6 +444,7 @@ fn read_session(
             id: *session_id,
             state: row.state,
             shape: row.shape,
+            place: row.place,
             name: row.name,
             muted: row.is_muted,
             pending_working_folder: row
@@ -580,6 +584,7 @@ struct SessionRow {
     pending_working_folder: Option<FilesystemPath>,
     created_at: WireInstant,
     updated_at: WireInstant,
+    place: Option<Place>,
 }
 
 impl SessionRow {
@@ -592,6 +597,8 @@ impl SessionRow {
             pending_working_folder: optional_text_column(row, 4, FilesystemPath::new)?,
             created_at: text_column(row, 5, WireInstant::try_from)?,
             updated_at: text_column(row, 6, WireInstant::try_from)?,
+            // The column holds the place's wire JSON.
+            place: optional_text_column(row, 7, |text| serde_json::from_str::<Place>(&text))?,
         })
     }
 }
