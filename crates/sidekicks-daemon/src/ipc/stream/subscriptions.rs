@@ -368,7 +368,7 @@ mod tests {
         let params = json!({ "subscriptionId": subscription_id });
         let reply = registry
             .dispatch(
-                request(SUBSCRIPTION_CANCEL_METHOD, &params),
+                request(SUBSCRIPTION_CANCEL_METHOD, Some(&params)),
                 context(transport),
             )
             .await;
@@ -457,7 +457,7 @@ mod tests {
         let (subscriptions, registry) = served();
         let reply = registry
             .dispatch(
-                request("test.subscribe", &json!({ "name": "ok" })),
+                request("test.subscribe", Some(&json!({ "name": "ok" }))),
                 context(1),
             )
             .await;

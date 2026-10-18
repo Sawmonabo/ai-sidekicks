@@ -5,7 +5,6 @@ use alacritty_terminal::event::{Event, EventListener};
 use bytes::Bytes;
 use futures::FutureExt as _;
 use serde_json::json;
-use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{TERMINAL_WRITE_MAX_BYTES, TerminalId};
@@ -18,7 +17,7 @@ use sidekicks_terminal::{
 use tokio::runtime::Handle;
 
 use super::{ShellInput, ShellInputHooks};
-use crate::ipc::call_fixtures::context;
+use crate::ipc::call_fixtures::{context, request};
 use crate::ipc::handlers::terminal::{ShellInputLookup, register_terminal_write};
 use crate::ipc::registry::{Dispatch, MethodRegistryBuilder, Request, TransportId};
 use crate::pty::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
@@ -73,11 +72,7 @@ fn write(pane: &str, data: &str, paste: Option<bool>) -> Request {
         params["pasteId"] = json!(PASTE);
         params["isLastPart"] = json!(is_last_part);
     }
-    Request {
-        method: "terminal.write".to_owned(),
-        params: Some(RawValue::from_string(params.to_string()).expect("params are JSON")),
-        attachments: Vec::new(),
-    }
+    request("terminal.write", Some(&params))
 }
 
 /// Reads the output until it holds `marker`, answering everything read so far.

@@ -164,7 +164,7 @@ mod tests {
     use std::time::Duration;
 
     use futures::FutureExt as _;
-    use serde_json::value::RawValue;
+    use serde_json::json;
     use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
     use sidekicks_contracts::schema::received_check;
     use sidekicks_contracts::typescript::TypeName;
@@ -172,7 +172,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::InFlightMutations;
-    use crate::ipc::call_fixtures::{Nothing, context};
+    use crate::ipc::call_fixtures::{Nothing, context, request};
     use crate::ipc::registry::{Dispatch, HandlerContext, MethodRegistryBuilder, Request};
 
     struct Write;
@@ -205,11 +205,7 @@ mod tests {
     }
 
     fn call(method: &str) -> Request {
-        Request {
-            method: method.to_owned(),
-            params: Some(RawValue::from_string("{}".to_owned()).expect("the params are JSON")),
-            attachments: Vec::new(),
-        }
+        request(method, Some(&json!({})))
     }
 
     fn write() -> Request {

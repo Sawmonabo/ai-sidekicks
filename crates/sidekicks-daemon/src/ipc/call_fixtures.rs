@@ -1,6 +1,6 @@
 //! What the socket's tests share: a call's params with one rule, a call's empty params, a
 //! subscribe method and a feed a test drives, a subscription id, the context the gateway stamps on
-//! a call, a call as the gateway hands it over, and an event log on a test database.
+//! a call, and a call as the gateway hands it over.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,13 +20,6 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::TestDatabase;
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::log_service::{
-    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
-};
-use crate::events::session::followers::SessionEventFollowers;
 use crate::ipc::registry::{
     DispatchError, EncodedFeed, EncodedValue, HandlerContext, Request, TransportId,
 };
@@ -134,35 +127,12 @@ pub(crate) fn subscription_id(number: u128) -> SubscriptionId {
     SubscriptionId::try_from(uuid).expect("the layout is a UUID's")
 }
 
-/// A call to `method` with `params`, as the gateway hands it over.
-pub(crate) fn request(method: &str, params: &Value) -> Request {
+/// A call to `method` with `params`, or with none, as the gateway hands it over.
+pub(crate) fn request(method: &str, params: Option<&Value>) -> Request {
     Request {
         method: method.to_owned(),
-        params: Some(RawValue::from_string(params.to_string()).expect("the params are JSON")),
+        params: params
+            .map(|params| RawValue::from_string(params.to_string()).expect("the params are JSON")),
         attachments: Vec::new(),
     }
-}
-
-/// The event log on `database`, each append committed as it comes.
-pub(crate) async fn test_event_log(database: &TestDatabase) -> Arc<EventLogService> {
-    let writer = DatabaseWriter::open(
-        database.opener(),
-        DatabaseWriterOptions {
-            writes_held_until: None,
-            on_write_failed: None,
-        },
-    )
-    .await
-    .expect("the writer opens its database");
-    Arc::new(EventLogService::new(EventLogServiceDependencies {
-        writer: Arc::new(writer),
-        pool: Arc::new(DatabaseReadPool::new(
-            database.path(),
-            EVENT_LOG_STATEMENT_CAPACITY,
-        )),
-        followers: Arc::new(SessionEventFollowers::default()),
-        projection_statements: None,
-        refuse_session_write: None,
-        read_damaged_from_sequence: None,
-    }))
 }

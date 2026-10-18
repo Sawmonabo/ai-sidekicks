@@ -4,7 +4,6 @@
 use bytes::{BufMut as _, Bytes, BytesMut};
 use futures::StreamExt as _;
 use rstest::rstest;
-use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::framing::MAX_MESSAGE_BYTES;
 use sidekicks_contracts::jsonrpc::framing::frame::{Frame, LaneId};
@@ -18,10 +17,8 @@ use super::super::{CONNECTION_CLOSE_WAIT, SupervisionDisconnectReason};
 use super::{
     Harness, HookCall, assert_refusal, call, channel_feed, harness, settle, subscribe, within,
 };
-use crate::ipc::call_fixtures::context;
-use crate::ipc::registry::{
-    Dispatch as _, DispatchError, HandlerContext, Reply, Request, TransportId,
-};
+use crate::ipc::call_fixtures::{context, request};
+use crate::ipc::registry::{Dispatch as _, DispatchError, HandlerContext, Reply, TransportId};
 
 /// How the test ends the connection.
 #[derive(Clone, Copy, Debug)]
@@ -42,12 +39,10 @@ async fn gate_refusal(harness: &Harness, transport: TransportId) -> RefusalCode 
         harness.services.dispatch.clone(),
         harness.services.registry.clone(),
     );
-    let request = Request {
-        method: "test.read".to_owned(),
-        params: Some(RawValue::from_string("{}".to_owned()).expect("the params are JSON")),
-        attachments: Vec::new(),
-    };
-    match gate.dispatch(request, context(transport.0)).await {
+    match gate
+        .dispatch(request("test.read", Some(&json!({}))), context(transport.0))
+        .await
+    {
         Err(DispatchError::Refused(refusal)) => refusal.code,
         Err(error) => panic!("expected a refusal, got {error:?}"),
         Ok(Reply::Result(_) | Reply::Subscription { .. }) => panic!("expected a refusal"),
@@ -77,17 +72,10 @@ async fn every_close_cleans_up_cancels_every_call_and_disconnects_once(
     let transport = connection.transport;
 
     // A handshake with a wrong token latches the connection refused in the negotiator.
-    let handshake = Request {
-        method: "connection.initialize".to_owned(),
-        params: Some(
-            RawValue::from_string(
-                json!({ "protocolVersion": CURRENT_PROTOCOL_VERSION, "sessionToken": "wrong" })
-                    .to_string(),
-            )
-            .expect("the params are JSON"),
-        ),
-        attachments: Vec::new(),
-    };
+    let handshake = request(
+        "connection.initialize",
+        Some(&json!({ "protocolVersion": CURRENT_PROTOCOL_VERSION, "sessionToken": "wrong" })),
+    );
     assert!(
         harness
             .services

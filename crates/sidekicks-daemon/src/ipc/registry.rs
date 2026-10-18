@@ -551,7 +551,6 @@ mod tests {
     use futures::FutureExt as _;
     use rstest::rstest;
     use serde_json::json;
-    use serde_json::value::RawValue;
     use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
     use sidekicks_contracts::schema::received_check;
     use sidekicks_contracts::typescript::TypeName;
@@ -559,9 +558,8 @@ mod tests {
 
     use super::{
         Dispatch as _, DispatchError, HandlerContext, MethodRegistryBuilder, RegistrationError,
-        Request,
     };
-    use crate::ipc::call_fixtures::{Named, context};
+    use crate::ipc::call_fixtures::{Named, context, request};
 
     /// The wire name the echo method registers under.
     const ECHO_METHOD: &str = "test.echo";
@@ -590,15 +588,6 @@ mod tests {
         })
     }
 
-    fn request(params: Option<&str>) -> Request {
-        Request {
-            method: ECHO_METHOD.to_owned(),
-            params: params
-                .map(|text| RawValue::from_string(text.to_owned()).expect("the params are JSON")),
-            attachments: Vec::new(),
-        }
-    }
-
     #[test]
     fn a_name_registered_twice_fails_the_start() {
         let mut builder = MethodRegistryBuilder::new();
@@ -613,11 +602,11 @@ mod tests {
 
     #[rstest]
     #[case::absent(None, false)]
-    #[case::wrong_type(Some(r#"{"name": 7}"#), false)]
-    #[case::broken_rule(Some(r#"{"name": "too long"}"#), true)]
+    #[case::wrong_type(Some(json!({ "name": 7 })), false)]
+    #[case::broken_rule(Some(json!({ "name": "too long" })), true)]
     #[tokio::test]
     async fn params_breaking_their_check_never_run_the_handler(
-        #[case] params: Option<&str>,
+        #[case] params: Option<serde_json::Value>,
         #[case] breaks_a_rule: bool,
     ) {
         let runs = Arc::new(AtomicUsize::new(0));
@@ -629,7 +618,10 @@ mod tests {
                 async move { Ok(named) }.boxed()
             })
             .expect("the name registers");
-        let answer = builder.freeze().dispatch(request(params), context(1)).await;
+        let answer = builder
+            .freeze()
+            .dispatch(request(ECHO_METHOD, params.as_ref()), context(1))
+            .await;
         let refusal = match answer {
             Err(DispatchError::ParamsInvalid(refusal)) => refusal,
             Err(error) => panic!("expected invalid params, got {error:?}"),
@@ -660,7 +652,10 @@ mod tests {
             .expect("the name registers");
         let answer = builder
             .freeze()
-            .dispatch(request(Some(r#"{"name": "ok"}"#)), context(1))
+            .dispatch(
+                request(ECHO_METHOD, Some(&json!({ "name": "ok" }))),
+                context(1),
+            )
             .await;
         match answer {
             Err(DispatchError::ResultInvalid { value, .. }) => {
