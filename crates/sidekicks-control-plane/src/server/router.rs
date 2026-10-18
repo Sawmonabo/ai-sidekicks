@@ -37,8 +37,8 @@ pub struct RequestId(pub String);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoggedFailure(());
 
-/// A refusal's code and its sentence for a person, kept private so no caller builds a 500 that
-/// skips its log.
+/// A refusal's code and its sentence for a person, its fields private so no caller outside this
+/// module builds a 500 that skips its log.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlainRefusal {
     code: RefusalCode,

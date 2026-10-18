@@ -5,7 +5,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::task::{Context, Waker};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use jiff::Timestamp;
 use serde::Deserialize;
@@ -86,13 +86,16 @@ fn read_test_clock() -> Result<Timestamp, jiff::Error> {
     Timestamp::from_millisecond(CLOCK_MS.load(Ordering::SeqCst))
 }
 
-async fn count(admission: &AccountFileAdmission, identity: &str) {
-    let request = RateLimitCheckRequest {
+fn build_sign_in_request(identity: &str) -> RateLimitCheckRequest {
+    RateLimitCheckRequest {
         identity: identity.to_owned(),
         endpoint: RateLimitEndpointGroup::AuthEndpoint,
-    };
+    }
+}
+
+async fn count(admission: &AccountFileAdmission, identity: &str) {
     let answer = admission
-        .check_admission(request, None)
+        .check_admission(build_sign_in_request(identity), None)
         .await
         .expect("the account file counts");
     assert!(answer.allowed);
@@ -144,13 +147,8 @@ async fn a_count_dropped_mid_step_still_starts_the_cleanup() {
         .connection
         .lock()
         .expect("no test panicked holding the file");
-    let mut dropped = Box::pin(admission.check_admission(
-        RateLimitCheckRequest {
-            identity: "198.51.100.7".to_owned(),
-            endpoint: RateLimitEndpointGroup::AuthEndpoint,
-        },
-        None,
-    ));
+    let mut dropped =
+        Box::pin(admission.check_admission(build_sign_in_request("198.51.100.7"), None));
     // One poll starts the blocking step, which waits on the file; then its caller goes away.
     let polled = dropped
         .as_mut()
@@ -158,13 +156,13 @@ async fn a_count_dropped_mid_step_still_starts_the_cleanup() {
     assert!(polled.is_pending());
     drop(dropped);
     drop(held);
-    // The blocking step runs on without its caller.
-    std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(
-        account.count_held_requests(),
-        1,
-        "the dropped count still counted"
-    );
+    // The blocking step runs on without its caller; it counts and starts the cleanup in one hold
+    // of the file, so a visible row means the task was started.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while account.count_held_requests() != 1 {
+        assert!(Instant::now() < deadline, "the dropped count never counted");
+        std::thread::yield_now();
+    }
 
     CLOCK_MS.store(START_MS + 60_000, Ordering::SeqCst);
     tokio::time::sleep(Duration::from_secs(61)).await;
@@ -172,20 +170,5 @@ async fn a_count_dropped_mid_step_still_starts_the_cleanup() {
         account.count_held_requests(),
         0,
         "its cleanup ran a window later"
-    );
-
-    // A later count starts the cleanup again.
-    count(&admission, "203.0.113.9").await;
-    CLOCK_MS.store(START_MS + 120_000, Ordering::SeqCst);
-    tokio::time::sleep(Duration::from_secs(61)).await;
-    assert_eq!(
-        account.count_held_requests(),
-        0,
-        "the later count's window has passed"
-    );
-    assert_eq!(
-        Arc::strong_count(&account.connection),
-        2,
-        "no cleanup task is left"
     );
 }

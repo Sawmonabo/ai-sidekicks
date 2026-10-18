@@ -340,8 +340,8 @@ mod object {
     }
 
     impl AccountStore for SqlStorage {
-        // The script runs in one transaction, so any object it creates tells a built database from
-        // an empty one.
+        // Cloudflare runs one `exec` call as one transaction, so the script commits whole or not
+        // at all.
         fn run_script(&self, script: &str) -> Result<(), AccountStoreError> {
             self.exec(script, None)?;
             Ok(())

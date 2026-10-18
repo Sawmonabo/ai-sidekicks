@@ -63,7 +63,6 @@ mod file {
 
     use jiff::Timestamp;
     use rusqlite::Connection;
-    use tokio::runtime::Handle;
     use tokio::task::JoinHandle;
 
     use super::{AdmissionCheck, AdmissionError};
@@ -125,9 +124,8 @@ mod file {
         ) -> impl Future<Output = Result<RateLimitCheckResponse, AdmissionError>> + Send {
             let counter = Arc::clone(&self.counter);
             async move {
-                // The task starts inside the blocking step, so a caller that goes away mid-step
-                // never leaves the flag set with no task.
-                let runtime = Handle::current();
+                // The task starts inside the blocking step, whose thread runs inside the runtime,
+                // so a caller that goes away mid-step never leaves the flag set with no task.
                 let response = tokio::task::spawn_blocking(move || {
                     let connection = Arc::clone(&counter.connection);
                     let mut connection = connection.lock().unwrap_or_else(PoisonError::into_inner);
@@ -142,7 +140,7 @@ mod file {
                         };
                     transaction.commit().map_err(wrap_store_error)?;
                     if let Some(at) = cleanup_at {
-                        counter.start_cleanup(&runtime, at);
+                        counter.start_cleanup(at);
                     }
                     Ok::<_, RateLimiterError>(response)
                 })
@@ -154,9 +152,9 @@ mod file {
 
     impl AccountFileCounter {
         // Called while the file is held: marks the task running and starts it.
-        fn start_cleanup(&self, runtime: &Handle, at: Timestamp) {
+        fn start_cleanup(&self, at: Timestamp) {
             self.is_cleanup_running.store(true, Ordering::SeqCst);
-            let task = runtime.spawn(clean_up(
+            let task = tokio::spawn(clean_up(
                 Arc::clone(&self.connection),
                 Arc::clone(&self.is_cleanup_running),
                 self.clock,
