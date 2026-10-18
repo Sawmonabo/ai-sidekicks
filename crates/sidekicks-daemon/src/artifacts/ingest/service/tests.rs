@@ -336,7 +336,12 @@ async fn streams_and_spools_past_their_time_are_reaped() {
     age_stream(&service, &called, past_lifetime);
     age_stream(&service, &reaped, past_lifetime);
     let stale = stray_spool(&store, ABANDONED_SPOOL_TTL + Duration::from_secs(60));
-    let fresh = stray_spool(&store, ABANDONED_SPOOL_TTL - Duration::from_secs(60));
+    let fresh = stray_spool(
+        &store,
+        ABANDONED_SPOOL_TTL
+            .checked_sub(Duration::from_secs(60))
+            .expect("the time to live is longer than a minute"),
+    );
 
     let expired = write(&service, &called, 0, b"abc")
         .await

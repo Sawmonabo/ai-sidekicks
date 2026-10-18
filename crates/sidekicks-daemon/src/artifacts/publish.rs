@@ -11,6 +11,7 @@
 //! - A spool the store did not take is deleted; one a crash left behind is reaped with the ingest
 //!   spools once unwritten for long enough.
 
+use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -285,7 +286,7 @@ fn payload_size(payload: &[u8]) -> SafeInt<0> {
 
 // The metadata of a publish that sent none.
 fn empty_metadata() -> JsonRecord {
-    JsonRecord::new(Default::default()).expect("an empty record holds no __proto__")
+    JsonRecord::new(BTreeMap::new()).expect("an empty record holds no __proto__")
 }
 
 // Deletes a spool the store did not take, whole or part-written, and answers `failure` with any

@@ -137,8 +137,6 @@ fn lock_open_uploads(open_uploads: &OpenUploads) -> MutexGuard<'_, Vec<Arc<Atomi
 
 #[cfg(test)]
 mod tests {
-    use std::io;
-    use std::path::Path;
     use std::sync::Arc;
 
     use rstest::rstest;
@@ -151,13 +149,9 @@ mod tests {
     /// The free room the test's volume reports.
     const FREE_BYTES: u64 = 1_000;
 
-    fn fixed_free_bytes(_folder: &Path) -> io::Result<u64> {
-        Ok(FREE_BYTES)
-    }
-
     /// An admission over a fresh folder whose volume always has [`FREE_BYTES`] free.
     fn test_admission(folder: &tempfile::TempDir) -> UploadAdmission {
-        UploadAdmission::new(folder.path().join("spool"), fixed_free_bytes)
+        UploadAdmission::new(folder.path().join("spool"), |_folder| Ok(FREE_BYTES))
     }
 
     #[rstest]
@@ -207,7 +201,8 @@ mod tests {
         let paused = admission.pause.arm();
         let first = tokio::spawn({
             let admission = Arc::clone(&admission);
-            async move { admission.admit(1, None).await.is_ok() }
+            // The upload is kept, so its place stays taken while the other admission runs.
+            async move { admission.admit(1, None).await.ok() }
         });
         paused
             .reached
@@ -215,7 +210,8 @@ mod tests {
             .expect("the first admission reaches the pause");
         let second = tokio::spawn({
             let admission = Arc::clone(&admission);
-            async move { admission.admit(1, None).await.is_ok() }
+            // The upload is kept, so its place stays taken while the other admission runs.
+            async move { admission.admit(1, None).await.ok() }
         });
         for _ in 0..8 {
             tokio::task::yield_now().await;
@@ -225,9 +221,6 @@ mod tests {
             first.await.expect("the first admission ends"),
             second.await.expect("the second admission ends"),
         ];
-        assert_eq!(
-            admitted.iter().filter(|&&is_admitted| is_admitted).count(),
-            1
-        );
+        assert_eq!(admitted.iter().flatten().count(), 1);
     }
 }

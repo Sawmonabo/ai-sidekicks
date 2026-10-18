@@ -278,6 +278,7 @@ pub(crate) async fn write_published_manifest(
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
+    use std::collections::BTreeMap;
 
     use rstest::rstest;
     use sidekicks_contracts::artifacts::manifest::ArtifactType;
@@ -344,7 +345,7 @@ mod tests {
                 content_hash: ContentHash::of_sha256(&[0; 32]),
                 size_bytes: SafeInt::ZERO,
                 media_type: "text/plain".to_owned(),
-                metadata: JsonRecord::new(Default::default()).expect("an empty record"),
+                metadata: JsonRecord::new(BTreeMap::new()).expect("an empty record"),
                 created_at: manifest_created_at(&clock),
             },
         )
@@ -352,7 +353,7 @@ mod tests {
 
         assert_eq!(checked.err().as_ref().and_then(refusal_code_of), expected);
         assert_eq!(written.err().as_ref().and_then(refusal_code_of), expected);
-        let rows = if expected.is_some() { 0 } else { 1 };
+        let rows = i64::from(expected.is_none());
         assert_eq!(store.count_rows("artifact_manifests"), rows);
         assert_eq!(store.count_rows("artifact_payload_refs"), rows);
     }

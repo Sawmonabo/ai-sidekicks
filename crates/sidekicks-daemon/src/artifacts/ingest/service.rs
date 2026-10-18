@@ -127,7 +127,7 @@ struct CompletedStream {
 /// One stream in the registry.
 enum IngestStream {
     /// Taking chunks.
-    Open(OpenStream),
+    Open(Box<OpenStream>),
     /// Completed, held to answer a resent completion.
     Completed(CompletedStream),
 }
@@ -276,7 +276,7 @@ impl ArtifactIngestService {
         );
         registry.streams.insert(
             ingest_id.clone(),
-            IngestStream::Open(OpenStream {
+            IngestStream::Open(Box::new(OpenStream {
                 start_key,
                 session_id: request.session_id,
                 run_id: request.run_id,
@@ -296,7 +296,7 @@ impl ArtifactIngestService {
                     received_bytes: 0,
                     last_chunk_digest: None,
                 }),
-            }),
+            })),
         );
         Ok(ArtifactIngestStartResponse {
             ingest_id: ingest_id_text(&ingest_id),
@@ -533,7 +533,7 @@ impl ArtifactIngestService {
         }
         match self.reap_abandoned_spools().await {
             Ok(failures) => {
-                outcomes.extend(failures.into_iter().map(|failure| Err(failure.into())))
+                outcomes.extend(failures.into_iter().map(|failure| Err(failure.into())));
             }
             Err(interrupted) => outcomes.push(Err(interrupted.into())),
         }
@@ -666,7 +666,7 @@ fn hold_completed(registry: &mut Registry, ingest_id: String) {
 // Deletes an ended stream's spool, once its place and reservation are given back.
 async fn delete_spool_of(stream: IngestStream) -> Result<(), io::Error> {
     let spool_path = match stream {
-        IngestStream::Open(stream) => stream.spool_path.clone(),
+        IngestStream::Open(stream) => stream.spool_path,
         IngestStream::Completed(_) => return Ok(()),
     };
     tokio::task::spawn_blocking(move || std::fs::remove_file(&spool_path).none_if_missing())
