@@ -12,7 +12,7 @@
               and `pidfd_open`, macOS's audit token, checked process reads and responsible-process \
               reads), macOS's code-signature checks, the start as its own responsible process \
               (its thread count, its marker's removal from the environment and the disclaiming \
-              exec), the measurement tests' footprint read on macOS, and the power notifications \
+              exec), the socket pair a shell's start is confirmed over, the measurement tests' footprint read on macOS, and the power notifications \
               and wall-clock timers of macOS and Windows are C interfaces"
 )]
 
@@ -47,9 +47,9 @@ pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
 #[cfg(not(target_os = "macos"))]
 pub use caller_process::read_responsible_process;
 pub use caller_process::{ParentProcess, ResponsibleProcess};
-pub use code_signature::CodeSignatureError;
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
+pub use code_signature::{CodeSignatureError, SignatureCheck};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
@@ -80,6 +80,8 @@ pub use macos::process_footprint;
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
+#[cfg(target_os = "macos")]
+pub use macos::shell_start_confirmation::ShellStartConfirmation;
 #[cfg(target_os = "macos")]
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
@@ -131,6 +133,8 @@ pub use posix::terminal::{
 pub use posix::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
+#[cfg(not(target_os = "macos"))]
+pub use shell_start::ShellStartConfirmation;
 pub use shell_start::{ShellStart, ShellStartError};
 pub use socket_listener::ExistingSocket;
 pub use socket_path::SocketPathRefused;
