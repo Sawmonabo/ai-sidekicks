@@ -1,5 +1,5 @@
-//! The computer-wide folders a program's administrator-managed settings sit under, named here and
-//! found on the running system by the platforms crate, so no caller holds a system path.
+//! The computer-wide base folders a provider's administrator-managed settings sit under, named so
+//! no caller holds a system path.
 
 /// A computer-wide folder a program keeps its administrator-managed settings under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
