@@ -9,7 +9,10 @@
 //!   variable, credentials included, since it may need them.
 //!
 //! Every name is compared under the spelling rules of the place the child runs in, so on Windows
-//! `path` is the same variable as `PATH`. Each builder's result is the child's whole environment.
+//! `path` is the same variable as `PATH`. Each builder's result is the child's whole environment:
+//! a spawner starts the child with `env_clear()` then `envs(result)`, never `envs` over the
+//! inherited environment, because `Command` folds names only on Windows and keeps the first
+//! spelling, so an inherited spelling could survive beside the builder's.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
