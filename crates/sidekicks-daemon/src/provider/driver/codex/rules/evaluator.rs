@@ -259,12 +259,12 @@ impl RuleFileEvaluator {
     }
 }
 
-// SAFETY: the type holds no lifetime, so it is its own type with every lifetime dropped, which is
-// all the trait asks; starlark's evaluator hands the builtins this collector through it.
 #[expect(
     unsafe_code,
     reason = "starlark hands a builtin its context only through this trait"
 )]
+// SAFETY: the type holds no lifetime, so it is its own type with every lifetime dropped, which is
+// all the trait asks; starlark's evaluator hands the builtins this collector through it.
 unsafe impl ProvidesStaticType<'_> for RuleCollector {
     type StaticType = Self;
 }

@@ -151,7 +151,7 @@ pub(crate) async fn delete_claude_conversations(
             for (index, session_id) in session_ids.iter().enumerate() {
                 match read_project_entry(name, session_id) {
                     Some(ProjectEntry::Conversation) => {
-                        conversation_files[index].push(entry.path())
+                        conversation_files[index].push(entry.path());
                     }
                     Some(ProjectEntry::SetAside) => removed.push(entry.path()),
                     None => {}
@@ -239,6 +239,10 @@ enum ProjectEntry {
     SetAside,
 }
 
+#[expect(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "Claude Code writes these names itself, in this spelling"
+)]
 fn read_project_entry(name: &str, session_id: &str) -> Option<ProjectEntry> {
     let rest = name.strip_prefix(session_id)?;
     if rest == ".jsonl" {
