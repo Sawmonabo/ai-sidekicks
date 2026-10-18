@@ -18,8 +18,8 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // the nominal `GetCapabilitiesResult` return exactly like `contractVersion`) are bounded at the
 // Plan-003 Phase-2 write seam (semver / non-empty + length + NUL), not here. The contract checks
 // (serde shapes and garde checks) run ONLY on the surfaces that parse UNTRUSTED provider output
-// (the trust boundary): the result envelopes `ApplyInterventionResponse`, `DriverResumeResult`,
-// `MoveSessionToForkResult`, `DriverGoalResult`, and `DriverAuthProbeResult`, provider-declared
+// (the trust boundary): the result envelopes `DriverResumeResult`, `MoveSessionToForkResult`,
+// `DriverGoalResult`, and `DriverAuthProbeResult`, provider-declared
 // `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation` /
 // `McpServerStatusEmission` (each built from provider wire output before the daemon-injected seam
 // sees it). `resumeSession` returns the `DriverResumeResult` discriminated union (defined below) to
@@ -46,11 +46,12 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // provider-driver-capability-payloads.md — are bounded (length + non-whitespace + NUL-rejection) by
 // the `FreeFormText<MAX>` text newtype — rules not expressible in these TS interface shapes. The
 // daemon's provider layer (`crates/sidekicks-daemon/src/provider/`) realizes this enumeration for
-// the driver-internal shapes; `crates/sidekicks-contracts/src/provider/driver/intervention.rs`
-// (`ApplyInterventionResponse`), `commands.rs` (`ProviderCommandEntry`) and `output_speed.rs`
-// (`ProviderOutputSpeedState`) in the same folder realize it for the ones that reach a client, and
-// `crates/sidekicks-contracts/src/free_form_text.rs` holds the `FreeFormText<MAX>` newtype they
-// use.
+// the driver-internal shapes, `ApplyInterventionResponse` among them, a driver result the daemon
+// keeps in `crates/sidekicks-daemon/src/provider/driver/run_control.rs`;
+// `crates/sidekicks-contracts/src/provider/driver/commands.rs` (`ProviderCommandEntry`) and
+// `output_speed.rs` (`ProviderOutputSpeedState`) in the same folder realize it for the ones that
+// reach a client, and `crates/sidekicks-contracts/src/wire/text.rs` holds the
+// `FreeFormText<MAX>` newtype they use.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;

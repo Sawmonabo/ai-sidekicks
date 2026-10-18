@@ -6,12 +6,12 @@ use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
-use sidekicks_contracts::provider::driver::intervention::InterventionType;
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionType;
 use sidekicks_contracts::run::intervention::{InterventionId, InterventionState};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::trust_statement::DeviceId;
