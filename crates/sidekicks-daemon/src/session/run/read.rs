@@ -200,7 +200,8 @@ mod tests {
     use crate::session::run::projection::RUNS_TABLE_SQL;
     use crate::uuid_v7::mint_uuid_v7;
 
-    // The runtime bindings table as the daemon's schema declares it, its checks left out.
+    // The runtime bindings table as the daemon's schema declares it, its checks and its index left
+    // out.
     const RUNTIME_BINDINGS_TABLE_SQL: &str = "
 CREATE TABLE runtime_bindings (
   id                  TEXT PRIMARY KEY,
