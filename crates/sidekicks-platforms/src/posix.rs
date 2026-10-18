@@ -11,6 +11,7 @@ pub(crate) mod file_system;
 pub(crate) mod login_shell;
 pub(crate) mod memory;
 pub(crate) mod private_folder;
+pub(crate) mod process_exit;
 pub(crate) mod real_path;
 pub(crate) mod shell_start;
 pub(crate) mod socket_listener;

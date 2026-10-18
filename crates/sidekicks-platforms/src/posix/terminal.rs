@@ -25,6 +25,7 @@ use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
+use crate::posix::process_exit::wait_for_exit;
 use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
@@ -177,12 +178,9 @@ pub fn run_terminal_loop(
 /// program that ignores the hangup cannot hold the release.
 const RELEASE_HANGUP_GRACE: Duration = Duration::from_secs(2);
 
-/// How often a release looks again for the hungup program's exit during its grace.
-const RELEASE_EXIT_CHECK_INTERVAL: Duration = Duration::from_millis(20);
-
 /// Ends the program in `pty`, which the caller found not yet exited, and drops the PTY; blocking,
-/// so it runs on a thread of its own. The program gets a hangup, then `SIGKILL` when it has not
-/// exited within a short grace, and is waited for; `mark_exited` runs once it has exited and
+/// so it runs on a thread of its own. The program gets a hangup, then `SIGKILL` when its exit event
+/// has not come within a short grace, and is waited for; `mark_exited` runs once it has exited and
 /// before its process id is freed, so a caller that sends signals under the same lock as the mark
 /// never reaches a process that took the id.
 pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
@@ -195,7 +193,7 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
         );
     }
     // The program is left unreaped, so its id stays its own until the drop below reaps it.
-    let waited = match wait_without_reaping(process_id, Some(RELEASE_HANGUP_GRACE)) {
+    let waited = match wait_for_exit(process_id, Some(RELEASE_HANGUP_GRACE)) {
         Ok(true) => Ok(true),
         Ok(false) => {
             tracing::warn!(
@@ -209,7 +207,7 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
                     "a released terminal's program could not be killed"
                 );
             }
-            wait_without_reaping(process_id, None)
+            wait_for_exit(process_id, None)
         }
         Err(error) => Err(error),
     };
@@ -593,45 +591,6 @@ async fn sleep_until_deadline(deadline: Option<Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
         None => pending().await,
-    }
-}
-
-/// Blocks until the process `pid` has exited, leaving it unreaped so its id stays its own, or
-/// until `bound` passes; answers whether it exited. Fails with the system's error from the wait.
-fn wait_without_reaping(pid: u32, bound: Option<Duration>) -> io::Result<bool> {
-    let give_up_at = bound.map(|bound| Instant::now() + bound);
-    let options = libc::WEXITED | libc::WNOWAIT | if bound.is_some() { libc::WNOHANG } else { 0 };
-    loop {
-        let mut information = MaybeUninit::<libc::siginfo_t>::zeroed();
-        // SAFETY: the information pointer names a live local the call writes at most one
-        // `siginfo_t` into, and `WNOWAIT` leaves the process unreaped.
-        let result = unsafe {
-            libc::waitid(
-                libc::P_PID,
-                libc::id_t::from(pid),
-                information.as_mut_ptr(),
-                options,
-            )
-        };
-        if result != 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(error);
-        }
-        // SAFETY: the zeroed struct is a valid `siginfo_t`, which a `WNOHANG` wait that found no
-        // exit leaves with a zero process id.
-        if unsafe { information.assume_init_ref().si_pid() } != 0 {
-            return Ok(true);
-        }
-        let Some(give_up_at) = give_up_at else {
-            return Ok(true);
-        };
-        if Instant::now() >= give_up_at {
-            return Ok(false);
-        }
-        std::thread::sleep(RELEASE_EXIT_CHECK_INTERVAL);
     }
 }
 

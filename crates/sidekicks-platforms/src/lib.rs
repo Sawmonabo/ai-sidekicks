@@ -17,7 +17,7 @@
               `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
               (`proc_listpids`) and environment read (`sysctl` of `KERN_ARGMAX` and \
-              `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`), \
+              `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its exit event's registration), \
               mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \
               and wall-clock timers of macOS and Windows are C interfaces"
 )]
