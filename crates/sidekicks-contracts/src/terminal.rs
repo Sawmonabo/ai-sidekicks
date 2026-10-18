@@ -325,10 +325,10 @@ pub struct TerminalOutputFrame {
 /// program in the shell asked for pasted text to be marked as pasted, the daemon marks the whole
 /// paste once around all its parts. Each pane has one paste open at a time: a part naming a new
 /// `pasteId` closes the pane's earlier paste first. Each write's `data` is at most
-/// `TERMINAL_WRITE_MAX_BYTES` of UTF-8. The daemon answers a write once the shell's write queue takes it,
-/// which it does while the queue holds less than 64 KiB, so typing into a program that is not
-/// reading holds no call open and a paste past the queue's bound is paced by the shell. A write
-/// takes no slot of the connection's call cap: a client keeps at most
+/// `TERMINAL_WRITE_MAX_BYTES` of UTF-8. The daemon answers a write once the shell's write queue
+/// takes it, which it does while the queue holds less than 64 KiB, so typing into a program that
+/// is not reading holds no call open and a paste past the queue's bound is paced by the shell. A
+/// write takes no slot of the connection's call cap: a client keeps at most
 /// `TERMINAL_WRITES_WAITING_PER_SHELL` writes per shell waiting for an answer, and the daemon
 /// refuses one that finds `TERMINAL_WRITES_WAITING_LIMIT` of its connection's writes to that shell
 /// waiting.
