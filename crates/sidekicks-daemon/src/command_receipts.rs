@@ -21,7 +21,10 @@ use crate::uuid_v7::mint_uuid_v7;
 /// One receipt's id, minted when its command is accepted.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")
+    expect(
+        dead_code,
+        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CommandReceiptId(Uuid);
@@ -29,7 +32,10 @@ pub(crate) struct CommandReceiptId(Uuid);
 /// A command to record before anything runs it.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")
+    expect(
+        dead_code,
+        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CommandToReceive {
@@ -43,7 +49,10 @@ pub(crate) struct CommandToReceive {
 /// Stored by its camelCase name.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")
+    expect(
+        dead_code,
+        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
@@ -55,7 +64,10 @@ pub(crate) enum CommandAcceptance {
 }
 
 /// The receipt's status once its command has run. Stored by its camelCase name.
-#[expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")]
+#[expect(
+    dead_code,
+    reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum CommandOutcome {
@@ -68,7 +80,10 @@ pub(crate) enum CommandOutcome {
 /// Why a receipt was not accepted.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")
+    expect(
+        dead_code,
+        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    )
 )]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CommandReceiptError {
@@ -82,7 +97,10 @@ pub(crate) enum CommandReceiptError {
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")
+    expect(
+        dead_code,
+        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    )
 )]
 static ACCEPT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -91,17 +109,28 @@ static ACCEPT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Only the first claim finds `started_at` empty, so only one worker changes the row.
-#[expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")]
+// Only the first claim finds `started_at` empty, so only one worker changes the row; a rejected
+// receipt is never claimed, so its command never runs.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    )
+)]
 static CLAIM_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE command_receipts
   SET started_at = {DATABASE_NOW_SQL}
-  WHERE id = ? AND started_at IS NULL"
+  WHERE id = ? AND status = '{}' AND started_at IS NULL",
+        <&'static str>::from(CommandAcceptance::Accepted)
     )
 });
 
-#[expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")]
+#[expect(
+    dead_code,
+    reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+)]
 static COMPLETE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE command_receipts
@@ -113,7 +142,10 @@ static COMPLETE_SQL: LazyLock<String> = LazyLock::new(|| {
 /// Writes the command receipts, each phase of a receipt in its own write.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")
+    expect(
+        dead_code,
+        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    )
 )]
 pub(crate) struct CommandReceiptStore {
     /// The writer every phase goes through.
@@ -124,7 +156,10 @@ impl CommandReceiptStore {
     /// A store writing through `writer`.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")
+        expect(
+            dead_code,
+            reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        )
     )]
     pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {
         Self { writer }
@@ -137,7 +172,10 @@ impl CommandReceiptStore {
     /// once.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")
+        expect(
+            dead_code,
+            reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        )
     )]
     pub(crate) async fn accept(
         &self,
@@ -167,9 +205,15 @@ impl CommandReceiptStore {
     }
 
     /// Claims the receipt for execution; true only for the one caller that claimed it. A caller
-    /// that gets false runs nothing, because another worker owns the execution. Fails as the
-    /// write fails.
-    #[expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")]
+    /// that gets false runs nothing, because another worker owns the execution or the receipt was
+    /// recorded `rejected`. Fails as the write fails.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        )
+    )]
     pub(crate) async fn claim_for_execution(
         &self,
         receipt_id: CommandReceiptId,
@@ -189,7 +233,10 @@ impl CommandReceiptStore {
 
     /// Records how the claimed command ended. Fails with [`WriteError::Refused`] when the receipt
     /// was never claimed or already has its terminal status, and as the write fails.
-    #[expect(dead_code, reason = "a side-effecting tool call's two-phase receipt")]
+    #[expect(
+        dead_code,
+        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    )]
     pub(crate) async fn complete(
         &self,
         receipt_id: CommandReceiptId,
@@ -221,32 +268,65 @@ mod tests {
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
-    // The test database holds no `command_receipts` table, so an accept that wrote would fail with
-    // SQLite's refusal of the write, never with the cancel.
+    // The receipt table's columns the store writes, as the daemon's schema declares them.
+    const COMMAND_RECEIPTS_SQL: &str = "
+CREATE TABLE command_receipts (
+  id TEXT PRIMARY KEY,
+  command_id TEXT NOT NULL UNIQUE,
+  run_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('accepted', 'rejected', 'completed', 'failed')),
+  started_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL
+) STRICT;";
+
+    // A canceled accept writes nothing; the accept after it records the command, which only an
+    // accepted receipt lets a worker claim.
     #[rstest]
-    #[case::accepted(CommandAcceptance::Accepted)]
-    #[case::rejected(CommandAcceptance::Rejected)]
+    #[case::accepted(CommandAcceptance::Accepted, true)]
+    #[case::rejected(CommandAcceptance::Rejected, false)]
     #[tokio::test]
-    async fn a_canceled_accept_answers_canceled_and_writes_nothing(
+    async fn a_receipt_is_written_only_uncanceled_and_claimed_only_accepted(
         #[case] status: CommandAcceptance,
+        #[case] is_claimable: bool,
     ) {
         let database = TestDatabase::new();
+        database
+            .reader()
+            .execute_batch(COMMAND_RECEIPTS_SQL)
+            .expect("the receipts table is made");
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens its database");
         let store = CommandReceiptStore::new(Arc::new(writer));
-        let cancellation = CancellationToken::new();
-        cancellation.cancel();
         let command = CommandToReceive {
             command_id: "tool-call-1".to_owned(),
             run_id: None,
         };
+        let canceled = CancellationToken::new();
+        canceled.cancel();
 
-        let accepted = store.accept(&command, status, &cancellation).await;
+        let refused = store.accept(&command, status, &canceled).await;
+        let rows_after_cancel: i64 = database
+            .reader()
+            .query_row("SELECT count(*) FROM command_receipts", [], |row| {
+                row.get(0)
+            })
+            .expect("the receipts count");
+        let receipt_id = store
+            .accept(&command, status, &CancellationToken::new())
+            .await
+            .expect("an uncanceled accept writes its receipt");
+        let is_claimed = store
+            .claim_for_execution(receipt_id)
+            .await
+            .expect("the claim writes");
 
         assert!(
-            matches!(accepted, Err(CommandReceiptError::Canceled)),
-            "a canceled accept answers the cancel: {accepted:?}"
+            matches!(refused, Err(CommandReceiptError::Canceled)),
+            "a canceled accept answers the cancel: {refused:?}"
         );
+        assert_eq!(rows_after_cancel, 0, "a canceled accept writes no receipt");
+        assert_eq!(is_claimed, is_claimable);
     }
 }
