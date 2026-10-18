@@ -1,0 +1,708 @@
+//! A session's standing rules as Claude Code keeps them. A session rule lives in the process's flag
+//! settings, which carry the session's whole allow and deny lists, so a grant, a block and a revoke
+//! each resend the whole permissions document. A project rule lives in the project's
+//! `.claude/settings.local.json`, which Claude Code keeps at the repository's root (a worktree's
+//! main checkout) and otherwise beside `.claude/settings.json`, and reads from both places: Claude
+//! Code writes an allow there itself when the answer carries it, and the daemon writes it for the
+//! project's other folders, writes a host's block, which a decline cannot carry, and removes a
+//! revoked rule. The file is edited in place, every other byte kept, and a file that is not a
+//! strict JSON object is refused, never overwritten. A command allow a prefix rule would stretch
+//! over a force push or a branch delete is never handed over: the daemon answers each ask it
+//! covers.
+
+use std::collections::HashMap;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use futures::FutureExt;
+use jsonc_parser::ParseOptions;
+use jsonc_parser::cst::{CstInputValue, CstNode, CstObject, CstRootNode};
+use serde::Serialize;
+use serde::de::IgnoredAny;
+use sidekicks_contracts::approval::RememberedRuleSense;
+use sidekicks_platforms::PathRules;
+
+use crate::cleanup_failures::CleanupFailures;
+use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use crate::git::exclude::{ExcludeError, add_repository_exclude};
+use crate::keyed_lock::KeyedLock;
+use crate::mcp::tool_name::compose_tool_server_tool_name;
+use crate::missing_entry::MissingEntry;
+use crate::policy::destructive_git::covers_destructive_git;
+use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
+use crate::provider::project_rule_folders::write_into_project_folders;
+
+// The project's own settings file Claude Code keeps on this machine, from a folder, and its exclude
+// line, read from the worktree's root.
+const CLAUDE_LOCAL_SETTINGS_FILE: [&str; 2] = [".claude", "settings.local.json"];
+const CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN: &str = "/.claude/settings.local.json";
+
+// The local settings file is the person's own, readable as Claude Code leaves it.
+const CLAUDE_LOCAL_SETTINGS_MODE: u32 = 0o644;
+
+// The characters a gitignore pattern reads as more than themselves, escaped in a path rule so it
+// matches only the path the card named.
+const GITIGNORE_SPECIAL_CHARACTERS: [char; 5] = ['[', ']', '*', '?', '\\'];
+
+/// Why a Claude Code rule could not be composed, written or removed. No variant quotes a settings
+/// file's text.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ClaudeRulesError {
+    /// Claude Code keeps no rule on this kind of ask.
+    #[error("Claude Code keeps no rule on a {0} ask")]
+    UnkeptKind(&'static str),
+    /// The settings file is not a strict JSON object with permission lists, so it is left as it is.
+    #[error("{} is not a settings object the daemon can edit, so it was left as it is", path.display())]
+    Refused {
+        /// The settings file.
+        path: PathBuf,
+    },
+    /// The settings file could not be read.
+    #[error("reading {} failed", path.display())]
+    Read {
+        /// The settings file.
+        path: PathBuf,
+        /// The file system's failure.
+        #[source]
+        failure: io::Error,
+    },
+    /// The settings file's folder could not be made.
+    #[error("making the folder of {} failed", path.display())]
+    CreateFolder {
+        /// The settings file.
+        path: PathBuf,
+        /// The file system's failure.
+        #[source]
+        failure: io::Error,
+    },
+    /// The settings file could not be written.
+    #[error("writing the project's local settings failed")]
+    Write(#[source] AtomicWriteError),
+    /// The settings file could not be listed in the repository's exclude list.
+    #[error("keeping the project's local settings out of commits failed")]
+    Exclude(#[source] ExcludeError),
+}
+
+/// One Claude Code permission rule: its tool and, where it names one, what the rule matches, as an
+/// `addRules` update carries it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClaudePermissionRuleValue {
+    /// The tool.
+    pub(crate) tool_name: String,
+    /// What the rule matches, where it names anything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) rule_content: Option<String>,
+}
+
+/// The permission update an approval's answer carries so Claude Code writes the project allow into
+/// its own local settings file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename = "addRules", rename_all = "camelCase")]
+pub(crate) struct ClaudeProjectAllowUpdate {
+    /// The rules to add.
+    pub(crate) rules: Vec<ClaudePermissionRuleValue>,
+    /// Always `allow`.
+    pub(crate) behavior: &'static str,
+    /// Always `localSettings`.
+    pub(crate) destination: &'static str,
+}
+
+/// The session's own rules as the flag settings' `permissions` carry them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeSessionRuleLists {
+    /// The allow list.
+    pub(crate) allow: Vec<String>,
+    /// The deny list.
+    pub(crate) deny: Vec<String>,
+}
+
+/// A working folder of the project, with what Claude Code reads to place its local settings.
+pub(crate) struct ClaudeProjectFolder<'a> {
+    /// The folder a session starts in, a worktree's root or the project's checkout.
+    pub(crate) working_folder: &'a Path,
+    /// The repository the folder belongs to, `None` outside git.
+    pub(crate) repository: Option<ClaudeRepository<'a>>,
+}
+
+/// What Claude Code reads of a working folder's repository.
+pub(crate) struct ClaudeRepository<'a> {
+    /// The repository's root, the main checkout's for a worktree.
+    pub(crate) root: &'a Path,
+    /// The repository's common git folder, which holds its exclude list.
+    pub(crate) common_git_folder: &'a Path,
+    /// Whether the person owns the root and its `.git` and `.claude` entries.
+    pub(crate) is_owned_by_user: bool,
+}
+
+/// The local settings file Claude Code keeps for one working folder, and the common git folder of
+/// its repository where it is in one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeLocalSettingsFile {
+    /// The file.
+    pub(crate) path: PathBuf,
+    /// The repository's common git folder.
+    pub(crate) common_git_folder: Option<PathBuf>,
+}
+
+/// Where Claude Code keeps `folder`'s local settings in a place that spells paths by `path_rules`
+/// and whose home is `home_folder`: at the repository's root, except outside git, on Windows, at a
+/// root that is the home folder, or at one the person does not own, where it stays in the working
+/// folder beside `.claude/settings.json`.
+pub(crate) fn resolve_claude_local_settings_file(
+    folder: &ClaudeProjectFolder<'_>,
+    home_folder: &Path,
+    path_rules: PathRules,
+) -> ClaudeLocalSettingsFile {
+    let anchor = match &folder.repository {
+        Some(repository)
+            if path_rules != PathRules::Windows
+                && repository.root != home_folder
+                && repository.is_owned_by_user =>
+        {
+            repository.root
+        }
+        Some(_) | None => folder.working_folder,
+    };
+    ClaudeLocalSettingsFile {
+        path: local_settings_path(anchor),
+        common_git_folder: folder
+            .repository
+            .as_ref()
+            .map(|repository| repository.common_git_folder.to_path_buf()),
+    }
+}
+
+/// The session's own rules as the flag settings' `allow` and `deny` lists carry them, each path in
+/// the words of a place that spells paths by `path_rules`. Refuses a kind Claude Code keeps no rule
+/// on.
+pub(crate) fn compose_claude_session_rule_lists(
+    rules: &[ProviderAskRule],
+    path_rules: PathRules,
+) -> Result<ClaudeSessionRuleLists, ClaudeRulesError> {
+    let mut lists = ClaudeSessionRuleLists::default();
+    for rule in rules {
+        let list = match rule.sense {
+            RememberedRuleSense::Allow => &mut lists.allow,
+            RememberedRuleSense::Block => &mut lists.deny,
+        };
+        list.extend(
+            compose_rule_values(rule, path_rules)?
+                .iter()
+                .map(write_rule_value),
+        );
+    }
+    Ok(lists)
+}
+
+/// The update an approval's answer carries so Claude Code writes the project allow `rule`, or
+/// `None` for an allow never handed over. Refuses a kind Claude Code keeps no rule on.
+pub(crate) fn compose_claude_project_allow_update(
+    rule: &ProviderAskRule,
+    path_rules: PathRules,
+) -> Result<Option<ClaudeProjectAllowUpdate>, ClaudeRulesError> {
+    let rules = compose_rule_values(rule, path_rules)?;
+    Ok((!rules.is_empty()).then_some(ClaudeProjectAllowUpdate {
+        rules,
+        behavior: "allow",
+        destination: "localSettings",
+    }))
+}
+
+/// Adds a project rule once to the local settings file of each of `folders`, in the list of its
+/// sense, taking the same entries out of the other list so an allow and a block never stand
+/// together; `written_by_answer`, the file Claude Code itself writes for the answer's allow, is
+/// skipped, and taken back with the rest when a later file fails. A file the daemon creates in a
+/// repository is first listed in its exclude list. Holds `lock` on each file across its read and
+/// write.
+pub(crate) async fn write_claude_project_rule(
+    folders: &[ClaudeProjectFolder<'_>],
+    home_folder: &Path,
+    path_rules: PathRules,
+    rule: &ProviderAskRule,
+    written_by_answer: Option<&Path>,
+    lock: &'static KeyedLock<PathBuf>,
+) -> Result<(), CleanupFailures<ClaudeRulesError>> {
+    let mut common_git_folders: HashMap<PathBuf, Option<PathBuf>> = HashMap::new();
+    let mut files = Vec::new();
+    for folder in folders {
+        let resolved = resolve_claude_local_settings_file(folder, home_folder, path_rules);
+        if Some(resolved.path.as_path()) != written_by_answer
+            && !common_git_folders.contains_key(&resolved.path)
+        {
+            files.push(resolved.path.clone());
+        }
+        common_git_folders.insert(resolved.path, resolved.common_git_folder);
+    }
+    let written_already: Vec<PathBuf> = written_by_answer
+        .map(Path::to_path_buf)
+        .into_iter()
+        .collect();
+    write_into_project_folders(
+        &files,
+        rule,
+        |file: &Path, rule: &ProviderAskRule| {
+            let common_git_folder = common_git_folders.get(file).cloned().flatten();
+            async move {
+                let written = rule_entries(rule, path_rules)?;
+                let (list, other_list) = sense_lists(rule.sense);
+                edit_local_settings(
+                    file,
+                    common_git_folder.as_deref(),
+                    &[
+                        ListChange {
+                            list: other_list,
+                            add: &[],
+                            remove: &written,
+                        },
+                        ListChange {
+                            list,
+                            add: &written,
+                            remove: &[],
+                        },
+                    ],
+                    lock,
+                )
+                .await
+            }
+            .boxed()
+        },
+        |file: &Path, rule: &ProviderAskRule| {
+            async move { remove_rule_from_file(file, rule, path_rules, lock).await }.boxed()
+        },
+        &written_already,
+    )
+    .await
+}
+
+/// Removes a revoked project rule from the local settings of each of `folders`: the file Claude
+/// Code keeps for the folder and the one in the folder itself, since Claude Code applies the rules
+/// of both. A file that does not exist holds none and is not made. Holds `lock` on each file.
+pub(crate) async fn remove_claude_project_rule(
+    folders: &[ClaudeProjectFolder<'_>],
+    home_folder: &Path,
+    path_rules: PathRules,
+    rule: &ProviderAskRule,
+    lock: &KeyedLock<PathBuf>,
+) -> Result<(), ClaudeRulesError> {
+    for file in every_local_settings_file(folders, home_folder, path_rules) {
+        remove_rule_from_file(&file, rule, path_rules, lock).await?;
+    }
+    Ok(())
+}
+
+/// Removes every allow and block over a removed tool server's tools, `mcp__<server>` and
+/// `mcp__<server>__<tool>`, from the local settings of each of `folders`, both of each folder's
+/// files as [`remove_claude_project_rule`] reads them. Holds `lock` on each file.
+pub(crate) async fn remove_claude_tool_server_rules(
+    folders: &[ClaudeProjectFolder<'_>],
+    home_folder: &Path,
+    path_rules: PathRules,
+    server_name: &str,
+    lock: &KeyedLock<PathBuf>,
+) -> Result<(), ClaudeRulesError> {
+    let server_rule = compose_tool_server_tool_name(server_name, "");
+    let whole_server_rule = server_rule.trim_end_matches("__").to_owned();
+    let is_server_rule =
+        |entry: &str| entry == whole_server_rule || entry.starts_with(server_rule.as_str());
+    for file in every_local_settings_file(folders, home_folder, path_rules) {
+        let _hold = lock.acquire(file.clone()).await;
+        let Some(text) = read_local_settings(&file).await? else {
+            continue;
+        };
+        if let Some(edited) = edit_permission_lists(&file, &text, |permissions, path| {
+            let mut is_changed = false;
+            for list in ["allow", "deny"] {
+                is_changed |= remove_entries(permissions, list, path, is_server_rule)?;
+            }
+            Ok(is_changed)
+        })? {
+            write_local_settings(&file, edited).await?;
+        }
+    }
+    Ok(())
+}
+
+fn local_settings_path(folder: &Path) -> PathBuf {
+    CLAUDE_LOCAL_SETTINGS_FILE
+        .iter()
+        .fold(folder.to_path_buf(), |path, part| path.join(part))
+}
+
+// Each folder's resolved file and the one in the folder itself, each once.
+fn every_local_settings_file(
+    folders: &[ClaudeProjectFolder<'_>],
+    home_folder: &Path,
+    path_rules: PathRules,
+) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for folder in folders {
+        let resolved = resolve_claude_local_settings_file(folder, home_folder, path_rules).path;
+        for file in [resolved, local_settings_path(folder.working_folder)] {
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+    }
+    files
+}
+
+fn opposite_sense(sense: RememberedRuleSense) -> RememberedRuleSense {
+    match sense {
+        RememberedRuleSense::Allow => RememberedRuleSense::Block,
+        RememberedRuleSense::Block => RememberedRuleSense::Allow,
+    }
+}
+
+// The list a rule of `sense` goes in, and the other one.
+fn sense_lists(sense: RememberedRuleSense) -> (&'static str, &'static str) {
+    match sense {
+        RememberedRuleSense::Allow => ("allow", "deny"),
+        RememberedRuleSense::Block => ("deny", "allow"),
+    }
+}
+
+// The rules one standing rule is in Claude Code's own words. A command's covers the command alone
+// and with any arguments after it, which matches no longer program name; one that would also cover
+// a destructive git command, or whose words hold a wildcard, is none.
+fn compose_rule_values(
+    rule: &ProviderAskRule,
+    path_rules: PathRules,
+) -> Result<Vec<ClaudePermissionRuleValue>, ClaudeRulesError> {
+    let value = |tool_name: &str, rule_content: Option<String>| ClaudePermissionRuleValue {
+        tool_name: tool_name.to_owned(),
+        rule_content,
+    };
+    Ok(match rule.action {
+        ProviderAskActionKind::Command => {
+            if covers_destructive_git(rule) || rule.subject.contains('*') {
+                Vec::new()
+            } else {
+                vec![value("Bash", Some(format!("{} *", rule.subject)))]
+            }
+        }
+        ProviderAskActionKind::FileChange => vec![value(
+            "Edit",
+            Some(compose_path_content(&rule.subject, path_rules)),
+        )],
+        ProviderAskActionKind::FileRead => vec![value(
+            "Read",
+            Some(compose_path_content(&rule.subject, path_rules)),
+        )],
+        ProviderAskActionKind::Network => {
+            vec![value("WebFetch", Some(format!("domain:{}", rule.subject)))]
+        }
+        ProviderAskActionKind::Tool => vec![value(&rule.subject, None)],
+        ProviderAskActionKind::Plan | ProviderAskActionKind::CommandInput => {
+            return Err(ClaudeRulesError::UnkeptKind(rule.action.into()));
+        }
+    })
+}
+
+fn write_rule_value(value: &ClaudePermissionRuleValue) -> String {
+    match &value.rule_content {
+        Some(content) => format!("{}({content})", value.tool_name),
+        None => value.tool_name.clone(),
+    }
+}
+
+fn rule_entries(
+    rule: &ProviderAskRule,
+    path_rules: PathRules,
+) -> Result<Vec<String>, ClaudeRulesError> {
+    Ok(compose_rule_values(rule, path_rules)?
+        .iter()
+        .map(write_rule_value)
+        .collect())
+}
+
+// A rule's path as Claude Code matches it: in POSIX form, as Claude Code reads every path, so a
+// Windows place's `C:\Users\a` is `/c/Users/a`; an absolute one written with a leading `//`, which
+// roots it at `/`; and each gitignore special escaped, so the rule matches only that path.
+fn compose_path_content(path: &str, path_rules: PathRules) -> String {
+    let is_absolute = path_rules.is_absolute(path);
+    let posix_path = match path_rules {
+        PathRules::Posix => path.to_owned(),
+        PathRules::Windows => {
+            let mut characters = path.chars();
+            let separated: String = match (characters.next(), characters.next()) {
+                (Some(drive), Some(':')) if drive.is_ascii_alphabetic() => {
+                    format!("/{}{}", drive.to_ascii_lowercase(), characters.as_str())
+                }
+                _ => path.to_owned(),
+            };
+            separated.replace('\\', "/")
+        }
+    };
+    let mut content = String::with_capacity(posix_path.len() + 2);
+    if is_absolute {
+        content.push('/');
+    }
+    for character in posix_path.chars() {
+        if GITIGNORE_SPECIAL_CHARACTERS.contains(&character) {
+            content.push('\\');
+        }
+        content.push(character);
+    }
+    content
+}
+
+// One change to one permission list: entries added where missing, and entries taken out.
+struct ListChange<'entries> {
+    list: &'static str,
+    add: &'entries [String],
+    remove: &'entries [String],
+}
+
+async fn remove_rule_from_file(
+    file: &Path,
+    rule: &ProviderAskRule,
+    path_rules: PathRules,
+    lock: &KeyedLock<PathBuf>,
+) -> Result<(), ClaudeRulesError> {
+    let removed = rule_entries(rule, path_rules)?;
+    let (list, _) = sense_lists(rule.sense);
+    let _hold = lock.acquire(file.to_path_buf()).await;
+    let Some(text) = read_local_settings(file).await? else {
+        return Ok(());
+    };
+    let change = ListChange {
+        list,
+        add: &[],
+        remove: &removed,
+    };
+    if let Some(edited) = edit_permission_lists(file, &text, |permissions, path| {
+        apply_list_changes(permissions, path, std::slice::from_ref(&change))
+    })? {
+        write_local_settings(file, edited).await?;
+    }
+    Ok(())
+}
+
+// Applies `changes` to `file`, made where missing and an entry is added (first listed in the
+// repository's exclude list when `common_git_folder` names one), holding `lock` across the read and
+// the write.
+async fn edit_local_settings(
+    file: &Path,
+    common_git_folder: Option<&Path>,
+    changes: &[ListChange<'_>],
+    lock: &KeyedLock<PathBuf>,
+) -> Result<(), ClaudeRulesError> {
+    let _hold = lock.acquire(file.to_path_buf()).await;
+    let edited = if let Some(text) = read_local_settings(file).await? {
+        edit_permission_lists(file, &text, |permissions, path| {
+            apply_list_changes(permissions, path, changes)
+        })?
+    } else {
+        let added: Vec<_> = changes
+            .iter()
+            .filter(|change| !change.add.is_empty())
+            .collect();
+        if added.is_empty() {
+            return Ok(());
+        }
+        if let Some(common_git_folder) = common_git_folder {
+            add_repository_exclude(
+                common_git_folder,
+                CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN,
+                lock,
+            )
+            .await
+            .map_err(ClaudeRulesError::Exclude)?;
+        }
+        let lists: serde_json::Map<String, serde_json::Value> = added
+            .iter()
+            .map(|change| (change.list.to_owned(), serde_json::json!(change.add)))
+            .collect();
+        let mut text = serde_json::to_string_pretty(&serde_json::json!({ "permissions": lists }))
+            .expect("a map of string lists always serializes");
+        text.push('\n');
+        Some(text)
+    };
+    match edited {
+        Some(edited) => write_local_settings(file, edited).await,
+        None => Ok(()),
+    }
+}
+
+// The file's text, or `None` where there is no file.
+async fn read_local_settings(file: &Path) -> Result<Option<String>, ClaudeRulesError> {
+    tokio::fs::read_to_string(file)
+        .await
+        .none_if_missing()
+        .map_err(|failure| ClaudeRulesError::Read {
+            path: file.to_path_buf(),
+            failure,
+        })
+}
+
+async fn write_local_settings(file: &Path, text: String) -> Result<(), ClaudeRulesError> {
+    if let Some(folder) = file.parent() {
+        tokio::fs::create_dir_all(folder).await.map_err(|failure| {
+            ClaudeRulesError::CreateFolder {
+                path: file.to_path_buf(),
+                failure,
+            }
+        })?;
+    }
+    write_file_atomically(file, text, CLAUDE_LOCAL_SETTINGS_MODE)
+        .await
+        .map_err(ClaudeRulesError::Write)
+}
+
+// Parses `text` as strict JSON, hands `edit` its `permissions` object (made when missing and the
+// edit adds to it) and returns the edited text, or `None` when the edit changed nothing. Refuses a
+// file that is not strict JSON, is blank, or whose root or `permissions` is not an object.
+fn edit_permission_lists(
+    file: &Path,
+    text: &str,
+    edit: impl FnOnce(&PermissionsObject, &Path) -> Result<bool, ClaudeRulesError>,
+) -> Result<Option<String>, ClaudeRulesError> {
+    let refused = || ClaudeRulesError::Refused {
+        path: file.to_path_buf(),
+    };
+    // The CST parser lets comments through whatever its options say, so serde reads the file as
+    // strict JSON first: Claude Code reads it with a strict parser and drops a file that fails.
+    serde_json::from_str::<IgnoredAny>(text).map_err(|_parse_error| refused())?;
+    let root =
+        CstRootNode::parse(text, &ParseOptions::default()).map_err(|_parse_error| refused())?;
+    let settings = root.object_value().ok_or_else(refused)?;
+    let permissions = match settings.get("permissions") {
+        Some(property) => match property.value() {
+            Some(CstNode::Container(container)) => {
+                PermissionsObject::Present(container.as_object().ok_or_else(refused)?)
+            }
+            Some(CstNode::Leaf(_)) | None => return Err(refused()),
+        },
+        None => PermissionsObject::Missing(settings),
+    };
+    Ok(edit(&permissions, file)?.then(|| root.to_string()))
+}
+
+// The settings' `permissions` object, or the settings object it is made in once an entry is added.
+enum PermissionsObject {
+    Present(CstObject),
+    Missing(CstObject),
+}
+
+impl PermissionsObject {
+    // The object, made in the settings when it is missing.
+    fn object(&self) -> CstObject {
+        match self {
+            Self::Present(permissions) => permissions.clone(),
+            Self::Missing(settings) => settings
+                .object_value_or_create("permissions")
+                .expect("a missing member is created as an object"),
+        }
+    }
+}
+
+fn apply_list_changes(
+    permissions: &PermissionsObject,
+    file: &Path,
+    changes: &[ListChange<'_>],
+) -> Result<bool, ClaudeRulesError> {
+    let mut is_changed = false;
+    for change in changes {
+        is_changed |= remove_entries(permissions, change.list, file, |entry| {
+            change.remove.iter().any(|removed| removed == entry)
+        })?;
+        if change.add.is_empty() {
+            continue;
+        }
+        let present = read_list_entries(permissions, change.list, file)?;
+        let missing: Vec<&String> = change
+            .add
+            .iter()
+            .filter(|entry| !present.contains(entry))
+            .collect();
+        if missing.is_empty() {
+            continue;
+        }
+        let list = permissions
+            .object()
+            .array_value_or_create(change.list)
+            .ok_or_else(|| ClaudeRulesError::Refused {
+                path: file.to_path_buf(),
+            })?;
+        for entry in missing {
+            list.append(CstInputValue::String(entry.clone()));
+        }
+        is_changed = true;
+    }
+    Ok(is_changed)
+}
+
+// The string entries of one list, empty where the list is missing; refuses a list that is not an
+// array.
+fn read_list_entries(
+    permissions: &PermissionsObject,
+    list: &str,
+    file: &Path,
+) -> Result<Vec<String>, ClaudeRulesError> {
+    let PermissionsObject::Present(object) = permissions else {
+        return Ok(Vec::new());
+    };
+    let Some(property) = object.get(list) else {
+        return Ok(Vec::new());
+    };
+    let array = property
+        .array_value()
+        .ok_or_else(|| ClaudeRulesError::Refused {
+            path: file.to_path_buf(),
+        })?;
+    Ok(array
+        .elements()
+        .iter()
+        .filter_map(|element| element.as_string_lit()?.decoded_value().ok())
+        .collect())
+}
+
+// Takes every string entry `is_removed` picks out of one list; a missing list is left missing, and
+// a list that is not an array is refused. Whether any entry went.
+fn remove_entries(
+    permissions: &PermissionsObject,
+    list: &str,
+    file: &Path,
+    is_removed: impl Fn(&str) -> bool,
+) -> Result<bool, ClaudeRulesError> {
+    let PermissionsObject::Present(object) = permissions else {
+        return Ok(false);
+    };
+    let Some(property) = object.get(list) else {
+        return Ok(false);
+    };
+    let array = property
+        .array_value()
+        .ok_or_else(|| ClaudeRulesError::Refused {
+            path: file.to_path_buf(),
+        })?;
+    let mut is_changed = false;
+    for element in array.elements() {
+        let is_picked = element
+            .as_string_lit()
+            .and_then(|entry| entry.decoded_value().ok())
+            .is_some_and(|entry| is_removed(&entry));
+        if is_picked {
+            element.remove();
+            is_changed = true;
+        }
+    }
+    // The CST keeps the space that followed a removed entry, so a list whose first entry went
+    // would read `[ "Read"]`; the space between the bracket and the new first entry goes too.
+    if is_changed
+        && let Some(first) = array.elements().first()
+        && let Some(space) = first
+            .previous_sibling()
+            .and_then(|node| node.as_whitespace())
+        && space
+            .previous_sibling()
+            .is_some_and(|node| node.token_char() == Some('['))
+    {
+        space.remove();
+    }
+    Ok(is_changed)
+}
+
+#[cfg(test)]
+mod tests;
