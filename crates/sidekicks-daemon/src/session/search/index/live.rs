@@ -666,7 +666,9 @@ mod tests {
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::session::search::index::applier::SearchIndexApplier;
-    use crate::session::search::index::outbox::{AppliedOutbox, OUTBOX_STATEMENT_CAPACITY};
+    use crate::session::search::index::outbox::{
+        AppliedOutbox, OUTBOX_STATEMENT_CAPACITY, OutboxReader,
+    };
     use crate::session::search::index::rebuild::{
         SearchIndexOpening, make_index_at, open_search_index,
     };
@@ -738,7 +740,15 @@ mod tests {
         let connection = database.reader();
         make_search_source_tables(&connection);
         let committed_id = add_titled_session(&connection, "session-1");
-        let highest_id_given = add_titled_session(&connection, "session-2");
+        add_titled_session(&connection, "session-2");
+        add_titled_session(&connection, "session-3");
+        // Lowers the sessions' highest rowid, so the floor log holds an entry the start keeps.
+        connection
+            .execute("DELETE FROM sessions WHERE id = 'session-3'", [])
+            .expect("the session is deleted");
+        let highest_id_given = OutboxReader::new(&connection)
+            .highest_id_given()
+            .expect("the outbox's highest id reads");
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let index_folder = folder.path().join("search-index");
         make_index_at(&index_folder, committed_id);
@@ -764,6 +774,10 @@ mod tests {
             .await
             .expect("the index catches up");
 
+        assert!(
+            open.applier.floor_position() > 0,
+            "the delete logged a floor the applier reads"
+        );
         assert_eq!(
             *deletes.borrow(),
             Some(AppliedOutbox {
