@@ -131,7 +131,7 @@ Test code asserting on JSON-RPC error envelopes MUST discriminate on `data.type`
 ```rust
 let envelope = serde_json::to_value(&error).expect("an error envelope serializes");
 assert_eq!(envelope["code"], -32602);
-assert!(envelope["message"].as_str().expect("message is text").contains("request.paramsInvalid"));
+assert_eq!(envelope["message"], "the params break the method's contract");
 assert_eq!(envelope["data"]["type"], "request.paramsInvalid");
 assert_eq!(envelope["data"]["category"], "invalidArgument");
 assert!(envelope["data"]["fields"]["issues"].is_array());
