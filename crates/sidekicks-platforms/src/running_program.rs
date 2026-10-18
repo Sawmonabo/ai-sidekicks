@@ -1,5 +1,5 @@
 //! The program this process runs: the processor it is built for, and its path on disk, which a
-//! later read finds replaced once an update moves a new build into its place.
+//! later read finds gone once the program's file is removed, or on Linux replaced.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -21,18 +21,21 @@ pub const RUNNING_ARCH: Arch = Arch::Arm64;
 pub enum RunningProgramPath {
     /// Still on disk at this path, every link resolved.
     OnDisk(PathBuf),
-    /// Replaced or removed since the program started, so its path names another file or none.
+    /// Removed since the program started, or on Linux replaced (its link marked ` (deleted)`); a
+    /// file renamed over it on macOS or Windows reads [`OnDisk`](Self::OnDisk).
     Replaced,
 }
 
-/// Where the running program's file is now. Fails when the system cannot name the running program
-/// or its path cannot be resolved for any reason but its absence.
+/// Where the running program's file is now: [`RunningProgramPath::Replaced`] once its file is
+/// removed, or on Linux replaced. Fails when the system cannot name the running program or its path
+/// cannot be resolved for any reason but its absence.
 pub fn read_running_program_path() -> io::Result<RunningProgramPath> {
     classify_program_path(&std::env::current_exe()?)
 }
 
 // Where the program the system names as `program` is: replaced when Linux marks its link
-// ` (deleted)` or the path no longer resolves.
+// ` (deleted)` or the path no longer resolves; macOS and Windows name the path the program started
+// from, which still resolves when another file was renamed over it.
 fn classify_program_path(program: &Path) -> io::Result<RunningProgramPath> {
     if is_marked_replaced(program) {
         return Ok(RunningProgramPath::Replaced);
