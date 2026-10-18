@@ -10,4 +10,8 @@ Writeable = "Writeable"
 ERROR_FILENAME_EXCED_RANGE = "ERROR_FILENAME_EXCED_RANGE"
 
 [files]
-extend-exclude = ["*.md"]
+extend-exclude = [
+  "*.md",
+  # The colorer's fixtures: source text kept as it was colored, with its own spellings.
+  "crates/sidekicks-daemon/tests/fixtures/highlight/",
+]

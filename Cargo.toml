@@ -222,7 +222,9 @@ diffy = "0.5.2"
 dugong = "0.9.0"
 fast_image_resize = "6.1.0"
 fast_qr = "0.14.0"
-ferriki = "1.0.0"
+# The colorer's TextMate engine, shiki's grammars on `ferroni`'s Oniguruma, driven line by line.
+ferriki-textmate = "1.0.0"
+ferroni = "2.1.3"
 # A payload's media type from its leading bytes. ZIP, CFB and ID3v2 need bytes past that prefix and
 # ASF overflows on a crafted size, so those readers stay off and their formats are named by their
 # signatures alone. The daemon and its fuzz target take this one reader list.
