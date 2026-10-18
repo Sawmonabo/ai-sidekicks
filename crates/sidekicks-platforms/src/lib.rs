@@ -31,6 +31,7 @@ mod shell_start;
 mod socket_listener;
 mod socket_path;
 mod spawner;
+mod system_folder;
 mod terminal;
 mod wake_watch;
 mod wall_clock;
@@ -116,6 +117,7 @@ pub use shell_start::{ShellStart, ShellStartError};
 pub use socket_listener::ExistingSocket;
 pub use socket_path::SocketPathRefused;
 pub use spawner::Spawner;
+pub use system_folder::SystemFolderBase;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
