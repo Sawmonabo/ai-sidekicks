@@ -230,21 +230,28 @@ pub fn restrict_library_search() -> io::Result<()> {
     Ok(())
 }
 
-/// The options `alacritty_terminal` opens a shell's terminal with: `shell` started in
-/// `working_directory` with `environment` added, its output not drained once it exits, and each
-/// argument quoted by the C runtime's rules, since each is its own string.
+/// The options `alacritty_terminal` opens a shell's terminal with: `program` with `arguments`
+/// started in `working_directory` with `environment` added, its output not drained once it exits,
+/// and each argument quoted by the C runtime's rules, since each is its own string. The program is
+/// written as given, so one holding a space is put in double quotes, which a path never holds.
 #[expect(
     clippy::implicit_hasher,
     reason = "the map goes straight into alacritty_terminal's options, which take the default \
               hasher"
 )]
 pub fn terminal_options(
-    shell: tty::Shell,
+    program: String,
+    arguments: Vec<String>,
     working_directory: Option<PathBuf>,
     environment: HashMap<String, String>,
 ) -> tty::Options {
+    let program = if program.contains([' ', '\t']) {
+        format!("\"{program}\"")
+    } else {
+        program
+    };
     tty::Options {
-        shell: Some(shell),
+        shell: Some(tty::Shell::new(program, arguments)),
         working_directory,
         drain_on_exit: false,
         env: environment,
@@ -600,13 +607,30 @@ extern "system" fn ignore_console_control(_control_type: u32) -> BOOL {
     TRUE
 }
 
-/// The `shell` mode's stand-in tests open shells through: `cmd.exe /d /c`, which runs the program
-/// after it with the environment it was given.
+/// The `shell` mode's stand-in tests open shells through: `cmd.exe`, which reads its own command
+/// line, runs the program after the mode's ` -- ` with the environment it was given, and ignores
+/// the rest of the line. It stays in the folder it was spawned in and passes on no raw tail, so a
+/// test spawns it in the shell's folder. Each word holds no space, so none is quoted, and the
+/// caret keeps the line's own ` -- ` out of the pattern that finds the mode's.
 #[cfg(any(test, feature = "test-support"))]
 pub fn pass_through_start() -> TestProgram {
     TestProgram {
         program: "cmd.exe".to_owned(),
-        arguments: vec!["/d".to_owned(), "/c".to_owned()],
+        arguments: [
+            "/d",
+            "/v:on",
+            "/c",
+            "set",
+            "rest=!CMDCMDLINE:*",
+            "-^-",
+            "=!",
+            "&",
+            "!rest!",
+            "&",
+            "rem",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
     }
 }
 

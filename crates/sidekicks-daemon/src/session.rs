@@ -14,6 +14,6 @@ pub(crate) mod related;
 pub(crate) mod run;
 pub(crate) mod search;
 pub(crate) mod service;
-pub(crate) mod spawn_cwd_translator;
+pub mod spawn_cwd_translator;
 pub(crate) mod tags;
 pub(crate) mod working_folder;

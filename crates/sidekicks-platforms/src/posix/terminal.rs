@@ -134,20 +134,21 @@ pub fn restrict_library_search() -> io::Result<()> {
     Ok(())
 }
 
-/// The options `alacritty_terminal` opens a shell's terminal with: `shell` started in
-/// `working_directory` with `environment` added, its output not drained once it exits.
+/// The options `alacritty_terminal` opens a shell's terminal with: `program` with `arguments`
+/// started in `working_directory` with `environment` added, its output not drained once it exits.
 #[expect(
     clippy::implicit_hasher,
     reason = "the map goes straight into alacritty_terminal's options, which take the default \
               hasher"
 )]
 pub fn terminal_options(
-    shell: tty::Shell,
+    program: String,
+    arguments: Vec<String>,
     working_directory: Option<PathBuf>,
     environment: HashMap<String, String>,
 ) -> tty::Options {
     tty::Options {
-        shell: Some(shell),
+        shell: Some(tty::Shell::new(program, arguments)),
         working_directory,
         drain_on_exit: false,
         env: environment,
@@ -600,13 +601,18 @@ fn posix_signal(signal: TerminalSignal) -> Signal {
     }
 }
 
-/// The `shell` mode's stand-in tests open shells through: `/usr/bin/env`, which ends its options at
-/// `--` and runs the program after it with the environment it was given.
+/// The `shell` mode's stand-in tests open shells through: `/bin/sh`, which enters the folder
+/// after the mode's `--folder`, then runs the program after the mode's `--` with the environment it
+/// was given.
 #[cfg(any(test, feature = "test-support"))]
 pub fn pass_through_start() -> TestProgram {
     TestProgram {
-        program: "/usr/bin/env".to_owned(),
-        arguments: vec!["--".to_owned()],
+        program: "/bin/sh".to_owned(),
+        arguments: vec![
+            "-c".to_owned(),
+            r#"cd "$2" && shift 3 && exec "$@""#.to_owned(),
+            "shell-stand-in".to_owned(),
+        ],
     }
 }
 

@@ -36,7 +36,10 @@ pub use exit::TerminalExit;
 pub use input::answers::{ANSWER_BYTES_LIMIT, TerminalAnswers};
 pub use input::queue::TerminalWriteError;
 pub use kill::KillError;
-pub use pty::{CommandLine, ShellEnvironmentError, SpawnRequest, shell_environment};
+pub use pty::{
+    CommandLine, END_OF_SHELL_SWITCHES, RAW_COMMAND_TAIL_SWITCH, SHELL_FOLDER_SWITCH,
+    ShellEnvironmentError, SpawnRequest, shell_environment,
+};
 pub use read_loop::control::WriteTaken;
 pub use read_loop::output::{OutputFilter, TerminalEvent, TerminalOutput};
 pub use screen::{ScreenListener, ScrollbackRead, TerminalScreen};
