@@ -115,17 +115,17 @@ fn exit_code_for_client_error(error: &ClientError) -> Result<ExitCode, UnmappedE
         JsonRpcErrorCode::InvalidRequest
         | JsonRpcErrorCode::MethodNotFound
         | JsonRpcErrorCode::InvalidParams => ExitCode::Usage,
-        // The command line cancels no call yet, so a cancel answer is the daemon's fault.
+        // A cancel answer to a call the command line did not cancel is the daemon's fault.
         JsonRpcErrorCode::InternalError | JsonRpcErrorCode::RequestCanceled => ExitCode::Software,
         JsonRpcErrorCode::DomainRefusal => {
             remote.data.as_ref().map_or(ExitCode::Software, |data| {
-                exit_code_for_category(data.category)
+                exit_code_for_category(&data.category)
             })
         }
     })
 }
 
-fn exit_code_for_category(category: RefusalCategory) -> ExitCode {
+fn exit_code_for_category(category: &RefusalCategory) -> ExitCode {
     match category {
         RefusalCategory::InvalidArgument => ExitCode::DataError,
         RefusalCategory::NotFound => ExitCode::NoInput,
@@ -138,8 +138,11 @@ fn exit_code_for_category(category: RefusalCategory) -> ExitCode {
         | RefusalCategory::ResourceExhausted
         | RefusalCategory::DeadlineExceeded => ExitCode::TemporaryFailure,
         RefusalCategory::Unavailable | RefusalCategory::Unimplemented => ExitCode::Unavailable,
-        // The command line cancels no call yet, so a canceled refusal is the daemon's fault.
-        RefusalCategory::Internal | RefusalCategory::Canceled => ExitCode::Software,
+        // A canceled refusal of a call the command line did not cancel is the daemon's fault, and
+        // a category a newer daemon sends is read as an internal failure.
+        RefusalCategory::Internal | RefusalCategory::Canceled | RefusalCategory::Unknown(_) => {
+            ExitCode::Software
+        }
     }
 }
 
@@ -248,6 +251,13 @@ mod tests {
     )]
     #[case::canceled(
         remote(JsonRpcErrorCode::DomainRefusal, Some(RefusalCategory::Canceled)),
+        ExitCode::Software
+    )]
+    #[case::unknown_category(
+        remote(
+            JsonRpcErrorCode::DomainRefusal,
+            Some(RefusalCategory::Unknown("newerCategory".to_owned()))
+        ),
         ExitCode::Software
     )]
     #[case::usage(

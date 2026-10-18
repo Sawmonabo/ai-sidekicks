@@ -9,9 +9,11 @@ use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::typescript::{Definition, TypeScriptModule};
 
 /// What a client can do about a refusal, sent as `data.category` beside its code so a client that
-/// meets a code newer than itself still acts on it; the canonical gRPC status codes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+/// meets a code newer than itself still acts on it; the canonical gRPC status codes. A category
+/// this build does not know reads as [`RefusalCategory::Unknown`] with its text, so a newer
+/// daemon's refusal is still read as a refusal.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(from = "String", into = "String")]
 pub enum RefusalCategory {
     /// Fix what it sent.
     InvalidArgument,
@@ -39,11 +41,31 @@ pub enum RefusalCategory {
     Canceled,
     /// Report it: the service failed.
     Internal,
+    /// A category a newer build sends and this one does not know, its wire text kept; no refusal
+    /// this build makes carries one, since each code's category is one of the known arms.
+    Unknown(String),
 }
 
 impl RefusalCategory {
-    /// The category's wire text, as its serde form writes it.
-    pub const fn as_str(self) -> &'static str {
+    /// Every category this build knows.
+    const KNOWN: [Self; 13] = [
+        Self::InvalidArgument,
+        Self::NotFound,
+        Self::AlreadyExists,
+        Self::FailedPrecondition,
+        Self::Aborted,
+        Self::Unauthenticated,
+        Self::PermissionDenied,
+        Self::ResourceExhausted,
+        Self::Unavailable,
+        Self::Unimplemented,
+        Self::DeadlineExceeded,
+        Self::Canceled,
+        Self::Internal,
+    ];
+
+    /// The category's wire text.
+    pub const fn as_str(&self) -> &str {
         match self {
             Self::InvalidArgument => "invalidArgument",
             Self::NotFound => "notFound",
@@ -58,6 +80,26 @@ impl RefusalCategory {
             Self::DeadlineExceeded => "deadlineExceeded",
             Self::Canceled => "canceled",
             Self::Internal => "internal",
+            Self::Unknown(text) => text.as_str(),
+        }
+    }
+}
+
+impl From<String> for RefusalCategory {
+    fn from(text: String) -> Self {
+        Self::KNOWN
+            .into_iter()
+            .find(|category| category.as_str() == text)
+            .unwrap_or(Self::Unknown(text))
+    }
+}
+
+impl From<RefusalCategory> for String {
+    fn from(category: RefusalCategory) -> Self {
+        if let RefusalCategory::Unknown(text) = category {
+            text
+        } else {
+            category.as_str().to_owned()
         }
     }
 }
@@ -109,6 +151,13 @@ macro_rules! refusal_codes {
             pub const fn category(self) -> RefusalCategory {
                 match self {
                     $(Self::$variant => RefusalCategory::$category,)+
+                }
+            }
+
+            /// The wire text of the code's category, for a constant.
+            pub const fn category_name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => RefusalCategory::$category.as_str(),)+
                 }
             }
 
