@@ -209,3 +209,59 @@ fn settle<Value>(settlement: &SetOnce<Value>, value: Value) {
 pub(super) fn lock(live: &Mutex<LiveRuns>) -> MutexGuard<'_, LiveRuns> {
     live.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    use sidekicks_contracts::run::id::RunId;
+    use tokio::sync::SetOnce;
+
+    use super::{EndingGuard, EndingWrite, LiveRuns, lock};
+    use crate::uuid_v7::mint_uuid_v7;
+
+    // How long the live lock is held after the guard begins to drop, long enough for a guard that
+    // lands its write before taking the lock to have landed it.
+    const LOCK_HOLD: Duration = Duration::from_millis(200);
+
+    // Killed by the guard landing its write before it holds the live lock, which lets a newer
+    // write's guard walk past it while its map step is still to come.
+    #[test]
+    fn an_ending_write_lands_only_once_its_guard_holds_the_live_lock() {
+        let live = Mutex::new(LiveRuns::default());
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let entry = Arc::new(EndingWrite {
+            previous: None,
+            landed: SetOnce::new(),
+        });
+        lock(&live).ending.insert(run_id, Arc::clone(&entry));
+        let guard = EndingGuard {
+            live: &live,
+            run_id,
+            entry: Arc::clone(&entry),
+        };
+
+        thread::scope(|scope| {
+            let held = lock(&live);
+            let (dropping, drop_begun) = mpsc::channel();
+            let dropped = scope.spawn(move || {
+                dropping.send(()).expect("the test waits for the drop");
+                drop(guard);
+            });
+            drop_begun.recv().expect("the guard begins to drop");
+            thread::sleep(LOCK_HOLD);
+            assert!(
+                !entry.landed.initialized(),
+                "the write landed while another held the live lock"
+            );
+            drop(held);
+            dropped.join().expect("the guard drops");
+        });
+
+        assert!(entry.landed.initialized());
+        assert!(lock(&live).ending.is_empty());
+    }
+}
