@@ -5,7 +5,7 @@
 use std::any::Any;
 use std::ffi::OsString;
 use std::io::{self, Write};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{self, AssertUnwindSafe};
 
 use clap::{Parser, Subcommand};
 
@@ -32,36 +32,47 @@ enum Command {}
 
 /// Runs the program over `args` (the program's name first) and answers how the process ends. Help
 /// and the version go to stdout; a refused argument, a bare `sidekicks` among them, goes to stderr
-/// with its usage and exits 64; a command's failure or panic goes through [`report_failure`].
-pub(crate) fn run_program<Out: Write, Err: Write>(
+/// with its usage and exits 64; a command's failure or panic goes through [`report_failure`], a
+/// panic with no output of its own, since the command's panic hook writes nothing.
+pub(crate) fn run_program<Output: Write, ErrorOutput: Write>(
     args: impl IntoIterator<Item = OsString>,
-    context: &mut CommandContext<Out, Err>,
+    context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(refusal) => return report_parse_refusal(&refusal, context),
     };
-    match catch_unwind(AssertUnwindSafe(|| run_command(cli.command, context))) {
+    let default_hook = panic::take_hook();
+    panic::set_hook(Box::new(|_| {}));
+    let outcome = panic::catch_unwind(AssertUnwindSafe(|| run_command(cli.command, context)));
+    panic::set_hook(default_hook);
+    match outcome {
         Ok(Ok(())) => ProcessEnding::Exit(ExitCode::Success),
         Ok(Err(failure)) => report_failure(&failure, context),
         Err(payload) => report_failure(&panic_failure(payload.as_ref()), context),
     }
 }
 
-fn run_command<Out: Write, Err: Write>(
+fn run_command<Output: Write, ErrorOutput: Write>(
     command: Command,
-    _context: &mut CommandContext<Out, Err>,
+    _context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<()> {
     match command {}
 }
 
-/// Writes clap's help, version or refusal to the stream clap names for it: exit 0 for help and the
-/// version, 64 for a refusal, 141 when that stream's reader went away.
-fn report_parse_refusal<Out: Write, Err: Write>(
+/// Writes clap's help, version or refusal to the stream clap names for it, in clap's styles when
+/// the context is styled: exit 0 for help and the version, 64 for a refusal, 141 when that
+/// stream's reader went away.
+fn report_parse_refusal<Output: Write, ErrorOutput: Write>(
     refusal: &clap::Error,
-    context: &mut CommandContext<Out, Err>,
+    context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
-    let text = refusal.render().to_string();
+    let rendered = refusal.render();
+    let text = if context.is_styled {
+        rendered.ansi().to_string()
+    } else {
+        rendered.to_string()
+    };
     let (written, code) = if refusal.use_stderr() {
         (write_all(&mut context.stderr, &text), ExitCode::Usage)
     } else {
@@ -81,9 +92,9 @@ fn report_parse_refusal<Out: Write, Err: Write>(
 /// The one error boundary: writes `error: <message>` to stderr and answers the failure's exit
 /// code. A daemon number with no exit code adds its own line and exits 70; a closed output pipe
 /// exits 141 with nothing written, since no one is left to read it.
-pub(crate) fn report_failure<Out: Write, Err: Write>(
+pub(crate) fn report_failure<Output: Write, ErrorOutput: Write>(
     failure: &anyhow::Error,
-    context: &mut CommandContext<Out, Err>,
+    context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
     let (code, lines) = match exit_code_for_failure(failure) {
         Ok(ExitCode::BrokenPipe) => return ProcessEnding::Exit(ExitCode::BrokenPipe),
@@ -148,6 +159,7 @@ mod tests {
         CommandContext {
             stdout: Vec::new(),
             stderr: Vec::new(),
+            is_styled: false,
         }
     }
 
@@ -187,6 +199,7 @@ mod tests {
         let mut context = CommandContext {
             stdout: ClosedPipe,
             stderr: Vec::new(),
+            is_styled: false,
         };
         let ending = run_program(["sidekicks", "--help"].map(OsString::from), &mut context);
         assert_eq!(ending, ProcessEnding::Exit(ExitCode::BrokenPipe));

@@ -9,15 +9,18 @@ mod command_context;
 mod exit_codes;
 mod program;
 
-use std::io;
+use std::io::{self, IsTerminal as _};
 
 use command_context::CommandContext;
 use exit_codes::ProcessEnding;
 
 fn main() -> std::process::ExitCode {
+    let (stdout, stderr) = (io::stdout(), io::stderr());
+    let is_styled = stdout.is_terminal() && stderr.is_terminal();
     let mut context = CommandContext {
-        stdout: io::stdout().lock(),
-        stderr: io::stderr().lock(),
+        stdout: stdout.lock(),
+        stderr: stderr.lock(),
+        is_styled,
     };
     match program::run_program(std::env::args_os(), &mut context) {
         ProcessEnding::Exit(code) => code.into(),

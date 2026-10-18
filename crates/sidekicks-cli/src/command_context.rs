@@ -3,10 +3,13 @@
 
 use std::io::Write;
 
-/// The two streams a run writes to.
-pub(crate) struct CommandContext<Out: Write, Err: Write> {
+/// The two streams a run writes to, and whether both are terminals that show styles.
+pub(crate) struct CommandContext<Output: Write, ErrorOutput: Write> {
     /// Where a command's result goes, written only once the command can no longer fail.
-    pub(crate) stdout: Out,
+    pub(crate) stdout: Output,
     /// Where every refusal and failure goes.
-    pub(crate) stderr: Err,
+    pub(crate) stderr: ErrorOutput,
+    /// Whether output may carry terminal styles: true only when both streams are terminals, so no
+    /// file or pipe ever receives an escape code.
+    pub(crate) is_styled: bool,
 }

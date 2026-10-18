@@ -15,6 +15,8 @@ ignored = [
   # passes it on.
   "rpassword",
   "secrecy",
+  # The Ctrl-C ending the command line takes behind the platforms interface.
+  "sidekicks-platforms",
 ]
 
 [[bin]]
@@ -27,13 +29,10 @@ clap.workspace = true
 fast_qr.workspace = true
 rpassword.workspace = true
 secrecy.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 sidekicks-client.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
