@@ -268,16 +268,17 @@ impl SessionRelatedRanking {
     }
 
     // Each followed list that shows a renamed session is the list of a session linked to it. A
-    // failed read is logged: the lists keep their old names until their next raise.
-    async fn raise_lists_showing(&self, renamed: HashSet<SessionId>) {
+    // failed read leaves the renamed sessions waiting for the retry and fails with its cause.
+    async fn raise_lists_showing(&self, renamed: HashSet<SessionId>) -> Result<(), RescoringError> {
         if !self.is_any_followed() {
-            return;
+            return Ok(());
         }
+        let reading = renamed.clone();
         let linked = self
             .reads
             .read(ReadLength::Short, move |connection| {
                 let mut linked = HashSet::new();
-                for session_id in &renamed {
+                for session_id in &reading {
                     for link in link_ends_of(connection, session_id)? {
                         linked.insert(link.other_session_id);
                     }
@@ -286,12 +287,26 @@ impl SessionRelatedRanking {
             })
             .await;
         match linked {
-            Ok(linked) => self.raise_counts(&linked),
-            Err(error) => tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "related_sessions_rename_raise_failed"
-            ),
+            Ok(linked) => {
+                self.raise_counts(&linked);
+                Ok(())
+            }
+            Err(error) => {
+                for session_id in renamed {
+                    self.renamed.add(session_id);
+                }
+                Err(error)
+            }
         }
+    }
+
+    // Raises the lists showing the renames waiting, then scores a round; fails with the first
+    // step that failed, whose sessions stay waiting.
+    async fn raise_and_rescore(&self, queue: &mut RescoreQueue) -> Result<(), RescoringError> {
+        if let Some(renamed) = self.renamed.take().now_or_never() {
+            self.raise_lists_showing(renamed).await?;
+        }
+        self.rescore_round(queue).await
     }
 
     fn raise_counts<'ids>(&self, session_ids: impl IntoIterator<Item = &'ids SessionId>) {
@@ -310,25 +325,21 @@ impl SessionRelatedRanking {
         !followed.is_empty()
     }
 
-    // Waits out `wait` before a retry, raising renamed lists meanwhile; a link change retries at
-    // once. False once stopped.
+    // Waits out `wait` before a retry; a link change retries at once, and a rename waits for the
+    // retry. False once stopped.
     async fn wait_to_retry(
         &self,
         wait: Duration,
         queue: &mut RescoreQueue,
         stop: &CancellationToken,
     ) -> bool {
-        let retry_at = tokio::time::Instant::now() + wait;
-        loop {
-            tokio::select! {
-                biased;
-                () = stop.cancelled() => return false,
-                () = tokio::time::sleep_until(retry_at) => return true,
-                changed = self.changed.take() => {
-                    queue.changed.extend(changed);
-                    return true;
-                }
-                renamed = self.renamed.take() => self.raise_lists_showing(renamed).await,
+        tokio::select! {
+            biased;
+            () = stop.cancelled() => false,
+            () = tokio::time::sleep(wait) => true,
+            changed = self.changed.take() => {
+                queue.changed.extend(changed);
+                true
             }
         }
     }
@@ -339,28 +350,30 @@ impl SessionRelatedRanking {
     }
 }
 
-// No caller waits on a round, so a failed one is logged and retried after the daemon's retry
-// waits, its sessions kept queued, or sooner with the next link change.
+// No caller waits on a round or on the raise a rename asks for, so a failed one is logged and
+// retried after the daemon's retry waits, its sessions kept waiting, or sooner with the next link
+// change.
 async fn rescore_until_stopped(ranking: Arc<SessionRelatedRanking>, stop: CancellationToken) {
     let mut queue = RescoreQueue::default();
     let mut failed_rounds_in_row = 0;
     loop {
-        if queue.is_empty() {
+        let attempt = if queue.is_empty() {
             tokio::select! {
                 biased;
                 () = stop.cancelled() => return,
-                changed = ranking.changed.take() => queue.changed.extend(changed),
+                changed = ranking.changed.take() => {
+                    queue.changed.extend(changed);
+                    continue;
+                }
                 renamed = ranking.renamed.take() => ranking.raise_lists_showing(renamed).await,
             }
-            continue;
-        }
-        if let Some(changed) = ranking.changed.take().now_or_never() {
-            queue.changed.extend(changed);
-        }
-        if let Some(renamed) = ranking.renamed.take().now_or_never() {
-            ranking.raise_lists_showing(renamed).await;
-        }
-        match ranking.rescore_round(&mut queue).await {
+        } else {
+            if let Some(changed) = ranking.changed.take().now_or_never() {
+                queue.changed.extend(changed);
+            }
+            ranking.raise_and_rescore(&mut queue).await
+        };
+        match attempt {
             Ok(()) => failed_rounds_in_row = 0,
             Err(error) => {
                 let wait = retry_wait(failed_rounds_in_row);
