@@ -50,7 +50,8 @@ const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WH
 const SELECT_RUN_PROVIDER_SQL: &str = "WITH RECURSIVE lineage(run_id, depth) AS (
     SELECT @run_id, 0
     UNION ALL
-    SELECT runs.parent_run_id, lineage.depth + 1 FROM runs JOIN lineage ON runs.run_id = lineage.run_id
+    SELECT runs.parent_run_id, lineage.depth + 1
+      FROM runs JOIN lineage ON runs.run_id = lineage.run_id
       WHERE runs.reached_by = 'providerSubagent'
   )
   SELECT runtime_bindings.provider_name
