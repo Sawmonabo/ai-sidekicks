@@ -38,6 +38,7 @@ methods! {
             refusals: [
                 SessionNotFound,
                 AgentRunNotFound,
+                ArtifactIdempotencyConflict,
                 ArtifactTooLarge,
                 ArtifactIngestCapacityExhausted,
             ],
@@ -58,8 +59,6 @@ methods! {
                 SessionNotFound,
                 AgentRunNotFound,
                 ArtifactIngestStreamInvalid,
-                ArtifactTypeUnreadable,
-                ArtifactTypeCheckUnavailable,
             ],
         },
         /// Publishes one artifact from a payload the caller holds whole.
@@ -71,10 +70,9 @@ methods! {
                 SessionNotFound,
                 AgentRunNotFound,
                 ArtifactFilePublishRefused,
+                ArtifactIdempotencyConflict,
                 ArtifactIngestCapacityExhausted,
                 ArtifactTooLarge,
-                ArtifactTypeCheckUnavailable,
-                ArtifactTypeUnreadable,
             ],
         },
     ];

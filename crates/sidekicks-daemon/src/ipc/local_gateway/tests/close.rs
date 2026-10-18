@@ -10,6 +10,7 @@ use sidekicks_contracts::jsonrpc::framing::MAX_MESSAGE_BYTES;
 use sidekicks_contracts::jsonrpc::framing::frame::{Frame, LaneId};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_platforms::this_process;
 use tokio::io::AsyncWriteExt as _;
 use tokio_util::sync::CancellationToken;
 
@@ -18,7 +19,9 @@ use super::{
     Harness, HookCall, assert_refusal, call, channel_feed, harness, settle, subscribe, within,
 };
 use crate::ipc::call_fixtures::context;
-use crate::ipc::registry::{Dispatch as _, DispatchError, Reply, Request, TransportId};
+use crate::ipc::registry::{
+    Dispatch as _, DispatchError, HandlerContext, Reply, Request, TransportId,
+};
 
 /// How the test ends the connection.
 #[derive(Clone, Copy, Debug)]
@@ -89,7 +92,13 @@ async fn every_close_cleans_up_cancels_every_call_and_disconnects_once(
         harness
             .services
             .registry
-            .dispatch(handshake, context(transport.0))
+            .dispatch(
+                handshake,
+                HandlerContext {
+                    caller_process: Some(this_process()),
+                    ..context(transport.0)
+                },
+            )
             .await
             .is_err()
     );

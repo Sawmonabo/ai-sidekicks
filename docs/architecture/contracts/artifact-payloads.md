@@ -46,7 +46,7 @@ interface ArtifactPublishRequest {
   runId?: RunId;
   artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-012 §Interfaces And Contracts; D-011-3)
   payload: Uint8Array; // the artifact bytes, a `Bytes` attachment beside the JSON in the frame codec, bounded by the frame's 4 MiB attachment cap. The daemon hashes the bytes as sent: content_hash and size_bytes bind them, so two publishes of identical content share one CAS entry. A boundary-crossing publish is single-call; larger file bytes take the ArtifactIngest trio, and daemon-internal publishes never cross the wire (Spec-012 §Ingest Validation And Payload Bounds (V1))
-  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first publish, never a second
+  clientIdempotencyKey: string; // a UUID, kept on the manifest's row: a resend under the same key after a reconnect answers the first publish's manifest, never a second; the same key in the same session with a different run, type or payload is refused artifact.idempotencyConflict (422)
   mediaType: string; // MIME type
   // `size`/`digest` are not here: the daemon derives size_bytes + content_hash from `payload`
   // (D-011-2).
@@ -139,7 +139,7 @@ interface ArtifactListResponse {
 // at every Write, whose first breach terminates the stream and deletes the spool. An abandoned
 // stream's spool is reaped by a daemon-local mtime-clocked reaper 48 h after its last write. The
 // stream is a PROTOCOL, not a loose call sequence (Spec-012 stream protocol): Start, like a
-// boundary-crossing publish before its payload is stored, is refused
+// boundary-crossing publish once its frame is read, is refused
 // artifact.ingest.capacityExhausted (429 — transient, retry later, no stream state created) at
 // max_active_ingest_streams open uploads, streams and publishes counted together, or when the
 // spool's volume, its free space read at admission, has no room for the declaration beside the open
@@ -162,9 +162,7 @@ interface ArtifactListResponse {
 // Start's `clientIdempotencyKey` carries idempotency state: a retried Start answers the first
 // `ingestId`, a retried Write is acknowledged without re-appending, and a retried Complete returns
 // the saved result, its original response verbatim, from a completion record the daemon holds on
-// the stream's own registry entry. A Complete refused artifact.typeCheckUnavailable, its type check
-// cut off because the service was stopping, leaves the stream open with its spool, so the same
-// Complete is sent again. Calls on one ingestId are additionally SINGLE-FLIGHT — sequence
+// the stream's own registry entry. Calls on one ingestId are additionally SINGLE-FLIGHT — sequence
 // validation, spool append, running-count and digest advance, and acknowledgment run as one
 // critical section per stream — so an original racing its own retry takes the retry path rather
 // than double-appending; concurrent calls on DIFFERENT streams never contend. Admission is likewise
@@ -179,7 +177,7 @@ interface ArtifactIngestStartRequest {
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-012 §Implementation Notes)
   mediaType?: string; // ADVISORY and OPTIONAL — absent is a first-class state; the type read from the bytes is what the manifest records, a declared text type kept only for UTF-8 bytes that name no type, and no declaration refuses anything (Spec-012 pipeline step 1)
   declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: reserved against the spool volume's free space, read at admission (a declaration the free disk cannot hold even with no other stream open is refused artifact.tooLarge (413) up front, naming the file and the room the disk has, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
-  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first Start's `ingestId`, never a second stream
+  clientIdempotencyKey: string; // a UUID, kept beside the stream's registry entry for the stream's life: a resend under the same key after a reconnect answers the first Start's `ingestId`, never a second stream or reservation; the same key in the same session with a different run, file name or declared size is refused artifact.idempotencyConflict (422)
 }
 interface ArtifactIngestStartResponse {
   ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Start; scopes every subsequent Write/Complete call — each refused artifact.ingest.streamInvalid (409) once the stream is terminated, expired, or unknown, and every Write once it is completed. ONE carved exception: a retried Complete on a completed stream whose completion record still lives returns the saved result, the original response verbatim — see ArtifactIngestCompleteRequest

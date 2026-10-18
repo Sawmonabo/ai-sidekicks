@@ -2,8 +2,15 @@
 # The edition-2024 default, which a virtual workspace must state.
 resolver = "3"
 # `packages/search-index` and `packages/sidecar-rust-pty` move into `crates/` with the code that
-# replaces them.
-members = ["crates/*", "packages/search-index", "packages/sidecar-rust-pty"]
+# replaces them. The fuzz targets are a member so they share the lock and the reader list; a build
+# from the root without `--workspace` leaves them out.
+members = [
+  "crates/*",
+  "crates/sidekicks-daemon/fuzz",
+  "packages/search-index",
+  "packages/sidecar-rust-pty",
+]
+default-members = ["crates/*", "packages/search-index", "packages/sidecar-rust-pty"]
 
 [workspace.package]
 version = "0.0.0"
@@ -99,6 +106,7 @@ nix = {
 objc2-core-foundation = "0.3.2"
 objc2-foundation = { version = "0.3.2", features = ["NSString", "NSURL"] }
 objc2-io-kit = { version = "0.3.2", default-features = false }
+objc2-security = { version = "0.3.2", default-features = false }
 objc2-service-management = {
   version = "0.3.2",
   default-features = false,
@@ -212,6 +220,20 @@ dugong = "0.9.0"
 fast_image_resize = "6.1.0"
 fast_qr = "0.14.0"
 ferriki = "1.0.0"
+# A payload's media type from its leading bytes. ZIP, CFB and ID3v2 need bytes past that prefix and
+# ASF overflows on a crafted size, so those readers stay off and their formats are named by their
+# signatures alone. The daemon and its fuzz target take this one reader list.
+file-format = {
+  version = "0.29.0",
+  features = [
+    "reader-ebml",
+    "reader-exe",
+    "reader-mp4",
+    "reader-pdf",
+    "reader-sqlite3",
+    "reader-xml",
+  ]
+}
 icu_casemap = "2.3.0"
 icu_collator = "2.3.1"
 icu_datetime = "2.3.0"
@@ -266,31 +288,11 @@ zstd = "0.14.2"
 
 # The JavaScript engines: QuickJS and the web APIs the bundled modules call, held at the commit
 # whose crates build against this exact engine release.
-llrt_abort = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
 llrt_buffer = {
   git = "https://github.com/awslabs/llrt",
   rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
 }
 llrt_crypto = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_exceptions = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_stream_web = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_timers = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_util = {
   git = "https://github.com/awslabs/llrt",
   rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
 }
@@ -323,6 +325,7 @@ worker = { version = "0.8.7", features = ["axum", "http"] }
 caseless = "0.2.2"
 dhat = "0.3.3"
 insta = { version = "1.49.0", features = ["json"] }
+libfuzzer-sys = "0.4.13"
 mockall = "0.15.0"
 proptest = "1.12.0"
 rstest = "0.27.0"
@@ -365,6 +368,8 @@ wildcard_enum_match_arm = "warn"
 [workspace.lints.rust]
 missing_docs = "warn"
 redundant_lifetimes = "warn"
+# `fuzzing` is the cfg `cargo fuzz` sets.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 unit_bindings = "warn"
 unreachable_pub = "warn"
 # Not forbid: a crate that binds a C or Node-API interface lowers it at its root.

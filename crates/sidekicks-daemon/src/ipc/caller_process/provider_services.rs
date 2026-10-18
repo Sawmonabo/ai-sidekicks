@@ -79,6 +79,15 @@ impl ProviderServiceProcesses {
             .unwrap_or_else(PoisonError::into_inner)
             .contains_key(&process_id)
     }
+
+    /// Whether the daemon holds a connection to any provider service now.
+    pub(crate) fn is_holding_any(&self) -> bool {
+        !self
+            .holds
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty()
+    }
 }
 
 /// One held connection's serving process, counted until this drops.

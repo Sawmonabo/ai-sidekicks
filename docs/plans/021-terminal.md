@@ -18,7 +18,7 @@ Run every shell inside the daemon, on every operating system, through `sidekicks
 
 ## Build Order
 
-Daemon-foundational, beside Plan-001. Standalone for Phases 1–3 (no upstream plan dependencies); Phase 3B follows Phase 3 with no other gate, and Phases 4–5 are the release tail, whose signing step runs once [BL-108](../backlog.md#bl-108-windows--macos-signing-procurement-evidence) records SignPath Foundation's acceptance. Phase 3B's macOS tasks land in the `calling-device`, `shell-control-lease` and `terminal-daemon` units; its Windows tasks, Phase 5 and most of Phase 4 land in `windows`, and Phase 4's signing tasks in `release` ([cross-plan-dependencies §Units](../architecture/cross-plan-dependencies.md#units)).
+Daemon-foundational, beside Plan-001. Standalone for Phases 1–3 (no upstream plan dependencies); Phase 3B follows Phase 3 with no other gate, and Phases 4–5 are the release tail, whose signing step runs once [BL-108](../backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing) records SignPath Foundation's acceptance. Phase 3B's macOS tasks land in the `calling-device`, `shell-control-lease` and `terminal-daemon` units; its Windows tasks, Phase 5 and most of Phase 4 land in `windows`, and Phase 4's signing tasks in `release` ([cross-plan-dependencies §Units](../architecture/cross-plan-dependencies.md#units)).
 
 ## Scope
 
@@ -76,10 +76,10 @@ A shell's exit carries a numeric `signal_code` ONLY when the OS reported that si
 
 ## Preconditions
 
-- SignPath Foundation accepts the project into its open-source program ([signpath.org/terms](https://signpath.org/terms)). **Recording mechanism:** [BL-108](../backlog.md#bl-108-windows--macos-signing-procurement-evidence) tracks: (a) SignPath Foundation's acceptance; (b) the first release whose Windows binaries — the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium` — name SignPath Foundation as publisher, per [ADR-018 §Decision](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md#decision) items 5 and 6 + ADR-022 §Axis 5. BL-108 closes when both artifacts attach, and Phase 4's signing step runs once (a) is recorded. If SignPath Foundation finds the project ineligible, the choice goes back to the person and the distribution plan does not change silently.
+- SignPath Foundation accepts the project into its open-source program ([signpath.org/terms](https://signpath.org/terms)). **Recording mechanism:** [BL-108](../backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing) tracks SignPath Foundation's acceptance; Phase 4's signing step runs once it is recorded and signs the Windows binaries — the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium` — with SignPath Foundation as publisher, per [ADR-018 §Decision](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md#decision) items 5 and 6 + ADR-022 §Axis 5. If SignPath Foundation finds the project ineligible, the choice goes back to the person and the distribution plan does not change silently.
 - Plan-001 Phase 5's CP-001-2 cwd-translator wrapper (`crates/sidekicks-daemon/src/session/spawn_cwd_translator.rs`, T5.3) — Plan-021 Phase 2's kill semantics and Phase 3's ConPTY work both depend on the translator. Without it I-021-5 cannot hold on Windows, and a shell would surface `ERROR_SHARING_VIOLATION` in CI.
 
-**V1 Release Impact:** The SignPath Foundation row above attaches to [BL-108](../backlog.md#bl-108-windows--macos-signing-procurement-evidence), whose §V1 Release Impact field says what waits. The Windows release waits on SignPath Foundation's signing; if the project is not eligible, that goes back to the person and the distribution plan does not change silently. The Phase 4 build substrate (the Windows legs' builds of the daemon, the manifest hashes) ships to GitHub Releases in the interim.
+**V1 Release Impact:** The SignPath Foundation row above attaches to [BL-108](../backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing), whose §V1 Release Impact field says what waits. Until SignPath Foundation signs, Windows builds publish unsigned, and a Windows machine with Smart App Control on cannot run them; if the project is not eligible, that goes back to the person and the distribution plan does not change silently. The Phase 4 build substrate (the Windows legs' builds of the daemon, the manifest hashes) ships to GitHub Releases in the interim.
 
 ## Target Areas
 
@@ -186,14 +186,14 @@ Windows signing goes through [SignPath Foundation](https://signpath.org)'s free 
 - **One step, one publisher.** The release workflow's SignPath step signs the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium`, each for x64 and arm64, so SmartScreen reputation accrues to one publisher across all of them ([ADR-018 §Decision](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md#decision) item 6).
 - **Why this path.** It removes SmartScreen's hard block on an unsigned file and keeps the NSIS installer's one-press update, at no cost. The certificate class is not the lever: Microsoft's [SmartScreen reputation documentation](https://learn.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-smartscreen/smartscreen-reputation) says of the EV bypass that "this behavior no longer exists", so reputation accrues by publisher and file hash for every class.
 - **If the project is not eligible**, the choice goes back to the person with the remaining paths (the Microsoft Store, a bought certificate, or unsigned with SmartScreen's block at install); the distribution plan does not change silently.
-- **Windows signing gates the Windows release** ([BL-108](../backlog.md#bl-108-windows--macos-signing-procurement-evidence)): the Windows release waits on SignPath Foundation's acceptance, and if the project is not eligible, that goes back to the person and the distribution plan does not change silently.
+- **Windows builds publish unsigned until SignPath Foundation signs** ([BL-108](../backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing)): its program asks for an existing release, so the Windows builds before its acceptance are unsigned, and if the project is not eligible, that goes back to the person and the distribution plan does not change silently.
 
 ## Parallelization Notes
 
 - The crate's PTY, read loop, write path and exit capture (steps 1–4) come first; the API (step 5) and the kill semantics (step 6) build on them and run in parallel once they land.
 - ConPTY's library search (step 7) is independent of the shell work once the crate exists.
-- The Windows CI legs (step 8) are independent of the code work once steps 1–4 exist; the signing stage (step 9) waits on SignPath Foundation's acceptance (BL-108), and the Windows release waits on that signing.
-- Signing (SignPath Foundation's acceptance) runs asynchronously to code work and gates no development; it gates the Windows release.
+- The Windows CI legs (step 8) are independent of the code work once steps 1–4 exist; the signing stage (step 9) waits on SignPath Foundation's acceptance (BL-108), and Windows builds publish unsigned until it runs.
+- Signing (SignPath Foundation's acceptance) runs asynchronously to code work and gates no development; until it signs, Windows builds publish unsigned.
 
 ## Test And Verification Plan
 
@@ -335,7 +335,7 @@ Plan-021 lands one PR per phase — Phases 1–3 map the §Implementation Steps 
 
 ### Phase 4 — CI Build + Windows Signing
 
-**Precondition:** Phase 3 merged (the daemon's in-process ConPTY is what the Windows legs build and test). The signing step inside the phase runs once [BL-108](../backlog.md#bl-108-windows--macos-signing-procurement-evidence) records SignPath Foundation's acceptance (T-021-4-4), and the Windows release waits on that signing. **V1 Release Impact:** see [BL-108 §V1 Release Impact](../backlog.md#bl-108-windows--macos-signing-procurement-evidence).
+**Precondition:** Phase 3 merged (the daemon's in-process ConPTY is what the Windows legs build and test). The signing step inside the phase runs once [BL-108](../backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing) records SignPath Foundation's acceptance (T-021-4-4), and Windows builds publish unsigned until that signing runs. **V1 Release Impact:** see [BL-108 §V1 Release Impact](../backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing).
 
 **Goal:** The daemon with its terminal builds and tests green on both Windows legs; the Windows signing step signs the app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium` through SignPath Foundation once it accepts the project. Matches §Rollout Order steps 3 and 4 (signing + the signed release).
 
@@ -346,7 +346,7 @@ Plan-021 lands one PR per phase — Phases 1–3 map the §Implementation Steps 
 
 - **T-021-4-1** The Windows CI legs. **Files:** `.github/workflows/ci.yml` (the `native (<target>)` legs on `windows-latest` and `windows-11-arm`). **Wires:** per §Implementation Steps step 8 — the toolchain `rust-toolchain.toml` names, `sidekicks-daemon` built with `--locked` for each target, and the terminal's Windows tests (W2, C1, K2–K3) run with nextest on both legs. **Spec coverage:** ADR-022 §Axis 1 + Axis 5. **Verifies invariant:** none (CI infrastructure layer).
 - **T-021-4-2** Spawn-latency measurement. **Files:** none kept; the measuring script runs in this task's PR and is not committed, and the readings go in the PR description and against [ADR-018 §Success Criteria](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md#success-criteria) row 2. **Wires:** on `windows-latest`, 1000 spawns of `cmd.exe /c "echo hello"` through the daemon's in-process ConPTY, timing p95 wall-clock from the terminal's spawn call to its return with the shell's process started, against the `≤ 50 ms` budget; there is no benchmark harness, no benchmark workflow and no recurring run. **Spec coverage:** ADR-018 §Success Criteria row 2. **Verifies invariant:** none (a recorded measurement).
-- **T-021-4-3** Signing evidence recording. **Files:** [BL-108](../backlog.md#bl-108-windows--macos-signing-procurement-evidence) (Backlog item; Preconditions row references it). **Recording artifacts:** SignPath Foundation's acceptance of the project; the first release whose Windows binaries — the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium` — name SignPath Foundation as publisher, per ADR-018 §Decision items 5 and 6 + ADR-022 §Axis 5. BL-108 closes when both artifacts attach, and Phase 4's signing step runs once the first is recorded. **Spec coverage:** ADR-018 §Decision items 5 and 6, ADR-022 §Axis 5. **Verifies invariant:** none (signing gate).
+- **T-021-4-3** Signing evidence recording. **Files:** [BL-108](../backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing) (Backlog item; Preconditions row references it). **Recording artifact:** SignPath Foundation's acceptance of the project, per ADR-018 §Decision items 5 and 6 + ADR-022 §Axis 5; Phase 4's signing step runs once it is recorded. **Spec coverage:** ADR-018 §Decision items 5 and 6, ADR-022 §Axis 5. **Verifies invariant:** none (signing gate).
 - **T-021-4-4** Windows signing stage. **Files:** the release workflow's SignPath Foundation step ([ADR-022 §Axis 5](../decisions/022-v1-ci-cd-and-release-automation.md#axis-5--code-signing-custody)), which takes `sidekicks-daemon` for `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` from the Windows legs and signs them in one submission with the Electron app, `sidekicks`, the client's `.node` and `libpdfium`; runs once SignPath Foundation accepts the project. **Spec coverage:** ADR-018 §Decision items 5 and 6; ADR-022 §Axis 5. **Verifies invariant:** none.
 
 ### Phase 5 — Windows Shell Integration Job
@@ -372,7 +372,7 @@ Plan-021 ships `sidekicks-terminal` and its API; downstream plans consume it. Pl
 
 1. Ship `sidekicks-terminal`, its API and its kill semantics on every operating system.
 2. Ship ConPTY's library search on Windows and the drain at the service's stop.
-3. Obtain signing: SignPath Foundation's acceptance, which the Windows release waits on.
+3. Obtain signing: SignPath Foundation's acceptance; Windows builds publish unsigned until then.
 4. Sign the Windows programs in the release.
 5. Run the Windows shell integration job on every CI run.
 

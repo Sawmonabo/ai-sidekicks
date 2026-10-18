@@ -11,19 +11,24 @@
               calls, the shell start's signal and console-handler calls, the parent check \
               `scutil`'s child runs in `pre_exec`, the Windows host-name, free-room and \
               entry-identity calls, the Windows replacing rename's `MoveFileExW`, the caller reads \
-              (Linux's peer process descriptor and `pidfd_open`, macOS's audit token and checked \
-              process reads), macOS's `proc_pid_rusage`, which a process's peak memory and the \
-              measurement tests' footprint share, Windows' `OpenProcess` and \
+              (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, checked \
+              process reads and responsible-process reads), macOS's code-signature checks, the \
+              start as its own responsible process (its thread count, its program's path, its \
+              marker's removal from the environment and the disclaiming exec), the socket pair a \
+              shell's start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
+              memory and the measurement tests' footprint share, Windows' `OpenProcess` and \
               `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
               (`proc_listpids`) and environment read (`sysctl` of `KERN_ARGMAX` and \
-              `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its exit event's registration), \
-              mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \
-              and wall-clock timers of macOS and Windows are C interfaces"
+              `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
+              exit event's registration), mimalloc's `mi_collect`, tree-sitter's \
+              `set_allocator`, and the power notifications and wall-clock timers of macOS and \
+              Windows are C interfaces"
 )]
 
 mod atomic_replace;
 mod caller_process;
+mod code_signature;
 mod entry_identity;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
@@ -33,6 +38,7 @@ mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
 mod memory;
+mod own_root;
 mod path;
 #[cfg(unix)]
 mod posix;
@@ -49,7 +55,12 @@ mod windows;
 mod wsl;
 
 pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
-pub use caller_process::ParentProcess;
+#[cfg(not(target_os = "macos"))]
+pub use caller_process::read_responsible_process;
+pub use caller_process::{ParentProcess, ResponsibleProcess};
+#[cfg(not(target_os = "macos"))]
+pub use code_signature::DesktopClientRequirement;
+pub use code_signature::{CodeSignatureError, SignatureCheck};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
@@ -75,7 +86,11 @@ pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::caller_process::this_process;
 #[cfg(target_os = "macos")]
-pub use macos::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
+pub use macos::caller_process::{
+    PinnedProcess, read_parent_process, read_peer_process, read_responsible_process,
+};
+#[cfg(target_os = "macos")]
+pub use macos::code_signature::DesktopClientRequirement;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
@@ -87,10 +102,17 @@ pub use macos::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
+pub use macos::responsibility::become_own_root;
+#[cfg(target_os = "macos")]
+pub use macos::shell_start_confirmation::ShellStartConfirmation;
+#[cfg(target_os = "macos")]
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use memory::physical_memory;
+pub use own_root::OwnRootError;
+#[cfg(not(target_os = "macos"))]
+pub use own_root::become_own_root;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::PathRules;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -146,6 +168,8 @@ pub use posix::terminal::{
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+#[cfg(not(target_os = "macos"))]
+pub use shell_start::ShellStartConfirmation;
 pub use shell_start::{ShellStart, ShellStartError};
 pub use socket_listener::ExistingSocket;
 pub use socket_path::SocketPathRefused;
