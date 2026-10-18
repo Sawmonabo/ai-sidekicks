@@ -83,25 +83,25 @@ impl PinnedProcess {
     }
 
     // Sends `signal` through the descriptor, `SIGKILL` to the whole group the process leads, so
-    // nothing a lasting child started outlives it; `false` when the process has already ended.
-    // The group is also killed by its id whatever the process answers, since it can outlive its
-    // leader and a kernel before 6.9 takes no group flag. Fails with the first error a signal met,
+    // nothing a lasting child started outlives it; `false` when nothing was left to signal. From
+    // Linux 6.9 the descriptor's group signal reaches exactly the group, `ESRCH` meaning no member
+    // is left; a kernel before 6.9 refuses the group flag with `EINVAL`, so the process is
+    // signaled alone and the rest of its group by its id. Fails with the first error a signal met,
     // once both are sent.
     fn send_signal(&self, signal: Signal) -> io::Result<bool> {
         if signal != Signal::SIGKILL {
             return self.send_through_descriptor(signal, 0);
         }
-        let is_running =
-            match self.send_through_descriptor(signal, libc::PIDFD_SIGNAL_PROCESS_GROUP) {
-                Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {
-                    self.send_through_descriptor(signal, 0)
-                }
-                sent => sent,
-            };
-        let group_end = kill_rest_of_group(self.id);
-        let is_running = is_running?;
-        group_end?;
-        Ok(is_running)
+        match self.send_through_descriptor(signal, libc::PIDFD_SIGNAL_PROCESS_GROUP) {
+            Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {
+                let is_running = self.send_through_descriptor(signal, 0);
+                let group_end = kill_rest_of_group(self.id);
+                let is_running = is_running?;
+                group_end?;
+                Ok(is_running)
+            }
+            sent => sent,
+        }
     }
 
     // Sends `signal` through the descriptor with `flags`; `false` when the process has ended.
