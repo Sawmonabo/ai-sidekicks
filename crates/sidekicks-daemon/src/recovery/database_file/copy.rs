@@ -7,12 +7,12 @@
 
 use std::env;
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, ExitStatus};
 
-use sidekicks_platforms::Spawner;
+use sidekicks_platforms::{Spawner, flush_file};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
@@ -120,8 +120,7 @@ pub fn run_database_copy() -> ExitCode {
 pub(crate) fn copy_file_replacing(source: &Path, destination: &Path) -> io::Result<()> {
     fs::remove_file(destination).none_if_missing()?;
     reflink_copy::reflink_or_copy(source, destination)?;
-    // Opened to write, since Windows flushes only a file opened so; nothing is written.
-    OpenOptions::new().write(true).open(destination)?.sync_all()
+    flush_file(destination)
 }
 
 // Copies the file the arguments name.
