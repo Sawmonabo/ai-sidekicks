@@ -126,9 +126,15 @@ async fn a_close_during_a_build_settles_once_the_build_has_exited() {
         scheduler: scheduler(),
     });
     let started = build_marker(&index_folder, "started");
+    // A build that fails to start fails the live index at once, so its failure ends the wait.
     tokio::time::timeout(Duration::from_secs(30), async {
-        while !started.exists() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::select! {
+            () = async {
+                while !started.exists() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            } => {}
+            failure = live.when_failed() => panic!("the missing index's build fails: {failure:?}"),
         }
     })
     .await
