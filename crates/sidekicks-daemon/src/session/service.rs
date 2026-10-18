@@ -2,10 +2,10 @@
 //! events as `session.read` answers them, from the `sessions` row its events keep in step, its
 //! tags, its console settings, its run rows and its log; the session's whole log, or a page of it
 //! after a known sequence; a window of its transcript rows and one stored row with its body; and a
-//! rebuild of the record from that log through the projector, over
-//! the same envelope reads the event log serves, which skip a range the session skipped past as
-//! damaged and, while its history is damaged, stop at its last good point. Each read borrows a
-//! connection from the daemon's read pool and runs on the blocking pool.
+//! rebuild of the record from that log through the projector, over the same envelope reads the
+//! event log serves, which skip a range the session skipped past as damaged and, while its history
+//! is damaged, stop at its last good point. Each read borrows a connection from the daemon's read
+//! pool and runs on the blocking pool.
 
 use std::sync::{Arc, LazyLock};
 
