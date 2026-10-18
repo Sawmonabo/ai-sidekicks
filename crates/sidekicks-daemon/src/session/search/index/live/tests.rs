@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
-use rusqlite::Connection;
 use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_search::index::SearchIndex;
 use tokio::runtime::Handle;
@@ -12,7 +11,6 @@ use tokio::sync::{Notify, watch};
 use super::{LiveIndex, LiveIndexOptions, LiveIndexShared, OpenIndex, catch_up, delete_applied};
 use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::connection::setup::apply_connection_pragmas;
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::session::search::index::applier::SearchIndexApplier;
@@ -42,16 +40,12 @@ fn build_marker(index_folder: &Path, name: &str) -> PathBuf {
 
 // A writer on the test's file, which holds the search's source tables already.
 async fn writer_on(database: &TestDatabase) -> DatabaseWriter {
-    let path = database.path();
-    let opener = move || {
-        let connection = Connection::open(path)?;
-        connection.pragma_update(None, "journal_mode", "WAL")?;
-        apply_connection_pragmas(&connection)?;
-        Ok::<_, rusqlite::Error>(connection)
-    };
-    DatabaseWriter::open(opener, DatabaseWriterOptions::default())
-        .await
-        .expect("the writer opens its database")
+    DatabaseWriter::open(
+        database.opener_without_event_tables(),
+        DatabaseWriterOptions::default(),
+    )
+    .await
+    .expect("the writer opens its database")
 }
 
 // A database of `session_count` titled sessions, beside an index whose newest commit records the
