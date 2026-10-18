@@ -11,9 +11,10 @@
               replacing rename's `MoveFileExW`, the caller reads (Linux's peer process descriptor \
               and `pidfd_open`, macOS's audit token, checked process reads and responsible-process \
               reads), macOS's code-signature checks, the start as its own responsible process \
-              (its thread count, its marker's removal from the environment and the disclaiming \
-              exec), the socket pair a shell's start is confirmed over, the measurement tests' footprint read on macOS, and the power notifications \
-              and wall-clock timers of macOS and Windows are C interfaces"
+              (its thread count, its program's path, its marker's removal from the environment \
+              and the disclaiming exec), the socket pair a shell's start is confirmed over, the \
+              measurement tests' footprint read on macOS, and the power notifications and \
+              wall-clock timers of macOS and Windows are C interfaces"
 )]
 
 mod atomic_replace;
