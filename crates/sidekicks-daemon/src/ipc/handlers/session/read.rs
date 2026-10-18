@@ -10,22 +10,15 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::session::draft::SessionAttachmentSummary;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
-    SessionAddress, SessionRead, SessionReadRequest, SessionReadResponse, SessionRecord,
+    SessionRead, SessionReadRequest, SessionReadResponse, SessionRecord,
 };
-use sidekicks_contracts::wire::list::UniqueList;
 
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use crate::session::addresses::SessionInboxAddresses;
 use crate::session::draft_store::SessionDraftStore;
 use crate::session::service::{SessionLogRead, SessionReadRecord, SessionService};
-
-/// A session's inbox addresses, the session's own place first.
-pub(crate) type SessionAddresses = UniqueList<SessionAddress, 1, { usize::MAX }>;
-
-/// Answers a session's inbox addresses, derived from its id alone, so they read the same whether
-/// or not a process runs for it.
-pub(crate) type SessionAddressLookup = Arc<dyn Fn(&SessionId) -> SessionAddresses + Send + Sync>;
 
 /// Reads the files staged for a session's next message, in the order they were staged; fails as
 /// the store's read does.
@@ -44,7 +37,7 @@ pub(crate) struct SessionReadSources {
     /// The staged files.
     pub(crate) read_attachments: StagedAttachmentsReader,
     /// The inbox addresses.
-    pub(crate) addresses_of: SessionAddressLookup,
+    pub(crate) addresses: Arc<SessionInboxAddresses>,
 }
 
 /// Registers `session.read` over `sources`. Refuses a session the daemon does not hold
@@ -89,6 +82,7 @@ async fn read_session(
         max_steps_per_turn,
         tags,
     } = session;
+    let addresses = sources.addresses.addresses_of(&session_id, place.as_ref());
     Ok(SessionReadResponse {
         session: SessionRecord {
             id,
@@ -103,7 +97,7 @@ async fn read_session(
             draft,
             attachments,
             max_steps_per_turn,
-            addresses: (sources.addresses_of)(&session_id),
+            addresses,
             tags,
         },
         transcript_cursors,
@@ -118,12 +112,12 @@ mod tests {
 
     use futures::FutureExt as _;
     use serde_json::{Value, json};
-    use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::method::Method as _;
+    use sidekicks_contracts::place::{Place, WindowsPlace};
     use sidekicks_contracts::session::draft::SessionDraftUpdate;
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::session::methods::{SessionAddress, SessionRead};
-    use sidekicks_contracts::wire::list::UniqueList;
+    use sidekicks_contracts::session::methods::SessionRead;
+    use sidekicks_platforms::PathRules;
 
     use super::{SessionReadSources, register_session_read};
     use crate::database::connection::read_pool::DatabaseReadPool;
@@ -132,6 +126,8 @@ mod tests {
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::handlers::session::draft_update::register_session_draft_update;
     use crate::ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
+    use crate::session::addresses::SessionInboxAddresses;
+    use crate::session::addresses::tests::FixedInboxFolder;
     use crate::session::draft_store::{SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore};
     use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 
@@ -193,14 +189,11 @@ CREATE TABLE session_drafts (
                 )),
                 drafts,
                 read_attachments: Arc::new(|_session_id| async { Ok(Vec::new()) }.boxed()),
-                addresses_of: Arc::new(|_session_id: &SessionId| {
-                    let address = SessionAddress {
-                        place: None,
-                        address: FilesystemPath::new("/run/inbox.sock".to_owned())
-                            .expect("an inbox path"),
-                    };
-                    UniqueList::new(vec![address]).expect("one address")
-                }),
+                addresses: Arc::new(SessionInboxAddresses::new(
+                    PathRules::Windows,
+                    vec![Some(Place::Windows(WindowsPlace::Value))],
+                    Arc::new(FixedInboxFolder("/tmp/cc-socks")),
+                )),
             },
         )
         .expect("session.read registers");
@@ -217,6 +210,10 @@ CREATE TABLE session_drafts (
             let read = call(&registry, SessionRead::DESCRIPTOR.method, &read_params).await;
             assert_eq!(read["session"]["draft"], draft);
             assert_eq!(read["session"]["place"], json!({ "distro": "Ubuntu" }));
+            assert_eq!(
+                read["session"]["addresses"][0]["place"],
+                json!({ "distro": "Ubuntu" })
+            );
         }
     }
 }
