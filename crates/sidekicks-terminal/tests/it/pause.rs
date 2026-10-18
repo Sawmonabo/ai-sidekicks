@@ -3,15 +3,34 @@
 use std::time::Duration;
 
 use bytes::Bytes;
-use sidekicks_terminal::{TerminalEvent, TerminalExit};
+use sidekicks_terminal::{TerminalEvent, TerminalExit, TerminalOutput};
 use tokio::time::timeout;
 
 use crate::helpers::{
     KeepAllOutput, OUTPUT_BOUND, no_listener, read_past_line, read_to_exit, request, terminals,
 };
 
-/// How many numbered lines the program prints, far more than a terminal's buffer holds.
-const LINE_COUNT: usize = 20_000;
+/// How many numbered lines the program prints, far more than the output's bound and a terminal's
+/// buffers hold together.
+const LINE_COUNT: usize = 100_000;
+
+/// How long the output stays quiet before the pause counts as holding it.
+const QUIET_PERIOD: Duration = Duration::from_millis(500);
+
+/// Takes the output's chunks until it stays quiet for [`QUIET_PERIOD`], answering their text;
+/// fails the test on the output's end or exit.
+async fn read_until_quiet(output: &mut TerminalOutput) -> String {
+    let mut text = String::new();
+    while let Ok(event) = timeout(QUIET_PERIOD, output.next()).await {
+        let chunk = match event {
+            Some(TerminalEvent::Output(chunk)) => Ok(chunk),
+            other => Err(format!("the output ended while paused: {other:?}")),
+        }
+        .expect("the output stays open while paused");
+        text.push_str(&String::from_utf8_lossy(&chunk));
+    }
+    text
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_paused_shell_leaves_its_output_waiting_and_the_resume_delivers_it_in_order() {
@@ -21,43 +40,42 @@ async fn a_paused_shell_leaves_its_output_waiting_and_the_resume_delivers_it_in_
         .spawn(request(program), no_listener, KeepAllOutput)
         .await
         .expect("the shell starts");
+    let mut text = read_past_line(&mut spawned.output, "ready").await;
 
-    let after_ready = read_past_line(&mut spawned.output, "ready").await;
-
-    terminals.pause(spawned.handle).expect("the shell pauses");
+    // The program prints far more than the output's bound, so it is still printing when the
+    // pause comes; the chunks already read arrive, then the output holds.
     terminals
         .queue_write(spawned.handle, Bytes::from_static(b"go\r\n"))
         .expect("the input line is handed over")
         .taken()
         .await
         .expect("the input line is taken");
-    assert!(
-        timeout(Duration::from_millis(500), spawned.output.next())
-            .await
-            .is_err(),
-        "output arrived while the shell was paused"
-    );
+    terminals.pause(spawned.handle).expect("the shell pauses");
+    text += &read_until_quiet(&mut spawned.output).await;
 
-    // The program's output fills the terminal while paused, so a write now waits on a terminal
-    // that takes no input while its output is full; there the loop reads on until the write is
-    // taken, and elsewhere the pause holds.
+    // A write while paused is taken. Where a paused read would hold the program's input back, the
+    // loop reads on after it until the output is empty, so output arrives; elsewhere the pause
+    // holds.
     terminals
         .queue_write(spawned.handle, Bytes::from_static(b"more\r\n"))
         .expect("a second line is handed over")
         .taken()
         .await
         .expect("the second line is taken");
-    let mut while_paused = String::new();
     if sidekicks_platforms::DOES_PAUSED_READ_HOLD_INPUT {
-        match timeout(OUTPUT_BOUND, spawned.output.next())
+        let event = timeout(OUTPUT_BOUND, spawned.output.next())
             .await
-            .expect("output arrives while the write waits")
-        {
-            Some(TerminalEvent::Output(chunk)) => {
-                while_paused.push_str(&String::from_utf8_lossy(&chunk));
-            }
-            other => panic!("the output ended while paused: {other:?}"),
-        }
+            .expect("output arrives after a write while paused");
+        let Some(TerminalEvent::Output(chunk)) = event else {
+            panic!("the output ended while paused: {event:?}");
+        };
+        text.push_str(&String::from_utf8_lossy(&chunk));
+        text += &read_until_quiet(&mut spawned.output).await;
+    } else {
+        assert!(
+            read_until_quiet(&mut spawned.output).await.is_empty(),
+            "output arrived while the shell was paused"
+        );
     }
 
     terminals.resume(spawned.handle).expect("the shell resumes");
@@ -66,7 +84,7 @@ async fn a_paused_shell_leaves_its_output_waiting_and_the_resume_delivers_it_in_
         .await
         .expect("the output ends after the exit");
 
-    let text = after_ready + &while_paused + &rest;
+    text += &rest;
     let numbers: Vec<usize> = text
         .split('\n')
         .map(|line| line.trim_end_matches('\r'))

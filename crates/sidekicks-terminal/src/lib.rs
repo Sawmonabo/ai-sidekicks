@@ -6,7 +6,9 @@
 //! screen's answers to a program's questions go back through its [`TerminalAnswers`].
 
 mod exit;
+mod input;
 mod kill;
+mod osc_limit;
 mod pty;
 mod read_loop;
 mod screen;
@@ -31,17 +33,18 @@ use tokio::task::{JoinError, JoinSet};
 use uuid::Uuid;
 
 pub use exit::TerminalExit;
+pub use input::answers::{ANSWER_BYTES_LIMIT, TerminalAnswers};
+pub use input::queue::TerminalWriteError;
 pub use kill::KillError;
-pub use pty::{
-    ANSWER_BYTES_LIMIT, CommandLine, ShellEnvironmentError, SpawnRequest, TerminalAnswers,
-    TerminalWriteError, shell_environment,
-};
-pub use read_loop::{OutputFilter, TerminalEvent, TerminalOutput, WriteTaken};
+pub use pty::{CommandLine, ShellEnvironmentError, SpawnRequest, shell_environment};
+pub use read_loop::control::WriteTaken;
+pub use read_loop::output::{OutputFilter, TerminalEvent, TerminalOutput};
 pub use screen::{ScreenListener, ScrollbackRead, TerminalScreen};
 pub use sidekicks_platforms::TerminalSignal;
 
+use crate::input::answers::ConsoleInputRead;
 use crate::kill::{ChildEnding, Escalation};
-use crate::read_loop::TerminalControl;
+use crate::read_loop::control::TerminalControl;
 
 /// One terminal's handle for its life, minted at its spawn and stored nowhere.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -120,7 +123,8 @@ type LiveTerminals = Arc<Mutex<HashMap<TerminalHandle, Arc<TerminalEntry>>>>;
 pub struct Terminals {
     /// The thread every shell, `taskkill.exe` and console helper starts on.
     spawner: Spawner,
-    /// The daemon's `console` mode, which ends a terminal on Windows.
+    /// The daemon's `console` mode, which ends a terminal on Windows and reads how much input
+    /// waits on its console.
     console_helper: Arc<CommandLine>,
     /// The live terminals, by handle.
     live: LiveTerminals,
@@ -132,8 +136,9 @@ pub struct Terminals {
 
 impl Terminals {
     /// Terminals whose shells, `taskkill.exe` and console helper start on `spawner`'s thread,
-    /// ended on Windows through `console_helper` (the daemon's `console` mode, to which each
-    /// call adds the program's process id).
+    /// ended on Windows, and their consoles' waiting input read, through `console_helper` (the
+    /// daemon's `console` mode, to which each call adds the program's process id, after
+    /// `input` for a reading).
     pub fn new(spawner: Spawner, console_helper: CommandLine) -> Self {
         Self {
             spawner,
@@ -171,13 +176,15 @@ impl Terminals {
             .and_then(|opened| opened)
             .map_err(TerminalError::Spawn)?;
         let handle = TerminalHandle::mint();
+        let console_read = sidekicks_platforms::child_process_id(&pty)
+            .filter(|_| sidekicks_platforms::DOES_CONSOLE_COUNT_WAITING_INPUT)
+            .map(|process_id| self.console_input_read(process_id));
         let started = read_loop::start_read_loop(
             &Handle::current(),
             &format!("terminal {handle}"),
             pty,
-            rows,
-            columns,
-            listen,
+            console_read,
+            move |answers| TerminalScreen::new(rows, columns, listen(answers)),
             filter,
         )
         .map_err(TerminalError::Spawn)?;
@@ -352,6 +359,31 @@ impl Terminals {
             .filter(|entry| !entry.control.has_child_exited())
             .filter_map(|entry| entry.control.process_id())
             .collect()
+    }
+
+    /// Reads how much input waits on the console of the program `process_id`, through the console
+    /// helper.
+    fn console_input_read(&self, process_id: u32) -> ConsoleInputRead {
+        let spawner = self.spawner.clone();
+        let console_helper = Arc::clone(&self.console_helper);
+        Arc::new(move || {
+            let spawner = spawner.clone();
+            let console_helper = Arc::clone(&console_helper);
+            Box::pin(async move {
+                let arguments: Vec<OsString> = console_helper
+                    .arguments
+                    .iter()
+                    .map(OsString::from)
+                    .collect();
+                sidekicks_platforms::read_console_waiting_input(
+                    &spawner,
+                    OsStr::new(&console_helper.program),
+                    &arguments,
+                    process_id,
+                )
+                .await
+            })
+        })
     }
 
     /// The live terminal `handle` names; fails with `UnknownTerminal` once it is gone.

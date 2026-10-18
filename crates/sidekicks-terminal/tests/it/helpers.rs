@@ -101,16 +101,16 @@ pub(crate) async fn read_past_line(output: &mut TerminalOutput, marker: &str) ->
         let mut text = String::new();
         loop {
             if let Some((_, rest)) = text.split_once(&line) {
-                return rest.to_owned();
+                return Ok(rest.to_owned());
             }
-            match output.next().await {
-                Some(TerminalEvent::Output(chunk)) => {
-                    text.push_str(&String::from_utf8_lossy(&chunk));
-                }
-                other => panic!("the output ended before {marker:?}: {other:?}"),
-            }
+            let event = output.next().await;
+            let Some(TerminalEvent::Output(chunk)) = &event else {
+                return Err(format!("the output ended before {marker:?}: {event:?}"));
+            };
+            text.push_str(&String::from_utf8_lossy(chunk));
         }
     })
     .await
     .expect("the marker arrives in time")
+    .expect("the output holds the marker")
 }
