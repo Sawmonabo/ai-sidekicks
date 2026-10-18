@@ -15,6 +15,7 @@ use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::stream_frame;
+use crate::method::KeyedRequest;
 use crate::question::QuestionId;
 use crate::repo::mount::WorkspaceId;
 use crate::run::id::RunId;
@@ -158,6 +159,8 @@ pub struct AgentQueueItemCreateRequest {
     #[schemars(with = "ProviderToken")]
     pub output_speed_for_turn: Option<ProviderToken>,
 }
+
+impl KeyedRequest for AgentQueueItemCreateRequest {}
 
 /// The `user.message.sent` payload: the person's message as a transcript row, written when the
 /// daemon accepts the send. `origin` marks the words a voice call heard, and `answers_question_id`

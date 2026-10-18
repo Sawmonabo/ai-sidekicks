@@ -17,13 +17,14 @@ use crate::agent::definition::{
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
-use crate::method::methods;
+use crate::method::{KeyedRequest, methods};
 use crate::method_descriptor::EmptyPayload;
 use crate::place::WslPlace;
 use crate::project::ProjectId;
 use crate::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::id::ClientUuid;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::text::{BoundedText, FreeFormText, NonBlankText, NonEmptyText};
@@ -346,7 +347,11 @@ pub struct SkillCreateRequest {
     )]
     #[schemars(with = "ProjectId")]
     pub project_id: Option<ProjectId>,
+    /// The key that makes a repeated create one skill, answering what the first saved.
+    pub client_idempotency_key: ClientUuid,
 }
+
+impl KeyedRequest for SkillCreateRequest {}
 
 /// `skill.update`: the folder saved whole, applied together or not at all, and the same result
 /// when saved twice. `description` and `body` rewrite `SKILL.md` and keep its other front-matter

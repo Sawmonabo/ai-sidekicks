@@ -64,6 +64,10 @@ pub mod wire;
 pub mod workflow;
 pub mod worktree;
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+use crate::method::MethodDescriptor;
 use crate::typescript::TypeScriptModule;
 
 /// Every contract module's TypeScript face, topic by topic: what the emit writes for the
@@ -93,6 +97,24 @@ pub fn typescript_modules() -> impl Iterator<Item = &'static TypeScriptModule> {
     .into_iter()
     .flatten()
     .copied()
+}
+
+/// The method `method` names in the contracts' method tables, or `None` for a name no table
+/// declares; the protocol's own methods (`connection.initialize`, `$/subscription/cancel`) are in
+/// none of them.
+pub fn method_descriptor(method: &str) -> Option<&'static MethodDescriptor> {
+    static DESCRIPTORS: OnceLock<HashMap<&'static str, &'static MethodDescriptor>> =
+        OnceLock::new();
+    DESCRIPTORS
+        .get_or_init(|| {
+            typescript_modules()
+                .flat_map(|module| module.method_tables)
+                .flat_map(|table| table.methods)
+                .map(|descriptor| (descriptor.method, descriptor))
+                .collect()
+        })
+        .get(method)
+        .copied()
 }
 
 /// The TypeScript modules of the root contract modules.

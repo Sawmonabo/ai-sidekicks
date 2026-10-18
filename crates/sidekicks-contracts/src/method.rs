@@ -2,6 +2,7 @@
 //! module that owns it. A declaration gives a marker type the daemon registers a handler for and a
 //! table entry the TypeScript method map is generated from.
 
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use schemars::JsonSchema;
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::schema::ReceivedCheckError;
 use crate::typescript::TypeName;
+use crate::wire::attachment::ReceivedError;
 
 /// How a method answers: a `query` reads and a `mutation` changes state, each with one result; a
 /// `subscription` answers with an acknowledgment and then streams emissions.
@@ -47,7 +49,40 @@ pub struct MethodDescriptor {
     /// so the daemon can build every one at start; it parses nothing. Fails where the params'
     /// schema does not build a check.
     pub received_check: fn() -> Result<Arc<jsonschema::Validator>, ReceivedCheckError>,
+    /// Holds params a caller has only as JSON and attachments to the whole contract of the
+    /// request's type: its schema, then serde, then its garde rules; fails as
+    /// [`crate::wire::attachment::parse_received`] does.
+    pub check_params: fn(&[u8], Vec<bytes::Bytes>) -> Result<(), ReceivedError>,
+    /// Whether the request carries the caller's `clientIdempotencyKey`, so a client may send a
+    /// call lost with its connection once more and the daemon answers it as the first; read from
+    /// the request type's [`KeyedRequest`] impl.
+    pub keyed: bool,
+    /// Whether the call counts against `MAX_CALLS_IN_FLIGHT`. A method that takes no slot is
+    /// answered without waiting on another call, so a client sends it past the cap.
+    pub takes_call_slot: bool,
 }
+
+/// A request that carries the caller's `clientIdempotencyKey` at its top level, so a retry with
+/// the same key answers the first outcome; a method whose params implement it is keyed.
+pub trait KeyedRequest {}
+
+/// Reads at compile time whether a request type is a [`KeyedRequest`], for the method table:
+/// `Keyedness::<T>::IS_KEYED`, with [`Unkeyed`] in scope, is true exactly for one that is.
+#[derive(Debug)]
+pub struct Keyedness<T>(PhantomData<T>);
+
+impl<T: KeyedRequest> Keyedness<T> {
+    /// A keyed request.
+    pub const IS_KEYED: bool = true;
+}
+
+/// The answer [`Keyedness`] falls back to for a request that is no [`KeyedRequest`].
+pub trait Unkeyed {
+    /// An unkeyed request.
+    const IS_KEYED: bool = false;
+}
+
+impl<T> Unkeyed for Keyedness<T> {}
 
 /// One module's methods, written to TypeScript under `name`.
 #[derive(Clone, Copy, Debug)]
@@ -95,8 +130,10 @@ pub trait SubscriptionMethod: Method {
 /// }
 /// ```
 ///
-/// A subscription adds `emission: Type,` after its result; a table whose TypeScript type name is
-/// not derived from its own name writes it after the name (`pub const NAME: "TypeName" = [`).
+/// A subscription adds `emission: Type,` after its result; a method the daemon answers without
+/// waiting on another call writes `takes_call_slot: false,` after `mutating`; a table whose
+/// TypeScript type name is not derived from its own name writes it after the name
+/// (`pub const NAME: "TypeName" = [`).
 macro_rules! methods {
     (@procedure query) => { $crate::method::ProcedureType::Query };
     (@procedure mutation) => { $crate::method::ProcedureType::Mutation };
@@ -113,6 +150,8 @@ macro_rules! methods {
             type Emission = $emission;
         }
     };
+    (@takes_call_slot) => { true };
+    (@takes_call_slot $takes_call_slot:literal) => { $takes_call_slot };
     (@type_name) => { None };
     (@type_name $type_name:literal) => { Some($type_name) };
     (
@@ -122,6 +161,7 @@ macro_rules! methods {
                 $(#[$meta:meta])*
                 $marker:ident = $kind:ident $method:literal {
                     mutating: $mutating:literal,
+                    $(takes_call_slot: $takes_call_slot:literal,)?
                     params: $params:ty,
                     result: $result:ty,
                     $(emission: $emission:ty,)?
@@ -153,6 +193,17 @@ macro_rules! methods {
                         emission: $crate::method::methods!(@emission $kind $($emission)?),
                         refusals: &[$($crate::jsonrpc::refusal::RefusalCode::$refusal),*],
                         received_check: $crate::schema::received_check::<$params>,
+                        check_params: $crate::wire::attachment::check_received::<$params>,
+                        keyed: {
+                            use $crate::method::Unkeyed as _;
+                            // Read through the trait, so the import is used where the request is
+                            // keyed too.
+                            let _: bool = $crate::method::Keyedness::<()>::IS_KEYED;
+                            $crate::method::Keyedness::<$params>::IS_KEYED
+                        },
+                        takes_call_slot: $crate::method::methods!(
+                            @takes_call_slot $($takes_call_slot)?
+                        ),
                     };
             }
 
@@ -173,11 +224,16 @@ pub(crate) use methods;
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use serde_json::{Map, Value};
+
     use crate::jsonrpc::message::CancelRequestParams;
     use crate::jsonrpc::negotiation::ConnectionInitializeRequest;
     use crate::jsonrpc::streaming::SubscriptionCancelRequest;
     use crate::provider::tools::{SessionSendArguments, TaskOutputArguments, TaskStopArguments};
-    use crate::schema::received_check;
+    use crate::schema::{generator, received_check};
+    use crate::typescript::{Definition, SchemaContract};
     use crate::workflow::run::tool::WorkflowRunToolInput;
 
     #[test]
@@ -222,5 +278,70 @@ mod tests {
             .filter_map(|(method, error)| Some(format!("{method}: {:?}", error?))),
         );
         assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// A schema as a reader accepts it, with the definitions it refers to.
+    fn read_schema(definition: &Definition) -> (Value, Map<String, Value>) {
+        let mut generator = generator(SchemaContract::Read);
+        let schema = serde_json::to_value((definition.schema)(&mut generator))
+            .expect("a contract schema writes as JSON");
+        let definitions = generator.definitions().clone();
+        (schema, definitions)
+    }
+
+    /// Whether `schema` declares `clientIdempotencyKey` at its top level, or in every arm of its
+    /// union, a referenced arm read from `definitions`.
+    fn declares_idempotency_key(schema: &Value, definitions: &Map<String, Value>) -> bool {
+        if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+            let name = reference.rsplit('/').next().unwrap_or(reference);
+            return definitions
+                .get(name)
+                .is_some_and(|referenced| declares_idempotency_key(referenced, definitions));
+        }
+        if schema
+            .get("properties")
+            .and_then(|properties| properties.get("clientIdempotencyKey"))
+            .is_some()
+        {
+            return true;
+        }
+        ["anyOf", "oneOf"].into_iter().any(|union| {
+            schema
+                .get(union)
+                .and_then(Value::as_array)
+                .is_some_and(|arms| {
+                    !arms.is_empty()
+                        && arms
+                            .iter()
+                            .all(|arm| declares_idempotency_key(arm, definitions))
+                })
+        })
+    }
+
+    #[test]
+    fn a_method_is_keyed_exactly_when_its_params_declare_the_idempotency_key() {
+        let definitions: HashMap<String, &Definition> = crate::typescript_modules()
+            .flat_map(|module| module.definitions)
+            .map(|definition| ((definition.name)().into_owned(), definition))
+            .collect();
+        let mismatches: Vec<String> = crate::typescript_modules()
+            .flat_map(|module| module.method_tables)
+            .flat_map(|table| table.methods)
+            .filter_map(|descriptor| {
+                let params = (descriptor.params.0)();
+                let Some(definition) = definitions.get(params.as_ref()) else {
+                    return Some(format!("{}: {params} is no definition", descriptor.method));
+                };
+                let (schema, referenced) = read_schema(definition);
+                let declares_key = declares_idempotency_key(&schema, &referenced);
+                (declares_key != descriptor.keyed).then(|| {
+                    format!(
+                        "{}: keyed is {}, the params declare the key: {declares_key}",
+                        descriptor.method, descriptor.keyed
+                    )
+                })
+            })
+            .collect();
+        assert!(mismatches.is_empty(), "{mismatches:#?}");
     }
 }

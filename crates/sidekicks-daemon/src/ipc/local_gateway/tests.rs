@@ -24,6 +24,7 @@ use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
 use sidekicks_contracts::schema::received_check;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::typescript::TypeName;
+use sidekicks_contracts::wire::attachment::check_received;
 use sidekicks_platforms::PinnedProcess;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, DuplexStream, ReadBuf, ReadHalf};
 use tokio::task::JoinHandle;
@@ -67,6 +68,9 @@ impl Method for OrderedWrite {
         emission: None,
         refusals: &[],
         received_check: received_check::<Nothing>,
+        check_params: check_received::<Nothing>,
+        keyed: false,
+        takes_call_slot: true,
     };
 }
 

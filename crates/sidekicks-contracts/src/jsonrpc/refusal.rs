@@ -4,15 +4,40 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::typescript::{Definition, TypeScriptModule};
 
 /// What a client can do about a refusal, sent as `data.category` beside its code so a client that
-/// meets a code newer than itself still acts on it; the canonical gRPC status codes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+/// meets a code newer than itself still acts on it: one of the categories this build knows, or the
+/// text of one a newer build sends, so a newer daemon's refusal is still read as a refusal.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
 pub enum RefusalCategory {
+    /// A category this build knows.
+    Known(KnownRefusalCategory),
+    /// A category a newer build sends and this one does not know, its wire text kept; no refusal
+    /// this build makes carries one, since each code's category is a known one.
+    Unknown(String),
+}
+
+impl RefusalCategory {
+    /// The category's wire text.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(known) => known.as_str(),
+            Self::Unknown(text) => text.as_str(),
+        }
+    }
+}
+
+/// The categories this build knows: the canonical gRPC status codes.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum KnownRefusalCategory {
     /// Fix what it sent.
     InvalidArgument,
     /// Stop naming the thing, or refresh its list.
@@ -41,7 +66,7 @@ pub enum RefusalCategory {
     Internal,
 }
 
-impl RefusalCategory {
+impl KnownRefusalCategory {
     /// The category's wire text, as its serde form writes it.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -107,8 +132,13 @@ macro_rules! refusal_codes {
 
             /// The code's category, sent as `data.category`.
             pub const fn category(self) -> RefusalCategory {
+                RefusalCategory::Known(self.known_category())
+            }
+
+            /// The code's category, as this build knows every one it makes.
+            pub const fn known_category(self) -> KnownRefusalCategory {
                 match self {
-                    $(Self::$variant => RefusalCategory::$category,)+
+                    $(Self::$variant => KnownRefusalCategory::$category,)+
                 }
             }
 
@@ -781,7 +811,31 @@ refusal_codes! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: RefusalCode::TYPESCRIPT_MODULE_PATH,
     doc: "Every refusal code a daemon method or a control plane route answers with.",
-    definitions: &[Definition::read::<RefusalCategory>()],
+    definitions: &[
+        Definition::read::<KnownRefusalCategory>(),
+        Definition::read::<RefusalCategory>(),
+    ],
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use strum::VariantArray as _;
+
+    use super::{KnownRefusalCategory, RefusalCategory};
+
+    // The untagged form takes its first arm that reads, so a known category's text must read as
+    // `Known`, and each one's `as_str` must be the text serde writes.
+    #[test]
+    fn every_known_category_reads_from_its_text_as_known_and_writes_as_its_text() {
+        for &known in KnownRefusalCategory::VARIANTS {
+            let read: RefusalCategory =
+                serde_json::from_value(json!(known.as_str())).expect("a category's text reads");
+            assert_eq!(read, RefusalCategory::Known(known));
+            let written = serde_json::to_value(known).expect("a category writes");
+            assert_eq!(written, json!(known.as_str()));
+        }
+    }
+}

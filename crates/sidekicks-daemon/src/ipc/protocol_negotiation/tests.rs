@@ -12,6 +12,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
 use sidekicks_contracts::schema::received_check;
 use sidekicks_contracts::typescript::TypeName;
+use sidekicks_contracts::wire::attachment::check_received;
 use sidekicks_platforms::{PinnedProcess, this_process};
 use tokio::sync::{Notify, mpsc};
 
@@ -50,6 +51,9 @@ impl<const IS_MUTATING: bool> Method for Probe<IS_MUTATING> {
         emission: None,
         refusals: &[],
         received_check: received_check::<Nothing>,
+        check_params: check_received::<Nothing>,
+        keyed: false,
+        takes_call_slot: true,
     };
 }
 

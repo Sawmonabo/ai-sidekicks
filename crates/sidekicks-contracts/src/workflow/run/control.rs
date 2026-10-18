@@ -12,6 +12,7 @@ use strum::VariantArray;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::byte_length::fits_budget;
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::method::KeyedRequest;
 use crate::method::methods;
 use crate::project::ProjectId;
 use crate::session::id::SessionId;
@@ -213,6 +214,8 @@ pub struct WorkflowRunStartRequest {
     #[schemars(with = "WorkflowRequestableRunMode")]
     pub mode: Option<WorkflowRequestableRunMode>,
 }
+
+impl KeyedRequest for WorkflowRunStartRequest {}
 
 /// The status a new run can answer with: admitted but not yet dispatched, or already running.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -466,6 +469,8 @@ pub struct WorkflowRunRetryRequest {
     pub client_idempotency_key: ClientUuid,
 }
 
+impl KeyedRequest for WorkflowRunRetryRequest {}
+
 /// The `workflow.run.retry` result: a new run in `retry` mode; the source run stays readable. The
 /// new run is never its own source.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -504,6 +509,8 @@ pub struct WorkflowRunRerunRequest {
     /// the first re-run's run, never a second; the same key with a differing payload is refused.
     pub client_idempotency_key: ClientUuid,
 }
+
+impl KeyedRequest for WorkflowRunRerunRequest {}
 
 /// What a node run covers: the node alone (`Run this node`), or the node and its ancestors
 /// (`Run from here`).

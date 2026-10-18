@@ -3,10 +3,10 @@
 //! `protocolVersion`, a call slot, the subscription limit) before it dispatches it; the table of
 //! calls a `$/cancelRequest` can reach; and the close every path ends in. At most
 //! `SLOTLESS_REPLIES_MAX` replies to messages that took no slot wait unsent; past it the reader
-//! takes no message, though it reads every frame. A subscription cancel or a stop takes a running
-//! count, at most `MAX_CALLS_IN_FLIGHT`, and one that finds none waits, in arrival order, while
-//! every other message is taken; a `terminal.write` is bounded instead by its handler's per-shell
-//! window, past which it answers `terminal.write.limitReached`.
+//! takes no message, though it reads every frame. A subscription cancel, a stop or a ping takes a
+//! running count, at most `MAX_CALLS_IN_FLIGHT`, and one that finds none waits, in arrival order,
+//! while every other message is taken; a `terminal.write` is bounded instead by its handler's
+//! per-shell window, past which it answers `terminal.write.limitReached`.
 //! What a client can make a connection hold meanwhile is lane 0's window, the only lane the
 //! daemon admits: a waiting message keeps its credit, and credit owed for a partial message goes
 //! back only once no message waits.
@@ -20,7 +20,6 @@ use futures::StreamExt as _;
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
-use sidekicks_contracts::daemon::lifecycle::DaemonStop;
 use sidekicks_contracts::jsonrpc::framing::frame::{Frame, FrameCodec, LaneId};
 use sidekicks_contracts::jsonrpc::framing::incoming::{IncomingLanes, IncomingMessage};
 use sidekicks_contracts::jsonrpc::framing::{FramingError, MessageBody};
@@ -31,8 +30,9 @@ use sidekicks_contracts::jsonrpc::message::{
 };
 use sidekicks_contracts::jsonrpc::negotiation::ProtocolVersion;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::jsonrpc::streaming::SUBSCRIPTION_CANCEL_METHOD;
-use sidekicks_contracts::method::{Method, ProcedureType};
+use sidekicks_contracts::jsonrpc::streaming::{SUBSCRIPTION_CANCEL_METHOD, SubscriptionCancel};
+use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
+use sidekicks_contracts::method_descriptor;
 use sidekicks_contracts::terminal::TerminalWrite;
 use sidekicks_contracts::wire::attachment::parse_received;
 use sidekicks_platforms::PinnedProcess;
@@ -50,18 +50,27 @@ use crate::ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
 use crate::ipc::registry::{DispatchError, HandlerContext, Reply, Request, TransportId};
 use crate::ipc::stream::subscriptions::subscription_limit_reached;
 
-/// The slotless methods whose running calls are counted. A `terminal.write`, the one other
-/// slotless method, is bounded instead by its handler's per-shell window, past which it answers
-/// [`RefusalCode::TerminalWriteLimitReached`].
-const COUNTED_METHODS: [&str; 2] = [
-    SUBSCRIPTION_CANCEL_METHOD,
-    <DaemonStop as Method>::DESCRIPTOR.method,
-];
+/// The contract of `method` the gateway's gates read: the protocol's own subscription cancel, or
+/// the method a contract table declares.
+fn method_contract(method: &str) -> Option<&'static MethodDescriptor> {
+    if method == SUBSCRIPTION_CANCEL_METHOD {
+        Some(const { &<SubscriptionCancel as Method>::DESCRIPTOR })
+    } else {
+        method_descriptor(method)
+    }
+}
 
 /// Whether `method` takes no call slot: the daemon answers it without waiting on another call, so
 /// a client sends it past the cap.
 fn is_slotless(method: &str) -> bool {
-    COUNTED_METHODS.contains(&method) || method == <TerminalWrite as Method>::DESCRIPTOR.method
+    method_contract(method).is_some_and(|descriptor| !descriptor.takes_call_slot)
+}
+
+/// Whether `method` is a slotless method whose running calls are counted: every one but
+/// `terminal.write`, which is bounded instead by its handler's per-shell window, past which it
+/// answers [`RefusalCode::TerminalWriteLimitReached`].
+fn is_counted(method: &str) -> bool {
+    is_slotless(method) && method != <TerminalWrite as Method>::DESCRIPTOR.method
 }
 
 /// The most replies to messages that took no call slot lane 0 holds unsent; past it the reader
@@ -427,7 +436,7 @@ impl ConnectionReader {
                 method,
                 params,
                 protocol_version,
-            }) if COUNTED_METHODS.contains(&method.as_str()) => {
+            }) if is_counted(&method) => {
                 match envelope_refusal(&id, &method, protocol_version.as_ref()) {
                     Some((failure, reply_id)) => {
                         self.return_credit(lane, credit_due);

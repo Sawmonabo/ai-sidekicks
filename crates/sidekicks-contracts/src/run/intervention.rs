@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
 
 use crate::internal::branded::branded_uuid_id;
+use crate::method::KeyedRequest;
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{
     PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
@@ -181,6 +182,8 @@ pub enum AgentRunInterveneRequest {
         model: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     },
 }
+
+impl KeyedRequest for AgentRunInterveneRequest {}
 
 /// Declares the intervention answer's arms on `state`: each repeats the members every answer
 /// carries; the arms before the `;` carry no reason, and each arm after it adds its own.

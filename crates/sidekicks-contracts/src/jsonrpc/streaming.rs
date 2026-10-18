@@ -13,6 +13,7 @@ use crate::method::{Method, MethodDescriptor, ProcedureType};
 use crate::schema::received_check;
 use crate::typescript::{Definition, TypeName, TypeScriptModule, ts_constants};
 use crate::wire::AnyValue;
+use crate::wire::attachment::check_received;
 use crate::wire::name::is_protocol_method_name;
 
 ts_constants! {
@@ -161,6 +162,9 @@ impl Method for SubscriptionCancel {
         emission: None,
         refusals: &[],
         received_check: received_check::<SubscriptionCancelRequest>,
+        check_params: check_received::<SubscriptionCancelRequest>,
+        keyed: false,
+        takes_call_slot: false,
     };
 }
 

@@ -301,7 +301,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - Long-lived subscription the person reads, delivering each `mcp.server.signIn.completed` envelope as the daemon appends it and each status notice (T22.2.9) as it is sent. Registration MUST be live before the first delivery so the subscribe-acknowledgment-then-`mcp.server.list` handshake is gap-free (the Plan-005 I-005-9 wire-ordering invariant). Live-tail only: nothing sent before the acknowledgment is delivered, and status keeps no history. After each committed edit to a binding — `mcp.server.upsert`, `mcp.server.delete`, `mcp.server.enabled.update`, `mcp.toolOverride.update`, `mcp.toolOverride.clear` — it also sends the live notice `McpServerConfigChangedNotice` (`crates/sidekicks-contracts/src/mcp/server.rs`), the binding's address under `type: 'mcp.server.config.changed'`, appended to no log.
   - **Spec coverage:** Spec-024 §Status Observation and Events
   - **Verifies invariant:** none (delivery ordering; the gap-free assertion rides T22.5.8's AC sweep)
-  - **Consumes:** the streaming primitive + I-005-9 ordering guarantee ← Plan-005 Phase 2 T-005p-2-5 `crates/sidekicks-daemon/src/ipc/streaming_primitive.rs`.
+  - **Consumes:** the subscription lane + I-005-9 ordering guarantee ← Plan-005 Phase 2 T-005p-2-5 `crates/sidekicks-daemon/src/ipc/stream/subscriptions.rs`, sending the frames of `crates/sidekicks-contracts/src/jsonrpc/streaming.rs`.
 
 - **T22.2.11 — `failedReason: commandNotRunnable` for a Windows program in a WSL 2 distribution.**
   - Files: `crates/sidekicks-daemon/src/mcp/inventory_service.rs` (EXTEND)
