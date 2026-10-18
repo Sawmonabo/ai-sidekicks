@@ -36,6 +36,13 @@ use crate::workflow::runs::record::column;
 
 /// The statements a [`WorkflowLibrary`] prepares on a read connection: the name holder, the
 /// definition read, the definition list and the list cursor's check.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start sums the read pool's statement set"
+    )
+)]
 pub(crate) const WORKFLOW_LIBRARY_STATEMENT_CAPACITY: usize = 4;
 
 // A definition never has the empty id, so binding it excludes no workflow.
@@ -105,6 +112,10 @@ const NO_ROW_LIMIT: i64 = -1;
 /// One workflow in the library list, as its rows store it: a catalog row without whether the
 /// workflow is enabled, its schedule and its last skipped fire, which the trigger scheduler holds.
 /// `updated_at` is the last change to the workflow's row.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow definition handlers")
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkflowLibraryEntry {
     /// The workflow.
@@ -132,6 +143,10 @@ pub(crate) struct WorkflowLibraryEntry {
 }
 
 /// One page of the library in id order, each workflow listed once across pages.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow definition handlers")
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkflowLibraryPage {
     /// The page's workflows.
@@ -289,6 +304,10 @@ impl<'connection> WorkflowLibrary<'connection> {
     /// [`WorkflowLibraryError::CursorUnresolvable`] for a cursor that is not a workflow id in the
     /// form this library writes, or one no workflow row holds, and with
     /// [`WorkflowLibraryError::Database`] when SQLite fails or a stored value does not read.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow definition handlers")
+    )]
     pub(crate) fn list(
         &self,
         request: &WorkflowDefinitionListRequest,
