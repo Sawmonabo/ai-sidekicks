@@ -1,20 +1,21 @@
 //! The `session_events` reads, run on the daemon's read-only connection: a session's head, the rows
-//! after a log position, of every type or of named types, the rows up to one, the rows of a
-//! sequence window and the rows at named sequences, each in sequence order, one row by its event id
-//! with its stored body, and the check of a cursor against the head. A row crosses in from the
-//! database file, so each one is checked against the envelope contract on the way out. A range the
-//! session skipped past as damaged is never read, and while its history is damaged no read goes
-//! past its last good point.
+//! after a log position, of every type or of named types, one run's rows after a position with
+//! their stored bodies, the rows up to one, the rows of a sequence window and the rows at named
+//! sequences, each in sequence order, one row by its event id with its stored body, and the check
+//! of a cursor against the head. A row crosses in from the database file, so each one is checked
+//! against the envelope contract on the way out. A range the session skipped past as damaged is
+//! never read, and while its history is damaged no read goes past its last good point.
 
 use std::sync::LazyLock;
 
 use garde::Validate as _;
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, named_params, params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::{
-    EventCategory, EventEnvelope, EventEnvelopeType, EventOccurredAt,
+    EventCategory, EventEnvelope, EventEnvelopeType, EventOccurredAt, HydratedSessionEvent,
 };
 use sidekicks_contracts::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, START_OF_LOG_POSITION, SessionEventCursorUnresolvable, decode_event_cursor,
 };
@@ -23,7 +24,7 @@ use sidekicks_contracts::wire::integer::{MAX_SAFE_SIGNED_INTEGER, SafeInt};
 use sidekicks_contracts::wire::record::RecordKey;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::events::content::read::StoredEventContentRow;
+use crate::events::content::read::{StoredEventContentRow, hydrate_stored_event};
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 
 /// A stored event row that is not a well-formed event envelope, which only a write outside the
@@ -156,6 +157,40 @@ static AT_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// One run's rows through the event log's run-and-type index, each with its stored body.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the provider switch's hand-over brief")
+)]
+static RUN_AFTER_HYDRATED_SQL: LazyLock<String> =
+    LazyLock::new(|| run_rows_after_hydrated_sql("TRUE"));
+
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the provider switch's hand-over brief")
+)]
+static RUN_AFTER_OF_TYPES_HYDRATED_SQL: LazyLock<String> = LazyLock::new(|| {
+    run_rows_after_hydrated_sql("type IN (SELECT value FROM json_each(@event_types))")
+});
+
+/// The statement of one run's readable rows after `@after_position` that `type_condition` takes,
+/// each with its stored body, in sequence order.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the provider switch's hand-over brief")
+)]
+fn run_rows_after_hydrated_sql(type_condition: &str) -> String {
+    format!(
+        "SELECT {SELECTED_COLUMNS}, content_payload
+       FROM session_events AS event
+      WHERE session_id = @session_id AND run_id = @run_id AND sequence > @after_position
+        AND {type_condition}
+        AND {}
+      ORDER BY sequence ASC",
+        readable_event_sql("event")
+    )
+}
+
 static STORED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {SELECTED_COLUMNS}, content_payload
@@ -259,6 +294,45 @@ where
         }
     }
 
+    /// Every event of run `run_id` with a sequence greater than `after_position` that `filter`
+    /// takes, each paired with its stored body.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the provider switch's hand-over brief")
+    )]
+    pub(crate) fn read_after_hydrated(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+        after_position: i64,
+        filter: SessionEventFilter<'_>,
+    ) -> Result<Vec<HydratedSessionEvent>, SessionLogReadError> {
+        let read_bound = self.read_bound(session_id, filter.before_sequence);
+        let (session_id, run_id) = (session_id.text(), run_id.text());
+        match filter.event_types {
+            None => self.read_hydrated_rows(
+                &RUN_AFTER_HYDRATED_SQL,
+                named_params! {
+                    "@session_id": session_id.as_str(),
+                    "@run_id": run_id.as_str(),
+                    "@after_position": after_position,
+                    "@read_bound": read_bound,
+                },
+            ),
+            Some(event_types) => self.read_hydrated_rows(
+                &RUN_AFTER_OF_TYPES_HYDRATED_SQL,
+                named_params! {
+                    "@session_id": session_id.as_str(),
+                    "@run_id": run_id.as_str(),
+                    "@after_position": after_position,
+                    "@event_types": serde_json::to_string(event_types)
+                        .expect("a list of strings serializes"),
+                    "@read_bound": read_bound,
+                },
+            ),
+        }
+    }
+
     /// The newest `limit` events with a sequence at or below `before_position`.
     pub(crate) fn read_before(
         &self,
@@ -328,12 +402,7 @@ where
                     event_id,
                     self.read_bound(session_id, None)
                 ],
-                |row| {
-                    Ok((
-                        StoredEventRow::from_row(row)?,
-                        row.get::<_, Option<Vec<u8>>>(STORED_EVENT_COLUMN_COUNT)?,
-                    ))
-                },
+                StoredEventRow::from_row_with_content,
             )
             .optional()?;
         Ok(stored
@@ -347,6 +416,29 @@ where
             session_id,
             before_sequence,
         )
+    }
+
+    /// Runs one of the statements that select a row's body after its columns, checks each row as
+    /// an envelope and pairs it with its body, in the order read.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the provider switch's hand-over brief")
+    )]
+    fn read_hydrated_rows(
+        &self,
+        sql: &str,
+        bindings: impl rusqlite::Params,
+    ) -> Result<Vec<HydratedSessionEvent>, SessionLogReadError> {
+        let mut statement = self.reader.prepare_cached(sql)?;
+        let mut rows = statement.query(bindings)?;
+        let mut events = Vec::new();
+        while let Some(row) = rows.next()? {
+            let (stored, content_payload) = StoredEventRow::from_row_with_content(row)?;
+            events.push(hydrate_stored_event(
+                stored.into_content_row(content_payload)?,
+            ));
+        }
+        Ok(events)
     }
 
     /// Runs one of the row-list statements and checks each row as an envelope, in the order read.
@@ -419,6 +511,14 @@ impl StoredEventRow {
             causation_id: row.get(9)?,
             version: row.get(10)?,
         })
+    }
+
+    /// The row and the stored body a statement selects after its columns.
+    fn from_row_with_content(row: &Row<'_>) -> rusqlite::Result<(Self, Option<Vec<u8>>)> {
+        Ok((
+            Self::from_row(row)?,
+            row.get::<_, Option<Vec<u8>>>(STORED_EVENT_COLUMN_COUNT)?,
+        ))
     }
 
     /// The row as an envelope, each column through its member's own check, then the envelope's
