@@ -1,3 +1,5 @@
+//! The event log service's tests, and the test log every test of a log reader opens.
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -22,8 +24,11 @@ const APPEND_WAIT: Duration = Duration::from_secs(5);
 /// A test's event log: the service, the writer it appends through and the followers it publishes
 /// to.
 pub(crate) struct TestLog {
+    /// The writer every append goes through.
     pub(crate) writer: Arc<DatabaseWriter>,
+    /// The followers each committed write is published to.
     pub(crate) followers: Arc<SessionEventFollowers>,
+    /// The service on the test's database.
     pub(crate) service: Arc<EventLogService>,
 }
 

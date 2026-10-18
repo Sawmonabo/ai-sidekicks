@@ -577,7 +577,10 @@ mod tests {
         holds.publish(hold(session_id, &released_run, "turn-1", false));
 
         let mut feed = subscribe(&served(&log, &holds), session_id, None).await;
-        let opened = next_frame(&mut feed, &CreditGate::with_credit(1)).await;
+        let opened =
+            tokio::time::timeout(QUIET, next_frame(&mut feed, &CreditGate::with_credit(1)))
+                .await
+                .expect("the hold goes out when the stream opens");
         assert_eq!(
             opened,
             [json!({
