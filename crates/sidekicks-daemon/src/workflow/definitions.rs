@@ -1,6 +1,6 @@
 //! The workflow library: a definition's content hash, its document rebuilt from its columns, the
 //! library's reads and writes, the builder's drafts, the values a workflow keeps for later runs,
-//! the refusals of a save, and the differences between versions.
+//! the refusals of a save, and the reads of saved versions.
 
 pub(crate) mod content_hash;
 pub(crate) mod drafts;
