@@ -3,7 +3,8 @@
 //! Codex offers that answer, and then one for the project too, in the project's rule file; a change
 //! to one file takes the session's alone, since Codex keeps no project rule on a file; input to a
 //! running command takes none; a tool server's call takes the session's where Codex says it keeps
-//! one. A command is read as the whole line it runs, the one its `<shell> -lc '…'` wrapper hands
+//! one and the tool is known, since Codex keeps that allow for the one tool and never the whole
+//! server. A command is read as the whole line it runs, the one its `<shell> -lc '…'` wrapper hands
 //! the shell, and a tool server's call is named as Codex's pre-tool hook names it.
 
 use serde_json::{Map, Value};
@@ -40,11 +41,14 @@ pub(crate) struct CodexAskReading {
 
 /// Reads one approval from its method and its untrusted params. `changed_paths` are the files the
 /// change item a file-change ask names will touch, read from that item, since such an ask names no
-/// file itself; no other ask reads them.
+/// file itself; `called_tool` is the tool of the one tool call in flight on the ask's thread for its
+/// server, where there is exactly one, since Codex's own ask before a tool call names no tool. No
+/// other ask reads them.
 pub(crate) fn read_codex_ask_action(
     method: &str,
     params: &Map<String, Value>,
     changed_paths: &[String],
+    called_tool: Option<&str>,
 ) -> CodexAskReading {
     match method {
         CODEX_COMMAND_APPROVAL_METHOD => read_command_ask(params),
@@ -58,7 +62,7 @@ pub(crate) fn read_codex_ask_action(
                 Vec::new()
             },
         },
-        CODEX_TOOL_SERVER_ELICITATION_METHOD => read_tool_server_ask(method, params),
+        CODEX_TOOL_SERVER_ELICITATION_METHOD => read_tool_server_ask(method, params, called_tool),
         _ => CodexAskReading {
             action: ProviderAskAction::Tool {
                 tool_name: method.to_owned(),
@@ -120,7 +124,14 @@ fn read_written_input(command: &str) -> String {
         .unwrap_or_else(|| command.to_owned())
 }
 
-fn read_tool_server_ask(method: &str, params: &Map<String, Value>) -> CodexAskReading {
+// The tool comes from the ask's own `_meta.tool_name`, which a server's own question carries, else
+// from the call in flight; with neither, no rule is offered, since Codex keys the allow it keeps on
+// the server and the one tool together.
+fn read_tool_server_ask(
+    method: &str,
+    params: &Map<String, Value>,
+    called_tool: Option<&str>,
+) -> CodexAskReading {
     let meta = params.get("_meta").and_then(Value::as_object);
     let keeps_for_session = meta
         .and_then(|meta| meta.get("persist"))
@@ -132,17 +143,20 @@ fn read_tool_server_ask(method: &str, params: &Map<String, Value>) -> CodexAskRe
             Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => false,
         });
     let server_name = read_non_empty_string(params, "serverName");
-    let server_tool_name = meta.and_then(|meta| read_non_empty_string(meta, "tool_name"));
-    let tool_name = match (server_name, server_tool_name) {
-        (Some(server_name), Some(server_tool_name)) => {
-            compose_tool_server_tool_name(server_name, server_tool_name)
-        }
-        (Some(server_name), None) => server_name.to_owned(),
-        (None, _) => method.to_owned(),
+    let server_tool_name = meta
+        .and_then(|meta| read_non_empty_string(meta, "tool_name"))
+        .or(called_tool.filter(|tool| !tool.is_empty()));
+    let (tool_name, is_tool_known) = match (server_name, server_tool_name) {
+        (Some(server_name), Some(server_tool_name)) => (
+            compose_tool_server_tool_name(server_name, server_tool_name),
+            true,
+        ),
+        (Some(server_name), None) => (server_name.to_owned(), false),
+        (None, _) => (method.to_owned(), false),
     };
     CodexAskReading {
         action: ProviderAskAction::Tool { tool_name },
-        rule_scopes: if keeps_for_session {
+        rule_scopes: if keeps_for_session && is_tool_known {
             vec![RememberedScopeKind::Session]
         } else {
             Vec::new()
@@ -167,6 +181,7 @@ mod tests {
         "item/commandExecution/requestApproval",
         json!({"kind": "writeStdin", "command": "write_stdin --session-id 3 'yes please'"}),
         &[],
+        None,
         ProviderAskAction::CommandInput { input: "yes please".to_owned() },
         &[]
     )]
@@ -174,6 +189,7 @@ mod tests {
         "item/commandExecution/requestApproval",
         json!({"kind": "writeStdin", "command": "write_stdin --session-id 3 'unclosed"}),
         &[],
+        None,
         ProviderAskAction::CommandInput {
             input: "write_stdin --session-id 3 'unclosed".to_owned()
         },
@@ -183,6 +199,7 @@ mod tests {
         "item/commandExecution/requestApproval",
         json!({"command": "/bin/zsh -lc 'npm test'"}),
         &[],
+        None,
         ProviderAskAction::Command { command: "npm test".to_owned() },
         &BOTH_SCOPES
     )]
@@ -190,6 +207,7 @@ mod tests {
         "item/commandExecution/requestApproval",
         json!({"command": "npm test", "availableDecisions": ["accept", "decline"]}),
         &[],
+        None,
         ProviderAskAction::Command { command: "npm test".to_owned() },
         &[]
     )]
@@ -197,6 +215,7 @@ mod tests {
         "item/commandExecution/requestApproval",
         json!({"networkApprovalContext": {"host": "example.com", "protocol": "https"}}),
         &[],
+        None,
         ProviderAskAction::Network { host: "example.com".to_owned() },
         &BOTH_SCOPES
     )]
@@ -204,6 +223,7 @@ mod tests {
         "item/fileChange/requestApproval",
         json!({"itemId": "change"}),
         &["src/a.rs"],
+        None,
         ProviderAskAction::FileChange { paths: vec!["src/a.rs".to_owned()] },
         &[RememberedScopeKind::Session]
     )]
@@ -211,22 +231,41 @@ mod tests {
         "item/fileChange/requestApproval",
         json!({"itemId": "change"}),
         &["src/a.rs", "src/b.rs"],
+        None,
         ProviderAskAction::FileChange {
             paths: vec!["src/a.rs".to_owned(), "src/b.rs".to_owned()]
         },
         &[]
     )]
-    #[case::a_tool_call_kept_for_the_session(
+    #[case::a_servers_own_question_naming_its_tool(
         "mcpServer/elicitation/request",
         json!({"serverName": "docs", "_meta": {"persist": ["session", "always"], "tool_name": "search"}}),
         &[],
+        None,
         ProviderAskAction::Tool { tool_name: "mcp__docs__search".to_owned() },
         &[RememberedScopeKind::Session]
+    )]
+    #[case::codexs_tool_call_ask_and_the_call_in_flight(
+        "mcpServer/elicitation/request",
+        json!({"serverName": "docs", "_meta": {"codex_approval_kind": "mcp_tool_call", "persist": "session"}}),
+        &[],
+        Some("search"),
+        ProviderAskAction::Tool { tool_name: "mcp__docs__search".to_owned() },
+        &[RememberedScopeKind::Session]
+    )]
+    #[case::a_tool_call_ask_whose_tool_is_unknown(
+        "mcpServer/elicitation/request",
+        json!({"serverName": "docs", "_meta": {"codex_approval_kind": "mcp_tool_call", "persist": "session"}}),
+        &[],
+        None,
+        ProviderAskAction::Tool { tool_name: "docs".to_owned() },
+        &[]
     )]
     fn reads_the_action_and_its_scopes(
         #[case] method: &str,
         #[case] params: Value,
         #[case] changed_paths: &[&str],
+        #[case] called_tool: Option<&str>,
         #[case] action: ProviderAskAction,
         #[case] rule_scopes: &[RememberedScopeKind],
     ) {
@@ -235,7 +274,7 @@ mod tests {
             changed_paths.iter().map(|&path| path.to_owned()).collect();
 
         assert_eq!(
-            read_codex_ask_action(method, params, &changed_paths),
+            read_codex_ask_action(method, params, &changed_paths, called_tool),
             CodexAskReading {
                 action,
                 rule_scopes: rule_scopes.to_vec(),
