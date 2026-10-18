@@ -110,9 +110,9 @@ impl SystemFolders {
     }
 }
 
-// The known folder `folder`, or `usual_path` when the system cannot report it.
+/// The known folder `folder`, or `usual_path` when the system cannot report it, which is logged.
 #[cfg(windows)]
-fn read_known_folder(folder: &GUID, usual_path: &str) -> PathBuf {
+pub(crate) fn read_known_folder(folder: &GUID, usual_path: &str) -> PathBuf {
     known_folder(folder).unwrap_or_else(|error| {
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),

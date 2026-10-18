@@ -18,6 +18,7 @@ pub(crate) mod process_exit;
 pub(crate) mod process_stop;
 pub(crate) mod real_path;
 pub(crate) mod run_folder;
+pub(crate) mod shell_folder_start;
 pub(crate) mod shell_start;
 pub(crate) mod socket_listener;
 pub(crate) mod socket_path;

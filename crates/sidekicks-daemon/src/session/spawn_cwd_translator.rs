@@ -1,30 +1,39 @@
-//! Moves a start's working folder off its worktree. Windows locks a running process's working
-//! folder for the process's life, so a worktree with a shell running in it cannot be removed or
-//! moved; the start runs in a folder that never moves instead and carries the worktree path in its
-//! command line or its environment. It runs once per start: a second call wraps the start again.
+//! Moves a start's working folder off its worktree. Windows keeps a handle on every running
+//! process's working folder, so a worktree a process was started in cannot be removed or moved
+//! while the process holds it; a start is told its worktree the way its program lets go of that
+//! folder again. It runs once per start: a second call wraps the start again.
 
 use std::path::{Path, PathBuf};
 
-use sidekicks_platforms::PathRules;
+use sidekicks_platforms::{ShellFolderStart, shell_folder_start};
 use sidekicks_terminal::SpawnRequest;
 
-/// How the worktree path is carried once the start's working folder is replaced.
+/// How the worktree path is carried to a start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the terminal and agent starts choose how their worktree is told"
+    )
+)]
 pub(crate) enum SpawnCwdStrategy {
-    /// Wraps the start in `sh`, which enters the worktree and then runs the start; for starts that
-    /// are themselves shells. Where the place has no such wrapper (Windows), the shell starts with
-    /// a `CWD` entry its shell integration reads at startup, carried as
-    /// [`SpawnCwdStrategy::CwdEnvironment`] carries it.
+    /// For starts that are themselves shells: the platforms crate's folder start for the shell's
+    /// program. On macOS and Linux `sh` enters the worktree and runs the shell, spawned in the
+    /// stable folder; on Windows PowerShell, WSL and `cmd.exe` on a share are spawned in the
+    /// system folder and told the worktree by their own switch, and every other shell starts in
+    /// the worktree, which it lets go of once it leaves.
     CdPrefix,
-    /// Adds a `CWD` entry last, so it wins over an earlier one; for agent programs that read `CWD`.
+    /// Adds a `CWD` entry last, so it wins over an earlier one, and starts in the stable folder;
+    /// for agent programs that read `CWD`.
     CwdEnvironment,
 }
 
 /// Why a start's working folder could not be moved off its worktree.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SpawnCwdError {
-    /// The folder that never moves is empty, so Windows would start the process in the daemon's
-    /// own working folder and the lock the move avoids would return.
+    /// The folder that never moves is empty, so the start would run in the daemon's own working
+    /// folder.
     #[error("the folder a start runs in instead of its worktree is empty")]
     EmptyStableParent,
     /// The worktree path is not UTF-8, so it cannot be written into a command line or `CWD`.
@@ -35,15 +44,20 @@ pub(crate) enum SpawnCwdError {
     },
 }
 
-/// `request` started in `stable_parent`, carrying its own working folder per `strategy`, `rules`
-/// being the place's (the WSL server's are Linux's); only the program, arguments, environment and
-/// working folder change. Fails with [`SpawnCwdError`] on an empty `stable_parent` or a worktree
-/// path that is not UTF-8.
+/// `request` started per `strategy`, `stable_parent` the folder a start that is told its worktree
+/// another way spawns in; only the program, arguments, environment and working folder change.
+/// Fails with [`SpawnCwdError`] on an empty `stable_parent` or a worktree path that is not UTF-8.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the terminal and agent starts on a worktree move their folder through it"
+    )
+)]
 pub(crate) fn translate_spawn_cwd(
     request: SpawnRequest,
     strategy: SpawnCwdStrategy,
     stable_parent: &Path,
-    rules: PathRules,
 ) -> Result<SpawnRequest, SpawnCwdError> {
     if stable_parent.as_os_str().is_empty() {
         return Err(SpawnCwdError::EmptyStableParent);
@@ -63,22 +77,23 @@ pub(crate) fn translate_spawn_cwd(
         .map_err(|folder| SpawnCwdError::FolderNotText {
             folder: PathBuf::from(folder),
         })?;
-    let folder_command = match strategy {
-        SpawnCwdStrategy::CdPrefix => rules.run_in_folder(&folder, &program, &arguments),
-        SpawnCwdStrategy::CwdEnvironment => None,
-    };
-    let (program, arguments) = match folder_command {
-        Some(command) => (command.program.to_owned(), command.arguments),
-        None => {
-            environment.push(("CWD".to_owned(), folder));
-            (program, arguments)
+    let start = match strategy {
+        SpawnCwdStrategy::CdPrefix => {
+            shell_folder_start(&program, &arguments, &folder, stable_parent)
         }
+        SpawnCwdStrategy::CwdEnvironment => ShellFolderStart {
+            program,
+            arguments,
+            spawn_folder: stable_parent.to_path_buf(),
+            added_environment: vec![("CWD".to_owned(), folder)],
+        },
     };
+    environment.extend(start.added_environment);
     Ok(SpawnRequest {
-        program,
-        arguments,
+        program: start.program,
+        arguments: start.arguments,
         environment,
-        working_directory: stable_parent.to_path_buf(),
+        working_directory: start.spawn_folder,
         rows,
         columns,
         shell_start,
@@ -89,24 +104,22 @@ pub(crate) fn translate_spawn_cwd(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use rstest::rstest;
-    use sidekicks_platforms::PathRules;
+    use sidekicks_platforms::shell_folder_start;
     use sidekicks_terminal::{CommandLine, SpawnRequest};
 
     use super::{SpawnCwdStrategy, translate_spawn_cwd};
 
-    fn request(program: &str, arguments: &[&str], environment: &[(&str, &str)]) -> SpawnRequest {
+    const WORKTREE: &str = "/work/it's 100%";
+
+    fn request(program: &str, arguments: &[String], environment: &[(&str, &str)]) -> SpawnRequest {
         SpawnRequest {
             program: program.to_owned(),
-            arguments: arguments
-                .iter()
-                .map(|&argument| argument.to_owned())
-                .collect(),
+            arguments: arguments.to_vec(),
             environment: environment
                 .iter()
                 .map(|&(name, value)| (name.to_owned(), value.to_owned()))
                 .collect(),
-            working_directory: PathBuf::from("/work/it's 100%"),
+            working_directory: PathBuf::from(WORKTREE),
             rows: 24,
             columns: 80,
             shell_start: CommandLine {
@@ -116,46 +129,40 @@ mod tests {
         }
     }
 
-    // Fails when the worktree stays the working folder, the worktree path goes unquoted, or
-    // Windows gets a wrapper instead of the `CWD` entry.
-    #[rstest]
-    #[case::cd_prefix(
-        SpawnCwdStrategy::CdPrefix,
-        PathRules::Posix,
-        "/bin/sh",
-        &["-c", r"cd '/work/it'\''s 100%' && exec 'git' 'status'"],
-        &[("PATH", "/usr/bin")]
-    )]
-    #[case::cd_prefix_on_windows(
-        SpawnCwdStrategy::CdPrefix,
-        PathRules::Windows,
-        "git",
-        &["status"],
-        &[("PATH", "/usr/bin"), ("CWD", "/work/it's 100%")]
-    )]
-    #[case::cwd_environment(
-        SpawnCwdStrategy::CwdEnvironment,
-        PathRules::Posix,
-        "git",
-        &["status"],
-        &[("PATH", "/usr/bin"), ("CWD", "/work/it's 100%")]
-    )]
-    fn translate_spawn_cwd_starts_in_the_stable_folder_and_carries_the_worktree(
-        #[case] strategy: SpawnCwdStrategy,
-        #[case] rules: PathRules,
-        #[case] program: &str,
-        #[case] arguments: &[&str],
-        #[case] environment: &[(&str, &str)],
-    ) {
-        let translated = translate_spawn_cwd(
-            request("git", &["status"], &[("PATH", "/usr/bin")]),
-            strategy,
-            Path::new("/stable"),
-            rules,
+    // Fails when a shell's folder start is not applied whole (its program, arguments, spawn folder
+    // and added variables after the start's own), or an agent program keeps the worktree as its
+    // working folder instead of the `CWD` entry.
+    #[test]
+    fn translate_spawn_cwd_applies_the_shells_folder_start_and_the_cwd_entry() {
+        let arguments = vec!["-Login".to_owned()];
+        let stable = Path::new("/stable");
+        let shell = translate_spawn_cwd(
+            request("pwsh.exe", &arguments, &[("PATH", "/usr/bin")]),
+            SpawnCwdStrategy::CdPrefix,
+            stable,
         )
         .expect("the stable folder is set and the worktree path is text");
-        let mut expected = request(program, arguments, environment);
-        expected.working_directory = PathBuf::from("/stable");
-        assert_eq!(translated, expected);
+        let agent = translate_spawn_cwd(
+            request("git", &arguments, &[("PATH", "/usr/bin")]),
+            SpawnCwdStrategy::CwdEnvironment,
+            stable,
+        )
+        .expect("the stable folder is set and the worktree path is text");
+
+        let folder_start = shell_folder_start("pwsh.exe", &arguments, WORKTREE, stable);
+        let mut shell_environment = vec![("PATH".to_owned(), "/usr/bin".to_owned())];
+        shell_environment.extend(folder_start.added_environment);
+        let mut expected_shell = request(&folder_start.program, &folder_start.arguments, &[]);
+        expected_shell.environment = shell_environment;
+        expected_shell.working_directory = folder_start.spawn_folder;
+        let mut expected_agent = request(
+            "git",
+            &arguments,
+            &[("PATH", "/usr/bin"), ("CWD", WORKTREE)],
+        );
+        expected_agent.working_directory = stable.to_path_buf();
+        assert_ne!(shell.working_directory, Path::new(WORKTREE));
+        assert_eq!(shell, expected_shell);
+        assert_eq!(agent, expected_agent);
     }
 }

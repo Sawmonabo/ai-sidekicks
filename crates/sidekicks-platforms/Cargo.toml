@@ -71,6 +71,7 @@ security-framework.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 async-io.workspace = true
+base64.workspace = true
 getrandom.workspace = true
 junction.workspace = true
 tokio-util = { workspace = true, features = ["compat"] }

@@ -169,22 +169,6 @@ impl PathRules {
             Self::Windows => windows::quote_shell_word(word),
         }
     }
-
-    /// The command that enters `folder` through `sh` and then runs `program` with `arguments`, so
-    /// the started process's own working folder can be one that never moves; `None` on Windows,
-    /// whose `cmd.exe` line cannot carry every folder and word, so a start there carries its
-    /// folder another way.
-    pub fn run_in_folder(
-        self,
-        folder: &str,
-        program: &str,
-        arguments: &[String],
-    ) -> Option<FolderCommand> {
-        match self {
-            Self::Posix => Some(posix::run_in_folder(folder, program, arguments)),
-            Self::Windows => None,
-        }
-    }
 }
 
 /// A word the system's command shell cannot be given exactly: on Windows a `\r` or `\n`, where
@@ -192,15 +176,6 @@ impl PathRules {
 #[derive(Debug, thiserror::Error)]
 #[error("a line break cannot be written into a Windows command line")]
 pub struct ShellWordRefused;
-
-/// A program and its arguments that enter a folder through `sh`, then run the program there.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FolderCommand {
-    /// The shell's program, `/bin/sh`.
-    pub program: &'static str,
-    /// The shell's arguments, the command line last.
-    pub arguments: Vec<String>,
-}
 
 /// `character`'s upper-case form where `character` is one UTF-16 unit and its upper-case form is
 /// one character, as Windows' upper-case table maps one unit to one; `character` itself otherwise.

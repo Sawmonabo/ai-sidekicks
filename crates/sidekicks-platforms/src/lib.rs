@@ -58,6 +58,7 @@ mod posix;
 mod program_start;
 mod run_folder;
 mod running_program;
+mod shell_folder_start;
 mod shell_start;
 mod socket_listener;
 mod socket_path;
@@ -147,7 +148,7 @@ pub use own_root::OwnRootError;
 #[cfg(not(target_os = "macos"))]
 pub use own_root::become_own_root;
 pub use path::resolution::{resolve_path, resolve_path_against};
-pub use path::rules::{FolderCommand, PathRules, ShellWordRefused};
+pub use path::rules::{PathRules, ShellWordRefused};
 pub use pinned_process::ProcessRecord;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use posix::allocator::{
@@ -187,6 +188,8 @@ pub use posix::real_path::real_path;
 #[cfg(unix)]
 pub use posix::run_folder::{check_private_run_folder, daemon_run_folder};
 #[cfg(unix)]
+pub use posix::shell_folder_start::shell_folder_start;
+#[cfg(unix)]
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
@@ -215,6 +218,7 @@ pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use program_start::{ProgramStart, program_start};
 pub use run_folder::{DaemonRunFolder, RunFolderRefused};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
+pub use shell_folder_start::ShellFolderStart;
 #[cfg(not(target_os = "macos"))]
 pub use shell_start::ShellStartConfirmation;
 pub use shell_start::{ShellStart, ShellStartError};
@@ -292,6 +296,8 @@ pub use windows::processes::{list_user_process_ids, read_process_environment};
 pub use windows::real_path::real_path;
 #[cfg(target_os = "windows")]
 pub use windows::run_folder::{check_private_run_folder, daemon_run_folder};
+#[cfg(target_os = "windows")]
+pub use windows::shell_folder_start::shell_folder_start;
 #[cfg(target_os = "windows")]
 pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
