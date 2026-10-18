@@ -108,6 +108,8 @@ enum SignalKeyState {
     Signaled,
     /// Written to the terminal.
     Written,
+    /// Left unwritten by a failed write or the terminal's stop, so it never goes as its signal.
+    Refused,
 }
 
 /// One key handed over alone, which the terminal's settings may turn into a signal: while it is
@@ -166,7 +168,9 @@ impl SignalKeyClaim {
     fn take_in_line(&self) -> KeyInLine {
         match &mut *self.lock_state() {
             SignalKeyState::Unwritten { taken, .. } => KeyInLine::Waiting(taken.take()),
-            SignalKeyState::Signaled | SignalKeyState::Written => KeyInLine::Settled,
+            SignalKeyState::Signaled | SignalKeyState::Written | SignalKeyState::Refused => {
+                KeyInLine::Settled
+            }
         }
     }
 
@@ -178,6 +182,14 @@ impl SignalKeyClaim {
         *self.lock_state() = SignalKeyState::Written;
     }
 
+    /// Settles a key the queue drops unwritten, unless it already went as its signal.
+    fn mark_refused(&self) {
+        let mut state = self.lock_state();
+        if matches!(*state, SignalKeyState::Unwritten { .. }) {
+            *state = SignalKeyState::Refused;
+        }
+    }
+
     fn lock_state(&self) -> MutexGuard<'_, SignalKeyState> {
         self.state
             .lock()
@@ -187,7 +199,7 @@ impl SignalKeyClaim {
 
 /// What the queue finds when it reaches a signal key in line.
 enum KeyInLine {
-    /// The key went as its signal, so it is not written.
+    /// The key went as its signal, or was refused, so it is not written.
     Settled,
     /// The key is written in its place; its take, unless already answered, is answered here.
     Waiting(Option<WriteAnswer>),
@@ -270,6 +282,9 @@ impl WriteQueue {
             taken = waiting;
         }
         if let Some(stop) = self.stop {
+            if let Some(claim) = &signal_key {
+                claim.mark_refused();
+            }
             if let Some(taken) = taken {
                 answer_write(taken, Err(stop.error()));
             }
@@ -351,24 +366,28 @@ impl WriteQueue {
         self.stop_with(WriteStop::Ended);
     }
 
-    /// Answers every waiting write with `error`, shared among them; later writes are taken as
-    /// before.
+    /// Answers every waiting write with `error`, shared among them, and settles every key among
+    /// them as refused; later writes are taken as before.
     pub(crate) fn fail(&mut self, error: io::Error) {
         let error = Arc::new(error);
-        self.pending_byte_count = 0;
-        for write in self.pending.drain(..) {
-            if let Some(answer) = write.answer {
-                answer_write(answer, Err(TerminalWriteError::Failed(Arc::clone(&error))));
-            }
-        }
+        self.refuse_pending(|| TerminalWriteError::Failed(Arc::clone(&error)));
     }
 
     fn stop_with(&mut self, stop: WriteStop) {
         self.stop = Some(stop);
+        self.refuse_pending(|| stop.error());
+    }
+
+    /// Drops every waiting write unwritten, answering each with `error()` and settling each key
+    /// as refused, so none goes as its signal later.
+    fn refuse_pending(&mut self, error: impl Fn() -> TerminalWriteError) {
         self.pending_byte_count = 0;
         for write in self.pending.drain(..) {
+            if let Some(claim) = &write.signal_key {
+                claim.mark_refused();
+            }
             if let Some(answer) = write.answer {
-                answer_write(answer, Err(stop.error()));
+                answer_write(answer, Err(error()));
             }
         }
     }
@@ -548,6 +567,24 @@ pub(crate) mod tests {
         );
         queue.take_from(&mut receiver);
         assert_eq!(write_all(&mut queue), b"y");
+        let mut is_sent = false;
+        claim.send_as_signal(|| {
+            is_sent = true;
+            Ok(true)
+        });
+        assert!(!is_sent && claim.is_settled());
+
+        // A key a failed write drains from the queue is never sent as its signal afterwards.
+        let _blocked = hand_over(&intake, Bytes::from_static(b"c"));
+        let (taken, _key) = oneshot::channel();
+        let claim = SignalKeyClaim::new(taken);
+        assert!(
+            intake
+                .send(QueuedWrite::signal_key(b'z', Arc::clone(&claim)))
+                .is_ok()
+        );
+        queue.take_from(&mut receiver);
+        queue.fail(std::io::Error::other("the terminal refused the write"));
         let mut is_sent = false;
         claim.send_as_signal(|| {
             is_sent = true;

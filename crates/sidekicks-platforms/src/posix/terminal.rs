@@ -311,12 +311,11 @@ impl TerminalWatch {
             self.input_refusal.set(false);
         }
         loop {
-            if self.waker.take_wake() {
-                return Ok(TerminalWake::Woken);
-            }
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 return Ok(TerminalWake::Deadline);
             }
+            // The terminal is polled before the waker is read, so a wake for a key typed after
+            // the terminal began taking input again finds the refusal already cleared.
             self.events.clear();
             match self
                 .poller
@@ -330,8 +329,8 @@ impl TerminalWatch {
             if let Some(wake) = self.take_events(read_into.as_deref_mut(), write_from)? {
                 return Ok(wake);
             }
-            // The poll above takes a wake's notice off the poller, so a wake raised since the
-            // check at the top would leave nothing to make the poller readable.
+            // The poll above takes a wake's notice off the poller, so a wake raised before it
+            // would leave nothing to make the poller readable.
             if self.waker.take_wake() {
                 return Ok(TerminalWake::Woken);
             }
@@ -470,8 +469,8 @@ impl TerminalWatch {
             is_writable |= event.writable;
         }
         // The poll just asked whether the terminal takes input, so a write it found no room for is
-        // refused until a later poll finds room.
-        let is_newly_refused = write_from.is_some() && !is_writable && self.input_refusal.set(true);
+        // refused until a later poll finds room, and one it found room for is not.
+        let is_newly_refused = write_from.is_some() && self.input_refusal.set(!is_writable);
         if is_readable && let Some(buffer) = read_into {
             match (&self.master).read(buffer) {
                 Ok(0) => return Ok(Some(TerminalWake::OutputEnded)),
