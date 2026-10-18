@@ -263,6 +263,11 @@ impl TerminalWatch {
             if let Some(wake) = self.take_events(read_into.as_deref_mut(), write_from)? {
                 return Ok(wake);
             }
+            // The poll above takes a wake's notice off the poller, so a wake raised since the
+            // check at the top would leave nothing to make the poller readable.
+            if self.waker.take_wake() {
+                return Ok(TerminalWake::Woken);
+            }
             tokio::select! {
                 ready = self.poller.readable() => ready?.clear_ready(),
                 () = sleep_until_deadline(deadline) => {}
