@@ -6,8 +6,8 @@
 //! retry reopens it.
 
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -158,19 +158,25 @@ async fn a_run_folder_that_is_not_a_private_folder_is_refused_before_any_byte_is
     );
 }
 
-/// A daemon the client reaches over in-memory streams: each attempt hands the test the daemon's
-/// half, or, while nobody listens, fails at once as a daemon that is not running does.
+/// When each attempt to open a stream started.
+type AttemptTimes = Arc<Mutex<Vec<Instant>>>;
+
+/// A daemon the client reaches over in-memory streams: each attempt is timed and hands the test the
+/// daemon's half, or, while nobody listens, fails at once as a daemon that is not running does.
 struct MemoryConnector {
     attempts: mpsc::UnboundedSender<DuplexStream>,
     is_listening: Arc<AtomicBool>,
-    attempted: Arc<AtomicUsize>,
+    attempted_at: AttemptTimes,
 }
 
 impl DaemonConnector for MemoryConnector {
     type Stream = DuplexStream;
 
     async fn open_stream(&self) -> Result<DuplexStream, ClientError> {
-        self.attempted.fetch_add(1, Ordering::SeqCst);
+        self.attempted_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Instant::now());
         let not_listening = || ClientError::Unavailable {
             reason: ConnectionUnavailableReason::NotListening,
             cause: LinkFault::PeerClosed,
@@ -191,11 +197,11 @@ impl DaemonConnector for MemoryConnector {
 }
 
 /// The test's side of a [`MemoryConnector`]: the attempts it accepts, whether anyone listens, and
-/// how many attempts the client made.
+/// when the client made each attempt.
 struct MemoryDaemons {
     attempts: mpsc::UnboundedReceiver<DuplexStream>,
     is_listening: Arc<AtomicBool>,
-    attempted: Arc<AtomicUsize>,
+    attempted_at: AttemptTimes,
 }
 
 impl MemoryDaemons {
@@ -212,24 +218,28 @@ impl MemoryDaemons {
         self.is_listening.store(is_listening, Ordering::SeqCst);
     }
 
-    fn attempted(&self) -> usize {
-        self.attempted.load(Ordering::SeqCst)
+    /// When each attempt the client made started, the first connect's among them.
+    fn attempted_at(&self) -> Vec<Instant> {
+        self.attempted_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
 
 fn memory_daemons() -> (MemoryConnector, MemoryDaemons) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let is_listening = Arc::new(AtomicBool::new(true));
-    let attempted = Arc::new(AtomicUsize::new(0));
+    let attempted_at = AttemptTimes::default();
     let connector = MemoryConnector {
         attempts: sender,
         is_listening: Arc::clone(&is_listening),
-        attempted: Arc::clone(&attempted),
+        attempted_at: Arc::clone(&attempted_at),
     };
     let daemons = MemoryDaemons {
         attempts: receiver,
         is_listening,
-        attempted,
+        attempted_at,
     };
     (connector, daemons)
 }
@@ -363,7 +373,7 @@ async fn a_lost_link_reopens_on_the_schedule_until_its_window_passes_then_only_a
     drop(daemon);
     wait_for_state(&mut states, ConnectionState::Reconnecting).await;
     let lost_at = Instant::now();
-    let attempted_before = daemons.attempted();
+    let attempted_before = daemons.attempted_at().len();
     let mut held = Box::pin(call("until down"));
     tokio::time::sleep(LINK_REOPEN_WINDOW / 2).await;
     assert_eq!(connection.state(), ConnectionState::Reconnecting);
@@ -376,7 +386,26 @@ async fn a_lost_link_reopens_on_the_schedule_until_its_window_passes_then_only_a
     assert_eq!(connection.state(), ConnectionState::Down);
     // Each wait of the schedule, then its last wait again while an attempt starts in the window:
     // at 0.1, 0.4, 1.4, 4.4 and 14.4 s, then every 10 s to 114.4 s.
-    assert_eq!(daemons.attempted() - attempted_before, 15);
+    let last_wait = LINK_REOPEN_BACKOFF_MS[LINK_REOPEN_BACKOFF_MS.len() - 1];
+    let mut expected_waits = LINK_REOPEN_BACKOFF_MS.to_vec();
+    while Duration::from_millis(expected_waits.iter().sum::<u64>() + last_wait) < LINK_REOPEN_WINDOW
+    {
+        expected_waits.push(last_wait);
+    }
+    let mut previous = lost_at;
+    let waits: Vec<Duration> = daemons.attempted_at()[attempted_before..]
+        .iter()
+        .map(|attempted_at| {
+            let wait = *attempted_at - previous;
+            previous = *attempted_at;
+            wait
+        })
+        .collect();
+    assert_eq!(expected_waits.len(), 15);
+    assert_eq!(waits.len(), expected_waits.len(), "{waits:?}");
+    for (wait, expected) in waits.into_iter().zip(expected_waits) {
+        assert_waited(wait, Duration::from_millis(expected));
+    }
     assert!(
         matches!(
             call("while down").now_or_never(),
@@ -402,8 +431,8 @@ async fn a_lost_link_reopens_on_the_schedule_until_its_window_passes_then_only_a
     daemons.listen(false);
     drop(daemon);
     wait_for_state(&mut states, ConnectionState::Down).await;
-    let attempted_when_down = daemons.attempted();
+    let attempted_when_down = daemons.attempted_at().len();
     tokio::time::sleep(LINK_REOPEN_WINDOW).await;
     assert_eq!(connection.state(), ConnectionState::Down);
-    assert_eq!(daemons.attempted(), attempted_when_down);
+    assert_eq!(daemons.attempted_at().len(), attempted_when_down);
 }
