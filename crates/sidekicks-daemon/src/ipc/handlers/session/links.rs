@@ -42,7 +42,7 @@ pub(crate) fn register_session_links(
             .boxed()
         },
     )?;
-    let removing = Arc::clone(&links);
+    let removing = links;
     registry.register::<SessionLinkRemove, _>(
         move |request: SessionLinkRequest, _context: HandlerContext| {
             let links = Arc::clone(&removing);

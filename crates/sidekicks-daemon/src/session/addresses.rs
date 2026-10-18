@@ -170,12 +170,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            compose(
-                PathRules::Windows,
-                vec![Some(ubuntu.clone())],
-                true,
-                Some(&windows)
-            ),
+            compose(PathRules::Windows, vec![Some(ubuntu)], true, Some(&windows)),
             json!([
                 { "place": "windows", "address": pipe },
                 { "place": { "distro": "Ubuntu" }, "address": socket },

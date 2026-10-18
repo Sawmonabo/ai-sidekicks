@@ -16,6 +16,7 @@ use sidekicks_contracts::transcript::methods::{
 };
 use sidekicks_contracts::transcript::operations::TranscriptReadRequest;
 use sidekicks_contracts::transcript::search::TranscriptSearchRequest;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
@@ -84,7 +85,7 @@ async fn read_body(
     Ok(stored_body_content_of(
         Some(&stored_row.envelope.payload),
         stored_body.as_ref(),
-        request.offset.map_or(0, |offset| offset.get()),
+        request.offset.map_or(0, SafeInt::get),
     )?)
 }
 

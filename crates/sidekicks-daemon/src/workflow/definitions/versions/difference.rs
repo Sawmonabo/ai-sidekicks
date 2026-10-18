@@ -144,9 +144,9 @@ mod tests {
                 after: WorkflowVersionNode::Trigger(after.trigger),
             }]
         );
-        assert!(difference.nodes_added.is_empty());
-        assert!(difference.nodes_removed.is_empty());
-        assert!(difference.edges_added.is_empty());
-        assert!(difference.edges_removed.is_empty());
+        assert_eq!(difference.nodes_added, []);
+        assert_eq!(difference.nodes_removed, []);
+        assert_eq!(difference.edges_added, []);
+        assert_eq!(difference.edges_removed, []);
     }
 }
