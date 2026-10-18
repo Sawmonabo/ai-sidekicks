@@ -7,7 +7,7 @@ use crate::settle_all::DescribeEach;
 /// A failure kept whole, so its type and code still reach the caller, beside the failures of
 /// cleaning up after it. Its source is the original, whose own source chain stays as it was.
 #[derive(Debug, thiserror::Error)]
-pub(crate) struct CleanupFailures<Original, Cleanup = Original> {
+pub struct CleanupFailures<Original, Cleanup = Original> {
     #[source]
     original: Original,
     /// The cleanups' own failures, each kept whole.

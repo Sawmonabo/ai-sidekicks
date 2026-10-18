@@ -56,6 +56,9 @@ ignored = [
   "p256",
   # The email digest of what needs the person's attention.
   "lettre",
+  # Its build script hands the daemon's build the bundled `sqlite3.h` the SQLite shell compiles
+  # against.
+  "libsqlite3-sys",
   # The passkey statement checks.
   "llrt_buffer",
   "llrt_crypto",
@@ -80,8 +83,6 @@ ignored = [
   "zip",
   # Editing the providers' and tool servers' TOML settings in place.
   "toml_edit",
-  # Wiping the command channel's keys.
-  "zeroize",
   # The stored-body codec: a transcript body of 1 KiB or more kept compressed.
   "zstd",
 ]
@@ -92,6 +93,7 @@ anyhow.workspace = true
 axum = { workspace = true, features = ["http1", "tokio"] }
 base16ct.workspace = true
 base64.workspace = true
+blake3.workspace = true
 bytes.workspace = true
 cedar-policy.workspace = true
 chacha20poly1305.workspace = true
@@ -106,7 +108,8 @@ diffy.workspace = true
 dugong.workspace = true
 ed25519-dalek.workspace = true
 fast_image_resize.workspace = true
-ferriki.workspace = true
+ferriki-textmate.workspace = true
+ferroni.workspace = true
 file-format.workspace = true
 flate2.workspace = true
 flexi_logger.workspace = true
@@ -154,6 +157,7 @@ rquickjs.workspace = true
 rusqlite.workspace = true
 rustls-platform-verifier.workspace = true
 schemars.workspace = true
+secrecy = { workspace = true, features = ["serde"] }
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true

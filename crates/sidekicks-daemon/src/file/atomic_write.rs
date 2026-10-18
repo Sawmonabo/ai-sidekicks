@@ -12,7 +12,7 @@ use crate::cleanup_failures::CleanupFailures;
 
 /// Why a crash-safe write failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum AtomicWriteError {
+pub enum AtomicWriteError {
     /// Making, writing, flushing or renaming the temporary file failed, so the target keeps its
     /// old contents; the temporary file's removal failure, if any, rides beside it.
     #[error("writing {} failed", path.display())]
@@ -47,15 +47,17 @@ pub(crate) enum AtomicWriteError {
 /// Replaces `file_path` with `contents`, a new file made with `mode` less the umask (unused on
 /// Windows), durably and all at once. `file_path` is absolute and its folder must exist. A failure
 /// before the rename removes the temporary file `<name>.<random>.tmp` and leaves the old file in
-/// place.
+/// place. `contents` is moved to the write and dropped there, so a buffer that wipes itself on drop
+/// leaves no copy behind.
 pub(crate) async fn write_file_atomically(
     file_path: &Path,
-    contents: impl Into<Vec<u8>>,
+    contents: impl AsRef<[u8]> + Send + 'static,
     mode: u32,
 ) -> Result<(), AtomicWriteError> {
     let target = file_path.to_path_buf();
-    let contents = contents.into();
-    match tokio::task::spawn_blocking(move || write_and_flush(&target, &contents, mode)).await {
+    match tokio::task::spawn_blocking(move || write_and_flush(&target, contents.as_ref(), mode))
+        .await
+    {
         Ok(written) => written,
         Err(failure) => Err(AtomicWriteError::Interrupted {
             path: file_path.to_path_buf(),

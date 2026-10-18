@@ -31,7 +31,6 @@ use windows_sys::Win32::System::Console::{
 use windows_sys::Win32::System::LibraryLoader::{
     LOAD_LIBRARY_SEARCH_SYSTEM32, SetDefaultDllDirectories,
 };
-use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use windows_sys::core::BOOL;
 use windows_sys::w;
 
@@ -45,6 +44,7 @@ use crate::terminal::{
     TerminalInputRefusal, TerminalSignal, TerminalSignalRoute, TerminalWake, TerminalWaker,
     read_waiting_input_line, waiting_input_line,
 };
+use crate::windows::child_command::prepare_child_command;
 
 /// How many process ids the first console process list read makes room for.
 const CONSOLE_PROCESS_LIST_START_LENGTH: usize = 16;
@@ -494,8 +494,8 @@ fn hidden_command(program: impl AsRef<OsStr>) -> Command {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
         .kill_on_drop(true);
+    prepare_child_command(&mut command, std::process::id());
     command
 }
 
