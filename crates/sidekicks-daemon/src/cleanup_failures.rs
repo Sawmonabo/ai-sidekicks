@@ -39,6 +39,11 @@ impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
     pub(crate) fn cleanup_failures(&self) -> &[Cleanup] {
         &self.failures
     }
+
+    /// The original, and the cleanups' failures with the operation they cleaned up after.
+    pub(crate) fn into_parts(self) -> (Original, Vec<Cleanup>, &'static str) {
+        (self.original, self.failures, self.operation)
+    }
 }
 
 impl<Original: Display, Cleanup: Display> Display for CleanupFailures<Original, Cleanup> {

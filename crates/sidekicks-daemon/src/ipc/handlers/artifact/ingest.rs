@@ -19,19 +19,19 @@ use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationEr
 /// a request makes names its device. Fails the start when a method is already registered.
 pub(crate) fn register_artifact_ingest(
     registry: &mut MethodRegistryBuilder,
-    ingest: &Arc<ArtifactIngestService>,
+    ingest: Arc<ArtifactIngestService>,
 ) -> Result<(), RegistrationError> {
-    let starting = Arc::clone(ingest);
+    let starting = Arc::clone(&ingest);
     registry.register::<ArtifactIngestStart, _>(move |request, _context: HandlerContext| {
         let ingest = Arc::clone(&starting);
         async move { Ok(ingest.start(request).await?) }.boxed()
     })?;
-    let writing = Arc::clone(ingest);
+    let writing = Arc::clone(&ingest);
     registry.register::<ArtifactIngestWrite, _>(move |request, _context: HandlerContext| {
         let ingest = Arc::clone(&writing);
         async move { Ok(ingest.write(request).await?) }.boxed()
     })?;
-    let completing = Arc::clone(ingest);
+    let completing = ingest;
     registry.register::<ArtifactIngestComplete, _>(move |request, context: HandlerContext| {
         let ingest = Arc::clone(&completing);
         async move {
