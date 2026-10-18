@@ -109,6 +109,7 @@ fn refusal_of(failure: &ArtifactError) -> (Option<RefusalCode>, Option<String>) 
             .map(str::to_owned),
         ArtifactError::Disk(_)
         | ArtifactError::Interrupted(_)
+        | ArtifactError::StreamWriteDropped
         | ArtifactError::Write(_)
         | ArtifactError::Read(_)
         | ArtifactError::Database(_)
@@ -303,6 +304,38 @@ async fn a_resent_start_answers_the_first_stream_and_a_changed_one_is_refused() 
         );
     }
     assert!(store.admission.admit(1, None).await.is_err());
+}
+
+/// A write dropped mid-chunk leaves the stream's state unknown, so the next call on it fails and
+/// ends it, its spool with it.
+#[tokio::test]
+async fn a_write_dropped_mid_chunk_ends_its_stream_at_the_next_call() {
+    let store = ArtifactTestStore::open().await;
+    let service = service(&store);
+    let ingest_id = start(&service, &store, 10).await;
+    let paused = service.pause.arm();
+    let dropped = tokio::spawn({
+        let service = Arc::clone(&service);
+        let ingest_id = ingest_id.clone();
+        async move { write(&service, &ingest_id, 0, b"abc").await }
+    });
+    paused.reached.await.expect("the write reaches the pause");
+    dropped.abort();
+    assert!(
+        dropped.await.is_err_and(|ended| ended.is_cancelled()),
+        "the write is dropped"
+    );
+
+    let next = write(&service, &ingest_id, 0, b"abc")
+        .await
+        .expect_err("the next call fails");
+
+    assert!(matches!(next, ArtifactError::StreamWriteDropped));
+    assert_eq!(store.spooled_file_count(), 0);
+    let after = complete(&service, &ingest_id)
+        .await
+        .expect_err("the ended stream is gone");
+    assert_eq!(refusal_of(&after), invalid("unknownStream"));
 }
 
 // Sets the stream's opening back by `age`.

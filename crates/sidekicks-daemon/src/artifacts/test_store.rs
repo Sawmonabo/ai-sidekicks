@@ -134,6 +134,7 @@ pub(crate) fn refusal_code_of(failure: &ArtifactError) -> Option<RefusalCode> {
         ArtifactError::Refused(refusal) => Some(refusal.code),
         ArtifactError::Disk(_)
         | ArtifactError::Interrupted(_)
+        | ArtifactError::StreamWriteDropped
         | ArtifactError::Write(_)
         | ArtifactError::Read(_)
         | ArtifactError::Database(_)

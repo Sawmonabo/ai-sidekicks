@@ -31,6 +31,9 @@ pub(crate) enum ArtifactError {
     /// A blocking task on the store's files ended before it finished.
     #[error("a task on the artifact store's files ended before it finished")]
     Interrupted(#[from] JoinError),
+    /// An earlier write on the ingest stream was dropped mid-chunk, so the stream was ended.
+    #[error("an earlier write on the ingest stream was dropped before it finished")]
+    StreamWriteDropped,
     /// The write of a manifest was not kept.
     #[error(transparent)]
     Write(#[from] WriteError),

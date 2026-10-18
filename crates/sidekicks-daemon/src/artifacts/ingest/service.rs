@@ -109,7 +109,8 @@ struct OpenStream {
     upload: AdmittedUpload,
     opened_at: SystemTime,
     spool_path: PathBuf,
-    /// `None` only while a call holding the stream writes a chunk.
+    /// `None` while a call holding the stream writes a chunk, and for good once such a call was
+    /// dropped before it put the progress back.
     progress: Option<StreamProgress>,
 }
 
@@ -169,6 +170,8 @@ enum StreamGone {
     Unknown,
     /// The stream outlived its lifetime.
     Expired,
+    /// A write on the stream was dropped mid-chunk, so what its spool holds is unknown.
+    WriteDropped,
 }
 
 /// What writing one chunk came to, decided where the chunk was hashed.
@@ -304,8 +307,9 @@ impl ArtifactIngestService {
     /// Appends one chunk to its stream's spool and answers the stream's running total of bytes; a
     /// resend of the last chunk is answered without appending it again. Fails with
     /// `artifact.ingest.streamInvalid` for a stream that is unknown, completed or past its
-    /// lifetime, or for a chunk out of sequence, which ends the stream; and with
-    /// `artifact.tooLarge` for a chunk past the declared size, which ends it too.
+    /// lifetime, or for a chunk out of sequence, which ends the stream; with `artifact.tooLarge`
+    /// for a chunk past the declared size, which ends it too; and as
+    /// [`ArtifactError::StreamWriteDropped`], ending the stream, after a write dropped mid-chunk.
     pub(crate) async fn write(
         &self,
         request: ArtifactIngestWriteRequest,
@@ -323,15 +327,15 @@ impl ArtifactIngestService {
                     )
                     .into());
                 }
-                Ok(IngestStream::Open(stream)) => Ok((
-                    stream
-                        .progress
-                        .take()
-                        .expect("a call holding its stream finds its progress"),
-                    stream.spool_path.clone(),
-                    stream.declared_size_bytes,
-                    stream.file_name.clone(),
-                )),
+                Ok(IngestStream::Open(stream)) => match stream.progress.take() {
+                    Some(progress) => Ok((
+                        progress,
+                        stream.spool_path.clone(),
+                        stream.declared_size_bytes,
+                        stream.file_name.clone(),
+                    )),
+                    None => Err(StreamGone::WriteDropped),
+                },
             }
         };
         let (progress, spool_path, declared_size_bytes, file_name) = match taken {
@@ -387,7 +391,9 @@ impl ArtifactIngestService {
     /// first one's saved result while it is held. Fails with `artifact.ingest.streamInvalid` for a
     /// stream that is unknown or past its lifetime, or whose saved result no longer names the
     /// digest it committed, with `session.notFound` once its session is gone and
-    /// `agent.run.notFound` for a run that is not the session's; every failure ends the stream.
+    /// `agent.run.notFound` for a run that is not the session's, and as
+    /// [`ArtifactError::StreamWriteDropped`] after a write dropped mid-chunk; every failure ends the
+    /// stream.
     pub(crate) async fn complete(
         &self,
         request: ArtifactIngestCompleteRequest,
@@ -407,38 +413,37 @@ impl ArtifactIngestService {
                     }
                     Ok(None)
                 }
-                Ok(IngestStream::Open(stream)) => {
-                    let progress = stream
-                        .progress
-                        .as_ref()
-                        .expect("a call holding its stream finds its progress");
-                    let content_hash =
-                        ContentHash::of_sha256(&progress.content_hash.clone().finalize());
-                    Ok(Some((
-                        PublishedManifest {
-                            artifact_id: mint_artifact_id(),
-                            session_id: stream.session_id,
-                            run_id: stream.run_id,
-                            created_by: Some(created_by),
-                            client_idempotency_key: None,
-                            artifact_type: ArtifactType::File,
-                            content_hash: content_hash.clone(),
-                            size_bytes: SafeInt::new(progress.received_bytes)
-                                .expect("a stream holds no more than its declared safe size"),
-                            media_type: String::new(),
-                            metadata: file_name_metadata(&stream.file_name),
-                            created_at: manifest_created_at(self.clock.as_ref()),
-                        },
-                        SpooledPayload {
-                            spool_path: stream.spool_path.clone(),
-                            content_hash,
-                            leading_bytes: progress.leading_bytes.clone(),
-                            is_utf8: progress.utf8.is_utf8(),
-                            declared_media_type: stream.declared_media_type.clone(),
-                        },
-                        stream.file_name.clone(),
-                    )))
-                }
+                Ok(IngestStream::Open(stream)) => match stream.progress.as_ref() {
+                    None => Err(StreamGone::WriteDropped),
+                    Some(progress) => {
+                        let content_hash =
+                            ContentHash::of_sha256(&progress.content_hash.clone().finalize());
+                        Ok(Some((
+                            PublishedManifest {
+                                artifact_id: mint_artifact_id(),
+                                session_id: stream.session_id,
+                                run_id: stream.run_id,
+                                created_by: Some(created_by),
+                                client_idempotency_key: None,
+                                artifact_type: ArtifactType::File,
+                                content_hash: content_hash.clone(),
+                                size_bytes: SafeInt::new(progress.received_bytes)
+                                    .expect("a stream holds no more than its declared safe size"),
+                                media_type: String::new(),
+                                metadata: file_name_metadata(&stream.file_name),
+                                created_at: manifest_created_at(self.clock.as_ref()),
+                            },
+                            SpooledPayload {
+                                spool_path: stream.spool_path.clone(),
+                                content_hash,
+                                leading_bytes: progress.leading_bytes.clone(),
+                                is_utf8: progress.utf8.is_utf8(),
+                                declared_media_type: stream.declared_media_type.clone(),
+                            },
+                            stream.file_name.clone(),
+                        )))
+                    }
+                },
             }
         };
         let completing = match completing {
@@ -554,7 +559,8 @@ impl ArtifactIngestService {
         Ok(stream)
     }
 
-    // The refusal for a stream that is gone, ending one past its lifetime first.
+    // The failure for a stream that is gone, ending one past its lifetime or whose state was lost
+    // first.
     async fn refuse_gone(&self, ingest_id: &str, gone: StreamGone) -> ArtifactError {
         match gone {
             StreamGone::Unknown => {
@@ -564,6 +570,10 @@ impl ArtifactIngestService {
                 let expired =
                     ingest_stream_invalid(ingest_id, IngestStreamInvalidReason::LifetimeExpired);
                 self.end_with(ingest_id, expired.into()).await
+            }
+            StreamGone::WriteDropped => {
+                self.end_with(ingest_id, ArtifactError::StreamWriteDropped)
+                    .await
             }
         }
     }
