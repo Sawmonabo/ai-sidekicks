@@ -430,18 +430,11 @@ The partial slice (per §Execution Windows above) lands as **3 small PRs** follo
 - **T-005p-3-1** (Files: `crates/sidekicks-daemon/src/ipc/handlers/session/create.rs` + `read.rs` + `subscribe.rs`) — Implement the three `session.*` handlers binding into the registry from T-005p-2-3. Method-name strings per [local-ipc-payloads.md §Plan-005-Partial — Local IPC Daemon Control](../architecture/contracts/local-ipc-payloads.md#plan-005-partial--local-ipc-daemon-control); subscribe streaming-primitive shape per its canonical source (`crates/sidekicks-contracts/src/jsonrpc/streaming.rs`). Each handler takes the request/response types from `crates/sidekicks-contracts/src/session/methods.rs` (Plan-001 Phase 2 ownership; precondition per §Dependencies). Canonical method-name strings: `session.create` / `session.read` / `session.event.subscribe` (per local-ipc-payloads.md §Wire-Name Grammar, checked at build time). Handler signatures:
 
 ```rust
-// Daemon side: params decode with serde and pass their garde checks before the handler runs.
-registry.register::<SessionCreateRequest, SessionCreateResponse>(
-    // canonical method name per local-ipc-payloads.md §Plan-005-Partial — Local IPC Daemon Control
-    "session.create",
-    session_create_handler,
-    RegisterOptions { mutating: true },
-)?;
-registry.register::<SessionEventSubscribeRequest, SubscribeAckResponse>(
-    "session.event.subscribe",
-    session_subscribe_handler,
-    RegisterOptions { mutating: false },
-)?;
+// Daemon side: params decode with serde and pass their garde checks before the handler runs. The
+// method type carries its wire name, its mutation and its call facts, so the registration names
+// only the method and its handler.
+registry.register::<SessionCreate, _>(session_create_handler)?;
+registry.register_subscription::<SessionEventSubscribe, _>(session_subscribe_handler)?;
 ```
 
 Subscribe handler answers its acknowledgment and a feed of `SessionStreamFrame`, which the subscription from T-005p-2-5 carries; the EventEnvelope shape comes from Plan-001 Phase 2 (`crates/sidekicks-contracts/src/event/envelope.rs`). [Spec-006 §Acceptance Criteria](../specs/006-local-ipc-and-daemon-control.md#acceptance-criteria) carries the per-method ACs (AC-N1..N3). **Spec coverage:** Spec-006 §Interfaces And Contracts (session.\* handler namespace — CP-005-1 contract owed to Plan-001 Phase 5). **Verifies invariant:** I-005-6, I-005-7.
