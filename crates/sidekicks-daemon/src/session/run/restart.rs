@@ -300,30 +300,9 @@ pub(crate) fn applied_pending_interrupt_of(
     })
 }
 
+/// The queue table with the columns the queue's reads name, for a test's database file.
 #[cfg(test)]
-mod tests {
-    use rstest::rstest;
-    use sidekicks_contracts::orchestration::InterruptReason;
-    use sidekicks_contracts::run::control::StopTrigger;
-    use sidekicks_contracts::run::events::{
-        DaemonInterventionActor, InterventionActor, TurnEndCause,
-    };
-    use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::run::intervention::{InterruptInterventionRecord, InterventionId};
-    use sidekicks_contracts::run::state::RunState;
-
-    use super::{
-        PendingInterrupt, RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
-        decide_restart_settlement, no_waiting_item_statement,
-    };
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
-    use crate::interventions::store::UnresolvedInterventionState;
-    use crate::session::run::read::{LiveRun, RunRead};
-    use crate::uuid_v7::mint_uuid_v7;
-
-    // The queue table's columns the queue's reads name, as the daemon's schema declares them.
-    const QUEUE_ITEMS_TABLE_SQL: &str = "
+pub(crate) const QUEUE_ITEMS_TABLE_SQL: &str = "
 CREATE TABLE queue_items (
   id                    TEXT PRIMARY KEY,
   session_id            TEXT NOT NULL,
@@ -340,6 +319,28 @@ CREATE TABLE queue_items (
   updated_at            TEXT NOT NULL
 ) STRICT;
 ";
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use sidekicks_contracts::orchestration::InterruptReason;
+    use sidekicks_contracts::run::control::StopTrigger;
+    use sidekicks_contracts::run::events::{
+        DaemonInterventionActor, InterventionActor, TurnEndCause,
+    };
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::intervention::{InterruptInterventionRecord, InterventionId};
+    use sidekicks_contracts::run::state::RunState;
+
+    use super::{
+        PendingInterrupt, QUEUE_ITEMS_TABLE_SQL, RestartDecision, RestartFacts, RestartSettlement,
+        RestartTurnEnd, decide_restart_settlement, no_waiting_item_statement,
+    };
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
+    use crate::interventions::store::UnresolvedInterventionState;
+    use crate::session::run::read::{LiveRun, RunRead};
+    use crate::uuid_v7::mint_uuid_v7;
 
     fn ends(settlement: RestartSettlement, turn_end: RestartTurnEnd) -> Option<RestartDecision> {
         Some(RestartDecision {

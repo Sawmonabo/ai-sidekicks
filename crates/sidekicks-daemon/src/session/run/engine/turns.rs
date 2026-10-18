@@ -32,9 +32,9 @@ use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError,
 };
 
-/// The position among a run change's companions of the guard that the turn it ends has no end
-/// yet: the turn's end rides first, so its guard leads the companions.
-pub(super) const TURN_END_GUARD_COMPANION_INDEX: usize = 0;
+// The position among a run change's companions of the guard that the turn it ends has no end yet:
+// the turn's end rides first, so its guard leads the companions.
+const TURN_END_GUARD_COMPANION_INDEX: usize = 0;
 
 // A lone turn end's guard is the first statement of its write.
 const LONE_TURN_END_GUARD_INDEX: usize = 0;
@@ -127,7 +127,8 @@ static SELECT_OPEN_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
 pub(crate) struct ProviderTurnEnd {
     /// The turn's number within its run, as its start was numbered.
     pub(crate) turn_number: SafeInt<1>,
-    /// How it ended, with no cause: a cause is the daemon's to know.
+    /// How it ended, with the cause the delivery knows from the frame, such as the step limit of a
+    /// provider that bounds a turn's steps itself; a limit stop's cut of the turn replaces it.
     pub(crate) outcome: TurnOutcome,
 }
 
@@ -212,7 +213,9 @@ impl RunEngine {
     /// nothing written once the run has ended. `step_bound` is the turn's effective `Max steps per
     /// turn`, which the caller resolves when the turn opens; on a run whose provider does not bound
     /// a turn's steps itself the engine counts them against it. Fails with
-    /// `RunRefusal::NotFound` for an unknown run and with the append's failure.
+    /// `RunRefusal::NotFound` for an unknown run and with the append's failure; with a bound, also
+    /// with [`RunEngineError::ProviderUnknown`] when no provider is known for the run and with
+    /// [`RunEngineError::Provider`] when no registered driver answers its provider.
     #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn start_turn(
         &self,
@@ -314,7 +317,7 @@ impl RunEngine {
     /// that ended beside a live run, or a late end after the run ended. Returns whether it was
     /// written; a duplicate of an end the turn holds is dropped. Fails with
     /// `RunRefusal::NotFound` for an unknown run and with the append's failure.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_turn_end(
         &self,
         run_id: RunId,
@@ -379,7 +382,7 @@ impl RunEngine {
     /// before the change's own, guarded on the turn holding no end. A turn that already holds its
     /// end drops this one and the change is written alone; a change the run refuses still ends
     /// its turn, written on its own before the refusal returns. Fails as [`RunEngine::transition`]
-    /// does.
+    /// does, a refusing companion numbered among `companions` alone.
     pub(super) async fn change_with_turn_end(
         &self,
         change: RunStateChange,
@@ -415,6 +418,16 @@ impl RunEngine {
                 self.forget_turn(&run_id, turn_end.turn_number);
                 self.change(change, companions).await
             }
+            // One of the caller's own companions refused, numbered as the caller placed it.
+            Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
+                companion_index,
+                source,
+            })) => Err(RunEngineError::Change(
+                RunStateChangeError::CompanionRefused {
+                    companion_index: companion_index - 1,
+                    source,
+                },
+            )),
             Err(refused @ RunEngineError::Refused(_)) => {
                 match self.record_turn_end_alone(run_id, run, turn_end).await {
                     Ok(_is_written) => Err(refused),
