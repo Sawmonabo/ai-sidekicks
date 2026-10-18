@@ -7795,6 +7795,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
  "unicode-normalization",
+ "unicode-properties",
  "unicode-segmentation",
  "url",
  "uuid",
