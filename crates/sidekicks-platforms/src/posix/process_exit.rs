@@ -127,3 +127,39 @@ fn wait_without_reaping(pid: u32, options: libc::c_int) -> io::Result<bool> {
         return Ok(unsafe { information.assume_init_ref().si_pid() } != 0);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+
+    use super::wait_for_exit;
+
+    #[test]
+    fn the_exit_wait_ends_on_the_exit_event_and_gives_up_at_its_bound() {
+        let mut quick = Command::new("/bin/sh")
+            .args(["-c", "sleep 0.2"])
+            .spawn()
+            .expect("the child starts");
+        let started = Instant::now();
+        assert!(wait_for_exit(quick.id(), Some(Duration::from_secs(10))).expect("the wait runs"));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the exit ends the wait, not its bound"
+        );
+        quick
+            .wait()
+            .expect("the child is reaped after the wait left it");
+
+        let mut slow = Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("the child starts");
+        let started = Instant::now();
+        let bound = Duration::from_millis(300);
+        assert!(!wait_for_exit(slow.id(), Some(bound)).expect("the wait runs"));
+        assert!(started.elapsed() >= bound);
+        slow.kill().expect("the test ends its own child");
+        slow.wait().expect("the child is reaped");
+    }
+}
