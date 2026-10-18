@@ -1,6 +1,6 @@
 //! Subscriptions' lanes: the acknowledgment first, lane numbers in the order lanes first send, a
-//! cancel's ABORT before its answer, lanes taking turns, and the writer's bounds with a client that
-//! grants no credit or stops reading.
+//! cancel's ABORT before its answer on a lane never numbered too, lanes taking turns, and the
+//! writer's bounds with a client that grants no credit or stops reading.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -59,6 +59,7 @@ async fn a_lane_takes_its_number_as_its_first_frame_is_written() {
     assert!(second_lane < first_lane);
 }
 
+// A lane never numbered is numbered for its ABORT, so the client's admission of it is spent.
 #[rstest]
 #[case::numbered_lane(true)]
 #[case::lane_never_numbered(false)]
@@ -82,10 +83,11 @@ async fn a_cancel_closes_the_lane_before_it_answers(#[case] has_sent: bool) {
         .client
         .send(&call(2, "$/subscription/cancel", &cancel))
         .await;
+    let Event::Abort(aborted) = connection.client.next_event().await else {
+        panic!("the lane's ABORT comes before the cancel's answer");
+    };
     if let Some(lane) = numbered {
-        assert!(
-            matches!(connection.client.next_event().await, Event::Abort(aborted) if aborted == lane)
-        );
+        assert_eq!(aborted, lane);
     }
     let answer = connection.client.answer().await;
     assert_eq!(answer["result"], json!({ "canceled": true }), "{answer}");
