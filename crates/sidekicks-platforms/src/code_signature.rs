@@ -30,6 +30,19 @@ pub enum CodeSignatureError {
     },
 }
 
+/// What a desktop client's signature check found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignatureCheck {
+    /// The client helper and the app responsible for it meet their requirements.
+    Met,
+    /// One of them does not: unsigned, signed otherwise, changed on disk or ended. `status` is the
+    /// Security framework's code that said so.
+    NotMet {
+        /// The Security framework's status code.
+        status: i32,
+    },
+}
+
 /// The signatures a desktop client meets: none on this system, which admits the desktop by the
 /// session token, so no value of this type exists.
 #[cfg(not(target_os = "macos"))]
@@ -46,11 +59,11 @@ impl DesktopClientRequirement {
     }
 
     /// Never answers, since no requirement exists on this system.
-    pub fn admits(
+    pub fn check(
         &self,
         _caller: &PinnedProcess,
         _responsible: &PinnedProcess,
-    ) -> io::Result<bool> {
+    ) -> io::Result<SignatureCheck> {
         match self.never {}
     }
 }

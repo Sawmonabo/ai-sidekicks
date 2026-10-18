@@ -16,7 +16,7 @@ use objc2_security::{
 };
 
 use crate::PinnedProcess;
-use crate::code_signature::CodeSignatureError;
+use crate::code_signature::{CodeSignatureError, SignatureCheck};
 use crate::macos::caller_process::is_running;
 
 /// The kernel's "no such process" as the Security framework reports it: its POSIX error base
@@ -81,9 +81,17 @@ impl DesktopClientRequirement {
     /// Whether `caller` runs a helper that meets the requirement and `responsible`, the process
     /// responsible for it, runs the app that does. A program that is unsigned, signed otherwise,
     /// changed on disk, or that ended or ran another program since it was pinned, does not meet
-    /// it; fails only when the system cannot check.
-    pub fn admits(&self, caller: &PinnedProcess, responsible: &PinnedProcess) -> io::Result<bool> {
-        Ok(meets(caller, &self.helper)? && meets(responsible, &self.app)?)
+    /// it, and the answer carries the status that said so; fails only when the system cannot
+    /// check.
+    pub fn check(
+        &self,
+        caller: &PinnedProcess,
+        responsible: &PinnedProcess,
+    ) -> io::Result<SignatureCheck> {
+        match meets(caller, &self.helper)? {
+            SignatureCheck::Met => meets(responsible, &self.app),
+            not_met @ SignatureCheck::NotMet { .. } => Ok(not_met),
+        }
     }
 }
 
@@ -170,7 +178,7 @@ fn owned<T: objc2_core_foundation::Type>(
 /// connection's audit token, which fails once the process ran another program; any other process
 /// by its id, taken only once the process is read still running afterward. Fails only when the
 /// system cannot check.
-fn meets(process: &PinnedProcess, requirement: &Requirement) -> io::Result<bool> {
+fn meets(process: &PinnedProcess, requirement: &Requirement) -> io::Result<SignatureCheck> {
     let attributes = if let Some(token) = process.audit_token() {
         let token = CFData::from_bytes(&token.to_bytes());
         // SAFETY: the key is the Security framework's own constant.
@@ -203,19 +211,21 @@ fn meets(process: &PinnedProcess, requirement: &Requirement) -> io::Result<bool>
     if status != 0 {
         return refusal(status);
     }
-    match process.audit_token() {
-        Some(_) => Ok(true),
-        None => is_running(process),
+    if process.audit_token().is_none() && !is_running(process)? {
+        return Ok(SignatureCheck::NotMet {
+            status: NO_SUCH_PROCESS_STATUS,
+        });
     }
+    Ok(SignatureCheck::Met)
 }
 
 /// What a failed lookup or check means: a code-signing status, or the kernel's "no such process",
 /// says the program is not the client; any other status is a failure to check.
-fn refusal(status: i32) -> io::Result<bool> {
+fn refusal(status: i32) -> io::Result<SignatureCheck> {
     if (errSecCSUnimplemented..=errSecCSRemoteSignerFailed).contains(&status)
         || status == NO_SUCH_PROCESS_STATUS
     {
-        return Ok(false);
+        return Ok(SignatureCheck::NotMet { status });
     }
     Err(io::Error::other(format!(
         "the Security framework could not check a process's signature (status {status})"
@@ -229,8 +239,8 @@ mod tests {
     use interprocess::local_socket::tokio::Stream;
     use interprocess::os::unix::uds_local_socket::tokio::Stream as UnixSocketStream;
 
-    use super::DesktopClientRequirement;
-    use crate::code_signature::CodeSignatureError;
+    use super::{DesktopClientRequirement, compile, signed_by_team};
+    use crate::code_signature::{CodeSignatureError, SignatureCheck};
     use crate::macos::caller_process::{pinned, read_peer_process};
 
     /// The requirement `nc` meets as the helper and `sleep` as the app: two programs the system
@@ -253,6 +263,16 @@ mod tests {
                 .expect("this program's signature reads")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn the_requirements_a_team_signed_build_makes_compile() {
+        for identifier in ["io.example.app", "io.example.app.helper"] {
+            assert!(
+                compile(&signed_by_team(identifier, "ABCDE12345")).is_ok(),
+                "{identifier}'s requirement compiles"
+            );
+        }
     }
 
     #[test]
@@ -296,38 +316,37 @@ mod tests {
             .expect("the test reads")
             .expect("the test runs");
 
-        assert!(
-            requirement
-                .admits(&caller, &app)
-                .expect("the check answers")
+        assert_eq!(
+            requirement.check(&caller, &app).expect("the check answers"),
+            SignatureCheck::Met
         );
         // The test program is signed ad hoc, so it meets neither requirement.
-        assert!(
-            !requirement
-                .admits(&caller, &unsigned)
-                .expect("the check answers")
-        );
-        assert!(
-            !requirement
-                .admits(&unsigned, &app)
-                .expect("the check answers")
-        );
+        assert!(matches!(
+            requirement
+                .check(&caller, &unsigned)
+                .expect("the check answers"),
+            SignatureCheck::NotMet { .. }
+        ));
+        assert!(matches!(
+            requirement
+                .check(&unsigned, &app)
+                .expect("the check answers"),
+            SignatureCheck::NotMet { .. }
+        ));
         // A program meeting the other's requirement meets neither.
-        assert!(
-            !requirement
-                .admits(&app, &caller)
-                .expect("the check answers")
-        );
+        assert!(matches!(
+            requirement.check(&app, &caller).expect("the check answers"),
+            SignatureCheck::NotMet { .. }
+        ));
 
         // Once the helper and the app have ended, neither is the client, and neither is an error.
         nc.kill().expect("nc ends");
         nc.wait().expect("nc is reaped");
         sleep.kill().expect("sleep ends");
         sleep.wait().expect("sleep is reaped");
-        assert!(
-            !requirement
-                .admits(&caller, &app)
-                .expect("the check answers")
-        );
+        assert!(matches!(
+            requirement.check(&caller, &app).expect("the check answers"),
+            SignatureCheck::NotMet { .. }
+        ));
     }
 }
