@@ -203,7 +203,7 @@ pub fn read_parent_process(process: &PinnedProcess) -> io::Result<ParentProcess>
 /// with the system's error, with `Unsupported` on a macOS without the calls, and with `Other` when
 /// the responsible process kept ending while it was read.
 pub fn read_responsible_process(process: &PinnedProcess) -> io::Result<ResponsibleProcess> {
-    let own_unique_id = read_own_unique_id()?;
+    let own_unique_id = own_unique_id()?;
     for _ in 0..RESPONSIBLE_READ_ATTEMPTS {
         let Some(responsible_unique_id) = read_responsible_unique_id(process.id)? else {
             return Ok(ResponsibleProcess::Ended);
@@ -241,11 +241,16 @@ pub fn read_responsible_process(process: &PinnedProcess) -> io::Result<Responsib
 /// reads; the next read finds the process responsible for itself.
 const RESPONSIBLE_READ_ATTEMPTS: usize = 4;
 
-/// This process's unique id, which an exec keeps.
-fn read_own_unique_id() -> io::Result<u64> {
+/// This process's unique id, which never changes and an exec keeps: read once, at the start's
+/// first responsible read, then held.
+fn own_unique_id() -> io::Result<u64> {
+    static OWN_UNIQUE_ID: OnceLock<u64> = OnceLock::new();
+    if let Some(&unique_id) = OWN_UNIQUE_ID.get() {
+        return Ok(unique_id);
+    }
     let identifiers = read_unique_identifiers(std::process::id(), COMPARE_NOTHING, 0)?
         .ok_or_else(|| io::Error::other("this process has no record of its own"))?;
-    Ok(identifiers.unique_id)
+    Ok(*OWN_UNIQUE_ID.get_or_init(|| identifiers.unique_id))
 }
 
 /// Whether `process` still runs under its id. Fails with the system's error.
