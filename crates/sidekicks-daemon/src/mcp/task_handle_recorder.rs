@@ -6,7 +6,8 @@
 //!   task; a refusal leaves the column `NULL`, so after a restart the call stays halted, never
 //!   run again.
 //! - The first handle wins: the claim writes only a `NULL` column, and the read-back in the same
-//!   write tells an absent receipt, the same handle already stored, and a different one apart.
+//!   write tells an absent receipt, the same handle and generation already stored, and a
+//!   different pair apart.
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -37,9 +38,9 @@ const CLAIM_HANDLE_SQL: &str = "UPDATE command_receipts \
                                     mcp_task_generation = @mcp_task_generation \
                                 WHERE command_id = @command_id AND mcp_task_id IS NULL";
 
-/// Reads the receipt's handle back, in the same write as the claim.
-const READ_STORED_HANDLE_SQL: &str =
-    "SELECT mcp_task_id FROM command_receipts WHERE command_id = @command_id";
+/// Reads the receipt's handle and generation back, in the same write as the claim.
+const READ_STORED_HANDLE_SQL: &str = "SELECT mcp_task_id, mcp_task_generation \
+                                      FROM command_receipts WHERE command_id = @command_id";
 
 /// Why a handle was not stored. The first three are what the column's check refuses; the last two
 /// are states of the receipt row the check cannot express.
@@ -54,7 +55,7 @@ pub(crate) enum McpTaskHandleRefusalReason {
     HandleContainsNul,
     /// No receipt row carries the dispatch's command id.
     ReceiptAbsent,
-    /// The receipt already holds a different handle.
+    /// The receipt already holds a different handle, or this handle under the other generation.
     HandleConflict,
 }
 
@@ -63,7 +64,7 @@ pub(crate) enum McpTaskHandleRefusalReason {
 pub(crate) enum McpTaskHandleRecordOutcome {
     /// The handle is stored.
     Recorded,
-    /// The receipt already held this same handle.
+    /// The receipt already held this same handle under this same generation.
     AlreadyRecorded,
     /// The handle was not stored, for `reason`; the column is unchanged.
     Refused {
@@ -175,18 +176,18 @@ impl McpTaskHandleRecorder {
             return McpTaskHandleRecordOutcome::Recorded;
         }
         // Nothing changed: the receipt is absent or holds a handle; the read-back says which.
-        let reason = match stored.rows.first().and_then(|row| row.first()) {
+        let generation = <&str>::from(observation.mcp_task_generation);
+        let reason = match stored.rows.first().map(Vec::as_slice) {
             None => McpTaskHandleRefusalReason::ReceiptAbsent,
-            Some(SqlValue::Text(stored_handle)) if stored_handle == handle => {
+            Some(
+                [
+                    SqlValue::Text(stored_handle),
+                    SqlValue::Text(stored_generation),
+                ],
+            ) if stored_handle == handle && stored_generation == generation => {
                 return McpTaskHandleRecordOutcome::AlreadyRecorded;
             }
-            Some(
-                SqlValue::Text(_)
-                | SqlValue::Null
-                | SqlValue::Integer(_)
-                | SqlValue::Real(_)
-                | SqlValue::Blob(_),
-            ) => McpTaskHandleRefusalReason::HandleConflict,
+            Some(_) => McpTaskHandleRefusalReason::HandleConflict,
         };
         self.refuse(observation, reason, scan.scanned_code_points)
     }
