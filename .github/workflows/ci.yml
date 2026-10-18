@@ -847,6 +847,32 @@ jobs:
       - name: Test the addon's crate
         run: cargo test -p search-index --locked
 
+  # The operating-system crate's tests on macOS, where the caller read rests on a private system
+  # call: a macOS that changes or drops it fails here.
+  platforms-macos:
+    name: platforms (macOS)
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      # The same Rust set-up as the `test` job; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # nextest's prebuilt macOS binary, from its documented install address.
+      - name: Install cargo-nextest
+        run: curl -LsSf https://get.nexte.st/latest/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+
+      - name: Test the operating-system crate
+        run: cargo nextest run -p sidekicks-platforms --locked
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
