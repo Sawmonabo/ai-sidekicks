@@ -45,8 +45,10 @@
       "cache": false,
       "persistent": true
     },
-    // The Cargo workspace's own checks, once for every crate.
+    // The Cargo workspace's own checks, once for every crate. The daemon embeds the grammars its
+    // engines' package builds, so every Cargo task waits for that build.
     "sidekicks-crates#lint": {
+      "dependsOn": ["@ai-sidekicks/daemon-engines#build"],
       "command": [
         "cargo",
         "clippy",
@@ -59,11 +61,12 @@
     },
     // A package-scoped task does not inherit the shared test task's settings.
     "sidekicks-crates#test": {
-      "dependsOn": ["sidekicks-crates#test:doc"],
+      "dependsOn": ["sidekicks-crates#test:doc", "@ai-sidekicks/daemon-engines#build"],
       "cache": false,
       "command": ["cargo", "nextest", "run", "--workspace", "--locked"]
     },
     "sidekicks-crates#test:doc": {
+      "dependsOn": ["@ai-sidekicks/daemon-engines#build"],
       "cache": false,
       "command": ["cargo", "test", "--workspace", "--doc", "--locked"]
     },
