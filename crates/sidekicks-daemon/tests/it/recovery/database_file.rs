@@ -234,16 +234,15 @@ async fn a_damaged_file_is_found_and_recovered_through_the_shell_mode() {
         .answer()
         .await
         .expect("the check runs");
-    shell
-        .recover_into_fresh_file(
-            &damaged_path,
-            &fresh_path,
-            physical_memory(),
-            &recovered_events,
-            &stop,
-        )
-        .await
-        .expect("the file is recovered");
+    Box::pin(shell.recover_into_fresh_file(
+        &damaged_path,
+        &fresh_path,
+        physical_memory(),
+        &recovered_events,
+        &stop,
+    ))
+    .await
+    .expect("the file is recovered");
 
     assert!(
         matches!(found, DatabaseFileCheckAnswer::Damaged(_)),

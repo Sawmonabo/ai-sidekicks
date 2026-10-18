@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-// The quoted text of the header's `#define SQLITE_SOURCE_ID` line.
+/// The quoted text of the header's `#define SQLITE_SOURCE_ID` line.
 fn read_source_id(header: &str) -> Option<&str> {
     header.lines().find_map(|line| {
         line.strip_prefix("#define SQLITE_SOURCE_ID")?

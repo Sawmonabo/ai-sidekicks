@@ -199,8 +199,8 @@ mod tests {
         rusqlite::Error::SqliteFailure(ffi::Error::new(code), None)
     }
 
-    fn rows(rows: &[&str]) -> rusqlite::Result<Vec<String>> {
-        Ok(rows.iter().map(|row| (*row).to_owned()).collect())
+    fn rows(rows: &[&str]) -> Vec<String> {
+        rows.iter().map(|row| (*row).to_owned()).collect()
     }
 
     // What a verdict is, without the damage's words.
@@ -217,13 +217,13 @@ mod tests {
     }
 
     #[rstest]
-    #[case::sound(rows(&["ok"]), false, "sound")]
+    #[case::sound(Ok(rows(&["ok"])), false, "sound")]
     #[case::damage_the_walk_stepped_past(
-        rows(&["*** in database main ***", "Page 5: never used"]),
+        Ok(rows(&["*** in database main ***", "Page 5: never used"])),
         false,
         "damaged"
     )]
-    #[case::a_lone_row_that_is_not_ok(rows(&["Page 5: never used"]), false, "damaged")]
+    #[case::a_lone_row_that_is_not_ok(Ok(rows(&["Page 5: never used"])), false, "damaged")]
     #[case::a_malformed_file(Err(sqlite_failure(ffi::SQLITE_CORRUPT)), false, "damaged")]
     #[case::no_database(Err(sqlite_failure(ffi::SQLITE_NOTADB)), false, "damaged")]
     #[case::stopped(Err(sqlite_failure(ffi::SQLITE_INTERRUPT)), true, "stopped")]

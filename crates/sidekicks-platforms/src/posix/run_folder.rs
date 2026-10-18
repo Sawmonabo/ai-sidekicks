@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn resolves_every_case_of_the_shared_table() {
         let cases: Vec<Value> = serde_json::from_str(CASES).expect("the case table parses");
-        assert!(!cases.is_empty());
+        assert_eq!(cases.len(), 7, "the shared table's cases");
         for case in cases {
             let environment: HashMap<String, OsString> = case["environment"]
                 .as_object()

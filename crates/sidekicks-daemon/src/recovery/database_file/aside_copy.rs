@@ -210,7 +210,7 @@ pub(crate) async fn record_session_in_aside_copy(
 ) -> Result<(), AsideCopyError> {
     let mut record = read_record(folder).await?;
     record.sessions.push(RecordedSession {
-        session_id: session_id.clone(),
+        session_id: *session_id,
         head_sequence,
     });
     write_record(folder, &record).await
