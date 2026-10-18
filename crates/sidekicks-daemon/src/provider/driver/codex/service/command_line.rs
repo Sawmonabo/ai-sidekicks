@@ -3,6 +3,7 @@
 //! switches name. Each `-c` value is TOML, whose integers are 64-bit, so the largest holds below
 //! exceed what a JSON number keeps.
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -19,6 +20,15 @@ pub(crate) const CODEX_HOOK_TIMEOUT: Duration =
 /// How long a conversation no client holds stays loaded, so a moved one is free to resume soon.
 const CODEX_THREAD_UNLOAD_DELAY: Duration = Duration::from_secs(5);
 
+/// The hook event before each tool call.
+const PRE_TOOL_USE_EVENT: &str = "PreToolUse";
+
+/// The hook event after each tool call.
+const POST_TOOL_USE_EVENT: &str = "PostToolUse";
+
+/// What a program path ends with on Linux once the running program's file is replaced.
+const REPLACED_PROGRAM_SUFFIX: &str = " (deleted)";
+
 /// The daemon's two hook programs, as the command lines Codex runs for each tool call.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexHookCommands {
@@ -26,6 +36,36 @@ pub(crate) struct CodexHookCommands {
     pub(crate) pre_tool_use: String,
     /// Runs after each tool call.
     pub(crate) post_tool_use: String,
+}
+
+impl CodexHookCommands {
+    // Each event's name and its command line.
+    fn events(&self) -> [(&'static str, &str); 2] {
+        [
+            (PRE_TOOL_USE_EVENT, &self.pre_tool_use),
+            (POST_TOOL_USE_EVENT, &self.post_tool_use),
+        ]
+    }
+}
+
+/// One hook a running service lists in its `hooks/list` reply, the members the daemon compares.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CodexListedHook {
+    /// The hook's event (`PreToolUse`).
+    pub(crate) event_name: String,
+    /// The command line the service runs: on Windows the `commandWindows` line, where one is set.
+    pub(crate) command: String,
+    /// The hook's timeout, in seconds; `None` where it names none.
+    pub(crate) timeout_seconds: Option<u64>,
+}
+
+/// What a daemon does with a lasting service it finds running.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LastingServiceVerdict {
+    /// Its hooks run this daemon's program as it would start them, so the daemon joins it.
+    Adopt,
+    /// Its hooks run another program, or one no longer on disk, so it is replaced.
+    Restart,
 }
 
 /// Why the daemon's hook commands could not be written.
@@ -40,8 +80,9 @@ pub(crate) enum HookCommandError {
 }
 
 /// The hook commands that run `daemon_program`, the daemon's own program as it started, in its
-/// hidden `hook provider` mode for each tool event. Fails when the path is not UTF-8 text or a
-/// word cannot be written for the system's command shell.
+/// hidden `hook provider` mode for each tool event: the quoted program and its arguments alone,
+/// which Codex runs through `sh -c` or, on Windows, `%COMSPEC% /C` in the folder it sets. Fails
+/// when the path is not UTF-8 text or a word cannot be written for the system's command shell.
 pub(crate) fn compose_daemon_hook_commands(
     daemon_program: &Path,
 ) -> Result<CodexHookCommands, HookCommandError> {
@@ -49,8 +90,41 @@ pub(crate) fn compose_daemon_hook_commands(
         .to_str()
         .ok_or_else(|| HookCommandError::ProgramPathNotText(daemon_program.to_owned()))?;
     Ok(CodexHookCommands {
-        pre_tool_use: compose_daemon_hook_command(program, "PreToolUse")?,
-        post_tool_use: compose_daemon_hook_command(program, "PostToolUse")?,
+        pre_tool_use: compose_daemon_hook_command(program, PRE_TOOL_USE_EVENT)?,
+        post_tool_use: compose_daemon_hook_command(program, POST_TOOL_USE_EVENT)?,
+    })
+}
+
+/// Whether the lasting service a daemon finds running can be joined: each of the daemon's events
+/// has a hook in `listed`, the service's `hooks/list` reply, whose command and timeout are the
+/// ones `composed` from `daemon_program` gives, and `daemon_program` is still on disk under its
+/// path; any difference answers [`LastingServiceVerdict::Restart`], which the daemon's start hands
+/// to the planned restart. Never reproduces Codex's own hook hash. Fails when the program's
+/// presence cannot be read.
+pub(crate) fn compare_daemon_hook_commands(
+    listed: &[CodexListedHook],
+    composed: &CodexHookCommands,
+    daemon_program: &Path,
+) -> io::Result<LastingServiceVerdict> {
+    let is_program_replaced = daemon_program
+        .as_os_str()
+        .as_encoded_bytes()
+        .ends_with(REPLACED_PROGRAM_SUFFIX.as_bytes());
+    if is_program_replaced || !daemon_program.try_exists()? {
+        return Ok(LastingServiceVerdict::Restart);
+    }
+    let timeout_seconds = CODEX_HOOK_TIMEOUT.as_secs();
+    let is_every_event_listed = composed.events().iter().all(|(event_name, command)| {
+        listed.iter().any(|hook| {
+            hook.event_name == *event_name
+                && hook.command == *command
+                && hook.timeout_seconds == Some(timeout_seconds)
+        })
+    });
+    Ok(if is_every_event_listed {
+        LastingServiceVerdict::Adopt
+    } else {
+        LastingServiceVerdict::Restart
     })
 }
 
@@ -96,22 +170,23 @@ struct CodexHookMatcher<'command> {
     hooks: [CodexCommandHook<'command>; 1],
 }
 
-/// One command hook.
+/// One command hook; on Windows its line is also Codex's `commandWindows`, the line it runs there.
 #[derive(Serialize)]
 struct CodexCommandHook<'command> {
     #[serde(rename = "type")]
     hook_type: &'static str,
     command: &'command str,
+    #[serde(rename = "commandWindows", skip_serializing_if = "Option::is_none")]
+    command_windows: Option<&'command str>,
     timeout: i64,
 }
 
 /// The arguments after the Codex command for one managed service.
 pub(crate) fn compose_codex_service_arguments(input: &CodexServiceCommandLineInput) -> Vec<String> {
     let hook_overrides = input.hook_commands.iter().flat_map(|commands| {
-        [
-            compose_hook_override("PreToolUse", &commands.pre_tool_use),
-            compose_hook_override("PostToolUse", &commands.post_tool_use),
-        ]
+        commands
+            .events()
+            .map(|(event_name, command)| compose_hook_override(event_name, command))
     });
     let shared_overrides = [
         format!(
@@ -149,6 +224,7 @@ fn compose_hook_override(event_name: &str, command: &str) -> String {
         hooks: [CodexCommandHook {
             hook_type: "command",
             command,
+            command_windows: (PathRules::NATIVE == PathRules::Windows).then_some(command),
             timeout: i64::try_from(CODEX_HOOK_TIMEOUT.as_secs())
                 .expect("the hook timeout is a 64-bit integer divided by 1000"),
         }],
@@ -161,7 +237,51 @@ fn compose_hook_override(event_name: &str, command: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CodexHookCommands, CodexServiceCommandLineInput, compose_codex_service_arguments};
+    use rstest::rstest;
+
+    use super::{
+        CODEX_HOOK_TIMEOUT, CodexHookCommands, CodexListedHook, CodexServiceCommandLineInput,
+        LastingServiceVerdict, compare_daemon_hook_commands, compose_codex_service_arguments,
+        compose_daemon_hook_commands,
+    };
+
+    // Mutations killed: answering adopt without reading the list, or comparing the event alone.
+    #[rstest]
+    #[case::the_same_hooks("", Some(CODEX_HOOK_TIMEOUT.as_secs()), LastingServiceVerdict::Adopt)]
+    #[case::another_program(
+        "-old",
+        Some(CODEX_HOOK_TIMEOUT.as_secs()),
+        LastingServiceVerdict::Restart
+    )]
+    #[case::another_timeout("", Some(600), LastingServiceVerdict::Restart)]
+    fn compare_daemon_hook_commands_adopts_only_the_same_hooks(
+        #[case] listed_program_suffix: &str,
+        #[case] timeout_seconds: Option<u64>,
+        #[case] expected: LastingServiceVerdict,
+    ) {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let program = folder.path().join("sidekicks-daemon");
+        std::fs::write(&program, b"").expect("the program file is written");
+        let composed = compose_daemon_hook_commands(&program).expect("the path is text");
+        let listed_program = folder
+            .path()
+            .join(format!("sidekicks-daemon{listed_program_suffix}"));
+        let listed: Vec<CodexListedHook> = compose_daemon_hook_commands(&listed_program)
+            .expect("the path is text")
+            .events()
+            .iter()
+            .map(|(event_name, command)| CodexListedHook {
+                event_name: (*event_name).to_owned(),
+                command: (*command).to_owned(),
+                timeout_seconds,
+            })
+            .collect();
+
+        let verdict = compare_daemon_hook_commands(&listed, &composed, &program)
+            .expect("the program's presence reads");
+
+        assert_eq!(verdict, expected);
+    }
 
     #[test]
     fn the_hook_override_reads_back_its_command_and_timeout_unchanged() {

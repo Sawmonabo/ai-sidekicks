@@ -1,12 +1,13 @@
-//! The Codex processes the daemon starts: a service on an account home it manages, which ends
-//! with the daemon; the lasting service on the person's own Codex folder, which outlives it and
-//! writes to one log per home; and a short command run to its end for what it prints.
+//! The Codex services the daemon starts: one on an account home it manages, which ends with the
+//! daemon, and the lasting service on the person's own Codex folder, which outlives it, writes to
+//! one log per folder and is found again from its record; their stops and Codex's own shutdown
+//! request.
 
 use std::error::Error;
 use std::future::Future;
-use std::io::{self, SeekFrom};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,19 +16,17 @@ use process_wrap::tokio::ChildWrapper;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    CAN_SIGNAL_A_STOP, ChildEnd, PinnedProcess, ProcessRecord, Spawner, ask_child_to_stop,
-    exit_signal_name, leave_daemon_scope, pin_child_process, prepare_lasting_child_command,
+    CAN_SIGNAL_A_STOP, ChildEnd, LastingChild, LastingCommand, PinnedProcess, ProcessRecord,
+    Spawner, ask_child_to_stop, leave_daemon_scope, read_child_exit, spawn_lasting_child,
     wrap_child_command,
 };
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite};
-use tokio::process::{Child, ChildStderr, ChildStdout, Command};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
+use tokio::process::{ChildStderr, ChildStdout, Command};
+use tokio::sync::{oneshot, watch};
 use tokio_tungstenite::tungstenite::{self, Message};
 
-use crate::process_exit::{OutputTail, compose_process_exit, wire_exit_code};
-
-/// How much of the log a former start wrote is kept beside the new one.
-const PREVIOUS_LOG_TAIL_BYTES: u64 = 256 * 1024;
+use crate::process_exit::{OutputTail, compose_process_exit};
+use crate::provider::service_log::{open_provider_service_log, read_provider_service_log_tail};
 
 /// The variable that opens a lasting service's shutdown socket; Codex reads it only on Windows.
 const CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME: &str = "CODEX_DAEMON_SHUTDOWN_SOCKET";
@@ -38,13 +37,11 @@ const CODEX_SHUTDOWN_ADDRESS: &str = "ws://localhost/daemon/shutdown";
 /// How long the shutdown request waits for the control socket's answer, as Codex's own does.
 const CODEX_CONTROL_SOCKET_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The most a short command may print; the catalog dump, the largest, measured near 660 KB.
-const CODEX_COMMAND_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
-
 /// What one Codex process runs: a service start or a short command.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexProcessLaunch {
-    /// The resolved Codex program, absolute.
+    /// The native Codex program, absolute, never the npm launcher, which would leave its native
+    /// child unpinned: `resolve_codex_native_program` gives it.
     pub(crate) program: PathBuf,
     /// The arguments after the program.
     pub(crate) arguments: Vec<String>,
@@ -55,8 +52,8 @@ pub(crate) struct CodexProcessLaunch {
 }
 
 impl CodexProcessLaunch {
-    // The command that runs the launch, on its own environment alone.
-    fn into_command(self) -> Command {
+    /// The command that runs the launch, on its own environment alone.
+    pub(super) fn into_command(self) -> Command {
         let mut command = Command::new(self.program);
         command
             .args(self.arguments)
@@ -87,7 +84,8 @@ impl ServiceExit {
 /// killed when this handle drops, with the tail of what it printed kept for its exit.
 pub(crate) struct ManagedCodexService {
     process_id: Option<u32>,
-    ends: mpsc::UnboundedSender<ChildEnd>,
+    // The end asked last; a kill is never replaced by a stop.
+    ends: watch::Sender<Option<ChildEnd>>,
     exit: ServiceExit,
 }
 
@@ -115,9 +113,13 @@ impl ManagedCodexService {
     }
 
     fn ask_to_end(&self, end: ChildEnd) {
-        if self.ends.send(end).is_err() {
-            tracing::debug!("the Codex service had already exited when asked to end");
-        }
+        self.ends.send_if_modified(|asked| {
+            let is_changed = *asked != Some(ChildEnd::Kill) && *asked != Some(end);
+            if is_changed {
+                *asked = Some(end);
+            }
+            is_changed
+        });
     }
 }
 
@@ -139,7 +141,7 @@ pub(crate) async fn start_managed_codex_service(
         .await
         .and_then(|spawned| spawned)?;
     let process_id = child.id();
-    let (ends, ends_received) = mpsc::unbounded_channel();
+    let (ends, ends_received) = watch::channel(None);
     let (exit, exit_received) = oneshot::channel();
     tokio::spawn(own_managed_child(child, ends_received, exit));
     Ok(ManagedCodexService {
@@ -153,7 +155,7 @@ pub(crate) async fn start_managed_codex_service(
 // exit once it has exited and both its outputs have ended.
 async fn own_managed_child(
     mut child: Box<dyn ChildWrapper>,
-    mut ends: mpsc::UnboundedReceiver<ChildEnd>,
+    mut ends: watch::Receiver<Option<ChildEnd>>,
     exit: oneshot::Sender<io::Result<ProcessExit>>,
 ) {
     let standard_output = child
@@ -171,11 +173,17 @@ async fn own_managed_child(
             tokio::select! {
                 biased;
                 status = child.wait() => break status.map(|status| (status, asked_end)),
-                end = ends.recv(), if is_handle_held => {
-                    let end = end.unwrap_or_else(|| {
-                        is_handle_held = false;
-                        ChildEnd::Kill
-                    });
+                changed = ends.changed(), if is_handle_held => {
+                    let end = match changed {
+                        Ok(()) => match *ends.borrow_and_update() {
+                            Some(end) => end,
+                            None => continue,
+                        },
+                        Err(_) => {
+                            is_handle_held = false;
+                            ChildEnd::Kill
+                        }
+                    };
                     // A stop asked after a kill changes nothing.
                     if matches!(asked_end, Some(ChildEnd::Kill)) {
                         continue;
@@ -198,8 +206,7 @@ async fn own_managed_child(
     let (waited, read) = tokio::join!(waiting, read_output_tail(standard_output, standard_error));
     let composed = match (waited, read) {
         (Ok((status, asked_end)), Ok(tail)) => Ok(compose_process_exit(
-            status.code(),
-            exit_signal_name(&status, asked_end),
+            read_child_exit(&status, asked_end),
             tail,
         )),
         (Err(error), _) | (_, Err(error)) => Err(error),
@@ -253,9 +260,10 @@ pub(crate) struct LastingCodexService {
 }
 
 impl LastingCodexService {
-    /// What a later daemon re-pins this service from: its id and start time.
-    pub(crate) fn record(&self) -> ProcessRecord {
-        self.record
+    /// What a later daemon re-pins this service from, which the daemon keeps in the service's
+    /// record file.
+    pub(crate) fn record(&self) -> &ProcessRecord {
+        &self.record
     }
 
     /// How a service this daemon started ended: its code or signal and the tail of its log's
@@ -313,7 +321,7 @@ impl LastingCodexService {
     }
 }
 
-/// A lasting service that ended or could not be pinned as it started, with what its log holds.
+/// A lasting service that could not be started or pinned, with what its log holds.
 #[derive(Debug, thiserror::Error)]
 #[error("the started Codex service could not be recorded; its log reads: {output_tail}")]
 struct UnrecordedServiceError {
@@ -322,55 +330,42 @@ struct UnrecordedServiceError {
     output_tail: String,
 }
 
-/// Starts the lasting Codex service on the person's own Codex folder on `spawner`'s thread: the
-/// former start's log tail kept beside `log_file`, which is then truncated and takes the
-/// service's error output, its own session apart from the daemon, pinned, then moved out of the
-/// daemon's scope where the system has one. Fails when the log cannot be opened, the start cannot
-/// be prepared or spawned (on Windows a refused breakaway from the daemon's job), or the started
-/// process cannot be pinned, which ends it.
+/// Starts the lasting Codex service on the person's own Codex folder on `spawner`'s thread: its
+/// log begun again at `log_file`, the former start's tail kept beside it, taking the service's
+/// error output; a session or job of its own apart from the daemon's, pinned, then moved out of
+/// the daemon's scope where the system has one. The caller keeps its record in the folder's record
+/// file. Fails when the log cannot be opened, or the start cannot be spawned or pinned (on Windows
+/// a refused breakaway from the daemon's job among them), with the log's tail beside the cause.
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
     mut launch: CodexProcessLaunch,
     log_file: &Path,
 ) -> io::Result<LastingCodexService> {
-    if let Err(error) = keep_previous_log_tail(log_file).await {
-        tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            log_file = %log_file.display(),
-            "the Codex service's previous log tail could not be kept"
-        );
-    }
-    let log = tokio::fs::File::create(log_file).await?.into_std().await;
+    let error_output = open_provider_service_log(log_file).await?;
     launch.environment.push((
         CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME.to_owned(),
         "1".to_owned(),
     ));
-    let mut command = launch.into_command();
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(log));
-    prepare_lasting_child_command(&mut command)?;
-    let mut child = spawner
-        .run(move || command.spawn())
+    let command = LastingCommand {
+        program: launch.program,
+        arguments: launch.arguments,
+        environment: launch.environment,
+        working_folder: launch.working_folder,
+        error_output,
+    };
+    let started = spawner
+        .run(move || spawn_lasting_child(command))
         .await
-        .and_then(|spawned| spawned)?;
-    let pinned = child
-        .id()
-        .ok_or_else(|| io::Error::other("the started Codex service has no process id"))
-        .and_then(pin_child_process)
-        .and_then(|process| {
-            let record = process
-                .record()?
-                .ok_or_else(|| io::Error::other("the Codex service ended as it started"))?;
-            Ok((process, record))
-        });
-    let (process, record) = match pinned {
-        Ok(pinned) => pinned,
+        .and_then(|spawned| spawned);
+    let LastingChild {
+        process,
+        record,
+        exit,
+    } = match started {
+        Ok(started) => started,
         Err(cause) => {
-            end_unrecorded_child(&mut child).await;
-            let output_tail = match read_codex_service_log_tail(log_file).await {
-                Ok(output_tail) => output_tail,
+            let output_tail = match read_provider_service_log_tail(log_file).await {
+                Ok(output_tail) => output_tail.into_text(),
                 Err(error) => {
                     tracing::warn!(
                         error = &error as &(dyn Error + 'static),
@@ -394,12 +389,12 @@ pub(crate) async fn start_lasting_codex_service(
         );
     }
     let (asked_end, asked_end_received) = watch::channel(AskedEnd::NotAsked);
-    let (exit, exit_received) = oneshot::channel();
+    let (exit_sender, exit_received) = oneshot::channel();
     tokio::spawn(wait_for_lasting_child(
-        child,
+        exit,
         asked_end_received,
         log_file.to_owned(),
-        exit,
+        exit_sender,
     ));
     Ok(LastingCodexService {
         process,
@@ -409,8 +404,8 @@ pub(crate) async fn start_lasting_codex_service(
     })
 }
 
-/// Finds again the lasting service a former daemon started, from the record it stored: `None`
-/// when that process has ended or another now holds its id. Fails when the system's process read
+/// Finds again the lasting service a former daemon started, from the record it kept: `None` when
+/// that process has ended or another now holds its id. Fails when the system's process read
 /// fails.
 pub(crate) fn repin_lasting_codex_service(
     record: ProcessRecord,
@@ -423,32 +418,16 @@ pub(crate) fn repin_lasting_codex_service(
     }))
 }
 
-// Kills and reaps a lasting service that could not be pinned, so nothing unrecorded outlives the
-// start.
-async fn end_unrecorded_child(child: &mut Child) {
-    if let Err(error) = child.start_kill() {
-        tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            "the unrecorded Codex service could not be killed"
-        );
-    }
-    if let Err(error) = child.wait().await {
-        tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            "the unrecorded Codex service could not be waited for"
-        );
-    }
-}
-
-// Reaps a lasting service this daemon started and answers its exit, with its log's tail.
+// Waits for the exit of a lasting service this daemon started and answers it, with its log's
+// tail.
 async fn wait_for_lasting_child(
-    mut child: Child,
+    exit: impl Future<Output = io::Result<ExitStatus>>,
     mut asked_end: watch::Receiver<AskedEnd>,
     log_file: PathBuf,
-    exit: oneshot::Sender<io::Result<ProcessExit>>,
+    exit_sender: oneshot::Sender<io::Result<ProcessExit>>,
 ) {
     let composed = async {
-        let status = child.wait().await?;
+        let status = exit.await?;
         // A stop under way names the end it asked for once it returns; a dropped handle asked none.
         let asked = match asked_end
             .wait_for(|asked| !matches!(asked, AskedEnd::Asking))
@@ -458,15 +437,11 @@ async fn wait_for_lasting_child(
             Ok(AskedEnd::Asked(end)) => Some(end),
             Ok(AskedEnd::NotAsked | AskedEnd::Asking) | Err(_) => None,
         };
-        let tail = read_log_output_tail(&log_file).await?;
-        Ok::<_, io::Error>(compose_process_exit(
-            status.code(),
-            exit_signal_name(&status, asked),
-            tail,
-        ))
+        let tail = read_provider_service_log_tail(&log_file).await?;
+        Ok::<_, io::Error>(compose_process_exit(read_child_exit(&status, asked), tail))
     }
     .await;
-    if exit.send(composed).is_err() {
+    if exit_sender.send(composed).is_err() {
         tracing::debug!("the lasting Codex service's handle dropped before its exit");
     }
 }
@@ -547,233 +522,4 @@ where
     })
     .await
     .map_err(CodexShutdownRequestError::TimedOut)?
-}
-
-/// The log of the lasting service on `codex_home`, in the daemon's `logs_folder`: one per home,
-/// named by the first 16 hex digits of the home path's `blake3` hash, so nothing is written into
-/// the home itself.
-pub(crate) fn codex_service_log_file(logs_folder: &Path, codex_home: &Path) -> PathBuf {
-    let key = blake3::hash(codex_home.as_os_str().as_encoded_bytes()).to_hex();
-    logs_folder.join(format!("codex-service-{}.log", &key.as_str()[..16]))
-}
-
-// The former start's tail beside the log: `codex-service-<key>.previous.log`.
-fn previous_log_file(log_file: &Path) -> PathBuf {
-    log_file.with_extension("previous.log")
-}
-
-// Keeps the last stretch of the former start's log beside it, written to a temporary file and
-// renamed into place; a missing or empty log leaves the last kept tail as it was.
-async fn keep_previous_log_tail(log_file: &Path) -> io::Result<()> {
-    match tokio::fs::symlink_metadata(log_file).await {
-        Ok(metadata) if metadata.is_file() && metadata.len() > 0 => {}
-        Ok(_) => return Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    }
-    let bytes = read_last_bytes(log_file, PREVIOUS_LOG_TAIL_BYTES).await?;
-    let previous = previous_log_file(log_file);
-    let temporary = previous.with_extension("log.tmp");
-    let kept = async {
-        tokio::fs::write(&temporary, &bytes).await?;
-        tokio::fs::rename(&temporary, &previous).await
-    }
-    .await;
-    if kept.is_err()
-        && let Err(error) = tokio::fs::remove_file(&temporary).await
-        && error.kind() != io::ErrorKind::NotFound
-    {
-        tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            temporary_file = %temporary.display(),
-            "the previous log tail's temporary file could not be removed"
-        );
-    }
-    kept
-}
-
-// The last `count` bytes of `file`, or all of it when it is shorter.
-async fn read_last_bytes(file: &Path, count: u64) -> io::Result<Vec<u8>> {
-    let mut opened = tokio::fs::File::open(file).await?;
-    let length = opened.metadata().await?.len();
-    opened
-        .seek(SeekFrom::Start(length.saturating_sub(count)))
-        .await?;
-    let mut bytes = Vec::new();
-    opened.take(count).read_to_end(&mut bytes).await?;
-    Ok(bytes)
-}
-
-/// The tail of what the lasting service wrote to `log_file` since its current start, as a
-/// failure reports it, for a service this daemon did not start. Fails when the log cannot be
-/// read.
-pub(crate) async fn read_codex_service_log_tail(log_file: &Path) -> io::Result<String> {
-    Ok(read_log_output_tail(log_file).await?.into_text())
-}
-
-async fn read_log_output_tail(
-    log_file: &Path,
-) -> io::Result<OutputTail<PROVIDER_FAILURE_DETAIL_MAX_LEN>> {
-    // At most four bytes a code point, and three more for a sequence the start cuts into, so the
-    // bytes read hold the whole tail however the log is written.
-    let count = u64::try_from(4 * PROVIDER_FAILURE_DETAIL_MAX_LEN + 3)
-        .expect("the tail's byte count fits 64 bits");
-    let mut tail = OutputTail::new();
-    tail.push(&read_last_bytes(log_file, count).await?);
-    Ok(tail)
-}
-
-/// Why a short Codex command gave no output.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum CodexCommandError {
-    /// The command could not start.
-    #[error("the Codex command could not start")]
-    Start(#[source] io::Error),
-    /// Its output could not be read.
-    #[error("the Codex command's output could not be read")]
-    Read(#[source] io::Error),
-    /// The wait for its exit failed.
-    #[error("the Codex command's exit could not be waited for")]
-    Wait(#[source] io::Error),
-    /// It printed more than the cap.
-    #[error("the Codex command printed more than {limit} bytes")]
-    OutputTooLarge {
-        /// The cap, in bytes.
-        limit: usize,
-    },
-    /// Its deadline passed before it ended.
-    #[error("the Codex command did not end within {deadline:?}")]
-    DeadlinePassed {
-        /// The deadline it was given.
-        deadline: Duration,
-        /// The timer's end.
-        #[source]
-        elapsed: tokio::time::error::Elapsed,
-    },
-    /// It could not be ended once past its deadline or its cap.
-    #[error("the Codex command could not be ended")]
-    End(#[source] io::Error),
-    /// It exited with a failure code.
-    #[error("the Codex command exited with code {exit_code}")]
-    Failed {
-        /// The exit code, a Windows code read as its unsigned 32-bit value.
-        exit_code: i64,
-    },
-    /// A signal ended it.
-    #[error("the Codex command was ended by {signal}")]
-    Signaled {
-        /// The signal's name.
-        signal: String,
-    },
-    /// What it printed is not UTF-8 text.
-    #[error("the Codex command's output is not UTF-8 text")]
-    NotText(#[source] std::string::FromUtf8Error),
-}
-
-/// Runs a short Codex command to its end on `spawner`'s thread, armed to end with the daemon, and
-/// answers its standard output; its input is closed and its error output discarded. Fails with
-/// [`CodexCommandError`] when it cannot start, prints past 16 MiB, outlives `deadline` (both of
-/// which kill it), exits with a failure code or a signal, or prints anything but UTF-8 text.
-pub(crate) async fn run_codex_command(
-    spawner: &Spawner,
-    launch: CodexProcessLaunch,
-    deadline: Duration,
-) -> Result<String, CodexCommandError> {
-    let mut command = launch.into_command();
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    let daemon_pid = std::process::id();
-    let mut child = spawner
-        .run(move || wrap_child_command(command, daemon_pid).spawn())
-        .await
-        .and_then(|spawned| spawned)
-        .map_err(CodexCommandError::Start)?;
-    let standard_output = child
-        .stdout()
-        .take()
-        .expect("the command's standard output is piped");
-    let ran =
-        tokio::time::timeout(deadline, read_to_end_and_wait(&mut *child, standard_output)).await;
-    let (output, status) = match ran {
-        Ok(ended) => ended?,
-        Err(elapsed) => {
-            end_command(&mut *child).await?;
-            return Err(CodexCommandError::DeadlinePassed { deadline, elapsed });
-        }
-    };
-    if !status.success() {
-        return Err(match exit_signal_name(&status, None) {
-            Some(signal) => CodexCommandError::Signaled { signal },
-            None => CodexCommandError::Failed {
-                exit_code: wire_exit_code(status.code()),
-            },
-        });
-    }
-    String::from_utf8(output).map_err(CodexCommandError::NotText)
-}
-
-// Reads the command's output to its end, killing it past the cap, then waits for its exit.
-async fn read_to_end_and_wait(
-    child: &mut dyn ChildWrapper,
-    standard_output: ChildStdout,
-) -> Result<(Vec<u8>, std::process::ExitStatus), CodexCommandError> {
-    let limit = u64::try_from(CODEX_COMMAND_MAX_OUTPUT_BYTES).expect("the output cap fits 64 bits");
-    let mut output = Vec::new();
-    standard_output
-        .take(limit + 1)
-        .read_to_end(&mut output)
-        .await
-        .map_err(CodexCommandError::Read)?;
-    if output.len() > CODEX_COMMAND_MAX_OUTPUT_BYTES {
-        end_command(child).await?;
-        return Err(CodexCommandError::OutputTooLarge {
-            limit: CODEX_COMMAND_MAX_OUTPUT_BYTES,
-        });
-    }
-    let status = child.wait().await.map_err(CodexCommandError::Wait)?;
-    Ok((output, status))
-}
-
-// Kills a command past its deadline or its cap and reaps it.
-async fn end_command(child: &mut dyn ChildWrapper) -> Result<(), CodexCommandError> {
-    child.start_kill().map_err(CodexCommandError::End)?;
-    child.wait().await.map_err(CodexCommandError::End)?;
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fmt::Write as _;
-
-    use super::{PREVIOUS_LOG_TAIL_BYTES, keep_previous_log_tail, previous_log_file};
-
-    // Fails when the keep copies the whole log, or its first 256 KiB instead of its last.
-    #[tokio::test]
-    async fn the_previous_log_keeps_exactly_the_last_256_kib_and_leaves_the_log_alone() {
-        let folder = tempfile::tempdir().expect("a scratch folder is made");
-        let log_file = folder.path().join("codex-service-0123456789abcdef.log");
-        let mut log = String::new();
-        let mut line = 0_u32;
-        while log.len() < 300 * 1024 {
-            writeln!(log, "line {line:06}").expect("a line is written into a string");
-            line += 1;
-        }
-        log.truncate(300 * 1024);
-        std::fs::write(&log_file, &log).expect("the log is written");
-
-        keep_previous_log_tail(&log_file)
-            .await
-            .expect("the previous tail is kept");
-
-        let kept = std::fs::read(previous_log_file(&log_file)).expect("the previous tail is read");
-        let kept_len = usize::try_from(PREVIOUS_LOG_TAIL_BYTES).expect("256 KiB fits a usize");
-        assert_eq!(kept.len(), kept_len);
-        assert_eq!(kept.as_slice(), &log.as_bytes()[log.len() - kept_len..]);
-        assert_eq!(
-            std::fs::read(&log_file).expect("the log is read"),
-            log.as_bytes()
-        );
-    }
 }

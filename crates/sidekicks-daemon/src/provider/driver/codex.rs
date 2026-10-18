@@ -2,11 +2,14 @@
 
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::{PerSystem, SystemFolderBase};
+use sidekicks_platforms::{
+    LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
+    WindowsSystemFolder,
+};
 
 use crate::provider::driver::{
-    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ProviderCommand,
-    ProviderCommandLookup, ProviderDescriptor,
+    CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup,
+    ProviderDescriptor, ProviderMemoryEstimates,
 };
 
 mod ask_option_sets;
@@ -14,8 +17,24 @@ mod capability_probe;
 mod delivery;
 mod input_limit;
 mod intervention;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start resolves the program the lasting service runs"
+    )
+)]
+mod native_program;
 mod permission_level;
 mod rules;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start and its planned restart start, find, compare and stop the \
+                  Codex services"
+    )
+)]
 mod service;
 mod tools;
 mod usage_limit_signal;
@@ -62,19 +81,41 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         }),
     },
     // Where its system `config.toml` and `requirements.toml` sit; macOS reads the Unix folder.
-    managed_settings_folders: PerSystem {
-        macos: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::Etc,
+    managed_settings_folders: SystemFolders {
+        macos: Some(SystemFolder {
+            base: MacosSystemFolder::Etc,
             components: &["codex"],
         }),
-        linux: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::Etc,
+        linux: Some(SystemFolder {
+            base: LinuxSystemFolder::Etc,
             components: &["codex"],
         }),
-        windows: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::ProgramData,
+        windows: Some(SystemFolder {
+            base: WindowsSystemFolder::ProgramData,
             components: &["OpenAI", "Codex"],
         }),
+    },
+    // It sandboxes its commands on every system with helpers of its own, its own bubblewrap among
+    // them, which on Linux makes a user namespace; on Windows the service reports whether its
+    // sandbox is set up.
+    command_sandbox: PerSystem {
+        macos: true,
+        linux: true,
+        windows: true,
+    },
+    command_sandbox_needs: PerSystem {
+        macos: CommandSandboxNeeds::NOTHING,
+        linux: CommandSandboxNeeds {
+            programs: &[],
+            user_namespace: true,
+        },
+        windows: CommandSandboxNeeds::NOTHING,
+    },
+    // The whole service measured at 53 to 61 MB, and each conversation on a running service at
+    // 1.8 to 3.0 MB more.
+    memory: ProviderMemoryEstimates {
+        process_bytes: 61_000_000,
+        conversation_bytes: Some(3_000_000),
     },
     // Listed first on every model that publishes a tier, and requested by clearing the thread's.
     standard_output_speed: "default",
