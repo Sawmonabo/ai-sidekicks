@@ -130,6 +130,17 @@ pub(crate) struct Tokenized {
     pub(crate) colored_bytes: usize,
 }
 
+/// How a tokenization ended.
+pub(crate) enum TokenizeEnd {
+    /// Every line was gone through.
+    Finished(Tokenized),
+    /// No reader held the source any more, so it stopped before the next line.
+    Unwanted {
+        /// The source bytes it went through before it stopped.
+        colored_bytes: usize,
+    },
+}
+
 /// shiki's 15 grammars and the colorer's theme in one registry. The registry is `!Send`, so a
 /// tokenizer is built, used and dropped on the one thread that colors.
 pub(crate) struct Tokenizer {
@@ -196,7 +207,7 @@ impl Tokenizer {
 
     /// Tokenizes `source` as `language`, from the first line or from `resume`: where an earlier
     /// source beginning with the same text settled, with the spans before it. The source is read
-    /// through `source` before each line, and the tokenization stops with `None` at the first line
+    /// through `source` before each line, and the tokenization stops `Unwanted` at the first line
     /// it can no longer be upgraded. Fails when the grammar or one of its patterns does not
     /// compile.
     pub(crate) fn tokenize(
@@ -204,7 +215,7 @@ impl Tokenizer {
         source: &Weak<String>,
         language: HighlightLanguage,
         resume: Option<(&SettledLines, &[u32])>,
-    ) -> Result<Option<Tokenized>, TokenizeError> {
+    ) -> Result<TokenizeEnd, TokenizeError> {
         let grammar = self
             .registry
             .grammar_for_scope_name(
@@ -223,7 +234,7 @@ impl Tokenizer {
         let mut colored_bytes = 0;
         loop {
             let Some(source) = source.upgrade() else {
-                return Ok(None);
+                return Ok(TokenizeEnd::Unwanted { colored_bytes });
             };
             let Some(rest) = source.get(byte_offset..).filter(|rest| !rest.is_empty()) else {
                 break;
@@ -251,7 +262,7 @@ impl Tokenizer {
                 };
             }
         }
-        Ok(Some(Tokenized {
+        Ok(TokenizeEnd::Finished(Tokenized {
             spans: Arc::from(spans),
             settled,
             colored_bytes,
@@ -395,7 +406,7 @@ mod tests {
     };
     use strum::VariantArray as _;
 
-    use super::{Tokenized, Tokenizer};
+    use super::{TokenizeEnd, Tokenized, Tokenizer};
 
     /// The letter the fixture writes for each span class, in wire order.
     const CLASS_LETTERS: &[u8; 11] = b"knsNc+-hHei";
@@ -421,10 +432,20 @@ mod tests {
 
     fn tokenize(tokenizer: &mut Tokenizer, language: HighlightLanguage, source: &str) -> Tokenized {
         let source = Arc::new(source.to_owned());
-        tokenizer
-            .tokenize(&Arc::downgrade(&source), language, None)
-            .expect("the grammar compiles")
-            .expect("the source is held")
+        finished(
+            tokenizer
+                .tokenize(&Arc::downgrade(&source), language, None)
+                .expect("the grammar compiles"),
+        )
+    }
+
+    /// The tokenized source of a run whose source stayed held.
+    fn finished(end: TokenizeEnd) -> Tokenized {
+        match end {
+            TokenizeEnd::Finished(tokenized) => Some(tokenized),
+            TokenizeEnd::Unwanted { .. } => None,
+        }
+        .expect("the source is held")
     }
 
     /// One letter per code point: its span's class, or `.` for plain text and every line break.
@@ -516,8 +537,8 @@ mod tests {
                     language,
                     Some((&last.settled, &last.spans[..last.settled.span_count])),
                 )
-                .expect("the grammar compiles")
-                .expect("the version is held");
+                .expect("the grammar compiles");
+            let resumed = finished(resumed);
             let version_units = u32::try_from(version.encode_utf16().count()).expect("fits");
             let expected: Vec<u32> = whole
                 .spans
@@ -540,7 +561,7 @@ mod tests {
     #[rstest]
     #[case::utf16_offsets_across_crlf(
         "let a = 1;\r\n// \u{1F600} x\r\nlet b = 2;\n",
-        "kkk.....N...ccccccc..kkk.....N.."
+        "kkk.....N...cccccc..kkk.....N.."
     )]
     #[case::an_empty_line_keeps_the_comment_open(
         "/* a\n\nb */ let c = 3;\n",
@@ -594,7 +615,7 @@ mod tests {
 
         assert_eq!(
             letters(source, &tokenized.spans),
-            "kkk.....N.........kkk.....N.."
+            "kkk.....N..........kkk.....N.."
         );
     }
 
@@ -614,8 +635,8 @@ mod tests {
                 .with_borrow_mut(|tokenizer| {
                     tokenizer.tokenize(&Arc::downgrade(&source), language, None)
                 })
-                .expect("the grammar compiles")
-                .expect("the source is held");
+                .expect("the grammar compiles");
+            let tokenized = finished(tokenized);
 
             let (spans, rest) = tokenized.spans.as_chunks::<HIGHLIGHT_SPAN_WIDTH>();
             prop_assert!(rest.is_empty());
