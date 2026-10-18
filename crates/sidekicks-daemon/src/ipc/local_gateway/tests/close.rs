@@ -11,6 +11,7 @@ use sidekicks_contracts::jsonrpc::framing::frame::{Frame, LaneId};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use tokio::io::AsyncWriteExt as _;
+use tokio_util::sync::CancellationToken;
 
 use super::super::{CONNECTION_CLOSE_WAIT, SupervisionDisconnectReason};
 use super::{
@@ -163,7 +164,7 @@ async fn every_close_cleans_up_cancels_every_call_and_disconnects_once(
     assert_eq!(harness.hooks.of(transport), expected);
     assert!(values.is_closed(), "the subscription's feed was released");
     assert!(
-        waiting.iter().all(|call| call.is_cancelled()),
+        waiting.iter().all(CancellationToken::is_cancelled),
         "every call in flight was canceled"
     );
     assert_eq!(

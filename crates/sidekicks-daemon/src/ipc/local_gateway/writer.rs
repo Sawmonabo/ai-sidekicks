@@ -5,8 +5,11 @@
 //! The writer holds one cut piece and writes it before it cuts the next, so the socket's buffer
 //! holds the rest; each subscription lane holds at most the one message it is sending, because a
 //! feed's gate opens only once its lane is empty, has credit and the writer has room.
+//! A reply or notification holds at most three copies of its JSON at once while it is encoded:
+//! the handler's, the message's, and the frame body's.
 
 use std::collections::{HashMap, VecDeque};
+use std::string::FromUtf8Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use bytes::Bytes;
@@ -47,6 +50,9 @@ pub(crate) enum MessageEncodeError {
     /// The message's JSON could not be written.
     #[error("the message could not be written as JSON")]
     Json(#[from] serde_json::Error),
+    /// A handler's JSON was not UTF-8.
+    #[error("a handler's JSON was not UTF-8")]
+    Utf8(#[from] FromUtf8Error),
     /// The message passed its JSON or attachment cap.
     #[error(transparent)]
     Framing(#[from] FramingError),
@@ -66,7 +72,7 @@ pub(crate) fn encode_response(
     id: JsonRpcId,
     value: EncodedValue,
 ) -> Result<Bytes, MessageEncodeError> {
-    let result = serde_json::from_slice::<Box<RawValue>>(&value.json)?;
+    let result = RawValue::from_string(String::from_utf8(value.json)?)?;
     encode_message(&JsonRpcMessage::Response { id, result }, value.attachments)
 }
 
@@ -76,11 +82,13 @@ fn encode_notify(
     subscription_id: SubscriptionId,
     value: EncodedValue,
 ) -> Result<Bytes, MessageEncodeError> {
-    let value_json = serde_json::from_slice::<Box<RawValue>>(&value.json)?;
+    let value_json = RawValue::from_string(String::from_utf8(value.json)?)?;
     let params = to_raw_value(&SubscriptionNotifyParams {
         subscription_id,
         value: &*value_json,
     })?;
+    // The handler's copy goes before the message's is written.
+    drop(value_json);
     let notify = JsonRpcMessage::Notification {
         method: SUBSCRIPTION_NOTIFY_METHOD.to_owned(),
         params: Some(params),
@@ -218,29 +226,28 @@ impl OutboxState {
     }
 
     fn next_piece(&mut self) -> Result<NextPiece, LanesExhausted> {
-        let piece = match self.next_control_frame() {
-            Some(piece) => Some(piece),
-            None => {
-                let is_control_lane_ready =
-                    !self.control_lane.is_empty() && self.lanes.available(LaneId::CONTROL) > 0;
-                let waiting = usize::from(is_control_lane_ready) + self.sendable.len();
-                let piece_limit = if waiting > 1 {
-                    CONTENDED_PIECE_BYTES
-                } else {
-                    MAX_CHUNK_BYTES
-                };
-                // Lane 0 takes the first piece of each round, then each waiting lane one piece.
-                if is_control_lane_ready && self.round_left == 0 {
-                    self.round_left = self.sendable.len();
-                    Some(self.cut_control_lane(piece_limit))
-                } else if let Some(key) = self.sendable.pop_front() {
-                    self.round_left = self.round_left.saturating_sub(1);
-                    Some(self.cut_subscription_lane(key, piece_limit)?)
-                } else if is_control_lane_ready {
-                    Some(self.cut_control_lane(piece_limit))
-                } else {
-                    None
-                }
+        let piece = if let Some(piece) = self.next_control_frame() {
+            Some(piece)
+        } else {
+            let is_control_lane_ready =
+                !self.control_lane.is_empty() && self.lanes.available(LaneId::CONTROL) > 0;
+            let waiting = usize::from(is_control_lane_ready) + self.sendable.len();
+            let piece_limit = if waiting > 1 {
+                CONTENDED_PIECE_BYTES
+            } else {
+                MAX_CHUNK_BYTES
+            };
+            // Lane 0 takes the first piece of each round, then each waiting lane one piece.
+            if is_control_lane_ready && self.round_left == 0 {
+                self.round_left = self.sendable.len();
+                Some(self.cut_control_lane(piece_limit))
+            } else if let Some(key) = self.sendable.pop_front() {
+                self.round_left = self.round_left.saturating_sub(1);
+                Some(self.cut_subscription_lane(key, piece_limit)?)
+            } else if is_control_lane_ready {
+                Some(self.cut_control_lane(piece_limit))
+            } else {
+                None
             }
         };
         Ok(match piece {
@@ -309,14 +316,13 @@ impl OutboxState {
             .expect("a lane in the turn order is open");
         lane.is_queued = false;
         // A lane takes its number as its first frame is cut, so first frames leave in number order.
-        let number = match lane.number {
-            Some(number) => number,
-            None => {
-                let number = self.lanes.open()?;
-                self.numbered.insert(number, key);
-                lane.number = Some(number);
-                number
-            }
+        let number = if let Some(number) = lane.number {
+            number
+        } else {
+            let number = self.lanes.open()?;
+            self.numbered.insert(number, key);
+            lane.number = Some(number);
+            number
         };
         let message = lane
             .messages

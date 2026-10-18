@@ -185,14 +185,53 @@ async fn each_connection_holds_its_own_calls() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_reader_stops_while_lane_0_holds_a_hundred_unsent_slotless_answers() {
+async fn slotless_messages_never_keep_the_reader_from_a_call_or_the_credit_that_drains_them() {
+    let harness = harness();
+    let Connection {
+        mut client, outbox, ..
+    } = harness.connect(1 << 20);
+    client.grants_credit = false;
+
+    // Slotless calls still running hold no reply place, so a call after them is taken.
+    let writes: Vec<Value> = (1..=100_u64)
+        .map(|id| call(id, "terminal.write", &json!({})))
+        .collect();
+    client.send_all(&writes).await;
+    // Its answer passes lane 0's credit, which the client returns only below.
+    client.send(&call(101, "test.large", &json!({}))).await;
+    settle().await;
+    assert_eq!(harness.script.dispatched("test.large").len(), 1);
+
+    // A hundred refusals wait behind it, every reply place held; the next message waits untaken,
+    // and the client's CREDIT frame is still read.
+    let responses: Vec<Value> = (1001..=1101_u64)
+        .map(|id| json!({ "jsonrpc": "2.0", "id": id, "result": {} }))
+        .collect();
+    client.send_all(&responses).await;
+    settle().await;
+    assert_eq!(outbox.held().control_lane, 101, "{:?}", outbox.held());
+    client
+        .send_frame(Frame::Credit {
+            lane: LaneId::CONTROL,
+            granted: INITIAL_LANE_CREDIT,
+        })
+        .await;
+
+    assert_eq!(client.answer().await["id"], json!(101));
+    for id in 1001..=1101_u64 {
+        assert_eq!(client.answer().await["id"], json!(id));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn lane_0_holds_at_most_a_hundred_unsent_slotless_answers() {
     let harness = harness();
     let Connection {
         mut client, outbox, ..
     } = harness.connect(64);
 
-    // A client that answers the daemon, which takes no answer, and never reads; its writes block
-    // once the daemon stops reading.
+    // A client that answers the daemon, which takes no answer, and never reads; the messages past
+    // the hundredth wait untaken, their credit unreturned.
     let flood = tokio::spawn(async move {
         for id in 1..=150_u64 {
             let response = json!({ "jsonrpc": "2.0", "id": id, "result": {} });

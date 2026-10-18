@@ -1,5 +1,5 @@
-//! The local socket's server: the listener, which reads each connection's caller at the accept and
-//! serves the connection with the services every call goes through, the hooks that watch the
+//! The local socket's server: the listener, which reads each connection's caller as it is accepted
+//! and serves the connection with the services every call goes through, the hooks that watch the
 //! listener and each connection, and the stop, which closes the listener first and then lets each
 //! connection send what it holds for at most [`CONNECTION_CLOSE_WAIT`].
 
@@ -9,10 +9,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use interprocess::local_socket::tokio::Listener;
+use interprocess::local_socket::tokio::{Listener, Stream};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_platforms::{ExistingSocket, bind_socket_listener};
+use sidekicks_platforms::{ExistingSocket, PinnedProcess, bind_socket_listener};
 use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -122,6 +122,35 @@ impl LocalGateway {
     }
 }
 
+/// Reads the caller at the other end of `stream`, on the blocking pool since the read can touch the
+/// process table's files. A caller nobody can name is refused at its handshake, and only a failed
+/// read is logged and reported.
+async fn read_caller(
+    reader: Arc<dyn CallerProcessReader>,
+    stream: Stream,
+    transport: TransportId,
+    services: &GatewayServices,
+) -> (Stream, Option<PinnedProcess>) {
+    let (stream, read) = tokio::task::spawn_blocking(move || {
+        let read = reader.read_peer_process(&stream);
+        (stream, read)
+    })
+    .await
+    .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()));
+    match read {
+        Ok(caller_process) => (stream, caller_process),
+        Err(error) => {
+            tracing::warn!(
+                transport = transport.0,
+                error = &error as &(dyn Error + 'static),
+                "The caller of a local connection could not be read"
+            );
+            services.hooks.on_error(transport, &error);
+            (stream, None)
+        }
+    }
+}
+
 /// Accepts connections until the stop, then closes the listener before it closes them.
 async fn accept_connections(
     listener: Listener,
@@ -143,23 +172,22 @@ async fn accept_connections(
             accepted = listener.accept() => match accepted {
                 Ok(stream) => {
                     let transport = next_transport_id();
-                    // Read at once, on the system's stream; a caller nobody can name is refused at
-                    // its handshake, and only a failed read is reported.
-                    let caller_process = match caller_process_reader.read_peer_process(&stream) {
-                        Ok(caller_process) => caller_process,
-                        Err(error) => {
-                            services.hooks.on_error(transport, &error);
-                            None
-                        }
-                    };
-                    connections.spawn(connection::serve_connection(
-                        stream,
-                        Outbox::new(),
-                        transport,
-                        caller_process,
-                        Arc::clone(&services),
-                        connections_stop.clone(),
-                    ));
+                    let reader = Arc::clone(&caller_process_reader);
+                    let services = Arc::clone(&services);
+                    let stop = connections_stop.clone();
+                    connections.spawn(async move {
+                        let (stream, caller_process) =
+                            read_caller(reader, stream, transport, &services).await;
+                        connection::serve_connection(
+                            stream,
+                            Outbox::new(),
+                            transport,
+                            caller_process,
+                            services,
+                            stop,
+                        )
+                        .await;
+                    });
                 }
                 Err(error) => {
                     tracing::error!(

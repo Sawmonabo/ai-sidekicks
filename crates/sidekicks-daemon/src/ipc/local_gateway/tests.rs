@@ -70,8 +70,9 @@ impl Method for OrderedWrite {
     };
 }
 
-/// The dispatch every test connection runs: `test.wait` holds its call until canceled,
-/// `test.big` and `test.huge` answer past one chunk and past the message cap, `test.subscribe`
+/// The dispatch every test connection runs: `test.wait` and the slotless `terminal.write` hold
+/// their call until canceled, `test.big`, `test.large` and `test.huge` answer past one chunk, past
+/// a lane's first credit and past the message cap, `test.subscribe`
 /// answers the next prepared feed, a registered method goes to the registry, and any other method
 /// answers its own name.
 struct Script {
@@ -105,13 +106,14 @@ impl Dispatch for Script {
         let method = request.method.clone();
         lock(&self.dispatched).push((method.clone(), context.cancellation.clone()));
         match method.as_str() {
-            "test.wait" => async move {
+            "test.wait" | "terminal.write" => async move {
                 context.cancellation.cancelled().await;
                 Err::<Reply, _>(DispatchError::Canceled)
             }
             .boxed(),
-            "test.big" => ready_result(json!({ "text": "b".repeat(70_000) })),
-            "test.huge" => ready_result(json!({ "text": "h".repeat(8 * 1024 * 1024) })),
+            "test.big" => ready_result(&json!({ "text": "b".repeat(70_000) })),
+            "test.large" => ready_result(&json!({ "text": "l".repeat(300_000) })),
+            "test.huge" => ready_result(&json!({ "text": "h".repeat(8 * 1024 * 1024) })),
             SUBSCRIBE_METHOD => {
                 let number = self.next_subscription.fetch_add(1, Ordering::SeqCst);
                 let subscription_id = subscription_id(u128::from(number));
@@ -129,13 +131,13 @@ impl Dispatch for Script {
             _ if self.registry.descriptor(&method).is_some() => {
                 self.registry.dispatch(request, context)
             }
-            _ => ready_result(json!({ "method": method })),
+            _ => ready_result(&json!({ "method": method })),
         }
     }
 }
 
-fn ready_result(value: Value) -> BoxFuture<'static, Result<Reply, DispatchError>> {
-    futures::future::ready(Ok(Reply::Result(encoded(&value)))).boxed()
+fn ready_result(value: &Value) -> BoxFuture<'static, Result<Reply, DispatchError>> {
+    futures::future::ready(Ok(Reply::Result(encoded(value)))).boxed()
 }
 
 fn encoded(value: &Value) -> EncodedValue {
@@ -504,7 +506,9 @@ impl TestClient {
     async fn answer(&mut self) -> Value {
         match self.next_event().await {
             Event::Message { lane, json, .. } if lane.is_control() => json,
-            other => panic!("expected a message on lane 0, got {other:?}"),
+            other @ (Event::Message { .. } | Event::Abort(_)) => {
+                panic!("expected a message on lane 0, got {other:?}")
+            }
         }
     }
 
@@ -512,7 +516,9 @@ impl TestClient {
     async fn notification(&mut self) -> (LaneId, Value) {
         match self.next_event().await {
             Event::Message { lane, json, .. } if !lane.is_control() => (lane, json),
-            other => panic!("expected a message on a subscription's lane, got {other:?}"),
+            other @ (Event::Message { .. } | Event::Abort(_)) => {
+                panic!("expected a message on a subscription's lane, got {other:?}")
+            }
         }
     }
 

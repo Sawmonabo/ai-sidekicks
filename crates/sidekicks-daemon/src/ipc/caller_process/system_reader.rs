@@ -10,8 +10,9 @@ use sidekicks_platforms::{ParentProcess, PinnedProcess, read_parent_process, rea
 
 use crate::ipc::caller_process::contract::CallerProcessReader;
 
-/// Reads callers and their parents from the system's process table. A parent read touches the
-/// process table's files, so it runs on the blocking pool.
+/// Reads callers and their parents from the system's process table. Both reads can touch the
+/// process table's files: a parent read runs on the blocking pool here, a peer read where the
+/// gateway calls it.
 pub(crate) struct ProcessTableReader;
 
 impl CallerProcessReader for ProcessTableReader {

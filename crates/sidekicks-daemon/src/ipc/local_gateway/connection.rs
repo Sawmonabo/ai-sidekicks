@@ -1,9 +1,9 @@
-//! One connection of the local socket: the reader, which returns each message's credit as it reads
+//! One connection of the local socket: the reader, which returns each message's credit as it takes
 //! it and holds every request to its gates in order (the id's bound, the envelope's
 //! `protocolVersion`, a call slot, the subscription limit) before it dispatches it; the table of
 //! calls a `$/cancelRequest` can reach; and the close every path ends in.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -51,7 +51,7 @@ const SLOTLESS_METHODS: [&str; 3] = [
 ];
 
 /// The most replies to messages that took no call slot lane 0 holds unsent; past it the reader
-/// stops reading until one is cut.
+/// takes no further message until one is cut, though it still reads frames.
 const SLOTLESS_REPLIES_MAX: usize = 100;
 
 /// Serves one accepted connection until it closes, its replies and streams going out through
@@ -248,21 +248,23 @@ impl ConnectionReader {
     ) where
         S: AsyncRead + Send,
     {
-        // A reply place taken before each read, so a message that needs one finds it, and the
-        // reader waits here while lane 0 holds as many such replies as it may.
+        // A reply place taken before each message is taken, for a refusal the reader answers
+        // itself; a message waits here, unread, while lane 0 holds as many such replies as it may.
         let mut reserve: Option<OwnedSemaphorePermit> = None;
+        // Whole messages not yet taken. Their credit stays unreturned, so the client's credit
+        // bounds them; frames, CREDIT and ABORT included, are still read meanwhile.
+        let mut waiting: VecDeque<IncomingMessage> = VecDeque::new();
         loop {
-            if reserve.is_none() {
-                let acquired = tokio::select! {
-                    biased;
-                    () = self.close.requested.cancelled() => return,
-                    () = stop.cancelled() => {
-                        self.close.end(SupervisionDisconnectReason::ServerClose);
-                        return;
+            while !waiting.is_empty() {
+                if reserve.is_none() {
+                    match Arc::clone(&self.slotless_replies).try_acquire_owned() {
+                        Ok(place) => reserve = Some(place),
+                        Err(_no_place) => break,
                     }
-                    acquired = Arc::clone(&self.slotless_replies).acquire_owned() => acquired,
-                };
-                reserve = Some(acquired.expect("the slotless replies' semaphore is never closed"));
+                }
+                if let Some(message) = waiting.pop_front() {
+                    self.take(message, &mut reserve);
+                }
             }
             let next = tokio::select! {
                 biased;
@@ -271,6 +273,12 @@ impl ConnectionReader {
                     self.close.end(SupervisionDisconnectReason::ServerClose);
                     return;
                 }
+                acquired = Arc::clone(&self.slotless_replies).acquire_owned(),
+                    if reserve.is_none() && !waiting.is_empty() =>
+                {
+                    reserve = Some(acquired.expect("the slotless replies' semaphore is never closed"));
+                    continue;
+                }
                 next = frames.next() => next,
             };
             let received = match next {
@@ -278,7 +286,7 @@ impl ConnectionReader {
                     self.close.end(SupervisionDisconnectReason::ClientClose);
                     return;
                 }
-                Some(frame) => frame.and_then(|frame| self.receive(frame, &mut reserve)),
+                Some(frame) => frame.and_then(|frame| self.receive(frame, &mut waiting)),
             };
             if let Err(error) = received {
                 self.fail_framing(&error);
@@ -287,10 +295,11 @@ impl ConnectionReader {
         }
     }
 
+    /// Applies one frame; a message it completes waits to be taken.
     fn receive(
         &mut self,
         frame: Frame,
-        reserve: &mut Option<OwnedSemaphorePermit>,
+        waiting: &mut VecDeque<IncomingMessage>,
     ) -> Result<(), FramingError> {
         if let Frame::Credit { lane, granted } = frame {
             self.outbox.grant(lane, granted);
@@ -301,7 +310,7 @@ impl ConnectionReader {
             self.outbox.return_credit(lane, granted);
         }
         if let Some(message) = received.message {
-            self.take(message, reserve);
+            waiting.push_back(message);
         }
         Ok(())
     }
@@ -411,8 +420,10 @@ impl ConnectionReader {
             self.reply(refused(refusal), id, reserve.take());
             return;
         }
+        // A slotless method's reply takes its place once it is ready, so a call still running
+        // holds none.
         let permit = if SLOTLESS_METHODS.contains(&request.method.as_str()) {
-            reserve.take()
+            None
         } else if let Ok(slot) = Arc::clone(&self.call_slots).try_acquire_owned() {
             Some(slot)
         } else {
@@ -457,6 +468,7 @@ impl ConnectionReader {
             close: Arc::clone(&self.close),
             connection_calls: self.calls.clone(),
             cancel_table: Arc::clone(&self.cancel_table),
+            slotless_replies: Arc::clone(&self.slotless_replies),
         };
         tokio::spawn(pending.answer(answer));
     }
@@ -492,7 +504,7 @@ impl ConnectionReader {
 struct PendingCall {
     id: JsonRpcId,
     call: u64,
-    /// The call's slot, or its reply's place for a slotless method.
+    /// The call's slot; `None` for a slotless method, whose reply takes a place once it is ready.
     permit: Option<OwnedSemaphorePermit>,
     transport: TransportId,
     services: Arc<GatewayServices>,
@@ -500,14 +512,24 @@ struct PendingCall {
     close: Arc<ConnectionClose>,
     connection_calls: CancellationToken,
     cancel_table: Arc<CancelTable>,
+    slotless_replies: Arc<Semaphore>,
 }
 
 impl PendingCall {
     /// Awaits the dispatch, leaves the cancel table, and queues the answer: a result, an error, or
     /// a subscription's acknowledgment followed by its stream.
-    async fn answer(self, answer: BoxFuture<'static, Result<Reply, DispatchError>>) {
+    async fn answer(mut self, answer: BoxFuture<'static, Result<Reply, DispatchError>>) {
         let outcome = answer.await;
         self.cancel_table.remove(&self.id, self.call);
+        if self.permit.is_none() {
+            // Once the connection closes no place frees for certain, and no reply would be sent.
+            let place = tokio::select! {
+                biased;
+                () = self.connection_calls.cancelled() => return,
+                place = Arc::clone(&self.slotless_replies).acquire_owned() => place,
+            };
+            self.permit = Some(place.expect("the slotless replies' semaphore is never closed"));
+        }
         match outcome {
             Ok(Reply::Result(value)) => match encode_response(self.id, value) {
                 Ok(message) => self.outbox.push_reply(message, self.permit),

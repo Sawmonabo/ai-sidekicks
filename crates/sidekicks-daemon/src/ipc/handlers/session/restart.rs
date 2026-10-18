@@ -64,7 +64,7 @@ async fn restart(
     read_target: &RestartTargetReader,
     session_id: SessionId,
 ) -> Result<EmptyPayload, HandlerError> {
-    let Some(target) = read_target(session_id.clone()).await? else {
+    let Some(target) = read_target(session_id).await? else {
         return Err(session_not_found(&session_id).into());
     };
     let driver = providers.lookup(&target.provider)?;
@@ -108,6 +108,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::machine::settings::ProviderRowValues;
     use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::run::id::RunId;
@@ -161,12 +162,12 @@ mod tests {
         Arc::new(driver)
     }
 
+    /// Builds a test's driver from the daemon's services.
+    type BuildDriver = fn(&DriverServices) -> Arc<dyn ProviderDriver>;
+
     /// The registry of the table's first provider, built by `build`, with `resume` declared as
     /// `has_resume` says; or no provider at all when `build` is `None`.
-    fn providers(
-        build: Option<fn(&DriverServices) -> Arc<dyn ProviderDriver>>,
-        has_resume: bool,
-    ) -> ProviderRegistry {
+    fn providers(build: Option<BuildDriver>, has_resume: bool) -> ProviderRegistry {
         let services = DriverServices {
             spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
             data_folder: PathBuf::from("data"),
@@ -207,7 +208,7 @@ mod tests {
                     execution_posture: None,
                     output_speed: None,
                     options: Vec::new(),
-                    row_values: Default::default(),
+                    row_values: ProviderRowValues::default(),
                     callback_tools: None,
                     subagent_policy: None,
                     tool_servers: None,
