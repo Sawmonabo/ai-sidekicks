@@ -18,7 +18,7 @@ use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
 use crate::events::session::followers::SessionEventFollowers;
-use crate::workflow::test_parent_rows::{create_parent_tables, insert_parent_rows};
+use crate::git::worktree::test_rows::{create_worktree_tables, insert_worktree_rows};
 use crate::workflow::test_rows::{
     TestStep, create_workflow_tables, insert_run, insert_step, insert_workflow_version,
 };
@@ -42,7 +42,7 @@ async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connect
             move || -> rusqlite::Result<Connection> {
                 let connection = opener()?;
                 create_workflow_tables(&connection)?;
-                create_parent_tables(&connection)?;
+                create_worktree_tables(&connection)?;
                 Ok(connection)
             },
             DatabaseWriterOptions::default(),
@@ -63,7 +63,7 @@ async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connect
         read_damaged_from_sequence: None,
     }));
     let rows = database.reader();
-    insert_parent_rows(&rows);
+    insert_worktree_rows(&rows);
     insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Nightly");
     (WorkflowRunDeletion::new(pool, writer, event_log), rows)
 }

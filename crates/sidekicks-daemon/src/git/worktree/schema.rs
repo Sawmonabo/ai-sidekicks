@@ -202,9 +202,10 @@ mod tests {
     use sidekicks_contracts::worktree::lifecycle::WorktreeState;
     use strum::VariantArray;
 
-    use crate::workflow::test_parent_rows::{
-        PARENT_ROWS_AT, PARENT_WORKTREE_ID, create_parent_tables, insert_parent_rows, worktree_row,
+    use crate::git::worktree::test_rows::{
+        PARENT_WORKTREE_ID, create_worktree_tables, insert_worktree_rows, worktree_row,
     };
+    use crate::workspace::test_rows::PARENT_ROWS_AT;
 
     // A closed-set value in serde's spelling, the text the wire and the rows carry.
     fn serde_text(value: &impl Serialize) -> String {
@@ -346,8 +347,8 @@ mod tests {
         #[case] is_last_admitted: bool,
     ) {
         let connection = Connection::open_in_memory().expect("an in-memory database opens");
-        create_parent_tables(&connection).expect("the workspace and worktree schemas run");
-        insert_parent_rows(&connection);
+        create_worktree_tables(&connection).expect("the workspace and worktree schemas run");
+        insert_worktree_rows(&connection);
         let (last, earlier) = rows.split_last().expect("each case writes a row");
         for row in earlier {
             connection
