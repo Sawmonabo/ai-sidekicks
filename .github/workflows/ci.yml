@@ -866,9 +866,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      # nextest's prebuilt macOS binary, from its documented install address.
+      # nextest's prebuilt macOS binary, one exact release, from its documented install address.
       - name: Install cargo-nextest
-        run: curl -LsSf https://get.nexte.st/latest/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+        run: curl -LsSf https://get.nexte.st/0.9.148/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
 
       - name: Test the operating-system crate
         run: cargo nextest run -p sidekicks-platforms --locked
