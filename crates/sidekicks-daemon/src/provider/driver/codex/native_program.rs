@@ -262,8 +262,9 @@ fn is_vite_plus_install(packages: &Path, package_root: &Path) -> bool {
     #[serde(rename_all = "camelCase")]
     struct InstallRecord {
         name: String,
+        // `null` reads as no install id, as the launcher reads it.
         #[serde(default)]
-        install_id: String,
+        install_id: Option<String>,
     }
     if packages.file_name() != Some("packages".as_ref()) {
         return false;
@@ -277,15 +278,16 @@ fn is_vite_plus_install(packages: &Path, package_root: &Path) -> bool {
     if record.name != "@openai/codex" {
         return false;
     }
-    let install = if record.install_id.starts_with('#') {
+    let install_id = record.install_id.unwrap_or_default();
+    let install = if install_id.starts_with('#') {
         packages
             .join("@openai")
-            .join(format!("{LAUNCHER_PACKAGE_NAME}{}", record.install_id))
+            .join(format!("{LAUNCHER_PACKAGE_NAME}{install_id}"))
     } else {
         packages
             .join("@openai")
             .join(LAUNCHER_PACKAGE_NAME)
-            .join(&record.install_id)
+            .join(&install_id)
     };
     [
         install.join("lib").join(NODE_MODULES_FOLDER_NAME),
@@ -305,7 +307,7 @@ mod tests {
     use rstest::rstest;
     use sidekicks_platforms::{ProgramStart, RUNNING_ARCH, real_path};
 
-    use super::{SYSTEM_NAMES, arch_names, resolve_codex_native_program};
+    use super::{SYSTEM_NAMES, arch_names, is_vite_plus_install, resolve_codex_native_program};
 
     // The native program's path under `vendor` for the running system and processor.
     fn native_program_under(vendor: &Path) -> PathBuf {
@@ -383,5 +385,29 @@ mod tests {
                 (package_manager_name.to_owned(), "1".to_owned()),
             ]
         );
+    }
+
+    // Mutation killed: an install record whose id is `null` refused, so a Vite+ install reads as
+    // npm's.
+    #[test]
+    fn a_vite_plus_record_with_a_null_install_id_names_the_unversioned_install() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let packages = folder.path().join("packages");
+        let installed = packages
+            .join("@openai")
+            .join("codex")
+            .join("node_modules")
+            .join("@openai")
+            .join("codex");
+        std::fs::create_dir_all(&installed).expect("the install is made");
+        std::fs::write(
+            packages.join("@openai").join("codex.json"),
+            br#"{"name":"@openai/codex","installId":null}"#,
+        )
+        .expect("the install record is written");
+
+        let package_root = real_path(&installed).expect("the install resolves");
+
+        assert!(is_vite_plus_install(&packages, &package_root));
     }
 }
