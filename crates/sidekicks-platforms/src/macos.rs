@@ -22,7 +22,7 @@ use nix::unistd::SysconfVar;
 use tokio::process::Command;
 
 use crate::machine_name::{MachineNameError, require_machine_name};
-use crate::posix::shell_start::arm_parent_death;
+use crate::posix::child_command::prepare_child_command;
 use crate::spawner::Spawner;
 
 // The program that reads the computer name, by its full path so no `PATH` entry stands in for it.
@@ -47,13 +47,7 @@ pub async fn machine_name(spawner: &Spawner) -> Result<String, MachineNameError>
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    // The daemon can end between the fork and the exec, so the child checks it is still the parent.
-    let daemon_pid = std::process::id();
-    // SAFETY: the closure runs in the forked child before the exec and calls only
-    // `arm_parent_death`, which is async-signal-safe and allocates nothing.
-    unsafe {
-        command.pre_exec(move || arm_parent_death(daemon_pid));
-    }
+    prepare_child_command(&mut command, std::process::id());
     let child = spawner
         .run(move || command.spawn())
         .await

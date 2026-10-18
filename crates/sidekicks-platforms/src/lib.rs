@@ -9,8 +9,8 @@
     reason = "the terminal's window size, mode read (`tcgetattr`), signal request (`TIOCSIG`), \
               console, console input count (`GetNumberOfConsoleInputEvents`) and library-search \
               calls, the shell start's signal and console-handler calls, the parent check \
-              `scutil`'s child runs in `pre_exec`, the Windows host-name, free-room and \
-              entry-identity calls, the Windows replacing rename's `MoveFileExW`, the caller reads \
+              a `Command` child runs in `pre_exec`, the Windows host-name, free-room, \
+              entry-identity and file-facts calls, the Windows replacing rename's `MoveFileExW`, the caller reads \
               (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, checked \
               process reads and responsible-process reads), macOS's code-signature checks, the \
               start as its own responsible process (its thread count, its program's path, its \
@@ -30,6 +30,7 @@ mod atomic_replace;
 mod caller_process;
 mod code_signature;
 mod entry_identity;
+mod file_facts;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
 #[cfg(target_os = "linux")]
@@ -42,6 +43,7 @@ mod own_root;
 mod path;
 #[cfg(unix)]
 mod posix;
+mod run_folder;
 mod shell_start;
 mod socket_listener;
 mod socket_path;
@@ -62,6 +64,7 @@ pub use caller_process::{ParentProcess, ResponsibleProcess};
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
+pub use file_facts::FileFacts;
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
@@ -122,6 +125,8 @@ pub use posix::allocator::{
 #[cfg(unix)]
 pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
+pub use posix::child_command::prepare_child_command;
+#[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, read_exact_at, volume_free_bytes,
 };
@@ -131,6 +136,8 @@ pub use posix::entry_identity::entry_identity;
 pub use posix::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
 };
+#[cfg(unix)]
+pub use posix::file_facts::file_facts;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::UnremovableFile;
 #[cfg(unix)]
@@ -143,6 +150,8 @@ pub use posix::login_shell::login_shell;
 pub use posix::private_folder::create_private_folder;
 #[cfg(unix)]
 pub use posix::real_path::real_path;
+#[cfg(unix)]
+pub use posix::run_folder::{check_private_run_folder, daemon_run_folder};
 #[cfg(unix)]
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
@@ -169,6 +178,7 @@ pub use posix::terminal::{
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+pub use run_folder::{DaemonRunFolder, RunFolderRefused};
 #[cfg(not(target_os = "macos"))]
 pub use shell_start::ShellStartConfirmation;
 pub use shell_start::{ShellStart, ShellStartError};
@@ -195,6 +205,8 @@ pub use windows::caller_process::this_process;
 #[cfg(target_os = "windows")]
 pub use windows::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
 #[cfg(target_os = "windows")]
+pub use windows::child_command::prepare_child_command;
+#[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
@@ -207,6 +219,8 @@ pub use windows::entry_identity::entry_identity;
 pub use windows::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
 };
+#[cfg(target_os = "windows")]
+pub use windows::file_facts::file_facts;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::UnremovableFile;
 #[cfg(target_os = "windows")]
@@ -229,6 +243,8 @@ pub use windows::private_folder::create_private_folder;
 pub use windows::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "windows")]
 pub use windows::real_path::real_path;
+#[cfg(target_os = "windows")]
+pub use windows::run_folder::{check_private_run_folder, daemon_run_folder};
 #[cfg(target_os = "windows")]
 pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
