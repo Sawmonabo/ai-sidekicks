@@ -1,10 +1,11 @@
 //! The session service's reads: one session's record, transcript cursors, live runs and standing
 //! events as `session.read` answers them, from the `sessions` row its events keep in step, its
 //! tags, its console settings, its run rows and its log; the session's whole log, or a page of it
-//! after a known sequence; and a rebuild of the record from that log through the projector, over
-//! the same envelope reads the event log serves, which skip a range the session skipped past as
-//! damaged and, while its history is damaged, stop at its last good point. Each read borrows a
-//! connection from the daemon's read pool and runs on the blocking pool.
+//! after a known sequence; a window of its transcript rows and one stored row with its body; and a
+//! rebuild of the record from that log through the projector, over the same envelope reads the
+//! event log serves, which skip a range the session skipped past as damaged and, while its history
+//! is damaged, stop at its last good point. Each read borrows a connection from the daemon's read
+//! pool and runs on the blocking pool.
 
 use std::sync::{Arc, LazyLock};
 
@@ -13,6 +14,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
@@ -23,6 +25,7 @@ use sidekicks_contracts::session::methods::{
 };
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::tag::{Tag, TagList};
+use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, TranscriptReadResponse};
 use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, TranscriptRunFacts};
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -35,31 +38,36 @@ use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
+use crate::events::content::read::StoredEventContentRow;
 use crate::events::session::read::{
     DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
     readable_event_sql, session_read_bound,
 };
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::session::console_state::read_session_max_steps_per_turn;
 use crate::session::not_found::session_not_found;
 use crate::session::projector::{SessionRebuildError, rebuild_session};
 use crate::session::records::DaemonSessionRecord;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 use crate::session::tags::NotATag;
+use crate::transcript::body::read_stored_event_row;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
+use crate::transcript::window::{TranscriptReadError, read_transcript_window};
 
 /// The statements the service's reads run: its own five (the row, the tags, the live runs, the
-/// standing sequences and the console read), the run facts' three, and the five shared event reads
+/// standing sequences and the console read), the run facts' three, the five shared event reads
 /// (the head, the rows after a position of every type and of named types, a sequence window and the
-/// rows at named sequences).
-pub(crate) const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5;
+/// rows at named sequences), and the transcript reads' six (the rows before a position, a stored
+/// row, a window's bodies and the turn attribution's three seeds).
+pub(crate) const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5 + 6;
 
 // A negative limit reads every event.
 const NO_LIMIT: i64 = -1;
 
 /// One session as its stored row, tags and console settings answer `session.read`: every member
-/// of the wire's session record but the held draft, the staged files and the address, which the
-/// handler composes.
+/// of the wire's session record but the held draft, the staged files and the inbox addresses,
+/// which the handler composes.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SessionReadRecord {
     /// The session.
@@ -68,6 +76,8 @@ pub(crate) struct SessionReadRecord {
     pub(crate) state: SessionState,
     /// Its shape.
     pub(crate) shape: SessionShape,
+    /// Where it runs; `None` on macOS and Linux.
+    pub(crate) place: Option<Place>,
     /// Its name, `None` while untitled.
     pub(crate) name: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
     /// Whether the person muted its notifications.
@@ -153,8 +163,23 @@ pub(crate) enum SessionServiceError {
     Pool(#[from] DatabaseReadError),
 }
 
+impl From<SessionServiceError> for HandlerError {
+    /// A session the daemon does not hold answers `session.notFound`; every other failure is a
+    /// fault in the daemon.
+    fn from(error: SessionServiceError) -> Self {
+        match error {
+            SessionServiceError::Refused(refusal) => Self::Refused(refusal),
+            fault @ (SessionServiceError::Database(_)
+            | SessionServiceError::Log(_)
+            | SessionServiceError::RunNamesNoAgent { .. }
+            | SessionServiceError::Rebuild(_)
+            | SessionServiceError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
+}
+
 const SELECT_ROW_SQL: &str = "SELECT state, shape, name, muted_at, pending_working_folder,
-       created_at, updated_at
+       created_at, updated_at, place
   FROM sessions
  WHERE id = ?";
 
@@ -273,8 +298,9 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// Reads one session through the daemon's read pool: its record and cursors from its row, its
-/// whole log or a page of it, or its record rebuilt from that log. Each read runs on the blocking
-/// pool on a connection it borrows for the whole read.
+/// whole log or a page of it, a window of its transcript or one stored row, or its record rebuilt
+/// from that log. Each read runs on the blocking pool on a connection it borrows for the whole
+/// read.
 pub(crate) struct SessionService {
     pool: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
@@ -365,17 +391,59 @@ impl SessionService {
         .await
     }
 
+    /// One bounded window of the session's transcript rows, or the window around one row, read in
+    /// one snapshot. Fails with [`TranscriptReadError::Refused`] for a session this daemon holds no
+    /// events for (`session.notFound`) or an `aroundCursor` at which no row stands
+    /// (`transcript.row.notFound`), and [`TranscriptReadError::CursorUnresolvable`] for a cursor
+    /// that names no position.
+    pub(crate) async fn read_transcript_window(
+        &self,
+        request: TranscriptReadRequest,
+    ) -> Result<TranscriptReadResponse, TranscriptReadError> {
+        self.run_read(
+            ReadLength::Long,
+            move |reader, read_damaged_from_sequence| {
+                read_transcript_window(reader, read_damaged_from_sequence, &request)
+            },
+        )
+        .await
+    }
+
+    /// The stored row of the event `event_id` of `session_id` with its body, `None` when the
+    /// session holds no such row. Fails with [`TranscriptReadError::Refused`] (`session.notFound`)
+    /// for a session this daemon holds no events for.
+    pub(crate) async fn read_stored_event_row(
+        &self,
+        session_id: SessionId,
+        event_id: String,
+    ) -> Result<Option<StoredEventContentRow>, TranscriptReadError> {
+        self.run_read(
+            ReadLength::Short,
+            move |reader, read_damaged_from_sequence| {
+                read_stored_event_row(reader, read_damaged_from_sequence, &session_id, &event_id)
+            },
+        )
+        .await
+    }
+
+    /// The sequence `session_id`'s reads stop at while its history is damaged, `None` while it is
+    /// whole.
+    pub(crate) fn damaged_from_sequence(&self, session_id: &SessionId) -> Option<i64> {
+        (self.read_damaged_from_sequence)(session_id)
+    }
+
     // Runs `read` on the blocking pool on a borrowed connection held for the whole read.
-    async fn run_read<Read, Answer>(
+    async fn run_read<Read, Answer, Failure>(
         &self,
         length: ReadLength,
         read: Read,
-    ) -> Result<Answer, SessionServiceError>
+    ) -> Result<Answer, Failure>
     where
-        Read: FnOnce(&Connection, &DamagedFromSequenceReader) -> Result<Answer, SessionServiceError>
+        Read: FnOnce(&Connection, &DamagedFromSequenceReader) -> Result<Answer, Failure>
             + Send
             + 'static,
         Answer: Send + 'static,
+        Failure: From<DatabaseReadError> + Send + 'static,
     {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
@@ -441,6 +509,7 @@ fn read_session(
             id: *session_id,
             state: row.state,
             shape: row.shape,
+            place: row.place,
             name: row.name,
             muted: row.is_muted,
             pending_working_folder: row
@@ -580,6 +649,7 @@ struct SessionRow {
     pending_working_folder: Option<FilesystemPath>,
     created_at: WireInstant,
     updated_at: WireInstant,
+    place: Option<Place>,
 }
 
 impl SessionRow {
@@ -592,6 +662,8 @@ impl SessionRow {
             pending_working_folder: optional_text_column(row, 4, FilesystemPath::new)?,
             created_at: text_column(row, 5, WireInstant::try_from)?,
             updated_at: text_column(row, 6, WireInstant::try_from)?,
+            // The column holds the place's wire JSON.
+            place: optional_text_column(row, 7, |text| serde_json::from_str::<Place>(&text))?,
         })
     }
 }

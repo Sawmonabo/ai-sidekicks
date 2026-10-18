@@ -13,6 +13,7 @@ use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::stored_column::text_column;
 use crate::database::writer::DatabaseWriter;
+use crate::ipc::registry::HandlerError;
 use crate::session::directory::lookups::{SessionWriteError, write_while_session_exists};
 
 /// The statements the service's reads run: the tags in use.
@@ -48,6 +49,19 @@ pub(crate) enum SessionTagError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl From<SessionTagError> for HandlerError {
+    /// A change refused for its session answers as that refusal does; a failed read is a fault in
+    /// the daemon.
+    fn from(error: SessionTagError) -> Self {
+        match error {
+            SessionTagError::Write(write) => write.into(),
+            fault @ (SessionTagError::Database(_) | SessionTagError::Pool(_)) => {
+                Self::Internal(Box::new(fault))
+            }
+        }
+    }
 }
 
 /// Adds, removes and lists session tags, reading through the daemon's read pool and writing

@@ -13,6 +13,7 @@ mod capability_probe;
 mod delivery;
 mod event_normalizer;
 mod hooks;
+pub(crate) mod inbox_address;
 mod run;
 mod session;
 mod spawn;

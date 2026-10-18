@@ -37,10 +37,12 @@ use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, Transcri
 use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::{False, True};
 
+use crate::database::connection::read_pool::DatabaseReadError;
 use crate::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::session::not_found::session_not_found;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
 use crate::transcript::run_facts::TranscriptRunFactsReader;
@@ -64,6 +66,25 @@ pub(crate) enum TranscriptReadError {
     /// The window's events could not be projected into rows.
     #[error(transparent)]
     Projection(#[from] TranscriptProjectionError),
+    /// The read pool is closed, a connection did not open, or the read's blocking task did not
+    /// finish.
+    #[error(transparent)]
+    Pool(#[from] DatabaseReadError),
+}
+
+impl From<TranscriptReadError> for HandlerError {
+    /// A session the daemon does not hold or a row it does not hold answers by its code, a cursor
+    /// it cannot read `session.event.cursorUnresolvable`; a failed read is a fault in the daemon.
+    fn from(error: TranscriptReadError) -> Self {
+        match error {
+            TranscriptReadError::Refused(refusal) => Self::Refused(refusal),
+            TranscriptReadError::CursorUnresolvable(unresolvable) => unresolvable.into(),
+            fault @ (TranscriptReadError::Log(_)
+            | TranscriptReadError::Database(_)
+            | TranscriptReadError::Projection(_)
+            | TranscriptReadError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 /// The head a transcript read checks its cursors against, `None` for a session whose history is
@@ -98,7 +119,7 @@ pub(crate) fn read_transcript_window<DamagedFrom>(
     request: &TranscriptReadRequest,
 ) -> Result<TranscriptReadResponse, TranscriptReadError>
 where
-    DamagedFrom: Fn(&SessionId) -> Option<i64>,
+    DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
 {
     let snapshot = reader.unchecked_transaction()?;
     let window = WindowReads {
@@ -135,7 +156,7 @@ where
 }
 
 /// The reads of one window, all on one connection inside its snapshot.
-struct WindowReads<'window, DamagedFrom> {
+struct WindowReads<'window, DamagedFrom: ?Sized> {
     reader: &'window Connection,
     read_damaged_from_sequence: &'window DamagedFrom,
     session_id: &'window SessionId,
@@ -143,7 +164,7 @@ struct WindowReads<'window, DamagedFrom> {
 
 impl<DamagedFrom> WindowReads<'_, DamagedFrom>
 where
-    DamagedFrom: Fn(&SessionId) -> Option<i64>,
+    DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
 {
     // The oldest rows after `after_position`, up to `before_position` when one bounds the window.
     fn read_forward(
