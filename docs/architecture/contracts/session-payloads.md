@@ -205,15 +205,16 @@ interface SessionRecord {
   // and the run rests as agent.run.interrupted with trigger "stepLimit" until a send continues it.
   maxStepsPerTurn?: number;
   // The addresses another session writes to when it messages this one — what the session inspector
-  // offers as `Copy address`, one row each. Each names an inbox the daemon holds for the session in one
-  // place where Claude Code is installed — a socket (a named pipe on Windows) in Claude Code's socket
-  // directory, stable for the session's whole life — the session's own place first; the daemon forwards
-  // each frame to the live process and, while the session sleeps, takes the first frame, wakes the
-  // session through Claude Code's resume and delivers the frame as the message. Never empty and unique
-  // by place: one entry with no place on macOS, Linux and a Windows computer without a WSL 2
-  // distribution. No read of its own exists, deliberately — the one surface that shows them already
-  // reads this snapshot, and a second verb would be a second source for one fact (Spec-014 §Sessions
-  // Talking To Each Other).
+  // offers as `Copy address`, one row each. Each names an inbox the daemon holds for the session in
+  // one place where Claude Code is installed — a socket in Claude Code's default socket folder of
+  // that place, named so Claude Code answers it from any folder (a named pipe on Windows), stable for
+  // the session's whole life — the session's own place first; the daemon forwards each frame to the
+  // live process and, while the session sleeps, takes the first frame, wakes the session through
+  // Claude Code's resume and delivers the frame as the message. Never empty and unique by place: one
+  // entry with no place on macOS, Linux and a Windows computer without a WSL 2 distribution. No read
+  // of its own exists, deliberately — the one surface that shows them already reads this snapshot,
+  // and a second verb would be a second source for one fact (Spec-014 §Sessions Talking To Each
+  // Other).
   addresses: SessionAddress[];
   createdAt: string;
   updatedAt: string;
