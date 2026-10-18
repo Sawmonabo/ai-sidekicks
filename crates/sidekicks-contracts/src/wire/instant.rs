@@ -65,8 +65,9 @@ impl WireInstant {
         stored_instant_text(timestamp).map(Self)
     }
 
-    /// The system clock's instant in the stored form. It reads the std clock, so it is for native
-    /// builds only.
+    /// The system clock's instant in the stored form. It is left out of WebAssembly builds, since
+    /// the control plane's Worker has no clock source the contracts own.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn now() -> Self {
         Self::from_timestamp(jiff::Timestamp::now()).expect("the clock reads after year 0000")
     }
