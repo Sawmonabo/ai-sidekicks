@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
-use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 
 use crate::provider::hand_over::brief::projection::{
     BriefBudgetPolicy, BriefProjection, BriefRendering,
@@ -83,9 +82,7 @@ pub(crate) enum BriefDeliveryDisposition {
 pub(crate) struct BriefDeliverySettlement {
     /// Whether the brief landed.
     pub(crate) disposition: BriefDeliveryDisposition,
-    /// What the brief could not carry.
-    pub(crate) declared_losses: Vec<DeclaredLossKind>,
-    /// What was rendered, whether or not it landed.
+    /// What was rendered, whether or not it landed, with what the brief could not carry.
     pub(crate) rendering: BriefRendering,
 }
 
@@ -209,7 +206,6 @@ fn send_once(
         };
         Arc::new(BriefDeliverySettlement {
             disposition,
-            declared_losses: rendering.declared_losses.clone(),
             rendering,
         })
     }
