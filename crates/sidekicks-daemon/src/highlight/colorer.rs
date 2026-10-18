@@ -10,8 +10,10 @@
 //! The reads waiting to be colored are bounded by what still wants them: reads of the same code
 //! share one tokenization, and a read for a code block is replaced by the block's next read on the
 //! same connection, as a block whose code is still arriving asks again for each version. Only the
-//! waiting reads hold a source, so a tokenization no read waits for any more leaves the line before
-//! its turn, keeping nothing of its source.
+//! waiting reads hold a source, so a tokenization no read waits for any more is skipped at its
+//! turn, or stops at its next line when it is running, and keeps nothing of its source. The
+//! thread's queue holds the live tokenizations, plus unwanted ones it has not reached yet, each
+//! without its source text.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -145,17 +147,17 @@ impl CodeHighlighter {
             language,
             digest: digests.whole,
         };
-        if let Some(spans) = self.shared.cache.get(&key) {
-            return SpanRead::cached(spans);
-        }
         let block = block_id.map(|block_id| BlockKey {
             transport,
             block_id,
         });
         let mut reads = self.shared.lock_reads();
-        // A read of the same code may have finished while this one waited for the lock; a
-        // finishing read fills the cache under it.
+        // Checked under the lock, which a finishing read fills the cache under.
         if let Some(spans) = self.shared.cache.get(&key) {
+            // A block answered from the cache has moved on from its waiting read.
+            let replaced = block.and_then(|block| reads.replace_block_read(block, None));
+            drop(reads);
+            wake_replaced(replaced);
             return SpanRead::cached(spans);
         }
         let (fetch_id, source, spans) = if let Some(joined) = reads.join_fetch(&key) {
@@ -194,20 +196,16 @@ impl CodeHighlighter {
             WaitingRead {
                 key,
                 fetch_id,
-                source,
+                _source: source,
                 block: block.clone(),
                 waker: None,
             },
         );
         // The newer read has joined its fetch first, so a block asking again for the same code
         // keeps its tokenization.
-        let replaced = block
-            .and_then(|block| reads.reads_by_block.insert(block, read_id))
-            .and_then(|replaced_id| reads.leave(replaced_id));
+        let replaced = block.and_then(|block| reads.replace_block_read(block, Some(read_id)));
         drop(reads);
-        if let Some(waker) = replaced.and_then(|replaced| replaced.waker) {
-            waker.wake();
-        }
+        wake_replaced(replaced);
         SpanRead {
             state: SpanReadState::Waiting {
                 shared: Arc::clone(&self.shared),
@@ -217,9 +215,18 @@ impl CodeHighlighter {
         }
     }
 
-    /// Refuses every waiting read and every later cache miss.
+    /// Refuses every waiting read `Stopped` at once and every later cache miss; the running
+    /// tokenization stops at its next line.
     pub(crate) fn stop(&self) {
         self.thread.stop();
+        self.shared.stop();
+    }
+}
+
+/// Wakes a read a newer one replaced, so it answers `Replaced`; its source goes with it.
+fn wake_replaced(replaced: Option<WaitingRead>) {
+    if let Some(waker) = replaced.and_then(|replaced| replaced.waker) {
+        waker.wake();
     }
 }
 
@@ -267,17 +274,18 @@ impl Future for SpanRead {
                 read_id,
                 spans,
             } => {
-                if shared.lock_reads().watch(*read_id, context.waker()) {
-                    let Poll::Ready(outcome) = spans.poll_unpin(context) else {
-                        return Poll::Pending;
-                    };
-                    if shared.finish(*read_id, &outcome) {
-                        outcome.map_err(ReadSpansError::Tokenize)
-                    } else {
-                        Err(ReadSpansError::Replaced)
+                // Bound first, so the lock is released before `finish` takes it again.
+                let watched = shared.lock_reads().watch(*read_id, context.waker());
+                match watched {
+                    Ok(()) => {
+                        let Poll::Ready(outcome) = spans.poll_unpin(context) else {
+                            return Poll::Pending;
+                        };
+                        shared
+                            .finish(*read_id, &outcome)
+                            .and_then(|()| outcome.map_err(ReadSpansError::Tokenize))
                     }
-                } else {
-                    Err(ReadSpansError::Replaced)
+                    Err(error) => Err(error),
                 }
             }
             // An answered read is not polled again; it stays pending if it is.
@@ -347,11 +355,12 @@ impl ColorerShared {
 
     /// Settles a read whose tokenization answered `outcome`: the first of the fetch's readers to
     /// finish puts its spans in the cache and retires the fetch, so the next read of the code is
-    /// a cache hit, or tries again after a failure. False when the read was replaced first.
-    fn finish(&self, read_id: ReadId, outcome: &FetchOutcome) -> bool {
+    /// a cache hit, or tries again after a failure. Fails `Replaced` when the read was replaced
+    /// first, or `Stopped` when the colorer stopped first.
+    fn finish(&self, read_id: ReadId, outcome: &FetchOutcome) -> Result<(), ReadSpansError> {
         let mut reads = self.lock_reads();
         let Some(read) = reads.waiting.get(&read_id) else {
-            return false;
+            return Err(reads.left_error());
         };
         let (key, fetch_id) = (read.key, read.fetch_id);
         if reads
@@ -367,7 +376,24 @@ impl ColorerShared {
         let left = reads.leave(read_id);
         drop(reads);
         drop(left);
-        true
+        Ok(())
+    }
+
+    /// Refuses every waiting read `Stopped` and wakes it to answer; the sources are released once
+    /// the lock is.
+    fn stop(&self) {
+        let stopped = {
+            let mut reads = self.lock_reads();
+            reads.is_stopped = true;
+            reads.fetches.clear();
+            reads.reads_by_block.clear();
+            std::mem::take(&mut reads.waiting)
+        };
+        for read in stopped.into_values() {
+            if let Some(waker) = read.waker {
+                waker.wake();
+            }
+        }
     }
 }
 
@@ -382,6 +408,8 @@ struct WaitingReads {
     reads_by_block: HashMap<BlockKey, ReadId>,
     /// The last id minted for a fetch or a read.
     last_id: u64,
+    /// Set once the colorer stops, which took every read then waiting out.
+    is_stopped: bool,
 }
 
 impl WaitingReads {
@@ -390,11 +418,13 @@ impl WaitingReads {
         self.last_id
     }
 
-    /// Joins the tokenization of `key` in flight, when its source is still held: the fetch's id,
-    /// its source and its answer.
+    /// Joins the tokenization of `key` in flight, if any: the fetch's id, its source and its
+    /// answer.
     fn join_fetch(&mut self, key: &SpanCacheKey) -> Option<(FetchId, Arc<String>, SharedSpans)> {
         let fetch = self.fetches.get_mut(key)?;
-        let source = fetch.source.upgrade()?;
+        let source = fetch.source.upgrade().expect(
+            "a fetch stays only while a read waits for it, and every waiting read holds its source",
+        );
         fetch.reader_count += 1;
         Some((fetch.id, source, fetch.spans.clone()))
     }
@@ -420,10 +450,34 @@ impl WaitingReads {
         Some(read)
     }
 
-    /// Keeps `waker` to wake the read when it is replaced; false when it already was.
-    fn watch(&mut self, read_id: ReadId, waker: &Waker) -> bool {
+    /// Makes `read_id` the block's waiting read, or leaves the block with none, and takes out the
+    /// read it had.
+    fn replace_block_read(
+        &mut self,
+        block: BlockKey,
+        read_id: Option<ReadId>,
+    ) -> Option<WaitingRead> {
+        let replaced_id = match read_id {
+            Some(read_id) => self.reads_by_block.insert(block, read_id),
+            None => self.reads_by_block.remove(&block),
+        }?;
+        self.leave(replaced_id)
+    }
+
+    /// Why a read is no longer waiting: the colorer stopped, or a newer read replaced it.
+    fn left_error(&self) -> ReadSpansError {
+        if self.is_stopped {
+            ReadSpansError::Tokenize(Arc::new(TokenizeFailure::Stopped))
+        } else {
+            ReadSpansError::Replaced
+        }
+    }
+
+    /// Keeps `waker` to wake the read when it is replaced or the colorer stops; fails with why
+    /// the read no longer waits.
+    fn watch(&mut self, read_id: ReadId, waker: &Waker) -> Result<(), ReadSpansError> {
         let Some(read) = self.waiting.get_mut(&read_id) else {
-            return false;
+            return Err(self.left_error());
         };
         if !read
             .waker
@@ -432,7 +486,7 @@ impl WaitingReads {
         {
             read.waker = Some(waker.clone());
         }
-        true
+        Ok(())
     }
 }
 
@@ -454,11 +508,12 @@ struct WaitingRead {
     key: SpanCacheKey,
     /// The fetch it waits for.
     fetch_id: FetchId,
-    /// The fetch's source, held while the read waits.
-    source: Arc<String>,
+    /// The fetch's source, never read: holding it keeps the tokenization wanted while the read
+    /// waits.
+    _source: Arc<String>,
     /// The block it was asked for, if any.
     block: Option<BlockKey>,
-    /// Wakes the read's future when it is replaced.
+    /// Wakes the read's future when it is replaced or the colorer stops.
     waker: Option<Waker>,
 }
 
@@ -537,7 +592,7 @@ mod tests {
         CodeHighlighter, CodeHighlighterOptions, ReadSpansError, SPAN_CACHE_MEMORY_DIVISOR,
         SpanRead,
     };
-    use crate::highlight::thread::TokenizerThreadOptions;
+    use crate::highlight::thread::{TokenizeFailure, TokenizerThreadOptions};
     use crate::ipc::registry::TransportId;
 
     /// How long a test waits for any one answer before it fails.
@@ -709,6 +764,25 @@ mod tests {
         colored(read(&colorer, "const after = 1;", 1, None)).await;
         // The held source and the read after it; never the dropped read's code.
         assert_eq!(colorer.thread.tokenization_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_stop_refuses_every_waiting_read_at_once() {
+        // Mutation: leave the waiting reads for the thread to refuse at their turn.
+        let (colorer, held, hold) = held_colorer();
+        let waiting = read(&colorer, "const waiting = 1;", 1, Some("s"));
+
+        colorer.stop();
+
+        // The thread is still on the held read's first line, so neither answer comes from it.
+        for stopped in [held, waiting] {
+            assert!(matches!(
+                answer(stopped).await,
+                Err(ReadSpansError::Tokenize(failure))
+                    if matches!(*failure, TokenizeFailure::Stopped)
+            ));
+        }
+        hold.release();
     }
 
     #[tokio::test]

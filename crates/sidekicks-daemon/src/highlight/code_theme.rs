@@ -1,4 +1,4 @@
-//! The colorer's theme: which TextMate scopes paint as which span class.
+//! The colorer's theme: which `TextMate` scopes paint as which span class.
 //!
 //! The engine hands each token the foreground its scopes resolve to under a theme, and keeps only a
 //! hex color as a foreground. So each span class takes a sentinel color of its own, and the class
