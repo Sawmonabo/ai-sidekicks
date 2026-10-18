@@ -1,11 +1,14 @@
-//! How an operating system spells, joins and compares a path. Both rule sets compile and parse on
-//! every system, so a path from either system reads by its own rules, and [`PathRules::NATIVE`]
-//! names the running system's.
+//! How an operating system spells, joins and compares a path, and how it names and lists the
+//! variables of a process's environment. Both rule sets compile and parse on every system, so a
+//! path or a name from either system reads by its own rules, and [`PathRules::NATIVE`] names the
+//! running system's.
+
+use std::borrow::Cow;
 
 mod posix;
 mod windows;
 
-/// The path rules of one operating system.
+/// The rules one operating system spells paths and process-environment names by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathRules {
     /// macOS and Linux.
@@ -92,6 +95,35 @@ impl PathRules {
         }
     }
 
+    /// The key two environment names share exactly when the system reads them as one variable: the
+    /// name itself on macOS and Linux, and on Windows the name with each character that has a
+    /// single upper-case form upper-cased, as the system's ordinal case-blind comparison folds it
+    /// (`path` and `PATH` share a key; `ß` stays `ß`).
+    pub fn environment_name_key(self, name: &str) -> Cow<'_, str> {
+        match self {
+            Self::Posix => Cow::Borrowed(name),
+            Self::Windows => {
+                if name
+                    .chars()
+                    .all(|character| fold_to_upper_case(character) == character)
+                {
+                    Cow::Borrowed(name)
+                } else {
+                    Cow::Owned(name.chars().map(fold_to_upper_case).collect())
+                }
+            }
+        }
+    }
+
+    /// The character between the folders of a search-path list such as `PATH`: `:` on macOS and
+    /// Linux, `;` on Windows.
+    pub fn search_path_separator(self) -> char {
+        match self {
+            Self::Posix => ':',
+            Self::Windows => ';',
+        }
+    }
+
     /// Whether a program's output may end a line with `\r\n`; a name never holds the `\r`, since
     /// the system forbids control characters in names.
     pub fn has_carriage_return_line_ends(self) -> bool {
@@ -99,6 +131,19 @@ impl PathRules {
             Self::Posix => false,
             Self::Windows => true,
         }
+    }
+}
+
+/// `character`'s upper-case form where `character` is one UTF-16 unit and its upper-case form is
+/// one character, as Windows' upper-case table maps one unit to one; `character` itself otherwise.
+fn fold_to_upper_case(character: char) -> char {
+    if u32::from(character) > 0xFFFF {
+        return character;
+    }
+    let mut upper = character.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(single), None) => single,
+        _ => character,
     }
 }
 
@@ -156,6 +201,23 @@ mod tests {
         #[case] expected: &str,
     ) {
         assert_eq!(rules.join(base, path), expected);
+    }
+
+    #[rstest]
+    #[case::posix_keeps_case(PathRules::Posix, "path", "PATH", false)]
+    #[case::windows_folds_ascii(PathRules::Windows, "path", "PATH", true)]
+    #[case::windows_folds_one_to_one(PathRules::Windows, "naïve", "NAÏVE", true)]
+    #[case::windows_keeps_a_one_to_many_letter(PathRules::Windows, "straße", "STRASSE", false)]
+    fn environment_names_share_a_key_only_where_the_system_reads_one_variable(
+        #[case] rules: PathRules,
+        #[case] left: &str,
+        #[case] right: &str,
+        #[case] is_one_variable: bool,
+    ) {
+        assert_eq!(
+            rules.environment_name_key(left) == rules.environment_name_key(right),
+            is_one_variable
+        );
     }
 
     #[rstest]
