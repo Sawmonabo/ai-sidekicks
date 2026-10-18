@@ -131,13 +131,14 @@ jobs:
               - 'packages/runtime-daemon/sqlite-shell/**'
               - 'packages/runtime-daemon/src/recovery/database-file/**'
             # The session search's addon crate, the Cargo workspace files and toolchain it builds
-            # under, and this workflow.
+            # under, this workflow and the one that runs its macOS tests.
             search-index:
               - 'packages/search-index/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/macos-crates.yml'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
   # the value, and `.nvmrc` whole would rename the check. Checks out `.nvmrc` alone.
@@ -262,9 +263,13 @@ jobs:
           targets: wasm32-unknown-unknown
 
       # The crates' tests run through `cargo nextest` (`turbo.json`): its prebuilt Linux binary, one
-      # exact release, from its documented install address.
+      # exact release, checked against its pinned SHA-256 before it is unpacked.
       - name: Install cargo-nextest
-        run: curl -LsSf https://get.nexte.st/0.9.148/linux | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+        run: |
+          ASSET="cargo-nextest-0.9.148-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/${ASSET}" -o "/tmp/${ASSET}"
+          echo "223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc  /tmp/${ASSET}" | sha256sum -c -
+          tar -xzf "/tmp/${ASSET}" -C "${CARGO_HOME:-$HOME/.cargo}/bin"
 
       # Every workspace but the desktop: the `desktop` job's bundle leg builds it whenever a file
       # its filter names changes, so building it here too would build it twice.
@@ -826,57 +831,16 @@ jobs:
         working-directory: packages/runtime-daemon
         run: pnpm exec vitest run src/recovery/database-file
 
-  # The session search's addon crate on an Intel Mac: its tests on x64 macOS, which the `test`
-  # job's Linux runner does not cover. It runs when the crate, the Cargo workspace files or this
-  # workflow change, and on every push and scheduled run.
-  search-index-intel-mac:
-    name: search index (macOS x64)
+  # The Rust crates' tests on macOS, in their own workflow: the search addon's crate when it, the
+  # Cargo workspace files or that workflow change, and the operating-system crate on every run.
+  macos-crates:
+    name: macOS crates
     needs: [changes]
-    if: needs.changes.outputs.search-index == 'true'
-    runs-on: macos-26-intel
     permissions:
       contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ env.SWEEP_REF }}
-
-      # The newest stable Rust, with the WebAssembly target `rust-toolchain.toml` lists for the
-      # compression module, so Cargo finds it installed; SHA-pinned.
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Test the addon's crate
-        run: cargo test -p search-index --locked
-
-  # The operating-system crate's tests on macOS, where the caller read rests on a private system
-  # call: a macOS that changes or drops it fails here.
-  platforms-macos:
-    name: platforms (macOS)
-    runs-on: macos-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ env.SWEEP_REF }}
-
-      # The same Rust set-up as the `test` job; SHA-pinned.
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      # nextest's prebuilt macOS binary, one exact release, from its documented install address.
-      - name: Install cargo-nextest
-        run: curl -LsSf https://get.nexte.st/0.9.148/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
-
-      - name: Test the operating-system crate
-        run: cargo nextest run -p sidekicks-platforms --locked
+    uses: ./.github/workflows/macos-crates.yml
+    with:
+      run-search-index: ${{ needs.changes.outputs.search-index == 'true' }}
 
   ci-gate:
     name: ci-gate
@@ -891,8 +855,7 @@ jobs:
         desktop-macos,
         structure,
         native-prebuilds,
-        search-index-intel-mac,
-        platforms-macos,
+        macos-crates,
       ]
     if: always()
     steps:
@@ -929,7 +892,6 @@ jobs:
           check desktop-macos "${{ needs.desktop-macos.result }}"
           check structure "${{ needs.structure.result }}"
           check native-prebuilds "${{ needs.native-prebuilds.result }}"
-          check search-index-intel-mac "${{ needs.search-index-intel-mac.result }}"
-          check platforms-macos "${{ needs.platforms-macos.result }}"
+          check macos-crates "${{ needs.macos-crates.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
           echo "ci-gate: all required jobs succeeded or were skipped"
