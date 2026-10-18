@@ -110,6 +110,7 @@ impl From<RunEngineError> for ProviderChoiceError {
             | RunEngineError::Gate { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
+            | RunEngineError::LimitInterrupterGone { .. }
             | RunEngineError::LimitInterrupt { .. }
             | RunEngineError::Provider(_)
             | RunEngineError::ProviderUnknown { .. }

@@ -5,7 +5,7 @@
 //! ends the run with the limit.
 
 use std::borrow::Cow;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Weak};
 
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -151,16 +151,23 @@ impl RunEngine {
     }
 
     /// The daemon's own stop of a live run at a limit. The limit's reached event is written while
-    /// the run is live, a token limit's once per run; the turn the stop cuts is remembered, so its
-    /// provider's end is written interrupted with the limit; then the interrupt goes to the
-    /// interventions service. A run that has ended is left as it is, and so is a run that already
-    /// reached its token limit; one the limit's end may not leave its state from is refused with
-    /// nothing written. Fails with the service's failure, the cut forgotten.
+    /// the run is live, a token limit's once per run; the turn the stop cuts is remembered, so an
+    /// end its provider reports before the limit's end is written interrupted with the limit; then
+    /// the interrupt goes to the interventions service. A run that has ended is left as it is, and
+    /// so is a run that already reached its token limit; one the limit's end may not leave its
+    /// state from is refused with nothing written. Fails with
+    /// [`RunEngineError::LimitInterrupterGone`], nothing written, when the engine holds no live
+    /// interventions service, and with the service's failure, the cut forgotten.
     pub(super) async fn stop_at_limit(
         &self,
         run_id: RunId,
         stop: LimitStop,
     ) -> Result<(), RunEngineError> {
+        let limit_interrupter = self
+            .limit_interrupter
+            .get()
+            .and_then(Weak::upgrade)
+            .ok_or(RunEngineError::LimitInterrupterGone { run_id })?;
         let limit = stop.limit();
         let to_state = limit_run_end(limit).state();
         let open_turn = self.read_open_turn(run_id).await?;
@@ -217,11 +224,7 @@ impl RunEngine {
                 .cut_turns
                 .insert(run_id, CutTurn { limit, turn_number });
         }
-        match self
-            .limit_interrupter
-            .interrupt_for_limit(run_id, limit)
-            .await
-        {
+        match limit_interrupter.interrupt_for_limit(run_id, limit).await {
             Ok(()) => Ok(()),
             Err(source) => {
                 // The turn was not cut, so its provider's end is written as reported.

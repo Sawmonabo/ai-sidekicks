@@ -9,7 +9,8 @@ use sidekicks_contracts::run::intervention::RunLimit;
 
 /// Carries out the daemon's own interrupt of a run the engine stopped at a limit: records the
 /// interrupt, holds or withdraws the run's waiting messages, has the run's driver cut its turn and
-/// ends the run with the limit through [`RunEngine::end_run_for_interrupt`].
+/// ends the run with the limit through [`RunEngine::end_run_for_interrupt`]. The service holds the
+/// engine, and the engine holds it weakly.
 ///
 /// [`RunEngine::end_run_for_interrupt`]: crate::session::run::engine::RunEngine::end_run_for_interrupt
 pub(crate) trait LimitInterrupter: Send + Sync {

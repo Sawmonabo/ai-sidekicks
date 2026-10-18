@@ -43,7 +43,9 @@ use crate::session::run::projection::insert_queued_run_statement;
 use crate::session::run::read::{RunRead, RunStateReader};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::setup_gates::{RunSetupContext, RunSetupGateError, RunTerminalContext};
-use crate::session::run::start_request::{DaemonTurnStartRequest, RunStartPath, RunStartRequest};
+use crate::session::run::start_request::{
+    DaemonTurnStartRequest, RunContinueRequest, RunStartPath, RunStartRequest,
+};
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 use crate::uuid_v7::mint_uuid_v7;
 
@@ -371,21 +373,15 @@ impl RunEngine {
     )]
     pub(crate) async fn continue_run(
         &self,
-        request: RunStartRequest,
+        request: RunContinueRequest,
     ) -> Result<RunRead, RunEngineError> {
-        let RunStartRequest {
+        let RunContinueRequest {
             run_id,
             queue_item,
             workspace_id,
-            start_path:
-                RunStartPath {
-                    provider: _,
-                    execution_posture,
-                    start_driver,
-                    interrupt_driver,
-                    output_speed: _,
-                    running_statements: _,
-                },
+            execution_posture,
+            start_driver,
+            interrupt_driver,
         } = request;
         let run = self.require_run(run_id).await?;
         let entry = {
@@ -642,19 +638,17 @@ fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::error::Error;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use futures::FutureExt as _;
-    use futures::future::BoxFuture;
     use rusqlite::params;
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
     use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::run::intervention::RunLimit;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_platforms::Spawner;
     use tokio::runtime::Handle;
@@ -662,6 +656,7 @@ mod tests {
 
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::events::log_service::EventLogService;
     use crate::events::log_service::tests::open_log;
     use crate::policy::execution_posture_service::{
         ExecutionPostureService, compose_execution_posture,
@@ -669,23 +664,34 @@ mod tests {
     use crate::provider::driver::DriverServices;
     use crate::provider::driver::registry::{ProviderRegistry, test_provider};
     use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
-    use crate::session::run::limit_interrupter::LimitInterrupter;
     use crate::session::run::projection::RUNS_TABLE_SQL;
     use crate::session::run::start_request::RunStartPath;
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
     use crate::uuid_v7::mint_uuid_v7;
 
-    // No run here reaches a limit, so no interrupt for one is ever asked for.
-    struct NoLimitStops;
-
-    impl LimitInterrupter for NoLimitStops {
-        fn interrupt_for_limit(
-            &self,
-            run_id: RunId,
-            _limit: RunLimit,
-        ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-            async move { Err(format!("no test stops run {run_id} at a limit").into()) }.boxed()
-        }
+    /// An engine on `database`, appending through `event_log`, with no registered driver and its
+    /// posture files under `home`; a test makes the tables its runs need.
+    pub(crate) fn test_engine(
+        database: &TestDatabase,
+        event_log: Arc<EventLogService>,
+        home: &Path,
+    ) -> RunEngine {
+        let services = DriverServices {
+            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
+            data_folder: PathBuf::from("data"),
+        };
+        RunEngine::new(RunEngineDeps {
+            pool: Arc::new(DatabaseReadPool::new(
+                database.path(),
+                RUN_ENGINE_STATEMENT_CAPACITY,
+            )),
+            event_log,
+            execution_postures: Arc::new(ExecutionPostureService::new(
+                home,
+                home.join("session-token"),
+            )),
+            providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
+        })
     }
 
     // Bounds the whole start and report, so a report that deadlocks on the start fails the test.
@@ -718,23 +724,7 @@ mod tests {
                 .expect("the test queues the run");
         }
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: PathBuf::from("data"),
-        };
-        let engine = RunEngine::new(RunEngineDeps {
-            pool: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                RUN_ENGINE_STATEMENT_CAPACITY,
-            )),
-            event_log: log.service,
-            execution_postures: Arc::new(ExecutionPostureService::new(
-                home.path(),
-                home.path().join("session-token"),
-            )),
-            providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
-            limit_interrupter: Arc::new(NoLimitStops),
-        });
+        let engine = test_engine(&database, log.service, home.path());
 
         let (driver_started, driver_has_started) = oneshot::channel::<()>();
         let (release_driver, driver_released) = oneshot::channel::<()>();

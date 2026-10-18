@@ -1,5 +1,6 @@
 //! What the run engine is handed to start a run: a send's run with its admitted item, or a turn
-//! the daemon or the provider starts on a session as the session's own run.
+//! the daemon or the provider starts on a session as the session's own run; and to continue an
+//! interrupted run on the next message its queue admits.
 
 use std::error::Error;
 
@@ -29,6 +30,27 @@ pub(crate) struct RunStartRequest {
     pub(crate) workspace_id: Option<WorkspaceId>,
     /// How the run starts on its provider; a send's run carries no running statements.
     pub(crate) start_path: RunStartPath,
+}
+
+/// What the engine's `continue_run` needs: the admitted item that continues the run, the workspace
+/// its send bound, and the driver's start of the run's next turn. The run keeps the provider it ran
+/// on.
+pub(crate) struct RunContinueRequest {
+    /// The interrupted run.
+    pub(crate) run_id: RunId,
+    /// The item that continues the run.
+    pub(crate) queue_item: QueueItemSummary,
+    /// The workspace the send bound the run to; absent where none was named.
+    pub(crate) workspace_id: Option<WorkspaceId>,
+    /// The posture the continue was requested at; the posture gate checks it, and its resolved
+    /// form is what the driver is handed and `agent.run.running` is stamped with.
+    pub(crate) execution_posture: ExecutionPosture,
+    /// Starts the run's next turn on its provider at the resolved posture, once every setup gate
+    /// has passed.
+    pub(crate) start_driver: Box<dyn Fn(ExecutionPosture) -> DriverStep + Send + Sync>,
+    /// Ends the turn `start_driver` started through the driver's interrupt, when the run's
+    /// `running` write fails after it.
+    pub(crate) interrupt_driver: Box<dyn Fn() -> DriverStep + Send + Sync>,
 }
 
 /// What the engine's `start_daemon_turn` needs: the session whose own run the turn is, the

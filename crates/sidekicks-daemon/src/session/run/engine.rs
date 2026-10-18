@@ -14,7 +14,7 @@ pub(crate) mod turns;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -183,6 +183,13 @@ pub(crate) enum RunEngineError {
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
+    /// The interventions service was never handed to the engine or has shut down, so the run the
+    /// daemon stopped at a limit was not interrupted.
+    #[error("no interventions service interrupts run {run_id}, stopped at a limit")]
+    LimitInterrupterGone {
+        /// The run.
+        run_id: RunId,
+    },
     /// The interventions service did not interrupt the run the daemon stopped at a limit.
     #[error("run {run_id}, stopped at a limit, was not interrupted")]
     LimitInterrupt {
@@ -195,7 +202,8 @@ pub(crate) enum RunEngineError {
     /// No registered driver answers the run's provider (`provider.notFound`).
     #[error(transparent)]
     Provider(DomainError),
-    /// The run has no runtime binding, so no provider is known for it.
+    /// Neither the run nor a parent whose provider process it runs in has a runtime binding, so
+    /// no provider is known for it.
     #[error("no provider is known for run {run_id}, which has no runtime binding")]
     ProviderUnknown {
         /// The run.
@@ -255,8 +263,6 @@ pub(crate) struct RunEngineDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
     pub(crate) providers: Arc<ProviderRegistry>,
-    /// The interventions service, which carries out the interrupt of each limit stop.
-    pub(crate) limit_interrupter: Arc<dyn LimitInterrupter>,
 }
 
 // A run no driver has yet, from `starting` until the driver has it or the run ends. It is
@@ -387,6 +393,9 @@ impl Drop for EndingGuard<'_> {
     fn drop(&mut self) {
         {
             let mut live = lock(self.live);
+            // Landed under the lock, so a newer write's guard walking back never puts this one
+            // back once this guard has run.
+            settle(&self.entry.landed, ());
             if live
                 .ending
                 .get(&self.run_id)
@@ -408,7 +417,6 @@ impl Drop for EndingGuard<'_> {
                 }
             }
         }
-        settle(&self.entry.landed, ());
     }
 }
 
@@ -450,7 +458,9 @@ pub(crate) struct RunEngine {
     gates: RunSetupGates,
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
-    limit_interrupter: Arc<dyn LimitInterrupter>,
+    // The interventions service, which carries out the interrupt of each limit stop. It holds the
+    // engine, so the engine holds it weakly.
+    limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
     live: Mutex<LiveRuns>,
 }
 
@@ -463,7 +473,6 @@ impl RunEngine {
             event_log,
             execution_postures,
             providers,
-            limit_interrupter,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -478,9 +487,23 @@ impl RunEngine {
             gates,
             execution_postures,
             providers,
-            limit_interrupter,
+            limit_interrupter: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
         }
+    }
+
+    /// Hands the engine the interventions service that carries out each limit stop's interrupt,
+    /// once, while the daemon wires its services and before any run can reach a limit. Fails with
+    /// the handle when one was handed already.
+    #[expect(
+        dead_code,
+        reason = "the daemon's start, which hands the engine the interventions service"
+    )]
+    pub(crate) fn set_limit_interrupter(
+        &self,
+        limit_interrupter: Weak<dyn LimitInterrupter>,
+    ) -> Result<(), SetOnceError<Weak<dyn LimitInterrupter>>> {
+        self.limit_interrupter.set(limit_interrupter)
     }
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
@@ -745,8 +768,8 @@ impl RunEngine {
         }
     }
 
-    // What the engine held for a run that has ended. A late end its provider reports for a turn
-    // a limit cut is then written as reported.
+    // What the engine held for a run that has ended. A limit's own end writes the end of the turn
+    // it cut, so no cut is needed past the run's end.
     fn forget_ended_run(&self, run_id: &RunId) {
         let mut live = self.live();
         live.carried_output_speeds.remove(run_id);
@@ -755,7 +778,8 @@ impl RunEngine {
         live.mark_starting_run_ended(run_id);
     }
 
-    // The provider the run runs on, from its newest runtime binding.
+    // The provider the run runs on, from the newest runtime binding of the run or of the nearest
+    // parent whose provider process it runs in.
     async fn provider_of(&self, run_id: RunId) -> Result<ProviderId, RunEngineError> {
         self.pool
             .read(ReadLength::Short, move |reader| {

@@ -117,6 +117,7 @@ impl From<RunEngineError> for RunPauseError {
             | RunEngineError::Gate { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
+            | RunEngineError::LimitInterrupterGone { .. }
             | RunEngineError::LimitInterrupt { .. }
             | RunEngineError::Provider(_)
             | RunEngineError::ProviderUnknown { .. }
