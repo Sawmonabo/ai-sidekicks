@@ -15,6 +15,7 @@ mod delivery;
 mod input_limit;
 mod intervention;
 mod permission_level;
+mod rules;
 mod service;
 mod tools;
 mod usage_limit_signal;

@@ -171,6 +171,7 @@ sidekicks-search = { workspace = true, features = ["index"] }
 sidekicks-terminal.workspace = true
 snow.workspace = true
 sse-stream.workspace = true
+starlark_syntax.workspace = true
 strum.workspace = true
 subtle.workspace = true
 sysinfo.workspace = true

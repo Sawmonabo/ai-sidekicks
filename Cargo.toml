@@ -247,6 +247,8 @@ serde-saphyr = "1.3.0"
 # 2.0 kept 1.3's `split`, `try_join` and quoting byte for byte and dropped only the deprecated
 # `join` and `quote`, so a line joined by 1.3 reads back exactly, and the build holds one copy.
 shlex = "2.0.1"
+# Codex's own rule-file grammar, the parser its `starlark` interpreter is built on.
+starlark_syntax = "0.14.2"
 toml = "1.1.8"
 toml_edit = { version = "0.25.17", features = ["serde"] }
 tree-sitter = "0.27.1"
