@@ -544,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_whose_body_cannot_be_read_keeps_its_place_with_an_empty_body() {
+    fn a_turn_whose_body_cannot_be_read_keeps_its_place_and_another_run_stays_out() {
         let database = TestDatabase::new();
         let writer = database.opener()().expect("the test creates its database");
         let session_id = test_session_id();
@@ -580,6 +580,18 @@ mod tests {
         );
         append(&writer, &session_id, turn_started, None);
         append(&writer, &session_id, agent_message, None);
+        // Another run's message in the same session stays out of this run's transcript.
+        let other_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let other_run_message = json!({
+            "type": "user.message.sent",
+            "payload": {
+                "sessionId": session_id,
+                "runId": other_run_id,
+                "actor": "person",
+                "message": "Another run",
+            },
+        });
+        append(&writer, &session_id, other_run_message, None);
 
         let reader = database.reader();
         let reads = SessionEventReads::new(&reader, |_: &SessionId| None);
@@ -587,7 +599,7 @@ mod tests {
             &reads,
             &session_id,
             &run_id,
-            TranscriptExportBound::AtOrBelow(3),
+            TranscriptExportBound::AtOrBelow(4),
         )
         .expect("the run's transcript folds");
 
@@ -597,7 +609,7 @@ mod tests {
                 text: text.to_owned(),
                 is_content_unavailable,
             };
-        assert_eq!(projection.built_at_position, 3);
+        assert_eq!(projection.built_at_position, 4);
         assert_eq!(
             projection.turns,
             [
