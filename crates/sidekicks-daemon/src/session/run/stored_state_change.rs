@@ -13,10 +13,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 
 /// One stored run state change, whichever state it entered, with its payload as stored.
-#[expect(
-    dead_code,
-    reason = "the run state subscription replays and follows each stored state change"
-)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum StoredRunStateChange {
     /// `agent.run.starting`.
@@ -43,7 +39,8 @@ pub(crate) enum StoredRunStateChange {
 
 #[expect(
     dead_code,
-    reason = "the run state subscription replays and follows each stored state change"
+    reason = "the queue's run lifecycle and the run binding cursors read each stored change's run \
+              and state"
 )]
 impl StoredRunStateChange {
     /// The run that changed state.
@@ -81,10 +78,6 @@ impl StoredRunStateChange {
 
 /// The run state change `event` stored, or `None` for an event of any other type. Fails when the
 /// payload does not read as its type's: the log is the daemon's own, so that is a broken write.
-#[expect(
-    dead_code,
-    reason = "the run state subscription replays and follows each stored state change"
-)]
 pub(crate) fn read_stored_run_state_change(
     event: &EventEnvelope,
 ) -> Result<Option<StoredRunStateChange>, SessionEventReadError> {

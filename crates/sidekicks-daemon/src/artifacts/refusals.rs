@@ -3,6 +3,7 @@
 //! and sent again, and a file too large for its declaration or for the disk, a file sent to the
 //! publish call and a key reused for another request are refused for good.
 
+use std::error::Error;
 use std::io;
 
 use serde_json::json;
@@ -17,6 +18,8 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::read_pool::DatabaseReadError;
 use crate::database::writer::WriteError;
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
+use crate::settle_all::DescribeEach;
 
 /// What an artifact call fails with: one of this module's refusals or another classified one, or
 /// a fault inside the daemon.
@@ -75,6 +78,60 @@ impl ArtifactError {
         };
         Some(refusal)
     }
+}
+
+impl From<ArtifactError> for HandlerError {
+    /// A refusal answers the call by its code, kept when cleaning up after it failed too, with
+    /// those failures beneath it for the service log; every other failure is a fault in the daemon.
+    fn from(error: ArtifactError) -> Self {
+        match into_refusal(error) {
+            Ok(refusal) => Self::Refused(refusal),
+            Err(fault) => Self::Internal(Box::new(fault)),
+        }
+    }
+}
+
+/// The refusal `error` is, carrying beneath it the failures of every cleanup after it, or `error`
+/// itself when it is a fault.
+fn into_refusal(error: ArtifactError) -> Result<DomainError, ArtifactError> {
+    match error {
+        ArtifactError::Refused(refusal) => Ok(refusal),
+        ArtifactError::WithCleanup(failures) => {
+            let (original, cleanup_failures, operation) = failures.into_parts();
+            match into_refusal(original) {
+                Ok(mut refusal) => {
+                    let underneath = refusal.source.take();
+                    Ok(refusal.with_source(RefusalCleanupFailures {
+                        operation,
+                        cleanup_failures,
+                        underneath,
+                    }))
+                }
+                Err(fault) => Err(ArtifactError::WithCleanup(Box::new(CleanupFailures::new(
+                    fault,
+                    cleanup_failures,
+                    operation,
+                )))),
+            }
+        }
+        fault @ (ArtifactError::Disk(_)
+        | ArtifactError::Interrupted(_)
+        | ArtifactError::StreamWriteDropped
+        | ArtifactError::Write(_)
+        | ArtifactError::Read(_)
+        | ArtifactError::Database(_)) => Err(fault),
+    }
+}
+
+/// The failures of cleaning up after a refusal, kept for the service log beneath the refusal, with
+/// the failure the refusal already carried underneath.
+#[derive(Debug, thiserror::Error)]
+#[error("cleaning up after {operation} failed too: {}", DescribeEach(.cleanup_failures))]
+struct RefusalCleanupFailures {
+    operation: &'static str,
+    cleanup_failures: Vec<io::Error>,
+    #[source]
+    underneath: Option<Box<dyn Error + Send + Sync>>,
 }
 
 /// `artifact.ingest.streamInvalid`: the call on `ingest_id` cannot proceed and cannot be retried
@@ -172,4 +229,34 @@ pub(crate) fn ingest_start_idempotency_conflict(ingest_id: &str) -> DomainError 
         RefusalCode::ArtifactIdempotencyConflict,
     )
     .with_detail(json!({ "ingestId": ingest_id }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_whose_cleanups_failed_still_answers_by_its_code() {
+        let failure = ArtifactError::from(file_publish_refused())
+            .with_cleanup_failures(vec![io::Error::other("the spool stayed")], "publishing")
+            .with_cleanup_failures(vec![io::Error::other("the lock stayed")], "unlocking");
+        let HandlerError::Refused(refusal) = HandlerError::from(failure) else {
+            panic!("the refusal answers the call");
+        };
+        assert_eq!(refusal.code, RefusalCode::ArtifactFilePublishRefused);
+        let mut kept = Vec::new();
+        let mut source = refusal.source.as_deref().map(|source| source as &dyn Error);
+        while let Some(failure) = source {
+            kept.push(failure.to_string());
+            source = failure.source();
+        }
+        assert_eq!(
+            kept,
+            [
+                "cleaning up after unlocking failed too: the lock stayed",
+                "cleaning up after publishing failed too: the spool stayed",
+            ],
+            "every cleanup's failure is kept for the log"
+        );
+    }
 }

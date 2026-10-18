@@ -1,6 +1,6 @@
 //! What the socket's tests share: a call's params with one rule, a call's empty params, a
-//! subscribe method and a feed a test drives, a subscription id, and the context the gateway
-//! stamps on a call.
+//! subscribe method and a feed a test drives, a subscription id, the context the gateway stamps on
+//! a call, and a call as the gateway hands it over.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,6 +10,7 @@ use futures::future::BoxFuture;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType, SubscriptionMethod};
 use sidekicks_contracts::schema::received_check;
@@ -19,7 +20,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::ipc::registry::{DispatchError, EncodedFeed, EncodedValue, HandlerContext, TransportId};
+use crate::ipc::registry::{
+    DispatchError, EncodedFeed, EncodedValue, HandlerContext, Request, TransportId,
+};
 use crate::ipc::stream::feed::SendGate;
 
 /// The wire name of [`NamedSubscribe`].
@@ -122,4 +125,14 @@ pub(crate) fn channel_feed() -> (
 pub(crate) fn subscription_id(number: u128) -> SubscriptionId {
     let uuid = Uuid::from_u128(0x7000_8000_0000_0000_0000 | number);
     SubscriptionId::try_from(uuid).expect("the layout is a UUID's")
+}
+
+/// A call to `method` with `params`, or with none, as the gateway hands it over.
+pub(crate) fn request(method: &str, params: Option<&Value>) -> Request {
+    Request {
+        method: method.to_owned(),
+        params: params
+            .map(|params| RawValue::from_string(params.to_string()).expect("the params are JSON")),
+        attachments: Vec::new(),
+    }
 }

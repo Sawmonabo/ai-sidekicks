@@ -301,8 +301,6 @@ run_state_change_members! {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(tag = "newState", rename_all = "camelCase")]
 pub enum RunStateChangeEvent {
-    /// Into `queued`.
-    Queued(#[garde(dive)] RunStateChangeMembers),
     /// Into `starting`.
     Starting(#[garde(dive)] RunStateChangeMembers),
     /// Into `running`.

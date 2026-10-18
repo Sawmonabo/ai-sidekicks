@@ -4,7 +4,6 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use rstest::rstest;
 use serde_json::json;
-use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::negotiation::{
     CONNECTION_INITIALIZE_METHOD, CURRENT_PROTOCOL_VERSION, ConnectionInitializeResponse,
     NegotiationIncompatibleReason,
@@ -17,7 +16,7 @@ use sidekicks_platforms::{PinnedProcess, this_process};
 use tokio::sync::{Notify, mpsc};
 
 use super::{CallerAdmission, CallerAdmissionCheck, NegotiationGate, ProtocolNegotiator};
-use crate::ipc::call_fixtures::{Nothing, context};
+use crate::ipc::call_fixtures::{Nothing, context, request};
 use crate::ipc::registry::{
     Dispatch, DispatchError, HandlerContext, MethodRegistryBuilder, Reply, Request,
 };
@@ -73,7 +72,7 @@ enum Answer {
     Refused(RefusalCode),
 }
 
-fn request(call: Call) -> Request {
+fn request_of(call: Call) -> Request {
     let (method, params) = match call {
         Call::Handshake(token, version) => {
             let mut params = json!({ "protocolVersion": version });
@@ -85,11 +84,7 @@ fn request(call: Call) -> Request {
         Call::Read => ("test.read", json!({})),
         Call::Write => ("test.write", json!({})),
     };
-    Request {
-        method: method.to_owned(),
-        params: Some(RawValue::from_string(params.to_string()).expect("the params are JSON")),
-        attachments: Vec::new(),
-    }
+    request(method, Some(&params))
 }
 
 /// A caller check that answers `admission` for every caller.
@@ -138,7 +133,7 @@ fn caller_context(is_caller_named: bool) -> HandlerContext {
 async fn expect_answers(gate: &NegotiationGate, is_caller_named: bool, calls: &[(Call, Answer)]) {
     for &(call, expected) in calls {
         let answer = gate
-            .dispatch(request(call), caller_context(is_caller_named))
+            .dispatch(request_of(call), caller_context(is_caller_named))
             .await;
         match (answer, expected) {
             (Ok(Reply::Result(encoded)), Answer::Ack(compatible, reason)) => {
@@ -329,7 +324,7 @@ async fn a_handshake_during_the_first_ones_caller_read_gets_the_first_ones_outco
 
     // A wrong guess starts the caller read and waits on it.
     let mut wrong = gate.dispatch(
-        request(Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION)),
+        request_of(Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION)),
         caller_context(true),
     );
     assert!(
@@ -344,13 +339,13 @@ async fn a_handshake_during_the_first_ones_caller_read_gets_the_first_ones_outco
     release.notify_one();
     let right = gate
         .dispatch(
-            request(Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION)),
+            request_of(Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION)),
             caller_context(true),
         )
         .await;
     let wrong = wrong.await;
     let read = gate
-        .dispatch(request(Call::Read), caller_context(true))
+        .dispatch(request_of(Call::Read), caller_context(true))
         .await;
 
     // The first handshake decides the connection: its wrong token refuses it, the token's
@@ -371,7 +366,7 @@ async fn a_repairing_service_refuses_a_wrong_token_repeat_sent_during_the_caller
 
     // The token's handshake starts the caller read; a repeat with a wrong token joins it.
     let mut first = gate.dispatch(
-        request(Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION)),
+        request_of(Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION)),
         caller_context(true),
     );
     assert!(
@@ -382,7 +377,7 @@ async fn a_repairing_service_refuses_a_wrong_token_repeat_sent_during_the_caller
         .try_recv()
         .expect("the handshake started the caller read");
     let mut repeat = gate.dispatch(
-        request(Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION)),
+        request_of(Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION)),
         caller_context(true),
     );
     assert!(
