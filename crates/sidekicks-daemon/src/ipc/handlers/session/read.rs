@@ -6,9 +6,6 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
-use futures::future::BoxFuture;
-use sidekicks_contracts::session::draft::SessionAttachmentSummary;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
     SessionRead, SessionReadRequest, SessionReadResponse, SessionRecord,
 };
@@ -19,14 +16,7 @@ use crate::ipc::registry::{
 use crate::session::addresses::SessionInboxAddresses;
 use crate::session::draft_store::SessionDraftStore;
 use crate::session::service::{SessionLogRead, SessionReadRecord, SessionService};
-
-/// Reads the files staged for a session's next message, in the order they were staged; fails as
-/// the store's read does.
-pub(crate) type StagedAttachmentsReader = Arc<
-    dyn Fn(SessionId) -> BoxFuture<'static, Result<Vec<SessionAttachmentSummary>, HandlerError>>
-        + Send
-        + Sync,
->;
+use crate::session::staged_attachments::StagedAttachments;
 
 /// What `session.read` composes its answer from.
 pub(crate) struct SessionReadSources {
@@ -35,7 +25,7 @@ pub(crate) struct SessionReadSources {
     /// The unsent draft.
     pub(crate) drafts: Arc<SessionDraftStore>,
     /// The staged files.
-    pub(crate) read_attachments: StagedAttachmentsReader,
+    pub(crate) attachments: Arc<dyn StagedAttachments>,
     /// The inbox addresses.
     pub(crate) addresses: Arc<SessionInboxAddresses>,
 }
@@ -68,7 +58,7 @@ async fn read_session(
         standing_events,
     } = sources.sessions.read_session(request).await?;
     let draft = sources.drafts.read(session_id).await?;
-    let attachments = (sources.read_attachments)(session_id).await?;
+    let attachments = sources.attachments.read(&session_id).await?;
     let SessionReadRecord {
         id,
         state,
@@ -111,10 +101,11 @@ mod tests {
     use std::sync::Arc;
 
     use futures::FutureExt as _;
+    use futures::future::BoxFuture;
     use serde_json::{Value, json};
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::place::{Place, WindowsPlace};
-    use sidekicks_contracts::session::draft::SessionDraftUpdate;
+    use sidekicks_contracts::session::draft::{SessionAttachmentSummary, SessionDraftUpdate};
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionRead;
     use sidekicks_platforms::PathRules;
@@ -130,6 +121,7 @@ mod tests {
     use crate::session::addresses::tests::FixedInboxFolder;
     use crate::session::draft_store::{SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore};
     use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
+    use crate::session::staged_attachments::{StagedAttachments, StagedAttachmentsError};
 
     /// The tables a session read and the draft store name, with only the columns they read.
     const SESSION_TABLES_SQL: &str = "
@@ -143,6 +135,18 @@ CREATE TABLE runs (
   state TEXT NOT NULL, run_version INTEGER NOT NULL);
 CREATE TABLE session_drafts (
   session_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL);";
+
+    /// A session with no files staged.
+    struct NoStagedAttachments;
+
+    impl StagedAttachments for NoStagedAttachments {
+        fn read(
+            &self,
+            _session_id: &SessionId,
+        ) -> BoxFuture<'_, Result<Vec<SessionAttachmentSummary>, StagedAttachmentsError>> {
+            async { Ok(Vec::new()) }.boxed()
+        }
+    }
 
     /// The answer of one call that succeeds.
     async fn call(registry: &MethodRegistry, method: &str, params: &Value) -> Value {
@@ -188,7 +192,7 @@ CREATE TABLE session_drafts (
                     Arc::new(|_session_id: &SessionId| None),
                 )),
                 drafts,
-                read_attachments: Arc::new(|_session_id| async { Ok(Vec::new()) }.boxed()),
+                attachments: Arc::new(NoStagedAttachments),
                 addresses: Arc::new(SessionInboxAddresses::new(
                     PathRules::Windows,
                     vec![Some(Place::Windows(WindowsPlace::Value))],
