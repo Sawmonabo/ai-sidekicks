@@ -35,7 +35,6 @@ use crate::session::search::index::columns::index_key_of;
 use crate::session::search::index::rows::IndexRowReader;
 use crate::session::search::query::parse_find_query;
 use crate::session::search::rowid_floors::RowidFloorLog;
-use crate::session::search::service::SearchServiceDeps;
 
 const SESSION_KEY_SQL: &str = "SELECT rowid FROM sessions WHERE id = ?";
 
@@ -71,22 +70,23 @@ pub(crate) enum TranscriptSearchError {
 }
 
 /// One page of the session's hits, newest first, before `before_cursor` when it is given, read on
-/// `deps` in one read transaction. A session whose history is damaged from
+/// `reader` and `index` in one read transaction. A session whose history is damaged from
 /// `damaged_from_sequence` on is searched before that point alone, its hits and its match count
 /// both, as its reads stop there; `applied_floor_position` is where the rowid floor log stood when
 /// the index last matched the database, read before the call. Fails with `session.notFound` for a
 /// session the daemon does not hold, with [`SessionEventCursorUnresolvable`] for a cursor that
 /// names no position, and as a database or index read fails.
 pub(crate) fn search_transcript(
-    deps: &SearchServiceDeps,
+    reader: &Connection,
+    index: &SearchIndex,
     request: &TranscriptSearchRequest,
     damaged_from_sequence: Option<i64>,
     applied_floor_position: i64,
 ) -> Result<TranscriptSearchResponse, TranscriptSearchError> {
-    let transaction = deps.reader.unchecked_transaction()?;
+    let transaction = reader.unchecked_transaction()?;
     let response = answer(
         &transaction,
-        &deps.index,
+        index,
         request,
         damaged_from_sequence,
         applied_floor_position,

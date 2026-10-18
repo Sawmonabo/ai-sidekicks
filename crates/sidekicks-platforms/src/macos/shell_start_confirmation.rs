@@ -12,9 +12,7 @@ use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
 
 use crate::macos::responsibility::read_responsible_id;
-
-/// The environment variable that carries the number of the mode's end of the socket pair.
-const SHELL_START_CONFIRMATION: &str = "SIDEKICKS_SHELL_START_CONFIRMATION";
+use crate::shell_start::SHELL_START_CONFIRMATION;
 
 /// The bytes the confirmation carries: the started process's id.
 type ConfirmedId = [u8; size_of::<u32>()];

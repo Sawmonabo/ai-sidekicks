@@ -13,7 +13,7 @@ use sidekicks_platforms::{
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 
-use crate::pty::TerminalWriteError;
+use crate::input::queue::TerminalWriteError;
 
 /// How long a console break is given before the program's tree is ended outright.
 const CONSOLE_BREAK_GRACE: Duration = Duration::from_secs(2);
@@ -320,7 +320,7 @@ mod tests {
     use super::{
         CONSOLE_BREAK_GRACE, ChildEnding, Escalation, HELPER_PROGRAM_TIME_LIMIT, deliver_signal,
     };
-    use crate::pty::TerminalWriteError;
+    use crate::input::queue::TerminalWriteError;
 
     const ROOT_PROCESS_ID: u32 = 4242;
     const ONE_MILLISECOND: Duration = Duration::from_millis(1);

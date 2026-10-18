@@ -55,9 +55,20 @@ branded_uuid_id! {
 /// What an ask is about. An agent's question and a tool server's question are not asks: they are
 /// the one question record, so neither is a category here.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ApprovalCategory {
     /// Running a tool.
     ToolExecution,
@@ -75,8 +86,21 @@ pub enum ApprovalCategory {
 
 /// Where an ask stands. There is no expired state: an ask waits until it is answered, and the only
 /// ends besides an answer cancel it with its run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ApprovalState {
     /// Waiting on an answer.
     Pending,
@@ -132,8 +156,21 @@ literal! {
 
 /// A remembered rule's reach: this session, kept by the provider for the session, or every session
 /// on this project, kept in the provider's own project rule file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum RememberedScopeKind {
     /// This session.
     Session,
@@ -185,8 +222,11 @@ pub enum ApprovalLateCreateReason {
 
 /// Why a rule ended: the person revoked it, its session ended, or its tool server was removed. A
 /// project's rules live in the project's own folder and stay with it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum InvalidationTrigger {
     /// The person revoked it.
     Explicit,

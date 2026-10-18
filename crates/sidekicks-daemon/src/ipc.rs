@@ -2,7 +2,7 @@
 //! record of mutating calls in flight, subscriptions' streams and the errors each method sends.
 
 #[cfg(test)]
-mod call_fixtures;
+pub(crate) mod call_fixtures;
 pub(crate) mod caller_process;
 pub(crate) mod domain_error;
 pub(crate) mod handlers;

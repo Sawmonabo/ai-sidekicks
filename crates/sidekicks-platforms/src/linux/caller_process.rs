@@ -150,19 +150,23 @@ fn descriptor_process_id(descriptor: RawFd) -> io::Result<Option<u32>> {
         .ok_or_else(invalid)?
         .trim()
         .parse()
-        .map_err(|_| invalid())?;
+        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
     match id {
         -1 => Ok(None),
         0 => Err(io::Error::other(
             "the process lies outside this pid namespace",
         )),
-        id => u32::try_from(id).map(Some).map_err(|_| invalid()),
+        id => u32::try_from(id)
+            .map(Some)
+            .map_err(|error| io::Error::new(ErrorKind::InvalidData, error)),
     }
 }
 
-/// A new descriptor holding process `id`. Fails with `ESRCH` when no process has the id.
-fn open_process_descriptor(id: u32) -> io::Result<OwnedFd> {
-    let pid = libc::pid_t::try_from(id).map_err(|_| io::Error::from_raw_os_error(libc::ESRCH))?;
+/// A new descriptor holding process `id`. Fails with `ESRCH` when no process has the id, and with
+/// `InvalidInput` for an id past `i32::MAX`, which no process has.
+pub(crate) fn open_process_descriptor(id: u32) -> io::Result<OwnedFd> {
+    let pid = libc::pid_t::try_from(id)
+        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
     // SAFETY: `pidfd_open` takes a pid and no flags and returns a new descriptor or -1.
     let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
     if descriptor < 0 {

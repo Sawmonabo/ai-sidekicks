@@ -99,7 +99,7 @@ The Rust types are the one source; TypeScript types and validators are generated
 
 Memory is why the service is in Rust; each of these holds by default:
 
-- The global allocator is mimalloc on macOS and Linux and the system allocator on Windows, declared in `sidekicks-platforms` with the call that hands freed memory back (`mi_collect(true)`, a no-op on Windows until the allocator switch), which the daemon makes once its work goes quiet, from a one-shot timer that new work resets. On Linux the daemon turns transparent huge pages off for itself at start and clears that in each child before exec.
+- The global allocator is mimalloc on macOS and Linux and the system allocator on Windows, supplied by `sidekicks-platforms` as `GlobalAllocator` and `GLOBAL_ALLOCATOR` and declared once, in the daemon's `main.rs`, so the command line and the client's Node addon keep the system allocator, with the call that hands freed memory back (`mi_collect(true)`, a no-op on Windows until the allocator switch), which the daemon makes once its work goes quiet, from a one-shot timer that new work resets. On Linux the daemon turns transparent huge pages off for itself at start and clears that in each child before exec.
 - JSON is read with `from_slice` into typed structs, except a message a server receives, which takes the shape check (Wire contracts); a payload the service only relays and never hashes stays a `&RawValue` (`serde_json`'s `raw_value` feature).
 - Each SQLite connection sets its `cache_size`, the connections are counted, and `prepare_cached` is sized to the statement set.
 - `reqwest` clients cap `pool_max_idle_per_host`.

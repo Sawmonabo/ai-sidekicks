@@ -89,6 +89,7 @@ dispatch2 = { version = "0.3.1", default-features = false }
 junction = "2.1.0"
 keepawake = "0.6.1"
 libc = "0.2.190"
+mach2 = "0.7.0"
 nix = {
   version = "0.31.3",
   features = [
@@ -212,6 +213,9 @@ zeroize = "1.9.1"
 
 # Content, text and time.
 base16ct = { version = "1.0.0", features = ["alloc"] }
+# Strips the terminal escapes from the provider's reason line an approval card shows: CSI, 8-bit
+# CSI and OSC ending in BEL or ST, with none of its terminal code.
+console = { version = "0.16.6", default-features = false, features = ["alloc", "ansi-parsing"] }
 croner = { version = "4.0.1", default-features = false, features = ["jiff"] }
 csv = "1.4.0"
 diffy = "0.5.2"

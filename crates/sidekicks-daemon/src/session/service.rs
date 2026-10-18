@@ -45,6 +45,7 @@ use crate::session::not_found::session_not_found;
 use crate::session::projector::{SessionRebuildError, rebuild_session};
 use crate::session::records::DaemonSessionRecord;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
+use crate::session::tags::NotATag;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 
 /// The statements the service's reads run: its own five (the row, the tags, the live runs, the
@@ -569,11 +570,6 @@ fn read_events(
         Some(head) => event_reads.read_window(session_id, 0, head),
     }
 }
-
-/// A stored tag that is not a tag, which only a write outside the tag verbs can leave.
-#[derive(Debug, thiserror::Error)]
-#[error("the stored tag is not a tag")]
-struct NotATag;
 
 /// The `sessions` columns `session.read` answers from.
 struct SessionRow {

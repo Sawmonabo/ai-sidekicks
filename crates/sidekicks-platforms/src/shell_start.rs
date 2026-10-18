@@ -5,6 +5,11 @@
 use std::ffi::OsString;
 use std::io;
 
+/// The environment variable that carries the number of the `shell` mode's end of the daemon's
+/// confirmation of its start.
+#[cfg(any(target_os = "macos", test, feature = "test-support"))]
+pub(crate) const SHELL_START_CONFIRMATION: &str = "SIDEKICKS_SHELL_START_CONFIRMATION";
+
 /// One shell the `shell` mode starts: the program, its arguments and exactly its
 /// environment. It derives no `Debug`, since the environment may hold secrets.
 pub struct ShellStart {
