@@ -8176,13 +8176,10 @@ dependencies = [
  "rpassword",
  "rstest",
  "secrecy",
- "serde",
- "serde_json",
  "sidekicks-client",
  "sidekicks-contracts",
  "sidekicks-platforms",
  "thiserror 2.0.21",
- "tokio",
 ]
 
 [[package]]
@@ -8193,11 +8190,11 @@ dependencies = [
  "futures",
  "garde",
  "interprocess",
- "rstest",
  "serde",
  "serde_json",
  "sidekicks-contracts",
  "sidekicks-platforms",
+ "subtle",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

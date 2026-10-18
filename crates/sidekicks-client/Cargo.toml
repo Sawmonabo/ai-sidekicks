@@ -16,13 +16,13 @@ serde.workspace = true
 serde_json.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
+subtle.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-rstest.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

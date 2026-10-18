@@ -1,20 +1,31 @@
 //! Opening a daemon connection over a real local socket: the token is read at each connect and
-//! once more when the daemon refuses it, and a run folder that is not this account's alone is
-//! refused before the client writes a byte.
+//! once more when the daemon refuses it, a run folder that is not this account's alone is refused
+//! before the client writes a byte, and a lost link is opened again on the client's schedule, each
+//! attempt held to the handshake deadline, until the connection is down and only a retry reopens
+//! it.
 
 use std::path::Path;
 use std::time::Duration;
 
+use futures::FutureExt as _;
 use interprocess::local_socket::tokio::{Listener, Stream};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName as _};
-use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
+use serde_json::json;
+use sidekicks_client::daemon_connection::{
+    ConnectionState, DaemonConnection, DaemonEndpoint, HANDSHAKE_DEADLINE, LINK_REOPEN_BACKOFF_MS,
+};
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::method::Method;
+use sidekicks_contracts::session::methods::SessionRead;
 use sidekicks_platforms::DaemonRunFolder;
 use tokio::io::AsyncReadExt as _;
+use tokio::sync::watch;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
-use crate::helpers::ScriptedDaemon;
+use crate::helpers::{ScriptedDaemon, raw_request};
 
 /// How long a test waits for the client before it counts as stuck.
 const PATIENCE: Duration = Duration::from_secs(10);
@@ -45,6 +56,36 @@ async fn accept(listener: &Listener) -> ScriptedDaemon<Stream> {
         .expect("the client connects")
         .expect("the connection is accepted");
     ScriptedDaemon::new(stream)
+}
+
+/// Longer than the whole reconnect schedule with a handshake deadline, on the paused clock.
+const SCHEDULE_PATIENCE: Duration = Duration::from_secs(120);
+
+/// The slack a paused clock's millisecond timer ticks add to a wait.
+const TICK_SLACK: Duration = Duration::from_millis(20);
+
+/// Accepts the client's next attempt on the reconnect schedule and answers when it came.
+async fn accept_attempt(listener: &Listener) -> (ScriptedDaemon<Stream>, Instant) {
+    let stream = tokio::time::timeout(SCHEDULE_PATIENCE, listener.accept())
+        .await
+        .expect("the client tries again")
+        .expect("the connection is accepted");
+    (ScriptedDaemon::new(stream), Instant::now())
+}
+
+/// Asserts that `elapsed` is `expected`, give or take the timer's ticks.
+fn assert_waited(elapsed: Duration, expected: Duration) {
+    assert!(
+        elapsed >= expected && elapsed < expected + TICK_SLACK,
+        "waited {elapsed:?}, not {expected:?}"
+    );
+}
+
+async fn wait_for_state(states: &mut watch::Receiver<ConnectionState>, state: ConnectionState) {
+    tokio::time::timeout(SCHEDULE_PATIENCE, states.wait_for(|now| *now == state))
+        .await
+        .expect("the connection reaches the state")
+        .expect("the supervisor runs");
 }
 
 /// Reads `connection.initialize`, checks the token it presents and answers its id.
@@ -130,4 +171,90 @@ async fn a_run_folder_that_is_not_a_private_folder_is_refused_before_any_byte_is
         "{:?}",
         refused.err()
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_lost_link_reopens_on_the_schedule_and_calls_settle_once_it_is_down() {
+    let folder = tempfile::tempdir().expect("a temporary folder");
+    let private = folder.path().join("run");
+    sidekicks_platforms::create_private_folder(&private).expect("the run folder is made private");
+    let run_folder = run_folder(&private, &private);
+    let listener = listen(&run_folder);
+    std::fs::write(&run_folder.token_path, "token").expect("the token is written");
+    let connecting = tokio::spawn(DaemonConnection::connect(DaemonEndpoint::new(
+        run_folder.clone(),
+    )));
+    let mut daemon = accept(&listener).await;
+    daemon.answer_initialize_with_token("token").await;
+    let connection = connecting
+        .await
+        .expect("the connect task runs")
+        .expect("the link opens");
+    let mut states = connection.state_changes();
+    let never = CancellationToken::new();
+    let call = |marker: &str| {
+        connection.client().call_raw(
+            raw_request(&SessionRead::DESCRIPTOR, &json!({ "held": marker })),
+            &never,
+        )
+    };
+
+    // The first loss: the daemon accepts the first attempt and never answers its handshake.
+    // The schedule starts once the supervisor sees the loss, which it reports as reconnecting.
+    drop(daemon);
+    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    let lost_at = Instant::now();
+    let held = call("through the reopen");
+    let (mut silent, first_attempt_at) = accept_attempt(&listener).await;
+    assert_waited(
+        first_attempt_at - lost_at,
+        Duration::from_millis(LINK_REOPEN_BACKOFF_MS[0]),
+    );
+    silent.next_message().await;
+    let (mut daemon, second_attempt_at) = accept_attempt(&listener).await;
+    assert_waited(
+        second_attempt_at - first_attempt_at,
+        HANDSHAKE_DEADLINE + Duration::from_millis(LINK_REOPEN_BACKOFF_MS[1]),
+    );
+    daemon.answer_initialize_with_token("token").await;
+    let resent = daemon.next_message().await;
+    assert_eq!(resent["params"]["held"], "through the reopen");
+    daemon.answer(&resent["id"], json!({})).await;
+    held.await
+        .expect("the held call goes out on the reopened link");
+    wait_for_state(&mut states, ConnectionState::Open).await;
+
+    // The second loss with nobody listening: every attempt fails, and the connection is down.
+    drop(listener);
+    drop(silent);
+    drop(daemon);
+    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    let lost_at = Instant::now();
+    let held = call("until down");
+    assert!(
+        matches!(held.await, Err(ClientError::Unavailable { .. })),
+        "a held call settles once the connection is down"
+    );
+    let schedule: u64 = LINK_REOPEN_BACKOFF_MS.iter().sum();
+    assert_waited(lost_at.elapsed(), Duration::from_millis(schedule));
+    assert_eq!(connection.state(), ConnectionState::Down);
+    assert!(
+        matches!(
+            call("while down").now_or_never(),
+            Some(Err(ClientError::Unavailable { .. }))
+        ),
+        "a call made while down settles at once"
+    );
+
+    // A retry starts the schedule again from its first wait.
+    let listener = listen(&run_folder);
+    let retried_at = Instant::now();
+    connection.retry();
+    let (mut daemon, attempt_at) = accept_attempt(&listener).await;
+    assert_waited(
+        attempt_at - retried_at,
+        Duration::from_millis(LINK_REOPEN_BACKOFF_MS[0]),
+    );
+    daemon.answer_initialize_with_token("token").await;
+    wait_for_state(&mut states, ConnectionState::Open).await;
 }
