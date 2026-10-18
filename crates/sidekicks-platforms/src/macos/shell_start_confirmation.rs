@@ -91,11 +91,12 @@ impl ShellStartConfirmation {
 
 /// Waits for the confirmation that this process's parent started it as a terminal's `shell` mode:
 /// the end the variable names is a local socket whose other end the parent wrote this process's id
-/// on, and the parent is its own responsible process, as the daemon is and no process an agent
-/// runs is. Closes that end. Fails with `NotFound` when no end is named, `InvalidData` when it is
-/// not a socket or the confirmation is not this process's, `PermissionDenied` when the parent did
-/// not write it or is not its own responsible process, `UnexpectedEof` when the other end closed
-/// unwritten, and the system's error otherwise.
+/// on, and the parent, still this process's parent once read, is its own responsible process, as
+/// the daemon is and no process an agent runs is. Closes that end. Fails with `NotFound` when no
+/// end is named, `InvalidData` when it is not a socket or the confirmation is not this process's,
+/// `PermissionDenied` when the parent did not write it, is not its own responsible process or
+/// ended while it was read, `UnexpectedEof` when the other end closed unwritten, and the system's
+/// error otherwise.
 pub(crate) fn receive_confirmation() -> io::Result<()> {
     let descriptor = std::env::var(SHELL_START_CONFIRMATION)
         .map_err(|error| io::Error::new(io::ErrorKind::NotFound, error))?
@@ -118,7 +119,16 @@ pub(crate) fn receive_confirmation() -> io::Result<()> {
             "the confirmation names another process",
         ));
     }
-    if read_responsible_id(parent)? != Some(parent) {
+    let is_own_root = read_responsible_id(parent)? == Some(parent);
+    // A parent that ended re-parents this process, so an unchanged parent is the one read, never
+    // another process given its id.
+    if std::os::unix::process::parent_id() != parent {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("the parent {parent} ended while the confirmation was read"),
+        ));
+    }
+    if !is_own_root {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("the parent {parent} is not its own responsible process"),
