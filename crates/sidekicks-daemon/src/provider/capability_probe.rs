@@ -15,11 +15,26 @@ use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabili
 use crate::provider::driver::contract::CapabilityDetectionSource;
 use crate::provider::driver::is_same_text;
 
+/// One condition a probe must meet to decide a flag; a flag read from the driver's own table names
+/// each one no probe of it meets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProbeAdmissibilityConjunct {
+    /// The probe spends no turn.
+    ZeroTurn,
+    /// The probe changes nothing the session owns.
+    NonMutating,
+    /// The probe's answer decides the flag at the granularity its consumers use it.
+    DecisiveAtConsumptionGranularity,
+}
+
 /// How one capability flag's value is reached for one driver.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CapabilityDetection {
-    /// From the driver's own table, since no zero-turn exchange without effect decides the flag.
-    Static,
+    /// From the driver's own table, since no admissible probe decides the flag.
+    Static {
+        /// The conditions no probe of the flag meets; never empty.
+        failing_conjuncts: &'static [ProbeAdmissibilityConjunct],
+    },
     /// By sending each name with no payload: every one must be accepted, and the first that is not
     /// withdraws the flag.
     Probed {
@@ -32,7 +47,7 @@ impl CapabilityDetection {
     /// The source a reading reports for a flag decided this way.
     pub(crate) fn source(self) -> CapabilityDetectionSource {
         match self {
-            Self::Static => CapabilityDetectionSource::Static,
+            Self::Static { .. } => CapabilityDetectionSource::Static,
             Self::Probed { .. } => CapabilityDetectionSource::Probed,
         }
     }
@@ -247,12 +262,17 @@ async fn dispatch_probe(
     Ok((rules.classify_reply)(&reply, probe_name))
 }
 
-/// Whether a probed flag's names may be sent: at least one, none empty and none of
-/// `prohibited_names`. Each driver asserts it over its whole table when it compiles.
-pub(crate) const fn are_probe_names_admissible(
-    probe_names: &[&str],
+/// Whether `detection` is admissible: a static flag names at least one failing conjunct, and a
+/// probed flag sends at least one name, none empty and none of `prohibited_names`. Each driver
+/// asserts it over its whole table when it compiles.
+pub(crate) const fn is_detection_admissible(
+    detection: CapabilityDetection,
     prohibited_names: &[&str],
 ) -> bool {
+    let probe_names = match detection {
+        CapabilityDetection::Static { failing_conjuncts } => return !failing_conjuncts.is_empty(),
+        CapabilityDetection::Probed { probe_names } => probe_names,
+    };
     if probe_names.is_empty() {
         return false;
     }
@@ -273,8 +293,9 @@ pub(crate) const fn are_probe_names_admissible(
     true
 }
 
-/// Fails the build when a driver's detection table probes a name that may not be sent: its
-/// `const fn` table and its prohibited names, checked over every flag.
+/// Fails the build when a driver's detection table probes a name that may not be sent or declares a
+/// flag static without naming a failing conjunct: its `const fn` table and its prohibited names,
+/// checked over every flag.
 macro_rules! assert_admissible_detection {
     ($detection_of:path, $prohibited_names:expr) => {
         const _: () = {
@@ -282,18 +303,14 @@ macro_rules! assert_admissible_detection {
             let flags = $crate::provider::driver::capabilities::DriverCapabilityFlag::VARIANTS;
             let mut i = 0;
             while i < flags.len() {
-                if let $crate::provider::capability_probe::CapabilityDetection::Probed {
-                    probe_names,
-                } = $detection_of(flags[i])
-                {
-                    assert!(
-                        $crate::provider::capability_probe::are_probe_names_admissible(
-                            probe_names,
-                            $prohibited_names,
-                        ),
-                        "a probed flag sends no name, an empty name or a prohibited name"
-                    );
-                }
+                assert!(
+                    $crate::provider::capability_probe::is_detection_admissible(
+                        $detection_of(flags[i]),
+                        $prohibited_names,
+                    ),
+                    "a static flag names no failing conjunct, or a probed flag sends no name, an \
+                     empty name or a prohibited name"
+                );
                 i += 1;
             }
         };
@@ -312,7 +329,8 @@ mod tests {
 
     use super::{
         CapabilityDetection, CapabilityProbeError, CapabilityProbeExchange, CapabilityProbeRules,
-        CapabilityWithdrawal, ProbeAnswer, WithdrawalReason, read_capability_detection,
+        CapabilityWithdrawal, ProbeAdmissibilityConjunct, ProbeAnswer, WithdrawalReason,
+        read_capability_detection,
     };
     use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
 
@@ -341,7 +359,9 @@ mod tests {
             | DriverCapabilityFlag::CallbackTools
             | DriverCapabilityFlag::Subagents
             | DriverCapabilityFlag::ProviderCommands
-            | DriverCapabilityFlag::OutputSpeed => CapabilityDetection::Static,
+            | DriverCapabilityFlag::OutputSpeed => CapabilityDetection::Static {
+                failing_conjuncts: &[ProbeAdmissibilityConjunct::DecisiveAtConsumptionGranularity],
+            },
         }
     }
 

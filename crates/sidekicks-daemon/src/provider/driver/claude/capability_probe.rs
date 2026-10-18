@@ -3,6 +3,9 @@
 
 use serde_json::Value;
 
+use crate::provider::capability_probe::ProbeAdmissibilityConjunct::{
+    DecisiveAtConsumptionGranularity, NonMutating, ZeroTurn,
+};
 use crate::provider::capability_probe::{
     CapabilityDetection, CapabilityProbeRules, ProbeAnswer, assert_admissible_detection,
 };
@@ -30,24 +33,32 @@ const fn detection_of(flag: DriverCapabilityFlag) -> CapabilityDetection {
         DriverCapabilityFlag::OutputSpeed => CapabilityDetection::Probed {
             probe_names: &[FAST_MODE_PROBE_NAME],
         },
+        // Using a tool server, compacting and listing commands can be decided only by spending a
+        // turn or by reloading the process's skills, commands and plugins.
+        DriverCapabilityFlag::Mcp
+        | DriverCapabilityFlag::ContextCompaction
+        | DriverCapabilityFlag::ProviderCommands => CapabilityDetection::Static {
+            failing_conjuncts: &[ZeroTurn, NonMutating],
+        },
+        // The request that would decide it sets the session's model.
+        DriverCapabilityFlag::ModelMutation => CapabilityDetection::Static {
+            failing_conjuncts: &[NonMutating],
+        },
         // Launch flags, output shapes and asks the provider raises are out of the registry's
-        // sight; tool servers, model changes, compaction and the command list could be decided
-        // only by spending a turn or changing the session.
+        // sight.
         DriverCapabilityFlag::Resume
         | DriverCapabilityFlag::Steer
         | DriverCapabilityFlag::InteractiveRequests
-        | DriverCapabilityFlag::Mcp
         | DriverCapabilityFlag::ToolCalls
         | DriverCapabilityFlag::ReasoningStream
-        | DriverCapabilityFlag::ModelMutation
         | DriverCapabilityFlag::StructuredOutput
         | DriverCapabilityFlag::Rollback
         | DriverCapabilityFlag::SessionFork
         | DriverCapabilityFlag::SessionGoals
         | DriverCapabilityFlag::CallbackTools
-        | DriverCapabilityFlag::Subagents
-        | DriverCapabilityFlag::ContextCompaction
-        | DriverCapabilityFlag::ProviderCommands => CapabilityDetection::Static,
+        | DriverCapabilityFlag::Subagents => CapabilityDetection::Static {
+            failing_conjuncts: &[DecisiveAtConsumptionGranularity],
+        },
     }
 }
 

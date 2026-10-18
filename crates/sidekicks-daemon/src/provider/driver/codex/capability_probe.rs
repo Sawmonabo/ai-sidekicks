@@ -4,6 +4,9 @@
 use serde_json::Value;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 
+use crate::provider::capability_probe::ProbeAdmissibilityConjunct::{
+    DecisiveAtConsumptionGranularity, NonMutating, ZeroTurn,
+};
 use crate::provider::capability_probe::{
     CapabilityDetection, CapabilityProbeRules, ProbeAnswer, assert_admissible_detection,
 };
@@ -41,12 +44,16 @@ const fn detection_of(flag: DriverCapabilityFlag) -> CapabilityDetection {
         DriverCapabilityFlag::ProviderCommands => CapabilityDetection::Probed {
             probe_names: &["skills/list"],
         },
+        // Using a tool server can be decided only by calling one, which spends a turn and does
+        // the tool's work.
+        DriverCapabilityFlag::Mcp => CapabilityDetection::Static {
+            failing_conjuncts: &[ZeroTurn, NonMutating],
+        },
         // Carried by the thread's lifecycle, by turn parameters a method's acceptance does not
         // prove, or by frames the provider sends, none of which the method list shows; output
         // speed's tiers are free-form words no read can decide.
         DriverCapabilityFlag::Resume
         | DriverCapabilityFlag::InteractiveRequests
-        | DriverCapabilityFlag::Mcp
         | DriverCapabilityFlag::ToolCalls
         | DriverCapabilityFlag::ReasoningStream
         | DriverCapabilityFlag::ModelMutation
@@ -55,7 +62,9 @@ const fn detection_of(flag: DriverCapabilityFlag) -> CapabilityDetection {
         | DriverCapabilityFlag::SessionFork
         | DriverCapabilityFlag::CallbackTools
         | DriverCapabilityFlag::Subagents
-        | DriverCapabilityFlag::OutputSpeed => CapabilityDetection::Static,
+        | DriverCapabilityFlag::OutputSpeed => CapabilityDetection::Static {
+            failing_conjuncts: &[DecisiveAtConsumptionGranularity],
+        },
     }
 }
 
