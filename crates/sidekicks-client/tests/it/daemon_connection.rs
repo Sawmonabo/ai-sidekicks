@@ -3,7 +3,7 @@
 //! refused before the client writes a byte; over in-memory streams on the paused clock, the link
 //! watch keeps a link that frames still reach, and a lost link is opened again on the client's
 //! schedule, each attempt held to the handshake deadline, until the reopen window passes and only a
-//! retry reopens it.
+//! retry reopens it, and a close while an attempt runs ends it and starts no other.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -435,4 +435,25 @@ async fn a_lost_link_reopens_on_the_schedule_until_its_window_passes_then_only_a
     tokio::time::sleep(LINK_REOPEN_WINDOW).await;
     assert_eq!(connection.state(), ConnectionState::Down);
     assert_eq!(daemons.attempted_at().len(), attempted_when_down);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_close_while_an_attempt_runs_ends_the_attempt_and_starts_no_other() {
+    let (connector, mut daemons) = memory_daemons();
+    let (connection, daemon, _opened_at) = connect(connector, &mut daemons).await;
+    let mut states = connection.state_changes();
+
+    drop(daemon);
+    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    // The daemon takes the attempt's stream and never answers its handshake.
+    let (mut silent, _attempt_at) = daemons.accept().await;
+    silent.next_message().await;
+    tokio::time::timeout(PATIENCE, connection.close())
+        .await
+        .expect("the close ends while the attempt runs");
+    silent.assert_closed().await;
+
+    let attempted_at_close = daemons.attempted_at().len();
+    tokio::time::sleep(LINK_REOPEN_WINDOW).await;
+    assert_eq!(daemons.attempted_at().len(), attempted_at_close);
 }

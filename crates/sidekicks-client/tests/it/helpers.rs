@@ -108,6 +108,19 @@ impl<S: AsyncRead + AsyncWrite> ScriptedDaemon<S> {
         );
     }
 
+    /// Asserts that the client closes the connection within 10 s of the paused clock, reading
+    /// whatever it still sends first.
+    pub(crate) async fn assert_closed(&mut self) {
+        let closing = async {
+            while let Some(frame) = self.reader.next().await {
+                frame.expect("the client's frames decode");
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), closing)
+            .await
+            .expect("the client closes the connection");
+    }
+
     /// The CREDIT the client sent on `lane`, frame by frame.
     pub(crate) fn credits_on(&self, lane: LaneId) -> Vec<u32> {
         self.credits
