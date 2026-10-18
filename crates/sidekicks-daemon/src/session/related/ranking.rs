@@ -91,6 +91,18 @@ pub(crate) enum SessionRelatedReadError {
     Pool(#[from] DatabaseReadError),
 }
 
+impl SessionRelatedReadError {
+    /// Whether the read failed because the read pool is closed, as it is at the daemon's stop.
+    pub(crate) fn is_pool_closed(&self) -> bool {
+        match self {
+            Self::Pool(DatabaseReadError::Closed) => true,
+            Self::Pool(DatabaseReadError::Open(_) | DatabaseReadError::Join(_))
+            | Self::Refused(_)
+            | Self::Database(_) => false,
+        }
+    }
+}
+
 impl From<SessionRelatedReadError> for HandlerError {
     /// A session the daemon does not hold answers `session.notFound`; a failed read is a fault in
     /// the daemon.
@@ -239,6 +251,15 @@ impl SessionRelatedRanking {
             .entry(*session_id)
             .or_insert_with(|| watch::Sender::new(0))
             .subscribe()
+    }
+
+    /// How many followers still read a count, across every session.
+    #[cfg(test)]
+    pub(crate) fn open_follow_count(&self) -> usize {
+        self.lock_followed()
+            .values()
+            .map(watch::Sender::receiver_count)
+            .sum()
     }
 
     // Scores one round: the changed sessions join the queue, and their neighbors, read in the

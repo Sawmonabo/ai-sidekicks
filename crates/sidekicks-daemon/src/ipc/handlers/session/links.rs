@@ -15,14 +15,13 @@ use sidekicks_contracts::session::links::{
     SessionRelatedSessionSubscribe, SessionRelatedSessionSubscribeRequest,
 };
 
-use crate::database::connection::read_pool::DatabaseReadError;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use crate::ipc::stream::feed::Feed;
 use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
 use crate::session::links::service::SessionLinkService;
-use crate::session::related::ranking::{SessionRelatedRanking, SessionRelatedReadError};
+use crate::session::related::ranking::SessionRelatedRanking;
 
 /// Registers the two link verbs over `links` and `session.relatedSession.subscribe` over
 /// `ranking`. A link change naming a session the daemon does not hold is refused
@@ -77,8 +76,8 @@ pub(crate) fn register_session_links(
 
 /// Sends `session_id`'s list through `outlet` now, then again each time the ranking raises the
 /// list's count, until the returned detach runs. The first read's failure is the subscribe call's;
-/// a later one ends the stream refused, and the read pool closing under the daemon's stop ends it
-/// finished.
+/// a later one ends the stream with that failure, a refusal or a fault, and the read pool closing
+/// under the daemon's stop ends it finished.
 async fn follow_related_list(
     ranking: Arc<SessionRelatedRanking>,
     session_id: SessionId,
@@ -91,7 +90,7 @@ async fn follow_related_list(
         while count.changed().await.is_ok() {
             match ranking.read(session_id).await {
                 Ok(list) => outlet.send(list),
-                Err(SessionRelatedReadError::Pool(DatabaseReadError::Closed)) => return,
+                Err(failure) if failure.is_pool_closed() => return,
                 Err(failure) => {
                     outlet.fail(failure.into());
                     return;
@@ -164,12 +163,12 @@ CREATE TABLE session_related (
     async fn the_related_list_comes_whole_first_and_whole_again_after_a_rescore() {
         let database = TestDatabase::new();
         let log = open_log(&database, None).await;
-        let (followed, linked) = (test_session_id(), test_session_id());
+        let (followed, first, second) = (test_session_id(), test_session_id(), test_session_id());
         let reader = database.reader();
         reader
             .execute_batch(LINK_TABLES_SQL)
             .expect("the link tables are made");
-        for session_id in [followed, linked] {
+        for session_id in [followed, first, second] {
             reader
                 .execute(
                     "INSERT INTO sessions (id) VALUES (?1)",
@@ -209,6 +208,11 @@ CREATE TABLE session_related (
             panic!("a session the daemon does not hold is refused before anything opens");
         };
         assert_eq!(refusal.code, RefusalCode::SessionNotFound);
+        assert_eq!(
+            ranking.open_follow_count(),
+            0,
+            "the refused subscribe follows nothing"
+        );
 
         let Ok(Reply::Subscription { mut feed, .. }) = subscribe(followed).await else {
             panic!("a held session's subscribe answers a subscription");
@@ -219,17 +223,23 @@ CREATE TABLE session_related (
             Vec::<SessionId>::new()
         );
 
-        let added: Result<Reply, DispatchError> = registry
-            .dispatch(
+        let link = |target: SessionId| {
+            registry.dispatch(
                 request(
                     SessionLinkAdd::DESCRIPTOR.method,
-                    Some(&json!({ "sessionId": followed, "targetSessionId": linked })),
+                    Some(&json!({ "sessionId": followed, "targetSessionId": target })),
                 ),
                 context(1),
             )
-            .await;
-        assert!(added.is_ok(), "the link is added");
-        assert_eq!(next_related(&mut feed, &gate).await, [linked]);
+        };
+        assert!(link(first).await.is_ok(), "the first link is added");
+        assert_eq!(next_related(&mut feed, &gate).await, [first]);
+        assert!(link(second).await.is_ok(), "the second link is added");
+        let mut whole = next_related(&mut feed, &gate).await;
+        whole.sort_by_key(|session_id| session_id.text().as_str().to_owned());
+        let mut expected = vec![first, second];
+        expected.sort_by_key(|session_id| session_id.text().as_str().to_owned());
+        assert_eq!(whole, expected, "the second emission is the whole list");
 
         drop(feed);
         rescoring.stop().await.expect("the re-scoring task ends");
