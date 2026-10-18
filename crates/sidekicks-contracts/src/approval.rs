@@ -710,7 +710,7 @@ methods! {
             mutating: true,
             params: ApprovalRuleRevokeRequest,
             result: ApprovalRuleRevokeResponse,
-            refusals: [ApprovalRuleNotFound, ApprovalRuleAlreadyRevoked],
+            refusals: [ApprovalRuleNotFound, ApprovalRuleAlreadyRevoked, ApprovalRuleNotKept],
         },
         /// Allows once an action the provider's reviewer blocked.
         ApprovalDenialOverride = mutation "approval.denial.override" {
