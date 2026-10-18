@@ -455,11 +455,15 @@ CREATE TABLE workflow_drafts (
 mod tests {
     use rstest::rstest;
     use rusqlite::ErrorCode;
-    use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+    use sidekicks_contracts::workflow::run::status::{
+        WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
+    };
 
-    use crate::workflow::test_rows::workflow_tables;
+    use crate::workflow::test_rows::{insert_run, insert_workflow_version, workflow_tables};
 
     const AT: &str = "2026-10-14T09:30:00.000Z";
+    const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
+    const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
 
     fn sql_text(value: Option<&str>) -> String {
         value.map_or_else(|| "NULL".to_owned(), |value| format!("'{value}'"))
@@ -513,6 +517,15 @@ mod tests {
     )]
     fn keeps_wait_columns_to_a_waiting_step(#[case] row: String, #[case] is_admitted: bool) {
         let connection = workflow_tables();
+        insert_workflow_version(&connection, DEFINITION_ID, VERSION_ID, "Nightly");
+        insert_run(
+            &connection,
+            "run",
+            VERSION_ID,
+            WorkflowRunStatus::Running,
+            AT,
+            None,
+        );
         // `None` is a failure other than a constraint's, such as a mistyped statement.
         let outcome = match connection.execute_batch(&row) {
             Ok(()) => Some(true),

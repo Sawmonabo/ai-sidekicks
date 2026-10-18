@@ -136,32 +136,18 @@ pub(crate) enum StoredInstantBound {
     AfterEvery,
 }
 
-/// A request's instant whose date names no day of the calendar, such as February 30.
-#[derive(Debug, thiserror::Error)]
-#[error("the instant's date names no day of the calendar")]
-pub(crate) struct InstantNamesNoDay(#[source] jiff::Error);
-
 /// `instant` placed among the stored instants: a request's instant may carry an offset or another
-/// fraction length, which would compare wrongly as written. Fails with [`InstantNamesNoDay`] for a
-/// date the calendar does not hold.
-pub(crate) fn stored_instant_bound(
-    instant: &WireInstant,
-) -> Result<StoredInstantBound, InstantNamesNoDay> {
+/// fraction length, which would compare wrongly as written.
+pub(crate) fn stored_instant_bound(instant: &WireInstant) -> StoredInstantBound {
     let Some(millisecond) = instant.unix_millisecond() else {
-        // The text matched the instant pattern, so it failed to read either for a date the
-        // calendar does not hold or for an offset that carries it past the last timestamp.
-        return instant
-            .as_str()
-            .get(..19)
-            .expect("an instant the pattern holds starts with its date and time")
-            .parse::<jiff::civil::DateTime>()
-            .map(|_date_and_time| StoredInstantBound::AfterEvery)
-            .map_err(InstantNamesNoDay);
+        // The instant's pattern holds only days of the calendar, so the text failed to read for
+        // an offset that carries it past the last timestamp.
+        return StoredInstantBound::AfterEvery;
     };
     let timestamp = jiff::Timestamp::from_millisecond(millisecond)
         .expect("a millisecond read from a timestamp is a timestamp's");
-    Ok(WireInstant::from_timestamp(timestamp)
-        .map_or(StoredInstantBound::BeforeEvery, StoredInstantBound::At))
+    WireInstant::from_timestamp(timestamp)
+        .map_or(StoredInstantBound::BeforeEvery, StoredInstantBound::At)
 }
 
 /// The select-list that reads a run's columns from `workflow_runs AS run` joined to its pinned

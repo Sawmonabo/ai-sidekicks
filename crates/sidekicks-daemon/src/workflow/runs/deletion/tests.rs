@@ -8,8 +8,8 @@ use sidekicks_contracts::workflow::run::retention::WorkflowRunPurgePreviewRespon
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 
 use super::{
-    DeletedWorkflowRun, WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY, WorkflowRunDeletion,
-    WorkflowRunDeletionError, WorkflowRunNotDeletable,
+    DeletedWorkflowRun, RunGuard, WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY, WorkflowRunDeletion,
+    WorkflowRunDeletionError, WorkflowRunNotDeletable, read_removable_runs,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
@@ -18,9 +18,10 @@ use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
 use crate::events::session::followers::SessionEventFollowers;
-use crate::git::worktree::schema::WORKTREE_SCHEMA_SQL;
-use crate::workflow::schema::WORKFLOW_SCHEMA_SQL;
-use crate::workflow::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
+use crate::workflow::test_parent_rows::{create_parent_tables, insert_parent_rows};
+use crate::workflow::test_rows::{
+    TestStep, create_workflow_tables, insert_run, insert_step, insert_workflow_version,
+};
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
 const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
@@ -31,17 +32,17 @@ const NEW: &str = "2026-10-20T00:00:00.000Z";
 const ENDED: &str = "2026-10-02T00:00:00.000Z";
 const CUTOFF: &str = "2026-10-10T00:00:00.000Z";
 
-/// The deletion over a test database holding the event, workflow and run context tables, and a
-/// connection the test writes and reads rows through.
+/// The deletion over a test database holding the event, workflow and run context tables and the
+/// rows a run's context points at, foreign keys on, and a connection the test writes and reads
+/// rows through.
 async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connection) {
     let opener = database.opener();
     let writer = Arc::new(
         DatabaseWriter::open(
             move || -> rusqlite::Result<Connection> {
                 let connection = opener()?;
-                connection.execute_batch("PRAGMA foreign_keys = OFF;")?;
-                connection.execute_batch(&WORKFLOW_SCHEMA_SQL)?;
-                connection.execute_batch(&WORKTREE_SCHEMA_SQL)?;
+                create_workflow_tables(&connection)?;
+                create_parent_tables(&connection)?;
                 Ok(connection)
             },
             DatabaseWriterOptions::default(),
@@ -62,9 +63,7 @@ async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connect
         read_damaged_from_sequence: None,
     }));
     let rows = database.reader();
-    // The run context's workspace and session rows are not the deletion's concern.
-    rows.execute_batch("PRAGMA foreign_keys = OFF;")
-        .expect("the test turns off foreign keys");
+    insert_parent_rows(&rows);
     insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Nightly");
     (WorkflowRunDeletion::new(pool, writer, event_log), rows)
 }
@@ -112,8 +111,9 @@ fn deleted_event_runs(rows: &Connection) -> Vec<String> {
 }
 
 /// A run still going is refused with nothing written; an ended run goes with its step and its
-/// execution context, and its deleted event is appended, all in one write. Mutations: drop the
-/// going-status guard; append the event apart from the deletes.
+/// execution context, children before the run as the foreign keys hold them, and its deleted event
+/// is appended. Mutations: drop the going-status guard; delete the run before its steps; drop the
+/// event's append, the steps' delete or the execution context's delete from the run's write.
 #[tokio::test]
 async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() {
     let database = TestDatabase::new();
@@ -289,4 +289,51 @@ async fn a_bulk_delete_removes_what_its_preview_counted() {
         .await
         .expect("the preview reads");
     assert_eq!(counts(&after), (0, 1, 2));
+}
+
+/// A bulk delete write whose guard refuses a run kept since its page was read drops that run and
+/// writes the rest again: the kept run stays with its rows and no event, and the others go with
+/// theirs. Mutation: answer the guard's refusal instead of dropping the run.
+#[tokio::test]
+async fn a_run_kept_since_its_page_was_read_is_left_and_the_rest_go() {
+    let database = TestDatabase::new();
+    let (deletion, rows) = open_deletion(&database).await;
+    for number in 1..=3 {
+        insert_run(
+            &rows,
+            &run_id(number),
+            VERSION_ID,
+            WorkflowRunStatus::Succeeded,
+            OLD,
+            Some(ENDED),
+        );
+    }
+    let cutoff = instant(CUTOFF);
+    let page = read_removable_runs(&rows, Some(&cutoff), None).expect("the page reads");
+    assert_eq!(page.len(), 3);
+    rows.execute(
+        "UPDATE workflow_runs SET kept = 1 WHERE id = ?1",
+        [run_id(2)],
+    )
+    .expect("the test keeps a run");
+
+    let deleted = deletion
+        .delete_still_removable_runs(
+            page,
+            RunGuard::StillRemovable {
+                older_than: Some(&cutoff),
+            },
+        )
+        .await
+        .expect("the runs still removable are deleted");
+    let deleted_ids: Vec<WorkflowRunId> = deleted.iter().map(|run| run.workflow_run_id).collect();
+    assert_eq!(deleted_ids, vec![workflow_run_id(1), workflow_run_id(3)]);
+    for number in 1..=3 {
+        assert_eq!(
+            run_row_count(&rows, &run_id(number)),
+            i64::from(number == 2),
+            "run {number}"
+        );
+    }
+    assert_eq!(deleted_event_runs(&rows), vec![run_id(1), run_id(3)]);
 }

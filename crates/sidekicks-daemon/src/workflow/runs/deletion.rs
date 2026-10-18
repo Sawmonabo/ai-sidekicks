@@ -3,10 +3,10 @@
 //! going or parked on its failed step, which a person can still cancel. A run's delete removes its
 //! steps, its form drafts, its gate answers and its execution context with the run, in the write
 //! that appends the run's `workflow.run.deleted`: the session log keeps the run's earlier events,
-//! so a rebuild of the runs from the log needs that record to leave the run out. Bulk delete writes
-//! a session's runs in chunks, one write each, every run in it guarded and its event appended in
-//! that write. Each deleted run's git common folder is answered, so its snapshot refs can be
-//! pruned.
+//! so a rebuild of the runs from the log needs that record to leave the run out. Bulk delete reads
+//! the runs a page at a time and writes each page's runs of one session as one write, every run in
+//! it guarded and its event appended in that write. Each deleted run's git common folder is
+//! answered, so its snapshot refs can be pruned.
 
 #[cfg(test)]
 mod tests;
@@ -48,8 +48,7 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::workflow::not_found::WorkflowNotFound;
 use crate::workflow::runs::record::{
-    GOING_RUN_STATUSES_SQL, InstantNamesNoDay, StoredInstantBound, parked_failed_run_condition,
-    stored_instant_bound,
+    GOING_RUN_STATUSES_SQL, StoredInstantBound, parked_failed_run_condition, stored_instant_bound,
 };
 
 /// The statements the deletion's reads run: the run a delete removes, the runs a bulk delete
@@ -63,9 +62,10 @@ use crate::workflow::runs::record::{
 )]
 pub(crate) const WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY: usize = 4;
 
-/// The most runs one bulk delete write removes. Bulk delete waits for each write to commit before
-/// it queues the next, so the writer's queue holds at most this many of its events, and a larger
-/// write holds the writer longer while other sessions' writes wait.
+/// The most runs one page of bulk delete reads, and so the most one of its writes removes. Bulk
+/// delete waits for each write to commit before it reads or queues the next, so it holds at most
+/// one page and the writer's queue at most this many of its events; a larger write holds the
+/// writer longer while other sessions' writes wait.
 const RUNS_PER_DELETE_WRITE: usize = 100;
 
 // A run that is neither going nor parked on its failed step. A chain's first run holds the chain's
@@ -122,10 +122,15 @@ const SELECT_RUN_TO_DELETE: &str = "SELECT run.id, run.session_id, version.defin
 static RUN_TO_DELETE_SQL: LazyLock<String> =
     LazyLock::new(|| format!("{SELECT_RUN_TO_DELETE} WHERE run.id = @workflow_run_id"));
 
-// In session order, since one write's events all belong to one session.
-static REMOVABLE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
+// One page in session order, since one write's events all belong to one session, after the run
+// the last page ended on; `NULL` starts at the first.
+static REMOVABLE_RUNS_PAGE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "{SELECT_RUN_TO_DELETE} WHERE {} ORDER BY run.session_id",
+        "{SELECT_RUN_TO_DELETE} WHERE {}
+    AND (@after_session_id IS NULL
+      OR (run.session_id, run.id) > (@after_session_id, @after_run_id))
+  ORDER BY run.session_id, run.id
+  LIMIT {RUNS_PER_DELETE_WRITE}",
         *REMOVABLE
     )
 });
@@ -237,9 +242,6 @@ pub(crate) enum WorkflowRunDeletionError {
     /// The run is still needed (`workflow.run.notDeletable`).
     #[error(transparent)]
     NotDeletable(#[from] WorkflowRunNotDeletable),
-    /// The bulk delete's instant names no day of the calendar.
-    #[error(transparent)]
-    InstantNamesNoDay(#[from] InstantNamesNoDay),
     /// A run's deleted event broke one of its type's checks.
     #[error("a run's deleted event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
@@ -249,13 +251,13 @@ pub(crate) enum WorkflowRunDeletionError {
     /// The writer did not keep the Keep mark.
     #[error("a run's Keep mark was not kept")]
     Write(#[from] WriteError),
-    /// A bulk delete's write failed after others had committed: `deleted` holds every run it did
-    /// delete, whose snapshot refs still need pruning, and the source the first failure.
+    /// A bulk delete's read or write failed: `deleted` holds every run it did delete, whose
+    /// snapshot refs still need pruning, and the source the first failure.
     #[error("deleting old runs failed after {} were deleted", .deleted.len())]
     Incomplete {
         /// Every run deleted.
         deleted: Vec<DeletedWorkflowRun>,
-        /// The first write's failure.
+        /// The first failure.
         #[source]
         cause: Box<WorkflowRunDeletionError>,
     },
@@ -275,8 +277,7 @@ impl From<WorkflowRunDeletionError> for HandlerError {
         match error {
             WorkflowRunDeletionError::NotFound(not_found) => Self::Refused(not_found.into()),
             WorkflowRunDeletionError::NotDeletable(refusal) => Self::Refused(refusal.into()),
-            fault @ (WorkflowRunDeletionError::InstantNamesNoDay(_)
-            | WorkflowRunDeletionError::Draft(_)
+            fault @ (WorkflowRunDeletionError::Draft(_)
             | WorkflowRunDeletionError::Append(_)
             | WorkflowRunDeletionError::Write(_)
             | WorkflowRunDeletionError::Incomplete { .. }
@@ -435,8 +436,8 @@ impl WorkflowRunDeletion {
 
     /// How many runs started before `older_than` `Delete runs older than…` would remove; how many
     /// it would remove but for their Keep mark; and how many it leaves because they are waiting or
-    /// parked on a failed step. Fails with [`WorkflowRunDeletionError::InstantNamesNoDay`] for a
-    /// date the calendar does not hold.
+    /// parked on a failed step. Fails with [`WorkflowRunDeletionError::Database`] or
+    /// [`WorkflowRunDeletionError::Pool`] when the read does.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.run.purge.preview handler")
@@ -445,7 +446,7 @@ impl WorkflowRunDeletion {
         &self,
         older_than: &WireInstant,
     ) -> Result<WorkflowRunPurgePreviewResponse, WorkflowRunDeletionError> {
-        let bound = match stored_instant_bound(older_than)? {
+        let bound = match stored_instant_bound(older_than) {
             StoredInstantBound::BeforeEvery => {
                 return Ok(WorkflowRunPurgePreviewResponse {
                     delete_count: SafeInt::ZERO,
@@ -466,8 +467,8 @@ impl WorkflowRunDeletion {
     /// Deletes every run the preview counts for deletion, each with all its rows and its own
     /// `workflow.run.deleted`, and answers each one deleted. A run read as deletable that its guard
     /// no longer matches at its write, such as one kept since, is left. Fails with
-    /// [`WorkflowRunDeletionError::Incomplete`] when a write fails, once every other write has
-    /// settled, and as the preview does before any write.
+    /// [`WorkflowRunDeletionError::Incomplete`] when a read or a write fails: a failed write leaves
+    /// the later pages to be written, and a failed read ends the delete.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.run.purge handler")
@@ -476,32 +477,53 @@ impl WorkflowRunDeletion {
         &self,
         older_than: &WireInstant,
     ) -> Result<Vec<DeletedWorkflowRun>, WorkflowRunDeletionError> {
-        let bound = match stored_instant_bound(older_than)? {
+        let bound = match stored_instant_bound(older_than) {
             StoredInstantBound::BeforeEvery => return Ok(Vec::new()),
             StoredInstantBound::At(instant) => Some(instant),
             StoredInstantBound::AfterEvery => None,
         };
-        let read_bound = bound.clone();
-        let runs = self
-            .pool
-            .read(ReadLength::Long, move |connection| {
-                Ok::<_, WorkflowRunDeletionError>(read_removable_runs(
-                    connection,
-                    read_bound.as_ref(),
-                )?)
-            })
-            .await?;
         let guard = RunGuard::StillRemovable {
             older_than: bound.as_ref(),
         };
         let mut deleted = Vec::new();
         let mut failure = None;
-        for chunk in chunk_runs_by_session(runs) {
-            match self.delete_still_removable_runs(chunk, guard).await {
-                Ok(chunk_deleted) => deleted.extend(chunk_deleted),
+        let mut after = None;
+        loop {
+            let read_bound = bound.clone();
+            let read = self
+                .pool
+                .read(ReadLength::Long, move |connection| {
+                    Ok::<_, WorkflowRunDeletionError>(read_removable_runs(
+                        connection,
+                        read_bound.as_ref(),
+                        after,
+                    )?)
+                })
+                .await;
+            let page = match read {
+                Ok(page) => page,
                 Err(error) => {
                     failure.get_or_insert(error);
+                    break;
                 }
+            };
+            let Some(last) = page.last() else {
+                break;
+            };
+            // The next page starts after this one's last run, so a run left at its write is not
+            // read again.
+            after = Some((last.session_id, last.workflow_run_id));
+            let is_last_page = page.len() < RUNS_PER_DELETE_WRITE;
+            for chunk in chunk_runs_by_session(page) {
+                match self.delete_still_removable_runs(chunk, guard).await {
+                    Ok(chunk_deleted) => deleted.extend(chunk_deleted),
+                    Err(error) => {
+                        failure.get_or_insert(error);
+                    }
+                }
+            }
+            if is_last_page {
+                break;
             }
         }
         match failure {
@@ -656,17 +678,15 @@ fn older_than_binding(older_than: Option<&WireInstant>) -> (Cow<'static, str>, V
     )
 }
 
-// Consecutive runs of one session, at most `RUNS_PER_DELETE_WRITE` to a chunk; `runs` is in
-// session order.
+// A page's runs of each session, consecutive in it since a page is in session order.
 fn chunk_runs_by_session(runs: Vec<RunToDelete>) -> Vec<Vec<RunToDelete>> {
     let mut chunks: Vec<Vec<RunToDelete>> = Vec::new();
     for run in runs {
         match chunks.last_mut() {
             Some(chunk)
-                if chunk.len() < RUNS_PER_DELETE_WRITE
-                    && chunk
-                        .first()
-                        .is_some_and(|first| first.session_id == run.session_id) =>
+                if chunk
+                    .first()
+                    .is_some_and(|first| first.session_id == run.session_id) =>
             {
                 chunk.push(run);
             }
@@ -689,13 +709,21 @@ fn read_run_to_delete(
         .optional()
 }
 
+// One page of the runs bulk delete removes, after the session and run `after` names.
 fn read_removable_runs(
     connection: &Connection,
     older_than: Option<&WireInstant>,
+    after: Option<(SessionId, WorkflowRunId)>,
 ) -> rusqlite::Result<Vec<RunToDelete>> {
-    let mut statement = connection.prepare_cached(REMOVABLE_RUNS_SQL.as_str())?;
+    let after_session = after.map(|(session_id, _)| session_id.text());
+    let after_run = after.map(|(_, workflow_run_id)| workflow_run_id.text());
+    let mut statement = connection.prepare_cached(REMOVABLE_RUNS_PAGE_SQL.as_str())?;
     let rows = statement.query_map(
-        named_params! { "@older_than": older_than.map(WireInstant::as_str) },
+        named_params! {
+            "@older_than": older_than.map(WireInstant::as_str),
+            "@after_session_id": after_session.as_ref().map(|text| text.as_str()),
+            "@after_run_id": after_run.as_ref().map(|text| text.as_str()),
+        },
         run_to_delete_from_row,
     )?;
     rows.collect()

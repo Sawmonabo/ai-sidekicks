@@ -109,8 +109,9 @@ mod tests {
     use super::{WorkflowRunCancellation, workflow_run_cancellation_statements};
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
-    use crate::workflow::schema::WORKFLOW_SCHEMA_SQL;
-    use crate::workflow::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
+    use crate::workflow::test_rows::{
+        TestStep, create_workflow_tables, insert_run, insert_step, insert_workflow_version,
+    };
 
     const CANCELED_AT: &str = "2026-10-02T00:10:00.000Z";
     const ENDED_AT: &str = "2026-10-02T00:05:00.000Z";
@@ -183,8 +184,7 @@ mod tests {
         let writer = DatabaseWriter::open(
             move || -> rusqlite::Result<Connection> {
                 let connection = opener()?;
-                connection.execute_batch("PRAGMA foreign_keys = OFF;")?;
-                connection.execute_batch(&WORKFLOW_SCHEMA_SQL)?;
+                create_workflow_tables(&connection)?;
                 Ok(connection)
             },
             DatabaseWriterOptions::default(),

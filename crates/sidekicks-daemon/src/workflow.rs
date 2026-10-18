@@ -7,4 +7,6 @@ pub(crate) mod runs;
 pub(crate) mod schema;
 pub(crate) mod secrets;
 #[cfg(test)]
+pub(crate) mod test_parent_rows;
+#[cfg(test)]
 mod test_rows;
