@@ -81,6 +81,9 @@ pub struct ConsoleReading {
     pub is_echo_input: bool,
     /// Whether the console hands input over a line at a time (`ENABLE_LINE_INPUT`).
     pub is_line_input: bool,
+    /// How many input events wait on the console unread (`GetNumberOfConsoleInputEvents`), which
+    /// stops falling while the program reads none of its input.
+    pub waiting_input_events: u32,
 }
 
 /// Wakes a terminal's read loop from any thread; it can be made before the loop runs, and a wake

@@ -5,13 +5,14 @@
 //! Windows path names on every system.
 #![expect(
     unsafe_code,
-    reason = "the terminal's window size, console and library-search calls, the shell start's \
-              signal and console-handler calls, the parent check `scutil`'s child runs in \
-              `pre_exec`, the Windows host-name, free-room and entry-identity calls, the Windows \
-              replacing rename's `MoveFileExW`, the caller reads (Linux's peer process descriptor \
-              and `pidfd_open`, macOS's audit token and checked process reads), the measurement \
-              tests' footprint read on macOS, and the power notifications and wall-clock timers \
-              of macOS and Windows are C interfaces"
+    reason = "the terminal's window size, mode read (`tcgetattr`), signal request (`TIOCSIG`), \
+              console, console input count (`GetNumberOfConsoleInputEvents`) and library-search \
+              calls, the shell start's signal and console-handler calls, the parent check \
+              `scutil`'s child runs in `pre_exec`, the Windows host-name, free-room and \
+              entry-identity calls, the Windows replacing rename's `MoveFileExW`, the caller reads \
+              (Linux's peer process descriptor and `pidfd_open`, macOS's audit token and checked \
+              process reads), the measurement tests' footprint read on macOS, and the power \
+              notifications and wall-clock timers of macOS and Windows are C interfaces"
 )]
 
 mod atomic_replace;
@@ -104,12 +105,15 @@ pub use posix::socket_listener::bind_socket_listener;
 pub use posix::socket_path::check_socket_path;
 #[cfg(unix)]
 pub use posix::terminal::{
-    TerminalWatch, child_process_id, end_process_tree, exit_signal, read_console, release_terminal,
-    restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
-    send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
+    DOES_PAUSED_READ_HOLD_INPUT, TerminalKeySignals, TerminalWatch, child_process_id,
+    end_process_tree, exit_signal, read_console, release_terminal, restrict_library_search,
+    run_console_helper, run_terminal_loop, send_console_break, send_signal, terminal_ending_route,
+    terminal_options, terminal_signal_route,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
+pub use posix::terminal::{
+    abnormal_exit, echo_program, interruptible_sleeper, pass_through_start, waiting_printer,
+};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
 pub use shell_start::{ShellStart, ShellStartError};
@@ -169,12 +173,15 @@ pub use windows::socket_listener::bind_socket_listener;
 pub use windows::socket_path::check_socket_path;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
-    TerminalWatch, child_process_id, end_process_tree, exit_signal, read_console, release_terminal,
-    restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
-    send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
+    DOES_PAUSED_READ_HOLD_INPUT, TerminalKeySignals, TerminalWatch, child_process_id,
+    end_process_tree, exit_signal, read_console, release_terminal, restrict_library_search,
+    run_console_helper, run_terminal_loop, send_console_break, send_signal, terminal_ending_route,
+    terminal_options, terminal_signal_route,
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
-pub use windows::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
+pub use windows::terminal::{
+    abnormal_exit, echo_program, interruptible_sleeper, pass_through_start, waiting_printer,
+};
 #[cfg(target_os = "windows")]
 pub use windows::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use wsl::{DistributionPath, distribution_of};

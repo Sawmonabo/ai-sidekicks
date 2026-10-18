@@ -26,7 +26,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 use windows_sys::Win32::System::Console::{
     AttachConsole, CONSOLE_MODE, CTRL_BREAK_EVENT, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
     FreeConsole, GenerateConsoleCtrlEvent, GetConsoleMode, GetConsoleProcessList,
-    SetConsoleCtrlHandler,
+    GetNumberOfConsoleInputEvents, SetConsoleCtrlHandler,
 };
 use windows_sys::Win32::System::LibraryLoader::{
     LOAD_LIBRARY_SEARCH_SYSTEM32, SetDefaultDllDirectories,
@@ -61,6 +61,26 @@ pub fn terminal_signal_route(signal: TerminalSignal) -> TerminalSignalRoute {
 /// ends the program's tree, since no signal reaches a program there.
 pub fn terminal_ending_route(_signal: TerminalSignal) -> TerminalSignalRoute {
     TerminalSignalRoute::EndTree
+}
+
+/// Whether a terminal's paused read holds the program's input back too: yes on Windows, whose
+/// console stops taking input while its output pipe is full.
+pub const DOES_PAUSED_READ_HOLD_INPUT: bool = true;
+
+/// A terminal's keys that its settings turn into signals: none on Windows, whose console turns
+/// Ctrl+C typed as `0x03` into its own event as it reads it.
+pub struct TerminalKeySignals;
+
+impl TerminalKeySignals {
+    /// The signal keys of `pty`'s terminal: none on Windows. Never fails.
+    pub fn new(_pty: &Pty) -> io::Result<Self> {
+        Ok(Self)
+    }
+
+    /// Sends no key as a signal on Windows, answering `false`. Never fails.
+    pub fn send_signal_key(&self, _key: u8) -> io::Result<bool> {
+        Ok(false)
+    }
 }
 
 /// Sends a POSIX signal, which Windows has none of: always fails with `Unsupported`.
@@ -152,17 +172,21 @@ pub fn send_console_break(pid: u32) -> io::Result<()> {
 }
 
 /// Reads which processes the console of the process `pid`, the `shell` mode's process that started
-/// the shell, holds and how it takes input; run inside the console helper, which it moves onto that
+/// the shell, holds, how it takes input and how much input waits on it; run inside the console helper, which it moves onto that
 /// console. Fails with the system's error when the helper cannot attach, list the console's
-/// processes or read its input mode.
+/// processes or read its input mode and waiting input.
 pub fn read_console(pid: u32) -> io::Result<ConsoleReading> {
     attach_to_console(pid)?;
     let process_ids = console_process_ids(pid)?;
-    let input_mode = console_input_mode()?;
+    let ConsoleInput {
+        mode,
+        waiting_events,
+    } = read_console_input()?;
     Ok(ConsoleReading {
         process_ids,
-        is_echo_input: input_mode & ENABLE_ECHO_INPUT != 0,
-        is_line_input: input_mode & ENABLE_LINE_INPUT != 0,
+        is_echo_input: mode & ENABLE_ECHO_INPUT != 0,
+        is_line_input: mode & ENABLE_LINE_INPUT != 0,
+        waiting_input_events: waiting_events,
     })
 }
 
@@ -315,6 +339,13 @@ impl TerminalWatch {
         }
     }
 
+    /// Reads what the terminal's output holds now into `read_into`, never waiting, so a loop reads
+    /// a burst whole before it delivers it: the count read, or 0 when nothing waits. Fails with the
+    /// system's error from the read.
+    pub fn read_now(&mut self, read_into: &mut [u8]) -> io::Result<usize> {
+        self.pty.reader().read(read_into)
+    }
+
     /// The program's status once it has exited; the PTY stays, since `ConPTY`'s output is still
     /// read through it, and its handle keeps the program's id its own until it is dropped.
     pub fn take_child_exit(&mut self) -> Option<Option<ExitStatus>> {
@@ -448,9 +479,15 @@ fn console_process_ids(start_process_id: u32) -> io::Result<Vec<u32>> {
     Ok(process_ids)
 }
 
-/// The input mode of the attached console, read through a fresh `CONIN$` handle, since the
-/// standard handles do not follow an attach.
-fn console_input_mode() -> io::Result<CONSOLE_MODE> {
+/// The attached console's input mode and how many input events wait on it unread.
+struct ConsoleInput {
+    mode: CONSOLE_MODE,
+    waiting_events: u32,
+}
+
+/// The input mode and waiting input events of the attached console, read through a fresh `CONIN$`
+/// handle, since the standard handles do not follow an attach.
+fn read_console_input() -> io::Result<ConsoleInput> {
     // SAFETY: the name is a static wide string ending in NUL, and the security attributes and
     // template handle are optional, so null.
     let console_input = unsafe {
@@ -467,13 +504,21 @@ fn console_input_mode() -> io::Result<CONSOLE_MODE> {
     if console_input == INVALID_HANDLE_VALUE {
         return Err(io::Error::last_os_error());
     }
-    let mut input_mode: CONSOLE_MODE = 0;
+    let mut mode: CONSOLE_MODE = 0;
+    let mut waiting_events: u32 = 0;
     // SAFETY: the handle was opened above and is still open, and the mode pointer names a live
     // local.
-    let mode_read = if unsafe { GetConsoleMode(console_input, &raw mut input_mode) } == 0 {
-        Err(io::Error::last_os_error())
+    let is_mode_read = unsafe { GetConsoleMode(console_input, &raw mut mode) } != 0;
+    // SAFETY: the handle is still open, and the count pointer names a live local.
+    let input_read = if is_mode_read
+        && unsafe { GetNumberOfConsoleInputEvents(console_input, &raw mut waiting_events) } != 0
+    {
+        Ok(ConsoleInput {
+            mode,
+            waiting_events,
+        })
     } else {
-        Ok(input_mode)
+        Err(io::Error::last_os_error())
     };
     // SAFETY: the handle was opened above and is closed once, here.
     let closed = if unsafe { CloseHandle(console_input) } == 0 {
@@ -481,16 +526,16 @@ fn console_input_mode() -> io::Result<CONSOLE_MODE> {
     } else {
         Ok(())
     };
-    match (mode_read, closed) {
-        (Ok(input_mode), Ok(())) => Ok(input_mode),
+    match (input_read, closed) {
+        (Ok(input), Ok(())) => Ok(input),
         (Ok(_), Err(close_error)) => Err(close_error),
-        (Err(mode_error), Ok(())) => Err(mode_error),
-        (Err(mode_error), Err(close_error)) => {
+        (Err(read_error), Ok(())) => Err(read_error),
+        (Err(read_error), Err(close_error)) => {
             tracing::warn!(
                 error = &close_error as &(dyn Error + 'static),
                 "the console input handle could not be closed"
             );
-            Err(mode_error)
+            Err(read_error)
         }
     }
 }
@@ -533,6 +578,17 @@ pub fn abnormal_exit() -> AbnormalExit {
     AbnormalExit {
         program: shell_script("exit -1073741819"),
         exit_code: 3_221_225_477,
+        signal_code: None,
+    }
+}
+
+/// A shell that prints `ready` and waits 20 seconds, reading none of its input; the exit is the
+/// one the console's interrupt key gives it.
+#[cfg(any(test, feature = "test-support"))]
+pub fn interruptible_sleeper() -> AbnormalExit {
+    AbnormalExit {
+        program: shell_script("echo ready& ping -n 21 127.0.0.1 >nul"),
+        exit_code: 3_221_225_786,
         signal_code: None,
     }
 }

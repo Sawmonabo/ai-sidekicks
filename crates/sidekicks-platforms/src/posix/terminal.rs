@@ -1,5 +1,6 @@
-//! The macOS and Linux side of the terminal interface: POSIX signals, the PTY's window size and a
-//! poller over the terminal and its program's exit, whose descriptor the runtime watches.
+//! The macOS and Linux side of the terminal interface: POSIX signals, the keys a terminal turns into
+//! signals, the PTY's window size and a poller over the terminal and its program's exit, whose
+//! descriptor the runtime watches.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -49,6 +50,66 @@ pub fn send_signal(pid: u32, signal: TerminalSignal) -> io::Result<()> {
     match kill(process_id(pid)?, posix_signal(signal)) {
         Ok(()) | Err(Errno::ESRCH) => Ok(()),
         Err(errno) => Err(io::Error::from(errno)),
+    }
+}
+
+/// Whether a terminal's paused read holds the program's input back too: no on macOS and Linux,
+/// where the terminal takes input while its output waits unread.
+pub const DOES_PAUSED_READ_HOLD_INPUT: bool = false;
+
+/// A terminal's keys that its settings turn into signals, sent as those signals rather than as
+/// input bytes, so they reach a program that reads none of its input. Holds its own copy of the
+/// terminal's master.
+pub struct TerminalKeySignals {
+    master: File,
+}
+
+impl TerminalKeySignals {
+    /// The signal keys of `pty`'s terminal. Fails with the system's error when its master cannot be
+    /// duplicated.
+    pub fn new(pty: &Pty) -> io::Result<Self> {
+        Ok(Self {
+            master: pty.file().try_clone()?,
+        })
+    }
+
+    /// Sends `key` as `SIGINT`, `SIGQUIT` or `SIGTSTP` to the terminal's foreground program when the
+    /// terminal's settings have `ISIG` on and `key` is their interrupt, quit or suspend character,
+    /// answering whether it did. Fails with the system's error when the settings cannot be read or
+    /// the signal cannot be sent.
+    pub fn send_signal_key(&self, key: u8) -> io::Result<bool> {
+        let descriptor = self.master.as_raw_fd();
+        let mut settings = MaybeUninit::<libc::termios>::uninit();
+        // SAFETY: the descriptor is this value's open copy of the master, and the pointer names a
+        // live local the call fills on success. Linux hands back the program's side's settings,
+        // and macOS keeps one record for both sides.
+        if unsafe { libc::tcgetattr(descriptor, settings.as_mut_ptr()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `tcgetattr` succeeded, so it filled the whole struct.
+        let settings = unsafe { settings.assume_init() };
+        if settings.c_lflag & libc::ISIG == 0 {
+            return Ok(false);
+        }
+        let bound = [
+            (libc::VINTR, libc::SIGINT),
+            (libc::VQUIT, libc::SIGQUIT),
+            (libc::VSUSP, libc::SIGTSTP),
+        ]
+        .into_iter()
+        .find(|(character, _signal)| {
+            let bound_key = settings.c_cc[*character];
+            bound_key != libc::_POSIX_VDISABLE && bound_key == key
+        });
+        let Some((_character, signal)) = bound else {
+            return Ok(false);
+        };
+        // SAFETY: the descriptor is this value's open copy of the master, and `TIOCSIG` takes the
+        // signal number itself as its argument.
+        if unsafe { libc::ioctl(descriptor, libc::c_ulong::from(libc::TIOCSIG), signal) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(true)
     }
 }
 
@@ -272,6 +333,18 @@ impl TerminalWatch {
                 ready = self.poller.readable() => ready?.clear_ready(),
                 () = sleep_until_deadline(deadline) => {}
             }
+        }
+    }
+
+    /// Reads what the terminal's output holds now into `read_into`, never waiting, so a loop reads
+    /// a burst whole before it delivers it: the count read, or 0 when a read would block or the
+    /// output has ended, which the next [`Self::wait`] tells apart. Fails with the system's error
+    /// from the read.
+    pub fn read_now(&mut self, read_into: &mut [u8]) -> io::Result<usize> {
+        match (&self.master).read(read_into) {
+            Ok(count) => Ok(count),
+            Err(error) if is_hang_up(&error) || is_retry(&error) => Ok(0),
+            Err(error) => Err(error),
         }
     }
 
@@ -515,6 +588,17 @@ pub fn abnormal_exit() -> AbnormalExit {
         program: shell_script("kill -TERM $$"),
         exit_code: 0,
         signal_code: Some(libc::SIGTERM),
+    }
+}
+
+/// A shell that takes its terminal's input unread and byte by byte, its interrupt key left on,
+/// prints `ready` and sleeps 20 seconds; the exit is the one its interrupt key gives it.
+#[cfg(any(test, feature = "test-support"))]
+pub fn interruptible_sleeper() -> AbnormalExit {
+    AbnormalExit {
+        program: shell_script("stty -icanon -echo; echo ready; exec sleep 20"),
+        exit_code: 0,
+        signal_code: Some(libc::SIGINT),
     }
 }
 
