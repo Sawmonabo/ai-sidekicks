@@ -1,0 +1,603 @@
+//! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
+//! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands and which
+//! message a fork keeps up to; deleted on a purge with every other file Claude Code keeps for the
+//! conversation under the same config folder and the daemon's scratch folder.
+
+use std::fmt;
+use std::io;
+use std::marker::PhantomData;
+use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+use serde::de::{self, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use tokio::io::{AsyncBufReadExt, BufReader};
+
+use crate::missing_entry::MissingEntry;
+use crate::provider::driver::claude::session::plan_files::find_claude_plan_files;
+use crate::provider::inbound_json::decode_inbound_json;
+
+/// The turns one conversation file holds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeConversationOutline {
+    /// Index `n` is the uuid of the last entry of turn `n + 1`, so the length is the turn count.
+    pub(crate) turn_end_uuids: Vec<String>,
+}
+
+/// Finds the conversation's file under any project folder of `config_folder`, or `None`. Fails
+/// with any read failure but a missing projects folder.
+pub(crate) async fn find_claude_conversation_file(
+    config_folder: &Path,
+    provider_session_id: &str,
+) -> io::Result<Option<PathBuf>> {
+    let projects_folder = config_folder.join("projects");
+    let Some(mut project_folders) = tokio::fs::read_dir(&projects_folder)
+        .await
+        .none_if_missing()?
+    else {
+        return Ok(None);
+    };
+    let file_name = format!("{provider_session_id}.jsonl");
+    while let Some(project_folder) = project_folders.next_entry().await? {
+        // A file among the project folders has no conversations, and asking inside it would fail.
+        if !project_folder.file_type().await?.is_dir() {
+            continue;
+        }
+        let file = project_folder.path().join(&file_name);
+        if tokio::fs::try_exists(&file).await? {
+            return Ok(Some(file));
+        }
+    }
+    Ok(None)
+}
+
+/// Reads a conversation file's turns line by line; a line that is not a JSON object is skipped.
+/// Holds one line at a time, in a buffer as long as the longest line.
+pub(crate) async fn read_claude_conversation_outline(
+    file: &Path,
+) -> io::Result<ClaudeConversationOutline> {
+    let mut outline = ClaudeConversationOutline::default();
+    let mut last_uuid: Option<String> = None;
+    let mut is_prompt_seen = false;
+    read_entries(file, |entry| {
+        if entry.is_person_prompt() {
+            if is_prompt_seen && let Some(uuid) = &last_uuid {
+                outline.turn_end_uuids.push(uuid.clone());
+            }
+            is_prompt_seen = true;
+        }
+        if let Some(uuid) = entry.uuid.filter(|uuid| !uuid.is_empty()) {
+            last_uuid = Some(uuid);
+        }
+        ControlFlow::Continue(())
+    })
+    .await?;
+    if is_prompt_seen && let Some(uuid) = last_uuid {
+        outline.turn_end_uuids.push(uuid);
+    }
+    Ok(outline)
+}
+
+/// Deletes every file Claude Code keeps for one conversation, where each exists: under
+/// `config_folder` its file history, session environment, task list, debug log, uploads, dev mods,
+/// image cache and plan files (in the plans folder the settings of `config_folder` and of the
+/// project at `project_folder` name), and beside the conversation file its copies set aside and its
+/// folder of helper transcripts and tool results; under `scratch_folder`, the daemon's
+/// `CLAUDE_CODE_TMPDIR`, the conversation's folder in each project. The conversation file goes
+/// last, since it names the plan files a purge that fails must find again. Fails with the first
+/// read or removal failure.
+pub(crate) async fn delete_claude_conversation(
+    config_folder: &Path,
+    project_folder: &Path,
+    scratch_folder: &Path,
+    provider_session_id: &str,
+) -> io::Result<()> {
+    let conversation_file =
+        find_claude_conversation_file(config_folder, provider_session_id).await?;
+    let plan_slug = match &conversation_file {
+        Some(file) => read_claude_plan_slug(file).await?,
+        None => None,
+    };
+    let mut removed = vec![
+        config_folder.join("file-history").join(provider_session_id),
+        config_folder.join("session-env").join(provider_session_id),
+        config_folder.join("tasks").join(provider_session_id),
+        config_folder
+            .join("debug")
+            .join(format!("{provider_session_id}.txt")),
+        config_folder.join("uploads").join(provider_session_id),
+        config_folder.join("dev-mods").join(provider_session_id),
+        config_folder.join("image-cache").join(provider_session_id),
+    ];
+    if let Some(plan_slug) = &plan_slug {
+        removed.extend(find_claude_plan_files(config_folder, project_folder, plan_slug).await?);
+    }
+    removed.extend(find_scratch_folders(scratch_folder, provider_session_id).await?);
+    if let Some(file) = &conversation_file
+        && let Some(folder) = file.parent()
+    {
+        removed.extend(find_set_aside_entries(folder, provider_session_id).await?);
+    }
+    removed.extend(conversation_file);
+    for path in removed {
+        tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path))
+            .await
+            .map_err(io::Error::other)??;
+    }
+    Ok(())
+}
+
+// The conversation's own folder and the copies Claude Code set aside beside its file:
+// `<id>/`, `<id>.orphaned-<when>-<suffix>.jsonl` and `<id>.jsonl.superseded-<when>`.
+async fn find_set_aside_entries(
+    folder: &Path,
+    provider_session_id: &str,
+) -> io::Result<Vec<PathBuf>> {
+    let orphaned_prefix = format!("{provider_session_id}.orphaned-");
+    let superseded_prefix = format!("{provider_session_id}.jsonl.superseded-");
+    let mut found = vec![folder.join(provider_session_id)];
+    let mut entries = tokio::fs::read_dir(folder).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let is_orphaned = name
+            .strip_prefix(&orphaned_prefix)
+            .is_some_and(|rest| rest.strip_suffix(".jsonl").is_some());
+        if is_orphaned || name.starts_with(&superseded_prefix) {
+            found.push(entry.path());
+        }
+    }
+    Ok(found)
+}
+
+// The conversation's folder in each project of each folder Claude Code keeps under the scratch
+// folder, `claude-<uid>/` or `claude/`: `<scratch>/<child>/<project>/<id>/`.
+async fn find_scratch_folders(
+    scratch_folder: &Path,
+    provider_session_id: &str,
+) -> io::Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    let Some(mut children) = tokio::fs::read_dir(scratch_folder)
+        .await
+        .none_if_missing()?
+    else {
+        return Ok(found);
+    };
+    while let Some(child) = children.next_entry().await? {
+        if !child.file_type().await?.is_dir() {
+            continue;
+        }
+        let mut projects = tokio::fs::read_dir(child.path()).await?;
+        while let Some(project) = projects.next_entry().await? {
+            if project.file_type().await?.is_dir() {
+                found.push(project.path().join(provider_session_id));
+            }
+        }
+    }
+    Ok(found)
+}
+
+// A plan file's name as the conversation's entries carry it: letters, digits and hyphens only, so
+// a name read off the file never reaches outside a plans folder.
+fn is_plan_slug(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+// The name of the conversation's plan file, the first `slug` its entries carry that is one.
+async fn read_claude_plan_slug(file: &Path) -> io::Result<Option<String>> {
+    let mut found = None;
+    read_entries(file, |entry| {
+        match entry.slug.filter(|slug| is_plan_slug(slug)) {
+            Some(slug) => {
+                found = Some(slug);
+                ControlFlow::Break(())
+            }
+            None => ControlFlow::Continue(()),
+        }
+    })
+    .await?;
+    Ok(found)
+}
+
+// Hands each line of `file` that reads as an entry to `visit` until it breaks, reusing one buffer.
+async fn read_entries(
+    file: &Path,
+    mut visit: impl FnMut(ConversationEntry) -> ControlFlow<()>,
+) -> io::Result<()> {
+    let mut reader = BufReader::new(tokio::fs::File::open(file).await?);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line).await? == 0 {
+            return Ok(());
+        }
+        let Ok(entry) = serde_json::from_str::<ConversationEntry>(&decode_inbound_json(&line))
+        else {
+            continue;
+        };
+        if visit(entry).is_break() {
+            return Ok(());
+        }
+    }
+}
+
+// The members of an entry the outline and the purge read, each read leniently: a member of another
+// type reads as absent rather than dropping the line, and nothing else is kept.
+#[derive(Deserialize)]
+struct ConversationEntry {
+    #[serde(rename = "type", default, deserialize_with = "read_lenient")]
+    entry_type: Option<String>,
+    #[serde(rename = "isMeta", default, deserialize_with = "read_lenient")]
+    is_meta: Option<bool>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    uuid: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    slug: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    message: Option<ConversationMessage>,
+}
+
+impl ConversationEntry {
+    // A person's prompt: a user entry that is no tool result and no entry Claude Code wrote itself.
+    fn is_person_prompt(&self) -> bool {
+        self.entry_type.as_deref() == Some("user")
+            && self.is_meta != Some(true)
+            && self
+                .message
+                .as_ref()
+                .is_some_and(|message| match &message.content {
+                    Some(MessageContent::Text) => true,
+                    Some(MessageContent::Blocks { has_tool_result }) => !has_tool_result,
+                    None => false,
+                })
+    }
+}
+
+#[derive(Deserialize)]
+struct ConversationMessage {
+    #[serde(default, deserialize_with = "read_lenient")]
+    content: Option<MessageContent>,
+}
+
+// A message's content as the outline reads it: text, or blocks and whether one is a tool's result.
+enum MessageContent {
+    Text,
+    Blocks { has_tool_result: bool },
+}
+
+// One content block's `type`.
+#[derive(Deserialize)]
+struct ContentBlock {
+    #[serde(rename = "type", default, deserialize_with = "read_lenient")]
+    block_type: Option<String>,
+}
+
+// A value read leniently: the shape `T` takes, or `None` for any other, whose contents are skipped
+// without being kept.
+trait Lenient: Sized {
+    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error>;
+}
+
+fn read_lenient<'de, D: Deserializer<'de>, T: Lenient>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    T::read(deserializer)
+}
+
+// Skips any value but the one shape `Wanted` reads, which each impl below names.
+struct LenientVisitor<Wanted>(PhantomData<Wanted>);
+
+macro_rules! skip_other_shapes {
+    ($($skipped:ident($($argument:ty)?)),* $(,)?) => {$(
+        fn $skipped<E: de::Error>(self $(, _value: $argument)?) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+    )*};
+}
+
+macro_rules! skip_sequence {
+    () => {
+        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            while sequence.next_element::<IgnoredAny>()?.is_some() {}
+            Ok(None)
+        }
+    };
+}
+
+macro_rules! skip_map {
+    () => {
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+            Ok(None)
+        }
+    };
+}
+
+impl<'de> Visitor<'de> for LenientVisitor<String> {
+    type Value = Option<String>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(Some(value.to_owned()))
+    }
+
+    fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+        Ok(Some(value))
+    }
+
+    skip_other_shapes!(
+        visit_bool(bool),
+        visit_i64(i64),
+        visit_u64(u64),
+        visit_f64(f64),
+        visit_unit()
+    );
+    skip_sequence!();
+    skip_map!();
+}
+
+impl<'de> Visitor<'de> for LenientVisitor<bool> {
+    type Value = Option<bool>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(Some(value))
+    }
+
+    skip_other_shapes!(
+        visit_str(&str),
+        visit_i64(i64),
+        visit_u64(u64),
+        visit_f64(f64),
+        visit_unit()
+    );
+    skip_sequence!();
+    skip_map!();
+}
+
+impl<'de> Visitor<'de> for LenientVisitor<ConversationMessage> {
+    type Value = Option<ConversationMessage>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        ConversationMessage::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
+    }
+
+    skip_other_shapes!(
+        visit_bool(bool),
+        visit_str(&str),
+        visit_i64(i64),
+        visit_u64(u64),
+        visit_f64(f64),
+        visit_unit(),
+    );
+    skip_sequence!();
+}
+
+impl<'de> Visitor<'de> for LenientVisitor<MessageContent> {
+    type Value = Option<MessageContent>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_str<E: de::Error>(self, _value: &str) -> Result<Self::Value, E> {
+        Ok(Some(MessageContent::Text))
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut blocks: A) -> Result<Self::Value, A::Error> {
+        let mut has_tool_result = false;
+        while let Some(block) = blocks.next_element::<LenientBlock>()? {
+            has_tool_result |= block
+                .0
+                .is_some_and(|block| block.block_type.as_deref() == Some("tool_result"));
+        }
+        Ok(Some(MessageContent::Blocks { has_tool_result }))
+    }
+
+    skip_other_shapes!(
+        visit_bool(bool),
+        visit_i64(i64),
+        visit_u64(u64),
+        visit_f64(f64),
+        visit_unit()
+    );
+    skip_map!();
+}
+
+impl<'de> Visitor<'de> for LenientVisitor<ContentBlock> {
+    type Value = Option<ContentBlock>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        ContentBlock::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
+    }
+
+    skip_other_shapes!(
+        visit_bool(bool),
+        visit_str(&str),
+        visit_i64(i64),
+        visit_u64(u64),
+        visit_f64(f64),
+        visit_unit(),
+    );
+    skip_sequence!();
+}
+
+// One content block, read leniently.
+struct LenientBlock(Option<ContentBlock>);
+
+impl<'de> Deserialize<'de> for LenientBlock {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer
+            .deserialize_any(LenientVisitor::<ContentBlock>(PhantomData))
+            .map(Self)
+    }
+}
+
+macro_rules! lenient {
+    ($($wanted:ty),*) => {$(
+        impl Lenient for $wanted {
+            fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
+                deserializer.deserialize_any(LenientVisitor::<$wanted>(PhantomData))
+            }
+        }
+    )*};
+}
+
+lenient!(String, bool, ConversationMessage, MessageContent);
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::Path;
+
+    use super::{
+        ClaudeConversationOutline, delete_claude_conversation, read_claude_conversation_outline,
+    };
+
+    const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
+
+    #[tokio::test]
+    async fn a_tool_result_or_an_entry_claude_code_wrote_starts_no_turn() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let file = folder.path().join("conversation.jsonl");
+        fs::write(
+            &file,
+            concat!(
+                r#"{"type":"user","uuid":"u1","message":{"content":"first"}}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"tool_use"}]}}"#,
+                "\n",
+                r#"{"type":"user","uuid":"r1","message":{"content":[{"type":"tool_result"},"odd"]}}"#,
+                "\n",
+                r#"{"type":"user","isMeta":true,"uuid":"m1","message":{"content":"caveat"}}"#,
+                "\n",
+                "not json\n",
+                r#"{"type":"assistant","uuid":"a2","isMeta":"yes","message":{"content":"done \ud800"}}"#,
+                "\r\n",
+                r#"{"type":"user","uuid":"u2","message":{"content":[{"type":"text","text":"second"}]}}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"a3","message":"text"}"#,
+            ),
+        )
+        .expect("the conversation is written");
+
+        let outline = read_claude_conversation_outline(&file)
+            .await
+            .expect("the outline reads");
+
+        assert_eq!(
+            outline,
+            ClaudeConversationOutline {
+                turn_end_uuids: vec!["a2".to_owned(), "a3".to_owned()],
+            }
+        );
+    }
+
+    fn write(path: &Path, text: &str) {
+        fs::create_dir_all(path.parent().expect("the path has a folder"))
+            .expect("the folder is made");
+        fs::write(path, text).expect("the file is written");
+    }
+
+    #[tokio::test]
+    async fn a_purge_deletes_the_conversations_files_and_no_plan_a_bad_slug_names() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let config = scratch.path().join("config");
+        let project = scratch.path().join("project");
+        let tmp = scratch.path().join("tmp");
+        let project_files = config.join("projects").join("-project");
+        let conversation = project_files.join(format!("{SESSION_ID}.jsonl"));
+        write(
+            &conversation,
+            concat!(
+                r#"{"slug":"../escape"}"#,
+                "\n",
+                r#"{"slug":"plans/../../escape"}"#,
+                "\n",
+            ),
+        );
+        let kept = [
+            config.join("plans").join("escape.md"),
+            config.join("escape.md"),
+            project_files.join("other.jsonl"),
+            config.join("uploads").join("other").join("a.png"),
+        ];
+        let deleted = [
+            project_files
+                .join(SESSION_ID)
+                .join("subagents")
+                .join("a.jsonl"),
+            project_files.join(format!("{SESSION_ID}.orphaned-1-x.jsonl")),
+            project_files.join(format!("{SESSION_ID}.jsonl.superseded-1")),
+            config.join("file-history").join(SESSION_ID).join("v1"),
+            config.join("debug").join(format!("{SESSION_ID}.txt")),
+            config.join("uploads").join(SESSION_ID).join("a.png"),
+            config.join("dev-mods").join(SESSION_ID).join("m"),
+            tmp.join("claude-501")
+                .join("-project")
+                .join(SESSION_ID)
+                .join("images")
+                .join("a.png"),
+        ];
+        for path in kept.iter().chain(&deleted) {
+            write(path, "x");
+        }
+
+        delete_claude_conversation(&config, &project, &tmp, SESSION_ID)
+            .await
+            .expect("the purge succeeds");
+
+        for path in &kept {
+            assert!(path.exists(), "{} is kept", path.display());
+        }
+        for path in deleted.iter().chain([&conversation]) {
+            assert!(!path.exists(), "{} is deleted", path.display());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_purge_keeps_the_conversation_file_for_the_next_one() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let config = scratch.path().join("config");
+        let conversation = config
+            .join("projects")
+            .join("-project")
+            .join(format!("{SESSION_ID}.jsonl"));
+        write(&conversation, "{\"slug\":\"brave-otter\"}\n");
+        let history = config.join("file-history").join(SESSION_ID);
+        fs::create_dir_all(&history).expect("the history folder is made");
+        let held = sidekicks_platforms::UnremovableFile::create_in(&history, "v1")
+            .expect("a held file is made");
+
+        let outcome = delete_claude_conversation(
+            &config,
+            &scratch.path().join("project"),
+            &scratch.path().join("tmp"),
+            SESSION_ID,
+        )
+        .await;
+
+        drop(held);
+        assert!(outcome.is_err());
+        assert!(conversation.exists());
+    }
+}
