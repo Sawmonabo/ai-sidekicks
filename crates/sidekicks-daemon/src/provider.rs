@@ -2,6 +2,7 @@
 //! searches a provider needs.
 
 pub(crate) mod callback_tool_host;
+pub(crate) mod capability_probe;
 pub(crate) mod compaction_wait;
 pub(crate) mod declared_output_speed;
 pub(crate) mod driver;
