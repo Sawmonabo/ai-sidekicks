@@ -27,6 +27,10 @@ test = false
 # whole daemon does not build under sancov in 6 GB.
 [dependencies]
 file-format.workspace = true
+
+# Only `cargo fuzz`, which sets `--cfg fuzzing`, builds libFuzzer; a workspace check, lint or test
+# leaves it out.
+[target."cfg(fuzzing)".dependencies]
 libfuzzer-sys.workspace = true
 
 [lints]
