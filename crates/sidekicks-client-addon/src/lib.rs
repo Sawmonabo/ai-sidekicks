@@ -10,11 +10,12 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use bytes::Bytes;
 use futures::StreamExt as _;
-use napi::bindgen_prelude::Buffer;
+use napi::Env;
+use napi::bindgen_prelude::{AsyncBlock, AsyncBlockBuilder, Buffer};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use serde_json::Value;
-use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint, LinkState};
+use sidekicks_client::daemon_connection::{ConnectionState, DaemonConnection, DaemonEndpoint};
 use sidekicks_client::error::ClientError;
 use sidekicks_client::terminal_write::{ShellInput, ShellTarget};
 use sidekicks_client::transport::json_rpc::{JsonRpcClient, RawReply, RawRequest};
@@ -48,6 +49,15 @@ pub struct CallOutcome {
     pub error: Option<Value>,
 }
 
+/// A connect's outcome: the connection, or its error in the wire's shape.
+#[napi(object, object_from_js = false)]
+pub struct ConnectOutcome {
+    /// The connection, when the handshake completed.
+    pub client: Option<DaemonClient>,
+    /// The error, when it failed.
+    pub error: Option<Value>,
+}
+
 /// A subscribe's outcome: the stream's id and its acknowledgment, or its error in the wire's shape.
 #[napi(object)]
 pub struct SubscribeOutcome {
@@ -76,85 +86,106 @@ pub struct DaemonClient {
     client: JsonRpcClient,
     connection: tokio::sync::Mutex<Option<DaemonConnection>>,
     /// The cancel of each call the page may still cancel, by the page's call id.
-    calls: Mutex<HashMap<u32, CancellationToken>>,
+    calls: Arc<Mutex<HashMap<u32, CancellationToken>>>,
     /// The cancel of each open stream, by the id the addon gave it; a stream leaves it as it ends.
     streams: Arc<Mutex<HashMap<u32, CancellationToken>>>,
     next_stream_id: AtomicU32,
 }
 
-/// Connects to the daemon on this machine and completes its handshake; `on_link_state` hears
-/// `connected`, `quiet` and `lost` as the link changes. Fails with the wire-shaped error's text
-/// when the daemon cannot be reached or refuses the handshake.
+/// Connects to the daemon on this machine and completes its handshake; `on_state` hears `open`,
+/// `quiet`, `reconnecting` and `down` as the connection changes. Answers the error in the wire's
+/// shape when the daemon cannot be reached or refuses the handshake.
 #[napi]
-pub async fn connect(on_link_state: Callback<String>) -> napi::Result<DaemonClient> {
-    let endpoint = DaemonEndpoint::this_machine().map_err(|error| {
-        napi::Error::from_reason(format!(
-            "This system has no run folder for the service: {error}"
-        ))
-    })?;
-    let connection = DaemonConnection::connect(endpoint)
-        .await
-        .map_err(|error| napi::Error::from_reason(wire_error(&error).to_string()))?;
-    let mut link_state = connection.link_state();
+pub async fn connect(on_state: Callback<String>) -> ConnectOutcome {
+    let refused = |error| ConnectOutcome {
+        client: None,
+        error: Some(error),
+    };
+    let endpoint = match DaemonEndpoint::this_machine() {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            return refused(wire_value(&untyped_call::internal_error(format!(
+                "This system has no run folder for the service: {error}"
+            ))));
+        }
+    };
+    let connection = match DaemonConnection::connect(endpoint).await {
+        Ok(connection) => connection,
+        Err(error) => return refused(wire_error(&error)),
+    };
+    let mut states = connection.state_changes();
     tokio::spawn(async move {
-        while link_state.changed().await.is_ok() {
-            let state = match *link_state.borrow_and_update() {
-                LinkState::Connected => "connected",
-                LinkState::Quiet => "quiet",
-                LinkState::Lost => "lost",
+        while states.changed().await.is_ok() {
+            let state = match *states.borrow_and_update() {
+                ConnectionState::Open => "open",
+                ConnectionState::Quiet => "quiet",
+                ConnectionState::Reconnecting => "reconnecting",
+                ConnectionState::Down => "down",
             };
-            let status =
-                on_link_state.call(state.to_owned(), ThreadsafeFunctionCallMode::NonBlocking);
+            let status = on_state.call(state.to_owned(), ThreadsafeFunctionCallMode::NonBlocking);
             if status != napi::Status::Ok {
-                tracing::warn!(?status, "The page did not take the link's state");
+                tracing::warn!(?status, "The page did not take the connection's state");
             }
         }
     });
-    Ok(DaemonClient {
-        client: connection.client().clone(),
-        connection: tokio::sync::Mutex::new(Some(connection)),
-        calls: Mutex::new(HashMap::new()),
-        streams: Arc::new(Mutex::new(HashMap::new())),
-        next_stream_id: AtomicU32::new(0),
-    })
+    ConnectOutcome {
+        client: Some(DaemonClient {
+            client: connection.client().clone(),
+            connection: tokio::sync::Mutex::new(Some(connection)),
+            calls: Arc::new(Mutex::new(HashMap::new())),
+            streams: Arc::new(Mutex::new(HashMap::new())),
+            next_stream_id: AtomicU32::new(0),
+        }),
+        error: None,
+    }
 }
 
 #[napi]
 impl DaemonClient {
     /// Calls `method` with `params_json` and its attachments, after checking the params against the
-    /// method's contract; `call_id` is the page's own, for `cancel_call`. A refused check answers
-    /// `request.paramsInvalid` without sending anything.
-    #[napi]
-    pub async fn call(
+    /// method's contract; `call_id` is the page's own, for `cancel_call`, which reaches the call as
+    /// soon as this returns. A refused check answers `request.paramsInvalid` without sending
+    /// anything.
+    #[napi(catch_unwind)]
+    pub fn call(
         &self,
+        env: Env,
         call_id: u32,
         method: String,
         params_json: String,
         attachments: Vec<Buffer>,
-    ) -> CallOutcome {
-        let request = match checked_request(method, params_json, attachments, false) {
-            Ok(request) => request,
-            Err(error) => {
-                return CallOutcome {
+    ) -> napi::Result<AsyncBlock<CallOutcome>> {
+        let checked = checked_request(method, params_json, attachments, false);
+        let answer = checked.map(|request| {
+            let cancel = CancellationToken::new();
+            lock(&self.calls).insert(call_id, cancel.clone());
+            self.client.call_raw(request, &cancel)
+        });
+        let calls = Arc::clone(&self.calls);
+        AsyncBlockBuilder::new(async move {
+            let outcome = match answer {
+                Err(error) => CallOutcome {
                     reply: None,
                     error: Some(error),
-                };
-            }
-        };
-        let cancel = CancellationToken::new();
-        lock(&self.calls).insert(call_id, cancel.clone());
-        let answer = self.client.call_raw(request, &cancel).await;
-        lock(&self.calls).remove(&call_id);
-        match answer {
-            Ok(reply) => CallOutcome {
-                reply: Some(wire_reply(reply)),
-                error: None,
-            },
-            Err(error) => CallOutcome {
-                reply: None,
-                error: Some(wire_error(&error)),
-            },
-        }
+                },
+                Ok(answer) => {
+                    let answer = answer.await;
+                    lock(&calls).remove(&call_id);
+                    match answer {
+                        Ok(reply) => CallOutcome {
+                            reply: Some(wire_reply(reply)),
+                            error: None,
+                        },
+                        Err(error) => CallOutcome {
+                            reply: None,
+                            error: Some(wire_error(&error)),
+                        },
+                    }
+                }
+            };
+            Ok(outcome)
+        })
+        .build(&env)
     }
 
     /// Cancels the call the page numbered `call_id`: one still held settles canceled with nothing
@@ -213,8 +244,9 @@ impl DaemonClient {
     }
 
     /// Opens a pane's input to one shell; a write that fails goes to `on_failure` in the wire's
-    /// error shape. Fails when an id is malformed.
-    #[napi(catch_unwind)]
+    /// error shape. Fails when an id is malformed. It runs inside the addon's runtime, which every
+    /// write's answer is awaited on.
+    #[napi(catch_unwind, async_runtime)]
     pub fn open_shell_input(
         &self,
         session_id: String,
@@ -244,7 +276,7 @@ impl DaemonClient {
         Ok(ShellInputHandle { input })
     }
 
-    /// Opens a lost link again now.
+    /// Starts the reconnect schedule again once the connection is down.
     #[napi(catch_unwind)]
     pub fn retry(&self) {
         if let Ok(connection) = self.connection.try_lock()
