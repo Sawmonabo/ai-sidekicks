@@ -91,8 +91,9 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     }
 }
 
-// Prepares `command` so that, before its program runs, the child leads a session of its own and,
-// on Linux, clears the huge-page switch the daemon set for itself.
+/// Prepares `command` so that, before its program runs, the child leads a session of its own and,
+/// on Linux, clears the huge-page switch the daemon set for itself; the child's start fails with
+/// the system's error when either is refused.
 pub(crate) fn prepare_lasting_child_command(command: &mut Command) {
     // SAFETY: the closure runs in the forked child before the exec and makes only `setsid` and,
     // on Linux, `prctl`, which are async-signal-safe and allocate nothing.

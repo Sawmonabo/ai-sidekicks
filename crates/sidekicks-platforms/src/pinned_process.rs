@@ -25,12 +25,18 @@ pub(crate) const KILL_WAIT_BOUND: Duration = Duration::from_secs(10);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProcessRecord {
+    /// The process's id.
     pub(crate) id: u32,
+    /// The system's fixed mark of the process: its unique id on macOS, its start in clock ticks
+    /// since boot on Linux, its creation time on Windows.
     pub(crate) start: u64,
+    /// Its start time in microseconds since the epoch, on macOS; `None` elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) started_at: Option<u64>,
+    /// The id of the boot it started in, on macOS and Linux; `None` on Windows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) boot: Option<String>,
+    /// The name of the job of its own a lasting child runs in, on Windows; `None` elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) job: Option<String>,
 }
@@ -53,7 +59,8 @@ impl ProcessRecord {
 mod tests {
     use crate::{ProcessRecord, pin_child_process};
 
-    // Mutation killed: a re-pin that compares the id alone takes the record with another start.
+    // Mutations killed: a re-pin that compares the id alone, or leaves out the start time or the
+    // boot, takes a record of another process or another boot.
     #[test]
     fn pinned_process_record_re_pins_the_same_process_and_nothing_else() {
         let mut command = std::process::Command::new(sleeper_program());
@@ -68,16 +75,32 @@ mod tests {
         let stored = serde_json::to_string(&record).expect("the record writes as JSON");
         let read: ProcessRecord = serde_json::from_str(&stored).expect("the record reads back");
         let re_pinned = read.pin().expect("the re-pin reads");
-        let another_start = ProcessRecord {
-            start: record.start + 1,
-            ..record.clone()
-        };
-        let re_pinned_with_another_start = another_start.pin().expect("the re-pin reads");
+        let others = [
+            ProcessRecord {
+                start: record.start + 1,
+                ..record.clone()
+            },
+            ProcessRecord {
+                started_at: Some(record.started_at.map_or(1, |started_at| started_at + 1)),
+                ..record.clone()
+            },
+            ProcessRecord {
+                boot: Some(format!(
+                    "{}-another",
+                    record.boot.as_deref().unwrap_or("boot")
+                )),
+                ..record.clone()
+            },
+        ];
+        let re_pinned_others = others
+            .iter()
+            .map(|other| other.pin().expect("the re-pin reads").is_some())
+            .collect::<Vec<_>>();
 
         child.kill().expect("the test ends its own child");
         child.wait().expect("the child is reaped");
         assert_eq!(re_pinned.map(|process| process.id()), Some(child.id()));
-        assert!(re_pinned_with_another_start.is_none());
+        assert_eq!(re_pinned_others, [false, false, false]);
     }
 
     #[cfg(unix)]

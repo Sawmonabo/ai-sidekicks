@@ -84,22 +84,24 @@ impl PinnedProcess {
 
     // Sends `signal` through the descriptor, `SIGKILL` to the whole group the process leads, so
     // nothing a lasting child started outlives it; `false` when the process has already ended.
+    // The group is also killed by its id whatever the process answers, since it can outlive its
+    // leader and a kernel before 6.9 takes no group flag. Fails with the first error a signal met,
+    // once both are sent.
     fn send_signal(&self, signal: Signal) -> io::Result<bool> {
         if signal != Signal::SIGKILL {
             return self.send_through_descriptor(signal, 0);
         }
-        match self.send_through_descriptor(signal, libc::PIDFD_SIGNAL_PROCESS_GROUP) {
-            // A kernel before 6.9 takes no group flag: the process, then its group by its id,
-            // which a group outliving its leader keeps from passing to another process.
-            Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {
-                if !self.send_through_descriptor(signal, 0)? {
-                    return Ok(false);
+        let is_running =
+            match self.send_through_descriptor(signal, libc::PIDFD_SIGNAL_PROCESS_GROUP) {
+                Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {
+                    self.send_through_descriptor(signal, 0)
                 }
-                kill_rest_of_group(self.id)?;
-                Ok(true)
-            }
-            sent => sent,
-        }
+                sent => sent,
+            };
+        let group_end = kill_rest_of_group(self.id);
+        let is_running = is_running?;
+        group_end?;
+        Ok(is_running)
     }
 
     // Sends `signal` through the descriptor with `flags`; `false` when the process has ended.

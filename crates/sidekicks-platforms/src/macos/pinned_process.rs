@@ -30,14 +30,18 @@ const UNIQUE_IDENTIFIERS_FLAVOR: libc::c_int = 17;
 // The process-information call a checked read makes.
 const PROCESS_INFORMATION_CALL: i32 = 2;
 
-// A checked read answers only while the id names the process with this id version (`exec`
-// changes it) or this unique id (fixed for the process's life).
+/// A checked read's flag: it answers only while the id names the process with this id version,
+/// which `exec` changes.
 pub(crate) const COMPARE_ID_VERSION: u32 = 0x1;
+/// A checked read's flag: it answers only while the id names the process with this unique id,
+/// fixed for the process's life.
 pub(crate) const COMPARE_UNIQUE_ID: u32 = 0x2;
+/// A checked read's flags for a read of whatever process the id names now.
 pub(crate) const COMPARE_NOTHING: u32 = 0;
 
-// The audit token's slots holding the process's id and its id version.
+/// The audit token's slot holding the process's id.
 pub(crate) const TOKEN_PROCESS_ID: usize = 5;
+/// The audit token's slot holding the process's id version.
 pub(crate) const TOKEN_ID_VERSION: usize = 7;
 
 // The name of the system's id for this boot, a UUID made anew at each start of the machine.
@@ -170,20 +174,24 @@ impl PinnedProcess {
 
     // Sends `signal` to the process; `false` when it has ended. A `SIGKILL` first lists every
     // descendant, since a command a lasting child starts in a session of its own leaves its group,
-    // then kills the process, the rest of its group and each descendant, in that order.
+    // then kills the process, the rest of its group and each descendant, in that order; the group
+    // and the descendants whatever the process answers, since either can outlive it. Fails with
+    // the first error a signal met, once every signal is sent.
     fn send_signal(&self, signal: Signal) -> io::Result<bool> {
         if signal != Signal::SIGKILL {
             return self.send_checked_signal(signal);
         }
-        let descendants = list_descendants(self)?;
-        if !self.send_checked_signal(signal)? {
-            return Ok(false);
-        }
-        kill_rest_of_group(self.id)?;
-        for descendant in &descendants {
-            descendant.send_checked_signal(signal)?;
-        }
-        Ok(true)
+        let descendants = list_descendants(self);
+        let is_running = self.send_checked_signal(signal);
+        let group_end = kill_rest_of_group(self.id);
+        let descendant_ends = descendants
+            .iter()
+            .map(|descendant| descendant.send_checked_signal(signal).map(|_| ()))
+            .collect::<io::Result<()>>();
+        let is_running = is_running?;
+        group_end?;
+        descendant_ends?;
+        Ok(is_running)
     }
 
     // Sends `signal` to the process the id still names, by the id version read in the same check
@@ -208,26 +216,41 @@ impl PinnedProcess {
     }
 }
 
-// Every running descendant of `process`, each pinned by its unique id, children before their own.
-fn list_descendants(process: &PinnedProcess) -> io::Result<Vec<PinnedProcess>> {
+// Every running descendant of `process` the system lets this user read, each pinned by its unique
+// id, children before their own; a process whose children or identity cannot be read is skipped,
+// so the kill still reaches every descendant it can.
+fn list_descendants(process: &PinnedProcess) -> Vec<PinnedProcess> {
     let mut descendants = Vec::new();
     let mut next = 0;
     let mut parent = process.clone();
     loop {
-        for child_id in list_child_process_ids(parent.id)? {
+        let child_ids = list_child_process_ids(parent.id).unwrap_or_else(|error| {
+            skip_unreadable_process(parent.id, &error);
+            Vec::new()
+        });
+        for child_id in child_ids {
             // A child read once its parent's id passed to another process is no descendant.
-            if let Some(child) = pinned(child_id)?
-                && is_running(&parent)?
-            {
-                descendants.push(child);
+            match pinned(child_id).and_then(|child| Ok((child, is_running(&parent)?))) {
+                Ok((Some(child), true)) => descendants.push(child),
+                Ok(_) => {}
+                Err(error) => skip_unreadable_process(child_id, &error),
             }
         }
         let Some(descendant) = descendants.get(next) else {
-            return Ok(descendants);
+            return descendants;
         };
         parent = descendant.clone();
         next += 1;
     }
+}
+
+// Notes a process the descendant list skips because the system would not read it.
+fn skip_unreadable_process(id: u32, error: &io::Error) {
+    tracing::warn!(
+        error = error as &(dyn std::error::Error + 'static),
+        process_id = id,
+        "a process the stop lists could not be read, so it is not killed"
+    );
 }
 
 // Sends `SIGKILL` to the group process `id` leads, which outlives its leader while any member runs
