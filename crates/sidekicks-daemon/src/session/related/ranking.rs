@@ -306,9 +306,11 @@ impl SessionRelatedRanking {
     }
 
     // Raises the lists showing the renames waiting, then scores a round, whether or not the raise
-    // failed; each failure is logged, and the first fails the call, the sessions of both kept
-    // waiting.
-    async fn raise_and_rescore(&self, queue: &mut RescoreQueue) -> Result<(), RescoringError> {
+    // failed; answers each step's result, each failure logged and its sessions kept waiting.
+    async fn raise_and_rescore(
+        &self,
+        queue: &mut RescoreQueue,
+    ) -> (Result<(), RescoringError>, Result<(), RescoringError>) {
         let raised = match self.renamed.take().now_or_never() {
             Some(renamed) => self.raise_lists_showing(renamed).await,
             None => Ok(()),
@@ -320,7 +322,7 @@ impl SessionRelatedRanking {
                 "related_sessions_rescore_failed"
             );
         }
-        raised.and(rescored)
+        (raised, rescored)
     }
 
     fn raise_counts<'ids>(&self, session_ids: impl IntoIterator<Item = &'ids SessionId>) {
@@ -339,17 +341,18 @@ impl SessionRelatedRanking {
         !followed.is_empty()
     }
 
-    // Waits out `wait` before a retry, raising renamed lists meanwhile; a link change retries at
-    // once. A raise that fails leaves its renames for the retry, so none is taken again before it.
-    // False once stopped.
+    // Waits out `wait` before a retry, raising renamed lists meanwhile unless the raise has failed;
+    // a link change retries at once. A failed raise leaves its renames for the retry, so none is
+    // taken again before it. False once stopped.
     async fn wait_to_retry(
         &self,
         wait: Duration,
+        is_raise_failed: bool,
         queue: &mut RescoreQueue,
         stop: &CancellationToken,
     ) -> bool {
         let retry_at = tokio::time::Instant::now() + wait;
-        let mut is_raising = true;
+        let mut is_raising = !is_raise_failed;
         loop {
             tokio::select! {
                 biased;
@@ -379,7 +382,7 @@ async fn rescore_until_stopped(ranking: Arc<SessionRelatedRanking>, stop: Cancel
     let mut queue = RescoreQueue::default();
     let mut failed_rounds_in_row = 0;
     loop {
-        let attempt = if queue.is_empty() {
+        let (raised, rescored) = if queue.is_empty() {
             tokio::select! {
                 biased;
                 () = stop.cancelled() => return,
@@ -387,7 +390,9 @@ async fn rescore_until_stopped(ranking: Arc<SessionRelatedRanking>, stop: Cancel
                     queue.changed.extend(changed);
                     continue;
                 }
-                renamed = ranking.renamed.take() => ranking.raise_lists_showing(renamed).await,
+                renamed = ranking.renamed.take() => {
+                    (ranking.raise_lists_showing(renamed).await, Ok(()))
+                }
             }
         } else {
             if let Some(changed) = ranking.changed.take().now_or_never() {
@@ -395,14 +400,16 @@ async fn rescore_until_stopped(ranking: Arc<SessionRelatedRanking>, stop: Cancel
             }
             ranking.raise_and_rescore(&mut queue).await
         };
-        match attempt {
-            Ok(()) => failed_rounds_in_row = 0,
-            Err(_logged) => {
-                let wait = retry_wait(failed_rounds_in_row);
-                failed_rounds_in_row += 1;
-                if !ranking.wait_to_retry(wait, &mut queue, &stop).await {
-                    return;
-                }
+        if raised.is_ok() && rescored.is_ok() {
+            failed_rounds_in_row = 0;
+        } else {
+            let wait = retry_wait(failed_rounds_in_row);
+            failed_rounds_in_row += 1;
+            if !ranking
+                .wait_to_retry(wait, raised.is_err(), &mut queue, &stop)
+                .await
+            {
+                return;
             }
         }
         if stop.is_cancelled() {
