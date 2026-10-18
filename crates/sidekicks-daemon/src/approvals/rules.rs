@@ -26,7 +26,6 @@ use std::slice;
 use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
-use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::approval::events::{
     ApprovalRuleRememberedPayload, ApprovalRuleRevokedPayload,
@@ -569,7 +568,7 @@ impl ApprovalRules {
         };
         let draft = SessionEventDraft::new(payload, SessionEvent::ApprovalRuleRemembered)?;
         let linkage = SessionEventLinkage {
-            occurred_at: Some(now()),
+            occurred_at: Some(WireInstant::now()),
             transactional_prelude: vec![remembered_scope_write],
             ..SessionEventLinkage::default()
         };
@@ -583,7 +582,7 @@ impl ApprovalRules {
         _hold: &RuleWriteHold<'_>,
         payload: ApprovalRuleRevokedPayload,
     ) -> Result<WireInstant, ApprovalRuleError> {
-        let revoked_at = now();
+        let revoked_at = WireInstant::now();
         let draft = SessionEventDraft::new(payload, SessionEvent::ApprovalRuleRevoked)?;
         let linkage = SessionEventLinkage {
             occurred_at: Some(revoked_at.clone()),
@@ -775,10 +774,6 @@ fn command_line_of(action: &ProviderAskAction) -> Option<&str> {
 fn rule_id_of(approval_request_id: ApprovalRequestId) -> RememberedRuleId {
     RememberedRuleId::new(approval_request_id.text().as_str())
         .expect("an ask's id is a UUID, as a rule's id is")
-}
-
-fn now() -> WireInstant {
-    WireInstant::from_timestamp(Timestamp::now()).expect("the clock reads after year 0000")
 }
 
 fn query_rule_rows(

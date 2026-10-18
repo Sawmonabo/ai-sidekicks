@@ -65,6 +65,12 @@ impl WireInstant {
         stored_instant_text(timestamp).map(Self)
     }
 
+    /// The system clock's instant in the stored form. It reads the std clock, so it is for native
+    /// builds only.
+    pub fn now() -> Self {
+        Self::from_timestamp(jiff::Timestamp::now()).expect("the clock reads after year 0000")
+    }
+
     /// The text as received.
     pub fn as_str(&self) -> &str {
         &self.0
