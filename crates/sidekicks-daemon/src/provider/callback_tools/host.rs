@@ -1,5 +1,5 @@
-//! The callback-tool host: the one daemon-side dispatcher every provider's callback-tool calls
-//! reach through the `sidekicks` tool route. No call is left unanswered, and none is answered
+//! The host: the one daemon-side dispatcher every provider's callback-tool calls reach through the
+//! `sidekicks` tool route. No call is left unanswered, and none is answered
 //! `completed` without the approval seam's adjudication, so without a seam the registry is
 //! withheld at spawn and a stray call is answered `denied`. An unknown tool, or a call from a
 //! spawn whose registry a later spawn replaced, is answered `failed` before any adjudication.
@@ -10,7 +10,6 @@ use std::error::Error;
 use std::fmt::Display;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
@@ -22,8 +21,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use strum::IntoStaticStr;
 
 use crate::provider::driver::callback_tool::{
-    CallbackToolDispatcher, CallbackToolInvocation, CallbackToolResult,
-    PROVIDER_TOOL_CALL_ID_MAX_LEN,
+    CallbackToolInvocation, CallbackToolResult, PROVIDER_TOOL_CALL_ID_MAX_LEN,
 };
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -243,8 +241,8 @@ impl Refusal {
 }
 
 /// The daemon's one callback-tool dispatcher for every provider, holding each session's registry.
-/// Spawns reach it through [`bind_callback_tools_for_spawn`]; the registry lock is never held
-/// across an await.
+/// Spawns reach it through [`super::spawn_binding::bind_callback_tools_for_spawn`]; the registry
+/// lock is never held across an await.
 pub(crate) struct CallbackToolHost {
     executor: Arc<dyn CallbackToolExecutor>,
     activity_sink: Arc<dyn CallbackToolActivitySink>,
@@ -316,7 +314,7 @@ impl CallbackToolHost {
 
     /// Installs the registry a spawn may offer and returns its token with the admission. A
     /// withholding still installs an empty registry, so a stray call reads as an unknown tool.
-    fn resolve_spawn_registry(
+    pub(super) fn resolve_spawn_registry(
         &self,
         request: CallbackToolSpawnRequest,
     ) -> (CallbackToolRegistryToken, CallbackToolAdmission) {
@@ -419,8 +417,8 @@ impl CallbackToolHost {
 
     /// Ends `token`'s installation: removes it, or after a failed spawn (`is_rollback`) restores
     /// the registry it replaced, which a driver may still be using. A replaced spawn's late
-    /// teardown is logged and leaves the live registry in place.
-    fn end_installation(
+    /// teardown is logged and leaves the live registry in place, no longer one a rollback restores.
+    pub(super) fn end_installation(
         &self,
         session_id: SessionId,
         token: &CallbackToolRegistryToken,
@@ -431,7 +429,16 @@ impl CallbackToolHost {
             return;
         };
         if installed.get().token != *token {
-            let installed_token = installed.get().token.clone();
+            // Its binding is gone, so a later rollback must not bring it back unreleased.
+            let live = installed.get_mut();
+            if live
+                .superseded
+                .as_ref()
+                .is_some_and(|superseded| superseded.token == *token)
+            {
+                live.superseded = None;
+            }
+            let installed_token = live.token.clone();
             drop(registries);
             record_registry_change(
                 DriverDiagnosticKind::CallbackToolRegistryReleaseIgnored,
@@ -461,26 +468,22 @@ impl CallbackToolHost {
         );
     }
 
-    /// Reads, under the lock alone, the provider a diagnostic names (the calling spawn's, else the
-    /// installed registry's) and whether the registry admits `invocation`, or why not.
+    /// Reads, under the lock alone, whether the session's registry admits `invocation` from the
+    /// spawn holding `token`, or why not.
     fn standing_of(
         &self,
         invocation: &CallbackToolInvocation,
-        token: Option<&CallbackToolRegistryToken>,
-    ) -> (Option<ProviderId>, Result<(), (Refusal, &'static str)>) {
+        token: &CallbackToolRegistryToken,
+    ) -> Result<(), (Refusal, &'static str)> {
         let registries = self.lock_registries();
-        let installed = registries.by_session.get(&invocation.session_id);
-        let provider = token
-            .or_else(|| installed.map(|installed| &installed.token))
-            .map(|token| token.0.provider.clone());
-        let standing = match installed {
+        match registries.by_session.get(&invocation.session_id) {
             None => Err((
                 Refusal::UnknownTool,
                 "the call names a session with no callback-tool registry",
             )),
             // Ahead of the tool lookup, so a replaced spawn's late call is refused even when the
             // live registry holds a tool of the same name.
-            Some(installed) if token.is_some_and(|token| *token != installed.token) => Err((
+            Some(installed) if *token != installed.token => Err((
                 Refusal::SupersededBinding,
                 "the call was raised against a callback-tool registry a later spawn replaced",
             )),
@@ -491,19 +494,19 @@ impl CallbackToolHost {
                 Refusal::UnknownTool,
                 "the call names no registered callback tool",
             )),
-        };
-        (provider, standing)
+        }
     }
 
     /// Answers one call, in order: the seam's presence, the registry and its token, the seam's
-    /// adjudication, then the executor. A `token` scopes the call to one spawn's installation.
-    async fn dispatch(
+    /// adjudication, then the executor. `token` scopes the call to one spawn's installation, whose
+    /// provider its diagnostics name.
+    pub(super) async fn dispatch(
         &self,
         invocation: CallbackToolInvocation,
-        token: Option<&CallbackToolRegistryToken>,
+        token: &CallbackToolRegistryToken,
     ) -> CallbackToolResult {
-        let (provider, standing) = self.standing_of(&invocation, token);
-        let provider = provider.as_ref();
+        let standing = self.standing_of(&invocation, token);
+        let provider = Some(&token.0.provider);
         // The seam is checked first: a withholding installs an empty registry, so a call reaching
         // a host without one would otherwise read as an unknown tool.
         let adjudication = match (&self.approval_seam, standing) {
@@ -673,225 +676,4 @@ fn record_registry_change(
             ),
         ]),
     });
-}
-
-/// One spawn's callback-tool wiring: what to offer the provider and the dispatcher to answer its
-/// calls with. Dropping it releases the spawn's registry; a spawn that never established calls
-/// [`CallbackToolSpawnBinding::rollback`] instead.
-#[must_use = "dropping the binding releases the spawn's callback-tool registry"]
-pub(crate) struct CallbackToolSpawnBinding {
-    /// Whether the spawn offers its tools, and which.
-    pub(crate) admission: CallbackToolAdmission,
-    /// Answers each call; bound even on a withholding, so a stray call is a recorded refusal.
-    pub(crate) dispatcher: CallbackToolDispatcher,
-    host: Arc<CallbackToolHost>,
-    session_id: SessionId,
-    token: CallbackToolRegistryToken,
-    is_rolled_back: bool,
-}
-
-impl CallbackToolSpawnBinding {
-    /// Undoes the spawn's registry after the spawn failed, restoring the one it replaced, which a
-    /// driver may still be using; with none replaced it is the same as dropping the binding.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the callback tools' approval route builds the host"
-        )
-    )]
-    pub(crate) fn rollback(mut self) {
-        self.host
-            .end_installation(self.session_id, &self.token, true);
-        self.is_rolled_back = true;
-    }
-}
-
-impl Drop for CallbackToolSpawnBinding {
-    fn drop(&mut self) {
-        if !self.is_rolled_back {
-            self.host
-                .end_installation(self.session_id, &self.token, false);
-        }
-    }
-}
-
-/// Installs the registry `request` asks for and binds its dispatcher to that installation, so a
-/// later spawn's registry never answers this spawn's calls.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the callback tools' approval route builds the host"
-    )
-)]
-pub(crate) fn bind_callback_tools_for_spawn(
-    host: &Arc<CallbackToolHost>,
-    request: CallbackToolSpawnRequest,
-) -> CallbackToolSpawnBinding {
-    let session_id = request.session_id;
-    let (token, admission) = host.resolve_spawn_registry(request);
-    let dispatcher_host = Arc::clone(host);
-    let dispatcher_token = token.clone();
-    let dispatcher: CallbackToolDispatcher = Arc::new(move |invocation: CallbackToolInvocation| {
-        let host = Arc::clone(&dispatcher_host);
-        let token = dispatcher_token.clone();
-        async move { host.dispatch(invocation, Some(&token)).await }.boxed()
-    });
-    CallbackToolSpawnBinding {
-        admission,
-        dispatcher,
-        host: Arc::clone(host),
-        session_id,
-        token,
-        is_rolled_back: false,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use futures::FutureExt as _;
-    use futures::future::BoxFuture;
-    use serde_json::{Map, Value};
-    use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
-    use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::text::FreeFormText;
-
-    use super::{
-        CallbackToolActivityRecord, CallbackToolActivitySink, CallbackToolAdmission,
-        CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
-        CallbackToolExecutor, CallbackToolHost, CallbackToolPortError, CallbackToolSpawnBinding,
-        CallbackToolSpawnRequest, bind_callback_tools_for_spawn,
-    };
-    use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
-    use crate::provider::driver::diagnostics::RecordedEvents;
-    use crate::provider::driver::registry::test_provider;
-
-    const SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
-    const TOOL: &str = "search";
-
-    /// The seam, executor and sink at once: the seam allows by policy, or fails when told to.
-    struct TestPorts {
-        is_seam_failing: bool,
-    }
-
-    impl CallbackToolApprovalSeam for TestPorts {
-        fn evaluate<'a>(
-            &'a self,
-            _invocation: &'a CallbackToolInvocation,
-        ) -> BoxFuture<'a, Result<CallbackToolApprovalOutcome, CallbackToolPortError>> {
-            let basis = CallbackToolApprovalBasis::Policy;
-            let outcome = if self.is_seam_failing {
-                Err("the policy store is closed".into())
-            } else {
-                Ok(CallbackToolApprovalOutcome::Allow { basis })
-            };
-            async { outcome }.boxed()
-        }
-    }
-
-    impl CallbackToolExecutor for TestPorts {
-        fn execute(
-            &self,
-            _invocation: CallbackToolInvocation,
-        ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
-            async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
-        }
-    }
-
-    impl CallbackToolActivitySink for TestPorts {
-        fn record<'a>(
-            &'a self,
-            _record: &'a CallbackToolActivityRecord,
-        ) -> BoxFuture<'a, Result<(), CallbackToolPortError>> {
-            async { Ok(()) }.boxed()
-        }
-    }
-
-    /// A host whose seam is absent (`None`), failing, or allowing.
-    fn host_with(is_seam_failing: Option<bool>) -> Arc<CallbackToolHost> {
-        let ports = Arc::new(TestPorts {
-            is_seam_failing: is_seam_failing.unwrap_or(false),
-        });
-        let seam: Option<Arc<dyn CallbackToolApprovalSeam>> =
-            is_seam_failing.map(|_| Arc::clone(&ports) as Arc<dyn CallbackToolApprovalSeam>);
-        let executor: Arc<dyn CallbackToolExecutor> = Arc::clone(&ports) as _;
-        Arc::new(CallbackToolHost::new(executor, ports, seam))
-    }
-
-    fn bind(host: &Arc<CallbackToolHost>) -> CallbackToolSpawnBinding {
-        let tool = SessionCallbackTool {
-            name: TOOL.to_owned(),
-            description: "Searches the session.".to_owned(),
-            input_schema: Map::new(),
-        };
-        bind_callback_tools_for_spawn(
-            host,
-            CallbackToolSpawnRequest {
-                session_id: SessionId::new(SESSION).expect("the text is a UUID"),
-                provider: test_provider(),
-                requested_tools: vec![tool],
-                provider_registration_unavailable: None,
-            },
-        )
-    }
-
-    /// Calls `binding`'s dispatcher; the test doubles answer at once, so one poll settles it.
-    fn call(binding: &CallbackToolSpawnBinding) -> CallbackToolResult {
-        let invocation = CallbackToolInvocation {
-            tool_name: FreeFormText::new(TOOL.to_owned()).expect("the name is in bounds"),
-            arguments: Map::from_iter([("query".to_owned(), Value::from("x"))]),
-            tool_call_id: FreeFormText::new("call-1".to_owned()).expect("the id is in bounds"),
-            session_id: SessionId::new(SESSION).expect("the text is a UUID"),
-            run_id: RunId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8e").expect("the text is a UUID"),
-        };
-        (binding.dispatcher)(invocation)
-            .now_or_never()
-            .expect("the test doubles answer at once")
-    }
-
-    #[test]
-    fn only_the_live_installation_answers_and_no_adjudication_is_denied() {
-        use CallbackToolResult::{Completed, Denied, Failed};
-
-        let recorded = RecordedEvents::default();
-        recorded.record_during(|| {
-            let host = host_with(Some(false));
-            let first = bind(&host);
-            let second = bind(&host);
-            assert!(
-                matches!(call(&first), Failed { .. }),
-                "a replaced spawn's call is refused though the live registry has the same tool"
-            );
-            assert!(matches!(call(&second), Completed { .. }));
-            second.rollback();
-            assert!(
-                matches!(call(&first), Completed { .. }),
-                "a rollback restores the registry it replaced"
-            );
-
-            let withheld = bind(&host_with(None));
-            assert!(matches!(
-                withheld.admission,
-                CallbackToolAdmission::Withheld { .. }
-            ));
-            assert!(matches!(call(&withheld), Denied { .. }));
-            let failing = bind(&host_with(Some(true)));
-            assert!(matches!(call(&failing), Denied { .. }));
-        });
-        assert_eq!(
-            recorded.counters(),
-            [
-                "driver.callbackTool.registrySuperseded",
-                "driver.callbackTool.invocationRefused",
-                "driver.callbackTool.registrySuperseded",
-                "driver.callbackTool.registryWithheld",
-                "driver.callbackTool.seamAbsent",
-                "driver.callbackTool.seamAbsent",
-            ]
-        );
-    }
 }

@@ -1,7 +1,7 @@
 //! Providers: the drivers that run each provider's process, their capabilities, hand-over and the
 //! searches a provider needs.
 
-pub(crate) mod callback_tool_host;
+pub(crate) mod callback_tools;
 pub(crate) mod capability_probe;
 pub(crate) mod compaction_wait;
 pub(crate) mod declared_output_speed;
