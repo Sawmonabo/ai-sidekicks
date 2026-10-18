@@ -203,7 +203,7 @@ mod tests {
     use tokio_util::codec::{Decoder, Encoder};
 
     use super::frame::{Frame, FrameCodec, LaneId};
-    use super::incoming::{IncomingLanes, MAX_OPEN_LANES};
+    use super::incoming::{IncomingLanes, LaneCredit, MAX_OPEN_LANES};
     use super::{
         FramingError, INITIAL_LANE_CREDIT, MAX_ATTACHMENT_BYTES, MAX_CHUNK_BYTES,
         MAX_MESSAGE_BYTES, MessageBody, MessagePart,
@@ -307,7 +307,7 @@ mod tests {
             prop_assert_eq!(message.credit_due as usize, encoded.len());
             prop_assert_eq!(
                 lanes.take(message.lane, message.credit_due),
-                Some(Frame::Credit { lane: LaneId::new(3), granted: message.credit_due })
+                Some(LaneCredit { lane: LaneId::new(3), granted: message.credit_due })
             );
         }
 
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn a_lane_holds_its_sender_to_credit_and_its_lengths_and_caps() {
         let window = vec![0; usize::try_from(INITIAL_LANE_CREDIT).expect("fits")];
-        let window_credit = Frame::Credit {
+        let window_credit = LaneCredit {
             lane: LaneId::CONTROL,
             granted: INITIAL_LANE_CREDIT,
         };
@@ -371,7 +371,7 @@ mod tests {
             .expect("the window is the credit");
         assert_eq!(
             lanes.release_owed(),
-            vec![window_credit.clone()],
+            vec![window_credit],
             "a message past the window owes its partial bytes back before it stalls"
         );
         lanes
@@ -502,7 +502,7 @@ mod tests {
         }
         assert_eq!(
             lanes.release_owed(),
-            vec![Frame::Credit {
+            vec![LaneCredit {
                 lane: LaneId::CONTROL,
                 granted: 1000
             }]

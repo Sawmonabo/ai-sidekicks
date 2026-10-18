@@ -8,8 +8,8 @@ use sidekicks_contracts::jsonrpc::framing::{INITIAL_LANE_CREDIT, MAX_CHUNK_BYTES
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 
 use super::{
-    Connection, Event, SESSION_TOKEN, assert_refusal, call, cancel_request, channel_feed, harness,
-    settle, subscribe, subscription_id, within,
+    Connection, Event, SESSION_TOKEN, TestClient, assert_refusal, call, cancel_request,
+    channel_feed, harness, settle, subscribe, subscription_id, within,
 };
 
 /// Asserts `answer` refuses call `id` for the cap.
@@ -287,22 +287,33 @@ async fn at_most_a_hundred_subscription_cancels_run_and_a_freed_count_takes_the_
     );
 
     // The client reads again but sends nothing, so only a count given back wakes the reader: the
-    // lane closes, the cancels answer, and the one that waited is taken and answered.
+    // lane closes, and the answers to the big call and the hundred cancels arrive.
     connection.client.grants_credit = false;
     let mut answered = Vec::new();
-    while answered.len() < 102 {
-        match within(connection.client.next_event()).await {
-            Event::Message { lane, json, .. } if lane.is_control() => {
-                answered.push(json["id"].clone());
-            }
-            Event::Message { .. } | Event::Abort(_) => {}
-        }
+    while answered.len() < 101 {
+        answered.extend(lane_zero_answer(&mut connection.client).await);
     }
+    settle().await;
     assert_eq!(
         harness.script.dispatched("$/subscription/cancel").len(),
-        101
+        101,
+        "a count given back takes the cancel that waited"
     );
-    assert!(answered.contains(&json!(103)), "{answered:?}");
+    while answered.len() < 102 {
+        answered.extend(lane_zero_answer(&mut connection.client).await);
+    }
+    answered.sort_unstable();
+    assert_eq!(answered, (2..=103).collect::<Vec<u64>>());
+}
+
+/// The id of the next event's answer when it is on lane 0, failing once the step stalls.
+async fn lane_zero_answer(client: &mut TestClient) -> Option<u64> {
+    match within(client.next_event()).await {
+        Event::Message { lane, json, .. } if lane.is_control() => {
+            Some(json["id"].as_u64().expect("each answer has a number id"))
+        }
+        Event::Message { .. } | Event::Abort(_) => None,
+    }
 }
 
 /// The credit `json` spends as one message.

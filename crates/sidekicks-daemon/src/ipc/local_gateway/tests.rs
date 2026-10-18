@@ -16,7 +16,7 @@ use futures::future::BoxFuture;
 use futures::{FutureExt as _, SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::framing::frame::{Frame, FrameCodec, LaneId};
-use sidekicks_contracts::jsonrpc::framing::incoming::IncomingLanes;
+use sidekicks_contracts::jsonrpc::framing::incoming::{IncomingLanes, LaneCredit};
 use sidekicks_contracts::jsonrpc::framing::outgoing::OutgoingLanes;
 use sidekicks_contracts::jsonrpc::framing::{MAX_CHUNK_BYTES, MessageBody};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
@@ -506,9 +506,9 @@ impl TestClient {
         }
     }
 
-    async fn grant(&mut self, credit: Frame) {
+    async fn grant(&mut self, credit: LaneCredit) {
         if self.grants_credit {
-            self.send_frame(credit).await;
+            self.send_frame(credit.into()).await;
         }
     }
 

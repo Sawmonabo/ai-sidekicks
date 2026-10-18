@@ -124,7 +124,7 @@ impl LocalGateway {
 
 /// Reads the caller at the other end of `stream`. A caller nobody can name is refused at its
 /// handshake, and only a failed read is logged and reported; `None` when the read could not run,
-/// which loses the connection.
+/// which loses the connection and reports its one disconnect.
 async fn read_caller(
     reader: Arc<dyn CallerProcessReader>,
     stream: Stream,
@@ -147,6 +147,9 @@ async fn read_caller(
         }
         Err(error) => {
             report(&error);
+            services
+                .hooks
+                .on_disconnect(transport, SupervisionDisconnectReason::TransportError);
             None
         }
     }

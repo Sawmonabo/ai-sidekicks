@@ -5,7 +5,8 @@
 //! `SLOTLESS_REPLIES_MAX` replies to messages that took no slot wait unsent; past it the reader
 //! takes no message, though it reads every frame. A subscription cancel or a stop takes a running
 //! count, at most `MAX_CALLS_IN_FLIGHT`, and one that finds none waits, in arrival order, while
-//! every other message is taken; a `terminal.write` is bounded by its shell's own window instead.
+//! every other message is taken; a `terminal.write` is bounded instead by its handler's per-shell
+//! window, past which it answers `terminal.write.limitReached`.
 //! What a client can make a connection hold meanwhile is lane 0's window, the only lane the
 //! daemon admits: a waiting message keeps its credit, and credit owed for a partial message goes
 //! back only once no message waits.
@@ -49,20 +50,19 @@ use crate::ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
 use crate::ipc::registry::{DispatchError, HandlerContext, Reply, Request, TransportId};
 use crate::ipc::stream::subscriptions::subscription_limit_reached;
 
-/// The methods that take no call slot: the daemon answers each without waiting on another call,
-/// so a client sends them past the cap.
-const SLOTLESS_METHODS: [&str; 3] = [
-    SUBSCRIPTION_CANCEL_METHOD,
-    <DaemonStop as Method>::DESCRIPTOR.method,
-    <TerminalWrite as Method>::DESCRIPTOR.method,
-];
-
-/// The slotless methods whose running calls are counted; a `terminal.write` is bounded by its
-/// shell's own window instead.
+/// The slotless methods whose running calls are counted. A `terminal.write`, the one other
+/// slotless method, is bounded instead by its handler's per-shell window, past which it answers
+/// [`RefusalCode::TerminalWriteLimitReached`].
 const COUNTED_METHODS: [&str; 2] = [
     SUBSCRIPTION_CANCEL_METHOD,
     <DaemonStop as Method>::DESCRIPTOR.method,
 ];
+
+/// Whether `method` takes no call slot: the daemon answers it without waiting on another call, so
+/// a client sends it past the cap.
+fn is_slotless(method: &str) -> bool {
+    COUNTED_METHODS.contains(&method) || method == <TerminalWrite as Method>::DESCRIPTOR.method
+}
 
 /// The most replies to messages that took no call slot lane 0 holds unsent; past it the reader
 /// takes no further message until one is cut, though it still reads frames.
@@ -264,13 +264,13 @@ struct Reserve {
     running: Option<OwnedSemaphorePermit>,
 }
 
-/// A subscription cancel or a stop read and waiting for a running count, its credit unreturned.
+/// A subscription cancel or a stop past its envelope gates, waiting for a running count with its
+/// credit unreturned.
 struct CountedRequest {
     lane: LaneId,
     credit_due: u32,
     id: JsonRpcId,
     request: Request,
-    protocol_version: Option<Value>,
 }
 
 impl ConnectionReader {
@@ -320,9 +320,7 @@ impl ConnectionReader {
             }
             if waiting.is_empty() {
                 for credit in self.incoming.release_owed() {
-                    if let Frame::Credit { lane, granted } = credit {
-                        self.outbox.return_credit(lane, granted);
-                    }
+                    self.outbox.return_credit(credit.lane, credit.granted);
                 }
             }
             let next = tokio::select! {
@@ -408,9 +406,9 @@ impl ConnectionReader {
         self.close.fail(reason, error);
     }
 
-    /// Takes one whole message and reads it: a counted request waits for a running count with its
-    /// credit unreturned; any other message's credit goes back at once, a refused one's too, and
-    /// it is answered or dispatched.
+    /// Takes one whole message and reads it: a counted request that passes its envelope gates waits
+    /// for a running count with its credit unreturned; any other message's credit goes back at
+    /// once, a refused one's too, and it is answered or dispatched.
     fn take(
         &mut self,
         message: IncomingMessage,
@@ -430,17 +428,22 @@ impl ConnectionReader {
                 params,
                 protocol_version,
             }) if COUNTED_METHODS.contains(&method.as_str()) => {
-                counted.push_back(CountedRequest {
-                    lane,
-                    credit_due,
-                    id,
-                    request: Request {
-                        method,
-                        params,
-                        attachments,
-                    },
-                    protocol_version,
-                });
+                match envelope_refusal(&id, &method, protocol_version.as_ref()) {
+                    Some((failure, reply_id)) => {
+                        self.return_credit(lane, credit_due);
+                        self.reply(failure, reply_id, reserve.place.take());
+                    }
+                    None => counted.push_back(CountedRequest {
+                        lane,
+                        credit_due,
+                        id,
+                        request: Request {
+                            method,
+                            params,
+                            attachments,
+                        },
+                    }),
+                }
                 return;
             }
             parsed => parsed,
@@ -466,7 +469,6 @@ impl ConnectionReader {
                 },
                 protocol_version.as_ref(),
                 reserve,
-                None,
             ),
             Ok(JsonRpcMessage::Notification { method, params }) => {
                 self.notice(&method, params.as_deref(), attachments);
@@ -499,51 +501,47 @@ impl ConnectionReader {
             credit_due,
             id,
             request,
-            protocol_version,
         } = held;
         self.return_credit(lane, credit_due);
-        self.admit(id, request, protocol_version.as_ref(), reserve, Some(count));
+        self.dispatch_call(id, request, reserve, Some(count));
     }
 
     /// Returns a taken message's credit to the client.
     fn return_credit(&mut self, lane: LaneId, credit_due: u32) {
-        if let Some(Frame::Credit { lane, granted }) = self.incoming.take(lane, credit_due) {
-            self.outbox.return_credit(lane, granted);
+        if let Some(credit) = self.incoming.take(lane, credit_due) {
+            self.outbox.return_credit(credit.lane, credit.granted);
         }
     }
 
-    /// Holds a request to its gates in order, then dispatches it before the next message is taken,
-    /// so an order-bound method's admit step runs in arrival order; its answer runs on its own
-    /// task.
+    /// Holds a request to its envelope gates, then dispatches it.
     fn admit(
         &mut self,
         id: JsonRpcId,
         request: Request,
         protocol_version: Option<&Value>,
         reserve: &mut Reserve,
+    ) {
+        if let Some((failure, reply_id)) = envelope_refusal(&id, &request.method, protocol_version)
+        {
+            self.reply(failure, reply_id, reserve.place.take());
+            return;
+        }
+        self.dispatch_call(id, request, reserve, None);
+    }
+
+    /// Holds a request past its envelope gates to its call slot and the subscription limit, then
+    /// dispatches it before the next message is taken, so an order-bound method's admit step runs
+    /// in arrival order; its answer runs on its own task.
+    fn dispatch_call(
+        &mut self,
+        id: JsonRpcId,
+        request: Request,
+        reserve: &mut Reserve,
         running: Option<OwnedSemaphorePermit>,
     ) {
-        // Echoing an id past the bound is the write this gate prevents.
-        if !is_within_bound(&id) {
-            self.reply(
-                CallFailure::Message(MessageError::NotAMessage),
-                JsonRpcId::Null,
-                reserve.place.take(),
-            );
-            return;
-        }
-        if let Some(details) = protocol_version_fault(&request.method, protocol_version) {
-            let refusal = DomainError::new(
-                "The request's protocolVersion is missing, no string, or no YYYY-MM-DD date",
-                RefusalCode::RequestProtocolVersionInvalid,
-            )
-            .with_detail(details);
-            self.reply(refused(refusal), id, reserve.place.take());
-            return;
-        }
         // A slotless method's reply takes its place once it is ready, so a call still running
         // holds at most its running count.
-        let permit = if SLOTLESS_METHODS.contains(&request.method.as_str()) {
+        let permit = if is_slotless(&request.method) {
             None
         } else if let Ok(slot) = Arc::clone(&self.call_slots).try_acquire_owned() {
             Some(slot)
@@ -738,6 +736,28 @@ fn push_error_reply(
 
 fn refused(refusal: DomainError) -> CallFailure {
     CallFailure::Dispatch(DispatchError::Refused(refusal))
+}
+
+/// The refusal a request's envelope earns and the id to answer it under, or `None` when it passes:
+/// an id past the bound, which is never echoed, then the envelope's `protocolVersion`.
+fn envelope_refusal(
+    id: &JsonRpcId,
+    method: &str,
+    protocol_version: Option<&Value>,
+) -> Option<(CallFailure, JsonRpcId)> {
+    if !is_within_bound(id) {
+        return Some((
+            CallFailure::Message(MessageError::NotAMessage),
+            JsonRpcId::Null,
+        ));
+    }
+    let details = protocol_version_fault(method, protocol_version)?;
+    let refusal = DomainError::new(
+        "The request's protocolVersion is missing, no string, or no YYYY-MM-DD date",
+        RefusalCode::RequestProtocolVersionInvalid,
+    )
+    .with_detail(details);
+    Some((refused(refusal), id.clone()))
 }
 
 /// Whether `id` may be echoed; an id that cannot be written is not.
