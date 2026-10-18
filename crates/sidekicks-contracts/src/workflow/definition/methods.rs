@@ -662,12 +662,12 @@ methods! {
             result: WorkflowDraftUpdateResponse,
             refusals: [WorkflowDefinitionNotFound],
         },
-        /// Reads the held draft back after a reload.
+        /// Reads the held draft back after a reload; a workflow with no draft held reads as none.
         WorkflowDraftRead = query "workflow.draft.read" {
             mutating: false,
             params: WorkflowDraftReadRequest,
             result: WorkflowDraftReadResponse,
-            refusals: [WorkflowDefinitionNotFound],
+            refusals: [],
         },
         /// Evaluates one expression against an item of the last run; never resolves a secret.
         WorkflowExpressionPreview = query "workflow.expression.preview" {
