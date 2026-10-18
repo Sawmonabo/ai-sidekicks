@@ -6,7 +6,7 @@ use std::iter;
 
 use typed_path::{Utf8WindowsPath, Utf8WindowsPrefix};
 
-use super::{FolderCommand, ShellWordRefused};
+use super::ShellWordRefused;
 
 /// The separator Windows writes between a path's components.
 pub(super) const SEPARATOR: char = '\\';
@@ -74,9 +74,12 @@ pub(super) fn join(base: &str, path: &str) -> String {
 /// `word` written for a `cmd.exe /c` line whose program reads it by the C runtime's argument rules,
 /// as std quotes a batch file's argument: double-quoted, a `"` doubled with the backslashes before
 /// it doubled, the backslashes before the closing quote doubled, and each `%` written `%%cd:~,%`,
-/// an empty substring of the always-set `cd` variable, so cmd expands no `%NAME%` (it needs the
-/// command extensions `/e:on` turns on). Inside quotes that stay paired, `^ & | < >` are literal,
-/// and `!` is under `/v:off`. Refuses a `\r` or `\n`, where cmd ends the line.
+/// an empty substring of the always-set `cd` variable, so cmd expands no `%NAME%`. That substring
+/// needs cmd's command extensions, which are on unless a registry setting turns them off for the
+/// user or the computer, and which a line run as `%COMSPEC% /C` with no `/e:on` cannot turn back
+/// on; with them off, a `%` in the word reaches the program changed. Inside quotes that stay
+/// paired, `^ & | < >` are literal, and `!` is unless delayed expansion is on. Refuses a `\r` or
+/// `\n`, where cmd ends the line.
 pub(super) fn quote_shell_word(word: &str) -> Result<String, ShellWordRefused> {
     if word.contains(['\r', '\n']) {
         return Err(ShellWordRefused);
@@ -101,33 +104,4 @@ pub(super) fn quote_shell_word(word: &str) -> Result<String, ShellWordRefused> {
     quoted.extend(iter::repeat_n('\\', backslashes));
     quoted.push('"');
     Ok(quoted)
-}
-
-/// `cmd.exe /d /s /v:off /e:on /c "cd /d <folder> && <program> <arguments…>"`: `/d` skips
-/// `AutoRun`, `/s` strips exactly the outer pair of quotes, `/v:off` keeps `!` literal, `/e:on`
-/// turns on the extensions the `%` escape needs, `/c` comes last and `cd /d` changes the drive too.
-pub(super) fn run_in_folder(
-    folder: &str,
-    program: &str,
-    arguments: &[String],
-) -> Result<FolderCommand, ShellWordRefused> {
-    let mut line = format!(
-        "\"cd /d {} && {}",
-        quote_shell_word(folder)?,
-        quote_shell_word(program)?
-    );
-    for argument in arguments {
-        line.push(' ');
-        line.push_str(&quote_shell_word(argument)?);
-    }
-    line.push('"');
-    let mut command_arguments: Vec<String> = ["/d", "/s", "/v:off", "/e:on", "/c"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    command_arguments.push(line);
-    Ok(FolderCommand {
-        program: "cmd.exe",
-        arguments: command_arguments,
-    })
 }

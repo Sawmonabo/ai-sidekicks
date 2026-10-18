@@ -161,8 +161,8 @@ impl PathRules {
     }
 
     /// `word` written so the system's command shell hands it to the program exactly: single-quoted
-    /// for `sh`, and for `cmd.exe` as [`PathRules::run_in_folder`]'s line needs it. Fails with
-    /// [`ShellWordRefused`] only on Windows, for a word holding a line break.
+    /// for `sh`, and for a `cmd.exe /c` line on Windows. Fails with [`ShellWordRefused`] only on
+    /// Windows, for a word holding a line break.
     pub fn quote_shell_word(self, word: &str) -> Result<String, ShellWordRefused> {
         match self {
             Self::Posix => Ok(posix::quote_shell_word(word)),
@@ -170,18 +170,19 @@ impl PathRules {
         }
     }
 
-    /// The command that enters `folder` through the system's shell and then runs `program` with
-    /// `arguments`, so the started process's own working folder can be one that never moves.
-    /// Fails with [`ShellWordRefused`] when a word cannot be written into the Windows line.
+    /// The command that enters `folder` through `sh` and then runs `program` with `arguments`, so
+    /// the started process's own working folder can be one that never moves; `None` on Windows,
+    /// whose `cmd.exe` line cannot carry every folder and word, so a start there carries its
+    /// folder another way.
     pub fn run_in_folder(
         self,
         folder: &str,
         program: &str,
         arguments: &[String],
-    ) -> Result<FolderCommand, ShellWordRefused> {
+    ) -> Option<FolderCommand> {
         match self {
-            Self::Posix => Ok(posix::run_in_folder(folder, program, arguments)),
-            Self::Windows => windows::run_in_folder(folder, program, arguments),
+            Self::Posix => Some(posix::run_in_folder(folder, program, arguments)),
+            Self::Windows => None,
         }
     }
 }
@@ -192,12 +193,10 @@ impl PathRules {
 #[error("a line break cannot be written into a Windows command line")]
 pub struct ShellWordRefused;
 
-/// A program and its arguments that enter a folder through the system's shell, then run the
-/// program there. On Windows the last argument is the whole `/c` line with its own outer quotes:
-/// it must reach the command line as written (`CommandExt::raw_arg`), never quoted again.
+/// A program and its arguments that enter a folder through `sh`, then run the program there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FolderCommand {
-    /// The shell's program: `/bin/sh` or `cmd.exe`.
+    /// The shell's program, `/bin/sh`.
     pub program: &'static str,
     /// The shell's arguments, the command line last.
     pub arguments: Vec<String>,
@@ -224,32 +223,21 @@ mod tests {
 
     // Fails when the `'` escape, the `%` escape or the `"` doubling is dropped.
     #[rstest]
-    #[case::posix(PathRules::Posix, "it's 100%", Some(r"'it'\''s 100%'"), None)]
+    #[case::posix(PathRules::Posix, "it's 100%", Some(r"'it'\''s 100%'"))]
     #[case::windows_quote_and_percent(
         PathRules::Windows,
         r#"say "hi" 100%PATH%"#,
-        Some(r#""say ""hi"" 100%%cd:~,%PATH%%cd:~,%""#),
-        Some(r#""cd /d "C:\work 100%%cd:~,%" && "git" "status"""#)
+        Some(r#""say ""hi"" 100%%cd:~,%PATH%%cd:~,%""#)
     )]
-    #[case::windows_trailing_backslash(PathRules::Windows, r"C:\a b\", Some(r#""C:\a b\\""#), None)]
-    #[case::windows_empty(PathRules::Windows, "", Some(r#""""#), None)]
-    #[case::windows_line_break(PathRules::Windows, "a\nb", None, None)]
+    #[case::windows_trailing_backslash(PathRules::Windows, r"C:\a b\", Some(r#""C:\a b\\""#))]
+    #[case::windows_empty(PathRules::Windows, "", Some(r#""""#))]
+    #[case::windows_line_break(PathRules::Windows, "a\nb", None)]
     fn quote_shell_word_hands_the_program_the_word_exactly(
         #[case] rules: PathRules,
         #[case] word: &str,
         #[case] expected: Option<&str>,
-        #[case] expected_folder_line: Option<&str>,
     ) {
         assert_eq!(rules.quote_shell_word(word).ok().as_deref(), expected);
-        if let Some(expected_folder_line) = expected_folder_line {
-            let command = rules
-                .run_in_folder(r"C:\work 100%", "git", &["status".to_owned()])
-                .expect("no word holds a line break");
-            assert_eq!(
-                command.arguments.last().map(String::as_str),
-                Some(expected_folder_line)
-            );
-        }
     }
 
     #[rstest]

@@ -5,14 +5,16 @@
 
 use std::path::{Path, PathBuf};
 
-use sidekicks_platforms::{PathRules, ShellWordRefused};
+use sidekicks_platforms::PathRules;
 use sidekicks_terminal::SpawnRequest;
 
 /// How the worktree path is carried once the start's working folder is replaced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SpawnCwdStrategy {
-    /// Wraps the start in the place's shell, which enters the worktree and then runs the start;
-    /// for starts that are themselves shells.
+    /// Wraps the start in `sh`, which enters the worktree and then runs the start; for starts that
+    /// are themselves shells. Where the place has no such wrapper (Windows), the shell starts with
+    /// a `CWD` entry its shell integration reads at startup, carried as
+    /// [`SpawnCwdStrategy::CwdEnvironment`] carries it.
     CdPrefix,
     /// Adds a `CWD` entry last, so it wins over an earlier one; for agent programs that read `CWD`.
     CwdEnvironment,
@@ -31,15 +33,12 @@ pub(crate) enum SpawnCwdError {
         /// The worktree path.
         folder: PathBuf,
     },
-    /// A word of the start cannot be written into the place's command line.
-    #[error(transparent)]
-    ShellWord(#[from] ShellWordRefused),
 }
 
 /// `request` started in `stable_parent`, carrying its own working folder per `strategy`, `rules`
 /// being the place's (the WSL server's are Linux's); only the program, arguments, environment and
-/// working folder change. Fails with [`SpawnCwdError`] on an empty `stable_parent`, a worktree path
-/// that is not UTF-8, or a word the place's shell cannot be given.
+/// working folder change. Fails with [`SpawnCwdError`] on an empty `stable_parent` or a worktree
+/// path that is not UTF-8.
 pub(crate) fn translate_spawn_cwd(
     request: SpawnRequest,
     strategy: SpawnCwdStrategy,
@@ -64,12 +63,13 @@ pub(crate) fn translate_spawn_cwd(
         .map_err(|folder| SpawnCwdError::FolderNotText {
             folder: PathBuf::from(folder),
         })?;
-    let (program, arguments) = match strategy {
-        SpawnCwdStrategy::CdPrefix => {
-            let command = rules.run_in_folder(&folder, &program, &arguments)?;
-            (command.program.to_owned(), command.arguments)
-        }
-        SpawnCwdStrategy::CwdEnvironment => {
+    let folder_command = match strategy {
+        SpawnCwdStrategy::CdPrefix => rules.run_in_folder(&folder, &program, &arguments),
+        SpawnCwdStrategy::CwdEnvironment => None,
+    };
+    let (program, arguments) = match folder_command {
+        Some(command) => (command.program.to_owned(), command.arguments),
+        None => {
             environment.push(("CWD".to_owned(), folder));
             (program, arguments)
         }
@@ -116,22 +116,33 @@ mod tests {
         }
     }
 
-    // Fails when the worktree stays the working folder or the worktree path goes unquoted.
+    // Fails when the worktree stays the working folder, the worktree path goes unquoted, or
+    // Windows gets a wrapper instead of the `CWD` entry.
     #[rstest]
     #[case::cd_prefix(
         SpawnCwdStrategy::CdPrefix,
+        PathRules::Posix,
         "/bin/sh",
         &["-c", r"cd '/work/it'\''s 100%' && exec 'git' 'status'"],
         &[("PATH", "/usr/bin")]
     )]
+    #[case::cd_prefix_on_windows(
+        SpawnCwdStrategy::CdPrefix,
+        PathRules::Windows,
+        "git",
+        &["status"],
+        &[("PATH", "/usr/bin"), ("CWD", "/work/it's 100%")]
+    )]
     #[case::cwd_environment(
         SpawnCwdStrategy::CwdEnvironment,
+        PathRules::Posix,
         "git",
         &["status"],
         &[("PATH", "/usr/bin"), ("CWD", "/work/it's 100%")]
     )]
     fn translate_spawn_cwd_starts_in_the_stable_folder_and_carries_the_worktree(
         #[case] strategy: SpawnCwdStrategy,
+        #[case] rules: PathRules,
         #[case] program: &str,
         #[case] arguments: &[&str],
         #[case] environment: &[(&str, &str)],
@@ -140,7 +151,7 @@ mod tests {
             request("git", &["status"], &[("PATH", "/usr/bin")]),
             strategy,
             Path::new("/stable"),
-            PathRules::Posix,
+            rules,
         )
         .expect("the stable folder is set and the worktree path is text");
         let mut expected = request(program, arguments, environment);
