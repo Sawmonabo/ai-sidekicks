@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::artifacts::id::ArtifactId;
 use crate::run::id::RunId;
@@ -20,8 +21,21 @@ use crate::wire::text::NonEmptyText;
 
 /// The kind of an artifact: a file, a diff, a summary, a log, a design, or the output of one
 /// workflow phase.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ArtifactType {
     /// A file.
     File,
@@ -39,8 +53,21 @@ pub enum ArtifactType {
 
 /// Where a manifest is in its life: written but not yet published, published, or replaced by a
 /// later manifest.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ArtifactState {
     /// Written, not yet published.
     Pending,

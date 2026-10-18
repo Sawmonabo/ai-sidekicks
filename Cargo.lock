@@ -258,6 +258,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+
+[[package]]
 name = "arc-swap"
 version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2516,6 +2522,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
+name = "file-format"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55d9ccda37e95b4f0978a3074b4a9939979103a7256459cfb449c9c84d1adf23"
+
+[[package]]
 name = "filedescriptor"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4342,6 +4354,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 
 [[package]]
+name = "libfuzzer-sys"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2"
+dependencies = [
+ "arbitrary",
+ "cc",
+]
+
+[[package]]
 name = "libloading"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4583,32 +4605,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "llrt_logging"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "itoa",
- "llrt_context",
- "llrt_encoding",
- "llrt_json",
- "llrt_numbers",
- "llrt_utils",
- "rquickjs",
- "ryu",
-]
-
-[[package]]
-name = "llrt_numbers"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "itoa",
- "llrt_utils",
- "rquickjs",
- "ryu",
-]
-
-[[package]]
 name = "llrt_stream_web"
 version = "0.9.0-beta"
 source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
@@ -4630,19 +4626,6 @@ dependencies = [
  "once_cell",
  "rquickjs",
  "tokio",
-]
-
-[[package]]
-name = "llrt_util"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "llrt_context",
- "llrt_encoding",
- "llrt_logging",
- "llrt_stream_web",
- "llrt_utils",
- "rquickjs",
 ]
 
 [[package]]
@@ -7745,6 +7728,7 @@ dependencies = [
  "ed25519-dalek",
  "fast_image_resize",
  "ferriki",
+ "file-format",
  "flate2",
  "flexi_logger",
  "form_urlencoded",
@@ -7768,13 +7752,8 @@ dependencies = [
  "jwt-simple",
  "lettre",
  "libsqlite3-sys",
- "llrt_abort",
  "llrt_buffer",
  "llrt_crypto",
- "llrt_exceptions",
- "llrt_stream_web",
- "llrt_timers",
- "llrt_util",
  "lru 0.18.5",
  "memchr",
  "minidumper",
@@ -7832,6 +7811,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
  "unicode-normalization",
+ "unicode-properties",
  "unicode-segmentation",
  "url",
  "uuid",
@@ -7843,6 +7823,14 @@ dependencies = [
  "zeroize",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "sidekicks-daemon-fuzz"
+version = "0.0.0"
+dependencies = [
+ "file-format",
+ "libfuzzer-sys",
 ]
 
 [[package]]

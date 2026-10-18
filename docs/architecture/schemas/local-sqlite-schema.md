@@ -594,6 +594,8 @@ CREATE TABLE artifact_manifests (
   run_id             TEXT,
   -- The device the request that made it came from; NULL for an artifact the daemon produced.
   created_by         TEXT,
+  -- A client's publish's own key, so a resent publish answers this manifest; NULL otherwise.
+  client_idempotency_key TEXT,
   artifact_type      TEXT NOT NULL
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design',
                                              'workflowOutput')),
@@ -611,6 +613,9 @@ CREATE TABLE artifact_manifests (
 CREATE INDEX idx_artifact_manifests_session ON artifact_manifests(session_id);
 CREATE INDEX idx_artifact_manifests_run ON artifact_manifests(run_id) WHERE run_id IS NOT NULL;
 CREATE INDEX idx_artifact_manifests_hash ON artifact_manifests(content_hash);
+-- SQLite treats each NULL as distinct, so only a client's publishes dedupe.
+CREATE UNIQUE INDEX idx_artifact_manifests_client_idempotency_key
+  ON artifact_manifests(session_id, client_idempotency_key);
 CREATE UNIQUE INDEX idx_artifact_manifests_path_version
   ON artifact_manifests(session_id, workspace_path, version_number) WHERE workspace_path IS NOT NULL;
 CREATE INDEX idx_artifact_manifests_plan ON artifact_manifests(plan_id) WHERE plan_id IS NOT NULL;
