@@ -18,6 +18,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::True;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
@@ -552,7 +553,7 @@ impl WorkflowDefinitionStore {
         let copied_version_binding = || {
             nullable_text_binding(
                 "@copied_version_id",
-                copied_version_text.as_ref().map(|text| text.as_str()),
+                copied_version_text.as_ref().map(UuidText::as_str),
             )
         };
         let mut statements = vec![name_holder_statement(&name_folded, None)];
@@ -799,7 +800,7 @@ fn saved_by_agent_binding(author: &WorkflowSaveAuthor) -> (Cow<'static, str>, Va
     let agent_text = author.agent_id.map(|agent_id| agent_id.text());
     nullable_text_binding(
         "@saved_by_agent_id",
-        agent_text.as_ref().map(|text| text.as_str()),
+        agent_text.as_ref().map(UuidText::as_str),
     )
 }
 

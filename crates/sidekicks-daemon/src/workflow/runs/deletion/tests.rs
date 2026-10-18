@@ -170,7 +170,7 @@ async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() 
         })
     ));
     assert_eq!(run_row_count(&rows, &going), 2);
-    assert!(deleted_event_runs(&rows).is_empty());
+    assert_eq!(deleted_event_runs(&rows), Vec::<String>::new());
 
     let deleted = deletion
         .delete(workflow_run_id(2))

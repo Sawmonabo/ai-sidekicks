@@ -22,6 +22,7 @@ use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
@@ -721,8 +722,8 @@ fn read_removable_runs(
     let rows = statement.query_map(
         named_params! {
             "@older_than": older_than.map(WireInstant::as_str),
-            "@after_session_id": after_session.as_ref().map(|text| text.as_str()),
-            "@after_run_id": after_run.as_ref().map(|text| text.as_str()),
+            "@after_session_id": after_session.as_ref().map(UuidText::as_str),
+            "@after_run_id": after_run.as_ref().map(UuidText::as_str),
         },
         run_to_delete_from_row,
     )?;
