@@ -16,13 +16,17 @@ use sidekicks_contracts::typescript::TypeName;
 use sidekicks_platforms::{PinnedProcess, this_process};
 use tokio::sync::{Notify, mpsc};
 
-use super::{NegotiationGate, ProtocolNegotiator, RefusedCallerCheck};
+use super::{CallerAdmission, CallerAdmissionCheck, NegotiationGate, ProtocolNegotiator};
 use crate::ipc::call_fixtures::{Nothing, context};
 use crate::ipc::registry::{
     Dispatch, DispatchError, HandlerContext, MethodRegistryBuilder, Reply, Request,
 };
 
-const SESSION_TOKEN: &str = "the-session-token";
+/// This start's session token.
+const TOKEN: Option<&str> = Some("the-session-token");
+
+/// A token that is not this start's.
+const WRONG_TOKEN: Option<&str> = Some("a-wrong-token");
 
 /// A method that reads (`false`) or mutates (`true`).
 struct Probe<const IS_MUTATING: bool>;
@@ -53,8 +57,8 @@ impl<const IS_MUTATING: bool> Method for Probe<IS_MUTATING> {
 /// One call on the connection.
 #[derive(Clone, Copy, Debug)]
 enum Call {
-    /// A handshake with this token, offering this one version.
-    Handshake(&'static str, &'static str),
+    /// A handshake with this token, or none, offering this one version.
+    Handshake(Option<&'static str>, &'static str),
     Read,
     Write,
 }
@@ -71,10 +75,13 @@ enum Answer {
 
 fn request(call: Call) -> Request {
     let (method, params) = match call {
-        Call::Handshake(token, version) => (
-            CONNECTION_INITIALIZE_METHOD,
-            json!({ "protocolVersion": version, "sessionToken": token }),
-        ),
+        Call::Handshake(token, version) => {
+            let mut params = json!({ "protocolVersion": version });
+            if let Some(token) = token {
+                params["sessionToken"] = json!(token);
+            }
+            (CONNECTION_INITIALIZE_METHOD, params)
+        }
         Call::Read => ("test.read", json!({})),
         Call::Write => ("test.write", json!({})),
     };
@@ -85,14 +92,30 @@ fn request(call: Call) -> Request {
     }
 }
 
-/// The negotiation gate over a registry serving the handshake, a read and a write, its callers
-/// checked by `is_refused_caller`.
-fn gate_over(is_refused_caller: RefusedCallerCheck) -> NegotiationGate {
-    let negotiator = ProtocolNegotiator::new(SESSION_TOKEN.to_owned(), is_refused_caller);
+/// A caller check that answers `admission` for every caller.
+fn admitting(admission: CallerAdmission) -> CallerAdmissionCheck {
+    Arc::new(move |_process: PinnedProcess, _is_tokenless: bool| {
+        futures::future::ready(Ok::<_, Arc<dyn Error + Send + Sync>>(admission)).boxed()
+    })
+}
+
+/// The negotiation gate over a registry serving the handshake, or the repairing service's one when
+/// `is_repairing`, a read and a write, its callers checked by `admit_caller`.
+fn gate_over(admit_caller: CallerAdmissionCheck, is_repairing: bool) -> NegotiationGate {
+    let negotiator = ProtocolNegotiator::new(
+        TOKEN.expect("the start has a token").to_owned(),
+        admit_caller,
+    );
     let mut builder = MethodRegistryBuilder::new();
-    negotiator
-        .register_handshake(&mut builder)
-        .expect("the handshake registers");
+    if is_repairing {
+        negotiator
+            .register_repairing_handshake(&mut builder, Arc::new(|| None))
+            .expect("the handshake registers");
+    } else {
+        negotiator
+            .register_handshake(&mut builder)
+            .expect("the handshake registers");
+    }
     builder
         .register::<Probe<false>, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
         .expect("the read registers");
@@ -111,55 +134,8 @@ fn caller_context(is_caller_named: bool) -> HandlerContext {
     }
 }
 
-#[rstest]
-#[case::wrong_token_latches_refused(true, false, &[
-    (Call::Handshake("a-wrong-token", CURRENT_PROTOCOL_VERSION),
-        Answer::Refused(RefusalCode::AuthTokenInvalid)),
-    (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
-        Answer::Refused(RefusalCode::AuthTokenInvalid)),
-    (Call::Read, Answer::Refused(RefusalCode::AuthTokenInvalid)),
-])]
-#[case::floor(true, false, &[
-    (Call::Handshake(SESSION_TOKEN, "2000-01-01"),
-        Answer::Ack(false, Some(NegotiationIncompatibleReason::FloorExceeded))),
-    (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
-    (Call::Read, Answer::Served),
-])]
-#[case::ceiling(true, false, &[
-    (Call::Handshake(SESSION_TOKEN, "2999-12-31"),
-        Answer::Ack(false, Some(NegotiationIncompatibleReason::CeilingExceeded))),
-    (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
-    (Call::Read, Answer::Served),
-])]
-#[case::compatible(true, false, &[
-    (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION), Answer::Ack(true, None)),
-    (Call::Write, Answer::Served),
-    (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
-        Answer::Ack(false, Some(NegotiationIncompatibleReason::HandshakeAlreadyCompleted))),
-])]
-#[case::before_the_handshake(true, false, &[
-    (Call::Read, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
-    (Call::Write, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
-])]
-#[case::agent_process(true, true, &[
-    (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
-        Answer::Refused(RefusalCode::AuthCallerRefused)),
-    (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
-])]
-#[case::unnamed_caller(false, false, &[
-    (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
-        Answer::Refused(RefusalCode::AuthCallerRefused)),
-    (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
-])]
-#[tokio::test]
-async fn the_gate_and_the_handshake_answer_each_connection_state(
-    #[case] is_caller_named: bool,
-    #[case] is_agent_process: bool,
-    #[case] calls: &[(Call, Answer)],
-) {
-    let gate = gate_over(Arc::new(move |_process: PinnedProcess| {
-        futures::future::ready(Ok::<_, Arc<dyn Error + Send + Sync>>(is_agent_process)).boxed()
-    }));
+/// Runs `calls` in order on one connection and checks each answer.
+async fn expect_answers(gate: &NegotiationGate, is_caller_named: bool, calls: &[(Call, Answer)]) {
     for &(call, expected) in calls {
         let answer = gate
             .dispatch(request(call), caller_context(is_caller_named))
@@ -188,52 +164,174 @@ async fn the_gate_and_the_handshake_answer_each_connection_state(
     }
 }
 
+#[rstest]
+#[case::wrong_token_latches_refused(true, CallerAdmission::TokenRequired, &[
+    (Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthTokenInvalid)),
+    (Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthTokenInvalid)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthTokenInvalid)),
+])]
+#[case::floor(true, CallerAdmission::TokenRequired, &[
+    (Call::Handshake(TOKEN, "2000-01-01"),
+        Answer::Ack(false, Some(NegotiationIncompatibleReason::FloorExceeded))),
+    (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
+    (Call::Read, Answer::Served),
+])]
+#[case::ceiling(true, CallerAdmission::TokenRequired, &[
+    (Call::Handshake(TOKEN, "2999-12-31"),
+        Answer::Ack(false, Some(NegotiationIncompatibleReason::CeilingExceeded))),
+    (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
+    (Call::Read, Answer::Served),
+])]
+#[case::compatible(true, CallerAdmission::TokenRequired, &[
+    (Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION), Answer::Ack(true, None)),
+    (Call::Write, Answer::Served),
+    (Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION),
+        Answer::Ack(false, Some(NegotiationIncompatibleReason::HandshakeAlreadyCompleted))),
+])]
+#[case::before_the_handshake(true, CallerAdmission::TokenRequired, &[
+    (Call::Read, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
+    (Call::Write, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
+])]
+#[case::agent_process_with_the_token(true, CallerAdmission::Refused, &[
+    (Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthCallerRefused)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
+])]
+#[case::agent_process_without_a_token(true, CallerAdmission::Refused, &[
+    (Call::Handshake(None, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthCallerRefused)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
+])]
+#[case::agent_process_with_a_wrong_token(true, CallerAdmission::Refused, &[
+    (Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthCallerRefused)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
+])]
+#[case::unnamed_caller(false, CallerAdmission::TokenRequired, &[
+    (Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthCallerRefused)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
+])]
+#[case::signed_client_without_a_token(true, CallerAdmission::Signed, &[
+    (Call::Handshake(None, CURRENT_PROTOCOL_VERSION), Answer::Ack(true, None)),
+    (Call::Write, Answer::Served),
+])]
+#[case::signed_client_with_a_wrong_token(true, CallerAdmission::Signed, &[
+    (Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthTokenInvalid)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthTokenInvalid)),
+])]
+#[case::unsigned_caller_without_a_token(true, CallerAdmission::TokenRequired, &[
+    (Call::Handshake(None, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthTokenInvalid)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthTokenInvalid)),
+])]
+#[tokio::test]
+async fn the_gate_and_the_handshake_answer_each_connection_state(
+    #[case] is_caller_named: bool,
+    #[case] admission: CallerAdmission,
+    #[case] calls: &[(Call, Answer)],
+) {
+    let gate = gate_over(admitting(admission), false);
+    expect_answers(&gate, is_caller_named, calls).await;
+}
+
+#[rstest]
+#[case::signed_client_repeats_without_a_token(CallerAdmission::Signed, None)]
+#[case::token_holder_repeats_with_it(CallerAdmission::TokenRequired, TOKEN)]
+#[tokio::test]
+async fn a_repairing_service_answers_a_repeat_as_it_admitted_the_first(
+    #[case] admission: CallerAdmission,
+    #[case] token: Option<&'static str>,
+) {
+    let gate = gate_over(admitting(admission), true);
+    let repairing = Answer::Refused(RefusalCode::DaemonRepairing);
+    expect_answers(
+        &gate,
+        true,
+        &[
+            (Call::Handshake(token, CURRENT_PROTOCOL_VERSION), repairing),
+            (Call::Handshake(token, CURRENT_PROTOCOL_VERSION), repairing),
+            (
+                Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION),
+                if token.is_none() {
+                    repairing
+                } else {
+                    Answer::Refused(RefusalCode::AuthTokenInvalid)
+                },
+            ),
+        ],
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn a_refusal_latched_during_the_caller_read_wins_over_its_success() {
     let (read_started, mut has_read_started) = mpsc::unbounded_channel();
     let release = Arc::new(Notify::new());
     let read_release = Arc::clone(&release);
-    let gate = gate_over(Arc::new(move |_process: PinnedProcess| {
-        read_started.send(()).expect("the test listens");
-        let release = Arc::clone(&read_release);
-        async move {
-            release.notified().await;
-            Ok::<_, Arc<dyn Error + Send + Sync>>(false)
-        }
-        .boxed()
-    }));
+    let gate = gate_over(
+        Arc::new(move |_process: PinnedProcess, _is_tokenless: bool| {
+            read_started.send(()).expect("the test listens");
+            let release = Arc::clone(&read_release);
+            async move {
+                release.notified().await;
+                Ok::<_, Arc<dyn Error + Send + Sync>>(CallerAdmission::TokenRequired)
+            }
+            .boxed()
+        }),
+        false,
+    );
 
-    let handshake = tokio::spawn(gate.dispatch(
-        request(Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION)),
+    // A wrong guess starts the caller read; the right token's handshake joins it.
+    let wrong = tokio::spawn(gate.dispatch(
+        request(Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION)),
         caller_context(true),
     ));
     has_read_started
         .recv()
         .await
         .expect("the caller read starts");
-    let wrong = gate
-        .dispatch(
-            request(Call::Handshake("a-wrong-token", CURRENT_PROTOCOL_VERSION)),
-            caller_context(true),
-        )
-        .await;
-    assert!(matches!(
-        wrong,
-        Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
+    let right = tokio::spawn(gate.dispatch(
+        request(Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION)),
+        caller_context(true),
     ));
-
-    // The read then finds the caller is no agent's, and the latched refusal still answers.
+    tokio::task::yield_now().await;
     release.notify_one();
-    let answer = handshake.await.expect("the handshake ran");
-    assert!(matches!(
-        answer,
-        Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
-    ));
+    let wrong = wrong.await.expect("the wrong guess ran");
+    let right = right.await.expect("the handshake ran");
+
+    // Whichever latched first decides the connection: a refusal is never overturned by the
+    // handshake that carried the token, and a latched handshake answers the guess as a repeat.
+    let is_refused = |answer: &Result<Reply, DispatchError>| {
+        matches!(
+            answer,
+            Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
+        )
+    };
     let read = gate
         .dispatch(request(Call::Read), caller_context(true))
         .await;
-    assert!(matches!(
-        read,
-        Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
-    ));
+    if is_refused(&wrong) {
+        assert!(
+            is_refused(&right),
+            "the latched refusal answers the token's handshake"
+        );
+        assert!(is_refused(&read), "the connection stays refused");
+    } else {
+        assert!(
+            matches!(right, Ok(Reply::Result(_))),
+            "the token's handshake latched"
+        );
+        assert!(
+            matches!(wrong, Ok(Reply::Result(_))),
+            "the guess reads the latched handshake"
+        );
+        assert!(
+            matches!(read, Ok(Reply::Result(_))),
+            "the connection is served"
+        );
+    }
 }

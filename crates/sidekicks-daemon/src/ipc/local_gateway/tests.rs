@@ -36,7 +36,7 @@ use super::{GatewayServices, SupervisionDisconnectReason, SupervisionHooks, next
 use crate::ipc::call_fixtures::{
     NamedSubscribe, Nothing, SUBSCRIBE_METHOD, channel_feed, subscription_id,
 };
-use crate::ipc::protocol_negotiation::{ProtocolNegotiator, RefusedCallerCheck};
+use crate::ipc::protocol_negotiation::{CallerAdmission, CallerAdmissionCheck, ProtocolNegotiator};
 use crate::ipc::registry::{
     Dispatch, DispatchError, EncodedFeed, EncodedValue, HandlerContext, MethodRegistry,
     MethodRegistryBuilder, Reply, Request, TransportId,
@@ -221,10 +221,14 @@ struct Harness {
 }
 
 fn harness() -> Harness {
-    let refused_caller: RefusedCallerCheck = Arc::new(|_process: PinnedProcess| {
-        futures::future::ready(Ok::<bool, Arc<dyn Error + Send + Sync>>(false)).boxed()
-    });
-    let negotiator = ProtocolNegotiator::new(SESSION_TOKEN.to_owned(), refused_caller);
+    let admit_caller: CallerAdmissionCheck =
+        Arc::new(|_process: PinnedProcess, _is_tokenless: bool| {
+            futures::future::ready(Ok::<_, Arc<dyn Error + Send + Sync>>(
+                CallerAdmission::TokenRequired,
+            ))
+            .boxed()
+        });
+    let negotiator = ProtocolNegotiator::new(SESSION_TOKEN.to_owned(), admit_caller);
     let subscriptions = Subscriptions::new();
     let admitted = Arc::new(Mutex::new(Vec::new()));
     let mut builder = MethodRegistryBuilder::new();
