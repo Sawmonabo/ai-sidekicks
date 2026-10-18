@@ -206,10 +206,10 @@ type RunFailureCategory =
   | "setupFailure";
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "notDelivered";
-// Spec-003 §Interfaces And Contracts and Spec-004 §Required Behavior; ApplyInterventionRequest
-// (Plan-003 T1.7) carries the interrupt beside the driver's own `steer`, the queue's delivery of a
-// waiting message, which no intervention records, and the daemon carries out `fasterModelRetry`
-// itself. Undo is `session.restore`, never an intervention
+// Spec-003 §Interfaces And Contracts and Spec-004 §Required Behavior; the driver's own
+// ApplyInterventionParams (Plan-003 T1.7) carries the interrupt beside the driver's own `steer`,
+// the queue's delivery of a waiting message, which no intervention records, and the daemon carries
+// out `fasterModelRetry` itself. Undo is `session.restore`, never an intervention
 type InterventionType = "interrupt" | "fasterModelRetry";
 type InterventionState =
   | "requested"

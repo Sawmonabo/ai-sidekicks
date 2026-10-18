@@ -24,7 +24,7 @@ Phase 3 of [Plan-003: Provider Driver Contract And Capabilities](./003-provider-
 - Files: `crates/sidekicks-daemon/src/provider/driver/codex/intervention.rs` (new)
 - **Spec coverage:** Spec-004 §Required Behavior (generic dispatcher + degraded-fallback); ADR-011 (generic intervention dispatch)
 - **Verifies invariant:** I-003-4 (degraded result for unsupported intervention types)
-- Consumes: T1.4 ApplyInterventionRequest + ApplyInterventionResponse; T1.2 capability flags
+- Consumes: T1.4 `ApplyInterventionParams` + `ApplyInterventionResponse`; T1.2 capability flags
 - Provides: `applyIntervention(params)` for Codex — routes to native steer/interrupt handlers; returns `{ status: 'degraded' }` with its `fallbackAction` when an intervention type is one this driver can deliver neither through a provider verb of its own nor through the orchestration leg above it (Codex declares all three intervention-relevant flags `true`; the degraded path is exercised against a driver that can accept nothing mid-run rather than against either V1 provider, neither of which reaches it.)
 - Estimate: 1 PR
 
@@ -230,7 +230,7 @@ Phase 3 of [Plan-003: Provider Driver Contract And Capabilities](./003-provider-
 - Estimate: 2 PRs
 
 - **T3.27 — The console's session reads and words on both drivers.**
-- Files: `crates/sidekicks-contracts/src/session/controls/methods.rs` (EXTEND — `session.mode.update`, `session.sideQuestion.ask`, `session.codeReview.start` and `session.providerCommand.subscribe`); `crates/sidekicks-daemon/src/provider/driver/{claude,codex}/lifecycle.rs` (EXTEND); `crates/sidekicks-daemon/src/provider/driver/{claude,codex}/capabilities.rs` (EXTEND); `crates/sidekicks-daemon/src/ipc/handlers/driver/requests.rs` (EXTEND T4.1 — the session-scoped handlers); `crates/sidekicks-daemon/src/provider/outbound_frame.rs` and both drivers' `text_neutralization.rs` (DELETE, with their tests, the lifecycle and session-state sites that call them, and the text-neutralization failure code in `crates/sidekicks-contracts/src/provider/driver/intervention.rs`)
+- Files: `crates/sidekicks-contracts/src/session/controls/methods.rs` (EXTEND — `session.mode.update`, `session.sideQuestion.ask`, `session.codeReview.start` and `session.providerCommand.subscribe`); `crates/sidekicks-daemon/src/provider/driver/{claude,codex}/lifecycle.rs` (EXTEND); `crates/sidekicks-daemon/src/provider/driver/{claude,codex}/capabilities.rs` (EXTEND); `crates/sidekicks-daemon/src/ipc/handlers/driver/requests.rs` (EXTEND T4.1 — the session-scoped handlers); `crates/sidekicks-daemon/src/provider/outbound_frame.rs` and both drivers' `text_neutralization.rs` (DELETE, with their tests and the lifecycle and session-state sites that call them)
 - **Spec coverage:** Spec-004 §The model catalog read; Spec-004 §The provider command and skill surface; Spec-004 §Desktop Console Parity Surfaces; Spec-004 §Interfaces And Contracts; Spec-004 §Required Behavior (text the daemon composes goes marked as composed)
 - **Verifies invariant:** I-003-2, I-003-12
 - Consumes: T3.21's operations and flags; T3.25's server set; the daemon's MCP client

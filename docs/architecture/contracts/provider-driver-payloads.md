@@ -6,7 +6,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ```ts
 // Internal driver interface (a Rust trait in the daemon). Two kinds of nominal surface ship here.
-// (a) The daemon-CONSTRUCTED param types (`CreateSessionParams` … `ApplyInterventionRequest` + the
+// (a) The daemon-CONSTRUCTED param types (`CreateSessionParams` … `ApplyInterventionParams` + the
 // intervention payloads) are genuinely trusted — the daemon constructs them in-process. (b) The
 // driver-CONSTRUCTED returns — the capability flags, `DriverCapabilities`, `GetCapabilitiesResult`,
 // `ProviderSessionHandle`, and `ProviderModel`/`ProviderMode` — are normalized at the Plan-003
@@ -57,7 +57,7 @@ interface ProviderDriver {
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunRequest): Promise<void>;
-  applyIntervention(params: ApplyInterventionRequest): Promise<ApplyInterventionResponse>;
+  applyIntervention(params: ApplyInterventionParams): Promise<ApplyInterventionResponse>;
   // Move the session itself onto a NEW provider conversation forked from the bound one at a
   // message. Never a rollback (see `MoveSessionToForkParams`).
   moveSessionToFork(params: MoveSessionToForkParams): Promise<MoveSessionToForkResult>;
@@ -511,7 +511,7 @@ interface InterruptRunRequest {
 // `session.restore`, whose conversation leg reaches the driver through `rewindConversation`
 // ([Spec-013 §Interfaces And
 // Contracts](../../specs/013-persistence-and-recovery.md#interfaces-and-contracts)).
-type ApplyInterventionRequest =
+type ApplyInterventionParams =
   | {
       type: "steer";
       targetRunId: RunId;
