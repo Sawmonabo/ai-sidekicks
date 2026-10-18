@@ -166,9 +166,11 @@ pub const UNREADABLE_VALUE_ISSUE_MESSAGE: &str = "this value does not read as it
 
 /// The path serde's reader names for its fault: a map's key or an externally tagged variant as a
 /// member, a sequence's place as an index, stopping at the first step it could not name (inside an
-/// internally tagged or untagged union, which serde reads from its own buffered copy).
+/// internally tagged or untagged union, which serde reads from its own buffered copy), and at most
+/// [`ISSUE_PATH_SEGMENTS_MAX`] steps.
 pub fn reader_issue_path(path: &serde_path_to_error::Path) -> Vec<IssuePathSegment> {
     path.iter()
+        .take(ISSUE_PATH_SEGMENTS_MAX)
         .map_while(|step| match step {
             serde_path_to_error::Segment::Seq { index } => Some(IssuePathSegment::index(*index)),
             serde_path_to_error::Segment::Map { key } => {

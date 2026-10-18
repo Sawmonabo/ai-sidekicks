@@ -14,9 +14,7 @@ use serde_json::error::Category;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
-use sidekicks_contracts::jsonrpc::issue::{
-    ISSUE_PATH_SEGMENTS_MAX, Issue, IssuePathSegment, received_issues, rule_issues,
-};
+use sidekicks_contracts::jsonrpc::issue::{Issue, IssuePathSegment, received_issues, rule_issues};
 use sidekicks_contracts::jsonrpc::message::{
     JsonRpcError, JsonRpcErrorData, JsonRpcId, JsonRpcMessage, MessageError,
 };
@@ -224,10 +222,10 @@ fn internal_failure(fault: &(dyn Error + 'static)) -> JsonRpcError {
     json_rpc_error(JsonRpcErrorCode::InternalError, &fault.to_string(), None)
 }
 
-/// `issue` as the wire carries it: its path cut before its first step past
-/// [`ISSUE_PATH_SEGMENTS_MAX`], or a member name longer than [`FIELDS_VALUE_MAX_LEN`] or holding
-/// an absolute path, so it names an ancestor of the fault and holds the caps the sanitizer holds
-/// with no marker; its message path-redacted and capped as a field is.
+/// `issue` as the wire carries it: its path, already at most the contracts' step cap, cut before
+/// its first member name longer than [`FIELDS_VALUE_MAX_LEN`] or holding an absolute path, so it
+/// names an ancestor of the fault and holds the caps the sanitizer holds with no marker; its
+/// message path-redacted and capped as a field is.
 fn capped_issue(issue: Issue) -> Issue {
     let Issue {
         path,
@@ -236,7 +234,6 @@ fn capped_issue(issue: Issue) -> Issue {
     } = issue;
     let path = path
         .into_iter()
-        .take(ISSUE_PATH_SEGMENTS_MAX)
         .take_while(|segment| match segment {
             IssuePathSegment::Member(name) => {
                 name.chars().nth(FIELDS_VALUE_MAX_LEN).is_none() && redact_paths(name) == *name
@@ -428,9 +425,7 @@ mod tests {
     use schemars::JsonSchema;
     use serde::Deserialize;
     use serde_json::{Map, Value, json};
-    use sidekicks_contracts::jsonrpc::issue::{
-        ISSUE_PATH_SEGMENTS_MAX, IssuePathSegment, ShapeFault,
-    };
+    use sidekicks_contracts::jsonrpc::issue::{IssuePathSegment, ShapeFault};
     use sidekicks_contracts::jsonrpc::message::JsonRpcId;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::wire::attachment::{ReceivedError, parse_received};
@@ -517,10 +512,6 @@ mod tests {
     // A path is cut to the ancestor within the caps, so it never carries a marker, a long name or
     // an absolute path.
     #[rstest]
-    #[case::deeper_than_the_cap(
-        members(&["level"; ISSUE_PATH_SEGMENTS_MAX + 1]),
-        members(&["level"; ISSUE_PATH_SEGMENTS_MAX])
-    )]
     #[case::long_member_name(
         members(&["servers", &"x".repeat(FIELDS_VALUE_MAX_LEN + 1), "type"]),
         members(&["servers"])
