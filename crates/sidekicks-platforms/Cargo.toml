@@ -47,6 +47,7 @@ rstest.workspace = true
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libmimalloc-sys.workspace = true
 mimalloc.workspace = true
+tree-sitter.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 futures-util.workspace = true
@@ -59,6 +60,7 @@ zbus-secret-service-keyring-store.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true
 dispatch2 = { workspace = true, features = ["libc", "std"] }
+mach2.workspace = true
 objc2-core-foundation.workspace = true
 objc2-foundation.workspace = true
 objc2-io-kit = { workspace = true, features = ["dispatch2", "libc", "pwr_mgt", "std"] }
@@ -87,6 +89,8 @@ windows-sys = {
     "Win32_System_JobObjects",
     "Win32_System_LibraryLoader",
     "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",

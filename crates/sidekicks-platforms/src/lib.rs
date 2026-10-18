@@ -1,8 +1,9 @@
 //! All operating-system code behind one interface the other crates call: the interface's shared
 //! types, a module per platform supplying the running system's implementation (`macos`, `linux`,
-//! `windows`, and `posix` for what the first two share), the `path` module, which reads a path by
-//! either system's rules on every system, and the `wsl` module, which reads the WSL distribution a
-//! Windows path names on every system.
+//! `windows`, and `posix` for what the first two share), the `memory` module, which reads the
+//! installed memory on every system, the `path` module, which reads a path by either system's rules
+//! on every system, and the `wsl` module, which reads the WSL distribution a Windows path names on
+//! every system.
 #![expect(
     unsafe_code,
     reason = "the terminal's window size, mode read (`tcgetattr`), signal request (`TIOCSIG`), \
@@ -11,8 +12,13 @@
               `scutil`'s child runs in `pre_exec`, the Windows host-name, free-room and \
               entry-identity calls, the Windows replacing rename's `MoveFileExW`, the caller reads \
               (Linux's peer process descriptor and `pidfd_open`, macOS's audit token and checked \
-              process reads), the measurement tests' footprint read on macOS, and the power \
-              notifications and wall-clock timers of macOS and Windows are C interfaces"
+              process reads), macOS's `proc_pid_rusage`, which a process's peak memory and the \
+              measurement tests' footprint share, Windows' `K32GetProcessMemoryInfo`, the \
+              available-memory reads (macOS's `host_statistics64`, Windows' \
+              `GlobalMemoryStatusEx`), macOS's process list (`proc_listpids`) and environment read \
+              (`sysctl` of `KERN_PROCARGS2`), mimalloc's `mi_collect`, tree-sitter's \
+              `set_allocator`, and the power notifications and wall-clock timers of macOS and \
+              Windows are C interfaces"
 )]
 
 mod atomic_replace;
@@ -25,6 +31,7 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod memory;
 mod path;
 #[cfg(unix)]
 mod posix;
@@ -62,7 +69,7 @@ pub use macos::caller_process::this_process;
 #[cfg(target_os = "macos")]
 pub use macos::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
-pub use macos::process_footprint;
+pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
@@ -185,3 +192,38 @@ pub use windows::terminal::{
 #[cfg(target_os = "windows")]
 pub use windows::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use wsl::{DistributionPath, distribution_of};
+
+#[cfg(unix)]
+pub use posix::allocator::{
+    GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
+};
+#[cfg(target_os = "windows")]
+pub use windows::allocator::{
+    GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
+};
+
+#[cfg(target_os = "linux")]
+pub use linux::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
+#[cfg(target_os = "macos")]
+pub use macos::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
+pub use memory::physical_memory;
+#[cfg(target_os = "windows")]
+pub use windows::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
+
+#[cfg(target_os = "linux")]
+pub use linux::processes::{list_user_process_ids, read_process_environment};
+#[cfg(target_os = "macos")]
+pub use macos::processes::{list_user_process_ids, read_process_environment};
+#[cfg(target_os = "windows")]
+pub use windows::processes::{list_user_process_ids, read_process_environment};
+
+#[cfg(unix)]
+pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+#[cfg(target_os = "windows")]
+pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;

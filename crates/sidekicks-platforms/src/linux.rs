@@ -1,9 +1,12 @@
 //! What Linux alone supplies: the machine's pretty host name, inside a WSL distribution the folders
 //! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
-//! process's fields from its stat file, a local connection's caller pinned, the bound on a
-//! program's argument, the machine's wakes from sleep and a wall-clock timer.
+//! process's files under `/proc` and the fields of its stat file, a local connection's caller
+//! pinned, the bound on a program's argument, a process's memory and the machine's available
+//! memory, no list of one user's processes, the machine's wakes from sleep and a wall-clock timer.
 
 pub(crate) mod caller_process;
+pub(crate) mod memory;
+pub(crate) mod processes;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 
@@ -12,11 +15,10 @@ use std::io::{self, ErrorKind};
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
-use nix::unistd::SysconfVar;
-
 #[cfg(any(test, feature = "test-support"))]
 use crate::footprint::ProcessFootprint;
 use crate::machine_name::{MachineNameError, require_machine_name};
+use crate::posix::memory::page_bytes;
 use crate::spawner::Spawner;
 
 // The environment-style file systemd keeps the pretty host name in.
@@ -85,9 +87,7 @@ pub const SHOULD_MEMORY_MAP_READS: bool = false;
 /// the page size cannot be read, and with `Other` when the system reports none or the bound passes
 /// `usize`.
 pub fn read_command_argument_limit() -> io::Result<usize> {
-    let page_bytes = nix::unistd::sysconf(SysconfVar::PAGE_SIZE)?
-        .ok_or_else(|| io::Error::other("the system reports no page size"))?;
-    usize::try_from(page_bytes)
+    usize::try_from(page_bytes()?)
         .map_err(io::Error::other)?
         .checked_mul(ARGUMENT_PAGES)
         .ok_or_else(|| io::Error::other("32 pages pass the largest size"))
@@ -105,20 +105,13 @@ pub(crate) fn read_process_stat_field(process_id: u32, field: usize) -> io::Resu
             format!("field {field} of a stat file comes before the name's end"),
         )
     })?;
-    let stat_path = format!("/proc/{process_id}/stat");
-    let stat = match std::fs::read(&stat_path) {
-        Ok(stat) => stat,
-        Err(error)
-            if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH) =>
-        {
-            return Ok(None);
-        }
-        Err(error) => return Err(error),
+    let Some(stat) = read_process_file(process_id, "stat")? else {
+        return Ok(None);
     };
     let missing_field = || {
         io::Error::new(
             ErrorKind::InvalidData,
-            format!("{stat_path} has no field {field}"),
+            format!("/proc/{process_id}/stat has no field {field}"),
         )
     };
     let name_end = stat
@@ -133,6 +126,21 @@ pub(crate) fn read_process_stat_field(process_id: u32, field: usize) -> io::Resu
     String::from_utf8(value.to_vec())
         .map(Some)
         .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
+}
+
+/// The bytes of `/proc/<process_id>/<file>`; `None` when no process has the id, its folder gone
+/// before the open or the process ending during the read (`ESRCH`). Fails with the read's error
+/// otherwise.
+pub(crate) fn read_process_file(process_id: u32, file: &str) -> io::Result<Option<Vec<u8>>> {
+    match std::fs::read(format!("/proc/{process_id}/{file}")) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error)
+            if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// This process's footprint, which only macOS reports. Always fails with `Unsupported`.
