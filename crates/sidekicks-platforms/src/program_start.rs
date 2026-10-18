@@ -34,10 +34,10 @@ pub struct ProgramStart {
 
 /// What the system starts, with no shell, to run the build at `build`: the build itself, except on
 /// Windows a `.cmd` or `.bat` npm or pnpm shim, whose Node script runs under the shim's own
-/// `node.exe`, else the `node` `find_on_search_path` finds. Fails with the read's error for a shim
-/// that cannot be read, `InvalidData` for one that wraps no Node script and `NotFound` when no
-/// Node is found; it reads a file, so it runs on the daemon's spawner thread or in
-/// `spawn_blocking`.
+/// `node.exe`, else the `node` `find_on_search_path` finds. Fails with the read's error for a shim,
+/// or a `node.exe` beside it, that cannot be read, `InvalidData` for a shim that wraps no Node
+/// script and `NotFound` when no Node is found; it reads a file, so it runs on the daemon's
+/// spawner thread or in `spawn_blocking`.
 pub fn program_start(
     build: &Path,
     find_on_search_path: impl FnOnce(&str) -> Option<PathBuf>,
@@ -77,7 +77,12 @@ fn program_start_with_rules(
     })?;
     let shim_folder = build.parent().unwrap_or(Path::new(""));
     let beside_node = shim_folder.join("node.exe");
-    let program = if std::fs::metadata(&beside_node).is_ok_and(|metadata| metadata.is_file()) {
+    let is_node_beside = match std::fs::metadata(&beside_node) {
+        Ok(metadata) => metadata.is_file(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error),
+    };
+    let program = if is_node_beside {
         beside_node
     } else {
         find_on_search_path("node").ok_or_else(|| {
@@ -117,7 +122,8 @@ mod tests {
     use super::{program_start_with_rules, read_command_shim_script};
     use crate::path::rules::PathRules;
 
-    const NPM_SHIM: &str = r#"@ECHO off
+    const NPM_SHIM: &str = concat!(
+        r#"@ECHO off
 GOTO start
 :find_dp0
 SET dp0=%~dp0
@@ -133,8 +139,10 @@ IF EXIST "%dp0%\node.exe" (
   SET PATHEXT=%PATHEXT:;.JS;=;%
 )
 
-endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_modules\@example\tool\bin\tool.js" %*
-"#;
+endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "#,
+        r#""%_prog%"  "%dp0%\node_modules\@example\tool\bin\tool.js" %*
+"#
+    );
 
     const PNPM_SHIM: &str = r#"@SETLOCAL
 @IF NOT DEFINED NODE_PATH (
@@ -166,7 +174,7 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
     #[case::pnpm(PNPM_SHIM, Some(r"..\@example\tool\bin\tool.js"))]
     #[case::two_scripts(TWO_SCRIPT_SHIM, Some(r"bin\cli.js"))]
     #[case::no_node(NO_NODE_SHIM, None)]
-    fn program_start_reads_the_script_a_node_shim_runs(
+    fn command_shim_script_is_the_node_script_the_shim_runs_last(
         #[case] shim_text: &str,
         #[case] expected: Option<&str>,
     ) {
