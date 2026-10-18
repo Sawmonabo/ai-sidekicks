@@ -1,13 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rstest::rstest;
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
 
 use super::{
-    CodexProjectRule, CodexRuleSources, CodexRulesError, read_codex_project_rules,
-    remove_codex_project_rule, write_codex_project_rule,
+    CodexProjectRule, CodexRuleSources, CodexRulesError, RULE_EVALUATION_TIME_LIMIT,
+    read_codex_project_rules, remove_codex_project_rule, write_codex_project_rule,
 };
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 
@@ -36,18 +37,32 @@ fn rule_file(project_folder: &Path) -> PathBuf {
     project_folder.join(".codex/rules/sidekicks.rules")
 }
 
-// A system settings folder, a Codex home and a project folder, all under one scratch folder.
+// The places a project's sessions read rules from: a system settings folder, a Codex home, a project
+// folder and the person's home folder, all under one scratch folder, and how long a read may
+// evaluate.
 struct Places {
     scratch: tempfile::TempDir,
+    evaluation_time_limit: Duration,
 }
+
+// The system folder, the Codex home, the project folder and the person's home folder.
+type SourcePaths = (PathBuf, PathBuf, PathBuf, PathBuf);
 
 impl Places {
     fn new() -> Self {
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        for folder in ["system/rules", "home/rules", "project/.codex/rules"] {
+        for folder in [
+            "system/rules",
+            "home/rules",
+            "project/.codex/rules",
+            "person",
+        ] {
             fs::create_dir_all(scratch.path().join(folder)).expect("the folder is made");
         }
-        Self { scratch }
+        Self {
+            scratch,
+            evaluation_time_limit: RULE_EVALUATION_TIME_LIMIT,
+        }
     }
 
     fn path(&self, path: &str) -> PathBuf {
@@ -63,23 +78,26 @@ impl Places {
     // The sources of the project's sessions, run on the Codex home at `codex_home`.
     fn sources<'a>(
         &self,
-        paths: &'a (PathBuf, PathBuf, PathBuf),
+        paths: &'a SourcePaths,
         is_project_trusted: bool,
     ) -> CodexRuleSources<'a> {
         CodexRuleSources {
             system_folder: &paths.0,
             codex_home: &paths.1,
             project_folder: &paths.2,
+            home_folder: &paths.3,
             is_project_trusted,
             path_rules: PathRules::Posix,
+            evaluation_time_limit: self.evaluation_time_limit,
         }
     }
 
-    fn paths(&self, codex_home: &str) -> (PathBuf, PathBuf, PathBuf) {
+    fn paths(&self, codex_home: &str, project_folder: &str) -> SourcePaths {
         (
             self.path("system"),
             self.path(codex_home),
-            self.path("project"),
+            self.path(project_folder),
+            self.path("person"),
         )
     }
 
@@ -87,7 +105,7 @@ impl Places {
         &self,
         is_project_trusted: bool,
     ) -> Result<Vec<CodexProjectRule>, CodexRulesError> {
-        let paths = self.paths("home");
+        let paths = self.paths("home", "project");
         read_codex_project_rules(&self.sources(&paths, is_project_trusted)).await
     }
 
@@ -101,12 +119,12 @@ impl Places {
         git_folder: Option<&Path>,
         rule: &ProviderAskRule,
     ) -> Result<(), CodexRulesError> {
-        let paths = self.paths("home");
+        let paths = self.paths("home", "project");
         write_codex_project_rule(&self.sources(&paths, true), git_folder, rule).await
     }
 
     async fn remove_rule(&self, rule: &ProviderAskRule) -> Result<(), CodexRulesError> {
-        let paths = self.paths("home");
+        let paths = self.paths("home", "project");
         remove_codex_project_rule(&self.sources(&paths, true), rule).await
     }
 }
@@ -162,10 +180,8 @@ async fn a_block_replaces_the_allow_and_a_revoke_of_the_last_rule_deletes_the_fi
 #[tokio::test]
 async fn a_revoke_of_a_rule_the_daemons_file_lacks_names_where_it_is_kept() {
     let places = Places::new();
-    let own_file = places.write(
-        "project/.codex/rules/sidekicks.rules",
-        "prefix_rule(pattern=[\"ls\"])\n",
-    );
+    let own_text = "prefix_rule(pattern=[\"ls\"])\nprefix_rule(pattern=[\"pnpm\", \"test\"])\n";
+    let own_file = places.write("project/.codex/rules/sidekicks.rules", own_text);
     let team_file = places.write(
         "project/.codex/rules/team.rules",
         "for tool in [\"npm\", \"pnpm\"]:\n    prefix_rule(pattern=[tool, \"test\"])\n",
@@ -175,6 +191,7 @@ async fn a_revoke_of_a_rule_the_daemons_file_lacks_names_where_it_is_kept() {
         "prefix_rule(pattern=[\"cargo\", \"build\"], decision=\"allow\")\n",
     );
 
+    // The team's file keeps the rule the daemon's file also holds, so the revoke changes nothing.
     let in_team_file = places.remove_rule(&allow_command("pnpm test")).await;
     let in_persons_file = places.remove_rule(&allow_command("cargo build")).await;
     let nowhere = places.remove_rule(&allow_command("make")).await;
@@ -201,7 +218,7 @@ async fn a_revoke_of_a_rule_the_daemons_file_lacks_names_where_it_is_kept() {
     ));
     assert_eq!(
         fs::read_to_string(own_file).expect("the daemon's file reads"),
-        "prefix_rule(pattern=[\"ls\"])\n"
+        own_text
     );
 }
 
@@ -266,7 +283,6 @@ async fn an_allow_codex_would_stretch_or_refuse_leaves_the_file_untouched(
 #[tokio::test]
 async fn the_rules_a_file_computes_are_read_as_codex_evaluates_them() {
     let places = Places::new();
-    // A host executable the system declares reaches the examples of every later file.
     places.write(
         "system/rules/base.rules",
         "GIT = \"/usr/bin/git\"\nhost_executable(name = \"git\", paths = [GIT])\n",
@@ -317,6 +333,60 @@ async fn the_rules_a_file_computes_are_read_as_codex_evaluates_them() {
     );
 }
 
+#[tokio::test]
+async fn a_pattern_of_more_alternatives_than_the_bound_is_listed_once_as_codex_renders_it() {
+    let places = Places::new();
+    places.write(
+        "project/.codex/rules/a.rules",
+        "prefix_rule(pattern = [\"a\"] + [[\"b\", \"c\"]] * 40)\n",
+    );
+
+    assert_eq!(
+        places.read_rules().await,
+        [allow_command(&format!("a{}", " [b|c]".repeat(40)))]
+    );
+}
+
+// An example names its program by a path the system's `host_executable` must list: a path it does
+// not list refuses the file, and a `~/` path is read in the person's home folder.
+#[rstest]
+#[case::a_path_the_system_does_not_list("/opt/bin/git", "/usr/bin/git status", false)]
+#[case::a_path_in_the_home_folder("{home}/bin/git", "~/bin/git status", true)]
+#[tokio::test]
+async fn an_examples_program_path_is_held_to_the_host_executables_of_earlier_files(
+    #[case] listed_path: &str,
+    #[case] example: &str,
+    #[case] is_loaded: bool,
+) {
+    let places = Places::new();
+    let home = places.path("person");
+    let listed_path = listed_path.replace("{home}", home.to_str().expect("a UTF-8 scratch path"));
+    places.write(
+        "system/rules/base.rules",
+        &format!("host_executable(name = \"git\", paths = [\"{listed_path}\"])\n"),
+    );
+    let project_file = places.write(
+        "project/.codex/rules/team.rules",
+        &format!("prefix_rule(pattern = [\"git\", \"status\"], match = [\"{example}\"])\n"),
+    );
+
+    let outcome = places.read(true).await;
+
+    if is_loaded {
+        let rules: Vec<ProviderAskRule> = outcome
+            .expect("the rules read")
+            .into_iter()
+            .map(|kept| kept.rule)
+            .collect();
+        assert_eq!(rules, [allow_command("git status")]);
+    } else {
+        assert!(
+            matches!(&outcome, Err(CodexRulesError::Unloadable { path, .. }) if *path == project_file),
+            "{outcome:?}"
+        );
+    }
+}
+
 #[rstest]
 #[case::a_syntax_error("prefix_rule(pattern = [\n")]
 #[case::a_network_rule_with_no_protocol("network_rule(host = \"a.com\", decision = \"deny\")")]
@@ -363,13 +433,16 @@ async fn a_file_codex_refuses_drops_every_rule(#[case] text: &str) {
 
 #[tokio::test]
 async fn a_file_that_runs_past_the_time_limit_drops_every_rule() {
-    let places = Places::new();
+    let mut places = Places::new();
+    places.evaluation_time_limit = Duration::from_millis(50);
     let endless = places.write(
         "project/.codex/rules/a.rules",
         "for i in range(2000000000):\n    for j in range(2000000000):\n        pass\n",
     );
 
-    let outcome = places.read(true).await;
+    let outcome = tokio::time::timeout(Duration::from_secs(10), places.read(true))
+        .await
+        .expect("the read stops at the time limit");
 
     assert!(
         matches!(
@@ -405,14 +478,20 @@ async fn a_broken_system_or_persons_file_drops_the_projects_rules_and_an_untrust
     ));
 }
 
+// The project folder is named as written and through a folder beside it, which only resolves to it.
+#[rstest]
+#[case::as_written("project")]
+#[case::once_resolved("person/../project")]
 #[tokio::test]
-async fn a_project_whose_codex_folder_is_the_codex_home_reads_the_home_once_and_takes_no_rule() {
+async fn a_project_whose_codex_folder_is_the_codex_home_reads_the_home_once_and_takes_no_rule(
+    #[case] project_folder: &str,
+) {
     let places = Places::new();
-    places.write(
-        "project/.codex/rules/default.rules",
+    let persons_file = places.write(
+        "project/.codex/rules/sidekicks.rules",
         "prefix_rule(pattern = [\"ls\"])\n",
     );
-    let paths = places.paths("project/.codex");
+    let paths = places.paths("project/.codex", project_folder);
     let sources = places.sources(&paths, true);
 
     assert_eq!(
@@ -425,5 +504,12 @@ async fn a_project_whose_codex_folder_is_the_codex_home_reads_the_home_once_and_
         write_codex_project_rule(&sources, None, &allow_command("npm test")).await,
         Err(CodexRulesError::ProjectIsCodexHome)
     ));
-    assert!(!rule_file(&places.path("project")).exists());
+    assert!(matches!(
+        remove_codex_project_rule(&sources, &allow_command("ls")).await,
+        Err(CodexRulesError::ProjectIsCodexHome)
+    ));
+    assert_eq!(
+        fs::read_to_string(persons_file).expect("the person's file reads"),
+        "prefix_rule(pattern = [\"ls\"])\n"
+    );
 }

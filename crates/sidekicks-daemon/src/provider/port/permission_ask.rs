@@ -29,7 +29,7 @@ use strum::{EnumDiscriminants, IntoStaticStr};
     name(ProviderAskActionKind),
     doc = "The kind of action a held call would take, without its subject, as a standing rule \
            names it.",
-    derive(IntoStaticStr),
+    derive(IntoStaticStr, Hash),
     strum(serialize_all = "camelCase")
 )]
 pub(crate) enum ProviderAskAction {
@@ -116,7 +116,7 @@ pub(crate) struct ProviderPermissionAskWithdrawal {
 /// network decline, for the session or in the project's own rule file. `subject` is the words the
 /// card named, of the kind of action the ask was: a command's program and first subcommand, a
 /// file's path, a host, or a tool's name.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ProviderAskRule {
     /// The rule's reach.
     pub(crate) kind: RememberedScopeKind,

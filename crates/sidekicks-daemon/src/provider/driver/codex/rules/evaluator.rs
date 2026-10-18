@@ -5,12 +5,13 @@
 //! what the daemon lists is what Codex enforces, whatever a file computes its rules with.
 
 use std::cell::{RefCell, RefMut};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
+use starlark::ErrorKind;
 use starlark::any::ProvidesStaticType;
 use starlark::environment::{GlobalsBuilder, Module};
 use starlark::eval::Evaluator;
@@ -25,6 +26,19 @@ use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRu
 
 // The endings Codex strips from a program's name on Windows before it looks the name up.
 const WINDOWS_PROGRAM_SUFFIXES: [&str; 4] = [".exe", ".cmd", ".bat", ".com"];
+
+// The most commands one `prefix_rule` call is listed as, one per combination of its words'
+// alternatives; past it the call's pattern is listed once, as Codex renders it, so a pattern of many
+// alternatives never grows into more commands than memory holds.
+const MOST_SPELLED_COMMANDS: usize = 64;
+
+// The most a file's own values may take of the evaluator's heap, a backstop against a file that
+// builds values without end; starlark reads it at the same checks as the time limit.
+const RULE_EVALUATION_HEAP_LIMIT: usize = 256 * 1024 * 1024;
+
+// The text of starlark's error for an evaluation its cancel check stopped; starlark keeps the
+// error's type private, so its text is what tells it apart.
+const STARLARK_CANCELED_ERROR: &str = "Evaluation cancelled";
 
 /// Why Codex refuses a rule file, in Codex's own words.
 #[derive(Debug, thiserror::Error)]
@@ -152,39 +166,44 @@ struct PendingExamples {
 
 // What the builtins gather while a file runs, carried from one file to the next as Codex carries
 // it: the program paths each `host_executable` names stay for the later files' examples. The
-// builtins reach it through the evaluator, as Codex's reach its rule builder.
+// builtins reach it through the evaluator, as Codex's reach its rule builder. `listed` holds the
+// file's rules once each, so a file making many rules is not slowed by its duplicates.
 struct RuleCollector {
     path_rules: PathRules,
     host_executables: HashMap<String, Vec<String>>,
     pending_examples: Vec<PendingExamples>,
     rules: Vec<ProviderAskRule>,
+    listed: HashSet<ProviderAskRule>,
 }
 
 /// Evaluates rule files in the order Codex loads them, in a place that spells paths by
-/// `path_rules`, an example's relative program path resolved against the session's working folder.
+/// `path_rules`, an example's relative program path resolved against the session's working folder
+/// and one starting `~` against the person's home folder.
 pub(super) struct RuleFileEvaluator {
     collector: RefCell<RuleCollector>,
     working_folder: String,
+    home_folder: String,
 }
 
 impl RuleFileEvaluator {
     /// An evaluator for one load of every rule file.
-    pub(super) fn new(path_rules: PathRules, working_folder: String) -> Self {
+    pub(super) fn new(path_rules: PathRules, working_folder: String, home_folder: String) -> Self {
         Self {
             collector: RefCell::new(RuleCollector {
                 path_rules,
                 host_executables: HashMap::new(),
                 pending_examples: Vec::new(),
                 rules: Vec::new(),
+                listed: HashSet::new(),
             }),
             working_folder,
+            home_folder,
         }
     }
 
     /// Runs one file named `file_name` holding `text`, stopped once `deadline` passes, and gives
     /// every allow and block it made. Fails with Codex's words where Codex refuses the file, which
-    /// then drops every rule of the person and the project, and with "did not finish" where the
-    /// deadline stopped it.
+    /// then drops every rule file's rules, and with "did not finish" where the deadline stopped it.
     pub(super) fn evaluate(
         &self,
         file_name: &str,
@@ -192,17 +211,23 @@ impl RuleFileEvaluator {
         deadline: Instant,
     ) -> Result<Vec<ProviderAskRule>, String> {
         let pending_from = self.collector.borrow().pending_examples.len();
-        self.run(file_name, text, deadline).map_err(|error| {
-            if Instant::now() >= deadline {
-                "did not finish".to_owned()
-            } else {
-                error.to_string()
-            }
-        })?;
+        self.run(file_name, text, deadline)
+            .map_err(|error| match &error {
+                RuleFileError::Starlark(starlark_error) if is_canceled(starlark_error) => {
+                    "did not finish".to_owned()
+                }
+                RuleFileError::InvalidDecision(_)
+                | RuleFileError::InvalidPattern(_)
+                | RuleFileError::InvalidExample(_)
+                | RuleFileError::InvalidRule(_)
+                | RuleFileError::ExampleDidNotMatch { .. }
+                | RuleFileError::ExampleDidMatch { .. }
+                | RuleFileError::Starlark(_) => error.to_string(),
+            })?;
         let collector = self.collector.borrow();
         for pending in &collector.pending_examples[pending_from..] {
             collector
-                .check_examples(pending, &self.working_folder)
+                .check_examples(pending, &self.working_folder, &self.home_folder)
                 .map_err(|error| error.to_string())?;
         }
         drop(collector);
@@ -210,7 +235,10 @@ impl RuleFileEvaluator {
     }
 
     fn run(&self, file_name: &str, text: &str, deadline: Instant) -> Result<(), RuleFileError> {
-        self.collector.borrow_mut().rules.clear();
+        let mut collector = self.collector.borrow_mut();
+        collector.rules.clear();
+        collector.listed.clear();
+        drop(collector);
         let mut dialect = Dialect::Extended.clone();
         dialect.enable_f_strings = true;
         let module = AstModule::parse(file_name, text.to_owned(), &dialect)
@@ -220,6 +248,9 @@ impl RuleFileEvaluator {
             let mut evaluator = Evaluator::new(&heap_module);
             evaluator.extra = Some(&self.collector);
             evaluator.set_check_cancelled(Box::new(move || Instant::now() >= deadline));
+            evaluator
+                .set_max_heap_size(RULE_EVALUATION_HEAP_LIMIT)
+                .expect("a new evaluator takes its one heap limit");
             evaluator
                 .eval_module(module, &globals)
                 .map(|_| ())
@@ -238,9 +269,14 @@ unsafe impl ProvidesStaticType<'_> for RuleCollector {
     type StaticType = Self;
 }
 
+// Whether starlark stopped the evaluation at its cancel check; any other error keeps Codex's text.
+fn is_canceled(error: &starlark::Error) -> bool {
+    matches!(error.kind(), ErrorKind::Other(cause) if cause.to_string() == STARLARK_CANCELED_ERROR)
+}
+
 impl RuleCollector {
     fn add(&mut self, rule: ProviderAskRule) {
-        if !self.rules.contains(&rule) {
+        if self.listed.insert(rule.clone()) {
             self.rules.push(rule);
         }
     }
@@ -251,10 +287,11 @@ impl RuleCollector {
         &self,
         pending: &PendingExamples,
         working_folder: &str,
+        home_folder: &str,
     ) -> Result<(), RuleFileError> {
         for example in &pending.not_matches {
             if let Some(matched) = self
-                .match_example(&pending.rules, working_folder, example)
+                .match_example(&pending.rules, working_folder, home_folder, example)
                 .into_iter()
                 .next()
             {
@@ -268,7 +305,7 @@ impl RuleCollector {
             .matches
             .iter()
             .filter(|example| {
-                self.match_example(&pending.rules, working_folder, example)
+                self.match_example(&pending.rules, working_folder, home_folder, example)
                     .is_empty()
             })
             .map(|example| render_example(example))
@@ -292,6 +329,7 @@ impl RuleCollector {
         &self,
         rules: &[PrefixRule],
         working_folder: &str,
+        home_folder: &str,
         example: &[String],
     ) -> Vec<RuleMatch> {
         let exact: Vec<RuleMatch> = rules
@@ -304,11 +342,14 @@ impl RuleCollector {
         let Some((program, arguments)) = example.split_first() else {
             return Vec::new();
         };
-        let absolute = if self.path_rules.is_absolute(program) {
-            program.clone()
-        } else {
-            format!("{working_folder}{}{program}", self.path_rules.separator())
-        };
+        let absolute =
+            if let Some(expanded) = expand_home_folder(self.path_rules, program, home_folder) {
+                expanded
+            } else if self.path_rules.is_absolute(program) {
+                program.clone()
+            } else {
+                format!("{working_folder}{}{program}", self.path_rules.separator())
+            };
         let Some((normalized, base_name)) = normalize_path(self.path_rules, &absolute) else {
             return Vec::new();
         };
@@ -348,6 +389,22 @@ fn prefix_rule_match(
             resolved_program: resolved_program.cloned(),
             justification: rule.justification.clone(),
         })
+}
+
+// A program path `~` or starting `~` and a separator, read in the home folder, as Codex's absolute
+// path type expands it; `None` for any other path.
+fn expand_home_folder(path_rules: PathRules, path: &str, home_folder: &str) -> Option<String> {
+    let rest = path.strip_prefix('~')?;
+    if rest.is_empty() {
+        return Some(home_folder.to_owned());
+    }
+    let is_separator = |character: char| path_rules.is_separator(character);
+    let rest = rest.strip_prefix(is_separator)?;
+    Some(format!(
+        "{home_folder}{}{}",
+        path_rules.separator(),
+        rest.trim_start_matches(is_separator)
+    ))
 }
 
 fn render_example(example: &[String]) -> String {
@@ -494,6 +551,18 @@ fn read_justification(justification: Option<&str>) -> Result<Option<String>, Rul
     }
 }
 
+// Whether a pattern names at most `MOST_SPELLED_COMMANDS` commands, counted before any is spelled.
+fn is_spelled_out(tokens: &[PatternToken]) -> bool {
+    tokens
+        .iter()
+        .try_fold(1_usize, |count, token| {
+            count
+                .checked_mul(token.alternatives().len())
+                .filter(|count| *count <= MOST_SPELLED_COMMANDS)
+        })
+        .is_some()
+}
+
 // Each command a rule's pattern names, every alternative of every word taken in turn.
 fn spell_commands(rule: &PrefixRule) -> Vec<String> {
     let mut commands = vec![rule.pattern.first.to_string()];
@@ -511,10 +580,27 @@ fn spell_commands(rule: &PrefixRule) -> Vec<String> {
     commands
 }
 
-// Whether `name` is a bare program name, as Codex holds a `host_executable`'s name to be.
+// A rule's pattern as Codex renders it, a word of alternatives written `[a|b]`.
+fn render_pattern(rule: &PrefixRule) -> String {
+    let mut rendered = rule.pattern.first.to_string();
+    for token in rule.rest() {
+        rendered.push(' ');
+        match token {
+            PatternToken::Single(word) => rendered.push_str(word),
+            PatternToken::Alts(words) => {
+                rendered.push('[');
+                rendered.push_str(&words.join("|"));
+                rendered.push(']');
+            }
+        }
+    }
+    rendered
+}
+
+// Whether a name the caller found not empty is a bare program name, as Codex holds a
+// `host_executable`'s name to be.
 fn is_bare_program_name(path_rules: PathRules, name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
+    name != "."
         && name != ".."
         && !name
             .chars()
@@ -543,6 +629,7 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
         let (first, rest) = tokens
             .split_first()
             .ok_or_else(|| RuleFileError::InvalidPattern("pattern cannot be empty".to_owned()))?;
+        let is_spelled = is_spelled_out(&tokens);
         let rest: Arc<[PatternToken]> = rest.to_vec().into();
         let rules: Vec<PrefixRule> = first
             .alternatives()
@@ -559,7 +646,12 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
         let mut collector = rule_collector(eval);
         if let Some(sense) = decision.sense() {
             for rule in &rules {
-                for subject in spell_commands(rule) {
+                let subjects = if is_spelled {
+                    spell_commands(rule)
+                } else {
+                    vec![render_pattern(rule)]
+                };
+                for subject in subjects {
                     collector.add(ProviderAskRule {
                         kind: RememberedScopeKind::Project,
                         sense,
