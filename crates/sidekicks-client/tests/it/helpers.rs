@@ -20,6 +20,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::{
     SUBSCRIPTION_END_METHOD, SUBSCRIPTION_NOTIFY_METHOD,
 };
+use sidekicks_contracts::method::MethodDescriptor;
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadHalf, WriteHalf};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
@@ -124,13 +125,18 @@ impl<S: AsyncRead + AsyncWrite> ScriptedDaemon<S> {
 
     /// Refuses the call `id` with `code`, as `-31000` with its code and category.
     pub(crate) async fn refuse(&mut self, id: &Value, code: RefusalCode) {
+        self.refuse_as(id, code, code.category().as_str()).await;
+    }
+
+    /// Refuses the call `id` with `code` under the category text `category`.
+    pub(crate) async fn refuse_as(&mut self, id: &Value, code: RefusalCode, category: &str) {
         let message = json!({
             "jsonrpc": "2.0",
             "id": id,
             "error": {
                 "code": code.json_rpc_code().code(),
                 "message": "Refused by the scripted daemon.",
-                "data": { "type": code.as_str(), "category": code.category() },
+                "data": { "type": code.as_str(), "category": category },
             },
         });
         self.write_message(LaneId::CONTROL, &message, false).await;
@@ -253,10 +259,10 @@ pub(crate) async fn open_link(client: &JsonRpcClient) -> (Link, ScriptedDaemon<D
     (link, daemon)
 }
 
-/// An untyped request for `method` with `params`.
-pub(crate) fn raw_request(method: &str, params: &Value) -> RawRequest {
+/// An untyped request of the method `descriptor` declares, with `params`.
+pub(crate) fn raw_request(descriptor: &'static MethodDescriptor, params: &Value) -> RawRequest {
     RawRequest {
-        method: method.to_owned(),
+        descriptor,
         params: Some(serde_json::value::to_raw_value(params).expect("test params are JSON")),
         attachments: Vec::new(),
     }

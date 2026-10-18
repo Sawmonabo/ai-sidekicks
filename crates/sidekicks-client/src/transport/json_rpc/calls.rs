@@ -7,11 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use bytes::Bytes;
-use serde::Deserialize;
-use serde::de::IgnoredAny;
 use serde_json::Value;
-use serde_json::value::{RawValue, to_raw_value};
-use sidekicks_contracts::daemon::lifecycle::DaemonStop;
+use serde_json::value::to_raw_value;
 use sidekicks_contracts::jsonrpc::framing::MessageBody;
 use sidekicks_contracts::jsonrpc::message::{
     CANCEL_REQUEST_METHOD, CancelRequestParams, ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
@@ -19,10 +16,8 @@ use sidekicks_contracts::jsonrpc::message::{
 };
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::jsonrpc::streaming::{
-    SUBSCRIPTION_CANCEL_METHOD, SubscriptionCancel, SubscriptionCancelRequest, SubscriptionId,
+    SubscriptionCancel, SubscriptionCancelRequest, SubscriptionId,
 };
-use sidekicks_contracts::method::Method;
-use sidekicks_contracts::terminal::TerminalWrite;
 use sidekicks_contracts::wire::attachment::AttachmentError;
 use tokio::sync::oneshot;
 
@@ -32,14 +27,6 @@ use crate::transport::link::LinkShared;
 use crate::transport::subscription::{
     OpenedSubscription, SubscriptionHandle, SubscriptionShared, probe_subscription_id,
 };
-
-/// The methods that take no call slot: the daemon answers each without waiting on another call,
-/// so they go out past the cap.
-const SLOTLESS_METHODS: [&str; 3] = [
-    SUBSCRIPTION_CANCEL_METHOD,
-    <DaemonStop as Method>::DESCRIPTOR.method,
-    <TerminalWrite as Method>::DESCRIPTOR.method,
-];
 
 /// A call's key in the client's table: the id it first took, kept when a resend takes another.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -58,8 +45,9 @@ pub(crate) enum Answer {
     Call(oneshot::Sender<Result<RawReply, ClientError>>),
     /// A caller waiting for a subscription's acknowledgment and stream.
     Subscribe(oneshot::Sender<Result<OpenedSubscription, ClientError>>),
-    /// Nobody: the cancel a stream sends as it is dropped; a failure is logged.
-    Detached,
+    /// Nobody: the cancel a stream sends as it is dropped, for the subscription it names; a
+    /// failure is logged.
+    Detached(SubscriptionId),
 }
 
 impl Answer {
@@ -68,7 +56,7 @@ impl Answer {
         match self {
             Self::Call(sender) => deliver(sender, Err(error)),
             Self::Subscribe(sender) => deliver(sender, Err(error)),
-            Self::Detached => tracing::warn!(
+            Self::Detached(_) => tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 "A dropped stream's cancel failed"
             ),
@@ -85,11 +73,14 @@ fn deliver<T>(sender: oneshot::Sender<Result<T, ClientError>>, answer: Result<T,
 
 /// One call the client holds or has in flight.
 struct Call {
-    method: String,
+    method: &'static str,
     /// Whether it counts against the call cap.
     takes_slot: bool,
-    /// A keyed call's request, kept so a dropped link's call can be sent again under a new id.
+    /// A keyed call's request, kept so a dropped link's call can be sent again under a new id;
+    /// dropped once the caller went away.
     resend: Option<RawRequest>,
+    /// Whether a dropped link already put it back to be sent again, so the next drop settles it.
+    is_resent: bool,
     /// The encoded message, until it is sent.
     message: Option<Bytes>,
     /// The id it is sent under.
@@ -185,8 +176,9 @@ impl ClientState {
         }
     }
 
-    /// Takes the calls in flight on the link `generation` off it: a keyed one not canceled is held
-    /// again, ahead of every held call and in id order, and every other is answered back.
+    /// Takes the calls in flight on the link `generation` off it: a keyed one not canceled and not
+    /// yet sent again is held again, ahead of every held call and in id order, and every other is
+    /// answered back.
     fn take_link_calls(&mut self, generation: u64) -> Vec<Call> {
         let in_flight: Vec<CallKey> = self
             .calls
@@ -202,8 +194,9 @@ impl ClientState {
                 .get_mut(&key)
                 .expect("a call in flight is in the table");
             self.answers.remove(&call.id);
-            if call.resend.is_some() && !call.is_cancel_sent {
+            if call.resend.is_some() && !call.is_cancel_sent && !call.is_resent {
                 call.phase = Phase::Held;
+                call.is_resent = true;
                 resent.push((call.id, key));
             } else if let Some(call) = self.calls.remove(&key) {
                 failed.push(call);
@@ -243,9 +236,9 @@ impl ClientShared {
     ) -> CallKey {
         let id = take_id(&self.next_id);
         let key = CallKey(id);
-        let method = request.method.clone();
-        let takes_slot = pinned.is_none() && !SLOTLESS_METHODS.contains(&method.as_str());
-        let resend = is_keyed(request.params.as_deref()).then(|| request.clone());
+        let method = request.descriptor.method;
+        let takes_slot = pinned.is_none() && request.descriptor.takes_call_slot;
+        let resend = request.descriptor.keyed.then(|| request.clone());
         let message = match encode_request(id, request) {
             Ok(message) => message,
             Err(error) => {
@@ -257,6 +250,7 @@ impl ClientShared {
             method,
             takes_slot,
             resend,
+            is_resent: false,
             message: Some(message),
             id,
             phase: Phase::Held,
@@ -326,18 +320,20 @@ impl ClientShared {
         }
     }
 
-    /// Drops the call `key` while it is still held, as its caller went away; one in flight keeps
-    /// its slot until its answer.
+    /// Withdraws the call `key`, as its caller went away: a held one leaves the client unsent, and
+    /// one in flight keeps its slot until its answer but is never sent again after a drop.
     pub(crate) fn withdraw(&self, key: CallKey) {
         let mut guard = self.lock();
         let state = &mut *guard;
-        if state
-            .calls
-            .get(&key)
-            .is_some_and(|call| call.phase == Phase::Held)
-        {
-            state.calls.remove(&key);
-            state.held.retain(|held| *held != key);
+        let Some(call) = state.calls.get_mut(&key) else {
+            return;
+        };
+        match call.phase {
+            Phase::Held => {
+                state.calls.remove(&key);
+                state.held.retain(|held| *held != key);
+            }
+            Phase::InFlight { .. } => call.resend = None,
         }
     }
 
@@ -382,7 +378,8 @@ impl ClientShared {
                 // A caller gone by now drops the stream, which cancels it.
                 deliver(sender, opened);
             }
-            Answer::Detached => {
+            Answer::Detached(subscription_id) => {
+                link.forget_released(subscription_id);
                 if let Err(error) = outcome {
                     tracing::warn!(
                         error = &error as &(dyn Error + 'static),
@@ -393,24 +390,22 @@ impl ClientShared {
         }
     }
 
-    /// Admits the lane a subscribe call's success opens and registers its stream by the
-    /// acknowledgment's `subscriptionId`; fails where the acknowledgment carries none.
+    /// Reads the acknowledgment's `subscriptionId`, admits the lane a subscribe call's success
+    /// opens, and registers its stream by that id. Where the acknowledgment carries none the lane
+    /// is still admitted, since the daemon opens it, and fails: the link cancels the subscription
+    /// its lane's first message names, as it does any it holds no stream for.
     fn open_subscription(
         self: &Arc<Self>,
         link: &Arc<LinkShared>,
-        method: String,
+        method: &'static str,
         acknowledgment: RawReply,
     ) -> Result<OpenedSubscription, ClientError> {
+        let probed = probe_subscription_id(&acknowledgment.json);
         link.admit_lane();
-        let subscription_id = match probe_subscription_id(&acknowledgment.json) {
-            Ok(subscription_id) => subscription_id,
-            Err(error) => {
-                return Err(ClientError::Reply {
-                    method,
-                    source: ReplyError::Read(AttachmentError::Json(error)),
-                });
-            }
-        };
+        let subscription_id = probed.map_err(|error| ClientError::Reply {
+            method: method.to_owned(),
+            source: ReplyError::Read(AttachmentError::Json(error)),
+        })?;
         let shared = SubscriptionShared::new(method);
         link.register_subscription(subscription_id, Arc::clone(&shared));
         Ok(OpenedSubscription {
@@ -432,9 +427,9 @@ impl ClientShared {
     ) {
         match typed_request::<SubscriptionCancel>(&SubscriptionCancelRequest { subscription_id }) {
             Ok(request) => {
-                self.register(request, Answer::Detached, Some(link));
+                self.register(request, Answer::Detached(subscription_id), Some(link));
             }
-            Err(error) => Answer::Detached.fail(error),
+            Err(error) => Answer::Detached(subscription_id).fail(error),
         }
     }
 
@@ -492,6 +487,15 @@ impl ClientShared {
         state.link = LinkStatus::Down(cause);
     }
 
+    /// Holds new calls for the next link again after the client was taken down; a client that is
+    /// not down is left as it is.
+    pub(crate) fn hold_calls(&self) {
+        let mut state = self.lock();
+        if matches!(state.link, LinkStatus::Down(_)) {
+            state.link = LinkStatus::Waiting;
+        }
+    }
+
     /// The open link, if there is one.
     pub(crate) fn open_link(&self) -> Option<Arc<LinkShared>> {
         match &self.lock().link {
@@ -519,35 +523,20 @@ fn take_id(ids: &AtomicU64) -> u64 {
     ids.fetch_add(1, Ordering::Relaxed) + 1
 }
 
-/// The one member a keyed call's params carry at their top level.
-#[derive(Deserialize)]
-struct IdempotencyKeyProbe {
-    #[serde(rename = "clientIdempotencyKey")]
-    client_idempotency_key: Option<IgnoredAny>,
-}
-
-/// Whether `params` is an object carrying a top-level `clientIdempotencyKey`, so the call may be
-/// sent again on the next link after a drop.
-fn is_keyed(params: Option<&RawValue>) -> bool {
-    params
-        .and_then(|params| serde_json::from_str::<IdempotencyKeyProbe>(params.get()).ok())
-        .is_some_and(|probe| probe.client_idempotency_key.is_some())
-}
-
 /// `request` as one frame-codec message under `id`, carrying this build's protocol version unless
 /// its method is exempt; fails as `ClientError::Request` past a cap or where the JSON fails.
 fn encode_request(id: u64, request: RawRequest) -> Result<Bytes, ClientError> {
     let RawRequest {
-        method,
+        descriptor,
         params,
         attachments,
     } = request;
-    let protocol_version = (!ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS.contains(&method.as_str()))
+    let method = descriptor.method;
+    let protocol_version = (!ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS.contains(&method))
         .then(|| Value::String(CURRENT_PROTOCOL_VERSION.to_owned()));
-    let failed_method = method.clone();
     let message = JsonRpcMessage::Request {
         id: JsonRpcId::Number(id.into()),
-        method,
+        method: method.to_owned(),
         params,
         protocol_version,
     };
@@ -563,7 +552,7 @@ fn encode_request(id: u64, request: RawRequest) -> Result<Bytes, ClientError> {
             .map_err(RequestError::from)
         });
     encoded.map_err(|source| ClientError::Request {
-        method: failed_method,
+        method: method.to_owned(),
         source,
     })
 }

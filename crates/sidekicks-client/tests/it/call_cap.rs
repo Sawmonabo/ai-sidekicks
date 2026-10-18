@@ -1,17 +1,19 @@
-//! The call cap: past `MAX_CALLS_IN_FLIGHT` calls wait in order, the slotless methods pass them,
-//! a canceled waiting call sends nothing, and each answer sends the next waiting call.
+//! The call cap: past `MAX_CALLS_IN_FLIGHT` calls wait in order, the slotless methods (the link
+//! watch's ping among them) pass them, a canceled waiting call sends nothing, and each answer sends
+//! the next waiting call.
 
 use std::time::Duration;
 
 use serde_json::json;
 use sidekicks_client::error::ClientError;
 use sidekicks_client::transport::json_rpc::JsonRpcClient;
-use sidekicks_contracts::daemon::lifecycle::DaemonStop;
+use sidekicks_contracts::daemon::lifecycle::{DaemonPing, DaemonStop};
 use sidekicks_contracts::jsonrpc::message::MAX_CALLS_IN_FLIGHT;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::jsonrpc::streaming::SUBSCRIPTION_CANCEL_METHOD;
+use sidekicks_contracts::jsonrpc::streaming::{SUBSCRIPTION_CANCEL_METHOD, SubscriptionCancel};
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
+use sidekicks_contracts::session::methods::SessionRead;
 use sidekicks_contracts::terminal::TerminalWrite;
 use tokio_util::sync::CancellationToken;
 
@@ -28,7 +30,7 @@ async fn calls_past_the_cap_wait_while_slotless_calls_pass_them() {
     let mut in_flight = Vec::new();
     for call in 0..MAX_CALLS_IN_FLIGHT {
         in_flight.push(client.call_raw(
-            raw_request("session.read", &json!({ "call": call })),
+            raw_request(&SessionRead::DESCRIPTOR, &json!({ "call": call })),
             &never,
         ));
     }
@@ -44,29 +46,28 @@ async fn calls_past_the_cap_wait_while_slotless_calls_pass_them() {
 
     let cancel = CancellationToken::new();
     let canceled = client.call_raw(
-        raw_request("session.read", &json!({ "call": "canceled" })),
+        raw_request(&SessionRead::DESCRIPTOR, &json!({ "call": "canceled" })),
         &cancel,
     );
     let waiting = client.call_raw(
-        raw_request("session.read", &json!({ "call": "waiting" })),
+        raw_request(&SessionRead::DESCRIPTOR, &json!({ "call": "waiting" })),
         &never,
     );
     daemon.assert_no_message_within(QUIET).await;
 
     let _stop = client.call::<DaemonStop>(&EmptyPayload {});
-    let _write = client.call_raw(
-        raw_request(<TerminalWrite as Method>::DESCRIPTOR.method, &json!({})),
-        &never,
-    );
+    let _ping = client.call::<DaemonPing>(&EmptyPayload {});
+    let _write = client.call_raw(raw_request(&TerminalWrite::DESCRIPTOR, &json!({})), &never);
     let _subscription_cancel = client.call_raw(
         raw_request(
-            SUBSCRIPTION_CANCEL_METHOD,
+            &SubscriptionCancel::DESCRIPTOR,
             &json!({ "subscriptionId": "unknown" }),
         ),
         &never,
     );
     for method in [
         <DaemonStop as Method>::DESCRIPTOR.method,
+        <DaemonPing as Method>::DESCRIPTOR.method,
         <TerminalWrite as Method>::DESCRIPTOR.method,
         SUBSCRIPTION_CANCEL_METHOD,
     ] {

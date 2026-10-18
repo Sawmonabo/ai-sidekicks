@@ -48,7 +48,7 @@ enum Ending {
 /// What the link that carries a subscription and its consumer share.
 pub(crate) struct SubscriptionShared {
     /// The method that opened it, named in a value's contract failure.
-    method: String,
+    method: &'static str,
     state: Mutex<StreamState>,
 }
 
@@ -61,7 +61,7 @@ struct StreamState {
 
 impl SubscriptionShared {
     /// An open stream for a subscription `method` opened.
-    pub(crate) fn new(method: String) -> Arc<Self> {
+    pub(crate) fn new(method: &'static str) -> Arc<Self> {
         Arc::new(Self {
             method,
             state: Mutex::new(StreamState {
@@ -73,8 +73,8 @@ impl SubscriptionShared {
     }
 
     /// The method that opened the subscription.
-    pub(crate) fn method(&self) -> &str {
-        &self.method
+    pub(crate) fn method(&self) -> &'static str {
+        self.method
     }
 
     /// Queues `value` for the consumer; answers it back once the stream has ended, so its credit
@@ -227,8 +227,13 @@ impl<T> Subscription<T> {
             subscription_id: self.handle.subscription_id,
         };
         let answer = JsonRpcClient::from_shared(client)
-            .call_on::<SubscriptionCancel>(&request, &self.handle.link);
-        Ok(answer.await?.canceled)
+            .call_on::<SubscriptionCancel>(&request, &self.handle.link)
+            .await;
+        // Once the cancel is answered no message for it is still on its way.
+        self.handle
+            .link
+            .forget_released(self.handle.subscription_id);
+        Ok(answer?.canceled)
     }
 }
 

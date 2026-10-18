@@ -6,6 +6,8 @@ use std::time::Duration;
 use futures::StreamExt as _;
 use serde_json::{Value, json};
 use sidekicks_client::transport::json_rpc::JsonRpcClient;
+use sidekicks_contracts::method::Method;
+use sidekicks_contracts::session::directory::SessionEventSubscribe;
 
 use crate::helpers::{open_link, raw_request};
 
@@ -16,7 +18,7 @@ const WHILE: Duration = Duration::from_secs(5);
 async fn a_value_returns_its_credit_only_once_taken() {
     let client = JsonRpcClient::new();
     let (_link, mut daemon) = open_link(&client).await;
-    let opening = client.subscribe_raw(raw_request("session.event.subscribe", &json!({})));
+    let opening = client.subscribe_raw(raw_request(&SessionEventSubscribe::DESCRIPTOR, &json!({})));
     let request = daemon.next_message().await;
     daemon
         .answer(&request["id"], json!({ "subscriptionId": SUBSCRIPTION_ID }))

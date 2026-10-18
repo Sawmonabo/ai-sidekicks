@@ -1,7 +1,7 @@
 //! The typed JSON-RPC client: typed and untyped calls and subscriptions over the link it holds,
 //! each registered when it is made, so calls go out in the order they were made. Calls past the
 //! call cap, or made while no link is open, wait in order; a keyed call a dropped link left in
-//! flight is sent once more on the next link.
+//! flight is sent once more on the next link, and settles if that one drops too.
 
 pub(crate) mod calls;
 
@@ -15,7 +15,7 @@ use sidekicks_contracts::jsonrpc::negotiation::{
     CONNECTION_INITIALIZE_METHOD, ConnectionInitializeRequest, ConnectionInitializeResponse,
     DaemonHandshake,
 };
-use sidekicks_contracts::method::{Method, SubscriptionMethod};
+use sidekicks_contracts::method::{Method, MethodDescriptor, SubscriptionMethod};
 use sidekicks_contracts::wire::attachment;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::oneshot;
@@ -26,11 +26,11 @@ use super::link::{self, Link, LinkShared};
 use super::subscription::{Subscription, read_raw_value, read_typed_value};
 use crate::error::{ClientError, LinkFault, ReplyError, RequestError};
 
-/// A request as sent: the method, its params' JSON, and the params' attachments.
+/// A request as sent: the method's contract, its params' JSON, and the params' attachments.
 #[derive(Clone, Debug)]
 pub struct RawRequest {
-    /// The method's wire name.
-    pub method: String,
+    /// The method's contract: its wire name, whether it is keyed and whether it takes a slot.
+    pub descriptor: &'static MethodDescriptor,
     /// The params' JSON, absent for a method that takes none.
     pub params: Option<Box<RawValue>>,
     /// The params' attachments, in the order their placeholders index them.
@@ -201,9 +201,15 @@ impl JsonRpcClient {
     }
 
     /// Takes the client down: every call held or waiting to be sent again settles with
-    /// `ClientError::link_down(cause)`, and so does every call made until a link opens again.
+    /// `ClientError::link_down(cause)`, and so does every call made until [`Self::hold_calls`] or
+    /// a link opens again.
     pub fn abandon(&self, cause: LinkFault) {
         self.shared.abandon(cause);
+    }
+
+    /// After [`Self::abandon`], holds new calls again, in order, for the next link.
+    pub fn hold_calls(&self) {
+        self.shared.hold_calls();
     }
 
     /// Closes the open link (`LinkFault::Closed`), takes the client down as `abandon` does, and
@@ -303,16 +309,16 @@ impl Drop for OpeningLink<'_> {
 /// `M`'s request for `params`, written with its attachments; fails as `ClientError::Request` where
 /// the params' own `Serialize` fails.
 pub(crate) fn typed_request<M: Method>(params: &M::Params) -> Result<RawRequest, ClientError> {
-    let method = M::DESCRIPTOR.method;
+    let descriptor = const { &M::DESCRIPTOR };
     let request_error = |source: serde_json::Error| ClientError::Request {
-        method: method.to_owned(),
+        method: descriptor.method.to_owned(),
         source: RequestError::Json(source),
     };
     let (json, attachments) = attachment::write(params).map_err(request_error)?;
     let json = String::from_utf8(json).expect("serde_json writes UTF-8");
     let params = RawValue::from_string(json).map_err(request_error)?;
     Ok(RawRequest {
-        method: method.to_owned(),
+        descriptor,
         params: Some(params),
         attachments,
     })

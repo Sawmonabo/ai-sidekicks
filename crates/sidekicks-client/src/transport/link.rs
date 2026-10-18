@@ -3,7 +3,7 @@
 //! The writer sends owed CREDIT frames before any piece of a message, so a request stalled on the
 //! daemon's credit never holds back the credit the daemon's own replies wait for.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use bytes::Bytes;
@@ -85,6 +85,9 @@ struct LinkState {
     subscriptions: HashMap<SubscriptionId, Arc<SubscriptionShared>>,
     /// Each lane the daemon opened, bound by its first message to its subscription.
     lanes: HashMap<LaneId, SubscriptionId>,
+    /// The subscriptions released before any lane bound to them, until their cancel is answered,
+    /// after which no message of theirs is on its way.
+    released: HashSet<SubscriptionId>,
     last_frame_at: Instant,
     fault: Option<LinkFault>,
 }
@@ -157,6 +160,7 @@ impl LinkShared {
                 control_lane: VecDeque::new(),
                 subscriptions: HashMap::new(),
                 lanes: HashMap::new(),
+                released: HashSet::new(),
                 last_frame_at: Instant::now(),
                 fault: None,
             }),
@@ -227,12 +231,20 @@ impl LinkShared {
         unread: VecDeque<QueuedValue>,
     ) {
         let mut state = self.lock();
-        state.subscriptions.remove(&subscription_id);
+        let was_held = state.subscriptions.remove(&subscription_id).is_some();
+        if was_held && !state.lanes.values().any(|bound| *bound == subscription_id) {
+            state.released.insert(subscription_id);
+        }
         for value in unread {
             state.give_back(value.lane, value.credit_due);
         }
         drop(state);
         self.writer_wake.notify_one();
+    }
+
+    /// Forgets a released subscription once its cancel is answered.
+    pub(crate) fn forget_released(&self, subscription_id: SubscriptionId) {
+        self.lock().released.remove(&subscription_id);
     }
 
     /// Ends the link for `fault`, ending every subscription it carries with it; answers the fault
@@ -247,6 +259,7 @@ impl LinkShared {
             state.control_lane.clear();
             state.owed.clear();
             state.lanes.clear();
+            state.released.clear();
             (fault, std::mem::take(&mut state.subscriptions))
         };
         self.ended.cancel();
@@ -455,6 +468,7 @@ fn receive_frame(
         route_control(client, link, message, body.attachments);
     } else {
         route_lane(
+            client,
             link,
             QueuedValue {
                 lane,
@@ -500,9 +514,11 @@ fn route_control(
 
 /// Routes a message on a subscription lane, binding the lane by its first message's
 /// `subscriptionId`. A message for a subscription the client no longer holds has its credit
-/// returned at once and is dropped.
+/// returned at once and is dropped; a lane whose first message names a subscription the client
+/// never held, or one whose acknowledgment did not read, has its subscription canceled.
 fn route_lane(
-    link: &LinkShared,
+    client: &Weak<ClientShared>,
+    link: &Arc<LinkShared>,
     mut value: QueuedValue,
     closes_lane: bool,
     message: JsonRpcMessage,
@@ -518,6 +534,7 @@ fn route_lane(
     let is_notify = method == SUBSCRIPTION_NOTIFY_METHOD;
     let is_end = method == SUBSCRIPTION_END_METHOD;
     let mut state = link.lock();
+    let mut orphan = None;
     let subscription_id = match state.lanes.get(&lane) {
         Some(subscription_id) => Some(*subscription_id),
         None => {
@@ -527,6 +544,10 @@ fn route_lane(
                 .and_then(|params| probe_subscription_id(params).ok());
             if let Some(subscription_id) = probed {
                 state.lanes.insert(lane, subscription_id);
+                let is_held = state.subscriptions.contains_key(&subscription_id);
+                if !is_held && !state.released.remove(&subscription_id) && is_notify {
+                    orphan = Some(subscription_id);
+                }
             }
             probed
         }
@@ -567,6 +588,11 @@ fn route_lane(
     };
     drop(state);
     link.writer_wake.notify_one();
+    if let Some(subscription_id) = orphan
+        && let Some(client) = client.upgrade()
+    {
+        client.cancel_subscription_detached(link, subscription_id);
+    }
     if let Some((subscription, params)) = ended {
         let ending = read_end(
             &subscription,

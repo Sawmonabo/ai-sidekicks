@@ -1,30 +1,35 @@
 //! The untyped call path, for a caller that holds a method's name and its params as JSON text
-//! rather than its Rust types: the params are checked against the method's contract schema before
-//! anything is sent, and every failure takes the wire's own error shape, so the caller reads a
-//! refusal from this client the way it reads one from the daemon.
+//! rather than its Rust types: the params are held to the method's whole contract (its schema,
+//! then its type, then its garde rules) before anything is sent, and every failure takes the
+//! wire's own error shape, so the caller reads a refusal from this client the way it reads one
+//! from the daemon.
 
-use std::collections::{BTreeMap, HashMap};
-use std::sync::OnceLock;
+use std::collections::BTreeMap;
 
 use bytes::Bytes;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
-use sidekicks_contracts::jsonrpc::issue::shape_faults;
+use sidekicks_contracts::jsonrpc::issue::{
+    ISSUES_MAX, IssuePathSegment, UNREADABLE_VALUE_ISSUE_MESSAGE,
+};
 use sidekicks_contracts::jsonrpc::message::{JsonRpcError, JsonRpcErrorData};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::method::{MethodDescriptor, ProcedureType};
+use sidekicks_contracts::method::ProcedureType;
+use sidekicks_contracts::method_descriptor;
+use sidekicks_contracts::schema::ReceivedCheckError;
 use sidekicks_contracts::wire::AnyValue;
+use sidekicks_contracts::wire::attachment::ReceivedError;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 
 use crate::error::ClientError;
 use crate::transport::json_rpc::RawRequest;
 
-/// The request for `method` once `params_json` passes its contract's schema check. Refused, in the
-/// wire's error shape, for a method no table declares, a subscription called as a call or the
-/// reverse (`is_subscription` says which the caller makes), or params that break the schema, whose
-/// `request.paramsInvalid` names each fault's place and rule, never its value.
+/// The request for `method` once `params_json` and its attachments pass the method's contract.
+/// Refused, in the wire's error shape, for a method no table declares, a subscription called as a
+/// call or the reverse (`is_subscription` says which the caller makes), or params that break the
+/// contract, whose `request.paramsInvalid` names each fault's place and rule, never its value.
 pub fn checked_request(
     method: String,
     params_json: String,
@@ -45,32 +50,51 @@ pub fn checked_request(
             None,
         ));
     }
-    let not_json = |error: serde_json::Error| {
-        params_refusal(&method, &format!("are not JSON ({error})"), Vec::new())
-    };
-    let params = RawValue::from_string(params_json).map_err(not_json)?;
-    let received: Value = serde_json::from_str(params.get()).map_err(not_json)?;
-    let check = (descriptor.received_check)().map_err(|error| {
-        internal_error(format!(
-            "The contract check of {method} could not be built: {error}"
-        ))
-    })?;
-    if let Err(fault) = check.validate(&received) {
-        let issues = shape_faults(&fault, &received)
-            .into_iter()
-            .map(|fault| {
-                serde_json::json!({
-                    "path": fault.path,
-                    "message": format!("breaks the schema's \"{}\" rule", fault.keyword),
-                })
-            })
-            .collect();
-        return Err(params_refusal(&method, "break its contract", issues));
+    let params = RawValue::from_string(params_json)
+        .map_err(|error| params_refusal(&method, &format!("are not JSON ({error})"), Vec::new()))?;
+    if let Err(refused) = (descriptor.check_params)(params.get().as_bytes(), attachments.clone()) {
+        return Err(match params_issues(refused) {
+            Ok(issues) => params_refusal(&method, "break its contract", issues),
+            Err(error) => internal_error(format!(
+                "The contract check of {method} could not be built: {error}"
+            )),
+        });
     }
     Ok(RawRequest {
-        method,
+        descriptor,
         params: Some(params),
         attachments,
+    })
+}
+
+/// The issues a refusal of received params names: each place and rule, never a value. A broken
+/// garde rule is named at the whole params, since its path is in the Rust type's names. Fails
+/// where the contract's check could not be built, which is no fault of the params.
+fn params_issues(refused: ReceivedError) -> Result<Vec<Value>, ReceivedCheckError> {
+    let issue = |path: Vec<IssuePathSegment>, message: String| serde_json::json!({ "path": path, "message": message });
+    Ok(match refused {
+        ReceivedError::Check(error) => return Err(error),
+        ReceivedError::Json(_) => Vec::new(),
+        ReceivedError::Shape { faults } => faults
+            .into_iter()
+            .take(ISSUES_MAX)
+            .map(|fault| {
+                let message = format!("breaks the schema's \"{}\" rule", fault.keyword);
+                issue(fault.path, message)
+            })
+            .collect(),
+        ReceivedError::Read { path, .. } => {
+            vec![issue(path, UNREADABLE_VALUE_ISSUE_MESSAGE.to_owned())]
+        }
+        ReceivedError::Unreferenced { index } => vec![issue(
+            Vec::new(),
+            format!("attachment {index} is named by no placeholder"),
+        )],
+        ReceivedError::Rule { report, .. } => report
+            .iter()
+            .take(ISSUES_MAX)
+            .map(|(_, rule)| issue(Vec::new(), rule.message().to_owned()))
+            .collect(),
     })
 }
 
@@ -99,22 +123,6 @@ pub fn wire_error(error: &ClientError) -> JsonRpcError {
     }
 }
 
-/// Every method of the contracts' tables, by its wire name.
-fn method_descriptor(method: &str) -> Option<&'static MethodDescriptor> {
-    static DESCRIPTORS: OnceLock<HashMap<&'static str, &'static MethodDescriptor>> =
-        OnceLock::new();
-    DESCRIPTORS
-        .get_or_init(|| {
-            sidekicks_contracts::typescript_modules()
-                .flat_map(|module| module.method_tables)
-                .flat_map(|table| table.methods)
-                .map(|descriptor| (descriptor.method, descriptor))
-                .collect()
-        })
-        .get(method)
-        .copied()
-}
-
 fn params_refusal(method: &str, what: &str, issues: Vec<Value>) -> JsonRpcError {
     let fields = BTreeMap::from([("issues".to_owned(), AnyValue(Value::Array(issues)))]);
     refusal(
@@ -138,7 +146,8 @@ fn refusal(code: RefusalCode, message: String, fields: Option<JsonRecord>) -> Js
     }
 }
 
-fn internal_error(message: String) -> JsonRpcError {
+/// An internal failure in the wire's error shape: `-32603` with `message` and no `data`.
+pub fn internal_error(message: String) -> JsonRpcError {
     JsonRpcError {
         code: SafeSignedInt::new(i64::from(JsonRpcErrorCode::InternalError.code()))
             .expect("a JSON-RPC code is a safe integer"),
@@ -180,6 +189,6 @@ mod tests {
         );
         let request = checked_request("daemon.ping".to_owned(), "{}".to_owned(), Vec::new(), false)
             .expect("empty params pass");
-        assert_eq!(request.method, "daemon.ping");
+        assert_eq!(request.descriptor.method, "daemon.ping");
     }
 }
