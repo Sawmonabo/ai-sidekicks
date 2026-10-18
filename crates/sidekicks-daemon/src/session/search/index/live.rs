@@ -277,13 +277,16 @@ impl LiveIndex {
         Failure: Send + 'static,
     {
         let (open, taken) = self.take_search().await?;
-        let in_flight = self.shared.enter_search(&open);
+        let shared = Arc::clone(&self.shared);
         let answer = self
             .shared
             .reads
             .read(ReadLength::Long, move |connection| {
                 let _taken = taken;
-                // Left once the search has answered, after a first page held its search.
+                // Entered once the read place is taken, so the floor is the newest before the
+                // search's view; left once the search has answered, after a first page held its
+                // search.
+                let in_flight = shared.enter_search(&open);
                 let floor_position = in_flight.position();
                 let answer = search(connection, &open.index, floor_position);
                 drop(in_flight);
@@ -364,8 +367,8 @@ impl LiveIndexShared {
         failure.map_or(Ok(()), Err)
     }
 
-    // A search about to read, at the floor the index last matched the database at; it counts in
-    // the kept floor until it has answered.
+    // A search on its read connection, at the floor the index last matched the database at; it
+    // counts in the kept floor until it has answered.
     fn enter_search(&self, open: &OpenIndex) -> FloorPositionInFlight {
         self.floors_in_flight
             .enter(|| open.applier.floor_position())
