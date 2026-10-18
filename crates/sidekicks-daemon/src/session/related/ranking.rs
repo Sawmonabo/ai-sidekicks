@@ -268,7 +268,8 @@ impl SessionRelatedRanking {
     }
 
     // Each followed list that shows a renamed session is the list of a session linked to it. A
-    // failed read leaves the renamed sessions waiting for the retry and fails with its cause.
+    // failed read is logged, leaves the renamed sessions waiting for the retry and fails with its
+    // cause.
     async fn raise_lists_showing(&self, renamed: HashSet<SessionId>) -> Result<(), RescoringError> {
         if !self.is_any_followed() {
             return Ok(());
@@ -292,6 +293,10 @@ impl SessionRelatedRanking {
                 Ok(())
             }
             Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "related_sessions_rename_raise_failed"
+                );
                 for session_id in renamed {
                     self.renamed.add(session_id);
                 }
@@ -300,13 +305,22 @@ impl SessionRelatedRanking {
         }
     }
 
-    // Raises the lists showing the renames waiting, then scores a round; fails with the first
-    // step that failed, whose sessions stay waiting.
+    // Raises the lists showing the renames waiting, then scores a round, whether or not the raise
+    // failed; each failure is logged, and the first fails the call, the sessions of both kept
+    // waiting.
     async fn raise_and_rescore(&self, queue: &mut RescoreQueue) -> Result<(), RescoringError> {
-        if let Some(renamed) = self.renamed.take().now_or_never() {
-            self.raise_lists_showing(renamed).await?;
+        let raised = match self.renamed.take().now_or_never() {
+            Some(renamed) => self.raise_lists_showing(renamed).await,
+            None => Ok(()),
+        };
+        let rescored = self.rescore_round(queue).await;
+        if let Err(error) = &rescored {
+            tracing::warn!(
+                error = error as &(dyn Error + 'static),
+                "related_sessions_rescore_failed"
+            );
         }
-        self.rescore_round(queue).await
+        raised.and(rescored)
     }
 
     fn raise_counts<'ids>(&self, session_ids: impl IntoIterator<Item = &'ids SessionId>) {
@@ -325,21 +339,29 @@ impl SessionRelatedRanking {
         !followed.is_empty()
     }
 
-    // Waits out `wait` before a retry; a link change retries at once, and a rename waits for the
-    // retry. False once stopped.
+    // Waits out `wait` before a retry, raising renamed lists meanwhile; a link change retries at
+    // once. A raise that fails leaves its renames for the retry, so none is taken again before it.
+    // False once stopped.
     async fn wait_to_retry(
         &self,
         wait: Duration,
         queue: &mut RescoreQueue,
         stop: &CancellationToken,
     ) -> bool {
-        tokio::select! {
-            biased;
-            () = stop.cancelled() => false,
-            () = tokio::time::sleep(wait) => true,
-            changed = self.changed.take() => {
-                queue.changed.extend(changed);
-                true
+        let retry_at = tokio::time::Instant::now() + wait;
+        let mut is_raising = true;
+        loop {
+            tokio::select! {
+                biased;
+                () = stop.cancelled() => return false,
+                () = tokio::time::sleep_until(retry_at) => return true,
+                changed = self.changed.take() => {
+                    queue.changed.extend(changed);
+                    return true;
+                }
+                renamed = self.renamed.take(), if is_raising => {
+                    is_raising = self.raise_lists_showing(renamed).await.is_ok();
+                }
             }
         }
     }
@@ -350,9 +372,9 @@ impl SessionRelatedRanking {
     }
 }
 
-// No caller waits on a round or on the raise a rename asks for, so a failed one is logged and
-// retried after the daemon's retry waits, its sessions kept waiting, or sooner with the next link
-// change.
+// No caller waits on a round or on the raise a rename asks for, so a failed one, logged where it
+// failed, is retried after the daemon's retry waits, its sessions kept waiting, or sooner with the
+// next link change.
 async fn rescore_until_stopped(ranking: Arc<SessionRelatedRanking>, stop: CancellationToken) {
     let mut queue = RescoreQueue::default();
     let mut failed_rounds_in_row = 0;
@@ -375,14 +397,9 @@ async fn rescore_until_stopped(ranking: Arc<SessionRelatedRanking>, stop: Cancel
         };
         match attempt {
             Ok(()) => failed_rounds_in_row = 0,
-            Err(error) => {
+            Err(_logged) => {
                 let wait = retry_wait(failed_rounds_in_row);
                 failed_rounds_in_row += 1;
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    retry_in = ?wait,
-                    "related_sessions_rescore_failed"
-                );
                 if !ranking.wait_to_retry(wait, &mut queue, &stop).await {
                     return;
                 }
