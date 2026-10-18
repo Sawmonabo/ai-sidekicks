@@ -21,6 +21,17 @@ pub(crate) enum StatementBindings {
     Named(Vec<(Cow<'static, str>, Value)>),
 }
 
+/// Named bindings in the form rusqlite binds them, each name with its `@`, for a statement run
+/// outside the writer as the writer runs it.
+pub(crate) fn named_bindings<'values>(
+    values: &'values [(Cow<'static, str>, Value)],
+) -> Vec<(&'values str, &'values Value)> {
+    values
+        .iter()
+        .map(|(name, value)| (name.as_ref(), value))
+        .collect()
+}
+
 /// A named binding of `text`, its `name` written with its `@`.
 pub(crate) fn text_binding(name: &'static str, text: &str) -> (Cow<'static, str>, Value) {
     (Cow::Borrowed(name), Value::Text(text.to_owned()))

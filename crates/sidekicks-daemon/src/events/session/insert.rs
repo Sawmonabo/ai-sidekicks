@@ -67,12 +67,12 @@ const INSERT_SESSION_EVENT_SQL: &str = "INSERT INTO session_events (
        id, session_id, sequence, occurred_at, monotonic_ns,
        category, type, actor, payload,
        correlation_id, causation_id, version, content_payload,
-       run_id, run_version
+       run_id, run_version, turn_number
      ) VALUES (
        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
        @category, @type, @actor, @payload,
        @correlation_id, @causation_id, @version, @content_payload,
-       @run_id, @run_version
+       @run_id, @run_version, @turn_number
      )";
 
 const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
@@ -139,6 +139,7 @@ pub(crate) fn insert_session_event(
             "@content_payload": row.content_payload,
             "@run_id": run_id.as_ref().map(UuidText::as_str),
             "@run_version": run.and_then(|run| run.run_version).map(i64::from),
+            "@turn_number": run.and_then(|run| run.turn_number).map(i64::from),
         })?;
     // Runs for the service's own sentinel session too, whose cursor is written and never read.
     connection

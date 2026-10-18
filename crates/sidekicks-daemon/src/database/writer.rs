@@ -131,6 +131,25 @@ pub(crate) enum WriteError {
     Closed,
 }
 
+impl WriteError {
+    /// The position of the statement whose row count refused the write, `None` for any other
+    /// failure.
+    pub(crate) fn refused_statement_index(&self) -> Option<usize> {
+        match self {
+            Self::Refused {
+                statement_index, ..
+            } => Some(*statement_index),
+            Self::Failed(_)
+            | Self::BatchFailed(_)
+            | Self::TooLarge { .. }
+            | Self::Ended(_)
+            | Self::ClosedWhileHeld
+            | Self::ClosedAtDrainBound
+            | Self::Closed => None,
+        }
+    }
+}
+
 /// Why a checkpoint did not run or did not finish.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CheckpointError {

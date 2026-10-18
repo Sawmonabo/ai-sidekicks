@@ -62,6 +62,27 @@ impl From<UnresolvedInterventionState> for InterventionState {
     }
 }
 
+/// An intervention state past its outcome, which no move leaves.
+#[derive(Debug, thiserror::Error)]
+#[error("an intervention in {} has an outcome", <&'static str>::from(*.0))]
+pub(crate) struct InterventionResolvedError(pub(crate) InterventionState);
+
+impl TryFrom<InterventionState> for UnresolvedInterventionState {
+    type Error = InterventionResolvedError;
+
+    fn try_from(state: InterventionState) -> Result<Self, Self::Error> {
+        match state {
+            InterventionState::Requested => Ok(Self::Requested),
+            InterventionState::Accepted => Ok(Self::Accepted),
+            InterventionState::Applied
+            | InterventionState::Rejected
+            | InterventionState::Degraded
+            | InterventionState::Expired
+            | InterventionState::Failed => Err(InterventionResolvedError(state)),
+        }
+    }
+}
+
 /// One move of an intervention's row, each arm carrying only the states it may leave. Only a
 /// rejected or failed row carries a reason, and only a degraded one a fallback. A request expires
 /// only before dispatch: once dispatched, the driver's verdict stands. Only a restart that ends the

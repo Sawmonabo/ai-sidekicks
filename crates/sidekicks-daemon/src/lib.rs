@@ -12,6 +12,7 @@ pub mod command_receipts;
 pub mod crash_window;
 pub mod daemon;
 pub mod database;
+pub(crate) mod error_description;
 pub mod events;
 pub mod file;
 pub mod git;
