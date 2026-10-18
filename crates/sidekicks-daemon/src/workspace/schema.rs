@@ -180,30 +180,9 @@ CREATE UNIQUE INDEX idx_workspaces_live_session_mount
 mod tests {
     use rstest::rstest;
     use rusqlite::{Connection, ErrorCode};
-    use sidekicks_contracts::project::ProjectState;
 
     use super::WORKSPACE_SCHEMA_SQL;
-
-    const AT: &str = "2026-10-14T09:30:00.000Z";
-
-    // A project and its attached mount of `/home/me/x` in `place`, each project its own, since a
-    // project has one attached mount.
-    fn attached_mount(id: &str, place: Option<&str>) -> [String; 2] {
-        let active = <&'static str>::from(ProjectState::Active);
-        let place = place.map_or_else(|| "NULL".to_owned(), |place| format!("'{place}'"));
-        [
-            format!(
-                "INSERT INTO projects (id, name, slug, folder_path, state, setup, place, \
-                 created_at, updated_at) VALUES ('{id}', 'x', '{id}', '/home/me/x', '{active}', \
-                 '{{}}', {place}, '{AT}', '{AT}')"
-            ),
-            format!(
-                "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, place, \
-                 project_id, attached_at, updated_at) VALUES ('{id}', 'machine', '/home/me/x', \
-                 '/home/me/x', {place}, '{id}', '{AT}', '{AT}')"
-            ),
-        ]
-    }
+    use crate::workspace::test_rows::project_and_mount_rows;
 
     #[rstest]
     #[case::one_root_without_a_place(None, None, false)]
@@ -221,12 +200,12 @@ mod tests {
         connection
             .execute_batch(&WORKSPACE_SCHEMA_SQL)
             .expect("the workspace schema runs");
-        for row in attached_mount("first", first_place) {
+        for row in project_and_mount_rows("first", first_place) {
             connection
                 .execute_batch(&row)
                 .expect("the first mount is admitted");
         }
-        let [project, mount] = attached_mount("second", second_place);
+        let [project, mount] = project_and_mount_rows("second", second_place);
         connection
             .execute_batch(&project)
             .expect("the second project is admitted");
