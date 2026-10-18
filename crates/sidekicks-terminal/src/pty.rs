@@ -221,6 +221,8 @@ pub(crate) struct QueuedWrite {
     taken: Option<WriteAnswer>,
     written: Option<WriteAnswer>,
     answer_bytes: Option<AnswerBytes>,
+    /// Counts the write as waiting from its hand-over until it leaves the queue.
+    waiting: Option<WaitingWrite>,
 }
 
 impl QueuedWrite {
@@ -231,6 +233,7 @@ impl QueuedWrite {
             taken: Some(taken),
             written: None,
             answer_bytes: None,
+            waiting: None,
         }
     }
 
@@ -241,14 +244,60 @@ impl QueuedWrite {
             taken: None,
             written: Some(written),
             answer_bytes: None,
+            waiting: None,
         }
     }
 }
 
 /// The intake every write and answer of one terminal joins, in the order they are handed over;
 /// unbounded, since a write joins it at once under its caller's lock, and bounded in practice by
-/// the callers' own windows and [`ANSWER_BYTES_LIMIT`].
-pub(crate) type WriteIntake = mpsc::UnboundedSender<QueuedWrite>;
+/// the callers' own windows and [`ANSWER_BYTES_LIMIT`]. It counts the writes handed over and not
+/// yet written, so a caller can tell the terminal's input is backed up.
+#[derive(Clone)]
+pub(crate) struct WriteIntake {
+    sender: mpsc::UnboundedSender<QueuedWrite>,
+    waiting: Arc<AtomicUsize>,
+}
+
+impl WriteIntake {
+    /// An empty intake and the receiver the read loop takes its writes from.
+    pub(crate) fn new() -> (Self, mpsc::UnboundedReceiver<QueuedWrite>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let intake = Self {
+            sender,
+            waiting: Arc::new(AtomicUsize::new(0)),
+        };
+        (intake, receiver)
+    }
+
+    /// Hands `write` over behind every earlier one, counted as waiting until it leaves the queue;
+    /// hands it back once the read loop has ended.
+    pub(crate) fn send(&self, mut write: QueuedWrite) -> Result<(), QueuedWrite> {
+        self.waiting.fetch_add(1, Ordering::SeqCst);
+        write.waiting = Some(WaitingWrite {
+            waiting: Arc::clone(&self.waiting),
+        });
+        self.sender.send(write).map_err(|refused| refused.0)
+    }
+
+    /// Whether a write or answer handed over is not yet written: one waits in the intake or the
+    /// queue for the terminal to take its bytes.
+    pub(crate) fn is_any_write_waiting(&self) -> bool {
+        self.waiting.load(Ordering::SeqCst) > 0
+    }
+}
+
+/// One write counted as waiting; dropping it, as the write leaves the queue or is refused, takes
+/// it off the count.
+struct WaitingWrite {
+    waiting: Arc<AtomicUsize>,
+}
+
+impl Drop for WaitingWrite {
+    fn drop(&mut self) {
+        self.waiting.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// The count of one terminal's answer bytes not yet written, and whether a dropped answer was
 /// logged since the count was last zero.
@@ -326,6 +375,7 @@ impl TerminalAnswers {
                 count: Arc::clone(&self.count),
                 length,
             }),
+            waiting: None,
         };
         if self.intake.send(write).is_err() {
             tracing::debug!("an answer came after the terminal's read loop ended");
@@ -340,6 +390,8 @@ struct PendingWrite {
     answer: Option<WriteAnswer>,
     /// Held until the write leaves the queue; dropped with it.
     _answer_bytes: Option<AnswerBytes>,
+    /// Held until the write leaves the queue; dropped with it.
+    _waiting: Option<WaitingWrite>,
 }
 
 /// Why a queue takes no more writes.
@@ -400,6 +452,7 @@ impl WriteQueue {
             taken,
             written,
             answer_bytes,
+            waiting,
         } = write;
         if let Some(stop) = self.stop {
             if let Some(taken) = taken {
@@ -425,6 +478,7 @@ impl WriteQueue {
             written: 0,
             answer: written,
             _answer_bytes: answer_bytes,
+            _waiting: waiting,
         });
     }
 
@@ -500,12 +554,11 @@ mod tests {
 
     use bytes::Bytes;
     use rstest::rstest;
-    use tokio::sync::mpsc;
     use tokio::sync::oneshot::{self, error::TryRecvError};
 
     use super::{
         ANSWER_BYTES_LIMIT, QueuedWrite, ShellEnvironmentError, TerminalAnswers,
-        TerminalWriteError, WRITE_QUEUE_BYTES, WriteQueue, check_environment,
+        TerminalWriteError, WRITE_QUEUE_BYTES, WriteIntake, WriteQueue, check_environment,
         encode_shell_environment, shell_environment, shell_environment_name,
     };
 
@@ -521,11 +574,14 @@ mod tests {
     }
 
     /// Hands `bytes` to the intake as a write whose caller waits for its take.
-    fn hand_over(intake: &mpsc::UnboundedSender<QueuedWrite>, bytes: Bytes) -> Answer {
+    fn hand_over(intake: &WriteIntake, bytes: Bytes) -> Answer {
         let (taken, receiver) = oneshot::channel();
-        intake
-            .send(QueuedWrite::awaiting_take(bytes, taken))
-            .expect("the intake is open");
+        assert!(
+            intake
+                .send(QueuedWrite::awaiting_take(bytes, taken))
+                .is_ok(),
+            "the intake is open"
+        );
         receiver
     }
 
@@ -603,7 +659,7 @@ mod tests {
 
     #[test]
     fn a_write_is_answered_once_the_queue_takes_it_and_waits_while_the_queue_is_full() {
-        let (intake, mut receiver) = mpsc::unbounded_channel();
+        let (intake, mut receiver) = WriteIntake::new();
         let mut queue = WriteQueue::new();
         let half = Bytes::from(vec![b'a'; WRITE_QUEUE_BYTES / 2]);
 
@@ -624,11 +680,17 @@ mod tests {
         queue.advance(WRITE_QUEUE_BYTES / 2);
         queue.take_from(&mut receiver);
         assert!(is_written(&mut third));
+        assert!(
+            intake.is_any_write_waiting(),
+            "a taken write waits until it is written"
+        );
+        write_all(&mut queue);
+        assert!(!intake.is_any_write_waiting());
     }
 
     #[test]
     fn writes_and_answers_reach_the_program_in_the_order_handed_over() {
-        let (intake, mut receiver) = mpsc::unbounded_channel();
+        let (intake, mut receiver) = WriteIntake::new();
         let answers = TerminalAnswers::new(intake.clone());
         let mut queue = WriteQueue::new();
         let paste = Bytes::from(vec![b'p'; 200 * 1024]);
@@ -650,7 +712,7 @@ mod tests {
 
     #[test]
     fn answers_stop_at_their_bound_while_keystrokes_still_queue() {
-        let (intake, mut receiver) = mpsc::unbounded_channel();
+        let (intake, mut receiver) = WriteIntake::new();
         let answers = TerminalAnswers::new(intake.clone());
         let answer = Bytes::from_static(b"\x1b[?1;2c");
         let fitting = ANSWER_BYTES_LIMIT / answer.len();

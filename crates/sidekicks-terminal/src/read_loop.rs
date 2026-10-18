@@ -11,7 +11,10 @@ use std::time::{Duration, Instant};
 
 use alacritty_terminal::tty::Pty;
 use bytes::Bytes;
-use sidekicks_platforms::{TerminalSignal, TerminalWake, TerminalWaker, TerminalWatch};
+use sidekicks_platforms::{
+    DOES_PAUSED_READ_HOLD_INPUT, TerminalKeySignals, TerminalSignal, TerminalWake, TerminalWaker,
+    TerminalWatch,
+};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{self, OwnedPermit};
@@ -26,10 +29,11 @@ use crate::screen::{ScreenListener, TerminalScreen};
 /// How many of the caller's resizes wait for the loop before a caller waits for room.
 const RESIZE_CAPACITY: usize = 4;
 
-/// How many chunks of output wait for the caller before the loop stops reading.
+/// How many deliveries of output wait for the caller before the loop stops reading.
 const OUTPUT_CAPACITY: usize = 8;
 
-/// The most one read takes, so at most 64 KiB of output waits for the caller.
+/// The most one delivery carries, so at most 64 KiB of output waits for the caller: the loop reads
+/// a burst until a read would block or this much is read, then delivers it once.
 const READ_CHUNK_BYTES: usize = 8 * 1024;
 
 /// The most read after the program's exit, so a process left writing to the terminal cannot hold
@@ -125,6 +129,8 @@ struct ChildState {
 /// One shell's controls, shared by the terminals and the shell's read loop.
 pub(crate) struct TerminalControl {
     writes: WriteIntake,
+    /// The keys the terminal's settings turn into signals, sent as those signals while input waits.
+    key_signals: TerminalKeySignals,
     resizes: mpsc::Sender<ResizeCommand>,
     waker: TerminalWaker,
     is_paused: AtomicBool,
@@ -160,19 +166,38 @@ impl TerminalControl {
 
     /// Hands `bytes` to the terminal's input behind every write handed over before it, at once
     /// and without waiting; the answer resolves once the terminal's write queue takes it, which it
-    /// does while the queue holds fewer than 64 KiB. Fails at once with `Closed` once the close
-    /// began and `Ended` once the read loop is gone; the answer fails the same way when the close
-    /// or the input's end comes before the take.
+    /// does while the queue holds fewer than 64 KiB. One key the terminal's settings turn into a
+    /// signal (interrupt, quit, suspend), handed over while earlier input still waits unwritten,
+    /// goes as that signal instead, so it reaches a program that reads none of its input, and is
+    /// answered taken at once. Fails at once with `Closed` once the close began, `Ended` once the
+    /// read loop is gone and `Failed` when the signal cannot be sent; the answer fails the same way
+    /// when the close or the input's end comes before the take.
     pub(crate) fn queue_write(
         self: &Arc<Self>,
         bytes: Bytes,
     ) -> Result<WriteTaken, TerminalWriteError> {
         let (taken, answer) = oneshot::channel();
-        self.hand_over(QueuedWrite::awaiting_take(bytes, taken))?;
-        Ok(WriteTaken {
+        let write_taken = WriteTaken {
             answer,
             control: Arc::clone(self),
-        })
+        };
+        if self.is_closing() {
+            return Err(TerminalWriteError::Closed);
+        }
+        if let [key] = bytes[..]
+            && self.writes.is_any_write_waiting()
+            && self
+                .key_signals
+                .send_signal_key(key)
+                .map_err(|error| TerminalWriteError::Failed(Arc::new(error)))?
+        {
+            taken
+                .send(Ok(()))
+                .expect("the answer's receiver is held above");
+            return Ok(write_taken);
+        }
+        self.hand_over(QueuedWrite::awaiting_take(bytes, taken))?;
+        Ok(write_taken)
     }
 
     /// Puts `write` in the intake and wakes the loop to take it.
@@ -415,11 +440,22 @@ where
             return Err(error);
         }
     };
-    let (writes, write_receiver) = mpsc::unbounded_channel();
+    let key_signals = match TerminalKeySignals::new(&pty) {
+        Ok(key_signals) => key_signals,
+        Err(error) => {
+            release_off_runtime(
+                name,
+                Box::new(move || sidekicks_platforms::release_terminal(pty, || {})),
+            );
+            return Err(error);
+        }
+    };
+    let (writes, write_receiver) = WriteIntake::new();
     let answers = TerminalAnswers::new(writes.clone());
     let (resizes, resize_receiver) = mpsc::channel(RESIZE_CAPACITY);
     let control = Arc::new(TerminalControl {
         writes,
+        key_signals,
         resizes,
         waker,
         is_paused: AtomicBool::new(false),
@@ -591,7 +627,7 @@ where
             // Without an output the bytes are read and discarded, so a program that ignores the
             // close's hangup is not blocked on a full terminal.
             let can_read = !self.is_output_ended
-                && (self.output.is_none() || (self.permit.is_some() && !self.control.is_paused()));
+                && (self.output.is_none() || (self.permit.is_some() && !self.is_read_held()));
             // The screen copy draws a synchronized update's held output at each chunk's end, so no
             // update's deadline is waited on.
             let wake = watch
@@ -602,7 +638,13 @@ where
                 )
                 .await;
             match wake {
-                Ok(TerminalWake::Read(count)) => self.take_read(count),
+                Ok(TerminalWake::Read(count)) => {
+                    let limit = self.read_buffer.len();
+                    let (_, read) = self.take_burst(watch, count, limit);
+                    if let Err(error) = read {
+                        return wait_failed(&error);
+                    }
+                }
                 Ok(TerminalWake::OutputEnded) => self.is_output_ended = true,
                 Ok(TerminalWake::Wrote(count)) => self.queue.advance(count),
                 Ok(TerminalWake::InputEnded) => self.end_input(),
@@ -619,13 +661,7 @@ where
                     }
                 }
                 Ok(TerminalWake::Woken | TerminalWake::Deadline) => {}
-                Err(error) => {
-                    tracing::error!(
-                        error = &error as &(dyn Error + 'static),
-                        "the terminal's read or wait failed"
-                    );
-                    return LoopEnd::WaitFailed;
-                }
+                Err(error) => return wait_failed(&error),
             }
         }
     }
@@ -663,9 +699,16 @@ where
             let read_into = is_reading.then(|| &mut self.read_buffer[..read_limit]);
             match watch.wait(read_into, None, quiet_until).await {
                 Ok(TerminalWake::Read(count)) => {
+                    let (count, read) = self.take_burst(watch, count, read_limit);
                     drained += count;
                     quiet_until = Some(Instant::now() + EXIT_QUIET_PERIOD);
-                    self.take_read(count);
+                    if let Err(error) = read {
+                        tracing::error!(
+                            error = &error as &(dyn Error + 'static),
+                            "the terminal's output could not be drained"
+                        );
+                        self.is_output_ended = true;
+                    }
                 }
                 Ok(TerminalWake::OutputEnded) => self.is_output_ended = true,
                 Ok(TerminalWake::Deadline) => {
@@ -758,6 +801,37 @@ where
         }
     }
 
+    /// Whether the pause holds the output back now: a paused read that would hold the program's
+    /// input back reads on while a write waits, so the write is taken.
+    fn is_read_held(&self) -> bool {
+        self.control.is_paused()
+            && !(DOES_PAUSED_READ_HOLD_INPUT && self.queue.pending_bytes().is_some())
+    }
+
+    /// Reads on after a read of `count` bytes until a read would block or `limit` bytes are read,
+    /// then delivers the burst once: the count delivered, and a failed read's error after it.
+    fn take_burst(
+        &mut self,
+        watch: &mut TerminalWatch,
+        count: usize,
+        limit: usize,
+    ) -> (usize, io::Result<()>) {
+        let mut filled = count;
+        let mut read = Ok(());
+        while filled < limit {
+            match watch.read_now(&mut self.read_buffer[filled..limit]) {
+                Ok(0) => break,
+                Ok(count) => filled += count,
+                Err(error) => {
+                    read = Err(error);
+                    break;
+                }
+            }
+        }
+        self.take_read(filled);
+        (filled, read)
+    }
+
     /// Passes `count` read bytes through the filter to the screen and the caller, or discards
     /// them once the output has ended.
     fn take_read(&mut self, count: usize) {
@@ -801,6 +875,15 @@ fn lock_screen<L: ScreenListener>(
     screen
         .lock()
         .expect("no panic holds a terminal's lock, since a panic ends the daemon")
+}
+
+/// Logs the read or wait that failed and ends the loop's watch.
+fn wait_failed(error: &io::Error) -> LoopEnd {
+    tracing::error!(
+        error = error as &(dyn Error + 'static),
+        "the terminal's read or wait failed"
+    );
+    LoopEnd::WaitFailed
 }
 
 /// The error a resize gets once the read loop has ended.

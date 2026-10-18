@@ -92,3 +92,25 @@ pub(crate) async fn read_to_exit(output: &mut TerminalOutput) -> (String, Termin
     .await
     .expect("the shell exits in time")
 }
+
+/// Reads the output until it holds `marker` on a line of its own, answering what came after it;
+/// fails the test when the output ends first or takes past [`OUTPUT_BOUND`].
+pub(crate) async fn read_past_line(output: &mut TerminalOutput, marker: &str) -> String {
+    let line = format!("{marker}\r\n");
+    tokio::time::timeout(OUTPUT_BOUND, async {
+        let mut text = String::new();
+        loop {
+            if let Some((_, rest)) = text.split_once(&line) {
+                return rest.to_owned();
+            }
+            match output.next().await {
+                Some(TerminalEvent::Output(chunk)) => {
+                    text.push_str(&String::from_utf8_lossy(&chunk));
+                }
+                other => panic!("the output ended before {marker:?}: {other:?}"),
+            }
+        }
+    })
+    .await
+    .expect("the marker arrives in time")
+}
