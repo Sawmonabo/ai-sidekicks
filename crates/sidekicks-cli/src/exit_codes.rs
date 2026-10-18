@@ -5,7 +5,7 @@ use std::io;
 
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCategory;
+use sidekicks_contracts::jsonrpc::refusal::{KnownRefusalCategory, RefusalCategory};
 
 /// A process exit code the command line returns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,22 +127,25 @@ fn exit_code_for_client_error(error: &ClientError) -> Result<ExitCode, UnmappedE
 
 fn exit_code_for_category(category: &RefusalCategory) -> ExitCode {
     match category {
-        RefusalCategory::InvalidArgument => ExitCode::DataError,
-        RefusalCategory::NotFound => ExitCode::NoInput,
-        RefusalCategory::AlreadyExists => ExitCode::CannotCreate,
-        RefusalCategory::FailedPrecondition => ExitCode::Configuration,
-        RefusalCategory::PermissionDenied | RefusalCategory::Unauthenticated => {
-            ExitCode::NoPermission
-        }
-        RefusalCategory::Aborted
-        | RefusalCategory::ResourceExhausted
-        | RefusalCategory::DeadlineExceeded => ExitCode::TemporaryFailure,
-        RefusalCategory::Unavailable | RefusalCategory::Unimplemented => ExitCode::Unavailable,
+        RefusalCategory::Known(KnownRefusalCategory::InvalidArgument) => ExitCode::DataError,
+        RefusalCategory::Known(KnownRefusalCategory::NotFound) => ExitCode::NoInput,
+        RefusalCategory::Known(KnownRefusalCategory::AlreadyExists) => ExitCode::CannotCreate,
+        RefusalCategory::Known(KnownRefusalCategory::FailedPrecondition) => ExitCode::Configuration,
+        RefusalCategory::Known(
+            KnownRefusalCategory::PermissionDenied | KnownRefusalCategory::Unauthenticated,
+        ) => ExitCode::NoPermission,
+        RefusalCategory::Known(
+            KnownRefusalCategory::Aborted
+            | KnownRefusalCategory::ResourceExhausted
+            | KnownRefusalCategory::DeadlineExceeded,
+        ) => ExitCode::TemporaryFailure,
+        RefusalCategory::Known(
+            KnownRefusalCategory::Unavailable | KnownRefusalCategory::Unimplemented,
+        ) => ExitCode::Unavailable,
         // A canceled refusal of a call the command line did not cancel is the daemon's fault, and
         // a category a newer daemon sends is read as an internal failure.
-        RefusalCategory::Internal | RefusalCategory::Canceled | RefusalCategory::Unknown(_) => {
-            ExitCode::Software
-        }
+        RefusalCategory::Known(KnownRefusalCategory::Internal | KnownRefusalCategory::Canceled)
+        | RefusalCategory::Unknown(_) => ExitCode::Software,
     }
 }
 
@@ -156,7 +159,9 @@ mod tests {
     use sidekicks_client::error::{ClientError, LinkFault, RemoteError};
     use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
     use sidekicks_contracts::jsonrpc::message::{ConnectionUnavailableReason, JsonRpcErrorData};
-    use sidekicks_contracts::jsonrpc::refusal::{RefusalCategory, RefusalCode};
+    use sidekicks_contracts::jsonrpc::refusal::{
+        KnownRefusalCategory, RefusalCategory, RefusalCode,
+    };
 
     use super::{ExitCode, exit_code_for_failure};
     use crate::program::Cli;
@@ -175,6 +180,10 @@ mod tests {
         .into()
     }
 
+    fn known(category: KnownRefusalCategory) -> Option<RefusalCategory> {
+        Some(RefusalCategory::Known(category))
+    }
+
     #[rstest]
     #[case::parse_error(remote(JsonRpcErrorCode::ParseError, None), ExitCode::DataError)]
     #[case::invalid_request(remote(JsonRpcErrorCode::InvalidRequest, None), ExitCode::Usage)]
@@ -186,71 +195,80 @@ mod tests {
     #[case::invalid_argument(
         remote(
             JsonRpcErrorCode::DomainRefusal,
-            Some(RefusalCategory::InvalidArgument)
+            known(KnownRefusalCategory::InvalidArgument)
         ),
         ExitCode::DataError
     )]
     #[case::not_found(
-        remote(JsonRpcErrorCode::DomainRefusal, Some(RefusalCategory::NotFound)),
+        remote(JsonRpcErrorCode::DomainRefusal, known(KnownRefusalCategory::NotFound)),
         ExitCode::NoInput
     )]
     #[case::already_exists(
-        remote(JsonRpcErrorCode::DomainRefusal, Some(RefusalCategory::AlreadyExists)),
+        remote(
+            JsonRpcErrorCode::DomainRefusal,
+            known(KnownRefusalCategory::AlreadyExists)
+        ),
         ExitCode::CannotCreate
     )]
     #[case::failed_precondition(
         remote(
             JsonRpcErrorCode::DomainRefusal,
-            Some(RefusalCategory::FailedPrecondition)
+            known(KnownRefusalCategory::FailedPrecondition)
         ),
         ExitCode::Configuration
     )]
     #[case::permission_denied(
         remote(
             JsonRpcErrorCode::DomainRefusal,
-            Some(RefusalCategory::PermissionDenied)
+            known(KnownRefusalCategory::PermissionDenied)
         ),
         ExitCode::NoPermission
     )]
     #[case::unauthenticated(
         remote(
             JsonRpcErrorCode::DomainRefusal,
-            Some(RefusalCategory::Unauthenticated)
+            known(KnownRefusalCategory::Unauthenticated)
         ),
         ExitCode::NoPermission
     )]
     #[case::aborted(
-        remote(JsonRpcErrorCode::DomainRefusal, Some(RefusalCategory::Aborted)),
+        remote(JsonRpcErrorCode::DomainRefusal, known(KnownRefusalCategory::Aborted)),
         ExitCode::TemporaryFailure
     )]
     #[case::resource_exhausted(
         remote(
             JsonRpcErrorCode::DomainRefusal,
-            Some(RefusalCategory::ResourceExhausted)
+            known(KnownRefusalCategory::ResourceExhausted)
         ),
         ExitCode::TemporaryFailure
     )]
     #[case::deadline_exceeded(
         remote(
             JsonRpcErrorCode::DomainRefusal,
-            Some(RefusalCategory::DeadlineExceeded)
+            known(KnownRefusalCategory::DeadlineExceeded)
         ),
         ExitCode::TemporaryFailure
     )]
     #[case::unavailable_repairing(
-        remote(JsonRpcErrorCode::DomainRefusal, Some(RefusalCategory::Unavailable)),
+        remote(
+            JsonRpcErrorCode::DomainRefusal,
+            known(KnownRefusalCategory::Unavailable)
+        ),
         ExitCode::Unavailable
     )]
     #[case::unimplemented(
-        remote(JsonRpcErrorCode::DomainRefusal, Some(RefusalCategory::Unimplemented)),
+        remote(
+            JsonRpcErrorCode::DomainRefusal,
+            known(KnownRefusalCategory::Unimplemented)
+        ),
         ExitCode::Unavailable
     )]
     #[case::internal(
-        remote(JsonRpcErrorCode::DomainRefusal, Some(RefusalCategory::Internal)),
+        remote(JsonRpcErrorCode::DomainRefusal, known(KnownRefusalCategory::Internal)),
         ExitCode::Software
     )]
     #[case::canceled(
-        remote(JsonRpcErrorCode::DomainRefusal, Some(RefusalCategory::Canceled)),
+        remote(JsonRpcErrorCode::DomainRefusal, known(KnownRefusalCategory::Canceled)),
         ExitCode::Software
     )]
     #[case::unknown_category(
