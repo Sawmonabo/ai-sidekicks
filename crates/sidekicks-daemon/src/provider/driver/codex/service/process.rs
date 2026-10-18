@@ -38,12 +38,9 @@ const CODEX_SHUTDOWN_ADDRESS: &str = "ws://localhost/daemon/shutdown";
 const CODEX_CONTROL_SOCKET_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// What one Codex process runs: a service start or a short command.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds each Codex launch from the resolved program and the provider's environment"
-    )
+#[expect(
+    dead_code,
+    reason = "the daemon's start builds each Codex launch from the program and the environment"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexProcessLaunch {
@@ -97,12 +94,9 @@ pub(crate) struct ManagedCodexService {
     exit: ServiceExit,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex driver's sessions stop, kill and read the exit of the managed service they run on"
-    )
+#[expect(
+    dead_code,
+    reason = "the Codex driver's sessions stop, kill and read the exit of their managed service"
 )]
 impl ManagedCodexService {
     /// The process's id, or `None` when the system gave it none.
@@ -141,12 +135,9 @@ impl ManagedCodexService {
 /// Starts a Codex service on an account home the daemon manages, on `spawner`'s thread, armed to
 /// end with the daemon, its standard input closed and both outputs kept in one tail. Fails with
 /// the spawn's error, or the spawner's when its thread has ended.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon starts a Codex service on each account home it manages"
-    )
+#[expect(
+    dead_code,
+    reason = "the daemon starts a Codex service on each account home it manages"
 )]
 pub(crate) async fn start_managed_codex_service(
     spawner: &Spawner,
@@ -281,12 +272,9 @@ pub(crate) struct LastingCodexService {
     exit: Option<ServiceExit>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start and its planned restart keep, read and stop the lasting Codex service"
-    )
+#[expect(
+    dead_code,
+    reason = "the daemon's start and planned restart keep, read and stop the lasting service"
 )]
 impl LastingCodexService {
     /// What a later daemon re-pins this service from, which the daemon keeps in the service's
@@ -365,12 +353,9 @@ struct UnrecordedServiceError {
 /// the daemon's scope where the system has one. The caller keeps its record in the folder's record
 /// file. Fails when the log cannot be opened, or the start cannot be spawned or pinned (on Windows
 /// a refused breakaway from the daemon's job among them), with the log's tail beside the cause.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start runs the lasting Codex service on the person's own Codex folder"
-    )
+#[expect(
+    dead_code,
+    reason = "the daemon's start runs the lasting Codex service on the person's Codex folder"
 )]
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
@@ -443,12 +428,9 @@ pub(crate) async fn start_lasting_codex_service(
 /// Finds again the lasting service a former daemon started, from the record it kept: `None` when
 /// that process has ended or another now holds its id. Fails when the system's process read
 /// fails.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start finds a former daemon's lasting Codex service again from its record"
-    )
+#[expect(
+    dead_code,
+    reason = "the daemon's start finds a former daemon's lasting Codex service from its record"
 )]
 pub(crate) fn repin_lasting_codex_service(
     record: ProcessRecord,

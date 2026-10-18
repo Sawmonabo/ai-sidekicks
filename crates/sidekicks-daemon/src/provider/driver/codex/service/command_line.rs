@@ -263,9 +263,19 @@ mod tests {
     // joining a service whose hooks run a program since replaced.
     #[rstest]
     #[case::the_same_hooks("", CODEX_HOOK_TIMEOUT.as_secs(), false, LastingServiceVerdict::Adopt)]
-    #[case::another_program("-old", CODEX_HOOK_TIMEOUT.as_secs(), false, LastingServiceVerdict::Restart)]
+    #[case::another_program(
+        "-old",
+        CODEX_HOOK_TIMEOUT.as_secs(),
+        false,
+        LastingServiceVerdict::Restart
+    )]
     #[case::another_timeout("", 600, false, LastingServiceVerdict::Restart)]
-    #[case::a_replaced_program("", CODEX_HOOK_TIMEOUT.as_secs(), true, LastingServiceVerdict::Restart)]
+    #[case::a_replaced_program(
+        "",
+        CODEX_HOOK_TIMEOUT.as_secs(),
+        true,
+        LastingServiceVerdict::Restart
+    )]
     fn compare_daemon_hook_commands_adopts_only_the_same_hooks(
         #[case] listed_program_suffix: &str,
         #[case] timeout_seconds: u64,

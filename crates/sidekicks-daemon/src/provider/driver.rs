@@ -104,6 +104,10 @@ impl ProviderDescriptor {
 
     /// The folder on the running system the provider reads its administrator-managed settings
     /// from, `None` where it names none there; the WSL server, a Linux build, answers Linux's.
+    #[expect(
+        dead_code,
+        reason = "the managed-settings checks read the provider's administrator settings there"
+    )]
     pub(crate) fn managed_settings_folder(&self) -> Option<PathBuf> {
         self.managed_settings_folders.native_path()
     }
