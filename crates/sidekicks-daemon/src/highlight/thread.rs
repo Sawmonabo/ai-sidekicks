@@ -309,14 +309,12 @@ impl ColoringThread {
         if job.source.strong_count() == 0 {
             return built;
         }
+        #[cfg(test)]
+        let is_fresh = built.is_none();
         let mut built = match built {
             Some(built) => built,
             None => match build_tokenizer() {
-                Ok(built) => {
-                    #[cfg(test)]
-                    let built = self.with_test_hooks(built);
-                    built
-                }
+                Ok(built) => built,
                 Err(error) => {
                     tracing::error!(
                         error = &error as &(dyn Error + 'static),
@@ -327,6 +325,10 @@ impl ColoringThread {
                 }
             },
         };
+        #[cfg(test)]
+        if is_fresh {
+            self.attach_test_hooks(&mut built);
+        }
         let resume = match tokenize_start(&mut built.settled_blocks, &job) {
             TokenizeStart::FirstLine => None,
             TokenizeStart::Settled(saved) => Some(saved),
@@ -402,12 +404,11 @@ impl ColoringThread {
 
     /// Counts a fresh tokenizer's build and gives it the test's line hook.
     #[cfg(test)]
-    fn with_test_hooks(&self, mut built: BuiltTokenizer) -> BuiltTokenizer {
+    fn attach_test_hooks(&self, built: &mut BuiltTokenizer) {
         self.counts.tokenizer_builds.fetch_add(1, Ordering::Relaxed);
         if let Some(before_line) = &self.options.before_line {
             built.tokenizer.set_before_line(Arc::clone(before_line));
         }
-        built
     }
 }
 
@@ -485,7 +486,7 @@ mod tests {
     use sidekicks_contracts::highlight::HighlightLanguage;
     use tokio::time::timeout;
 
-    use super::{BlockKey, TokenizeJob, TokenizerThread, TokenizerThreadOptions};
+    use super::{BlockKey, TokenizeFailure, TokenizeJob, TokenizerThread, TokenizerThreadOptions};
     use crate::ipc::registry::TransportId;
 
     /// How long any one answer may take before the test fails instead of hanging.
@@ -691,9 +692,12 @@ mod tests {
         assert_eq!(*streamed, *from_scratch);
     }
 
-    // Mutation: no upgrade before each line.
+    // Mutations: no upgrade before each line; no stop check before each line; no `Stopped` reply.
+    #[rstest]
+    #[case::its_last_reader_leaves(false)]
+    #[case::the_colorer_stops(true)]
     #[tokio::test]
-    async fn stops_at_the_next_line_once_its_last_reader_leaves() {
+    async fn stops_at_the_next_line(#[case] is_colorer_stopping: bool) {
         let line_calls = Arc::new(AtomicUsize::new(0));
         let (entered, has_entered) = mpsc::channel();
         let (released, is_released) = mpsc::channel();
@@ -714,23 +718,38 @@ mod tests {
             }),
             ..TokenizerThreadOptions::default()
         });
-        let source = Arc::new("let a = 1;\nlet b = 2;\nlet c = 3;\n".to_owned());
-        let answer = thread.tokenize(job(&source, HighlightLanguage::Typescript, None));
+        let mut source = Some(Arc::new("let a = 1;\nlet b = 2;\nlet c = 3;\n".to_owned()));
+        let answer = thread.tokenize(job(
+            source.as_ref().expect("the test holds the source"),
+            HighlightLanguage::Typescript,
+            None,
+        ));
 
-        // The thread is on the first line before the test's copy, the only reader's, goes.
+        // The thread is on the first line before the colorer stops or the test's copy, the only
+        // reader's, goes.
         has_entered
             .recv_timeout(WAIT)
             .expect("the thread reaches the first line");
-        drop(source);
+        if is_colorer_stopping {
+            thread.stop();
+        } else {
+            source = None;
+        }
         released.send(()).expect("the hook waits");
 
         let answered = timeout(WAIT, answer)
             .await
             .expect("the thread lets the job go in time");
-        assert!(
-            answered.is_err(),
-            "the job was answered after its last reader left"
-        );
+        // A job its readers left is dropped unanswered; one the colorer stopped answers so.
+        if is_colorer_stopping {
+            assert!(matches!(answered, Ok(Err(TokenizeFailure::Stopped))));
+        } else {
+            assert!(
+                answered.is_err(),
+                "the job was answered after its last reader left"
+            );
+        }
+        drop(source);
         assert_eq!(line_calls.load(Ordering::SeqCst), 1);
         assert_eq!(thread.tokenization_count(), 1);
     }

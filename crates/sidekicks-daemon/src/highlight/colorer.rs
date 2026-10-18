@@ -160,9 +160,11 @@ impl CodeHighlighter {
             wake_replaced(replaced);
             return SpanRead::cached(spans);
         }
+        let mut joining_source = None;
         let (fetch_id, source, spans) = if let Some(joined) = reads.join_fetch(&key) {
-            // The fetch's own copy keeps its tokenization wanted, so this one goes.
-            drop(source);
+            // The fetch's own copy keeps its tokenization wanted, so this one goes once the lock is
+            // released.
+            joining_source = Some(source);
             joined
         } else {
             let source = Arc::new(source);
@@ -205,6 +207,7 @@ impl CodeHighlighter {
         // keeps its tokenization.
         let replaced = block.and_then(|block| reads.replace_block_read(block, Some(read_id)));
         drop(reads);
+        drop(joining_source);
         wake_replaced(replaced);
         SpanRead {
             state: SpanReadState::Waiting {
@@ -604,17 +607,30 @@ mod tests {
     /// An 8 GiB machine's span cache budget.
     const EIGHT_GIB_SPAN_CACHE_BYTES: u64 = (8 << 30) / SPAN_CACHE_MEMORY_DIVISOR;
 
-    /// A colorer's thread stopped on its first line until the test lets it go.
+    /// A colorer's thread that stops on `HELD_SOURCE`'s line, the first time it colors it, until
+    /// the test lets it go.
     struct ThreadHold {
+        /// Says the thread has stopped on the line.
+        entered: mpsc::Receiver<()>,
         /// Lets the thread go on.
         release: mpsc::Sender<()>,
     }
 
     impl ThreadHold {
+        /// Reads `HELD_SOURCE` and waits until the thread stops on it, so the reads a test makes
+        /// next wait; gives back that read.
+        fn hold(&self, colorer: &CodeHighlighter) -> SpanRead {
+            let held = read(colorer, HELD_SOURCE, 0, None);
+            self.entered
+                .recv_timeout(WAIT_LIMIT)
+                .expect("the thread reached the held line");
+            held
+        }
+
         fn release(&self) {
             self.release
                 .send(())
-                .expect("the thread waits on its first line");
+                .expect("the thread waits on the held line");
         }
     }
 
@@ -626,15 +642,14 @@ mod tests {
         .expect("the system gives the colorer its thread")
     }
 
-    /// A colorer whose thread is stopped on the first line it colors, `HELD_SOURCE`'s, with the
-    /// read of it, so the reads a test makes next wait.
-    fn held_colorer() -> (CodeHighlighter, SpanRead, ThreadHold) {
+    /// A colorer whose thread has not yet stopped on `HELD_SOURCE`'s line, and its hold.
+    fn holding_colorer() -> (CodeHighlighter, ThreadHold) {
         let (entered_sender, entered) = mpsc::channel::<()>();
         let (release, released) = mpsc::channel::<()>();
         let released = Mutex::new(released);
         let has_held = AtomicBool::new(false);
-        let before_line: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |_line: &str| {
-            if !has_held.swap(true, Ordering::SeqCst) {
+        let before_line: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |line: &str| {
+            if line == HELD_SOURCE && !has_held.swap(true, Ordering::SeqCst) {
                 entered_sender
                     .send(())
                     .expect("the test waits for the hold");
@@ -649,11 +664,14 @@ mod tests {
             before_line: Some(before_line),
             ..TokenizerThreadOptions::default()
         });
-        let held = read(&colorer, HELD_SOURCE, 0, None);
-        entered
-            .recv_timeout(WAIT_LIMIT)
-            .expect("the thread reached its first line");
-        (colorer, held, ThreadHold { release })
+        (colorer, ThreadHold { entered, release })
+    }
+
+    /// A colorer whose thread is stopped on `HELD_SOURCE`'s line, with the read of it.
+    fn held_colorer() -> (CodeHighlighter, SpanRead, ThreadHold) {
+        let (colorer, hold) = holding_colorer();
+        let held = hold.hold(&colorer);
+        (colorer, held, hold)
     }
 
     fn read(
@@ -707,8 +725,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_block_asking_again_replaces_its_waiting_read() {
-        // Mutation: the replacement leaves the earlier read waiting.
-        let (colorer, held, hold) = held_colorer();
+        // Mutations: the replacement leaves the earlier read waiting; a cache hit leaves it too.
+        let (colorer, hold) = holding_colorer();
+        let cached_code = "const c = 1;";
+        colored(read(&colorer, cached_code, 1, None)).await;
+        let held = hold.hold(&colorer);
         let first = read(&colorer, "const b = 1;", 1, Some("x"));
         let sharing = read(&colorer, "const b = 1;", 1, Some("y"));
         let newer = read(&colorer, "const b = 2;", 1, Some("x"));
@@ -719,13 +740,22 @@ mod tests {
             answer(unwanted).await,
             Err(ReadSpansError::Replaced)
         ));
+        // A block whose next version the cache holds leaves its waiting read too.
+        let left_for_cached = read(&colorer, "const y = 1;", 1, Some("z"));
+        let from_cache = read(&colorer, cached_code, 1, Some("z"));
+        assert!(matches!(
+            answer(left_for_cached).await,
+            Err(ReadSpansError::Replaced)
+        ));
+        colored(from_cache).await;
         hold.release();
         answer(held).await.expect("the held read is answered");
         for waiting in [sharing, newer, newest] {
             colored(waiting).await;
         }
-        // The held source, the shared code and the two newest; never the code no read waits for.
-        assert_eq!(colorer.thread.tokenization_count(), 4);
+        // The cached code, the held source, the shared code and the two newest; never the code no
+        // read waits for.
+        assert_eq!(colorer.thread.tokenization_count(), 5);
     }
 
     #[tokio::test]

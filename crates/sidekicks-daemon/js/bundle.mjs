@@ -4,7 +4,8 @@
 //
 // It also writes the TextMate grammars the daemon's colorer runs into `dist/grammars/`: one
 // `<name>.json` per grammar the colorable languages' modules carry, `notices.txt` with the license
-// of the package they come from and each grammar's upstream source and license text, and
+// of the package they come from and each grammar's upstream source and license, each license text
+// written once under the grammars it covers, and
 // `scopes-named-from-text.json`, the scope names of the grammars that build a scope name from the
 // text they match, directly or through a grammar they include, whose highlighter the colorer
 // rebuilds after a set amount of such source.
@@ -285,11 +286,11 @@ function readVendoredLicense({ licenseFile, licenseSha256 }) {
 }
 
 /**
- * A grammar's upstream source, license and license text, from `tm-grammars` at the version
- * `@shikijs/langs` was built from. Throws when neither its record nor `UNRECORDED_GRAMMAR_LICENSES`
- * names a license, or no text is found for it.
+ * A grammar's heading lines, upstream source, license and license text, from `tm-grammars` at the
+ * version `@shikijs/langs` was built from. Throws when neither its record nor
+ * `UNRECORDED_GRAMMAR_LICENSES` names a license, or no text is found for it.
  */
-function composeGrammarNotice(grammar, noticeTexts) {
+function readGrammarNotice(grammar, noticeTexts) {
   const record = grammarSources.find((source) => source.scopeName === grammar.scopeName);
   if (record === undefined) {
     throw new Error(`tm-grammars has no record of ${grammar.scopeName}`);
@@ -304,24 +305,59 @@ function composeGrammarNotice(grammar, noticeTexts) {
   if (text === undefined) {
     throw new Error(`tm-grammars' NOTICE carries no license text for ${record.name}.json`);
   }
-  return [
-    `${record.displayName} grammar (${grammar.scopeName}, ${license})`,
-    `Source: ${record.source}`,
-    `License: ${licenseUrl}`,
-    "",
+  return {
+    heading: [
+      `${record.displayName} grammar (${grammar.scopeName}, ${license})`,
+      `Source: ${record.source}`,
+      `License: ${licenseUrl}`,
+    ].join("\n"),
     text,
-  ].join("\n");
+  };
+}
+
+/** One notice per license text: the heading of each grammar under it, then the text once. */
+function composeGrammarNotices(grammarNotices) {
+  const headingsByText = new Map();
+  for (const { heading, text } of grammarNotices) {
+    headingsByText.set(text, [...(headingsByText.get(text) ?? []), heading]);
+  }
+  return [...headingsByText].map(([text, headings]) => [...headings, "", text].join("\n"));
+}
+
+/**
+ * Fails unless the installed `tm-grammars` is the version `@shikijs/langs` was built from, so the
+ * notices name the upstream commits of the grammars it carries.
+ */
+function checkGrammarRecordsVersion(grammarPackageDirectory, recordsPackageDirectory) {
+  const grammarManifest = JSON.parse(
+    readFileSync(path.join(grammarPackageDirectory, "package.json"), "utf8"),
+  );
+  const recordsVersion = JSON.parse(
+    readFileSync(path.join(recordsPackageDirectory, "package.json"), "utf8"),
+  ).version;
+  // The records must be those the bundled grammars were built from, so the newest is not taken.
+  const builtFromVersion = grammarManifest.devDependencies?.["tm-grammars"]?.replace(/^\^/, "");
+  if (recordsVersion !== builtFromVersion) {
+    throw new Error(
+      `tm-grammars ${recordsVersion} is installed, but @shikijs/langs ${grammarManifest.version} ` +
+        `was built from tm-grammars ${builtFromVersion}; install that version`,
+    );
+  }
 }
 
 const grammarPackageDirectory = findPackageDirectory(
   fileURLToPath(import.meta.resolve("@shikijs/langs/bash")),
 );
-const noticeTexts = readNoticeTexts(
-  path.join(findPackageDirectory(fileURLToPath(import.meta.resolve("tm-grammars"))), "NOTICE"),
+const recordsPackageDirectory = findPackageDirectory(
+  fileURLToPath(import.meta.resolve("tm-grammars")),
 );
-const grammarNotices = [...grammarsByScopeName.values()]
-  .sort((left, right) => left.scopeName.localeCompare(right.scopeName))
-  .map((grammar) => composeGrammarNotice(grammar, noticeTexts));
+checkGrammarRecordsVersion(grammarPackageDirectory, recordsPackageDirectory);
+const noticeTexts = readNoticeTexts(path.join(recordsPackageDirectory, "NOTICE"));
+const grammarNotices = composeGrammarNotices(
+  [...grammarsByScopeName.values()]
+    .sort((left, right) => left.scopeName.localeCompare(right.scopeName))
+    .map((grammar) => readGrammarNotice(grammar, noticeTexts)),
+);
 writeFileSync(
   path.join(GRAMMAR_DIRECTORY, "notices.txt"),
   `${[composeNotice(grammarPackageDirectory), ...grammarNotices].join("\n\n---\n\n")}\n`,
