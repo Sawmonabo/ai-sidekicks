@@ -285,9 +285,9 @@ async fn reopen_on_schedule<C: DaemonConnector>(
 }
 
 /// Watches one link until it ends, answering why: after [`QUIET_AFTER`] with no frame it reports
-/// the link quiet and sends `daemon.ping`, which takes no call slot; a frame or the ping's answer
-/// reports it open again, and once [`LOST_AFTER`] has passed with no frame it closes the link as
-/// silent.
+/// the link quiet and sends `daemon.ping`, which takes no call slot; a frame, the ping's answer or
+/// the daemon's refusal of it reports it open again, and once [`LOST_AFTER`] has passed with no
+/// frame it closes the link as silent.
 async fn watch_link(
     client: &JsonRpcClient,
     link: &Link,
@@ -298,8 +298,13 @@ async fn watch_link(
             fault = link.ended() => return fault,
             () = sleep_until(link.last_frame_at() + QUIET_AFTER) => {}
         }
-        // A frame that came while the timer ran moves the deadline on.
+        // A frame that came while the timer ran moves the deadline on, and shows the link live.
         if Instant::now() < link.last_frame_at() + QUIET_AFTER {
+            state.send_if_modified(|current| {
+                let is_changed = *current != ConnectionState::Open;
+                *current = ConnectionState::Open;
+                is_changed
+            });
             continue;
         }
         state.send_replace(ConnectionState::Quiet);
@@ -309,7 +314,8 @@ async fn watch_link(
                 fault = link.ended() => return fault,
                 answer = &mut ping => {
                     match answer {
-                        Ok(EmptyPayload {}) => {
+                        // A refusal is the daemon's own frame, so the link is live too.
+                        Ok(EmptyPayload {}) | Err(ClientError::Remote(_)) => {
                             state.send_replace(ConnectionState::Open);
                         }
                         // The link's end, which the next round reads, is the failure that counts.

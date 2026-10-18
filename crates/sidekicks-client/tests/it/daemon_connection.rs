@@ -265,26 +265,58 @@ async fn wait_for_state(states: &mut watch::Receiver<ConnectionState>, state: Co
         .expect("the supervisor runs");
 }
 
+/// Reads the client's next `daemon.ping` and answers its id and how long after `since` it came.
+async fn next_ping(
+    daemon: &mut ScriptedDaemon<DuplexStream>,
+    since: Instant,
+) -> (serde_json::Value, Duration) {
+    let ping = daemon.next_message().await;
+    assert_eq!(ping["method"], "daemon.ping");
+    (ping["id"].clone(), since.elapsed())
+}
+
 #[tokio::test(start_paused = true)]
-async fn a_frame_while_the_ping_waits_keeps_the_link_and_reports_it_open() {
+async fn any_frame_from_the_daemon_reports_a_quiet_link_open_and_keeps_it() {
     let (connector, mut daemons) = memory_daemons();
     let (connection, mut daemon, opened_at) = connect(connector, &mut daemons).await;
     let mut states = connection.state_changes();
 
-    let ping = daemon.next_message().await;
-    assert_eq!(ping["method"], "daemon.ping");
-    assert_waited(opened_at.elapsed(), Duration::from_secs(5));
+    // A daemon that refuses the ping still answered it: the link is open again at once.
+    let (id, waited) = next_ping(&mut daemon, opened_at).await;
+    assert_waited(waited, Duration::from_secs(5));
     wait_for_state(&mut states, ConnectionState::Quiet).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    daemon.refuse(&id, RefusalCode::RequestMethodNotFound).await;
+    let refused_at = Instant::now();
+    wait_for_state(&mut states, ConnectionState::Open).await;
+    assert_waited(refused_at.elapsed(), Duration::ZERO);
 
-    // Unanswered, the ping would lose the link 20 s after its last frame; one frame 18 s in, an
-    // answer to no call, moves that on, and the watch reports the link open at the old deadline.
-    tokio::time::sleep_until(opened_at + Duration::from_secs(18)).await;
-    daemon.answer(&json!(9_999), json!({})).await;
+    // An answer that does not read leaves the link quiet; a later frame, an answer to no call,
+    // reports it open when the quiet timer finds it.
+    let (id, waited) = next_ping(&mut daemon, refused_at).await;
+    assert_waited(waited, Duration::from_secs(5));
+    wait_for_state(&mut states, ConnectionState::Quiet).await;
+    daemon.answer(&id, json!({ "unexpected": true })).await;
+    let misread_at = Instant::now();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(connection.state(), ConnectionState::Quiet);
+    daemon.answer(&json!(9_998), json!({})).await;
     let framed_at = Instant::now();
     wait_for_state(&mut states, ConnectionState::Open).await;
-    assert_waited(opened_at.elapsed(), Duration::from_secs(20));
-    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    assert_waited(misread_at.elapsed(), Duration::from_secs(5));
+
+    // Unanswered, the next ping would lose the link 20 s after its last frame; one frame 18 s in
+    // moves that on, and the watch reports the link open at the old deadline.
+    let (_id, waited) = next_ping(&mut daemon, framed_at).await;
+    assert_waited(waited, Duration::from_secs(5));
+    wait_for_state(&mut states, ConnectionState::Quiet).await;
+    tokio::time::sleep_until(framed_at + Duration::from_secs(18)).await;
+    daemon.answer(&json!(9_999), json!({})).await;
+    let late_frame_at = Instant::now();
+    wait_for_state(&mut states, ConnectionState::Open).await;
     assert_waited(framed_at.elapsed(), Duration::from_secs(20));
+    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    assert_waited(late_frame_at.elapsed(), Duration::from_secs(20));
 }
 
 #[tokio::test(start_paused = true)]
