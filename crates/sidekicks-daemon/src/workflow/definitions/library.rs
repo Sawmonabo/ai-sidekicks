@@ -259,6 +259,7 @@ impl<'connection> WorkflowLibrary<'connection> {
     /// or version exists, [`WorkflowLibraryError::StoredDocument`] when the stored document does
     /// not read, and [`WorkflowLibraryError::Database`] when SQLite fails or a stored value does
     /// not read.
+    #[expect(dead_code, reason = "the workflow definition handlers")]
     pub(crate) fn read(
         &self,
         request: &WorkflowDefinitionReadRequest,

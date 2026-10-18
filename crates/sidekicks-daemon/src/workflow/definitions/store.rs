@@ -1,6 +1,7 @@
-//! The writes to the one workflow library: create, duplicate, save a new version, soft delete, and
-//! the settings kept beside a version (layout, pinned data, tags, permission level, background
-//! browser), which mint none. Each change is one write, so a refused write leaves nothing behind.
+//! The writes to the one workflow library: create (a duplicate among them), save a new version,
+//! soft delete, and the settings kept beside a version (layout, pinned data, tags, permission
+//! level, background browser), which mint none. Each change is one write, so a refused write leaves
+//! nothing behind.
 
 mod settings;
 #[cfg(test)]
@@ -28,8 +29,7 @@ use sidekicks_contracts::workflow::definition::document::{
 use sidekicks_contracts::workflow::definition::item::WorkflowPinnedItem;
 use sidekicks_contracts::workflow::definition::methods::{
     WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
-    WorkflowDefinitionDeleteResponse, WorkflowDefinitionReadRequest,
-    WorkflowDefinitionReadResponse, WorkflowDefinitionUpdateRequest,
+    WorkflowDefinitionDeleteResponse, WorkflowDefinitionUpdateRequest,
     WorkflowDefinitionUpdateResponse,
 };
 use sidekicks_contracts::workflow::definition::refusals::{
@@ -49,10 +49,8 @@ use crate::workflow::definitions::content_hash::{WorkflowDocumentHash, hash_work
 use crate::workflow::definitions::drafts::clear_workflow_draft_statement;
 use crate::workflow::definitions::errors::DefinitionRefusal;
 use crate::workflow::definitions::kept_values::clear_kept_values_statement;
-use crate::workflow::definitions::library::{
-    WorkflowLibrary, WorkflowLibraryError, name_holder_statement,
-};
-use crate::workflow::not_found::WorkflowNotFound;
+use crate::workflow::definitions::library::{WorkflowLibrary, name_holder_statement};
+use crate::workflow::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 
 /// The statements the store's reads run on a read connection beyond the library's: the latest
 /// version a refused save is told about.
@@ -121,6 +119,11 @@ const INSERT_NEXT_VERSION_SQL: &str = "INSERT INTO workflow_versions (
 const SAVED_VERSION_SQL: &str = "SELECT id, version_number, created_at FROM workflow_versions
   WHERE definition_id = @definition_id ORDER BY version_number DESC LIMIT 1";
 
+// Returns a row for a version of a workflow in the library, the one a Duplicate may copy.
+const COPIED_VERSION_SQL: &str = "SELECT 1 FROM workflow_versions AS version
+  JOIN workflow_definitions AS definition ON definition.id = version.definition_id
+  WHERE version.id = @copied_version_id AND definition.deleted_at IS NULL";
+
 const LATEST_VERSION_SQL: &str = "SELECT deleted_at,
     (SELECT MAX(version_number) FROM workflow_versions WHERE definition_id = @definition_id)
       AS latest_version_number
@@ -138,7 +141,8 @@ const COUNT_PINNED_RUNS_SQL: &str = "SELECT COUNT(*) FROM workflow_runs
     SELECT id FROM workflow_versions WHERE definition_id = @definition_id
   )";
 
-// The positions of the name check and the read of the saved version among a save's statements.
+// The position of the name check among a create's and a save's statements, and of the read of
+// the saved version among a save's.
 const NAME_CHECK_INDEX: usize = 0;
 const SAVED_VERSION_INDEX: usize = 3;
 // The position of the pinned runs' count among a delete's statements.
@@ -172,15 +176,13 @@ pub(crate) enum WorkflowDefinitionStoreError {
     /// save was based on a version no longer the latest (`workflow.version.stale`).
     #[error(transparent)]
     Refused(#[from] DefinitionRefusal),
-    /// The workflow is not in the library (`workflow.definition.notFound`).
+    /// The workflow is not in the library (`workflow.definition.notFound`), or a Duplicate's
+    /// copied version is not (`workflow.version.notFound`).
     #[error(transparent)]
     NotFound(#[from] WorkflowNotFound),
     /// The document's hashed body cannot be canonicalized, such as one nesting past the ceiling.
     #[error("the workflow document cannot be hashed")]
     Canonicalization(#[from] CanonicalizationRefusal),
-    /// A read of the library failed, or the copied workflow's stored document did not read.
-    #[error("reading the workflow library for a write failed")]
-    Library(#[source] WorkflowLibraryError),
     /// The writer did not keep the write.
     #[error("the workflow library's write was not kept")]
     Write(#[from] WriteError),
@@ -193,27 +195,14 @@ pub(crate) enum WorkflowDefinitionStoreError {
     Pool(#[from] DatabaseReadError),
 }
 
-impl From<WorkflowLibraryError> for WorkflowDefinitionStoreError {
-    /// A copied workflow not in the library is the write's own not-found refusal.
-    fn from(error: WorkflowLibraryError) -> Self {
-        match error {
-            WorkflowLibraryError::NotFound(not_found) => Self::NotFound(not_found),
-            WorkflowLibraryError::Database(database) => Self::Database(database),
-            failure @ (WorkflowLibraryError::CursorUnresolvable(_)
-            | WorkflowLibraryError::StoredDocument(_)) => Self::Library(failure),
-        }
-    }
-}
-
 impl From<WorkflowDefinitionStoreError> for HandlerError {
-    /// A refused document, a stale save and a workflow not in the library answer their refusals;
-    /// any other failure is a fault in the daemon.
+    /// A refused document, a stale save and a workflow or version not in the library answer their
+    /// refusals; any other failure is a fault in the daemon.
     fn from(error: WorkflowDefinitionStoreError) -> Self {
         match error {
             WorkflowDefinitionStoreError::Refused(refusal) => Self::Refused(refusal.into()),
             WorkflowDefinitionStoreError::NotFound(not_found) => Self::Refused(not_found.into()),
             fault @ (WorkflowDefinitionStoreError::Canonicalization(_)
-            | WorkflowDefinitionStoreError::Library(_)
             | WorkflowDefinitionStoreError::Write(_)
             | WorkflowDefinitionStoreError::Database(_)
             | WorkflowDefinitionStoreError::Pool(_)) => Self::Internal(Box::new(fault)),
@@ -260,9 +249,12 @@ impl WorkflowDefinitionStore {
         }
     }
 
-    /// Creates a workflow and its first version in one write, with no policy check. Fails with
+    /// Creates a workflow and its first version in one write, with no policy check. A Duplicate,
+    /// one naming `copied_version_id`, is written under the first free `<name> copy` name after
+    /// the document's and keeps that version's package locks. Fails with
     /// [`WorkflowDefinitionStoreError::Refused`] for a document with findings or a name another
-    /// workflow holds, writing nothing.
+    /// workflow holds, and with [`WorkflowDefinitionStoreError::NotFound`] for a copied version
+    /// not in the library, writing nothing.
     #[cfg_attr(
         not(test),
         expect(
@@ -276,39 +268,26 @@ impl WorkflowDefinitionStore {
         author: &WorkflowSaveAuthor,
         options: WorkflowCreateOptions,
     ) -> Result<WorkflowDefinitionCreateResponse, WorkflowDefinitionStoreError> {
-        self.insert_workflow(&request.document, author, options, None)
-            .await
-    }
-
-    /// Creates a copy of a workflow's latest document under the first free `<name> copy` name,
-    /// keeping that version's package locks. The copy starts with no kept values and leaves every
-    /// draft alone. Fails as [`WorkflowDefinitionStore::create`] does, and with
-    /// [`WorkflowDefinitionStoreError::NotFound`] for a workflow not in the library.
-    #[expect(
-        dead_code,
-        reason = "the workflow definition handlers and the workflow agent tools"
-    )]
-    pub(crate) async fn duplicate(
-        &self,
-        source_definition_id: WorkflowDefinitionId,
-        author: &WorkflowSaveAuthor,
-    ) -> Result<WorkflowDefinitionCreateResponse, WorkflowDefinitionStoreError> {
+        let Some(copied_version_id) = request.copied_version_id else {
+            return self
+                .insert_workflow(&request.document, author, options, None)
+                .await;
+        };
         // The copy's name was free at the read; the write's own name check refuses one taken since.
-        let (document, copied_version_id) = self
+        let source_name = request.document.name.as_str().to_owned();
+        let copy_name = self
             .pool
             .read(ReadLength::Short, move |connection| {
-                read_duplicate_source(connection, source_definition_id)
+                Ok::<_, WorkflowDefinitionStoreError>(
+                    WorkflowLibrary::new(connection).first_free_duplicate_name(&source_name)?,
+                )
             })
             .await?;
-        self.insert_workflow(
-            &document,
-            author,
-            WorkflowCreateOptions {
-                is_from_new_workflow_draft: false,
-            },
-            Some(copied_version_id),
-        )
-        .await
+        let mut document = request.document.clone();
+        document.name =
+            NonEmptyText::new(copy_name).expect("a copy's name holds its source's name");
+        self.insert_workflow(&document, author, options, Some(copied_version_id))
+            .await
     }
 
     /// Saves the document as the workflow's next version, only while `expectedVersionNumber` is
@@ -512,7 +491,8 @@ impl WorkflowDefinitionStore {
     }
 
     // Writes a workflow and its first version; `copied_version_id` names the version a copy came
-    // from, whose package locks the first version keeps, or is `None` for a new workflow.
+    // from, checked inside the write and whose package locks the first version keeps, or is `None`
+    // for a new workflow.
     async fn insert_workflow(
         &self,
         document: &WorkflowDocument,
@@ -537,8 +517,22 @@ impl WorkflowDefinitionStore {
             .tags
             .as_ref()
             .map_or_else(|| "[]".to_owned(), json_text);
-        let mut statements = vec![
-            name_holder_statement(&name_folded, None),
+        let copied_version_text = copied_version_id.map(|id| id.text());
+        let copied_version_binding = || {
+            nullable_text_binding(
+                "@copied_version_id",
+                copied_version_text.as_ref().map(|text| text.as_str()),
+            )
+        };
+        let mut statements = vec![name_holder_statement(&name_folded, None)];
+        if copied_version_id.is_some() {
+            statements.push(WriteStatement {
+                sql: Cow::Borrowed(COPIED_VERSION_SQL),
+                bindings: StatementBindings::Named(vec![copied_version_binding()]),
+                expected_row_count: Some(1),
+            });
+        }
+        statements.extend([
             WriteStatement {
                 sql: Cow::Borrowed(INSERT_DEFINITION_SQL),
                 bindings: StatementBindings::Named(vec![
@@ -571,23 +565,29 @@ impl WorkflowDefinitionStore {
                     text_binding("@created_at", created_at.as_str()),
                     text_binding("@created_by", author.device_id.as_str()),
                     saved_by_agent_binding(author),
-                    nullable_text_binding(
-                        "@copied_version_id",
-                        copied_version_id
-                            .map(|id| id.text())
-                            .as_ref()
-                            .map(|text| text.as_str()),
-                    ),
+                    copied_version_binding(),
                 ]),
                 expected_row_count: None,
             },
-        ];
+        ]);
         if options.is_from_new_workflow_draft {
             statements.push(clear_workflow_draft_statement(None));
         }
         match self.writer.write(statements).await {
             Ok(_) => {}
-            Err(WriteError::Refused { .. }) => return Err(name_taken().into()),
+            Err(WriteError::Refused {
+                statement_index, ..
+            }) => {
+                return Err(match copied_version_id {
+                    Some(workflow_version_id) if statement_index != NAME_CHECK_INDEX => {
+                        WorkflowNotFound::Version(WorkflowVersionAddress::Id {
+                            workflow_version_id,
+                        })
+                        .into()
+                    }
+                    Some(_) | None => name_taken().into(),
+                });
+            }
             Err(error) => return Err(error.into()),
         }
         Ok(WorkflowDefinitionCreateResponse {
@@ -704,33 +704,6 @@ fn saved_version_of(results: &[StatementResult]) -> SavedVersion {
             .and_then(|created_at| WireInstant::try_from(created_at).ok())
             .expect("a version's save time is the instant the store wrote"),
     }
-}
-
-// The copied workflow's latest document under its copy's name, and its version; a deleted
-// workflow is refused as not found.
-fn read_duplicate_source(
-    connection: &Connection,
-    definition_id: WorkflowDefinitionId,
-) -> Result<(WorkflowDocument, WorkflowVersionId), WorkflowDefinitionStoreError> {
-    let library = WorkflowLibrary::new(connection);
-    let read = library.read(&WorkflowDefinitionReadRequest {
-        definition_id,
-        version: None,
-    })?;
-    let (mut document, deleted_at, workflow_version_id) = match read {
-        WorkflowDefinitionReadResponse::WithWebhookToken(read) => {
-            (read.document, read.deleted_at, read.workflow_version_id)
-        }
-        WorkflowDefinitionReadResponse::WithoutWebhookToken(read) => {
-            (read.document, read.deleted_at, read.workflow_version_id)
-        }
-    };
-    if deleted_at.is_some() {
-        return Err(WorkflowNotFound::Definition { definition_id }.into());
-    }
-    let copy_name = library.first_free_duplicate_name(document.name.as_str())?;
-    document.name = NonEmptyText::new(copy_name).expect("a copy's name holds its source's name");
-    Ok((document, workflow_version_id))
 }
 
 // The workflow's latest version number, or `None` for a workflow not in the library.

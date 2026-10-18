@@ -50,6 +50,17 @@ pub struct WorkflowDefinitionCreateRequest {
     /// The document.
     #[garde(dive)]
     pub document: WorkflowDocument,
+    /// The version a Duplicate copies, whose package locks the new first version keeps; the
+    /// daemon names the copy the first free `<name> copy`, `<name> copy 2` and on after the
+    /// document's name. Absent for a new workflow or an import. A version not in the library is
+    /// refused `workflow.version.notFound`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WorkflowVersionId")]
+    pub copied_version_id: Option<WorkflowVersionId>,
 }
 
 /// The `workflow.definition.create` result: the new definition and its first version, with what a
@@ -549,7 +560,7 @@ methods! {
             mutating: true,
             params: WorkflowDefinitionCreateRequest,
             result: WorkflowDefinitionCreateResponse,
-            refusals: [WorkflowDefinitionRefused],
+            refusals: [WorkflowDefinitionRefused, WorkflowVersionNotFound],
         },
         /// Reads one definition at a version, the latest by default.
         WorkflowDefinitionRead = query "workflow.definition.read" {
