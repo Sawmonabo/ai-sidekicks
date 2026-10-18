@@ -11,7 +11,6 @@
 
 use std::future::Future;
 use std::io;
-use std::path::Path;
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -104,8 +103,20 @@ impl DaemonConnector for DaemonEndpoint {
         Ok(stream)
     }
 
+    /// Reads the token file; a file whose text is no token is refused as invalid data.
     async fn read_token(&self) -> Result<NegotiationText, ClientError> {
-        read_token(&self.run_folder.token_path).await
+        let path = &self.run_folder.token_path;
+        let token_error = |source: io::Error| ClientError::Token {
+            path: path.clone(),
+            source,
+        };
+        let text = tokio::fs::read_to_string(path).await.map_err(token_error)?;
+        NegotiationText::new(text).ok_or_else(|| {
+            token_error(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the token file holds no session token",
+            ))
+        })
     }
 }
 
@@ -393,21 +404,6 @@ fn is_token_refusal(refusal: &RemoteError) -> bool {
         .data
         .as_ref()
         .is_some_and(|data| data.refusal == RefusalCode::AuthTokenInvalid.as_str())
-}
-
-/// Reads the session token; a file whose text is no token is refused as invalid data.
-async fn read_token(path: &Path) -> Result<NegotiationText, ClientError> {
-    let token_error = |source: io::Error| ClientError::Token {
-        path: path.to_path_buf(),
-        source,
-    };
-    let text = tokio::fs::read_to_string(path).await.map_err(token_error)?;
-    NegotiationText::new(text).ok_or_else(|| {
-        token_error(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "the token file holds no session token",
-        ))
-    })
 }
 
 /// The handshake: this build's version, every version it speaks, and the session token.
