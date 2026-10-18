@@ -17,7 +17,7 @@ use objc2_security::{
 
 use crate::PinnedProcess;
 use crate::code_signature::{CodeSignatureError, SignatureCheck};
-use crate::macos::caller_process::is_running;
+use crate::macos::pinned_process::is_running;
 
 /// The kernel's "no such process" as the Security framework reports it: its POSIX error base
 /// (100000) plus `ESRCH`, for a process that ended before its signature was read.
@@ -241,7 +241,8 @@ mod tests {
 
     use super::{DesktopClientRequirement, compile, signed_by_team};
     use crate::code_signature::{CodeSignatureError, SignatureCheck};
-    use crate::macos::caller_process::{pinned, read_peer_process};
+    use crate::macos::caller_process::read_peer_process;
+    use crate::macos::pinned_process::pinned;
 
     /// The requirement `nc` meets as the helper and `sleep` as the app: two programs the system
     /// signs.

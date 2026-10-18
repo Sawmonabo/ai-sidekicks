@@ -14,11 +14,13 @@ pub(crate) mod file_facts;
 pub(crate) mod file_information;
 pub(crate) mod file_system;
 pub(crate) mod known_folder;
+pub(crate) mod lasting_child;
 pub(crate) mod login_shell;
 pub(crate) mod machine_name;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod measurement;
 pub(crate) mod memory;
+pub(crate) mod pinned_process;
 pub(crate) mod private_folder;
 pub(crate) mod processes;
 pub(crate) mod real_path;

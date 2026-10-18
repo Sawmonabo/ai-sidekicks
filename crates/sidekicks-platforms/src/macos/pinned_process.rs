@@ -1,0 +1,443 @@
+//! A process pinned on macOS by its unique id, which the system never gives another process: the
+//! id-checked reads every pinned read goes through, a pinned process's record, its re-pin from a
+//! record and its stop. Every read of a pinned process asks the system to answer only while the id
+//! still names that process, and every signal it is sent names the process by its id version, so a
+//! reused process id is never read or signaled.
+
+use std::ffi::CStr;
+use std::io::{self, ErrorKind};
+use std::num::NonZeroI32;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use nix::errno::Errno;
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
+use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
+use polling::{PollMode, Poller};
+
+use crate::child_command::ChildEnd;
+use crate::macos::processes::list_child_process_ids;
+use crate::pinned_process::ProcessRecord;
+use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
+
+// The key a stop registers the process's exit filter under, the only source its poller watches.
+const EXIT_KEY: usize = 0;
+
+// The record of a process's unique ids, which the SDK's headers leave out; its layout is fixed.
+const UNIQUE_IDENTIFIERS_FLAVOR: libc::c_int = 17;
+
+// The process-information call a checked read makes.
+const PROCESS_INFORMATION_CALL: i32 = 2;
+
+// A checked read answers only while the id names the process with this id version (`exec`
+// changes it) or this unique id (fixed for the process's life).
+pub(crate) const COMPARE_ID_VERSION: u32 = 0x1;
+pub(crate) const COMPARE_UNIQUE_ID: u32 = 0x2;
+pub(crate) const COMPARE_NOTHING: u32 = 0;
+
+// The audit token's slots holding the process's id and its id version.
+pub(crate) const TOKEN_PROCESS_ID: usize = 5;
+pub(crate) const TOKEN_ID_VERSION: usize = 7;
+
+// The name of the system's id for this boot, a UUID made anew at each start of the machine.
+const BOOT_SESSION_NAME: &CStr = c"kern.bootsessionuuid";
+
+unsafe extern "C" {
+    // `int proc_signal_with_audittoken(audit_token_t *audittoken, int sig)`, declared in the SDK's
+    // `libproc.h`: sends `sig` to the process the token names only while its id version still
+    // names it, answering 0 or the `errno` of the failure.
+    fn proc_signal_with_audittoken(token: *mut AuditToken, signal: libc::c_int) -> libc::c_int;
+}
+
+/// An audit token: who last used a socket's other end, or which process a signal is for.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub(crate) struct AuditToken {
+    /// The token's words, as the system lays them out.
+    pub(crate) val: [u32; 8],
+}
+
+impl AuditToken {
+    /// The token's bytes, as the system lays them out.
+    pub(crate) fn to_bytes(self) -> [u8; size_of::<Self>()] {
+        let mut bytes = [0; size_of::<Self>()];
+        for (chunk, word) in bytes
+            .as_chunks_mut::<{ size_of::<u32>() }>()
+            .0
+            .iter_mut()
+            .zip(self.val)
+        {
+            *chunk = word.to_ne_bytes();
+        }
+        bytes
+    }
+}
+
+/// A process's unique ids, the system's `proc_uniqidentifierinfo`.
+#[repr(C)]
+pub(crate) struct UniqueIdentifiers {
+    uuid: [u8; 16],
+    /// The process's unique id, fixed for its life and never given another process.
+    pub(crate) unique_id: u64,
+    parent_unique_id: u64,
+    /// The process's id version, which each fork and `exec` makes anew.
+    pub(crate) id_version: i32,
+    original_parent_id_version: i32,
+    reserved: [u64; 2],
+}
+
+const _: () = assert!(size_of::<UniqueIdentifiers>() == 56);
+
+/// `__proc_info_extended_id(callnum, pid, flavor, flags, ext_id, arg, buffer, buffersize)`: a
+/// process-information read that the kernel answers only while `pid` names the process `flags`
+/// and `ext_id` pin, failing with `ESRCH` otherwise.
+type CheckedProcessRead =
+    unsafe extern "C" fn(i32, i32, u32, u32, u64, u64, u64, i32) -> libc::c_int;
+
+/// A private `libsystem_kernel` call no SDK header declares; used because it is the one process
+/// read the kernel refuses atomically when the id names any process but the pinned one, where a
+/// public `sysctl` start-time read is a read-then-compare race. Looked up once at run time, so a
+/// macOS without it refuses callers instead of failing to load the daemon; `None` there.
+fn checked_process_read() -> Option<CheckedProcessRead> {
+    static READ: OnceLock<Option<CheckedProcessRead>> = OnceLock::new();
+    *READ.get_or_init(|| {
+        // SAFETY: `RTLD_DEFAULT` searches every loaded image, and the name is a C string.
+        let symbol =
+            unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"__proc_info_extended_id".as_ptr()) };
+        (!symbol.is_null()).then(|| {
+            // SAFETY: the symbol is libsystem_kernel's function of exactly this signature.
+            unsafe { std::mem::transmute::<*mut libc::c_void, CheckedProcessRead>(symbol) }
+        })
+    })
+}
+
+/// A process held by its unique id, so a read made through it names that process or finds it
+/// ended, never another process given its id.
+#[derive(Clone, Debug)]
+pub struct PinnedProcess {
+    /// The process's id.
+    pub(crate) id: u32,
+    /// The process's unique id.
+    pub(crate) unique_id: u64,
+    /// The connection's audit token for a peer, which also names the program the process runs at
+    /// the connect; `None` for a process pinned by its id alone.
+    pub(crate) audit_token: Option<AuditToken>,
+}
+
+impl PinnedProcess {
+    /// The process's id.
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    /// The audit token a peer was read from; `None` for a process pinned by its id alone.
+    pub(crate) fn audit_token(&self) -> Option<AuditToken> {
+        self.audit_token
+    }
+
+    /// The record a later process re-pins this one from: its id, unique id, start time and the
+    /// boot's UUID; `None` once it has ended. Fails with the system's error, and with
+    /// `Unsupported` on a macOS without the checked read.
+    pub fn record(&self) -> io::Result<Option<ProcessRecord>> {
+        let Some(started_at) = read_start_time(self.id, self.unique_id)? else {
+            return Ok(None);
+        };
+        Ok(Some(ProcessRecord {
+            id: self.id,
+            start: self.unique_id,
+            started_at: Some(started_at),
+            boot: Some(current_boot()?),
+            job: None,
+        }))
+    }
+
+    /// Stops the process: `SIGTERM` to it, then once `grace` passes without its exit `SIGKILL` to
+    /// it, to its whole process group and to every descendant listed before the kill, each signal
+    /// naming its process by the id version read with it, so no process given its id meanwhile
+    /// is signaled; blocking, so it runs in `spawn_blocking`. Answers the end that took effect,
+    /// [`ChildEnd::Stop`] for a process already gone; fails with `TimedOut` when it outlives the
+    /// kill's bound, else with the system's error.
+    pub fn stop(&self, grace: Duration) -> io::Result<ChildEnd> {
+        // Watched before the first signal, so the exit that signal causes is never missed.
+        let exit_watch = ExitWatch::attach(self.id)?;
+        stop_pinned_process(
+            grace,
+            |signal| self.send_signal(signal),
+            |bound| exit_watch.wait(bound),
+        )
+    }
+
+    // Sends `signal` to the process; `false` when it has ended. A `SIGKILL` first lists every
+    // descendant, since a command a lasting child starts in a session of its own leaves its group,
+    // then kills the process, the rest of its group and each descendant, in that order.
+    fn send_signal(&self, signal: Signal) -> io::Result<bool> {
+        if signal != Signal::SIGKILL {
+            return self.send_checked_signal(signal);
+        }
+        let descendants = list_descendants(self)?;
+        if !self.send_checked_signal(signal)? {
+            return Ok(false);
+        }
+        kill_rest_of_group(self.id)?;
+        for descendant in &descendants {
+            descendant.send_checked_signal(signal)?;
+        }
+        Ok(true)
+    }
+
+    // Sends `signal` to the process the id still names, by the id version read in the same check
+    // that finds it running; `false` when it has ended.
+    fn send_checked_signal(&self, signal: Signal) -> io::Result<bool> {
+        let Some(identifiers) =
+            read_unique_identifiers(self.id, COMPARE_UNIQUE_ID, self.unique_id)?
+        else {
+            return Ok(false);
+        };
+        let mut token = AuditToken { val: [0; 8] };
+        token.val[TOKEN_PROCESS_ID] = self.id;
+        token.val[TOKEN_ID_VERSION] = identifiers.id_version.cast_unsigned();
+        // SAFETY: `token` is a live `audit_token_t` the call only reads, and the signal is a
+        // valid number.
+        let status = unsafe { proc_signal_with_audittoken(&raw mut token, signal as libc::c_int) };
+        match status {
+            0 => Ok(true),
+            libc::ESRCH => Ok(false),
+            errno => Err(io::Error::from_raw_os_error(errno)),
+        }
+    }
+}
+
+// Every running descendant of `process`, each pinned by its unique id, children before their own.
+fn list_descendants(process: &PinnedProcess) -> io::Result<Vec<PinnedProcess>> {
+    let mut descendants = Vec::new();
+    let mut next = 0;
+    let mut parent = process.clone();
+    loop {
+        for child_id in list_child_process_ids(parent.id)? {
+            // A child read once its parent's id passed to another process is no descendant.
+            if let Some(child) = pinned(child_id)?
+                && is_running(&parent)?
+            {
+                descendants.push(child);
+            }
+        }
+        let Some(descendant) = descendants.get(next) else {
+            return Ok(descendants);
+        };
+        parent = descendant.clone();
+        next += 1;
+    }
+}
+
+// Sends `SIGKILL` to the group process `id` leads, which outlives its leader while any member runs
+// and keeps the id from passing to another process meanwhile; a group that has ended is gone.
+fn kill_rest_of_group(id: u32) -> io::Result<()> {
+    let group = libc::pid_t::try_from(id)
+        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
+    match killpg(Pid::from_raw(group), Signal::SIGKILL) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(errno) => Err(io::Error::from(errno)),
+    }
+}
+
+/// The process `record` names, pinned: the same boot, then the same unique id and start time;
+/// `None` when the machine has started again, the process has ended or its id names another
+/// process. Fails with the system's error, and with `Unsupported` on a macOS without the checked
+/// read.
+pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
+    if record.boot.as_deref() != Some(current_boot()?.as_str()) {
+        return Ok(None);
+    }
+    let Some(started_at) = read_start_time(record.id, record.start)? else {
+        return Ok(None);
+    };
+    Ok(
+        (record.started_at == Some(started_at)).then_some(PinnedProcess {
+            id: record.id,
+            unique_id: record.start,
+            audit_token: None,
+        }),
+    )
+}
+
+// The start time of process `id` in microseconds since the epoch, read only while `unique_id`
+// still names it; `None` otherwise.
+fn read_start_time(id: u32, unique_id: u64) -> io::Result<Option<u64>> {
+    // SAFETY: `proc_bsdinfo` is a C struct of integers and byte arrays, for which all zero bytes
+    // are valid.
+    let mut record: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let is_read = read_checked(
+        id,
+        libc::PROC_PIDTBSDINFO,
+        COMPARE_UNIQUE_ID,
+        unique_id,
+        &mut record,
+    )?;
+    Ok(is_read.then(|| {
+        record
+            .pbi_start_tvsec
+            .saturating_mul(1_000_000)
+            .saturating_add(record.pbi_start_tvusec)
+    }))
+}
+
+/// The machine's current boot, the system's boot session UUID. Fails with the system's error, and
+/// with `InvalidData` for a UUID that is not text.
+fn current_boot() -> io::Result<String> {
+    let mut text = [0_u8; 64];
+    let mut length = text.len();
+    // SAFETY: the name is a C string, and `text` is a live, writable buffer of `length` bytes,
+    // which the call fills and whose filled length it writes back.
+    let status = unsafe {
+        libc::sysctlbyname(
+            BOOT_SESSION_NAME.as_ptr(),
+            text.as_mut_ptr().cast(),
+            &raw mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    CStr::from_bytes_until_nul(&text[..length.min(text.len())])
+        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?
+        .to_str()
+        .map(str::to_owned)
+        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
+}
+
+/// The caller's own child `id`, pinned; the child is not yet reaped, so no other process can take
+/// its id meanwhile. Fails with `ESRCH` when the system has no record of it, else with the
+/// system's error.
+pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
+    pinned(id)?.ok_or_else(|| io::Error::from(Errno::ESRCH))
+}
+
+/// A `kqueue` exit filter on one process, or nothing to watch when the process was already
+/// exiting as the filter was attached.
+struct ExitWatch {
+    poller: Option<Poller>,
+}
+
+impl ExitWatch {
+    /// Attaches the exit filter to process `id`. Fails with the system's error.
+    fn attach(id: u32) -> io::Result<Self> {
+        let raw_pid = i32::try_from(id)
+            .ok()
+            .and_then(NonZeroI32::new)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no process has this id"))?;
+        let poller = Poller::new()?;
+        // SAFETY: the kernel's exit filter watches any process this user runs, not only a child;
+        // a process given the id after the pinned one ended is never signaled, since each signal
+        // names the pinned process by its id version, so the stop ends at once.
+        let process = unsafe { Process::from_pid(raw_pid, ProcessOps::Exit) };
+        match poller.add_filter(process, EXIT_KEY, PollMode::Oneshot) {
+            Ok(()) => Ok(Self {
+                poller: Some(poller),
+            }),
+            // The kernel refuses the filter for a process already exiting.
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(Self { poller: None }),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Waits up to `bound` for the process's exit; answers whether it came. The one-shot filter
+    /// posts once, so a wait follows only waits that answered `false`.
+    fn wait(&self, bound: Duration) -> io::Result<bool> {
+        let Some(poller) = &self.poller else {
+            return Ok(true);
+        };
+        wait_for_event(poller, bound)
+    }
+}
+
+/// Whether `process` still runs under its id. Fails with the system's error.
+pub(crate) fn is_running(process: &PinnedProcess) -> io::Result<bool> {
+    Ok(read_unique_identifiers(process.id, COMPARE_UNIQUE_ID, process.unique_id)?.is_some())
+}
+
+/// This process, pinned.
+#[cfg(any(test, feature = "test-support"))]
+pub fn this_process() -> PinnedProcess {
+    pinned(std::process::id())
+        .expect("this process reads its own record")
+        .expect("this process runs")
+}
+
+/// Process `id`, pinned as it runs now; `None` when no process has the id.
+pub(crate) fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
+    Ok(
+        read_unique_identifiers(id, COMPARE_NOTHING, 0)?.map(|identifiers| PinnedProcess {
+            id,
+            unique_id: identifiers.unique_id,
+            audit_token: None,
+        }),
+    )
+}
+
+/// Process `id`'s unique ids, while `flags` and `pin` still name it; `None` otherwise.
+pub(crate) fn read_unique_identifiers(
+    id: u32,
+    flags: u32,
+    pin: u64,
+) -> io::Result<Option<UniqueIdentifiers>> {
+    // SAFETY: `UniqueIdentifiers` is a C struct of integers, for which all zero bytes are valid.
+    let mut identifiers: UniqueIdentifiers = unsafe { std::mem::zeroed() };
+    let is_read = read_checked(id, UNIQUE_IDENTIFIERS_FLAVOR, flags, pin, &mut identifiers)?;
+    Ok(is_read.then_some(identifiers))
+}
+
+/// Fills `record` with process `id`'s `flavor` record, answering `false` when `id` names no
+/// process `flags` and `pin` accept. `Record` must be the C struct of integers `flavor` writes.
+/// Fails with the system's error, with `Other` when the record comes back short, and with
+/// `Unsupported` on a macOS without the checked read.
+pub(crate) fn read_checked<Record>(
+    id: u32,
+    flavor: libc::c_int,
+    flags: u32,
+    pin: u64,
+    record: &mut Record,
+) -> io::Result<bool> {
+    let Some(read) = checked_process_read() else {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this macOS has no id-checked process read",
+        ));
+    };
+    // No process id passes `i32::MAX`, the largest the call takes.
+    let Ok(pid) = i32::try_from(id) else {
+        return Ok(false);
+    };
+    let record_length =
+        i32::try_from(size_of::<Record>()).expect("a process record's size fits in an i32");
+    let flavor = u32::try_from(flavor).expect("a flavor is positive");
+    // SAFETY: `record` is a live, writable `Record` of the length given, the struct `flavor` asks
+    // the call to fill, and nothing else reads it until the call returns.
+    let written = unsafe {
+        read(
+            PROCESS_INFORMATION_CALL,
+            pid,
+            flavor,
+            flags,
+            pin,
+            0,
+            (&raw mut *record).addr() as u64,
+            record_length,
+        )
+    };
+    if written == record_length {
+        return Ok(true);
+    }
+    if written > 0 {
+        return Err(io::Error::other(format!(
+            "process {id}'s record came back {written} of {record_length} bytes"
+        )));
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(false);
+    }
+    Err(error)
+}

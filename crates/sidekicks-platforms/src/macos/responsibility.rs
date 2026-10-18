@@ -15,7 +15,8 @@ use std::os::unix::ffi::OsStringExt as _;
 use std::sync::OnceLock;
 
 use crate::ResponsibleProcess;
-use crate::macos::caller_process::{pinned, read_program_path, read_responsible_process};
+use crate::macos::caller_process::{read_program_path, read_responsible_process};
+use crate::macos::pinned_process::pinned;
 use crate::own_root::OwnRootError;
 
 /// The environment variable a program re-run as its own responsible process starts with, holding
@@ -483,7 +484,8 @@ mod tests {
         read_own_root_step, read_responsible_id, run_test_as_own_root, this_test_program,
     };
     use crate::ResponsibleProcess;
-    use crate::macos::caller_process::{pinned, read_responsible_process};
+    use crate::macos::caller_process::read_responsible_process;
+    use crate::macos::pinned_process::pinned;
 
     /// What the stand-in started under an own-root instance of this program prints once it found
     /// it stays under that instance.

@@ -1,10 +1,11 @@
 //! A child the daemon starts with `Command` on macOS and Linux: one armed to end with the daemon,
-//! or a lasting one in a session of its own; how a child is asked to stop, and how the signal that
-//! ended one is named.
+//! or a lasting one leading a session of its own; how a child is asked to stop, and how the signal
+//! that ended one is read and named.
 
+use std::error::Error;
 use std::io;
 use std::os::unix::process::ExitStatusExt as _;
-use std::process::ExitStatus;
+use std::process::{ExitStatus, Stdio};
 
 #[cfg(target_os = "linux")]
 use nix::sys::prctl::set_thp_disable;
@@ -14,6 +15,8 @@ use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
 use tokio::process::Command;
 
 use crate::child_command::ChildEnd;
+use crate::lasting_child::{LastingChild, LastingCommand};
+use crate::pin_child_process;
 use crate::posix::shell_start::arm_parent_death;
 
 /// Whether a process is asked to stop by a signal it can answer, as every process here is.
@@ -41,12 +44,56 @@ pub fn wrap_child_command(mut command: Command, daemon_pid: u32) -> CommandWrap 
     wrap
 }
 
-/// Prepares `command` to start a child that outlives the daemon: before its program runs, the
-/// child leads a session of its own, so neither a terminal's hangup nor a signal to the daemon's
-/// group reaches it, and arms no parent-death signal; on Linux it also clears the huge-page switch
-/// the daemon set for itself. Never fails here; the spawn fails with the system's error when the
-/// session is refused.
-pub fn prepare_lasting_child_command(command: &mut Command) -> io::Result<()> {
+/// Starts `command` as a child that outlives the daemon, then pins it and reads its record: it
+/// leads a session of its own, so neither a terminal's hangup nor a signal to the daemon's group
+/// reaches it, and its whole group can be killed; it arms no parent-death signal, and on Linux
+/// clears the huge-page switch the daemon set for itself. Runs on the daemon's spawner thread.
+/// Fails with the system's error from the start, a refused session among them, or from the pin,
+/// which kills the child first.
+pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
+    let mut child_command = Command::new(&command.program);
+    child_command
+        .args(&command.arguments)
+        .env_clear()
+        .envs(command.environment)
+        .current_dir(&command.working_folder)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(command.error_output));
+    prepare_lasting_child_command(&mut child_command);
+    let mut child = child_command.spawn()?;
+    let pinned = child
+        .id()
+        .ok_or_else(|| io::Error::other("the started child has no process id"))
+        .and_then(pin_child_process)
+        .and_then(|process| {
+            let record = process
+                .record()?
+                .ok_or_else(|| io::Error::other("the child ended as it started"))?;
+            Ok((process, record))
+        });
+    match pinned {
+        Ok((process, record)) => Ok(LastingChild {
+            process,
+            record,
+            exit: Box::pin(async move { child.wait().await }),
+        }),
+        Err(error) => {
+            // Nothing unrecorded outlives the start; tokio reaps the dropped child.
+            if let Err(kill_error) = child.start_kill() {
+                tracing::warn!(
+                    error = &kill_error as &(dyn Error + 'static),
+                    "the unrecorded lasting child could not be killed"
+                );
+            }
+            Err(error)
+        }
+    }
+}
+
+// Prepares `command` so that, before its program runs, the child leads a session of its own and,
+// on Linux, clears the huge-page switch the daemon set for itself.
+pub(crate) fn prepare_lasting_child_command(command: &mut Command) {
     // SAFETY: the closure runs in the forked child before the exec and makes only `setsid` and,
     // on Linux, `prctl`, which are async-signal-safe and allocate nothing.
     unsafe {
@@ -57,7 +104,6 @@ pub fn prepare_lasting_child_command(command: &mut Command) -> io::Result<()> {
             Ok(())
         });
     }
-    Ok(())
 }
 
 /// Asks `child` to stop with `SIGTERM` to its own process id, never its group, so a running reply
@@ -66,9 +112,17 @@ pub fn ask_child_to_stop(child: &mut dyn ChildWrapper) -> io::Result<()> {
     child.signal(libc::SIGTERM)
 }
 
+/// The number of the signal that ended a child; `None` for a child that exited.
+pub(crate) fn exit_signal_number(status: &ExitStatus) -> Option<i32> {
+    status.signal()
+}
+
 /// The name of the signal that ended a child, as the wire carries it (`SIGKILL`); `None` for a
 /// child that exited. `_asked_end` is not read: the status names the signal itself here.
-pub fn exit_signal_name(status: &ExitStatus, _asked_end: Option<ChildEnd>) -> Option<String> {
+pub(crate) fn exit_signal_name(
+    status: &ExitStatus,
+    _asked_end: Option<ChildEnd>,
+) -> Option<String> {
     status.signal().and_then(signal_name)
 }
 
@@ -95,28 +149,17 @@ fn signal_name(number: i32) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead as _, BufReader};
-    use std::os::unix::process::ExitStatusExt as _;
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-
     use nix::sys::signal::Signal;
     use nix::unistd::{Pid, getsid};
-    use rstest::rstest;
 
     use super::{prepare_lasting_child_command, signal_name};
-    use crate::child_command::ChildEnd;
-    #[cfg(target_os = "linux")]
-    use crate::linux::caller_process::pin_child_process;
-    #[cfg(target_os = "macos")]
-    use crate::macos::caller_process::pin_child_process;
 
     // Mutation killed: dropping the `setsid` leaves the child in the test's own session.
     #[test]
     fn a_lasting_child_leads_its_own_session() {
         let mut command = tokio::process::Command::new("/bin/sleep");
         command.arg("30");
-        prepare_lasting_child_command(&mut command).expect("the command prepares");
+        prepare_lasting_child_command(&mut command);
         let mut child = command.as_std_mut().spawn().expect("the child starts");
         let pid = Pid::from_raw(i32::try_from(child.id()).expect("a process id fits an i32"));
 
@@ -127,54 +170,10 @@ mod tests {
         assert_eq!(session.expect("the child's session reads"), pid);
     }
 
-    // Mutations killed: sending `SIGKILL` first ends the sleeper by the kill and answers `Kill`;
-    // skipping the `SIGKILL` leaves the trapping child running, so the stop times out.
-    #[rstest]
-    #[case::ignoring_the_stop(
-        r#"trap "" TERM; echo ready; read never"#,
-        ChildEnd::Kill,
-        Signal::SIGKILL
-    )]
-    #[case::answering_the_stop("echo ready; exec /bin/sleep 30", ChildEnd::Stop, Signal::SIGTERM)]
-    fn a_lasting_process_that_ignores_the_stop_signal_is_killed_after_the_grace(
-        #[case] script: &str,
-        #[case] expected_end: ChildEnd,
-        #[case] expected_signal: Signal,
-    ) {
-        let grace = Duration::from_millis(300);
-        let mut child = Command::new("/bin/sh")
-            .args(["-c", script])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("the child starts");
-        // The line comes once the trap is set and before the child waits.
-        let mut ready = String::new();
-        BufReader::new(child.stdout.take().expect("the child's output is piped"))
-            .read_line(&mut ready)
-            .expect("the child's line reads");
-        assert_eq!(ready, "ready\n");
-
-        let started = Instant::now();
-        let end = pin_child_process(child.id()).and_then(|process| process.stop(grace));
-        let elapsed = started.elapsed();
-
-        drop(child.stdin.take());
-        let status = child.wait().expect("the child is reaped");
-        assert_eq!(
-            end.expect("the child pins and its stop ends it"),
-            expected_end
-        );
-        if expected_end == ChildEnd::Kill {
-            assert!(elapsed >= grace, "the kill waits for the grace");
-        }
-        assert_eq!(status.signal(), Some(expected_signal as i32));
-    }
-
     // Mutation killed: answering `None` for a number `Signal` does not list leaves Linux's
     // real-time signals unnamed.
     #[test]
-    fn every_signal_the_system_defines_has_a_name_for_a_lasting_child() {
+    fn every_exit_signal_the_system_defines_has_a_name() {
         let listed = Signal::iterator().map(|signal| signal as i32);
         #[cfg(target_os = "linux")]
         let numbers = listed.chain(libc::SIGRTMIN()..=libc::SIGRTMAX());

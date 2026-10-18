@@ -10,7 +10,6 @@ use std::future::{pending, ready};
 use std::io::{self, ErrorKind, Read, Write};
 use std::mem::MaybeUninit;
 use std::os::fd::AsRawFd;
-use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::ptr;
@@ -158,11 +157,6 @@ pub fn terminal_options(
 /// The process id of the program running in `pty`; always known on macOS and Linux.
 pub fn child_process_id(pty: &Pty) -> Option<u32> {
     Some(pty.child().id())
-}
-
-/// The signal that ended a process, when a signal ended it.
-pub fn exit_signal(status: &ExitStatus) -> Option<i32> {
-    status.signal()
 }
 
 /// Runs a terminal's read loop for the shell's life as a task on `runtime`; `name` names the loop

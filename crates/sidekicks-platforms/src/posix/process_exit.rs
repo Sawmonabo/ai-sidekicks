@@ -30,7 +30,7 @@ pub(crate) fn wait_for_exit(pid: u32, bound: Option<Duration>) -> io::Result<boo
 fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
     use polling::Event;
 
-    use crate::linux::caller_process::open_process_descriptor;
+    use crate::linux::pinned_process::open_process_descriptor;
 
     // Declared before the poller, so it outlives the poller and the registration in it.
     let descriptor = match open_process_descriptor(pid) {

@@ -9,6 +9,7 @@ pub(crate) mod caller_process;
 pub(crate) mod code_signature;
 pub(crate) mod credential_store;
 pub(crate) mod memory;
+pub(crate) mod pinned_process;
 pub(crate) mod processes;
 pub(crate) mod responsibility;
 pub(crate) mod shell_start_confirmation;

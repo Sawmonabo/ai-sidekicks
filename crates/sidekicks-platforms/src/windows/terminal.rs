@@ -257,11 +257,6 @@ pub fn child_process_id(pty: &Pty) -> Option<u32> {
     pty.child_watcher().pid().map(NonZeroU32::get)
 }
 
-/// The signal that ended a process: always `None`, since a Windows exit carries no POSIX signal.
-pub fn exit_signal(_status: &ExitStatus) -> Option<i32> {
-    None
-}
-
 /// Runs a terminal's read loop for the shell's life on a thread of its own named `name`, driven by
 /// `runtime`, since the loop blocks in its wait. Fails when the thread cannot be made.
 pub fn run_terminal_loop(
