@@ -97,11 +97,12 @@ interface ConnectionInitializeRequest {
   protocolVersion: string; // the client's preferred version
   supportedProtocols?: string[]; // at least one; defaults to `[protocolVersion]`
   clientId?: string;
-  // The daemon session token, read from its file at this connect. Optional in the shape so the
-  // daemon answers its absence with `auth.token.invalid`, as it does a wrong one; nothing more is
-  // served on a connection whose handshake lacks the right token. A right token from a process the
-  // daemon or a provider service it reaches started, or from one the system could not name or
-  // trace, is answered `auth.callerRefused`, with the same latch.
+  // The daemon session token, read from its file at this connect. Absent from the packaged
+  // desktop's client helper on macOS, which the daemon admits by its code signature; from any
+  // other caller its absence is answered `auth.token.invalid`, as a wrong one is, and nothing more
+  // is served on that connection. A process the daemon or a provider service it reaches started,
+  // or one the system could not name or trace, is answered `auth.callerRefused` whatever token it
+  // sends, with the same latch.
   sessionToken?: string;
   capabilities?: string[];
 }

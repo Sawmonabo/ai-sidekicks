@@ -23,7 +23,7 @@ use crate::provider::declaration::{
     ProviderDeclarationId, ProviderDeclarationText, ProviderRow, ProviderSessionOption,
     ProviderValue,
 };
-use crate::provider::driver::methods::DRIVER_WIRE_TOKEN_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::repo::mount::RepoMountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -245,15 +245,15 @@ impl ListKey for ProviderPlanWord {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderBuiltInTool {
     /// The tool's name in the provider's own spelling, as an allowlist names it.
-    pub name: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    pub name: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     /// The words the picker draws it in.
     pub label: ProviderDeclarationText,
 }
 
 impl ListKey for ProviderBuiltInTool {
-    type Key = FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>;
+    type Key = FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>;
 
-    fn list_key(&self) -> FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN> {
+    fn list_key(&self) -> FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN> {
         self.name.clone()
     }
 
@@ -304,8 +304,8 @@ pub struct ProviderSection {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>")]
-    pub output_speed_levels: Option<Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>>,
+    #[schemars(with = "Vec<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>")]
+    pub output_speed_levels: Option<Vec<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>>,
     /// The command's reading in each place.
     #[garde(dive)]
     pub places: UniqueList<ProviderPlaceReading, 1, { usize::MAX }>,

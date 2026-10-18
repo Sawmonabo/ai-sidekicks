@@ -6,7 +6,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ```ts
 // Internal driver interface (a Rust trait in the daemon). Two kinds of nominal surface ship here.
-// (a) The daemon-CONSTRUCTED param types (`CreateSessionParams` … `ApplyInterventionRequest` + the
+// (a) The daemon-CONSTRUCTED param types (`CreateSessionParams` … `ApplyInterventionParams` + the
 // intervention payloads) are genuinely trusted — the daemon constructs them in-process. (b) The
 // driver-CONSTRUCTED returns — the capability flags, `DriverCapabilities`, `GetCapabilitiesResult`,
 // `ProviderSessionHandle`, and `ProviderModel`/`ProviderMode` — are normalized at the Plan-003
@@ -18,8 +18,8 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // the nominal `GetCapabilitiesResult` return exactly like `contractVersion`) are bounded at the
 // Plan-003 Phase-2 write seam (semver / non-empty + length + NUL), not here. The contract checks
 // (serde shapes and garde checks) run ONLY on the surfaces that parse UNTRUSTED provider output
-// (the trust boundary): the result envelopes `ApplyInterventionResponse`, `DriverResumeResult`,
-// `MoveSessionToForkResult`, `DriverGoalResult`, and `DriverAuthProbeResult`, provider-declared
+// (the trust boundary): the result envelopes `DriverResumeResult`, `MoveSessionToForkResult`,
+// `DriverGoalResult`, and `DriverAuthProbeResult`, provider-declared
 // `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation` /
 // `McpServerStatusEmission` (each built from provider wire output before the daemon-injected seam
 // sees it). `resumeSession` returns the `DriverResumeResult` discriminated union (defined below) to
@@ -46,17 +46,18 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // provider-driver-capability-payloads.md — are bounded (length + non-whitespace + NUL-rejection) by
 // the `FreeFormText<MAX>` text newtype — rules not expressible in these TS interface shapes. The
 // daemon's provider layer (`crates/sidekicks-daemon/src/provider/`) realizes this enumeration for
-// the driver-internal shapes; `crates/sidekicks-contracts/src/provider/driver/intervention.rs`
-// (`ApplyInterventionResponse`), `commands.rs` (`ProviderCommandEntry`) and `output_speed.rs`
-// (`ProviderOutputSpeedState`) in the same folder realize it for the ones that reach a client, and
-// `crates/sidekicks-contracts/src/free_form_text.rs` holds the `FreeFormText<MAX>` newtype they
-// use.
+// the driver-internal shapes, `ApplyInterventionResponse` among them, a driver result the daemon
+// keeps in `crates/sidekicks-daemon/src/provider/driver/run_control.rs`;
+// `crates/sidekicks-contracts/src/provider/driver/commands.rs` (`ProviderCommandEntry`) and
+// `output_speed.rs` (`ProviderOutputSpeedState`) in the same folder realize it for the ones that
+// reach a client, and `crates/sidekicks-contracts/src/wire/text.rs` holds the
+// `FreeFormText<MAX>` newtype they use.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunRequest): Promise<void>;
-  applyIntervention(params: ApplyInterventionRequest): Promise<ApplyInterventionResponse>;
+  applyIntervention(params: ApplyInterventionParams): Promise<ApplyInterventionResponse>;
   // Move the session itself onto a NEW provider conversation forked from the bound one at a
   // message. Never a rollback (see `MoveSessionToForkParams`).
   moveSessionToFork(params: MoveSessionToForkParams): Promise<MoveSessionToForkResult>;
@@ -109,7 +110,7 @@ interface ProviderDriver {
   // session (Spec-004 §The provider command and skill surface). Gated on
   // `providerCommands`. A LIVE read held as driver-session state and discarded with it: not
   // persisted, not cached across sessions, and folded into no projection — which is why this
-  // capability adds no table and no column. Every entry carries the (driverName,
+  // capability adds no table and no column. Every entry carries the (providerName,
   // providerAccountId) it was read under, and that binding is a ROUTING INVARIANT: an entry is
   // offerable only to agents of that same binding, and the one entry V1 dispatches is dispatchable
   // only through them.
@@ -155,7 +156,7 @@ type RunOutputSpeedSettledListener = (
 //   * `session.providerCommand.subscribe` takes a SESSION. The `/` list is bound to the session's
 //     live provider process, so the daemon follows that process and a new process brings a new
 //     list; the client never names an agent, a run or a binding to get it. Every entry still
-//     carries the `(driverName, providerAccountId)` it was read under ([Spec-004 §The provider
+//     carries the `(providerName, providerAccountId)` it was read under ([Spec-004 §The provider
 //     command and skill
 // surface](../../specs/004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface)).
 //
@@ -262,7 +263,7 @@ interface ListProviderCommandsParams {
 // (`ProviderId`, checked against the registered drivers), and the account. `providerAccountId` is
 // null where the session has bound no account; absence is stated, never synthesized.
 interface ProviderCommandBinding {
-  driverName: ProviderId;
+  providerName: ProviderId;
   providerAccountId: string | null;
 }
 interface ProviderCommandEntry {
@@ -510,7 +511,7 @@ interface InterruptRunRequest {
 // `session.restore`, whose conversation leg reaches the driver through `rewindConversation`
 // ([Spec-013 §Interfaces And
 // Contracts](../../specs/013-persistence-and-recovery.md#interfaces-and-contracts)).
-type ApplyInterventionRequest =
+type ApplyInterventionParams =
   | {
       type: "steer";
       targetRunId: RunId;

@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use rusqlite::Connection;
@@ -33,7 +33,7 @@ use sidekicks_contracts::session::search::{
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_contracts::wire::{False, True};
-use sidekicks_search::index::{IndexRowKind, SearchIndex, SearchIndexError};
+use sidekicks_search::index::{HeldSearch, IndexRowKind, SearchIndex, SearchIndexError};
 
 use crate::database::stored_column::{optional_text_column, rowid_column, text_column};
 use crate::ipc::domain_error::DomainError;
@@ -70,15 +70,6 @@ const READ_BATCH_GROWTH: usize = 4;
 // first page ranks once.
 const FIRST_RANKED_SESSIONS: usize = SESSION_SEARCH_PAGE_LIMIT_MAX + 1;
 
-/// What `session.search` and `transcript.search` read: a read connection of their own, which
-/// each call reads in one transaction, and the search index every search shares.
-pub(crate) struct SearchServiceDeps {
-    /// The read connection every read of the search runs on.
-    pub(crate) reader: Connection,
-    /// The search index.
-    pub(crate) index: Arc<SearchIndex>,
-}
-
 /// Why a `session.search` call failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SessionSearchError {
@@ -97,8 +88,9 @@ pub(crate) enum SessionSearchError {
 }
 
 /// Answers `session.search` from the search index and the read connection its caller lends, holding
-/// the searches whose later pages are still to be read. It runs no timer: its owner reads
-/// [`SessionSearchService::next_held_search_expiry`] and lets go of what has expired.
+/// the searches whose later pages are still to be read; shared by every search, which run at once.
+/// It runs no timer: its owner reads [`SessionSearchService::next_held_search_expiry`] and lets go
+/// of what has expired.
 pub(crate) struct SessionSearchService {
     snapshots: SearchSnapshots,
 }
@@ -118,25 +110,26 @@ impl SessionSearchService {
         }
     }
 
-    /// One page of the query's hits, grouped by session, read on `deps`, from `after_cursor` when
-    /// it is given; a query that names nothing answers an empty last page.
+    /// One page of the query's hits, grouped by session, read on `reader` and `index`, from
+    /// `after_cursor` when it is given; a query that names nothing answers an empty last page.
     /// `applied_floor_position` is where the rowid floor log stood when the index last matched the
     /// database, read before the call, and `now` the wall time held searches expire by. A page
     /// reads the database in one read transaction, and every page after the first reads the view
     /// the first one held. Fails with `session.search.cursorUnresolvable` for a cursor that
     /// continues no search held for this query, and as a database or index read fails.
     pub(crate) fn search(
-        &mut self,
-        deps: &SearchServiceDeps,
+        &self,
+        reader: &Connection,
+        index: &SearchIndex,
         request: &SessionSearchRequest,
         applied_floor_position: i64,
         now: SystemTime,
     ) -> Result<SessionSearchResponse, SessionSearchError> {
-        let transaction = deps.reader.unchecked_transaction()?;
+        let transaction = reader.unchecked_transaction()?;
         let response = answer(
             &transaction,
-            &deps.index,
-            &mut self.snapshots,
+            index,
+            &self.snapshots,
             request,
             applied_floor_position,
             now,
@@ -158,12 +151,12 @@ impl SessionSearchService {
 
     /// Lets go of every held search that has gone unpaged too long or been held too long by `now`;
     /// their cursors are refused from then on.
-    pub(crate) fn let_go_of_expired_searches(&mut self, now: SystemTime) {
+    pub(crate) fn let_go_of_expired_searches(&self, now: SystemTime) {
         self.snapshots.let_go_expired(now);
     }
 
     /// Lets go of every held search, as the index closes; their cursors are refused from then on.
-    pub(crate) fn let_go_of_held_searches(&mut self) {
+    pub(crate) fn let_go_of_held_searches(&self) {
         self.snapshots.let_go_of_all();
     }
 }
@@ -171,7 +164,7 @@ impl SessionSearchService {
 fn answer(
     reader: &Connection,
     index: &SearchIndex,
-    snapshots: &mut SearchSnapshots,
+    snapshots: &SearchSnapshots,
     request: &SessionSearchRequest,
     applied_floor_position: i64,
     now: SystemTime,
@@ -196,17 +189,18 @@ fn answer(
             cursor: after_cursor,
             position,
         };
-        let page = read_held_page(reader, snapshot, limit, Some(resume))?;
+        let page = read_held_page(reader, &snapshot, limit, Some(resume))?;
         return Ok(response_of(page, || snapshot_id));
     }
-    let Some(mut snapshot) = open_search(index, query, applied_floor_position)? else {
+    let Some(snapshot) = open_search(index, query, applied_floor_position)? else {
         return Ok(SessionSearchResponse::Terminal(SessionSearchTerminal {
             groups: Vec::new(),
             has_more: False::default(),
         }));
     };
     // A failed first page drops the search here, letting go of its view, since no cursor names it.
-    let page = read_held_page(reader, &mut snapshot, limit, None)?;
+    let snapshot = Arc::new(snapshot);
+    let page = read_held_page(reader, &snapshot, limit, None)?;
     // A search answered whole on its first page has no later page to hold it for: the last page
     // never calls the hold, so the search drops with it and lets go of its view.
     Ok(response_of(page, move || snapshots.hold(snapshot, now)))
@@ -229,26 +223,29 @@ fn open_search(
     )?;
     Ok(Some(SearchSnapshot {
         query,
-        view,
+        view: Mutex::new(view),
         floor_position: applied_floor_position,
     }))
 }
 
-// A page of a held search, from where `resume` names when a cursor continues it.
+// A page of a held search, from where `resume` names when a cursor continues it, its view locked
+// for the page.
 fn read_held_page(
     reader: &Connection,
-    snapshot: &mut SearchSnapshot,
+    snapshot: &SearchSnapshot,
     limit: NonZeroUsize,
     resume: Option<PageResume<'_>>,
 ) -> Result<SearchPage, SessionSearchError> {
     let held_row_check = RowidFloorLog::new(reader).held_row_check(snapshot.floor_position)?;
+    let mut view = snapshot.lock_view();
     let hit_lines =
         HitLineReader::new(IndexRowReader::new(reader), SESSION_SEARCH_HIT_LINE_MAX_LEN);
     let first_index = resume.map_or(0, |resume| resume.position.session_index);
     let candidates = SessionCandidates {
         reader,
         hit_lines,
-        snapshot,
+        query: &snapshot.query,
+        view: &mut view,
         held_row_check,
         resume,
         limit: limit.get(),
@@ -296,7 +293,8 @@ struct ReadBatch {
 struct SessionCandidates<'read> {
     reader: &'read Connection,
     hit_lines: HitLineReader<'read>,
-    snapshot: &'read mut SearchSnapshot,
+    query: &'read ParsedSearchQuery,
+    view: &'read mut HeldSearch,
     held_row_check: Option<HeldRowCheck>,
     resume: Option<PageResume<'read>>,
     limit: usize,
@@ -338,8 +336,7 @@ impl SessionCandidates<'_> {
         if let Some(batch) = &mut self.batch {
             if !batch.unread.is_empty() {
                 let group = take_group(&mut batch.unread, self.hits_offered, self.limit);
-                let candidates =
-                    read_group(&self.hit_lines, &self.snapshot.query, group, self.limit + 1)?;
+                let candidates = read_group(&self.hit_lines, self.query, group, self.limit + 1)?;
                 let hit_count: usize = candidates
                     .iter()
                     .map(|candidate| candidate.hits.len())
@@ -364,10 +361,7 @@ impl SessionCandidates<'_> {
     // The next batch of the search's order, with each session the directory still holds and its
     // hit keys; `None` past the order's end.
     fn read_batch(&mut self) -> Result<Option<ReadBatch>, SessionSearchError> {
-        let session_keys = self
-            .snapshot
-            .view
-            .sessions_at(self.batch_start, self.batch_size)?;
+        let session_keys = self.view.sessions_at(self.batch_start, self.batch_size)?;
         if session_keys.is_empty() {
             return Ok(None);
         }
@@ -390,7 +384,7 @@ impl SessionCandidates<'_> {
         let hit_key_lists = if held_keys.is_empty() {
             Vec::new()
         } else {
-            self.snapshot.view.hits_of(&held_keys)?
+            self.view.hits_of(&held_keys)?
         };
         let mut hit_keys_by_session: HashMap<u64, Vec<u64>> =
             held_keys.into_iter().zip(hit_key_lists).collect();
@@ -575,4 +569,187 @@ fn page_hit_of(hit_line: HitLine) -> Result<PageHit, EventCursorPositionOutOfRan
                 .expect("a hit's first match starts inside its cut line, so its range is kept"),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::{Arc, mpsc};
+    use std::thread;
+    use std::time::{Duration, Instant, SystemTime};
+
+    use rusqlite::Connection;
+    use sidekicks_contracts::session::methods::{
+        SessionSearchCursor, SessionSearchLimit, SessionSearchRequest, SessionSearchResponse,
+    };
+    use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_search::index::SearchIndex;
+    use tempfile::TempDir;
+
+    use super::{SessionSearchError, SessionSearchService};
+    use crate::session::search::cursor::decode_search_cursor;
+    use crate::session::search::index::outbox::OutboxReader;
+    use crate::session::search::index::rebuild::{
+        SearchIndexOpening, build_search_index, open_search_index,
+    };
+    use crate::session::search::index::rows::IndexRowReader;
+    use crate::session::search::index::schema::{add_titled_session, make_search_source_tables};
+    use crate::session::search::snapshots::SearchSnapshot;
+
+    // How long a page the test expects is waited for before the test fails.
+    const PAGE_BOUND: Duration = Duration::from_secs(30);
+
+    // Titled sessions in a database file, their index, and the service paging them; each page
+    // reads on a connection of its own, as the read pool lends one to each search.
+    struct HeldSearches {
+        folder: TempDir,
+        index: SearchIndex,
+        service: SessionSearchService,
+    }
+
+    impl HeldSearches {
+        async fn open() -> Arc<Self> {
+            let folder = tempfile::tempdir().expect("the test makes a temporary folder");
+            let connection =
+                Connection::open(folder.path().join("daemon.db")).expect("the database opens");
+            make_search_source_tables(&connection);
+            for number in 1..=3 {
+                add_titled_session(
+                    &connection,
+                    &format!("0190a5a0-0000-7000-8000-00000000000{number}"),
+                );
+            }
+            let highest_id_given = OutboxReader::new(&connection)
+                .highest_id_given()
+                .expect("the outbox's highest id reads");
+            let index_folder = folder.path().join("search-index");
+            build_search_index(
+                &index_folder,
+                &IndexRowReader::new(&connection),
+                highest_id_given,
+            )
+            .expect("the index is built");
+            let SearchIndexOpening::Opened(index) =
+                open_search_index(index_folder, highest_id_given)
+                    .await
+                    .expect("the index opens")
+            else {
+                panic!("a built index serves");
+            };
+            Arc::new(Self {
+                folder,
+                index: *index,
+                service: SessionSearchService::new(),
+            })
+        }
+
+        fn database_path(&self) -> PathBuf {
+            self.folder.path().join("daemon.db")
+        }
+
+        // One page of `query`, a hit a page, from `after_cursor` when it is given.
+        fn page(
+            &self,
+            query: &str,
+            after_cursor: Option<SessionSearchCursor>,
+        ) -> Result<SessionSearchResponse, SessionSearchError> {
+            let reader = Connection::open(self.database_path()).expect("the database opens");
+            let request = SessionSearchRequest {
+                query: FreeFormText::new(query.to_owned()).expect("a query"),
+                after_cursor,
+                limit: Some(SessionSearchLimit::new(1).expect("a limit")),
+            };
+            self.service
+                .search(&reader, &self.index, &request, 0, SystemTime::now())
+        }
+
+        // A first page of `query`, whose search is held, and the cursor that continues it.
+        fn held_search(&self, query: &str) -> (Arc<SearchSnapshot>, SessionSearchCursor) {
+            let page = match self.page(query, None) {
+                Ok(SessionSearchResponse::Continuing(page)) => page,
+                other => panic!("a hit a page over three sessions continues: {other:?}"),
+            };
+            let snapshot_id = decode_search_cursor(&page.next_cursor)
+                .expect("the cursor reads")
+                .snapshot_id;
+            let snapshot = self
+                .service
+                .snapshots
+                .find(&snapshot_id, SystemTime::now())
+                .expect("the search is held");
+            (snapshot, page.next_cursor)
+        }
+
+        // Pages `query` from `cursor` on a thread of its own, sending its answer.
+        fn page_on_a_thread(
+            self: &Arc<Self>,
+            query: &'static str,
+            cursor: SessionSearchCursor,
+            answers: mpsc::Sender<Result<SessionSearchResponse, SessionSearchError>>,
+        ) {
+            let searches = Arc::clone(self);
+            thread::spawn(move || {
+                answers
+                    .send(searches.page(query, Some(cursor)))
+                    .expect("the test waits for the answer");
+            });
+        }
+    }
+
+    #[tokio::test]
+    async fn a_page_of_one_held_search_never_waits_on_another_s_page() {
+        let searches = HeldSearches::open().await;
+        let (first, _) = searches.held_search("billing");
+        let (_, second_cursor) = searches.held_search("fix");
+        // A page of the first search under way.
+        let first_view = first.lock_view();
+        let (answers, answered) = mpsc::channel();
+
+        searches.page_on_a_thread("fix", second_cursor, answers);
+
+        let answer = answered
+            .recv_timeout(PAGE_BOUND)
+            .expect("the second search pages while the first's page reads");
+        assert!(
+            answer.is_ok(),
+            "the second search's page answers: {answer:?}"
+        );
+        drop(first_view);
+    }
+
+    #[tokio::test]
+    async fn two_pages_of_one_held_search_read_at_once() {
+        let searches = HeldSearches::open().await;
+        let (held, cursor) = searches.held_search("billing");
+        // Holds both pages at the view, past the lookup that finds their search.
+        let view = held.lock_view();
+        let (answers, answered) = mpsc::channel();
+
+        searches.page_on_a_thread("billing", cursor.clone(), answers.clone());
+        searches.page_on_a_thread("billing", cursor, answers);
+        // The test's, the held set's and each page's hold on the search; a page that does not find
+        // its search answers at once instead.
+        let deadline = Instant::now() + PAGE_BOUND;
+        let mut early = Vec::new();
+        while Arc::strong_count(&held) < 4 && early.is_empty() && Instant::now() < deadline {
+            early.extend(answered.try_recv());
+            thread::sleep(Duration::from_millis(1));
+        }
+        drop(view);
+        let mut pages = early;
+        while pages.len() < 2 {
+            pages.push(
+                answered
+                    .recv_timeout(PAGE_BOUND)
+                    .expect("each page answers once the view is free"),
+            );
+        }
+
+        for page in pages {
+            assert!(
+                matches!(page, Ok(SessionSearchResponse::Continuing(_))),
+                "both pages of the held search answer its next page: {page:?}"
+            );
+        }
+    }
 }

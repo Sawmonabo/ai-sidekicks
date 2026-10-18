@@ -1,5 +1,6 @@
 //! The macOS and Linux pieces of the `shell` mode: the default shell, the parent check that
-//! keeps a shell from outliving the daemon, and the exec on the program's resolved path.
+//! keeps a shell from outliving the daemon, and the exec on the program's resolved path, on macOS
+//! as its own responsible process once the daemon confirms it started the mode.
 
 use std::convert::Infallible;
 use std::ffi::{CString, OsStr};
@@ -11,8 +12,14 @@ use nix::errno::Errno;
 #[cfg(target_os = "linux")]
 use nix::sys::prctl::{set_pdeathsig, set_thp_disable};
 use nix::sys::signal::{SigHandler, Signal, signal};
-use nix::unistd::{AccessFlags, Pid, access, execve, getppid};
+#[cfg(target_os = "linux")]
+use nix::unistd::execve;
+use nix::unistd::{AccessFlags, Pid, access, getppid};
 
+#[cfg(target_os = "macos")]
+use crate::macos::responsibility::OwnRootStart;
+#[cfg(target_os = "macos")]
+use crate::macos::shell_start_confirmation::receive_confirmation;
 use crate::shell_start::{ShellStart, ShellStartError};
 
 // zsh, the system's own shell on macOS.
@@ -58,15 +65,19 @@ pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
 }
 
 /// Prepares the `shell` mode's own process for its exec: arms it as [`arm_parent_death`]
-/// does, then sets `SIGPIPE` back to its default, since an ignored signal survives `execve`. Fails
-/// with [`ShellStartError::DaemonGone`] when the daemon is no longer the parent, and with the
-/// variant naming the call the system refused.
+/// does; on macOS waits for the daemon's confirmation that it started this process, without which
+/// no program starts as its own responsible process; then sets `SIGPIPE` back to its default, since
+/// an ignored signal survives `execve`. Fails with [`ShellStartError::DaemonGone`] when the daemon
+/// is no longer the parent, [`ShellStartError::Unconfirmed`] when the confirmation does not come,
+/// and with the variant naming the call the system refused.
 pub fn prepare_shell_start(daemon_pid: u32) -> Result<(), ShellStartError> {
     arm(daemon_pid).map_err(|failure| match failure {
         ArmingFailure::DaemonGone => ShellStartError::DaemonGone,
         #[cfg(target_os = "linux")]
         ArmingFailure::Refused(errno) => ShellStartError::ArmingRefused(io::Error::from(errno)),
     })?;
+    #[cfg(target_os = "macos")]
+    receive_confirmation().map_err(ShellStartError::Unconfirmed)?;
     // SAFETY: the default disposition installs no handler, so no code of this program can run
     // inside a signal.
     unsafe { signal(Signal::SIGPIPE, SigHandler::SigDfl) }
@@ -77,9 +88,10 @@ pub fn prepare_shell_start(daemon_pid: u32) -> Result<(), ShellStartError> {
 /// Replaces the process with `start`'s program, with exactly its arguments and environment, and
 /// returns only on failure: `InvalidInput` for a NUL in the program, an argument or the
 /// environment, `ENOENT` for a bare name no `PATH` folder holds as a program, and otherwise the
-/// error `execve` answers. A bare name is looked up on the environment's own `PATH`, and the exec
-/// is `execve` on the resolved path, never `execvp`, which runs a file the kernel refuses through
-/// `/bin/sh`.
+/// error the exec answers. A bare name is looked up on the environment's own `PATH`, and the exec
+/// runs the resolved path, never through `execvp`, which runs a file the kernel refuses through
+/// `/bin/sh`. On macOS the program starts as its own responsible process, so nothing it starts
+/// reads as the daemon's; Linux execs with `execve`.
 pub fn start_program(start: &ShellStart) -> io::Error {
     let Err(error) = exec_program(start);
     error
@@ -103,7 +115,17 @@ fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
         let resolved = find_program(&start.program, search_path(start))?;
         CString::new(resolved.into_os_string().into_vec())?
     };
+    exec(path, argv, envp)
+}
+
+#[cfg(target_os = "linux")]
+fn exec(path: CString, argv: Vec<CString>, envp: Vec<CString>) -> io::Result<Infallible> {
     execve(&path, &argv, &envp).map_err(io::Error::from)
+}
+
+#[cfg(target_os = "macos")]
+fn exec(path: CString, argv: Vec<CString>, envp: Vec<CString>) -> io::Result<Infallible> {
+    Err(OwnRootStart::new(path, argv, envp)?.exec())
 }
 
 fn search_path(start: &ShellStart) -> &str {

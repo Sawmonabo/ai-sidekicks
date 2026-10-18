@@ -40,7 +40,7 @@ pub(crate) fn read_claude_ask_action(
 ) -> ClaudeAskReading {
     if tool_name == CLAUDE_PLAN_EXIT_TOOL_NAME {
         return ClaudeAskReading {
-            action: ProviderAskAction::Plan,
+            action: ProviderAskAction::Plan {},
             rule_scopes: Vec::new(),
             is_provider_flagged: false,
         };
@@ -123,7 +123,7 @@ mod tests {
         json!({"plan": "Ship it"}),
         json!({"suppress_always_allow_rule": true}),
         ClaudeAskReading {
-            action: ProviderAskAction::Plan,
+            action: ProviderAskAction::Plan {},
             rule_scopes: Vec::new(),
             is_provider_flagged: false,
         }

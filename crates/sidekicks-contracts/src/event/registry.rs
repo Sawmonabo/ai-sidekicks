@@ -95,6 +95,9 @@ session_event_types! {
         AgentRunRolledBack = "agent.run.rolledBack",
         AgentRunProviderInitialized = "agent.run.providerInitialized",
         AgentTurnStarted = "agent.turn.started",
+        AgentTurnCompleted = "agent.turn.completed",
+        AgentTurnInterrupted = "agent.turn.interrupted",
+        AgentTurnFailed = "agent.turn.failed",
         AgentRunWorkerShuttingDown = "agent.run.workerShuttingDown",
         AgentRunStepLimitReached = "agent.run.stepLimit.reached",
         AgentRunTokenLimitReached = "agent.run.tokenLimit.reached",
@@ -105,8 +108,8 @@ session_event_types! {
         AgentRunUsageCreditsChoiceRequested = "agent.run.usageCreditsChoice.requested",
         AgentRunUsageCreditsChoiceResolved = "agent.run.usageCreditsChoice.resolved",
     ]
-    /// The event types of the `assistantOutput` category.
-    ASSISTANT_OUTPUT_EVENT_TYPES = AssistantOutput [
+    /// The event types of the `agentOutput` category.
+    AGENT_OUTPUT_EVENT_TYPES = AgentOutput [
         AgentMessageSent = "agent.message.sent",
         AgentThinkingUpdated = "agent.thinking.updated",
     ]

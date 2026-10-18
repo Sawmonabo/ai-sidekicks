@@ -90,6 +90,7 @@ ignored = [
 ]
 
 [dependencies]
+alacritty_terminal.workspace = true
 anyhow.workspace = true
 axum = { workspace = true, features = ["http1", "tokio"] }
 base16ct.workspace = true
@@ -100,6 +101,7 @@ cedar-policy.workspace = true
 chacha20poly1305.workspace = true
 chromiumoxide_cdp.workspace = true
 clap.workspace = true
+console.workspace = true
 crash-handler.workspace = true
 croner.workspace = true
 csv.workspace = true
@@ -109,6 +111,7 @@ dugong.workspace = true
 ed25519-dalek.workspace = true
 fast_image_resize.workspace = true
 ferriki.workspace = true
+file-format.workspace = true
 flate2.workspace = true
 flexi_logger.workspace = true
 form_urlencoded.workspace = true
@@ -132,13 +135,8 @@ jwt-simple.workspace = true
 lettre.workspace = true
 # Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
 libsqlite3-sys.workspace = true
-llrt_abort.workspace = true
 llrt_buffer.workspace = true
 llrt_crypto.workspace = true
-llrt_exceptions.workspace = true
-llrt_stream_web.workspace = true
-llrt_timers.workspace = true
-llrt_util.workspace = true
 lru.workspace = true
 memchr.workspace = true
 minidumper.workspace = true
@@ -190,9 +188,11 @@ tracing-subscriber.workspace = true
 tree-sitter.workspace = true
 tree-sitter-bash.workspace = true
 unicode-normalization.workspace = true
+unicode-properties.workspace = true
 unicode-segmentation.workspace = true
 url.workspace = true
 uuid.workspace = true
+vte = { workspace = true, features = ["ansi"] }
 web-push-native.workspace = true
 webp.workspace = true
 x25519-dalek.workspace = true
@@ -209,6 +209,8 @@ proptest.workspace = true
 rstest.workspace = true
 # A file whose removal the system refuses, for the clone's failed-removal test.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The screen copy drawn without a shell, for the screen listener's answer tests.
+sidekicks-terminal = { workspace = true, features = ["test-support"] }
 standardwebhooks.workspace = true
 tempfile.workspace = true
 # The paused clock the clone progress gate's and the stream batcher's tests drive.

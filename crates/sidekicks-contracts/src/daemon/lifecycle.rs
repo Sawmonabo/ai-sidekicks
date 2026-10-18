@@ -15,19 +15,16 @@ use crate::wire::True;
 /// milliseconds.
 pub const DAEMON_STOP_TERMINAL_DRAIN_MS: u64 = 2_000;
 
-/// How long it then gives the terminal host process to exit before it kills it, in milliseconds.
-pub const DAEMON_STOP_TERMINAL_HOST_DRAIN_MS: u64 = 2_000;
-
 ts_constants! {
     /// The words the service's ready line starts with, written once it answers on its socket;
     /// whoever started the process waits for them.
     pub const DAEMON_READY_LINE: &str = "The daemon is ready";
 
-    /// The longest a stopping service's drain runs, in milliseconds. A client that saw a stop or
-    /// restart taken waits this long for the service to exit before it signals it, so no signal
-    /// cuts the drain short.
-    pub const DAEMON_STOP_DRAIN_BOUND_MS: u64 =
-        DAEMON_STOP_TERMINAL_DRAIN_MS + DAEMON_STOP_TERMINAL_HOST_DRAIN_MS;
+    /// The longest a stopping service's drain runs, in milliseconds: its terminals' drain and
+    /// time beside it for a write still running to finish rather than roll back. A client that saw
+    /// a stop or restart taken waits this long for the service to exit before it signals it, so no
+    /// signal cuts the drain short.
+    pub const DAEMON_STOP_DRAIN_BOUND_MS: u64 = 4_000;
 }
 
 /// The service took the stop or restart.

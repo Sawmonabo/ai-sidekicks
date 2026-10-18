@@ -12,8 +12,8 @@ use crate::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, stream_frame};
 use crate::method::methods;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
-use crate::provider::driver::length_limits::DRIVER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
 use crate::run::children::{
@@ -86,7 +86,7 @@ pub struct ProcessExitWithCode {
     #[schemars(with = "Never")]
     pub signal: Option<Never>,
     /// The last lines it printed.
-    pub output_tail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+    pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
 /// A process a signal ended, and the last lines it printed.
@@ -95,7 +95,7 @@ pub struct ProcessExitWithCode {
 #[schemars(inline)]
 pub struct ProcessExitWithSignal {
     /// The signal's name.
-    pub signal: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+    pub signal: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     /// Never present beside a signal.
     #[serde(
         default,
@@ -105,7 +105,7 @@ pub struct ProcessExitWithSignal {
     #[schemars(with = "Never")]
     pub exit_code: Option<Never>,
     /// The last lines it printed.
-    pub output_tail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+    pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
 /// How a process that ended on its own exited: exactly one of its exit code and the signal that
@@ -121,23 +121,19 @@ pub enum ProcessExit {
     Signal(ProcessExitWithSignal),
 }
 
-/// How a completed run ended: its turn finished (`turn`) or its whole task did (`task`).
+/// Why the daemon itself ended a run `stopped`: the run passed the token limit the person set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RunCompletionKind {
-    /// The turn finished.
-    Turn,
-    /// The whole task finished.
-    Task,
+pub enum StopTrigger {
+    /// The token limit was passed.
+    TokenLimit,
 }
 
-/// Declares the two bodies of a state change: each carries the members every transition has and
-/// adds what its own target state may carry.
+/// Declares the four bodies of a state change: each carries the members every transition has and
+/// adds what its own target state may carry. A body marked `not_failed` also refuses the failure
+/// cause and the process exit, which only `failed` carries.
 macro_rules! run_state_change_members {
-    ($(
-        $(#[doc = $doc:literal])+
-        pub struct $name:ident { $($extra:tt)* }
-    )+) => {$(
+    (@body $(#[doc = $doc:literal])+ $name:ident { $($extra:tt)* }) => {
         $(#[doc = $doc])+
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -173,16 +169,8 @@ macro_rules! run_state_change_members {
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>")]
-            pub provider_failure_detail: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
-            /// Whether its turn or its whole task finished.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "RunCompletionKind")]
-            pub completion_kind: Option<RunCompletionKind>,
+            #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+            pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
             /// Present only on a terminal the daemon itself closed, which is never a crash.
             #[serde(
                 default,
@@ -200,45 +188,84 @@ macro_rules! run_state_change_members {
             )]
             #[schemars(with = "ExecutionPosture")]
             pub execution_posture: Option<ExecutionPosture>,
-            /// Why the daemon itself stopped the run; absent when it did not.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "InterruptReason")]
-            pub trigger: Option<InterruptReason>,
             $($extra)*
             /// When the transition happened.
             #[garde(dive)]
             pub timestamp: WireInstant,
         }
+    };
+    (@kind failed $(#[doc = $doc:literal])+ $name:ident { $($extra:tt)* }) => {
+        run_state_change_members!(@body $(#[doc = $doc])+ $name { $($extra)* });
+    };
+    (@kind not_failed $(#[doc = $doc:literal])+ $name:ident { $($extra:tt)* }) => {
+        run_state_change_members!(@body $(#[doc = $doc])+ $name {
+            /// Never present outside `failed`.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Never")]
+            pub failure_cause: Option<Never>,
+            /// Never present outside `failed`.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Never")]
+            pub process_exit: Option<Never>,
+            $($extra)*
+        });
+    };
+    ($(
+        $(#[doc = $doc:literal])+
+        pub struct $name:ident: $kind:ident { $($extra:tt)* }
+    )+) => {$(
+        run_state_change_members!(@kind $kind $(#[doc = $doc])+ $name { $($extra)* });
     )+};
 }
 
 run_state_change_members! {
-    /// A transition into any state but `failed`, which carries no failure cause or process exit.
-    pub struct RunStateChangeMembers {
-        /// Never present outside `failed`.
+    /// A transition into any state but `interrupted`, `stopped` or `failed`, which carries no
+    /// failure cause, process exit or trigger.
+    pub struct RunStateChangeMembers: not_failed {
+        /// Never present outside `interrupted` and `stopped`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
         #[schemars(with = "Never")]
-        pub failure_cause: Option<Never>,
-        /// Never present outside `failed`.
+        pub trigger: Option<Never>,
+    }
+
+    /// A transition into `interrupted`, with the daemon's own interrupt reason where it has one.
+    pub struct RunInterruptedStateChangeMembers: not_failed {
+        /// Why the daemon itself interrupted the run; absent when it did not.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "Never")]
-        pub process_exit: Option<Never>,
+        #[schemars(with = "InterruptReason")]
+        pub trigger: Option<InterruptReason>,
+    }
+
+    /// A transition into `stopped`, with the daemon's own stop reason where it has one.
+    pub struct RunStoppedStateChangeMembers: not_failed {
+        /// Why the daemon itself stopped the run; absent when it did not.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "StopTrigger")]
+        pub trigger: Option<StopTrigger>,
     }
 
     /// A transition into `failed`, with its typed cause and its provider process's own exit.
-    pub struct RunFailedStateChangeMembers {
+    pub struct RunFailedStateChangeMembers: failed {
         /// The run's typed failure cause.
         #[serde(
             default,
@@ -256,12 +283,21 @@ run_state_change_members! {
         )]
         #[schemars(with = "ProcessExit")]
         pub process_exit: Option<ProcessExit>,
+        /// Never present outside `interrupted` and `stopped`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub trigger: Option<Never>,
     }
 }
 
 /// One run state transition as `agent.run.subscribe` delivers it, tagged on its new state, with its
-/// new run version; only a transition into `failed` carries a failure cause or a process exit.
-/// `sessionId` is carried by the subscription's scope, not repeated per event.
+/// new run version; only a transition into `failed` carries a failure cause or a process exit, and
+/// only one into `interrupted` or `stopped` carries the daemon's own trigger. `sessionId` is
+/// carried by the subscription's scope, not repeated per event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(tag = "newState", rename_all = "camelCase")]
 pub enum RunStateChangeEvent {
@@ -282,9 +318,9 @@ pub enum RunStateChangeEvent {
     /// Into `completed`.
     Completed(#[garde(dive)] RunStateChangeMembers),
     /// Into `interrupted`.
-    Interrupted(#[garde(dive)] RunStateChangeMembers),
+    Interrupted(#[garde(dive)] RunInterruptedStateChangeMembers),
     /// Into `stopped`.
-    Stopped(#[garde(dive)] RunStateChangeMembers),
+    Stopped(#[garde(dive)] RunStoppedStateChangeMembers),
     /// Into `failed`.
     Failed(#[garde(dive)] RunFailedStateChangeMembers),
 }
@@ -631,7 +667,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<RunFailureCategory>().checked(),
         Definition::read::<ProcessExit>().checked(),
-        Definition::read::<RunCompletionKind>().checked(),
+        Definition::read::<StopTrigger>().checked(),
         Definition::read::<RunStateChangeEvent>().checked(),
         Definition::read::<AgentRunRolledBackEvent>().checked(),
         Definition::read::<RunStateStreamEvent>(),

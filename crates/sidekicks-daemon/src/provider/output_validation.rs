@@ -2,7 +2,7 @@
 //! bounds of `runtime_bindings` and `driver_contract_meta` live here once, and every refusal is a
 //! [`ProviderOutputValidationError`] that names the field and never the value.
 
-use sidekicks_contracts::provider::driver::methods::DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -20,13 +20,13 @@ const CLI_VERSION_RAW_MAX_LEN: usize = 128;
 const CLI_VERSION_SEMVER_MAX_LEN: usize = 64;
 
 /// A provider-declared value refused where it would be stored. It names the field and why, and the
-/// driver when one is known, but never the value, which is provider-supplied and may carry an
+/// provider when one is known, but never the value, which is provider-supplied and may carry an
 /// install path.
 #[derive(Debug, thiserror::Error)]
 #[error("invalid provider {field}: {reason}")]
 pub(crate) struct ProviderOutputValidationError {
-    /// The driver whose report was refused, when the check knows it.
-    pub(crate) driver_name: Option<ProviderId>,
+    /// The provider whose report was refused, when the check knows it.
+    pub(crate) provider_name: Option<ProviderId>,
     /// The stored field refused.
     pub(crate) field: &'static str,
     /// Why, in words.
@@ -49,13 +49,13 @@ pub(crate) fn is_canonical_semver(token: &str) -> bool {
 /// Checks a driver's declared contract version, whose text bounds its type already holds. An error
 /// when it is not a canonical semantic version.
 pub(crate) fn check_contract_version(
-    contract_version: &FreeFormText<DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN>,
+    contract_version: &FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>,
 ) -> Result<(), ProviderOutputValidationError> {
     if is_canonical_semver(contract_version.as_str()) {
         return Ok(());
     }
     Err(ProviderOutputValidationError {
-        driver_name: None,
+        provider_name: None,
         field: "contract_version",
         reason: "must be a canonical, identifying semver string (no build metadata)",
     })
@@ -70,23 +70,23 @@ pub(crate) fn check_resume_handle(
         return Ok(());
     }
     Err(ProviderOutputValidationError {
-        driver_name: None,
+        provider_name: None,
         field: "resume_handle",
         reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
     })
 }
 
 /// Checks a version report against its storage bounds, once, where the daemon reads the version
-/// off the spawned build; the stores trust the report after that. An error naming `driver_name`
+/// off the spawned build; the stores trust the report after that. An error naming `provider_name`
 /// when the printed version is blank, holds a NUL or is too long, or the parsed one is not a
 /// canonical semantic version within its bound.
 pub(crate) fn check_cli_version_report(
-    driver_name: ProviderId,
+    provider_name: ProviderId,
     report: &DriverCliVersionReport,
 ) -> Result<(), ProviderOutputValidationError> {
     if !is_free_form_text::<CLI_VERSION_RAW_MAX_LEN>(&report.raw_version) {
         return Err(ProviderOutputValidationError {
-            driver_name: Some(driver_name),
+            provider_name: Some(provider_name),
             field: "cli_version_raw",
             reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
         });
@@ -100,7 +100,7 @@ pub(crate) fn check_cli_version_report(
         })
     {
         return Err(ProviderOutputValidationError {
-            driver_name: Some(driver_name),
+            provider_name: Some(provider_name),
             field: "cli_version_semver",
             reason: "must be a canonical, NUL-free semver string within length bounds",
         });

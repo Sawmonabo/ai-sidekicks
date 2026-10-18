@@ -3,7 +3,8 @@
 //! `STREAM_FRAME_MAX_CHANGES`th; a throttle, not a debounce. The batcher sees a change that lands
 //! while a frame is written only when it next looks, so that change waits the write plus one
 //! window. The batcher holds only its cursor: it reads the next frame from the record once the
-//! send gate lets it through, so a slow reader holds nothing in memory and loses nothing.
+//! send gate lets it through, so a slow reader costs no more than the one message its lane has
+//! begun, and loses nothing.
 
 use std::sync::Arc;
 use std::time::Duration;

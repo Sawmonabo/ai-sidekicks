@@ -9,7 +9,7 @@ use strum::VariantArray;
 use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{McpApprovalMode, McpServerStatus, McpToolName, binding_addressed};
 use crate::place::PlacedPath;
-use crate::provider::driver::length_limits::DRIVER_BINDING_ID_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_BINDING_ID_MAX_LEN;
 use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
 use crate::wire::instant::WireInstant;
@@ -20,7 +20,7 @@ use crate::wire::{Never, True, literal};
 branded_text! {
     /// The daemon-minted id of the runtime binding, one live session's leg, an observation came
     /// from; not the config binding. Opaque to every client.
-    pub struct McpRuntimeBindingId(1..=DRIVER_BINDING_ID_MAX_LEN);
+    pub struct McpRuntimeBindingId(1..=PROVIDER_BINDING_ID_MAX_LEN);
 }
 
 /// One live session's observation of one binding, kept per session because two sessions'

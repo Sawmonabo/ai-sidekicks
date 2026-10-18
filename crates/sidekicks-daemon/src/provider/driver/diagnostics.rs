@@ -55,14 +55,14 @@ pub(crate) enum DriverDiagnosticKind {
     /// the surface; the failed-read kind does not cover a capability quietly lost between
     /// refreshes.
     CapabilityFlagWithdrawn,
-    /// An invocation or provider ask reached the host with no evaluation seam registered; answered
-    /// refused, never completed without the policy check and never left unanswered.
+    /// An invocation reached the host with no evaluation seam registered; answered refused, never
+    /// completed without the policy check and never left unanswered.
     CallbackToolSeamAbsent,
     /// The registry was withheld at spawn because the daemon could not guarantee every invocation
     /// would be adjudicated.
     CallbackToolRegistryWithheld,
-    /// An unregistered tool, arguments the schema rejects, or a superseded registry; answered
-    /// `failed` without reaching the approval pipeline.
+    /// An unregistered tool, arguments the route's check refused, or a superseded registry;
+    /// answered `failed` without reaching the approval pipeline.
     CallbackToolInvocationRefused,
     /// A resume or relaunch installed a second registry for the session; explains the superseded
     /// spawn's refusals.

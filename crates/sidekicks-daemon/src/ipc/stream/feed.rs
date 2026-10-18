@@ -1,6 +1,7 @@
 //! What a subscription's feed is pulled through: the send gate the gateway opens before each frame,
 //! the stored record a change stream reads at its cursor, and the typed feed a subscribe handler
-//! answers. A feed holds a place, never a queue, so a slow reader costs no memory.
+//! answers. A feed holds a place, never a queue, so a slow reader costs no more than the one
+//! message its lane has begun.
 
 use std::error::Error;
 

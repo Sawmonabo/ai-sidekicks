@@ -229,12 +229,11 @@ pub enum ArtifactReadResponse {
 
 ts_constants! {
     /// Every refusal an artifact call answers with.
-    pub const ARTIFACT_REFUSAL_CODES: [RefusalCode; 7] = [
+    pub const ARTIFACT_REFUSAL_CODES: [RefusalCode; 6] = [
         RefusalCode::ArtifactNotFound,
         RefusalCode::ArtifactTooLarge,
-        RefusalCode::ArtifactTypeUnreadable,
-        RefusalCode::ArtifactTypeCheckUnavailable,
         RefusalCode::ArtifactFilePublishRefused,
+        RefusalCode::ArtifactIdempotencyConflict,
         RefusalCode::ArtifactIngestCapacityExhausted,
         RefusalCode::ArtifactIngestStreamInvalid,
     ];

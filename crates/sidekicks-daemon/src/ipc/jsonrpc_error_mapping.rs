@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::issue::{
-    ISSUE_PATH_SEGMENTS_MAX, ISSUES_MAX, Issue, IssuePathSegment,
+    ISSUE_PATH_SEGMENTS_MAX, ISSUES_MAX, Issue, IssuePathSegment, UNREADABLE_VALUE_ISSUE_MESSAGE,
 };
 use sidekicks_contracts::jsonrpc::message::{
     JsonRpcError, JsonRpcErrorData, JsonRpcId, JsonRpcMessage, MessageError,
@@ -78,9 +78,6 @@ const NOT_A_MESSAGE: &str = "the JSON is not a JSON-RPC 2.0 message";
 
 /// The message of a message over its size cap.
 const MESSAGE_TOO_LARGE: &str = "the message is over its size limit";
-
-/// The issue of a value the schema accepts but its type refuses.
-const UNREADABLE_VALUE: &str = "this value does not read as its type";
 
 /// A Unix path at a token boundary, with an optional `:line:col`; the leading group stands for
 /// the boundary (`regex` has no look-behind) and is written back, so `feature/login` stays.
@@ -186,7 +183,9 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
                         issue(fault.path, &message, None)
                     })
                     .collect(),
-                ReceivedError::Read { path, .. } => vec![issue(path, UNREADABLE_VALUE, None)],
+                ReceivedError::Read { path, .. } => {
+                    vec![issue(path, UNREADABLE_VALUE_ISSUE_MESSAGE, None)]
+                }
                 ReceivedError::Unreferenced { index } => vec![issue(
                     Vec::new(),
                     &format!("attachment {index} is named by no placeholder"),

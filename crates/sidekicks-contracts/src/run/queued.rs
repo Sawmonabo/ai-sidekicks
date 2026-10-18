@@ -8,7 +8,7 @@ use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::methods::agent_entry;
 use crate::orchestration::OrchestrationRunConfig;
 use crate::provider::account::record::ProviderAccountId;
-use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -102,8 +102,8 @@ macro_rules! run_queued_payload {
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
-            pub admitted_model_family: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+            #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+            pub admitted_model_family: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
             /// The account the run was admitted against.
             #[serde(
                 default,

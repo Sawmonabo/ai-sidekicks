@@ -11,13 +11,15 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::provider::driver::intervention::ApplyInterventionRequest;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FALLBACK_ACTION_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_REASON_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
 /// A skill picked for a message as its provider listed it: its name and the file the provider
 /// loads it from, absolute. The daemon resolves a person's pick to it, so no path a client sent
@@ -63,7 +65,66 @@ pub(crate) enum ApplyInterventionParams {
         payload: SteerPayload,
     },
     /// Carries out an interrupt.
-    Interrupt(ApplyInterventionRequest),
+    Interrupt {
+        /// The run interrupted.
+        target_run_id: RunId,
+        /// The run version the caller saw, the fail-closed comparand.
+        expected_run_version: SafeInt<0>,
+        /// The requester's idempotency key, passed through unchanged.
+        client_idempotency_key: ClientUuid,
+        /// What the interrupt does.
+        payload: InterruptPayload,
+    },
+}
+
+/// What an interrupt does with the messages still waiting for the run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InterruptPendingChoice {
+    /// They go as the next turn.
+    NextTurn,
+    /// They return to the draft.
+    ReturnToDraft,
+}
+
+/// Payload of a driver's interrupt: what becomes of the waiting messages, and why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InterruptPayload {
+    /// What becomes of the waiting messages.
+    pub(crate) pending: InterruptPendingChoice,
+    /// The person's reason.
+    pub(crate) reason: Option<FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>>,
+}
+
+/// Asks a driver to interrupt one run, with an optional reason. A run's id is unique
+/// on its own, so no session id sits beside it as a second key that could disagree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InterruptRunRequest {
+    /// The run to interrupt.
+    pub(crate) run_id: RunId,
+    /// The person's reason.
+    pub(crate) reason: Option<FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>>,
+}
+
+/// Whether an intervention landed as asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InterventionResultStatus {
+    /// As asked.
+    Applied,
+    /// Through a fallback.
+    Degraded,
+}
+
+/// What a driver answers an intervention with. `fallback_action` names the fallback of a
+/// `Degraded` result; `delivered_run_id` names the run a delivered message went to when that is
+/// not its target.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ApplyInterventionResponse {
+    /// Whether it landed as asked.
+    pub(crate) status: InterventionResultStatus,
+    /// The fallback a degraded result took.
+    pub(crate) fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
+    /// The run a delivered message went to, when not the target.
+    pub(crate) delivered_run_id: Option<RunId>,
 }
 
 /// A driver's steer that was not sent because the turn it was handed for had ended first: nothing

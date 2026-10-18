@@ -12,6 +12,7 @@ use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::attachment::Bytes;
+use crate::wire::id::ClientUuid;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{BoundedText, NonEmptyText};
 
@@ -24,7 +25,8 @@ ts_constants! {
 /// Opens an ingest stream for one file. `mediaType` is the caller's guess, absent when the file
 /// declared none; it refuses nothing and is recorded nowhere, since the daemon reads the type from
 /// the bytes. `declaredSizeBytes` also reserves the stream's spool space, so the stream's bytes
-/// may not exceed it.
+/// may not exceed it. A resend under the same `clientIdempotencyKey` answers the first opening's
+/// `ingestId`, never a second stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -51,6 +53,8 @@ pub struct ArtifactIngestStartRequest {
     pub media_type: Option<NonEmptyText>,
     /// The size the caller declares, in bytes.
     pub declared_size_bytes: SafeInt<0>,
+    /// The key that makes a resent opening one stream.
+    pub client_idempotency_key: ClientUuid,
 }
 
 /// The opened stream: `ingestId` is a single-use handle, bound to the session and to the stream's

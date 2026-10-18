@@ -154,6 +154,10 @@ fn pointer_issue_path(pointer: &str, received: &Value) -> Vec<IssuePathSegment> 
         .collect()
 }
 
+/// The message of an issue for a value serde's reader cannot read as its type, or a field it
+/// misses; it never quotes the value.
+pub const UNREADABLE_VALUE_ISSUE_MESSAGE: &str = "this value does not read as its type";
+
 /// The path serde's reader names for its fault: a map's key or an externally tagged variant as a
 /// member, a sequence's place as an index, stopping at the first step it could not name (inside an
 /// internally tagged or untagged union, which serde reads from its own buffered copy).

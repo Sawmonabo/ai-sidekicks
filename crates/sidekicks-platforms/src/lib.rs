@@ -1,19 +1,34 @@
 //! All operating-system code behind one interface the other crates call: the interface's shared
 //! types, a module per platform supplying the running system's implementation (`macos`, `linux`,
-//! `windows`, and `posix` for what the first two share), the `path` module, which reads a path by
-//! either system's rules on every system, and the `wsl` module, which reads the WSL distribution a
-//! Windows path names on every system.
+//! `windows`, and `posix` for what the first two share), the `memory` module, which reads the
+//! installed memory on every system, the `path` module, which reads a path by either system's rules
+//! on every system, and the `wsl` module, which reads the WSL distribution a Windows path names on
+//! every system.
 #![expect(
     unsafe_code,
-    reason = "the terminal's window size, console and library-search calls, the shell start's \
-              signal and console-handler calls, the parent check `scutil`'s child runs in \
-              `pre_exec`, the Windows host-name, free-room and entry-identity calls, the Windows \
-              replacing rename's `MoveFileExW`, the macOS parent-process read, the measurement \
-              tests' footprint read on macOS, and the power notifications and wall-clock timers \
-              of macOS and Windows are C interfaces"
+    reason = "the terminal's window size, mode read (`tcgetattr`), signal request (`TIOCSIG`), \
+              console, console input count (`GetNumberOfConsoleInputEvents`) and library-search \
+              calls, the shell start's signal and console-handler calls, the parent check \
+              `scutil`'s child runs in `pre_exec`, the Windows host-name, free-room and \
+              entry-identity calls, the Windows replacing rename's `MoveFileExW`, the caller reads \
+              (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, checked \
+              process reads and responsible-process reads), macOS's code-signature checks, the \
+              start as its own responsible process (its thread count, its program's path, its \
+              marker's removal from the environment and the disclaiming exec), the socket pair a \
+              shell's start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
+              memory and the measurement tests' footprint share, Windows' `OpenProcess` and \
+              `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
+              `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
+              (`proc_listpids`) and environment read (`sysctl` of `KERN_ARGMAX` and \
+              `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
+              exit event's registration), mimalloc's `mi_collect`, tree-sitter's \
+              `set_allocator`, and the power notifications and wall-clock timers of macOS and \
+              Windows are C interfaces"
 )]
 
 mod atomic_replace;
+mod caller_process;
+mod code_signature;
 mod entry_identity;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
@@ -22,12 +37,16 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod memory;
+mod own_root;
 mod path;
 #[cfg(unix)]
 mod posix;
 mod shell_start;
+mod socket_listener;
 mod socket_path;
 mod spawner;
+mod system_folder;
 mod terminal;
 mod wake_watch;
 mod wall_clock;
@@ -36,32 +55,72 @@ mod windows;
 mod wsl;
 
 pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
+#[cfg(not(target_os = "macos"))]
+pub use caller_process::read_responsible_process;
+pub use caller_process::{ParentProcess, ResponsibleProcess};
+#[cfg(not(target_os = "macos"))]
+pub use code_signature::DesktopClientRequirement;
+pub use code_signature::{CodeSignatureError, SignatureCheck};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
+pub use linux::caller_process::this_process;
+#[cfg(target_os = "linux")]
+pub use linux::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
+#[cfg(target_os = "linux")]
+pub use linux::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
+#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
-pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use linux::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "linux")]
-pub use linux::{read_command_argument_limit, read_parent_process_id};
+pub use linux::read_command_argument_limit;
+#[cfg(target_os = "linux")]
+pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "linux")]
 pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
-pub use macos::process_footprint;
+pub use macos::caller_process::this_process;
+#[cfg(target_os = "macos")]
+pub use macos::caller_process::{
+    PinnedProcess, read_parent_process, read_peer_process, read_responsible_process,
+};
+#[cfg(target_os = "macos")]
+pub use macos::code_signature::DesktopClientRequirement;
+#[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
+pub use macos::memory::process_footprint;
+#[cfg(target_os = "macos")]
+pub use macos::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
+#[cfg(target_os = "macos")]
+pub use macos::processes::{list_user_process_ids, read_process_environment};
+#[cfg(target_os = "macos")]
+pub use macos::read_command_argument_limit;
+#[cfg(target_os = "macos")]
+pub use macos::responsibility::become_own_root;
+#[cfg(target_os = "macos")]
+pub use macos::shell_start_confirmation::ShellStartConfirmation;
 #[cfg(target_os = "macos")]
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
-pub use macos::{read_command_argument_limit, read_parent_process_id};
-#[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
+pub use memory::physical_memory;
+pub use own_root::OwnRootError;
+#[cfg(not(target_os = "macos"))]
+pub use own_root::become_own_root;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::PathRules;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub use posix::allocator::{
+    GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
+};
 #[cfg(unix)]
 pub use posix::askpass::askpass_listener;
-#[cfg(unix)]
-pub use posix::caller_process::read_peer_process_id;
 #[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, read_exact_at, volume_free_bytes,
@@ -89,32 +148,52 @@ pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(unix)]
+pub use posix::socket_listener::bind_socket_listener;
+#[cfg(unix)]
 pub use posix::socket_path::check_socket_path;
 #[cfg(unix)]
 pub use posix::terminal::{
-    TerminalWatch, child_process_id, end_process_tree, exit_signal, read_console, release_terminal,
+    DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
+    end_process_tree, exit_signal, read_console, read_console_waiting_input, release_terminal,
     restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
     send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
+    write_console_waiting_input,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
+pub use posix::terminal::{
+    abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
+    interruptible_sleeper, key_stopped_printer, pass_through_start, start_confirmation_reader,
+    waiting_printer,
+};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
+#[cfg(unix)]
+pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+#[cfg(not(target_os = "macos"))]
+pub use shell_start::ShellStartConfirmation;
 pub use shell_start::{ShellStart, ShellStartError};
+pub use socket_listener::ExistingSocket;
 pub use socket_path::SocketPathRefused;
 pub use spawner::Spawner;
+pub use system_folder::SystemFolderBase;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
-    ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute,
-    TerminalWake, TerminalWaker,
+    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
+    TerminalInputRefusal, TerminalSignal, TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 #[cfg(target_os = "windows")]
-pub use windows::askpass::askpass_listener;
+pub use windows::allocator::{
+    GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
+};
 #[cfg(target_os = "windows")]
-pub use windows::caller_process::{read_parent_process_id, read_peer_process_id};
+pub use windows::askpass::askpass_listener;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::caller_process::this_process;
+#[cfg(target_os = "windows")]
+pub use windows::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
@@ -141,7 +220,13 @@ pub use windows::machine_name::machine_name;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::measurement::{process_footprint, uptime_line};
 #[cfg(target_os = "windows")]
+pub use windows::memory::{
+    available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
+};
+#[cfg(target_os = "windows")]
 pub use windows::private_folder::create_private_folder;
+#[cfg(target_os = "windows")]
+pub use windows::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "windows")]
 pub use windows::real_path::real_path;
 #[cfg(target_os = "windows")]
@@ -149,15 +234,25 @@ pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(target_os = "windows")]
+pub use windows::socket_listener::bind_socket_listener;
+#[cfg(target_os = "windows")]
 pub use windows::socket_path::check_socket_path;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
-    TerminalWatch, child_process_id, end_process_tree, exit_signal, read_console, release_terminal,
+    DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
+    end_process_tree, exit_signal, read_console, read_console_waiting_input, release_terminal,
     restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
     send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
+    write_console_waiting_input,
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
-pub use windows::terminal::{abnormal_exit, echo_program, pass_through_start, waiting_printer};
+pub use windows::terminal::{
+    abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
+    interruptible_sleeper, key_stopped_printer, pass_through_start, start_confirmation_reader,
+    waiting_printer,
+};
+#[cfg(target_os = "windows")]
+pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 #[cfg(target_os = "windows")]
 pub use windows::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use wsl::{DistributionPath, distribution_of};

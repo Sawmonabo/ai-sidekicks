@@ -6,12 +6,12 @@ use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
-use sidekicks_contracts::provider::driver::intervention::InterventionType;
 use sidekicks_contracts::provider::driver::length_limits::{
-    DRIVER_FAILURE_DETAIL_MAX_LEN, DRIVER_FALLBACK_ACTION_MAX_LEN,
+    PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
-use sidekicks_contracts::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionType;
 use sidekicks_contracts::run::intervention::{InterventionId, InterventionState};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -80,12 +80,12 @@ pub(crate) enum InterventionTransition {
         /// The state it leaves.
         from: UnresolvedInterventionState,
         /// The machine-readable cause.
-        reason: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+        reason: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     },
     /// `accepted` to `failed`, with what its dispatch threw.
     Fail {
         /// The thrown error's code, else its message.
-        reason: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+        reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
     /// To `applied`.
     Apply {
@@ -95,7 +95,7 @@ pub(crate) enum InterventionTransition {
     /// `accepted` to `degraded`, with the fallback taken where the driver named one.
     Degrade {
         /// The fallback taken.
-        fallback_action: Option<FreeFormText<DRIVER_FALLBACK_ACTION_MAX_LEN>>,
+        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     },
 }
 
@@ -111,9 +111,9 @@ pub(crate) struct SavedIntervention {
     /// Its type's own fields, as JSON text.
     pub(crate) payload: String,
     /// Why it was rejected, on a rejected row.
-    pub(crate) rejection_reason: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+    pub(crate) rejection_reason: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// What its dispatch threw, on a failed row.
-    pub(crate) failure_reason: Option<FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>>,
+    pub(crate) failure_reason: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
 // Changes no row when the key was already spent on this run, so the write that carries it is

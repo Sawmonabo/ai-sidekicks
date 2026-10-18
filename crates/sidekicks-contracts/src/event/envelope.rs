@@ -31,8 +31,8 @@ use crate::wire::{NullableSchema, True, named_scalar};
 pub enum EventCategory {
     /// A run's life: queued, started, paused, rolled back, ended.
     RunLifecycle,
-    /// What the assistant said or thought.
-    AssistantOutput,
+    /// What the agent said or thought.
+    AgentOutput,
     /// A tool call's start, result or failure.
     ToolActivity,
     /// A message, an ask or a question waiting on a person or the queue.
@@ -76,7 +76,7 @@ impl EventCategory {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::RunLifecycle => "runLifecycle",
-            Self::AssistantOutput => "assistantOutput",
+            Self::AgentOutput => "agentOutput",
             Self::ToolActivity => "toolActivity",
             Self::InteractiveRequest => "interactiveRequest",
             Self::ArtifactPublication => "artifactPublication",

@@ -6,7 +6,8 @@ use std::time::Duration;
 use alacritty_terminal::event::EventListener;
 use sidekicks_platforms::{Spawner, TestProgram};
 use sidekicks_terminal::{
-    CommandLine, OutputFilter, SpawnRequest, TerminalEvent, TerminalExit, TerminalOutput, Terminals,
+    CommandLine, OutputFilter, ScreenListener, SpawnRequest, TerminalAnswers, TerminalEvent,
+    TerminalExit, TerminalOutput, Terminals,
 };
 
 /// The bound on every wait for a test shell's output or exit, so a stalled loop fails the test.
@@ -23,14 +24,26 @@ impl OutputFilter for KeepAllOutput {
     fn finish(&mut self, _kept: &mut Vec<u8>) {}
 }
 
-/// A screen-copy listener that hears nothing.
+/// A screen-copy listener that hears nothing and answers nothing.
 #[derive(Clone)]
 pub(crate) struct NoListener;
 
 impl EventListener for NoListener {}
 
-/// Terminals on a spawner thread of their own; no test here stops a shell through the console,
-/// so the console helper is never run.
+impl ScreenListener for NoListener {
+    fn find_questions(&mut self, _output: &[u8], _ends: &mut Vec<usize>) {}
+
+    fn answer_question(&mut self) {}
+}
+
+/// Makes the listener that hears nothing, leaving the shell's answers unused.
+pub(crate) fn no_listener(_answers: TerminalAnswers) -> NoListener {
+    NoListener
+}
+
+/// Terminals on a spawner thread of their own, their console helper a program that does not
+/// exist: no test here stops a shell through the console, and on Windows a console reading the
+/// answers ask for fails to start it, logged, which leaves the answers flowing.
 pub(crate) fn terminals() -> Terminals {
     let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
     Terminals::new(
@@ -79,4 +92,26 @@ pub(crate) async fn read_to_exit(output: &mut TerminalOutput) -> (String, Termin
     })
     .await
     .expect("the shell exits in time")
+}
+
+/// Reads the output until it holds `marker` on a line of its own, answering what came after it;
+/// fails the test when the output ends first or takes past [`OUTPUT_BOUND`].
+pub(crate) async fn read_past_line(output: &mut TerminalOutput, marker: &str) -> String {
+    let line = format!("{marker}\r\n");
+    tokio::time::timeout(OUTPUT_BOUND, async {
+        let mut text = String::new();
+        loop {
+            if let Some((_, rest)) = text.split_once(&line) {
+                return Ok(rest.to_owned());
+            }
+            let event = output.next().await;
+            let Some(TerminalEvent::Output(chunk)) = &event else {
+                return Err(format!("the output ended before {marker:?}: {event:?}"));
+            };
+            text.push_str(&String::from_utf8_lossy(chunk));
+        }
+    })
+    .await
+    .expect("the marker arrives in time")
+    .expect("the output holds the marker")
 }

@@ -41,9 +41,10 @@ pub enum RunState {
     Paused,
     /// Ended with its work done.
     Completed,
-    /// Ended by an interrupt.
+    /// Its turn cut by an interrupt, resting until a send continues it.
     Interrupted,
-    /// A child ended by a stop that reached several agents.
+    /// Ended by a stop: a child ended by a stop that reached several agents, or a run at its token
+    /// limit.
     Stopped,
     /// Ended by a failure.
     Failed,

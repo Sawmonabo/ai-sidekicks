@@ -38,7 +38,7 @@ Target paths below assume the implementation topology defined in [Container Arch
 - `crates/sidekicks-daemon/src/artifacts/publish.rs` (T11.3)
 - `crates/sidekicks-daemon/src/artifacts/ingest/service.rs` (T11.2)
 - `crates/sidekicks-daemon/src/artifacts/admission.rs` (the one admission ingest streams and client publishes pass, T11.4)
-- `crates/sidekicks-daemon/src/artifacts/detection/` (the type detector, `file-format` over the leading 4,100 bytes, T11.4)
+- `crates/sidekicks-daemon/src/artifacts/detection.rs` (the type detector, `file-format` over the leading 4,100 bytes, T11.4)
 - `crates/sidekicks-daemon/src/artifacts/payload_store.rs` (T11.2; its reclaim half, T11.7)
 - `crates/sidekicks-daemon/src/artifacts/ingest_worker/` (the ingest worker's entry, its first-page step and its cover step, T11.8 and T11.9)
 - `crates/sidekicks-daemon/src/artifacts/validation.rs` (the ordered ingest pipeline, T11.4; the worker hand-off of step 2, T11.8)

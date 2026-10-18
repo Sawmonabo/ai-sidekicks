@@ -241,10 +241,14 @@ refusal_codes! {
     ApprovalRuleNotKept = "approval.rule.notKept" (Internal, 500);
     /// A client's `artifact.publish` declared `artifactType: "file"`.
     ArtifactFilePublishRefused = "artifact.filePublishRefused" (InvalidArgument, 422);
-    /// `artifact.ingest.start`, or a client's `artifact.publish` before its payload is decoded,
-    /// refused because the open-upload count (ingest streams and client publishes in flight
-    /// together) has reached `max_active_ingest_streams` or the spool's volume, read at admission,
-    /// has no room for this declaration beside the open uploads' reservations.
+    /// An `artifact.publish` or `artifact.ingest.start` reused a `clientIdempotencyKey` with a
+    /// differing request; what the key first answered is untouched (`data.fields`: `artifactId`
+    /// of a publish's first manifest, or `ingestId` of an opening's first stream).
+    ArtifactIdempotencyConflict = "artifact.idempotencyConflict" (InvalidArgument, 422);
+    /// `artifact.ingest.start`, or a client's `artifact.publish` once its frame is read, refused
+    /// because the open-upload count (ingest streams and client publishes in flight together) has
+    /// reached `max_active_ingest_streams` or the spool's volume, read at admission, has no room
+    /// for this declaration beside the open uploads' reservations.
     ArtifactIngestCapacityExhausted = "artifact.ingest.capacityExhausted" (ResourceExhausted, 429);
     /// An ingest stream call that cannot proceed and cannot be retried in place, with
     /// `data.fields.reason` naming why: `sequenceBroken` (a sequence gap, regression, or same-
@@ -260,13 +264,6 @@ refusal_codes! {
     ArtifactNotFound = "artifact.notFound" (NotFound, 404);
     /// `data.fields.reason` names which bound it hit.
     ArtifactTooLarge = "artifact.tooLarge" (ResourceExhausted, 413);
-    /// The type check on a payload's leading bytes could not run to an answer, at
-    /// `artifact.ingest.complete` or a client's `artifact.publish`, because the daemon was
-    /// stopping.
-    ArtifactTypeCheckUnavailable = "artifact.typeCheckUnavailable" (Unavailable, 503);
-    /// The type detector ran over a payload's leading bytes and refused them, at
-    /// `artifact.ingest.complete` or a client's `artifact.publish`.
-    ArtifactTypeUnreadable = "artifact.typeUnreadable" (InvalidArgument, 422);
     /// `attention.delivery.test` for a channel that is not set up.
     AttentionDeliveryNotConfigured = "attention.delivery.notConfigured" (FailedPrecondition, 409);
     /// The keychain holding a channel's secret is locked or unavailable.
@@ -319,9 +316,6 @@ refusal_codes! {
     ConnectionVersionFloorExceeded = "connection.version.floorExceeded" (FailedPrecondition);
     /// A mutating call on a connection whose handshake settled as incompatible.
     ConnectionVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
-    /// Bootstrap rejected an unrecognized `SecureDefaults` config key.
-    DaemonBootstrapUnknownSetting = "daemon.bootstrap.unknownSetting"
-        (InvalidArgument; InvalidParams);
     /// A request would pass a daemon limit.
     DaemonLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
     /// The answer to a `connection.initialize` carrying the start's session token while the service

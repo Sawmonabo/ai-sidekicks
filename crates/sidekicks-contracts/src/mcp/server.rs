@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
 use crate::provider::driver::length_limits::{
-    DRIVER_MCP_SERVER_NAME_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN,
+    PROVIDER_MCP_SERVER_NAME_MAX_LEN, PROVIDER_TOOL_NAME_MAX_LEN,
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::literal;
@@ -65,10 +65,10 @@ ts_constants! {
 }
 
 /// A server's name as a binding and an event carry it.
-pub type McpServerName = FreeFormText<DRIVER_MCP_SERVER_NAME_MAX_LEN>;
+pub type McpServerName = FreeFormText<PROVIDER_MCP_SERVER_NAME_MAX_LEN>;
 
 /// A tool's name as an override and a reading carry it.
-pub type McpToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
+pub type McpToolName = FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>;
 
 /// When and where a mutation took effect: in the live sessions now, in the provider's config store
 /// for later runs, in the next run's composed config, or at the daemon's decision layer at once.
