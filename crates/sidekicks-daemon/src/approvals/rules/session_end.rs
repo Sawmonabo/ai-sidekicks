@@ -156,14 +156,17 @@ fn session_end_revocations(own_rules: &[RuleRow]) -> Vec<ApprovalRuleRevokedPayl
 #[cfg(test)]
 mod tests {
     use sidekicks_contracts::approval::{
-        ApprovalCategory, ApprovalScope, InvalidationTrigger, RememberedRuleId,
-        RememberedRuleSense, RememberedScope, RememberedScopeKind,
+        ApprovalCategory, ApprovalRequestId, ApprovalScope, ApprovalState, InvalidationTrigger,
+        RememberedRuleId, RememberedRuleSense, RememberedScope, RememberedScopeKind,
     };
+    use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::instant::WireInstant;
-    use sidekicks_contracts::wire::text::NonEmptyText;
+    use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
-    use super::{RuleRow, session_end_revocations};
+    use super::{RuleRow, revoked_payload, session_end_revocations};
+    use crate::approvals::request_create::ApprovalResourceDescriptor;
+    use crate::approvals::store::StoredApprovalRequest;
     use crate::provider::port::permission_ask::ProviderAskActionKind;
 
     const SESSION: &str = "0190a5a0-0000-7000-8000-000000000001";
@@ -203,5 +206,61 @@ mod tests {
             InvalidationTrigger::SessionEnd
         );
         assert_eq!(revoked[0].run_id, None);
+    }
+
+    // The ask whose answer made a rule that replaces a standing one.
+    fn replacing_ask(approval_request_id: &str, run_id: &str) -> StoredApprovalRequest {
+        let at = WireInstant::try_from("2026-10-18T09:30:00.000Z".to_owned()).expect("an instant");
+        StoredApprovalRequest {
+            approval_request_id: ApprovalRequestId::new(approval_request_id).expect("an ask id"),
+            session_id: SessionId::new(SESSION).expect("a session id"),
+            run_id: RunId::new(run_id).expect("a run id"),
+            requested_by: NonEmptyText::new("agent".to_owned()).expect("an actor"),
+            category: ApprovalCategory::ToolExecution,
+            scope: ApprovalScope::new("npm run test".to_owned()).expect("a scope"),
+            resource_descriptor: ApprovalResourceDescriptor {
+                subject: FreeFormText::new("npm run".to_owned()).expect("a subject"),
+                standing_allow_offered: true,
+                project_scope_offered: false,
+                editable: false,
+                action: None,
+                tool_name: None,
+                prompt: None,
+            },
+            ask_id: None,
+            state: ApprovalState::Approved,
+            created_at: at.clone(),
+            updated_at: at,
+            standing_allow_offered: true,
+            project_scope_offered: false,
+            resolution: None,
+        }
+    }
+
+    #[test]
+    fn a_replaced_rule_s_revoke_names_the_ask_that_replaced_it() {
+        let replaced_rule = "0190a5a0-0000-7000-8000-00000000000a";
+        let ask = "0190a5a0-0000-7000-8000-00000000000c";
+        let run = "0190a5a0-0000-7000-8000-00000000000d";
+        let row = rule_row(replaced_rule, RememberedScopeKind::Session);
+
+        let revoked = revoked_payload(
+            &row,
+            InvalidationTrigger::Explicit,
+            Some(&replacing_ask(ask, run)),
+        );
+
+        assert_eq!(revoked.rule_id.text().as_str(), replaced_rule);
+        assert_eq!(revoked.invalidation_trigger, InvalidationTrigger::Explicit);
+        assert_eq!(
+            revoked
+                .approval_request_id
+                .map(|id| id.text().as_str().to_owned()),
+            Some(ask.to_owned())
+        );
+        assert_eq!(
+            revoked.run_id.map(|id| id.text().as_str().to_owned()),
+            Some(run.to_owned())
+        );
     }
 }

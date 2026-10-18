@@ -66,6 +66,7 @@ use crate::provider::port::permission_ask::{
 };
 use crate::provider::port::session_rules::SessionRulePort;
 use crate::session::directory::lookups::session_project_sql;
+use crate::workspace::schema::MountOrigin;
 
 /// The distinct statements [`ApprovalRules`] prepares, for the reading connection's statement
 /// cache.
@@ -173,12 +174,13 @@ static PROJECT_SESSIONS_CTE: LazyLock<String> = LazyLock::new(|| {
     UNION SELECT candidate.id FROM (
         SELECT workspace.session_id AS id FROM repo_mounts AS mount
           JOIN workspaces AS workspace ON workspace.repo_mount_id = mount.id
-         WHERE mount.project_id = (SELECT id FROM session_project) AND mount.origin = 'attached'
+         WHERE mount.project_id = (SELECT id FROM session_project) AND mount.origin = '{}'
         UNION SELECT request.session_id FROM session_create_requests AS request
          WHERE request.project_id = (SELECT id FROM session_project)) AS candidate
       JOIN sessions AS session ON session.id = candidate.id
      WHERE {} = (SELECT id FROM session_project))",
         session_project_sql("@session_id"),
+        <&'static str>::from(MountOrigin::Attached),
         session_project_sql("candidate.id")
     )
 });
@@ -378,7 +380,7 @@ impl ApprovalRules {
                 standing.kind == rule.kind && stands_over_one_subject(&standing, rule)
             })
             .collect();
-        if let Err(record_failure) = self.record_remembered(request, rule).await {
+        if let Err(record_failure) = self.record_remembered(&hold, request, rule).await {
             return Err(self
                 .take_back_unrecorded(&hold, request.session_id, rule, record_failure)
                 .await);
@@ -542,6 +544,7 @@ impl ApprovalRules {
     // Writes the rule's event with its remembered scope on the ask's answer, in one write.
     async fn record_remembered(
         &self,
+        _hold: &RuleWriteHold<'_>,
         request: &StoredApprovalRequest,
         rule: &ProviderAskRule,
     ) -> Result<(), ApprovalRuleError> {
