@@ -141,7 +141,8 @@ pub(crate) struct CodexProjectRule {
 
 /// Where Codex reads the rules of one project's sessions.
 pub(crate) struct CodexRuleSources<'a> {
-    /// The folder Codex keeps its system settings in, whose `rules/` Codex reads first.
+    /// The folder Codex keeps its system settings in, its descriptor's managed settings folder,
+    /// whose `rules/` Codex reads first.
     pub(crate) system_folder: &'a Path,
     /// The Codex home the sessions run on, whose `rules/` Codex reads next.
     pub(crate) codex_home: &'a Path,

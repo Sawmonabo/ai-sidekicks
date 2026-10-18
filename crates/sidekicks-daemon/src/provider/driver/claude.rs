@@ -2,11 +2,11 @@
 
 use sidekicks_contracts::mcp::server::config::McpTransport;
 use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::SystemFolderBase;
+use sidekicks_platforms::{PerSystem, SystemFolderBase};
 
 use crate::provider::driver::{
-    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ManagedSettingsFolders,
-    ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
+    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ProviderCommand,
+    ProviderCommandLookup, ProviderDescriptor,
 };
 
 mod capability_probe;
@@ -52,7 +52,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         }),
     },
     // Where `managed-settings.json`, `managed-settings.d/` and `managed-mcp.json` sit.
-    managed_settings_folders: ManagedSettingsFolders {
+    managed_settings_folders: PerSystem {
         macos: Some(ManagedSettingsFolder {
             base: SystemFolderBase::ApplicationSupport,
             components: &["ClaudeCode"],

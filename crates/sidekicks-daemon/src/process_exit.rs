@@ -138,12 +138,18 @@ pub(crate) fn compose_process_exit<const CAP: usize>(
             output_tail,
         }),
         None => ProcessExit::Code(ProcessExitWithCode {
-            exit_code: ExitCode::new(exit_code.map_or(0, |code| i64::from(code.cast_unsigned())))
+            exit_code: ExitCode::new(wire_exit_code(exit_code))
                 .expect("an unsigned 32-bit code is a safe integer"),
             signal: None,
             output_tail,
         }),
     }
+}
+
+/// A child's exit code as the wire carries it: a Windows code read as its unsigned 32-bit value,
+/// so a crash reads 3221225477, and a missing code 0.
+pub(crate) fn wire_exit_code(exit_code: Option<i32>) -> i64 {
+    exit_code.map_or(0, |code| i64::from(code.cast_unsigned()))
 }
 
 #[cfg(test)]

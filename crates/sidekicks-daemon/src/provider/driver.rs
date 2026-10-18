@@ -9,7 +9,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::provider::id::is_provider_id;
 use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::{PathRules, Spawner, SystemFolderBase};
+use sidekicks_platforms::{PathRules, PerSystem, Spawner, SystemFolderBase, system_folder_path};
 
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::output_validation::is_canonical_semver;
@@ -51,8 +51,8 @@ pub(crate) struct ProviderDescriptor {
     /// How the provider's command is found on each kind of operating system.
     pub(crate) command: ProviderCommand,
     /// The folder on each operating system the provider reads the settings an administrator
-    /// manages for everyone on the computer from.
-    pub(crate) managed_settings_folders: ManagedSettingsFolders,
+    /// manages for everyone on the computer from; `None` where its documentation names none.
+    pub(crate) managed_settings_folders: PerSystem<Option<ManagedSettingsFolder>>,
     /// The provider's own word for standard output speed, as its declared state reads it; a run
     /// that carried another level and settles on another state is told fast output is unavailable.
     pub(crate) standard_output_speed: &'static str,
@@ -91,6 +91,20 @@ impl ProviderDescriptor {
             PathRules::Posix => self.command.unix.as_ref(),
             PathRules::Windows => self.command.windows.as_ref(),
         }
+    }
+
+    /// The folder on the running system the provider reads its administrator-managed settings
+    /// from, `None` where it names none there; the WSL server, a Linux build, answers Linux's.
+    pub(crate) fn managed_settings_folder(&self) -> Option<PathBuf> {
+        let folder = self.managed_settings_folders.native().as_ref()?;
+        Some(
+            folder
+                .components
+                .iter()
+                .fold(system_folder_path(folder.base), |path, component| {
+                    path.join(component)
+                }),
+        )
     }
 
     /// The output-speed levels a capability report carries: the driver's fixed set where
@@ -159,17 +173,6 @@ pub(crate) enum InstallFolderBase {
     Home,
     /// The person's own programs folder, which Windows has and macOS and Linux do not.
     UserPrograms,
-}
-
-/// A provider's administrator-managed settings folder on each operating system; `None` where the
-/// provider's documentation names none for that system.
-pub(crate) struct ManagedSettingsFolders {
-    /// On macOS.
-    pub(crate) macos: Option<ManagedSettingsFolder>,
-    /// On Linux.
-    pub(crate) linux: Option<ManagedSettingsFolder>,
-    /// On Windows.
-    pub(crate) windows: Option<ManagedSettingsFolder>,
 }
 
 /// An administrator-managed settings folder: path components under a computer-wide folder the

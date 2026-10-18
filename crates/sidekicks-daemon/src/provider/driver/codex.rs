@@ -2,11 +2,11 @@
 
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::SystemFolderBase;
+use sidekicks_platforms::{PerSystem, SystemFolderBase};
 
 use crate::provider::driver::{
-    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ManagedSettingsFolders,
-    ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
+    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ProviderCommand,
+    ProviderCommandLookup, ProviderDescriptor,
 };
 
 mod ask_option_sets;
@@ -62,7 +62,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         }),
     },
     // Where its system `config.toml` and `requirements.toml` sit; macOS reads the Unix folder.
-    managed_settings_folders: ManagedSettingsFolders {
+    managed_settings_folders: PerSystem {
         macos: Some(ManagedSettingsFolder {
             base: SystemFolderBase::Etc,
             components: &["codex"],
@@ -82,8 +82,10 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     output_speed_levels: None,
     // It documents no update switch; the driver runs one exact build path instead.
     process_environment: &[],
-    // Carries the app-server binary's path into the launch prelude, which never interpolates it.
-    launch_environment_names: &["CODEX_APP_SERVER_BIN"],
+    // Carries the app-server binary's path into the launch prelude, which never interpolates it;
+    // and opens the shutdown request on the lasting service's control socket, which Codex reads on
+    // Windows alone.
+    launch_environment_names: &["CODEX_APP_SERVER_BIN", "CODEX_DAEMON_SHUTDOWN_SOCKET"],
     // The account's own `CODEX_HOME`.
     credential_home_environment_names: &["CODEX_HOME"],
     withheld_environment_names: &[],

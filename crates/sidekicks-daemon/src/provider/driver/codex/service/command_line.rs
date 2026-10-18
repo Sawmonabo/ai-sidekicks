@@ -1,11 +1,14 @@
 //! The command line a Codex service on an account home the app manages starts with: the listener
-//! and the `-c` switches every conversation on it shares. Each `-c` value is TOML, whose integers
-//! are 64-bit, so the largest holds below exceed what a JSON number keeps.
+//! and the `-c` switches every conversation on it shares, and the daemon's hook programs those
+//! switches name. Each `-c` value is TOML, whose integers are 64-bit, so the largest holds below
+//! exceed what a JSON number keeps.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
 use serde::Serialize;
+use sidekicks_platforms::{PathRules, ShellWordRefused};
 
 /// The hook `timeout`: the largest 64-bit integer divided by 1000 in seconds, so the same hold
 /// also fits the code-mode yield in milliseconds. It lies past any wall-clock instant, so a caller
@@ -23,6 +26,45 @@ pub(crate) struct CodexHookCommands {
     pub(crate) pre_tool_use: String,
     /// Runs after each tool call.
     pub(crate) post_tool_use: String,
+}
+
+/// Why the daemon's hook commands could not be written.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum HookCommandError {
+    /// The daemon's program path is not UTF-8 text, which a command line carries.
+    #[error("the daemon's program path is not UTF-8 text: {}", .0.display())]
+    ProgramPathNotText(PathBuf),
+    /// A word cannot be written for the system's command shell.
+    #[error("a hook command word cannot be written for the system's command shell")]
+    Word(#[from] ShellWordRefused),
+}
+
+/// The hook commands that run `daemon_program`, the daemon's own program as it started, in its
+/// hidden `hook provider` mode for each tool event. Fails when the path is not UTF-8 text or a
+/// word cannot be written for the system's command shell.
+pub(crate) fn compose_daemon_hook_commands(
+    daemon_program: &Path,
+) -> Result<CodexHookCommands, HookCommandError> {
+    let program = daemon_program
+        .to_str()
+        .ok_or_else(|| HookCommandError::ProgramPathNotText(daemon_program.to_owned()))?;
+    Ok(CodexHookCommands {
+        pre_tool_use: compose_daemon_hook_command(program, "PreToolUse")?,
+        post_tool_use: compose_daemon_hook_command(program, "PostToolUse")?,
+    })
+}
+
+// One event's command, every word quoted for the system's command shell. One command per event,
+// so Codex lists and trusts each, and the program knows its event even when its input is unread.
+fn compose_daemon_hook_command(
+    program: &str,
+    event_name: &str,
+) -> Result<String, ShellWordRefused> {
+    let words = [program, "hook", "provider", "--event", event_name]
+        .into_iter()
+        .map(|word| PathRules::NATIVE.quote_shell_word(word))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(words.join(" "))
 }
 
 /// The daemon's hooks a managed service starts with, and the socket their programs reach.

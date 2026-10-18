@@ -7,6 +7,7 @@ pub(crate) mod data_folder_lock;
 pub(crate) mod machine;
 pub(crate) mod own_root;
 pub(crate) mod process_tree_usage;
+pub(crate) mod program_path;
 pub(crate) mod scheduler;
 pub mod service_log;
 pub(crate) mod start_stopped_error;
