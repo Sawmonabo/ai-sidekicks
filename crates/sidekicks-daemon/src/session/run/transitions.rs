@@ -34,7 +34,8 @@ pub(crate) fn is_transition_allowed(from: RunState, to: RunStateChangeState) -> 
 }
 
 // The states each state may move to. A move several triggers share, such as `running -> failed`
-// on an error during execution or at a restart, is one entry.
+// on an error during execution or at a restart, is one entry; the token limit's stop is the one
+// way into `stopped` from a waiting or pausing state.
 fn next_states(from: RunState) -> &'static [RunStateChangeState] {
     use RunStateChangeState as Next;
     match from {
@@ -59,12 +60,24 @@ fn next_states(from: RunState) -> &'static [RunStateChangeState] {
             Next::Interrupted,
             Next::Failed,
             Next::WaitingForInput,
+            Next::Stopped,
         ],
-        RunState::WaitingForInput => &[Next::Running, Next::Interrupted, Next::Failed],
-        RunState::Pausing => &[Next::Paused, Next::Running, Next::Interrupted, Next::Failed],
-        RunState::Completed | RunState::Stopped => &[Next::Running],
+        RunState::WaitingForInput => &[
+            Next::Running,
+            Next::Interrupted,
+            Next::Failed,
+            Next::Stopped,
+        ],
+        RunState::Pausing => &[
+            Next::Paused,
+            Next::Running,
+            Next::Interrupted,
+            Next::Failed,
+            Next::Stopped,
+        ],
+        // A send into an ended helper starts a new run, so a final state has no way out.
+        RunState::Completed | RunState::Stopped | RunState::Failed => &[],
         RunState::Interrupted => &[Next::Running, Next::Stopped],
-        RunState::Failed => &[],
     }
 }
 
@@ -94,21 +107,27 @@ mod tests {
     #[case(Now::WaitingForApproval, Next::Interrupted, true)]
     #[case(Now::WaitingForApproval, Next::Failed, true)]
     #[case(Now::WaitingForApproval, Next::WaitingForInput, true)]
+    #[case(Now::WaitingForApproval, Next::Stopped, true)]
     #[case(Now::WaitingForInput, Next::Running, true)]
     #[case(Now::WaitingForInput, Next::Interrupted, true)]
     #[case(Now::WaitingForInput, Next::Failed, true)]
+    #[case(Now::WaitingForInput, Next::Stopped, true)]
     #[case(Now::Pausing, Next::Paused, true)]
     #[case(Now::Pausing, Next::Running, true)]
     #[case(Now::Pausing, Next::Interrupted, true)]
     #[case(Now::Pausing, Next::Failed, true)]
+    #[case(Now::Pausing, Next::Stopped, true)]
     #[case(Now::Paused, Next::Running, true)]
     #[case(Now::Paused, Next::Interrupted, true)]
     #[case(Now::Paused, Next::Failed, true)]
     #[case(Now::Paused, Next::WaitingForInput, true)]
-    #[case(Now::Completed, Next::Running, true)]
+    #[case(Now::Paused, Next::Stopped, true)]
     #[case(Now::Interrupted, Next::Running, true)]
     #[case(Now::Interrupted, Next::Stopped, true)]
-    #[case(Now::Stopped, Next::Running, true)]
+    #[case(Now::Completed, Next::Running, false)]
+    #[case(Now::Stopped, Next::Running, false)]
+    #[case(Now::Queued, Next::Stopped, false)]
+    #[case(Now::Starting, Next::Stopped, false)]
     #[case(Now::Queued, Next::Running, false)]
     #[case(Now::Queued, Next::Interrupted, false)]
     #[case(Now::Starting, Next::Completed, false)]

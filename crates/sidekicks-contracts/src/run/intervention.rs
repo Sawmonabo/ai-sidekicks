@@ -1,6 +1,6 @@
 //! Interventions on a running run: the interrupt and the faster-model retry a caller sends
-//! through `agent.run.intervene`, the daemon's answer, and the states an intervention passes
-//! through.
+//! through `agent.run.intervene`, the daemon's answer, the states an intervention passes through,
+//! and an interrupt's stored record.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -151,6 +151,119 @@ intervention_interrupt_request! {
     }
 }
 
+/// A limit the daemon stops a run at by itself: the step limit on a provider that does not bound a
+/// turn's steps, or the spend or token limit. Only the daemon's own stop records one.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum RunLimit {
+    /// The turn reached the steps it may take.
+    StepLimit,
+    /// The session reached its spend limit.
+    SpendLimit,
+    /// The run reached its token limit.
+    TokenLimit,
+}
+
+/// A person's interrupt as its `interventions` row stores it: what becomes of the waiting
+/// messages, the message delivered first and the person's reason, never a limit.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "pending",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PersonInterruptRecord {
+    /// The waiting messages go as the next turn.
+    NextTurn {
+        /// The message `Send now` puts ahead of the rest.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "QueueItemId")]
+        deliver_first: Option<QueueItemId>,
+        /// The person's reason.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>")]
+        reason: Option<FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>>,
+        /// Never present: only the daemon's own stop carries a limit.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        limit: Option<Never>,
+    },
+    /// The waiting messages return to the draft.
+    ReturnToDraft {
+        /// Never present: a message delivered first goes as the next turn.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        deliver_first: Option<Never>,
+        /// The person's reason.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>")]
+        reason: Option<FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>>,
+        /// Never present: only the daemon's own stop carries a limit.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        limit: Option<Never>,
+    },
+}
+
+/// The daemon's own stop at a limit as its `interventions` row stores it, with no device: the
+/// limit, so a restart settles the run with that cause. The waiting messages stay waiting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LimitInterruptRecord {
+    /// The limit the run reached.
+    pub limit: RunLimit,
+}
+
+/// The stored `payload` of an interrupt's `interventions` row: a person's, or the daemon's own at
+/// a limit. The arms are disjoint: a person's carries `pending` and no limit, the daemon's only
+/// its limit, so a person's reason never reads as a limit.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum InterruptInterventionRecord {
+    /// A person's interrupt.
+    Person(PersonInterruptRecord),
+    /// The daemon's own stop at a limit.
+    Limit(LimitInterruptRecord),
+}
+
+impl InterruptInterventionRecord {
+    /// The limit the daemon stopped the run at, `None` on a person's interrupt.
+    pub fn limit(&self) -> Option<RunLimit> {
+        match self {
+            Self::Person(_) => None,
+            Self::Limit(record) => Some(record.limit),
+        }
+    }
+}
+
 /// A caller's request to interrupt or retry a run; a person's steer is an `agent.queueItem.create`,
 /// never an intervention. `fasterModelRetry` resends a turn the provider holds for a safety check
 /// on `model`.
@@ -298,15 +411,46 @@ intervention_request_response! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/intervention",
     doc: "Interventions on a running run: the interrupt and the faster-model retry a caller sends \
-          through `agent.run.intervene`, the daemon's answer, and the states an intervention \
-          passes through.",
+          through `agent.run.intervene`, the daemon's answer, the states an intervention passes \
+          through, and an interrupt's stored record.",
     definitions: &[
         Definition::read::<InterventionId>().checked(),
         Definition::read::<InterventionType>().checked(),
         Definition::read::<InterventionState>(),
+        Definition::read::<RunLimit>(),
+        Definition::read::<PersonInterruptRecord>(),
+        Definition::read::<LimitInterruptRecord>(),
+        Definition::read::<InterruptInterventionRecord>(),
         Definition::read::<AgentRunInterveneRequest>().checked(),
         Definition::read::<AgentRunInterveneResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::{InterruptInterventionRecord, RunLimit};
+
+    // Dropping the person arms' `limit: Never` reads the mixed row as a person's interrupt, and
+    // reading `reason` as a limit makes the person's text settle as one.
+    #[rstest]
+    #[case(json!({"limit": "stepLimit"}), Some(Some(RunLimit::StepLimit)))]
+    #[case(json!({"limit": "tokenLimit"}), Some(Some(RunLimit::TokenLimit)))]
+    #[case(json!({"pending": "nextTurn", "reason": "stepLimit"}), Some(None))]
+    #[case(json!({"pending": "returnToDraft"}), Some(None))]
+    #[case(json!({"pending": "nextTurn", "limit": "stepLimit"}), None)]
+    #[case(json!({"limit": "budget"}), None)]
+    fn only_the_daemons_record_reads_a_limit(
+        #[case] payload: Value,
+        #[case] expected: Option<Option<RunLimit>>,
+    ) {
+        let read = serde_json::from_value::<InterruptInterventionRecord>(payload)
+            .ok()
+            .map(|record| record.limit());
+        assert_eq!(read, expected);
+    }
+}

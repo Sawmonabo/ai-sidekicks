@@ -356,6 +356,7 @@ mod tests {
         mcp_transports: &[],
         mcp_config_members: &[],
         skill_name_max_length: None,
+        bounds_turn_steps: false,
     };
 
     /// A second registered provider, whose credential home no row may set either.

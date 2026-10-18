@@ -407,9 +407,10 @@ interface AgentRunRolledBackEvent {
   targetPosition: number;
 }
 
-// Run-control mutations (Spec-003 §Required Behavior). `pause` interrupts the active run + persists
-// conversation/run state + queues a resume (orchestration-layer, never driver-gated per I-002-9);
-// `resume` returns the `paused` run to active execution with the SAME run id. Both carry a
+// Run-control mutations (Spec-003 §Required Behavior). `pause` holds the run at its next tool
+// boundary + persists conversation/run state and queues nothing (orchestration-layer, never
+// driver-gated per I-002-9); `Pause` is a toggle, and `resume`, the toggle pressed again or a send,
+// returns the `pausing` or `paused` run to active execution with the SAME run id. Both carry a
 // MANDATORY `expectedRunVersion` optimistic-concurrency guard with the SAME fail-closed semantics
 // as AgentRunInterveneRequest: a stale comparand rejects the request (the run is left untouched),
 // never silently applied. This extends Plan-002 D-002-2's mandatory-comparand obligation to these
