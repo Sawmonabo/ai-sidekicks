@@ -211,6 +211,19 @@ dugong = "0.9.0"
 fast_image_resize = "6.1.0"
 fast_qr = "0.14.0"
 ferriki = "1.0.0"
+# A payload's media type from its leading bytes. The readers that need bytes past that prefix (ZIP,
+# CFB, ID3v2, ASF) stay off, so their formats are named by their signatures alone.
+file-format = {
+  version = "0.29.0",
+  features = [
+    "reader-ebml",
+    "reader-exe",
+    "reader-mp4",
+    "reader-pdf",
+    "reader-sqlite3",
+    "reader-xml",
+  ]
+}
 icu_casemap = "2.3.0"
 icu_collator = "2.3.1"
 icu_datetime = "2.3.0"

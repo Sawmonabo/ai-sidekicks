@@ -106,6 +106,7 @@ dugong.workspace = true
 ed25519-dalek.workspace = true
 fast_image_resize.workspace = true
 ferriki.workspace = true
+file-format.workspace = true
 flate2.workspace = true
 flexi_logger.workspace = true
 form_urlencoded.workspace = true
