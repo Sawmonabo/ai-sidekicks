@@ -14,6 +14,19 @@ use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 /// contexts and each run's execution context, in foreign-key order.
 pub(crate) static WORKTREE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(worktree_schema_sql);
 
+/// The worktree states that release their branch, as a SQL list: a tree in any other state is live
+/// and holds its branch. The partial unique index and every live-tree read take this one text, so
+/// SQLite can use the index for them.
+pub(crate) static BRANCH_RELEASING_STATE_LIST: LazyLock<String> = LazyLock::new(|| {
+    sql_list_of(
+        WorktreeState::VARIANTS
+            .iter()
+            .copied()
+            .filter(|&state| !is_holding_its_branch(state))
+            .map(<&'static str>::from),
+    )
+});
+
 // Git's own rule: a checkout on disk holds its branch, so a tree in any state but these two keeps
 // another from being made on it.
 fn is_holding_its_branch(state: WorktreeState) -> bool {
@@ -49,13 +62,7 @@ fn execution_mode_clauses() -> String {
 fn worktree_schema_sql() -> String {
     let worktree_states = sql_list_of_every::<WorktreeState>();
     let creating = <&'static str>::from(WorktreeState::Creating);
-    let branch_releasing_states = sql_list_of(
-        WorktreeState::VARIANTS
-            .iter()
-            .copied()
-            .filter(|&state| !is_holding_its_branch(state))
-            .map(<&'static str>::from),
-    );
+    let branch_releasing_states = BRANCH_RELEASING_STATE_LIST.as_str();
     let execution_modes = sql_list_of_every::<ExecutionMode>();
     let execution_mode_clauses = execution_mode_clauses();
     format!(
