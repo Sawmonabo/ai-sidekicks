@@ -1,7 +1,7 @@
 //! Reads of the one workflow library: a definition with its document at a version, the list of
 //! every workflow not deleted with its paging cursor, and whether a name is held, compared by its
-//! case fold. The two statements a save runs inside its own write to check a name and a workflow
-//! are built here too.
+//! case fold. The statements a write runs inside itself to check a name and a workflow are built
+//! here too.
 
 use std::borrow::Cow;
 
@@ -48,8 +48,9 @@ const NAME_HOLDER_SQL: &str = "SELECT id FROM workflow_definitions
 const LIVE_DEFINITION_SQL: &str =
     "SELECT 1 FROM workflow_definitions WHERE id = @definition_id AND deleted_at IS NULL";
 
-// A deleted workflow keeps its row, so the cursor naming the last of a page still finds it.
-const CURSOR_DEFINITION_SQL: &str = "SELECT 1 FROM workflow_definitions WHERE id = @definition_id";
+// One row for any workflow ever created, deleted or not: a deleted workflow keeps its row, so the
+// cursor naming the last of a page still finds it.
+const CREATED_DEFINITION_SQL: &str = "SELECT 1 FROM workflow_definitions WHERE id = @definition_id";
 
 // One statement, so the definition, its version and its token are read from one snapshot. The
 // layout a read serves is the definition's own at the latest version and the snapshot otherwise.
@@ -195,6 +196,20 @@ pub(crate) fn live_definition_statement(definition_id: WorkflowDefinitionId) -> 
     }
 }
 
+/// The statement a write runs first, inside that write, to refuse a workflow never created; the
+/// write is refused unless it returns the one row every workflow ever created returns, deleted or
+/// not.
+pub(crate) fn created_definition_statement(definition_id: WorkflowDefinitionId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(CREATED_DEFINITION_SQL),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@definition_id",
+            definition_id.text().as_str(),
+        )]),
+        expected_row_count: Some(1),
+    }
+}
+
 /// Reads the one workflow library on one of the daemon's read connections, which sees each write
 /// once it has committed.
 pub(crate) struct WorkflowLibrary<'connection> {
@@ -329,7 +344,7 @@ impl<'connection> WorkflowLibrary<'connection> {
         if encode_list_cursor(definition_id).as_str() != cursor.as_str() {
             return Err(refuse(UnresolvableCursorReason::NotWritten).into());
         }
-        let mut statement = self.reader.prepare_cached(CURSOR_DEFINITION_SQL)?;
+        let mut statement = self.reader.prepare_cached(CREATED_DEFINITION_SQL)?;
         if statement.exists(named_params! { "@definition_id": cursor.as_str() })? {
             Ok(definition_id)
         } else {

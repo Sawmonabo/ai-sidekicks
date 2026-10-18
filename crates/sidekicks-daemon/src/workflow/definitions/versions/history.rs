@@ -1,6 +1,8 @@
 //! Reads of a workflow's saved versions, which never change: one version, every version of the
 //! workflow a version belongs to, and the structural difference between two versions.
 
+use std::sync::LazyLock;
+
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -39,21 +41,30 @@ use crate::workflow::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 )]
 pub(crate) const WORKFLOW_VERSIONS_STATEMENT_CAPACITY: usize = 3;
 
-const SELECT_BY_NUMBER_SQL: &str = "SELECT id, definition_id, version_number, content_hash,
-    schema_version, definition_body, layout_json, created_at, saved_by_agent_id
-  FROM workflow_versions WHERE definition_id = @definition_id AND version_number = @version_number";
+// The columns of one version, in the order `version_from_row` reads them.
+const VERSION_COLUMNS: &str = "id, definition_id, version_number, content_hash, schema_version,
+    definition_body, layout_json, created_at, saved_by_agent_id";
 
-const SELECT_BY_ID_SQL: &str = "SELECT id, definition_id, version_number, content_hash,
-    schema_version, definition_body, layout_json, created_at, saved_by_agent_id
-  FROM workflow_versions WHERE id = @workflow_version_id";
+static SELECT_BY_NUMBER_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {VERSION_COLUMNS} FROM workflow_versions
+  WHERE definition_id = @definition_id AND version_number = @version_number"
+    )
+});
 
-const SELECT_WORKFLOW_SQL: &str = "SELECT id, definition_id, version_number, content_hash,
-    schema_version, definition_body, layout_json, created_at, saved_by_agent_id
-  FROM workflow_versions
+static SELECT_BY_ID_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!("SELECT {VERSION_COLUMNS} FROM workflow_versions WHERE id = @workflow_version_id")
+});
+
+static SELECT_WORKFLOW_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {VERSION_COLUMNS} FROM workflow_versions
   WHERE definition_id = (
     SELECT definition_id FROM workflow_versions WHERE id = @workflow_version_id
   )
-  ORDER BY version_number";
+  ORDER BY version_number"
+    )
+});
 
 /// Why a version read failed.
 #[derive(Debug, thiserror::Error)]
@@ -144,7 +155,7 @@ impl<'connection> WorkflowVersions<'connection> {
         request: &WorkflowVersionReadRequest,
     ) -> Result<WorkflowVersionReadResponse, WorkflowVersionsError> {
         let definition_id = request.definition_id;
-        let mut statement = self.reader.prepare_cached(SELECT_BY_NUMBER_SQL)?;
+        let mut statement = self.reader.prepare_cached(SELECT_BY_NUMBER_SQL.as_str())?;
         let mut rows = statement.query(named_params! {
             "@definition_id": definition_id.text().as_str(),
             "@version_number": i64::from(request.version_number),
@@ -181,7 +192,7 @@ impl<'connection> WorkflowVersions<'connection> {
         &self,
         request: &WorkflowVersionListRequest,
     ) -> Result<WorkflowVersionListResponse, WorkflowVersionsError> {
-        let mut statement = self.reader.prepare_cached(SELECT_WORKFLOW_SQL)?;
+        let mut statement = self.reader.prepare_cached(SELECT_WORKFLOW_SQL.as_str())?;
         let mut rows = statement.query(named_params! {
             "@workflow_version_id": request.workflow_version_id.text().as_str(),
         })?;
@@ -191,7 +202,7 @@ impl<'connection> WorkflowVersions<'connection> {
         while let Some(row) = rows.next()? {
             let version = version_from_row(row)?;
             definition_id.get_or_insert(version.definition_id);
-            let body = parse_body(&version.definition_body)?;
+            let body = parse_stored_workflow_body(&version.definition_body)?;
             let changes_from_previous = previous_body
                 .as_ref()
                 .map(|previous| count_workflow_changes(&diff_workflow_bodies(previous, &body)));
@@ -236,8 +247,8 @@ impl<'connection> WorkflowVersions<'connection> {
             });
         }
         Ok(diff_workflow_bodies(
-            &parse_body(&from.definition_body)?,
-            &parse_body(&to.definition_body)?,
+            &parse_stored_workflow_body(&from.definition_body)?,
+            &parse_stored_workflow_body(&to.definition_body)?,
         ))
     }
 
@@ -245,7 +256,7 @@ impl<'connection> WorkflowVersions<'connection> {
         &self,
         workflow_version_id: WorkflowVersionId,
     ) -> Result<VersionRow, WorkflowVersionsError> {
-        let mut statement = self.reader.prepare_cached(SELECT_BY_ID_SQL)?;
+        let mut statement = self.reader.prepare_cached(SELECT_BY_ID_SQL.as_str())?;
         let mut rows = statement.query(named_params! {
             "@workflow_version_id": workflow_version_id.text().as_str(),
         })?;
@@ -257,16 +268,6 @@ impl<'connection> WorkflowVersions<'connection> {
             .into()),
         }
     }
-}
-
-// A stored canonical body, whose parse error keeps only its position.
-fn parse_body(definition_body: &str) -> Result<WorkflowDocumentHashedBody, StoredDocumentError> {
-    parse_stored_workflow_body(definition_body).map_err(|error| {
-        StoredDocumentError::DefinitionBody {
-            line: error.line(),
-            column: error.column(),
-        }
-    })
 }
 
 fn version_from_row(row: &Row<'_>) -> rusqlite::Result<VersionRow> {

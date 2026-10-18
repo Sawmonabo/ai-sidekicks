@@ -5,7 +5,6 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use jiff::Timestamp;
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, named_params};
 use serde_json::{Map, Value};
@@ -20,7 +19,9 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::database::stored_column::text_column;
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::registry::HandlerError;
-use crate::workflow::definitions::library::live_definition_statement;
+use crate::workflow::definitions::library::{
+    created_definition_statement, live_definition_statement,
+};
 use crate::workflow::not_found::WorkflowNotFound;
 
 /// The statements the store's reads run: a workflow's kept values.
@@ -29,9 +30,6 @@ use crate::workflow::not_found::WorkflowNotFound;
     reason = "the daemon's start sums the read pool's statement set"
 )]
 pub(crate) const WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY: usize = 1;
-
-// Returns one row for any workflow ever created, deleted or not.
-const DEFINITION_EXISTS_SQL: &str = "SELECT 1 FROM workflow_definitions WHERE id = @definition_id";
 
 const SELECT_KEPT_VALUES_SQL: &str = "SELECT key, value_json, kept_by_run_id, updated_at
   FROM workflow_node_state WHERE definition_id = @definition_id AND node_id = '' ORDER BY key";
@@ -155,8 +153,7 @@ impl WorkflowKeptValueStore {
         run_id: WorkflowRunId,
         values: &Map<String, Value>,
     ) -> Result<WireInstant, WorkflowKeptValueError> {
-        let kept_at =
-            WireInstant::from_timestamp(Timestamp::now()).expect("the clock reads after year 0000");
+        let kept_at = WireInstant::now();
         let definition_text = definition_id.text();
         let run_text = run_id.text();
         let mut statements = vec![live_definition_statement(definition_id)];
@@ -189,26 +186,19 @@ impl WorkflowKeptValueStore {
         &self,
         definition_id: WorkflowDefinitionId,
     ) -> Result<WorkflowKeptValueClearResponse, WorkflowKeptValueError> {
-        let exists = WriteStatement {
-            sql: Cow::Borrowed(DEFINITION_EXISTS_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@definition_id",
-                definition_id.text().as_str(),
-            )]),
-            expected_row_count: Some(1),
-        };
-        let results = match self
-            .writer
-            .write(vec![exists, clear_kept_values_statement(definition_id)])
-            .await
-        {
+        let statements = vec![
+            created_definition_statement(definition_id),
+            clear_kept_values_statement(definition_id),
+        ];
+        let results = match self.writer.write(statements).await {
             Ok(results) => results,
             Err(WriteError::Refused { .. }) => {
                 return Err(WorkflowNotFound::Definition { definition_id }.into());
             }
             Err(error) => return Err(error.into()),
         };
-        let cleared = results.get(1).map_or(0, |deletion| deletion.row_count);
+        // A committed write answers each of its statements, the clear second.
+        let cleared = results[1].row_count;
         Ok(WorkflowKeptValueClearResponse {
             definition_id,
             cleared_count: SafeInt::new(

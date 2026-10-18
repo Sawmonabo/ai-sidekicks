@@ -1,6 +1,6 @@
 //! The writes to the one workflow library: create, duplicate, save a new version, soft delete, and
-//! the settings kept beside a version (layout, pinned data, tags, permission level), which mint
-//! none. Each change is one write, so a refused write leaves nothing behind.
+//! the settings kept beside a version (layout, pinned data, tags, permission level, background
+//! browser), which mint none. Each change is one write, so a refused write leaves nothing behind.
 
 mod settings;
 #[cfg(test)]
@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::iter;
 use std::sync::Arc;
 
-use jiff::Timestamp;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
@@ -23,7 +22,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowDocument, WorkflowDraftDocument, WorkflowNode, WorkflowVersionId,
+    WorkflowDefinitionId, WorkflowDocument, WorkflowDocumentSchemaVersion, WorkflowNode,
+    WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowPinnedItem;
 use sidekicks_contracts::workflow::definition::methods::{
@@ -331,15 +331,26 @@ impl WorkflowDefinitionStore {
         request: &WorkflowDefinitionUpdateRequest,
         author: &WorkflowSaveAuthor,
     ) -> Result<WorkflowDefinitionUpdateResponse, WorkflowDefinitionStoreError> {
+        self.refuse_findings(&request.document, Some(request.definition_id))
+            .await?;
+        self.write_update(request, author).await
+    }
+
+    // The save's one write, which checks the name and the expected version again inside it, so a
+    // name taken or a version saved since the check refuses it whole.
+    async fn write_update(
+        &self,
+        request: &WorkflowDefinitionUpdateRequest,
+        author: &WorkflowSaveAuthor,
+    ) -> Result<WorkflowDefinitionUpdateResponse, WorkflowDefinitionStoreError> {
         let definition_id = request.definition_id;
         let document = &request.document;
-        self.refuse_findings(document, Some(definition_id)).await?;
         let WorkflowDocumentHash {
             canonical_body,
             content_hash,
         } = hash_workflow_document(document)?;
         let workflow_version_id = mint_workflow_version_id();
-        let created_at = now();
+        let created_at = WireInstant::now();
         let name_folded = fold_name(document.name.as_str());
         let definition_text = definition_id.text();
         let schema_version = schema_version_text(document);
@@ -352,7 +363,7 @@ impl WorkflowDefinitionStore {
                 text_binding("@name", document.name.as_str()),
                 text_binding("@name_folded", &name_folded),
                 text_binding("@content_hash", content_hash.0.as_str()),
-                text_binding("@schema_version", &schema_version),
+                text_binding("@schema_version", schema_version),
                 text_binding("@definition_body", &canonical_body),
                 nullable_text_binding("@layout_json", layout_json.as_deref()),
                 nullable_text_binding("@tags", document.tags.as_ref().map(json_text).as_deref()),
@@ -378,19 +389,12 @@ impl WorkflowDefinitionStore {
                 text_binding("@id", workflow_version_id.text().as_str()),
                 text_binding("@definition_id", definition_text.as_str()),
                 text_binding("@content_hash", content_hash.0.as_str()),
-                text_binding("@schema_version", &schema_version),
+                text_binding("@schema_version", schema_version),
                 text_binding("@definition_body", &canonical_body),
                 nullable_text_binding("@layout_json", layout_json.as_deref()),
                 text_binding("@created_at", created_at.as_str()),
                 text_binding("@created_by", author.device_id.as_str()),
-                nullable_text_binding(
-                    "@saved_by_agent_id",
-                    author
-                        .agent_id
-                        .map(|agent_id| agent_id.text())
-                        .as_ref()
-                        .map(|text| text.as_str()),
-                ),
+                saved_by_agent_binding(author),
                 (
                     Cow::Borrowed("@expected_version_number"),
                     expected_version_number,
@@ -455,7 +459,7 @@ impl WorkflowDefinitionStore {
         definition_id: WorkflowDefinitionId,
     ) -> Result<WorkflowDefinitionDeleteResponse, WorkflowDefinitionStoreError> {
         let definition_text = definition_id.text();
-        let deleted_at = now();
+        let deleted_at = WireInstant::now();
         let of_definition = || {
             StatementBindings::Named(vec![text_binding(
                 "@definition_id",
@@ -524,7 +528,7 @@ impl WorkflowDefinitionStore {
         let definition_id =
             WorkflowDefinitionId::try_from(mint_uuid_v7()).expect("a minted UUID is a workflow id");
         let workflow_version_id = mint_workflow_version_id();
-        let created_at = now();
+        let created_at = WireInstant::now();
         let name_folded = fold_name(document.name.as_str());
         let definition_text = definition_id.text();
         let schema_version = schema_version_text(document);
@@ -542,7 +546,7 @@ impl WorkflowDefinitionStore {
                     text_binding("@name", document.name.as_str()),
                     text_binding("@name_folded", &name_folded),
                     text_binding("@content_hash", content_hash.0.as_str()),
-                    text_binding("@schema_version", &schema_version),
+                    text_binding("@schema_version", schema_version),
                     text_binding("@definition_body", &canonical_body),
                     nullable_text_binding("@layout_json", layout_json.as_deref()),
                     nullable_text_binding(
@@ -561,19 +565,12 @@ impl WorkflowDefinitionStore {
                     text_binding("@id", workflow_version_id.text().as_str()),
                     text_binding("@definition_id", definition_text.as_str()),
                     text_binding("@content_hash", content_hash.0.as_str()),
-                    text_binding("@schema_version", &schema_version),
+                    text_binding("@schema_version", schema_version),
                     text_binding("@definition_body", &canonical_body),
                     nullable_text_binding("@layout_json", layout_json.as_deref()),
                     text_binding("@created_at", created_at.as_str()),
                     text_binding("@created_by", author.device_id.as_str()),
-                    nullable_text_binding(
-                        "@saved_by_agent_id",
-                        author
-                            .agent_id
-                            .map(|agent_id| agent_id.text())
-                            .as_ref()
-                            .map(|text| text.as_str()),
-                    ),
+                    saved_by_agent_binding(author),
                     nullable_text_binding(
                         "@copied_version_id",
                         copied_version_id
@@ -630,7 +627,7 @@ impl WorkflowDefinitionStore {
     }
 
     // The graph check over the document's trigger, nodes and edges, each node's handles resolved
-    // from its kind. The check reads nothing else, so the draft it takes carries nothing else.
+    // from its kind.
     fn graph_findings(&self, document: &WorkflowDocument) -> Vec<WorkflowDefinitionFinding> {
         let trigger = WorkflowNode::from(&document.trigger);
         let node_handles: HashMap<_, _> = iter::once(&trigger)
@@ -639,18 +636,12 @@ impl WorkflowDefinitionStore {
                 (self.resolve_node_handles)(node).map(|handles| (node.id.clone(), handles))
             })
             .collect();
-        let draft = WorkflowDraftDocument {
-            schema_version: document.schema_version,
-            name: document.name.clone(),
-            description: None,
-            trigger: Some(document.trigger.clone()),
-            nodes: document.nodes.clone(),
-            edges: document.edges.clone(),
-            layout: None,
-            pin_data: None,
-            tags: None,
-        };
-        check_workflow_graph(&draft, &node_handles)
+        check_workflow_graph(
+            Some(&document.trigger),
+            &document.nodes,
+            &document.edges,
+            &node_handles,
+        )
     }
 
     // A save whose staleness check matched no row: the workflow is gone, or another save came
@@ -776,12 +767,17 @@ fn name_taken() -> DefinitionRefusal {
     }
 }
 
-fn mint_workflow_version_id() -> WorkflowVersionId {
-    WorkflowVersionId::try_from(mint_uuid_v7()).expect("a minted UUID is a version id")
+// The agent that saved a version, `NULL` when the person did.
+fn saved_by_agent_binding(author: &WorkflowSaveAuthor) -> (Cow<'static, str>, Value) {
+    let agent_text = author.agent_id.map(|agent_id| agent_id.text());
+    nullable_text_binding(
+        "@saved_by_agent_id",
+        agent_text.as_ref().map(|text| text.as_str()),
+    )
 }
 
-fn now() -> WireInstant {
-    WireInstant::from_timestamp(Timestamp::now()).expect("the clock reads after year 0000")
+fn mint_workflow_version_id() -> WorkflowVersionId {
+    WorkflowVersionId::try_from(mint_uuid_v7()).expect("a minted UUID is a version id")
 }
 
 // A value the contracts type as JSON, written as its text.
@@ -790,11 +786,10 @@ fn json_text(value: &impl serde::Serialize) -> String {
 }
 
 // The document schema version as the column stores it.
-fn schema_version_text(document: &WorkflowDocument) -> String {
-    serde_json::to_value(document.schema_version)
-        .ok()
-        .and_then(|version| version.as_str().map(str::to_owned))
-        .expect("a schema version writes as its text")
+fn schema_version_text(document: &WorkflowDocument) -> &'static str {
+    match document.schema_version {
+        WorkflowDocumentSchemaVersion::Value => "2",
+    }
 }
 
 // Pinned data with no node is stored as nothing pinned, as unpinning the last node leaves it.

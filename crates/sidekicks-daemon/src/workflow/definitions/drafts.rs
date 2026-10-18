@@ -4,7 +4,6 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use jiff::Timestamp;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -86,17 +85,22 @@ impl From<WorkflowDraftError> for HandlerError {
 pub(crate) fn clear_workflow_draft_statement(
     definition_id: Option<WorkflowDefinitionId>,
 ) -> WriteStatement {
-    let definition_text = definition_id.map(|id| id.text());
     WriteStatement {
         sql: Cow::Borrowed(DELETE_DRAFT_SQL),
         bindings: StatementBindings::Named(vec![text_binding(
             "@definition_id",
-            definition_text
-                .as_ref()
-                .map_or(NEW_WORKFLOW_DRAFT_KEY, |text| text.as_str()),
+            &draft_key(definition_id),
         )]),
         expected_row_count: None,
     }
+}
+
+// The key a draft is held under: its saved workflow's id, or the new workflow's key with none.
+fn draft_key(definition_id: Option<WorkflowDefinitionId>) -> String {
+    definition_id.map_or_else(
+        || NEW_WORKFLOW_DRAFT_KEY.to_owned(),
+        |id| id.text().as_str().to_owned(),
+    )
 }
 
 /// Holds the builder's drafts in `workflow_drafts`, reading through the daemon's read pool and
@@ -150,8 +154,7 @@ impl WorkflowDraftStore {
         &self,
         request: &WorkflowDraftUpdateRequest,
     ) -> Result<WorkflowDraftUpdateResponse, WorkflowDraftError> {
-        let updated_at =
-            WireInstant::from_timestamp(Timestamp::now()).expect("the clock reads after year 0000");
+        let updated_at = WireInstant::now();
         let (definition_id, based_on_version_number, document) = match request {
             WorkflowDraftUpdateRequest::Saved(saved) => (
                 Some(saved.definition_id),
@@ -162,16 +165,10 @@ impl WorkflowDraftStore {
         };
         let document_json =
             serde_json::to_string(document).expect("a draft document writes as JSON");
-        let definition_text = definition_id.map(|id| id.text());
         let upsert = WriteStatement {
             sql: Cow::Borrowed(UPSERT_DRAFT_SQL),
             bindings: StatementBindings::Named(vec![
-                text_binding(
-                    "@definition_id",
-                    definition_text
-                        .as_ref()
-                        .map_or(NEW_WORKFLOW_DRAFT_KEY, |text| text.as_str()),
-                ),
+                text_binding("@definition_id", &draft_key(definition_id)),
                 (
                     Cow::Borrowed("@based_on_version_number"),
                     based_on_version_number
@@ -210,15 +207,10 @@ fn read_draft(
     connection: &Connection,
     definition_id: Option<WorkflowDefinitionId>,
 ) -> rusqlite::Result<Option<WorkflowDraft>> {
-    let definition_text = definition_id.map(|id| id.text());
     let mut statement = connection.prepare_cached(SELECT_DRAFT_SQL)?;
     statement
         .query_row(
-            named_params! {
-                "@definition_id": definition_text
-                    .as_ref()
-                    .map_or(NEW_WORKFLOW_DRAFT_KEY, |text| text.as_str()),
-            },
+            named_params! { "@definition_id": draft_key(definition_id) },
             |row| {
                 let document: WorkflowDraftDocument =
                     text_column(row, 1, |text| serde_json::from_str(&text))?;

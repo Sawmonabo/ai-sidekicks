@@ -139,8 +139,9 @@ fn update(definition_id: WorkflowDefinitionId, name: &str) -> WorkflowDefinition
 
 /// A save writes its version and clears its workflow's draft as one write; a save refused for a
 /// name another workflow holds, in another letter case, writes no version, keeps the workflow's
-/// name and leaves its draft held. Mutations: drop the draft's clear from the save's write; fold
-/// no case in the name check.
+/// name and leaves its draft held, whether the check before the write or the one inside it refuses
+/// it. Mutations: drop the draft's clear from the save; fold no case in either name check; answer
+/// the in-write name check's refusal as a stale version.
 #[tokio::test]
 async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
     let database = TestDatabase::new();
@@ -158,20 +159,26 @@ async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
     let cleared = drafts.read(Some(nightly)).await.expect("the draft reads");
     assert_eq!(cleared.draft, None);
 
-    let refused = store
-        .update(&update(weekly, "NIGHTLY"), &author())
-        .await
-        .expect_err("a name another workflow holds is refused");
-    let WorkflowDefinitionStoreError::Refused(DefinitionRefusal::Refused { findings }) = refused
-    else {
-        panic!("the save is refused with findings, not {refused:?}");
-    };
-    assert_eq!(
-        findings,
-        vec![WorkflowDefinitionFinding::NameTaken {
-            node_ids: Vec::new()
-        }]
-    );
+    let request = update(weekly, "NIGHTLY");
+    let refusals = [
+        store.update(&request, &author()).await,
+        // The write alone, as when the name is taken after the check before it.
+        store.write_update(&request, &author()).await,
+    ];
+    for refused in refusals {
+        let refused = refused.expect_err("a name another workflow holds is refused");
+        let WorkflowDefinitionStoreError::Refused(DefinitionRefusal::Refused { findings }) =
+            refused
+        else {
+            panic!("the save is refused with findings, not {refused:?}");
+        };
+        assert_eq!(
+            findings,
+            vec![WorkflowDefinitionFinding::NameTaken {
+                node_ids: Vec::new()
+            }]
+        );
+    }
     let rows = database.reader();
     assert_eq!(version_count(&rows, weekly), 1);
     let weekly_name: String = rows
