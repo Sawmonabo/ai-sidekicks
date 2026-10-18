@@ -226,8 +226,8 @@ mod tests {
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use rstest::rstest;
-    use serde_json::json;
     use serde_json::value::RawValue;
+    use serde_json::{Value, json};
     use sidekicks_contracts::daemon::lifecycle::DaemonStop;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::method::Method;
@@ -253,6 +253,8 @@ mod tests {
         Rebuilding,
         // The pass ended with none of the session's events readable.
         Damaged,
+        // The local store failed once the pass ended.
+        StoreFailed,
     }
 
     // How the call's params are written.
@@ -302,6 +304,10 @@ mod tests {
                 tracker.mark_session_unreadable(session_id);
                 tracker.mark_pass_ended();
             }
+            Stage::StoreFailed => {
+                tracker.mark_pass_ended();
+                tracker.mark_store_failed();
+            }
         }
         tracker
     }
@@ -330,9 +336,10 @@ mod tests {
     // Dropping the exemption of the stop or of a damaged session's recovery action, refusing
     // nothing while the pass lists, skipping the named session's own refusal, peeking array params
     // by position (which would refuse the array case `session.rebuilding`), or reading the first
-    // of two `sessionId` members, or none of them, each fails a case. The array params answer as
-    // `readNamedSession` in the TypeScript `recovery/write-gate.ts` answers them: they name no
-    // session, so the pass refuses them whole and, once it ends, the registry's check does.
+    // of two `sessionId` members, or none of them, each fails a case, and so does a whole-daemon
+    // refusal naming the wrong state. Array params name no session: the pass refuses them whole,
+    // a failed store refuses them as it refuses every write, and once the pass has ended with the
+    // store working the gate lets them on to the registry, whose own check refuses them.
     #[rstest]
     #[case::the_stop_while_listing(
         Stage::Listing,
@@ -382,6 +389,18 @@ mod tests {
         Params::Object,
         Some(RefusalCode::SessionHistoryDamaged)
     )]
+    #[case::a_write_once_the_store_failed(
+        Stage::StoreFailed,
+        SessionArchive::DESCRIPTOR.method,
+        Params::Object,
+        Some(RefusalCode::DaemonWriteRefused)
+    )]
+    #[case::array_params_once_the_store_failed(
+        Stage::StoreFailed,
+        SessionArchive::DESCRIPTOR.method,
+        Params::Array,
+        Some(RefusalCode::DaemonWriteRefused)
+    )]
     #[tokio::test]
     async fn refuses_each_untrusted_write_and_passes_the_rest_on(
         #[case] stage: Stage,
@@ -429,6 +448,16 @@ mod tests {
             (Err(DispatchError::Refused(error)), Some(code)) => {
                 assert_eq!(error.code, code);
                 assert!(taken.is_empty(), "a refused call goes no further");
+                if code == RefusalCode::DaemonWriteRefused {
+                    let recovery = match stage {
+                        Stage::StoreFailed => "blocked",
+                        Stage::Listing | Stage::Rebuilding | Stage::Damaged => "rebuilding",
+                    };
+                    assert_eq!(
+                        error.detail.map(Value::Object),
+                        Some(json!({ "recovery": recovery }))
+                    );
+                }
             }
             (Ok(_), Some(code)) => panic!("expected {code:?}, the call passed"),
             (Err(error), _) => panic!("expected {refusal:?}, got {error:?}"),

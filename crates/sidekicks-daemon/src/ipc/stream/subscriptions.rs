@@ -496,6 +496,47 @@ mod tests {
         assert!(subscription.next_frame(&gate).await.is_none());
     }
 
+    // Killed by dropping the report where the read's failure is mapped: the repair then never
+    // hears of damage only a subscription met.
+    #[tokio::test]
+    async fn a_damaged_read_ends_the_subscription_and_reaches_the_damage_watch() {
+        /// A feed whose read meets a damaged database file.
+        struct DamagedRead;
+
+        impl EncodedFeed for DamagedRead {
+            fn next<'a>(
+                &'a mut self,
+                _gate: &'a dyn SendGate,
+            ) -> BoxFuture<'a, Result<Option<EncodedValue>, DispatchError>> {
+                let damaged = rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+                    None,
+                );
+                futures::future::ready(Err(DispatchError::Internal(Box::new(damaged)))).boxed()
+            }
+        }
+
+        let gate = CreditGate::with_credit(1);
+        let damage = Arc::new(DatabaseDamageWatch::new());
+        let subscriptions = Subscriptions::new(Arc::clone(&damage));
+        let mut subscription = subscriptions
+            .open(
+                TransportId(1),
+                METHOD,
+                subscription_id(1),
+                Box::new(DamagedRead),
+            )
+            .expect("the connection is under its limit");
+
+        assert!(matches!(
+            subscription.next_frame(&gate).await,
+            Some(SubscriptionFrame::End(
+                SubscriptionEndParams::Refused { .. }
+            ))
+        ));
+        assert!(damage.is_found(), "the damage reached the watch");
+    }
+
     #[tokio::test]
     async fn a_connection_holds_at_most_ten_thousand_open_subscriptions() {
         /// A feed that never sends.

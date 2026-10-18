@@ -65,7 +65,7 @@ impl From<UnresolvedInterventionState> for InterventionState {
 /// An intervention state past its outcome, which no move leaves.
 #[derive(Debug, thiserror::Error)]
 #[error("an intervention in {} has an outcome", <&'static str>::from(*.0))]
-pub(crate) struct InterventionResolvedError(pub(crate) InterventionState);
+pub(crate) struct InterventionResolvedError(InterventionState);
 
 impl TryFrom<InterventionState> for UnresolvedInterventionState {
     type Error = InterventionResolvedError;
