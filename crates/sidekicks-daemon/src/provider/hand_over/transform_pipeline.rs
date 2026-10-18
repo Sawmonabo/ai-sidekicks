@@ -125,12 +125,13 @@ struct TurnHead {
     segment_count: usize,
 }
 
-/// `turns` with every call answered exactly once, right after it, and whether anything was
-/// repaired. Pairing is by place across the whole transcript, so a result before its call is as
-/// unpaired as one with no call:
+/// `turns` with every call answered exactly once, and whether anything was repaired. Pairing is by
+/// place across the whole transcript, so a result before its call is as unpaired as one with no
+/// call:
 ///
 /// - a call with no result takes a failed, repaired result right after it, and is never dropped;
-/// - a result before its call moves to right after it, keeping the provider's outcome;
+/// - a result before its call moves right after it, keeping the provider's outcome; one after it
+///   keeps its place;
 /// - a result with no call is removed, since carrying it would claim a call that never happened;
 /// - of several results under one id, the first stays;
 /// - a call reusing an id an earlier call holds takes a new id made from its place, with a failed,
@@ -323,16 +324,100 @@ fn mint_disambiguated_tool_call_id(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
     use sidekicks_contracts::run::id::RunId;
 
-    use super::{SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT, transform_transcript};
+    use super::{
+        SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT, SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
+        transform_transcript,
+    };
     use crate::database::writer::test_file::test_session_id;
     use crate::provider::hand_over::canonical_transcript::{
         CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
         CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
     };
     use crate::uuid_v7::mint_uuid_v7;
+
+    /// A projection of one assistant turn holding `segments`.
+    fn projection_of(segments: Vec<CanonicalTranscriptSegment>) -> CanonicalTranscriptProjection {
+        CanonicalTranscriptProjection {
+            session_id: test_session_id(),
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+            built_at_position: 4,
+            turns: vec![CanonicalTranscriptTurn {
+                position: 0,
+                role: CanonicalTranscriptRole::Assistant,
+                segments,
+            }],
+        }
+    }
+
+    fn call(position: u64, tool_call_id: &str) -> CanonicalTranscriptSegment {
+        CanonicalTranscriptSegment::ToolCall {
+            position,
+            tool_call_id: tool_call_id.to_owned(),
+            tool_name: "Read".to_owned(),
+            arguments_json: format!(r#"{{"at":{position}}}"#),
+            is_content_unavailable: false,
+        }
+    }
+
+    fn result(
+        position: u64,
+        tool_call_id: &str,
+        provenance: CanonicalToolResultProvenance,
+        text: &str,
+    ) -> CanonicalTranscriptSegment {
+        let outcome = match provenance {
+            CanonicalToolResultProvenance::Provider => CanonicalToolResultOutcome::Succeeded,
+            CanonicalToolResultProvenance::Repaired => CanonicalToolResultOutcome::Failed,
+        };
+        CanonicalTranscriptSegment::ToolResult {
+            position,
+            tool_call_id: tool_call_id.to_owned(),
+            outcome,
+            provenance,
+            text: text.to_owned(),
+            is_content_unavailable: false,
+        }
+    }
+
+    #[rstest]
+    #[case::result_before_its_call(
+        vec![result(1, "call-1", CanonicalToolResultProvenance::Provider, "a"), call(2, "call-1")],
+        vec![call(2, "call-1"), result(1, "call-1", CanonicalToolResultProvenance::Provider, "a")],
+    )]
+    #[case::reused_id(
+        vec![
+            call(1, "call-1"),
+            call(2, "call-1"),
+            result(3, "call-1", CanonicalToolResultProvenance::Provider, "a"),
+        ],
+        vec![
+            call(1, "call-1"),
+            result(3, "call-1", CanonicalToolResultProvenance::Provider, "a"),
+            call(2, "call-1-repaired-1"),
+            result(
+                2,
+                "call-1-repaired-1",
+                CanonicalToolResultProvenance::Repaired,
+                SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
+            ),
+        ],
+    )]
+    fn a_result_is_moved_beside_the_call_it_answers(
+        #[case] segments: Vec<CanonicalTranscriptSegment>,
+        #[case] expected: Vec<CanonicalTranscriptSegment>,
+    ) {
+        let transformed = transform_transcript(projection_of(segments));
+
+        assert_eq!(transformed.turns[0].segments, expected);
+        assert_eq!(
+            transformed.declared_losses,
+            [DeclaredLossKind::ToolCallHistoryRepaired]
+        );
+    }
 
     #[test]
     fn an_unanswered_call_is_answered_and_losses_follow_the_contract_order() {
