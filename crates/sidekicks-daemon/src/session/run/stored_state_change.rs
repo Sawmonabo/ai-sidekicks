@@ -39,7 +39,8 @@ pub(crate) enum StoredRunStateChange {
 
 #[expect(
     dead_code,
-    reason = "the run state subscription replays and follows each stored state change"
+    reason = "the queue's run lifecycle and the run binding cursors read each stored change's run \
+              and state"
 )]
 impl StoredRunStateChange {
     /// The run that changed state.
