@@ -17,6 +17,7 @@ use sidekicks_platforms::{DOES_PAUSED_READ_HOLD_INPUT, TerminalInputRefusal, Ter
 use tokio::runtime::Handle;
 use tokio::sync::{Semaphore, mpsc, watch};
 use tracing::Instrument;
+use tracing::instrument::WithSubscriber;
 use vte::ansi::Processor;
 
 use crate::input::answers::{ConsoleInputRead, TerminalAnswers};
@@ -126,7 +127,11 @@ where
     };
     let pty_slot: PtySlot = Arc::new(Mutex::new(Some(pty)));
     let span = tracing::info_span!("terminal read loop", terminal = name);
-    let running = read_loop.run(Arc::clone(&pty_slot)).instrument(span);
+    // The loop logs where its starter logs, whichever thread runs it.
+    let running = read_loop
+        .run(Arc::clone(&pty_slot))
+        .instrument(span)
+        .with_current_subscriber();
     if let Err(error) = sidekicks_platforms::run_terminal_loop(runtime, name, running) {
         if let Some(pty) = lock_ignoring_poison(&pty_slot).take() {
             release_off_runtime(

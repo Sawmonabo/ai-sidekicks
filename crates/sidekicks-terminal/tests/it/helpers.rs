@@ -41,8 +41,9 @@ pub(crate) fn no_listener(_answers: TerminalAnswers) -> NoListener {
     NoListener
 }
 
-/// Terminals on a spawner thread of their own; no test here stops a shell through the console,
-/// so the console helper is never run.
+/// Terminals on a spawner thread of their own, their console helper a program that does not
+/// exist: no test here stops a shell through the console, and on Windows a console reading the
+/// answers ask for fails to start it, logged, which leaves the answers flowing.
 pub(crate) fn terminals() -> Terminals {
     let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
     Terminals::new(

@@ -38,7 +38,7 @@ impl ScreenListener for AnswerToTerminal {
     fn answer_question(&mut self) {}
 }
 
-/// Every line the process logs, for counting the drop's warning.
+/// Every line the test's shell logs, for counting the drop's warning.
 #[derive(Clone, Default)]
 struct LogLines(Arc<Mutex<Vec<u8>>>);
 
@@ -60,13 +60,13 @@ impl io::Write for LogLines {
 async fn answers_stop_at_their_bound_and_a_keystroke_after_them_arrives() {
     let log = LogLines::default();
     let writer = log.clone();
-    tracing::subscriber::set_global_default(
+    // Scoped to this test: the shell's read loop logs where the test started it.
+    let _log = tracing::subscriber::set_default(
         tracing_subscriber::fmt()
             .with_writer(move || writer.clone())
             .with_ansi(false)
             .finish(),
-    )
-    .expect("no other test in this process sets the log");
+    );
     let terminals = terminals();
     let program = sidekicks_platforms::device_attribute_asker(QUESTION_COUNT);
     let mut spawned = terminals
