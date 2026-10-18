@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The JavaScript the daemon's QuickJS engines run, one bundle per engine.",
+  "description": "The JavaScript the daemon's QuickJS engines run, one bundle per engine, and the grammars its colorer runs.",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=24.21.0"
@@ -12,12 +12,14 @@
     "build": "node bundle.mjs"
   },
   "dependencies": {
+    "@shikijs/langs": "4.5.0",
     "@simplewebauthn/server": "14.0.3",
     "jsonata": "2.2.2",
     "picomatch": "4.0.7",
     "re2js": "2.8.6"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "tm-grammars": "1.32.22"
   }
 }

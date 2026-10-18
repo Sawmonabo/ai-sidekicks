@@ -2726,31 +2726,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ferriki"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57f5e8b01baabc33aca511dae7a9a95a7fb60cd9bd68ed8d12cd73c44b174571"
-dependencies = [
- "ferriki-asset-gen",
- "ferriki-textmate",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "ferriki-asset-gen"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44ce7495ebdc93b11cb41e3ef88536f16623dcf497758334b2d5606093b0182d"
-dependencies = [
- "postcard",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "ferriki-textmate"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8298,7 +8273,8 @@ dependencies = [
  "dugong",
  "ed25519-dalek",
  "fast_image_resize",
- "ferriki",
+ "ferriki-textmate",
+ "ferroni",
  "file-format",
  "flate2",
  "flexi_logger",
