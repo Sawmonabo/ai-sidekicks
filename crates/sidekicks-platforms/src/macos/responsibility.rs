@@ -1,9 +1,9 @@
 //! Which process macOS holds responsible for another, and starting a program as its own
 //! responsible process. macOS charges a process's privacy prompts to its responsible process, which
 //! every process it starts inherits; a start can disclaim it, making the new program its own. The
-//! daemon re-runs itself that way at start, so every process it starts reads the daemon as
-//! responsible, and starts each terminal the person opens the same way, so a terminal's programs do
-//! not.
+//! daemon re-runs itself that way at start, unless another running daemon started it, so every
+//! process it starts reads the daemon as responsible, and starts each terminal the person opens the
+//! same way, so a terminal's programs do not.
 //!
 //! The three calls are `libquarantine`'s, which `libSystem` re-exports and no SDK header declares.
 //! Each is looked up once at run time, so a macOS without one refuses instead of failing to load
@@ -14,6 +14,8 @@ use std::io;
 use std::os::unix::ffi::OsStringExt as _;
 use std::sync::OnceLock;
 
+use crate::ResponsibleProcess;
+use crate::macos::caller_process::{pinned, read_program_path, read_responsible_process};
 use crate::own_root::OwnRootError;
 
 /// The environment variable a program re-run as its own responsible process starts with, holding
@@ -42,11 +44,27 @@ struct ResponsibilityCalls {
     disclaim: DisclaimCall,
 }
 
+/// Which process is responsible for the starting program, as the start decides by it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StartResponsibility {
+    /// The program is its own responsible process.
+    Itself,
+    /// Another running instance of this same program is, as when a daemon an agent's command runs
+    /// is started under the daemon running that agent.
+    ThisProgram,
+    /// Another program is, or the process that was has just ended.
+    Another,
+}
+
 /// What the start does about being its own responsible process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OwnRootStep {
     /// It already is: start.
     Start,
+    /// Another instance of this program is responsible for it: start without re-running, so it and
+    /// everything it starts stay that instance's descendants, which that instance refuses as its
+    /// own.
+    StayUnder,
     /// It is not and has not re-run itself yet: re-run as its own responsible process.
     ReRun,
     /// It re-ran itself and still is not: refuse to start, since another re-run would repeat.
@@ -243,9 +261,9 @@ fn null_terminated(strings: &[CString]) -> Vec<*mut c_char> {
         .collect()
 }
 
-/// Makes this program its own responsible process: when it is not yet, it re-runs itself in place
-/// with the same id, arguments and environment and the start begins again from the first line of
-/// `main`. Called first, while only the main thread runs and before any folder change. Fails with
+/// Makes this program its own responsible process: when it is not yet, and no other instance of
+/// this program is responsible for it, it re-runs itself in place with the same id, arguments and
+/// environment and the start begins again from the first line of `main`. Called first, while only the main thread runs and before any folder change. Fails with
 /// [`OwnRootError::ThreadsRunning`] when other threads run, [`OwnRootError::StillNotRoot`] when a
 /// re-run did not take, [`OwnRootError::Read`] when a read fails, and [`OwnRootError::Exec`] when
 /// the re-run cannot start.
@@ -262,11 +280,8 @@ pub fn become_own_root() -> Result<(), OwnRootError> {
         // changes.
         unsafe { std::env::remove_var(OWN_ROOT_MARKER) };
     }
-    let responsible = read_responsible_id(id)
-        .map_err(OwnRootError::Read)?
-        .ok_or_else(|| OwnRootError::Read(io::Error::other("this process has no record")))?;
-    match own_root_step(responsible == id, has_re_run) {
-        OwnRootStep::Start => Ok(()),
+    match read_own_root_step(id, has_re_run).map_err(OwnRootError::Read)? {
+        OwnRootStep::Start | OwnRootStep::StayUnder => Ok(()),
         OwnRootStep::StillNotRoot => Err(OwnRootError::StillNotRoot),
         OwnRootStep::ReRun => {
             let start = this_program_as_own_root(id).map_err(OwnRootError::Exec)?;
@@ -281,13 +296,44 @@ fn is_own_marker(marker: Option<&OsStr>, id: u32) -> bool {
     marker.is_some_and(|marker| marker.to_str() == Some(id.to_string().as_str()))
 }
 
-/// What the start does, from whether this process is its own responsible process and whether it
-/// has already re-run itself; a re-run is never repeated, so the start cannot loop.
-fn own_root_step(is_own_root: bool, has_re_run: bool) -> OwnRootStep {
-    match (is_own_root, has_re_run) {
-        (true, _) => OwnRootStep::Start,
-        (false, false) => OwnRootStep::ReRun,
-        (false, true) => OwnRootStep::StillNotRoot,
+/// What the start of process `id`, this one, does, read from its responsible process. Fails with
+/// the system's error.
+fn read_own_root_step(id: u32, has_re_run: bool) -> io::Result<OwnRootStep> {
+    Ok(own_root_step(read_start_responsibility(id)?, has_re_run))
+}
+
+/// Which process is responsible for process `id`, this one: a responsible process is this same
+/// program when the system names the same program path for both, each read while its process is
+/// pinned. Fails with the system's error.
+fn read_start_responsibility(id: u32) -> io::Result<StartResponsibility> {
+    let this_process = pinned(id)?.ok_or_else(|| io::Error::other("this process has no record"))?;
+    match read_responsible_process(&this_process)? {
+        ResponsibleProcess::ThisProcess | ResponsibleProcess::Itself => {
+            Ok(StartResponsibility::Itself)
+        }
+        ResponsibleProcess::Another(responsible) => {
+            let own_program = read_program_path(&this_process)?
+                .ok_or_else(|| io::Error::other("this process has no program path"))?;
+            if read_program_path(&responsible)?.is_some_and(|program| program == own_program) {
+                Ok(StartResponsibility::ThisProgram)
+            } else {
+                Ok(StartResponsibility::Another)
+            }
+        }
+        ResponsibleProcess::Untracked | ResponsibleProcess::Ended => Err(io::Error::other(
+            "this process's responsible process could not be read",
+        )),
+    }
+}
+
+/// What the start does, from which process is responsible for it and whether it has already
+/// re-run itself; a re-run is never repeated, so the start cannot loop.
+fn own_root_step(responsibility: StartResponsibility, has_re_run: bool) -> OwnRootStep {
+    match (responsibility, has_re_run) {
+        (StartResponsibility::Itself, _) => OwnRootStep::Start,
+        (StartResponsibility::ThisProgram, _) => OwnRootStep::StayUnder,
+        (StartResponsibility::Another, false) => OwnRootStep::ReRun,
+        (StartResponsibility::Another, true) => OwnRootStep::StillNotRoot,
     }
 }
 
@@ -348,29 +394,166 @@ fn read_thread_count() -> io::Result<i32> {
     Err(io::Error::last_os_error())
 }
 
+/// This test program, run with only the test `name`, ignored ones included, its output kept.
+#[cfg(test)]
+pub(crate) fn this_test_program(name: &str) -> std::process::Command {
+    let mut command =
+        std::process::Command::new(std::env::current_exe().expect("the test program names itself"));
+    command.args(this_test_arguments(name));
+    command
+}
+
+/// The arguments that run only the test `name`, ignored ones included, its output kept.
+#[cfg(test)]
+fn this_test_arguments(name: &str) -> [&str; 4] {
+    ["--exact", name, "--include-ignored", "--nocapture"]
+}
+
+/// Runs this test program's test `name` as its own responsible process, a child of this one, and
+/// answers whether it passed and what it wrote to its output.
+#[cfg(test)]
+pub(crate) fn run_test_as_own_root(name: &str) -> (bool, String) {
+    use std::io::Read as _;
+    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+
+    // Built before the fork, so the child makes only the exec's one system call.
+    let program = std::env::current_exe().expect("the test program names itself");
+    let c_string = |text: OsString| CString::new(text.into_vec()).expect("no NUL");
+    let arguments = std::iter::once(program.clone().into_os_string())
+        .chain(this_test_arguments(name).into_iter().map(OsString::from))
+        .map(c_string)
+        .collect();
+    let environment = std::env::vars_os()
+        .map(|(mut name, value)| {
+            name.push("=");
+            name.push(value);
+            c_string(name)
+        })
+        .collect();
+    let start = OwnRootStart::new(c_string(program.into_os_string()), arguments, environment)
+        .expect("the start prepares");
+    let mut ends = [0; 2];
+    // SAFETY: `ends` is a live array of the two descriptors the call fills.
+    let status = unsafe { libc::pipe(ends.as_mut_ptr()) };
+    assert_eq!(status, 0, "the pipe opens");
+    // SAFETY: the call succeeded, so both descriptors are new and owned here alone.
+    let (read_end, write_end) =
+        unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
+    // SAFETY: the descriptor is open; the call only sets its close-on-exec flag.
+    let status = unsafe { libc::fcntl(read_end.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+    assert_eq!(status, 0, "the read end closes on exec");
+    let write_descriptor = write_end.as_raw_fd();
+
+    // SAFETY: the child calls only `dup2`, `exec` and `_exit`, each async-signal-safe, so the other
+    // threads' locks the fork copies are never taken.
+    let child = unsafe { libc::fork() };
+    if child == 0 {
+        // SAFETY: both descriptors are open in the child; `dup2` makes the pipe its output.
+        unsafe { libc::dup2(write_descriptor, libc::STDOUT_FILENO) };
+        drop(start.exec());
+        // SAFETY: `_exit` ends the child without running the parent's exit handlers.
+        unsafe { libc::_exit(127) };
+    }
+    assert!(child > 0, "the child forks");
+    drop(write_end);
+    let mut output = String::new();
+    std::fs::File::from(read_end)
+        .read_to_string(&mut output)
+        .expect("the child's output reads");
+    let mut status = 0;
+    // SAFETY: `child` is this test's own child, which the test reaps here.
+    assert_eq!(unsafe { libc::waitpid(child, &raw mut status, 0) }, child);
+    (
+        libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
+        output,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::{CString, OsStr};
-    use std::io::Read as _;
+    use std::io::{Read as _, Write as _};
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 
     use rstest::rstest;
 
-    use super::{OwnRootStart, OwnRootStep, is_own_marker, own_root_step, read_responsible_id};
+    use super::{
+        OwnRootStart, OwnRootStep, StartResponsibility, is_own_marker, own_root_step,
+        read_own_root_step, read_responsible_id, run_test_as_own_root, this_test_program,
+    };
     use crate::ResponsibleProcess;
     use crate::macos::caller_process::{pinned, read_responsible_process};
 
+    /// What the stand-in started under an own-root instance of this program prints once it found
+    /// it stays under that instance.
+    const STAYS_UNDER: &str = "the start stays under this program";
+
+    /// What the own-root instance of this program prints once its child's start went as expected.
+    const INSTANCE_CHECKED: &str = "the own-root instance's child stayed under it";
+
     #[rstest]
-    #[case::own_root(true, false, OwnRootStep::Start)]
-    #[case::own_root_after_its_re_run(true, true, OwnRootStep::Start)]
-    #[case::not_yet(false, false, OwnRootStep::ReRun)]
-    #[case::still_not_after_its_re_run(false, true, OwnRootStep::StillNotRoot)]
+    #[case::own_root(StartResponsibility::Itself, false, OwnRootStep::Start)]
+    #[case::own_root_after_its_re_run(StartResponsibility::Itself, true, OwnRootStep::Start)]
+    #[case::under_this_program(StartResponsibility::ThisProgram, false, OwnRootStep::StayUnder)]
+    #[case::not_yet(StartResponsibility::Another, false, OwnRootStep::ReRun)]
+    #[case::still_not_after_its_re_run(
+        StartResponsibility::Another,
+        true,
+        OwnRootStep::StillNotRoot
+    )]
     fn the_start_re_runs_once_at_most(
-        #[case] is_own_root: bool,
+        #[case] responsibility: StartResponsibility,
         #[case] has_re_run: bool,
         #[case] expected: OwnRootStep,
     ) {
-        assert_eq!(own_root_step(is_own_root, has_re_run), expected);
+        assert_eq!(own_root_step(responsibility, has_re_run), expected);
+    }
+
+    #[test]
+    #[ignore = "the second daemon's stand-in, which the own-root instance starts as its child"]
+    fn the_start_under_an_own_root_instance_of_this_program_stays_under_it() {
+        let own_id = std::process::id();
+        assert_eq!(
+            read_own_root_step(own_id, false).expect("the step reads"),
+            OwnRootStep::StayUnder
+        );
+        writeln!(std::io::stdout(), "{STAYS_UNDER}").expect("the stand-in writes its output");
+    }
+
+    #[test]
+    #[ignore = "the running daemon's stand-in, which the test starts as its own responsible process"]
+    fn an_own_root_instance_of_this_program_keeps_what_it_starts_under_it() {
+        let own_id = std::process::id();
+        assert_eq!(
+            read_responsible_id(own_id).expect("the read answers"),
+            Some(own_id),
+            "the stand-in started as its own responsible process"
+        );
+        let child = this_test_program(
+            "macos::responsibility::tests::the_start_under_an_own_root_instance_of_this_program_stays_under_it",
+        )
+        .output()
+        .expect("the child runs");
+        assert!(
+            child.status.success() && String::from_utf8_lossy(&child.stdout).contains(STAYS_UNDER),
+            "{}",
+            String::from_utf8_lossy(&child.stderr)
+        );
+        writeln!(std::io::stdout(), "{INSTANCE_CHECKED}").expect("the stand-in writes its output");
+    }
+
+    #[test]
+    fn a_start_stays_under_this_program_and_re_runs_under_any_other() {
+        // The test's own responsible process runs another program, as the person's terminal or
+        // the desktop does for a daemon they start.
+        assert_eq!(
+            read_own_root_step(std::process::id(), false).expect("the step reads"),
+            OwnRootStep::ReRun
+        );
+        let (has_passed, output) = run_test_as_own_root(
+            "macos::responsibility::tests::an_own_root_instance_of_this_program_keeps_what_it_starts_under_it",
+        );
+        assert!(has_passed && output.contains(INSTANCE_CHECKED), "{output}");
     }
 
     #[rstest]

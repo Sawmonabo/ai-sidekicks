@@ -4,8 +4,11 @@
 //! asks the system to answer only while the id still names that process, so a reused process id is
 //! never read.
 
+use std::ffi::OsString;
 use std::io;
 use std::os::fd::AsRawFd as _;
+use std::os::unix::ffi::OsStringExt as _;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use interprocess::local_socket::tokio::Stream;
@@ -253,6 +256,42 @@ fn own_unique_id() -> io::Result<u64> {
     Ok(*OWN_UNIQUE_ID.get_or_init(|| identifiers.unique_id))
 }
 
+/// The path of the program `process` runs, as the system names it, taken only once `process` is
+/// read still running after it, since a reused id would name another process's program; `None`
+/// once `process` has ended. Fails with the system's error.
+pub(crate) fn read_program_path(process: &PinnedProcess) -> io::Result<Option<PathBuf>> {
+    let Ok(pid) = libc::pid_t::try_from(process.id) else {
+        return Ok(None);
+    };
+    let maximum =
+        usize::try_from(libc::PROC_PIDPATHINFO_MAXSIZE).expect("the longest path is positive");
+    let mut path = vec![0_u8; maximum];
+    let path_length = u32::try_from(path.len()).expect("the path buffer's length fits a u32");
+    // SAFETY: `path` is a live, writable buffer of the length given, which the call fills.
+    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path_length) };
+    let Ok(written) = usize::try_from(written) else {
+        return failed_path_read();
+    };
+    if written == 0 {
+        return failed_path_read();
+    }
+    path.truncate(written);
+    if !is_running(process)? {
+        return Ok(None);
+    }
+    Ok(Some(PathBuf::from(OsString::from_vec(path))))
+}
+
+/// What a program-path read that failed means: `None` when the process is gone, the system's
+/// error otherwise.
+fn failed_path_read() -> io::Result<Option<PathBuf>> {
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(None);
+    }
+    Err(error)
+}
+
 /// Whether `process` still runs under its id. Fails with the system's error.
 pub(crate) fn is_running(process: &PinnedProcess) -> io::Result<bool> {
     Ok(read_unique_identifiers(process.id, COMPARE_UNIQUE_ID, process.unique_id)?.is_some())
@@ -267,7 +306,6 @@ pub fn this_process() -> PinnedProcess {
 }
 
 /// Process `id`, pinned as it runs now; `None` when no process has the id.
-#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
     Ok(
         read_unique_identifiers(id, COMPARE_NOTHING, 0)?.map(|identifiers| PinnedProcess {
