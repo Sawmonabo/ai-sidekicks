@@ -1,5 +1,6 @@
-//! What the daemon's `shell` mode starts a shell from, and why its start can fail, in the
-//! shapes every platform shares; each platform's module holds the calls behind them.
+//! What the daemon's `shell` mode starts a shell from, why its start can fail, and the daemon's
+//! confirmation that it started the mode, in the shapes every platform shares; each platform's
+//! module holds the calls behind them.
 
 use std::ffi::OsString;
 use std::io;
@@ -29,4 +30,31 @@ pub enum ShellStartError {
     /// The system refused to set `SIGPIPE` back to its default.
     #[error("the system refused to set SIGPIPE back to its default")]
     SignalResetRefused(#[source] io::Error),
+    /// No confirmation came from a parent that is the daemon that opened the shell, so the mode
+    /// does not start a program as its own responsible process.
+    #[error("the daemon that opened this shell did not confirm its start")]
+    Unconfirmed(#[source] io::Error),
+}
+
+/// The daemon's side of one shell start's confirmation: nothing on this system, whose shells keep
+/// no responsible process.
+#[cfg(not(target_os = "macos"))]
+pub struct ShellStartConfirmation;
+
+#[cfg(not(target_os = "macos"))]
+impl ShellStartConfirmation {
+    /// Nothing to open on this system. Never fails.
+    pub fn new() -> io::Result<Self> {
+        Ok(Self)
+    }
+
+    /// No entry: the `shell` mode here waits for no confirmation.
+    pub fn environment_entry(&self) -> Option<(String, String)> {
+        None
+    }
+
+    /// Nothing to confirm on this system. Never fails.
+    pub fn confirm(&mut self, _shell_process_id: u32) -> io::Result<()> {
+        Ok(())
+    }
 }

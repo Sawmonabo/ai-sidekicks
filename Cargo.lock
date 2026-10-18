@@ -7868,6 +7868,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation",
  "objc2-io-kit",
+ "objc2-security",
  "objc2-service-management",
  "polling",
  "process-wrap",

@@ -4,16 +4,16 @@ Work that is waiting on something outside this repository. Everything else is ei
 
 Each item names what it is waiting for and what would close it. Delete an item when it closes; closed items live in [Backlog Archive](./archive/backlog-archive.md).
 
-## BL-108: Windows + macOS signing procurement evidence
+## BL-108: SignPath Foundation's acceptance for Windows signing
 
-- Status: `blocked` (external-world wait — SignPath Foundation's acceptance, and an Apple Developer Program membership)
+- Status: `blocked` (external-world wait — SignPath Foundation's acceptance)
 - Priority: `P2`
 - Owner: `unassigned`
-- References: the release workflow's Windows signing of the `sidekicks-daemon` program, [Plan-020](./plans/020-desktop-app-and-renderer.md) T-020r-6-2 (the macOS signing), [ADR-018](./decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) §Decision items 5 and 6, [ADR-022](./decisions/022-v1-ci-cd-and-release-automation.md) §Axis 5, [Spec-021](./specs/021-desktop-app-and-renderer.md) §macOS
-- Summary: Three records from outside this repository gate the release workflow's signing steps: (a) SignPath Foundation accepting the project into its free open-source program ([signpath.org/terms](https://signpath.org/terms)); (b) the first release whose Windows binaries — the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium` — name SignPath Foundation as publisher; (c) the Apple Developer ID Application certificate, from an Apple Developer Program membership (its thumbprint, the team ID and the enrollment confirmation), which the desktop app's macOS builds sign with. If SignPath Foundation finds the project ineligible, the choice goes back to the person and the distribution plan does not change on its own.
-- V1 Release Impact: Windows signing through SignPath Foundation gates the Windows release; if the project is not eligible, that goes back to the person and the distribution plan does not change silently. macOS builds carry the project's self-signed code-signing identity, whose first launch asks the person to open the app from Finder's menu. Until SignPath Foundation signs, no Windows release ships unsigned.
-- Named gate: SignPath Foundation's acceptance of the project, and an Apple Developer Program membership (a paid yearly membership). Nothing in this repository blocks.
-- Exit Criteria: all three records attached to this entry, and the release workflow's Windows signing of the `sidekicks-daemon` program checked.
+- References: the release workflow's Windows signing of the `sidekicks-daemon` program, [Plan-020](./plans/020-desktop-app-and-renderer.md) T-020r-6-2 (the Windows signing), [ADR-018](./decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) §Decision items 5 and 6, [ADR-022](./decisions/022-v1-ci-cd-and-release-automation.md) §Axis 5
+- Summary: One answer from outside this repository gates the release workflow's Windows signing: SignPath Foundation accepting the project into its free open-source program ([signpath.org/terms](https://signpath.org/terms)), which the release workflow applies for once a release exists, as the program's terms ask. Once accepted, the workflow signs every Windows binary — the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium` — with SignPath Foundation as publisher. If SignPath Foundation finds the project ineligible, the choice goes back to the person and the distribution plan does not change on its own.
+- V1 Release Impact: Until SignPath Foundation signs, Windows builds publish unsigned: SmartScreen's prompt is cleared once with `Run anyway`, and a Windows machine with Smart App Control on cannot run them, a gap until then. If the project is not eligible, that goes back to the person and the distribution plan does not change silently.
+- Named gate: SignPath Foundation's acceptance of the project. Nothing in this repository blocks.
+- Exit Criteria: SignPath Foundation's acceptance attached to this entry, and the release workflow's Windows signing checked on the first release it signs.
 
 ## BL-155: The remote channel's hybrid post-quantum Noise profile
 
@@ -50,7 +50,7 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Status: `blocked` (external-world wait — a paid, yearly membership in the person's own Apple account)
 - Priority: `P2`
 - Owner: `unassigned`
-- References: [Spec-028](./specs/028-connect-an-ios-app-and-drive-control.md), [Plan-025 §Phase 7 — Frontend](./plans/025-remote-control.md#phase-7--frontend), [BL-108](#bl-108-windows--macos-signing-procurement-evidence) (the same membership signs the macOS app)
+- References: [Spec-028](./specs/028-connect-an-ios-app-and-drive-control.md), [Plan-025 §Phase 7 — Frontend](./plans/025-remote-control.md#phase-7--frontend)
 - Summary: The iPhone app is the one front end in a Capacitor shell, native only for the enclave key, the push extension, the cover, the scan, the port view, bundle staging, the link open (`sidekicks://session/<id>`), the Back swipe's one marked dismissal and the share sheet for a file a page in Preview saved, for iOS 26 and later, built and signed under the person's own Apple account. Building it to a phone needs that account's Apple Developer Program membership: it gives the signing certificate, the registered-device profile and the APNs key the relay signs the person's pushes with. Every other Remote Control unit builds without it. Once installed, the app takes each linked machine's console from that machine over the end-to-end channel, staged for its next start; only the app's own native code and its platform bridge come with a new build.
 - Named gate: the person's Apple Developer Program membership.
 - Exit Criteria: (a) the membership active in the person's Apple account; (b) the iPhone app built, signed and installed on a registered device; (c) a push delivered through the account's APNs key.

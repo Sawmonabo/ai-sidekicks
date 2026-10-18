@@ -18,8 +18,6 @@ ignored = [
   "junction",
   # Keeping the machine awake while work runs.
   "keepawake",
-  # The machine's hour cycle for the email digest on macOS.
-  "objc2-core-foundation",
   # The wake helper's status, read through the system's service management.
   "objc2-foundation",
   "objc2-service-management",
@@ -62,6 +60,7 @@ dispatch2 = { workspace = true, features = ["libc", "std"] }
 objc2-core-foundation.workspace = true
 objc2-foundation.workspace = true
 objc2-io-kit = { workspace = true, features = ["dispatch2", "libc", "pwr_mgt", "std"] }
+objc2-security = { workspace = true, features = ["CSCommon", "SecCode", "SecRequirement", "std"] }
 objc2-service-management.workspace = true
 security-framework.workspace = true
 

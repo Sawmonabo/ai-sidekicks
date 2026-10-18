@@ -1,0 +1,27 @@
+//! The daemon's start as its own responsible process, the first thing `main` does, before any
+//! thread, socket or lock exists and before the service log starts.
+
+use std::error::Error;
+use std::io::{self, Write as _};
+use std::process::ExitCode;
+
+/// Makes the daemon its own responsible process, re-running it in place when it is not yet, so
+/// every process it starts reads the daemon as responsible. A failure is written to standard error,
+/// the one place left before the service log starts, and answers the exit status `main` returns,
+/// so the daemon does not start.
+#[expect(dead_code, reason = "the daemon's start")]
+pub(crate) fn become_own_root() -> Result<(), ExitCode> {
+    let Err(error) = sidekicks_platforms::become_own_root() else {
+        return Ok(());
+    };
+    let mut report = format!("The background service could not start: {error}");
+    for cause in std::iter::successors(error.source(), |&cause| cause.source()) {
+        report.push_str(": ");
+        report.push_str(&cause.to_string());
+    }
+    // Nothing is left to report a failed write to; the exit status still says the start failed.
+    if let Err(write_error) = writeln!(io::stderr().lock(), "{report}") {
+        drop(write_error);
+    }
+    Err(ExitCode::FAILURE)
+}
