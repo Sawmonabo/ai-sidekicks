@@ -1,6 +1,6 @@
 //! The macOS and Linux pieces of the `shell` mode: the default shell, the parent check that
 //! keeps a shell from outliving the daemon, and the exec on the program's resolved path, on macOS
-//! as its own responsible process.
+//! as its own responsible process once the daemon confirms it started the mode.
 
 use std::convert::Infallible;
 use std::ffi::{CString, OsStr};
@@ -18,6 +18,8 @@ use nix::unistd::{AccessFlags, Pid, access, getppid};
 
 #[cfg(target_os = "macos")]
 use crate::macos::responsibility::OwnRootStart;
+#[cfg(target_os = "macos")]
+use crate::macos::shell_start_confirmation::receive_confirmation;
 use crate::shell_start::{ShellStart, ShellStartError};
 
 // zsh, the system's own shell on macOS.
@@ -63,15 +65,19 @@ pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
 }
 
 /// Prepares the `shell` mode's own process for its exec: arms it as [`arm_parent_death`]
-/// does, then sets `SIGPIPE` back to its default, since an ignored signal survives `execve`. Fails
-/// with [`ShellStartError::DaemonGone`] when the daemon is no longer the parent, and with the
-/// variant naming the call the system refused.
+/// does; on macOS waits for the daemon's confirmation that it started this process, without which
+/// no program starts as its own responsible process; then sets `SIGPIPE` back to its default, since
+/// an ignored signal survives `execve`. Fails with [`ShellStartError::DaemonGone`] when the daemon
+/// is no longer the parent, [`ShellStartError::Unconfirmed`] when the confirmation does not come,
+/// and with the variant naming the call the system refused.
 pub fn prepare_shell_start(daemon_pid: u32) -> Result<(), ShellStartError> {
     arm(daemon_pid).map_err(|failure| match failure {
         ArmingFailure::DaemonGone => ShellStartError::DaemonGone,
         #[cfg(target_os = "linux")]
         ArmingFailure::Refused(errno) => ShellStartError::ArmingRefused(io::Error::from(errno)),
     })?;
+    #[cfg(target_os = "macos")]
+    receive_confirmation().map_err(ShellStartError::Unconfirmed)?;
     // SAFETY: the default disposition installs no handler, so no code of this program can run
     // inside a signal.
     unsafe { signal(Signal::SIGPIPE, SigHandler::SigDfl) }
