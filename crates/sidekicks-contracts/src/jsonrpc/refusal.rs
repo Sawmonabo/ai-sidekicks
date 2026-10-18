@@ -234,10 +234,10 @@ refusal_codes! {
     ApprovalRuleAlreadyRevoked = "approval.rule.alreadyRevoked" (FailedPrecondition, 409);
     /// Approval rule does not exist where the provider keeps it.
     ApprovalRuleNotFound = "approval.rule.notFound" (NotFound, 404);
-    /// `approval.resolve` recorded the answer and the provider took it, so the call runs or is
-    /// refused on it, but the provider could not keep the rule the answer asked for (it refused the
-    /// settings update, or its rule file could not be written), so no rule was made and the
-    /// resolution records no remembered scope.
+    /// `approval.resolve` recorded the answer and the provider took it, but the provider could not
+    /// keep the rule the answer asked for, so the resolution records no remembered scope; or
+    /// `approval.rule.revoke` or `mcp.server.delete` could not take a rule out of a project's rule
+    /// file (one the daemon does not edit, or one it could not write), so the rule still applies.
     ApprovalRuleNotKept = "approval.rule.notKept" (Internal, 500);
     /// A client's `artifact.publish` declared `artifactType: "file"`.
     ArtifactFilePublishRefused = "artifact.filePublishRefused" (InvalidArgument, 422);
