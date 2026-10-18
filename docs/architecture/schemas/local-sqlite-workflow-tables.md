@@ -138,7 +138,7 @@ CREATE TABLE workflow_runs (
   CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
 ) STRICT;
 
-CREATE INDEX idx_workflow_runs_session ON workflow_runs(session_id);
+CREATE INDEX idx_workflow_runs_session ON workflow_runs(session_id, id);  -- deleting old runs pages in session order, each page seeking past the last one's final run
 CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)
   WHERE status IN ('new','running','waiting');
 CREATE INDEX idx_workflow_runs_chain ON workflow_runs(chain_root_run_id);  -- `Stop them all` cancels every run of the chain still going

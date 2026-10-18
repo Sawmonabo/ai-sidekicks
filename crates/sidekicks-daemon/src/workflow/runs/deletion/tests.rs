@@ -8,8 +8,8 @@ use sidekicks_contracts::workflow::run::retention::WorkflowRunPurgePreviewRespon
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 
 use super::{
-    DeletedWorkflowRun, RunGuard, WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY, WorkflowRunDeletion,
-    WorkflowRunDeletionError, WorkflowRunNotDeletable, read_removable_runs,
+    DeletedWorkflowRun, RUNS_PER_DELETE_WRITE, RunGuard, WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY,
+    WorkflowRunDeletion, WorkflowRunDeletionError, WorkflowRunNotDeletable, read_removable_runs,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
@@ -68,11 +68,11 @@ async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connect
     (WorkflowRunDeletion::new(pool, writer, event_log), rows)
 }
 
-fn run_id(number: u8) -> String {
-    format!("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4f{number:02}")
+fn run_id(number: u16) -> String {
+    format!("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d{number:04}")
 }
 
-fn workflow_run_id(number: u8) -> WorkflowRunId {
+fn workflow_run_id(number: u16) -> WorkflowRunId {
     WorkflowRunId::new(&run_id(number)).expect("the test's run id")
 }
 
@@ -336,4 +336,48 @@ async fn a_run_kept_since_its_page_was_read_is_left_and_the_rest_go() {
         );
     }
     assert_eq!(deleted_event_runs(&rows), vec![run_id(1), run_id(3)]);
+}
+
+/// A bulk delete over one run more than a write takes reads its second page after the first page's
+/// last run, and removes every run. Mutations: drop the after-the-last-run condition from the page
+/// read; end the delete after its first page.
+#[tokio::test]
+async fn a_bulk_delete_reads_its_second_page_after_the_first_pages_last_run() {
+    let database = TestDatabase::new();
+    let (deletion, rows) = open_deletion(&database).await;
+    let run_count = RUNS_PER_DELETE_WRITE + 1;
+    let last_number = u16::try_from(run_count).expect("the test's run count fits its ids");
+    for number in 1..=last_number {
+        insert_run(
+            &rows,
+            &run_id(number),
+            VERSION_ID,
+            WorkflowRunStatus::Succeeded,
+            OLD,
+            Some(ENDED),
+        );
+    }
+    let cutoff = instant(CUTOFF);
+    let first_page = read_removable_runs(&rows, Some(&cutoff), None).expect("the page reads");
+    assert_eq!(first_page.len(), RUNS_PER_DELETE_WRITE);
+    let last = first_page.last().expect("the first page holds runs");
+    let second_page = read_removable_runs(
+        &rows,
+        Some(&cutoff),
+        Some((last.session_id, last.workflow_run_id)),
+    )
+    .expect("the page reads");
+    let second_page_runs: Vec<WorkflowRunId> =
+        second_page.iter().map(|run| run.workflow_run_id).collect();
+    assert_eq!(second_page_runs, vec![workflow_run_id(last_number)]);
+
+    let deleted = deletion
+        .delete_older_than(&cutoff)
+        .await
+        .expect("the bulk delete commits");
+    assert_eq!(deleted.len(), run_count);
+    let left: i64 = rows
+        .query_row("SELECT COUNT(*) FROM workflow_runs", [], |row| row.get(0))
+        .expect("the test counts the runs");
+    assert_eq!(left, 0);
 }
