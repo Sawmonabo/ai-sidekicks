@@ -169,20 +169,20 @@ impl Terminals {
         }
         let (rows, columns) = (request.rows, request.columns);
         screen::check_screen_size(rows, columns).map_err(TerminalError::Spawn)?;
-        let pty = self
+        let opened = self
             .spawner
             .run(move || pty::open_pty(&request))
             .await
             .and_then(|opened| opened)
             .map_err(TerminalError::Spawn)?;
         let handle = TerminalHandle::mint();
-        let console_read = sidekicks_platforms::child_process_id(&pty)
+        let console_read = sidekicks_platforms::child_process_id(&opened.pty)
             .filter(|_| sidekicks_platforms::DOES_CONSOLE_COUNT_WAITING_INPUT)
             .map(|process_id| self.console_input_read(process_id));
         let started = read_loop::start_read_loop(
             &Handle::current(),
             &format!("terminal {handle}"),
-            pty,
+            opened,
             console_read,
             move |answers| TerminalScreen::new(rows, columns, listen(answers)),
             filter,

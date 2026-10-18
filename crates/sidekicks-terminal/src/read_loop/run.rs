@@ -10,17 +10,20 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use sidekicks_platforms::{TerminalInputRefusal, TerminalWake, TerminalWatch};
+use sidekicks_platforms::{
+    ShellStartConfirmation, TerminalInputRefusal, TerminalWake, TerminalWatch,
+};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use vte::ansi::Processor;
 
 use crate::exit::TerminalExit;
 use crate::input::queue::{QueuedWrite, WriteQueue};
 use crate::osc_limit::OscPayloadLimit;
+use crate::pty::OpenedPty;
 use crate::read_loop::control::{ResizeCommand, SignalKey, TerminalControl};
 use crate::read_loop::output::{OutputChunk, OutputFilter};
 use crate::read_loop::pause::PausedRead;
-use crate::read_loop::{PtySlot, lock_ignoring_poison, release_off_runtime};
+use crate::read_loop::{PtySlot, release_off_runtime};
 use crate::screen::{ScreenListener, TerminalScreen};
 
 /// The most read after the program's exit, so a process left writing to the terminal cannot hold
@@ -75,10 +78,11 @@ where
     L: ScreenListener,
     F: OutputFilter,
 {
-    pub(super) async fn run(mut self, pty_slot: PtySlot) {
-        let pty = lock_ignoring_poison(&pty_slot)
-            .take()
-            .expect("the slot holds the PTY until the loop takes it");
+    pub(super) async fn run(mut self, mut pty_slot: PtySlot) {
+        let OpenedPty {
+            pty,
+            start_confirmation,
+        } = pty_slot.take();
         let watch = match TerminalWatch::new(pty, &self.control.waker, &self.input_refusal) {
             Ok(watch) => watch,
             Err((error, pty)) => {
@@ -89,11 +93,13 @@ where
                 self.control.report_exit(TerminalExit::unconfirmed());
                 self.end_output();
                 let control = Arc::clone(&self.control);
+                let opened = OpenedPty {
+                    pty: *pty,
+                    start_confirmation,
+                };
                 release_off_runtime(
                     &self.name,
-                    Box::new(move || {
-                        sidekicks_platforms::release_terminal(*pty, || control.mark_exited());
-                    }),
+                    Box::new(move || opened.release(|| control.mark_exited())),
                 );
                 return;
             }
@@ -101,6 +107,7 @@ where
         // Released as it drops, at the loop's end or when the runtime drops the loop midway.
         let mut held = HeldWatch {
             watch: Some(watch),
+            start_confirmation: Some(start_confirmation),
             name: self.name.clone(),
             control: Arc::clone(&self.control),
         };
@@ -396,11 +403,13 @@ where
     }
 }
 
-/// The loop's watch, released as it drops: in place once the program was reaped, otherwise on a
-/// thread of its own, since the release waits for the program; so a loop the runtime drops midway
-/// still ends its program without blocking a worker.
+/// The loop's watch, released as it drops with its shell start's confirmation closed after it: in
+/// place once the program was reaped, otherwise on a thread of its own, since the release waits
+/// for the program; so a loop the runtime drops midway still ends its program without blocking a
+/// worker.
 struct HeldWatch {
     watch: Option<TerminalWatch>,
+    start_confirmation: Option<ShellStartConfirmation>,
     name: String,
     control: Arc<TerminalControl>,
 }
@@ -410,14 +419,16 @@ impl Drop for HeldWatch {
         let Some(watch) = self.watch.take() else {
             return;
         };
+        let start_confirmation = self.start_confirmation.take();
         let control = Arc::clone(&self.control);
-        if control.has_child_exited() {
+        let release = move || {
             watch.release(|| control.mark_exited());
+            drop(start_confirmation);
+        };
+        if self.control.has_child_exited() {
+            release();
         } else {
-            release_off_runtime(
-                &self.name,
-                Box::new(move || watch.release(|| control.mark_exited())),
-            );
+            release_off_runtime(&self.name, Box::new(release));
         }
     }
 }

@@ -12,17 +12,16 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
-use alacritty_terminal::tty::Pty;
 use sidekicks_platforms::{DOES_PAUSED_READ_HOLD_INPUT, TerminalInputRefusal, TerminalWaker};
 use tokio::runtime::Handle;
 use tokio::sync::{Semaphore, mpsc, watch};
 use tracing::Instrument;
-use tracing::instrument::WithSubscriber;
 use vte::ansi::Processor;
 
 use crate::input::answers::{ConsoleInputRead, TerminalAnswers};
 use crate::input::queue::WriteQueue;
 use crate::osc_limit::OscPayloadLimit;
+use crate::pty::OpenedPty;
 use crate::read_loop::control::{ChildState, ExitReport, TerminalControl};
 use crate::read_loop::output::{OutputFilter, TerminalOutput};
 use crate::read_loop::pause::PausedRead;
@@ -47,22 +46,50 @@ pub(crate) struct StartedLoop<L: ScreenListener> {
     pub(crate) output: TerminalOutput,
 }
 
-/// Where the loop finds its PTY, so a loop that never starts still hands the PTY back.
-pub(super) type PtySlot = Arc<Mutex<Option<Pty>>>;
+/// The shell's PTY until the loop takes it: a loop dropped before its first poll, or never run,
+/// releases the PTY off the runtime's workers as the slot drops, so the drop never blocks a worker
+/// on the program.
+pub(super) struct PtySlot {
+    opened: Option<OpenedPty>,
+    name: String,
+    control: Arc<TerminalControl>,
+}
+
+impl PtySlot {
+    /// Takes the PTY, which the loop does once, at its first poll.
+    pub(super) fn take(&mut self) -> OpenedPty {
+        self.opened
+            .take()
+            .expect("the slot holds the PTY until the loop takes it")
+    }
+}
+
+impl Drop for PtySlot {
+    fn drop(&mut self) {
+        let Some(opened) = self.opened.take() else {
+            return;
+        };
+        let control = Arc::clone(&self.control);
+        release_off_runtime(
+            &self.name,
+            Box::new(move || opened.release(|| control.mark_exited())),
+        );
+    }
+}
 
 /// A PTY's release, which may block until its program exits.
 type Release = Box<dyn FnOnce() + Send>;
 
-/// Starts the read loop of the shell in `pty` on `runtime`, its screen copy the one `screen` makes
-/// from the shell's answers, every chunk of output passing `filter` first; `name` names the loop
-/// in logs and threads, and `console_read`, where the system counts a console's waiting input,
-/// reads the shell's console for its answers' rule.
+/// Starts the read loop of the shell in `opened` on `runtime`, its screen copy the one `screen`
+/// makes from the shell's answers, every chunk of output passing `filter` first; `name` names the
+/// loop in logs and threads, and `console_read`, where the system counts a console's waiting
+/// input, reads the shell's console for its answers' rule.
 /// Fails when the loop's waker or thread cannot be made; the PTY is then released off the
 /// runtime's workers.
 pub(crate) fn start_read_loop<L, F>(
     runtime: &Handle,
     name: &str,
-    pty: Pty,
+    opened: OpenedPty,
     console_read: Option<ConsoleInputRead>,
     screen: impl FnOnce(TerminalAnswers) -> TerminalScreen<L>,
     filter: F,
@@ -71,15 +98,12 @@ where
     L: ScreenListener,
     F: OutputFilter,
 {
-    let process_id = sidekicks_platforms::child_process_id(&pty);
+    let process_id = sidekicks_platforms::child_process_id(&opened.pty);
     let waker = match TerminalWaker::new() {
         Ok(waker) => waker,
         Err(error) => {
             // No control exists yet, so nothing can signal the program before its release.
-            release_off_runtime(
-                name,
-                Box::new(move || sidekicks_platforms::release_terminal(pty, || {})),
-            );
+            release_off_runtime(name, Box::new(move || opened.release(|| {})));
             return Err(error);
         }
     };
@@ -125,22 +149,18 @@ where
         has_closed: false,
         paused_read: PausedRead::new(DOES_PAUSED_READ_HOLD_INPUT),
     };
-    let pty_slot: PtySlot = Arc::new(Mutex::new(Some(pty)));
+    let pty_slot = PtySlot {
+        opened: Some(opened),
+        name: name.to_owned(),
+        control: Arc::clone(&control),
+    };
     let span = tracing::info_span!("terminal read loop", terminal = name);
-    // The loop logs where its starter logs, whichever thread runs it.
-    let running = read_loop
-        .run(Arc::clone(&pty_slot))
-        .instrument(span)
-        .with_current_subscriber();
-    if let Err(error) = sidekicks_platforms::run_terminal_loop(runtime, name, running) {
-        if let Some(pty) = lock_ignoring_poison(&pty_slot).take() {
-            release_off_runtime(
-                name,
-                Box::new(move || sidekicks_platforms::release_terminal(pty, || {})),
-            );
-        }
-        return Err(error);
-    }
+    // A loop that cannot start is dropped unpolled, and its slot releases the PTY.
+    sidekicks_platforms::run_terminal_loop(
+        runtime,
+        name,
+        read_loop.run(pty_slot).instrument(span),
+    )?;
     Ok(StartedLoop {
         output: TerminalOutput {
             chunks: output_receiver,
@@ -179,6 +199,6 @@ fn run_release(slot: &Mutex<Option<Release>>) {
 }
 
 /// Locks a slot that holds no invariant a panic could break.
-pub(super) fn lock_ignoring_poison<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
+fn lock_ignoring_poison<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
     slot.lock().unwrap_or_else(PoisonError::into_inner)
 }

@@ -35,6 +35,8 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use windows_sys::core::BOOL;
 use windows_sys::w;
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
@@ -706,6 +708,31 @@ pub fn device_attribute_asker(question_count: usize) -> TestProgram {
             ),
         ],
     }
+}
+
+/// A shell that prints `ready`, then prints the numbers from 0, one a line, until it reads the key
+/// `Z` without echo, when it prints `key` and exits with code 0.
+#[cfg(any(test, feature = "test-support"))]
+pub fn key_stopped_printer() -> TestProgram {
+    TestProgram {
+        program: "powershell.exe".to_owned(),
+        arguments: vec![
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            "'ready'; $i = 0; while ($true) { $i; $i++; if ([Console]::KeyAvailable -and \
+             [Console]::ReadKey($true).KeyChar -eq 'Z') { 'key'; exit 0 } }"
+                .to_owned(),
+        ],
+    }
+}
+
+/// A shell that prints `unconfirmed` when its environment names no end of the daemon's
+/// confirmation of its start, which Windows never confirms, and otherwise `confirmed`.
+#[cfg(any(test, feature = "test-support"))]
+pub fn start_confirmation_reader() -> TestProgram {
+    shell_script(&format!(
+        "if defined {SHELL_START_CONFIRMATION} (echo confirmed) else (echo unconfirmed)"
+    ))
 }
 
 #[cfg(any(test, feature = "test-support"))]

@@ -1,4 +1,5 @@
-//! A paused shell's output waits in the terminal, and the resume delivers all of it in order.
+//! A paused shell's output waits in the terminal, and the resume delivers all of it in order; a
+//! key typed while a paused program keeps printing is taken and reaches it.
 
 use std::time::Duration;
 
@@ -100,4 +101,39 @@ async fn a_paused_shell_leaves_its_output_waiting_and_the_resume_delivers_it_in_
         }
     );
     assert_eq!(after_exit, None, "an event came after the exit");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_typed_while_a_paused_program_keeps_printing_is_taken_and_reaches_it() {
+    let terminals = terminals();
+    let program = sidekicks_platforms::key_stopped_printer();
+    let mut spawned = terminals
+        .spawn(request(program), no_listener, KeepAllOutput)
+        .await
+        .expect("the shell starts");
+    read_past_line(&mut spawned.output, "ready").await;
+
+    // The program prints on while paused, so its output fills again behind every read that a
+    // write while paused brings; the key is still taken, not held behind the pause.
+    terminals.pause(spawned.handle).expect("the shell pauses");
+    let taken = terminals
+        .queue_write(spawned.handle, Bytes::from_static(b"Z"))
+        .expect("the key is handed over")
+        .taken();
+    timeout(OUTPUT_BOUND, taken)
+        .await
+        .expect("the key is taken while the shell is paused")
+        .expect("the key is taken");
+
+    terminals.resume(spawned.handle).expect("the shell resumes");
+    let (text, exit) = read_to_exit(&mut spawned.output).await;
+    let keys_read = text.lines().filter(|line| line.trim() == "key").count();
+    assert_eq!(keys_read, 1, "the program read the key once: {text:?}");
+    assert_eq!(
+        exit,
+        TerminalExit {
+            exit_code: 0,
+            signal_code: None
+        }
+    );
 }

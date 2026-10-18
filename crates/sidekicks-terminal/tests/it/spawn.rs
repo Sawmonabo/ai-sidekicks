@@ -1,5 +1,7 @@
-//! A shell started through the terminals delivers its output, then the exit the system reported.
+//! A shell started through the terminals is confirmed to its `shell` mode where the system asks
+//! for that, and delivers its output, then the exit the system reported.
 
+use sidekicks_platforms::ShellStartConfirmation;
 use sidekicks_terminal::TerminalExit;
 
 use crate::helpers::{KeepAllOutput, no_listener, read_to_exit, request, terminals};
@@ -46,5 +48,32 @@ async fn an_abnormal_end_reports_the_code_and_signal_the_system_gave() {
             exit_code: abnormal.exit_code,
             signal_code: abnormal.signal_code
         }
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shell_s_start_is_confirmed_with_its_own_process_id_where_the_system_asks() {
+    let terminals = terminals();
+    let program = sidekicks_platforms::start_confirmation_reader();
+    let mut spawned = terminals
+        .spawn(request(program), no_listener, KeepAllOutput)
+        .await
+        .expect("the shell starts");
+
+    let (text, _exit) = read_to_exit(&mut spawned.output).await;
+
+    let does_system_confirm = ShellStartConfirmation::new()
+        .expect("a confirmation opens")
+        .environment_entry()
+        .is_some();
+    let expected = match spawned.process_id {
+        Some(process_id) if does_system_confirm => {
+            format!("confirmed {process_id} started {process_id}")
+        }
+        _ => "unconfirmed".to_owned(),
+    };
+    assert!(
+        text.contains(&expected),
+        "expected {expected:?} in {text:?}"
     );
 }

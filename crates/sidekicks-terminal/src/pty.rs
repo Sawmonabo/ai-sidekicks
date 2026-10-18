@@ -1,4 +1,5 @@
-//! A shell's PTY: how it opens and the environment it hands the `shell` mode.
+//! A shell's PTY: how it opens, the environment it hands the `shell` mode, and the confirmation of
+//! the shell's start that stays with it.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -8,6 +9,7 @@ use std::path::PathBuf;
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::{self, Pty};
+use sidekicks_platforms::ShellStartConfirmation;
 
 /// A program and the arguments it starts with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,12 +41,31 @@ pub struct SpawnRequest {
     pub shell_start: CommandLine,
 }
 
-/// Opens the shell's PTY and starts its program through the `shell` mode; blocking, so it
-/// runs on the daemon's spawner thread. Fails with `InvalidInput` for an environment entry with
-/// an empty name, an `=` in its name or a NUL, with `NotADirectory` when the working folder is not
-/// a folder, and with the system's error when the terminal cannot be opened or the program
-/// started.
-pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
+/// A shell's open PTY and the daemon's end of its start's confirmation, which the `shell` mode
+/// reads only while that end is open, so the two are released together once the shell has ended.
+pub(crate) struct OpenedPty {
+    /// The shell's PTY.
+    pub(crate) pty: Pty,
+    /// The daemon's end of the confirmation that it started the shell's `shell` mode.
+    pub(crate) start_confirmation: ShellStartConfirmation,
+}
+
+impl OpenedPty {
+    /// Ends the shell's program and releases the PTY, `mark_exited` running once the program has
+    /// exited, then closes the confirmation; blocking, so it runs off the runtime's workers.
+    pub(crate) fn release(self, mark_exited: impl FnOnce()) {
+        sidekicks_platforms::release_terminal(self.pty, mark_exited);
+        drop(self.start_confirmation);
+    }
+}
+
+/// Opens the shell's PTY and starts its program through the `shell` mode, confirming to the mode
+/// that the daemon started it; blocking, so it runs on the daemon's spawner thread, which starts no
+/// other child between the confirmation's opening and its writing. Fails with `InvalidInput` for an
+/// environment entry with an empty name, an `=` in its name or a NUL, with `NotADirectory` when the
+/// working folder is not a folder, and with the system's error when the terminal cannot be opened,
+/// the program started or its start confirmed; a start not confirmed ends the program.
+pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<OpenedPty> {
     check_environment(&request.environment)?;
     if !request.working_directory.is_dir() {
         return Err(io::Error::new(
@@ -55,10 +76,13 @@ pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
     let mut arguments = request.shell_start.arguments.clone();
     arguments.push(request.program.clone());
     arguments.extend(request.arguments.iter().cloned());
+    let mut start_confirmation = ShellStartConfirmation::new()?;
+    let mut environment = encode_shell_environment(&request.environment);
+    environment.extend(start_confirmation.environment_entry());
     let options = sidekicks_platforms::terminal_options(
         tty::Shell::new(request.shell_start.program.clone(), arguments),
         Some(request.working_directory.clone()),
-        encode_shell_environment(&request.environment),
+        environment,
     );
     let window_size = WindowSize {
         num_lines: request.rows,
@@ -66,7 +90,20 @@ pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<Pty> {
         cell_width: 0,
         cell_height: 0,
     };
-    tty::new(&options, window_size, 0)
+    let pty = tty::new(&options, window_size, 0)?;
+    // A system that reports no process id confirms no start.
+    let confirmed = sidekicks_platforms::child_process_id(&pty)
+        .map_or(Ok(()), |process_id| start_confirmation.confirm(process_id));
+    if let Err(error) = confirmed {
+        // Closed first, so the mode reads its end closed and refuses, and the release is quick.
+        drop(start_confirmation);
+        sidekicks_platforms::release_terminal(pty, || {});
+        return Err(error);
+    }
+    Ok(OpenedPty {
+        pty,
+        start_confirmation,
+    })
 }
 
 /// Refuses an environment the `shell` mode could not hand on as given: an empty name, an `=`

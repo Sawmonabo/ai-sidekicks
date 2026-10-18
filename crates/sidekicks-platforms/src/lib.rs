@@ -162,7 +162,8 @@ pub use posix::terminal::{
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::{
     abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
-    interruptible_sleeper, pass_through_start, waiting_printer,
+    interruptible_sleeper, key_stopped_printer, pass_through_start, start_confirmation_reader,
+    waiting_printer,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
@@ -247,7 +248,8 @@ pub use windows::terminal::{
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::terminal::{
     abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
-    interruptible_sleeper, pass_through_start, waiting_printer,
+    interruptible_sleeper, key_stopped_printer, pass_through_start, start_confirmation_reader,
+    waiting_printer,
 };
 #[cfg(target_os = "windows")]
 pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;

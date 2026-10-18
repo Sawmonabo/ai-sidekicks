@@ -26,6 +26,8 @@ use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
 use crate::posix::process_exit::wait_for_exit;
+#[cfg(any(test, feature = "test-support"))]
+use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
@@ -684,6 +686,28 @@ pub fn device_attribute_asker(question_count: usize) -> TestProgram {
          i=$((i+1)); done; echo asked; sleep 1; stty min 0 time 20; cat | od -An -tx1 -v | \
          awk '{{for(i=1;i<=NF;i++){{n++; if($i==\"5a\")z++}}}} \
          END{{print \"read \" n+0 \" key \" z+0}}'"
+    ))
+}
+
+/// A shell that takes its terminal's input unread and without echo, prints `ready`, then prints
+/// the numbers from 0, one a line, until it reads the key `Z`, when it prints `key` and exits with
+/// code 0.
+#[cfg(any(test, feature = "test-support"))]
+pub fn key_stopped_printer() -> TestProgram {
+    shell_script(
+        "stty -icanon -echo min 0 time 0; echo ready; i=0; while :; do echo $i; i=$((i+1)); \
+         key=$(dd bs=1 count=1 2>/dev/null); if [ \"$key\" = Z ]; then echo key; exit 0; fi; done",
+    )
+}
+
+/// A shell that prints `unconfirmed` when its environment names no end of the daemon's
+/// confirmation of its start, and otherwise `confirmed <id> started <its own process id>`, where
+/// `<id>` is the process id read from that end.
+#[cfg(any(test, feature = "test-support"))]
+pub fn start_confirmation_reader() -> TestProgram {
+    shell_script(&format!(
+        "end=${SHELL_START_CONFIRMATION}; if [ -z \"$end\" ]; then echo unconfirmed; else \
+         id=$(eval \"od -An -tu4 -N4 <&$end\" | tr -d ' '); echo \"confirmed $id started $$\"; fi"
     ))
 }
 

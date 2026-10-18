@@ -38,7 +38,7 @@ impl ScreenListener for AnswerToTerminal {
     fn answer_question(&mut self) {}
 }
 
-/// Every line the test's shell logs, for counting the drop's warning.
+/// Every line the test's process logs, for counting the drop's warning of the test's shell.
 #[derive(Clone, Default)]
 struct LogLines(Arc<Mutex<Vec<u8>>>);
 
@@ -60,13 +60,15 @@ impl io::Write for LogLines {
 async fn answers_stop_at_their_bound_and_a_keystroke_after_them_arrives() {
     let log = LogLines::default();
     let writer = log.clone();
-    // Scoped to this test: the shell's read loop logs where the test started it.
-    let _log = tracing::subscriber::set_default(
+    // The read loop logs on whichever thread runs it, so the capture is global, and only the lines
+    // in this shell's read loop span are counted.
+    tracing::subscriber::set_global_default(
         tracing_subscriber::fmt()
             .with_writer(move || writer.clone())
             .with_ansi(false)
             .finish(),
-    );
+    )
+    .expect("the test sets its process's one subscriber");
     let terminals = terminals();
     let program = sidekicks_platforms::device_attribute_asker(QUESTION_COUNT);
     let mut spawned = terminals
@@ -103,5 +105,14 @@ async fn answers_stop_at_their_bound_and_a_keystroke_after_them_arrives() {
         "answers stop at their bound: {answered} bytes answered"
     );
     let logged = String::from_utf8_lossy(&log.0.lock().expect("no test panicked")).into_owned();
-    assert_eq!(logged.matches(DROP_WARNING).count(), 1, "{logged}");
+    let handle = spawned.handle.to_string();
+    let drops = logged
+        .lines()
+        .filter(|line| {
+            line.contains("terminal read loop{")
+                && line.contains(&handle)
+                && line.contains(DROP_WARNING)
+        })
+        .count();
+    assert_eq!(drops, 1, "{logged}");
 }
