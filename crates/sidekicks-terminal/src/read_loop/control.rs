@@ -45,9 +45,6 @@ pub(crate) struct TerminalControl {
     pub(super) resizes: mpsc::Sender<ResizeCommand>,
     pub(super) waker: TerminalWaker,
     pub(super) is_paused: AtomicBool,
-    /// Set by a write handed over while paused, until a read after it finds the output empty: a
-    /// paused read that would hold the program's input back reads on meanwhile.
-    pub(super) has_write_since_pause: AtomicBool,
     pub(super) is_closing: AtomicBool,
     /// Set while the loop finds no room for output, so the caller's next take wakes it.
     pub(super) is_waiting_for_room: AtomicBool,
@@ -118,9 +115,6 @@ impl TerminalControl {
         if self.writes.send(write).is_err() {
             return Err(self.ended_write_error());
         }
-        if self.is_paused() {
-            self.has_write_since_pause.store(true, Ordering::SeqCst);
-        }
         self.waker.wake();
         Ok(())
     }
@@ -152,7 +146,6 @@ impl TerminalControl {
     /// Reads the terminal again; the output that waited arrives in order.
     pub(crate) fn resume(&self) {
         self.is_paused.store(false, Ordering::SeqCst);
-        self.has_write_since_pause.store(false, Ordering::SeqCst);
         self.waker.wake();
     }
 

@@ -3,6 +3,7 @@
 
 pub(crate) mod control;
 pub(crate) mod output;
+mod pause;
 mod run;
 
 use std::error::Error;
@@ -12,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
 use alacritty_terminal::tty::Pty;
-use sidekicks_platforms::{TerminalInputRefusal, TerminalWaker};
+use sidekicks_platforms::{DOES_PAUSED_READ_HOLD_INPUT, TerminalInputRefusal, TerminalWaker};
 use tokio::runtime::Handle;
 use tokio::sync::{Semaphore, mpsc, watch};
 use tracing::Instrument;
@@ -23,6 +24,7 @@ use crate::input::queue::WriteQueue;
 use crate::osc_limit::OscPayloadLimit;
 use crate::read_loop::control::{ChildState, ExitReport, TerminalControl};
 use crate::read_loop::output::{OutputFilter, TerminalOutput};
+use crate::read_loop::pause::PausedRead;
 use crate::read_loop::run::ReadLoop;
 use crate::screen::{ScreenListener, TerminalScreen};
 
@@ -90,7 +92,6 @@ where
         resizes,
         waker,
         is_paused: AtomicBool::new(false),
-        has_write_since_pause: AtomicBool::new(false),
         is_closing: AtomicBool::new(false),
         is_waiting_for_room: AtomicBool::new(false),
         process_id,
@@ -121,6 +122,7 @@ where
         output_budget: Arc::new(Semaphore::new(OUTPUT_BYTES)),
         is_output_ended: false,
         has_closed: false,
+        paused_read: PausedRead::new(DOES_PAUSED_READ_HOLD_INPUT),
     };
     let pty_slot: PtySlot = Arc::new(Mutex::new(Some(pty)));
     let span = tracing::info_span!("terminal read loop", terminal = name);

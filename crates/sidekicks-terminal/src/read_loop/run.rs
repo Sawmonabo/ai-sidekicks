@@ -10,9 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use sidekicks_platforms::{
-    DOES_PAUSED_READ_HOLD_INPUT, TerminalInputRefusal, TerminalWake, TerminalWatch,
-};
+use sidekicks_platforms::{TerminalInputRefusal, TerminalWake, TerminalWatch};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use vte::ansi::Processor;
 
@@ -21,6 +19,7 @@ use crate::input::queue::{QueuedWrite, WriteQueue};
 use crate::osc_limit::OscPayloadLimit;
 use crate::read_loop::control::{ResizeCommand, SignalKey, TerminalControl};
 use crate::read_loop::output::{OutputChunk, OutputFilter};
+use crate::read_loop::pause::PausedRead;
 use crate::read_loop::{PtySlot, lock_ignoring_poison, release_off_runtime};
 use crate::screen::{ScreenListener, TerminalScreen};
 
@@ -68,6 +67,7 @@ pub(super) struct ReadLoop<L: ScreenListener, F> {
     pub(super) output_budget: Arc<Semaphore>,
     pub(super) is_output_ended: bool,
     pub(super) has_closed: bool,
+    pub(super) paused_read: PausedRead,
 }
 
 impl<L, F> ReadLoop<L, F>
@@ -128,7 +128,11 @@ where
             // close's hangup is not blocked on a full terminal.
             let can_read = !self.is_output_ended
                 && room > 0
-                && (self.output.is_none() || !self.is_read_held());
+                && (self.output.is_none()
+                    || !self.paused_read.is_read_held(
+                        self.control.is_paused(),
+                        self.queue.pending_bytes().is_some(),
+                    ));
             // The screen copy draws a synchronized update's held output at each chunk's end, so no
             // update's deadline is waited on.
             let wake = watch
@@ -146,7 +150,10 @@ where
                     }
                 }
                 Ok(TerminalWake::OutputEnded) => self.is_output_ended = true,
-                Ok(TerminalWake::Wrote(count)) => self.queue.advance(count),
+                Ok(TerminalWake::Wrote(count)) => {
+                    self.queue.advance(count);
+                    self.paused_read.wrote();
+                }
                 Ok(TerminalWake::InputEnded) => self.end_input(),
                 Ok(TerminalWake::WriteFailed(error)) => {
                     tracing::warn!(
@@ -310,19 +317,9 @@ where
         room
     }
 
-    /// Whether the pause holds the output back now: a paused read that would hold the program's
-    /// input back reads on while a write waits or one was handed over since the pause, so the
-    /// write is taken.
-    fn is_read_held(&self) -> bool {
-        self.control.is_paused()
-            && !(DOES_PAUSED_READ_HOLD_INPUT
-                && (self.queue.pending_bytes().is_some()
-                    || self.control.has_write_since_pause.load(Ordering::SeqCst)))
-    }
-
     /// Reads on after a read of `count` bytes until a read would block or `limit` bytes are read,
     /// then delivers the burst once: the count delivered, and a failed read's error after it. A
-    /// paused burst that finds the output empty clears the write handed over since the pause.
+    /// burst that finds the output empty confirms the writes the terminal took before it.
     fn take_burst(
         &mut self,
         watch: &mut TerminalWatch,
@@ -334,11 +331,7 @@ where
         while filled < limit {
             match watch.read_now(&mut self.read_buffer[filled..limit]) {
                 Ok(0) => {
-                    if self.control.is_paused() {
-                        self.control
-                            .has_write_since_pause
-                            .store(false, Ordering::SeqCst);
-                    }
+                    self.paused_read.found_output_empty();
                     break;
                 }
                 Ok(count) => filled += count,
