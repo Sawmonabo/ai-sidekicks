@@ -19,6 +19,7 @@ use strum::VariantArray;
 use crate::color::HexColor;
 use crate::command::ExitCode;
 use crate::event::registry::SessionEventType;
+use crate::jsonrpc::byte_length::fits_budget;
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::jsonrpc::streaming::{
     STREAM_FRAME_MAX_CHANGES, SubscribeAcknowledgmentResponse, SubscriptionId,
@@ -49,14 +50,14 @@ ts_constants! {
     /// title the shell sets to whole graphemes within it, and within it to whole code points only
     /// when one grapheme alone is longer.
     pub const SHELL_TITLE_MAX_LEN: usize = 256;
-    /// The most UTF-8 bytes one `terminal.write` carries in its `data`.
+    /// The most bytes one `terminal.write`'s `data` measures as its JSON travels.
     pub const TERMINAL_WRITE_MAX_BYTES: usize = 65_536;
     /// How many writes to one shell a client keeps waiting for an answer before it joins its next
     /// typed keys into later writes, sent in order as answers return.
     pub const TERMINAL_WRITES_WAITING_PER_SHELL: usize = 8;
     /// How many of one connection's writes to one shell may wait for an answer; a write that finds
-    /// this many waiting is refused `terminal.write.limitReached`. Twice the client's own figure, so
-    /// an interrupt, quit or suspend key sent at once with the keys before it still fits.
+    /// this many waiting is refused `terminal.write.limitReached`. Twice the client's own figure,
+    /// so an interrupt, quit or suspend key sent at once with the keys before it still fits.
     pub const TERMINAL_WRITES_WAITING_LIMIT: usize = 2 * TERMINAL_WRITES_WAITING_PER_SHELL;
     /// The event every change of one shell's holder is broadcast on.
     pub const TERMINAL_CONTROL_CHANGED_EVENT: &str =
@@ -348,7 +349,9 @@ pub enum TerminalWriteRequest {
         terminal_id: TerminalId,
         /// The writing pane's output subscription.
         output_subscription_id: SubscriptionId,
-        /// The text.
+        /// The text, at most [`TERMINAL_WRITE_MAX_BYTES`] as its JSON travels.
+        #[garde(custom(|data: &String, (): &()| fits_budget(data, TERMINAL_WRITE_MAX_BYTES)))]
+        #[schemars(extend("maxJsonBytes" = TERMINAL_WRITE_MAX_BYTES))]
         data: String,
     },
     /// One part of a paste.
@@ -359,7 +362,9 @@ pub enum TerminalWriteRequest {
         terminal_id: TerminalId,
         /// The writing pane's output subscription.
         output_subscription_id: SubscriptionId,
-        /// The part's text.
+        /// The part's text, at most [`TERMINAL_WRITE_MAX_BYTES`] as its JSON travels.
+        #[garde(custom(|data: &String, (): &()| fits_budget(data, TERMINAL_WRITE_MAX_BYTES)))]
+        #[schemars(extend("maxJsonBytes" = TERMINAL_WRITE_MAX_BYTES))]
         data: String,
         /// The paste, minted by the client.
         paste_id: ClientUuid,
@@ -587,5 +592,42 @@ impl ListKey for TerminalId {
 
     // An id carries no rule its read does not hold.
     fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use garde::Validate;
+    use serde_json::json;
+
+    use super::{TERMINAL_WRITE_MAX_BYTES, TerminalWriteRequest};
+
+    #[test]
+    fn a_write_s_data_fits_its_byte_cap_as_its_json_travels_on_both_arms() {
+        let write = |kind: &str, data: String| -> TerminalWriteRequest {
+            let mut request = json!({
+                "kind": kind,
+                "sessionId": "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e",
+                "terminalId": "terminal-1",
+                "outputSubscriptionId": "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001",
+                "data": data,
+            });
+            if kind == "paste" {
+                request["pasteId"] = json!("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0002");
+                request["isLastPart"] = json!(true);
+            }
+            serde_json::from_value(request).expect("a well-formed write")
+        };
+        // The two quotes count toward the cap, as do an escape's extra bytes.
+        let fitting = "a".repeat(TERMINAL_WRITE_MAX_BYTES - 2);
+        for kind in ["keys", "paste"] {
+            assert!(write(kind, fitting.clone()).validate().is_ok(), "{kind}");
+            for over in [
+                fitting.clone() + "a",
+                "\n".repeat(TERMINAL_WRITE_MAX_BYTES / 2),
+            ] {
+                assert!(write(kind, over).validate().is_err(), "{kind}");
+            }
+        }
     }
 }
