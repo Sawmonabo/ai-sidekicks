@@ -24,7 +24,9 @@
 //! stands unannounced; a release to nobody whose broadcast fails still stands, because the holder
 //! it ended is gone. Either failure reaches the caller, and every caller that joined it.
 
-use std::collections::HashMap;
+mod write_admission;
+
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
@@ -45,6 +47,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::TransportId;
+use crate::pty::control_lease::write_admission::WaitingWrite;
+pub(crate) use crate::pty::control_lease::write_admission::WriteAdmission;
 
 /// One device connection: the device and the connection it called on.
 #[derive(Clone, Debug)]
@@ -163,6 +167,9 @@ struct LeaseState {
     holder: Option<LeaseHolder>,
     lease_version: u64,
     pending: Option<PendingBroadcast>,
+    /// The writes that came while a change of holder was in flight, in the order they came;
+    /// empty whenever none is.
+    waiting_writes: VecDeque<WaitingWrite>,
 }
 
 impl LeaseState {
@@ -225,6 +232,7 @@ impl ShellControlLease {
                     holder: None,
                     lease_version: 0,
                     pending: None,
+                    waiting_writes: VecDeque::new(),
                 }),
             }),
         }
@@ -326,76 +334,6 @@ impl ShellControlLease {
         })
         .await
         .map(|joined| joined.unwrap_or(true))
-    }
-
-    /// Hands one write to `write`, under the lease's lock with the check that its writer holds the
-    /// shell, and refuses it otherwise with `terminal.control.notHeld`; a device's write to a shell
-    /// nobody holds takes it first, and a holding connection's write binds the pane it came
-    /// through. A device whose pane or shell ended meanwhile is refused. `write` must not block:
-    /// it hands the bytes to the terminal's intake, which keeps the order of the calls.
-    pub(crate) async fn admit_write<T>(
-        &self,
-        writer: &ShellWriter,
-        write: impl FnOnce() -> T,
-    ) -> Result<T, DomainError> {
-        let mut write = Some(write);
-        loop {
-            let step = {
-                let shared = &self.shared;
-                let mut state = shared.lock();
-                if let ShellWriter::Device(caller) = writer
-                    && let Err(refusal) = (shared.refuse_ended_caller)(caller)
-                {
-                    return Err(refusal);
-                }
-                let is_held_by_writer = match (writer, &state.holder) {
-                    (ShellWriter::Device(caller), Some(LeaseHolder::Device(hold))) => {
-                        hold.is_bound_to(&caller.connection)
-                    }
-                    (ShellWriter::Run(run_id), Some(LeaseHolder::Run(hold))) => {
-                        hold.run_id == *run_id
-                    }
-                    (ShellWriter::Device(_) | ShellWriter::Run(_), _) => false,
-                };
-                if let Some(pending) = &state.pending {
-                    // A pending change that made the writer the holder is its own take or
-                    // hand-back: the write fails with it. Any other is waited out.
-                    if is_held_by_writer {
-                        Step::Join(pending.clone())
-                    } else {
-                        Step::Settle(pending.clone())
-                    }
-                } else if is_held_by_writer {
-                    if let (ShellWriter::Device(caller), Some(LeaseHolder::Device(hold))) =
-                        (writer, &mut state.holder)
-                    {
-                        // Typing in a pane keeps the hold through it as a take there would,
-                        // announced by nobody.
-                        hold.bind(caller);
-                    }
-                    let write = write
-                        .take()
-                        .expect("the write is handed over once, and the loop then returns");
-                    return Ok(write());
-                } else {
-                    match (writer, &state.holder) {
-                        (ShellWriter::Device(caller), None) => Step::Join(shared.change_holder(
-                            &mut state,
-                            Some(LeaseHolder::Device(DeviceHold::of(caller))),
-                            TerminalControlChangedReason::Taken,
-                        )),
-                        (ShellWriter::Device(_) | ShellWriter::Run(_), _) => {
-                            return Err(shared.not_held());
-                        }
-                    }
-                }
-            };
-            match step {
-                Step::Done(result) => return result,
-                Step::Settle(pending) => drop(pending.await),
-                Step::Join(pending) => pending.await.map_err(|failure| rejoin(&failure))?,
-            }
-        }
     }
 
     /// Hands a resize or a pane's appearance to `admitted`, under the lease's lock with the check,
@@ -536,11 +474,13 @@ impl ShellControlLease {
                 return Step::Settle(pending.clone());
             }
             let hold = match &mut state.holder {
-                Some(LeaseHolder::Device(hold)) => hold,
-                Some(LeaseHolder::Run(RunHold {
-                    kept_aside: Some(hold),
-                    ..
-                })) => hold,
+                Some(
+                    LeaseHolder::Device(hold)
+                    | LeaseHolder::Run(RunHold {
+                        kept_aside: Some(hold),
+                        ..
+                    }),
+                ) => hold,
                 Some(LeaseHolder::Run(RunHold {
                     kept_aside: None, ..
                 }))
@@ -763,7 +703,8 @@ impl LeaseShared {
     }
 
     /// Replaces the holder at once, then broadcasts the change on a task of its own, so a caller
-    /// that stops waiting leaves no change half made. Called only while no other change is in
+    /// that stops waiting leaves no change half made; once it settles, the writes that waited for
+    /// it are admitted in the order they came. Called only while no other change is in
     /// flight, so a failed take puts back exactly the holder it replaced, and a failed hand-back
     /// leaves nobody holding rather than an unannounced device; a failed release to nobody stands,
     /// as the hold it ended is gone.
@@ -774,13 +715,13 @@ impl LeaseShared {
         reason: TerminalControlChangedReason,
     ) -> PendingBroadcast {
         let previous = state.holder.clone();
-        state.replace_holder(next.clone());
         let payload = self.payload(
             previous.as_ref(),
             next.as_ref(),
             reason,
-            state.lease_version,
+            state.lease_version + 1,
         );
+        state.replace_holder(next);
         let broadcasting = (self.broadcast)(payload);
         let shared = Arc::clone(self);
         let change = tokio::spawn(async move {
@@ -801,7 +742,9 @@ impl LeaseShared {
                 }
             }
             state.pending = None;
-            broadcast.map_err(Arc::new)
+            let broadcast = broadcast.map_err(Arc::new);
+            shared.admit_waiting_writes(&mut state, broadcast.as_ref().err());
+            broadcast
         });
         let pending = async move {
             change.await.unwrap_or_else(|stopped| {

@@ -295,7 +295,7 @@ mod tests {
         let (kept, marks) = read_all(&mut reader, &[output.as_bytes()]);
 
         assert_eq!(kept, output.as_bytes());
-        assert!(marks.is_empty());
+        assert_eq!(marks, [] as [ShellMark; 0]);
     }
 
     #[test]
@@ -308,9 +308,9 @@ mod tests {
         reader.read(unterminated.as_bytes(), &mut kept, &mut marks);
 
         assert_eq!(kept, unterminated.as_bytes());
-        assert!(marks.is_empty());
+        assert_eq!(marks, [] as [ShellMark; 0]);
         let mut finished = Vec::new();
         reader.finish(&mut finished);
-        assert!(finished.is_empty());
+        assert_eq!(finished, [] as [u8; 0]);
     }
 }

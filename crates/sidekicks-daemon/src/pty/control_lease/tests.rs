@@ -108,7 +108,7 @@ impl LeaseUnderTest {
     }
 
     async fn write(&self, writer: &ShellWriter) -> Result<(), DomainError> {
-        self.lease.admit_write(writer, || ()).await
+        self.lease.admit_write(writer, || ())?.admitted().await
     }
 }
 
@@ -235,7 +235,10 @@ async fn a_take_whose_broadcast_fails_is_undone_failing_the_write_that_joined_it
         let wrote = Arc::clone(&wrote);
         async move {
             lease
-                .admit_write(&writer, || *wrote.lock().expect("unpoisoned") = true)
+                .admit_write(&writer, move || {
+                    *wrote.lock().expect("unpoisoned") = true;
+                })?
+                .admitted()
                 .await
         }
     });
@@ -456,5 +459,47 @@ async fn only_a_bound_connection_sizes_the_shell_and_typing_binds_its_pane() {
             change("taken", 1, Some("device-laptop"), None),
             change("autoReleasedPaneClosed", 2, None, Some("device-laptop")),
         ]
+    );
+}
+
+#[tokio::test]
+async fn writes_waiting_on_a_take_are_admitted_in_the_order_they_came() {
+    let under_test = LeaseUnderTest::open();
+    let laptop = ShellWriter::Device(caller("device-laptop", 1, SUBSCRIPTION_1));
+    let phone = ShellWriter::Device(caller("device-phone", 2, SUBSCRIPTION_2));
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let write = |text: &'static str| {
+        let written = Arc::clone(&written);
+        move || written.lock().expect("unpoisoned").push(text)
+    };
+    let land = under_test.hold_next_broadcast();
+
+    // The first write takes the shell nobody holds; the rest wait in line on that take.
+    let admissions = [
+        under_test.lease.admit_write(&laptop, write("l")),
+        under_test.lease.admit_write(&laptop, write("s")),
+        under_test.lease.admit_write(&phone, write("phone")),
+        under_test.lease.admit_write(&laptop, write("\n")),
+    ];
+    under_test.sent(1).await;
+    assert!(
+        written.lock().expect("unpoisoned").is_empty(),
+        "no write goes before the take is broadcast"
+    );
+    land.send(true).expect("the broadcast waits");
+
+    let mut answers = Vec::new();
+    for admission in admissions {
+        answers.push(admission.expect("each write is in line").admitted().await);
+    }
+    assert_eq!(*written.lock().expect("unpoisoned"), ["l", "s", "\n"]);
+    assert_eq!(
+        refusal_code(answers.remove(2)),
+        RefusalCode::TerminalControlNotHeld
+    );
+    assert!(answers.into_iter().all(|answer| answer.is_ok()));
+    assert_eq!(
+        under_test.changes(),
+        vec![change("taken", 1, Some("device-laptop"), None)]
     );
 }

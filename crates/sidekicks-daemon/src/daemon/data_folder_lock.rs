@@ -113,11 +113,18 @@ fn read_holder_process_id(data_folder: &Path) -> Option<u32> {
     let path = data_folder.join(PROCESS_ID_FILE_NAME);
     match fs::read_to_string(&path) {
         Ok(text) => text.trim().parse().ok(),
-        Err(error) => {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             tracing::debug!(
+                path = %path.display(),
+                "the data folder's holder left no process id"
+            );
+            None
+        }
+        Err(error) => {
+            tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
                 path = %path.display(),
-                "the data folder's holder left no readable process id"
+                "the data folder's holder's process id could not be read"
             );
             None
         }
