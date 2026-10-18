@@ -13,17 +13,20 @@ use crate::provider::driver::claude::session::settings_file::{
 };
 
 /// The plan files of the conversation named `plan_slug`, in the configured plans folder and the
-/// default one, since the setting may have changed while the conversation lived; a folder counts as
-/// inside the project lexically, as Claude Code reads it, so a link inside it still reaches out.
-/// Fails with `InvalidData` on a folder that is not UTF-8, and with any read failure but an
-/// unreadable path.
+/// default one, since the setting may have changed while the conversation lived;
+/// `root_local_settings` is the local settings file Claude Code keeps for the project, at the
+/// repository's root in the normal case. A folder counts as inside the project lexically, as Claude
+/// Code reads it, so a link inside it still reaches out. Fails with `InvalidData` on a folder that
+/// is not UTF-8, and with any read failure but an unreadable path.
 pub(crate) async fn find_claude_plan_files(
     config_folder: &Path,
     project_folder: &Path,
+    root_local_settings: &Path,
     plan_slug: &str,
 ) -> io::Result<Vec<PathBuf>> {
     let default_folder = resolve_path(to_folder_text(&config_folder.join("plans"))?)?;
-    let configured_folder = read_configured_plans_folder(config_folder, project_folder).await?;
+    let configured_folder =
+        read_configured_plans_folder(config_folder, project_folder, root_local_settings).await?;
     let mut folders = vec![default_folder];
     if let Some(configured_folder) = configured_folder
         && !folders.contains(&configured_folder)
@@ -66,16 +69,22 @@ pub(crate) async fn find_claude_plan_files(
 // holds a backslash where that separates nothing, either of which makes Claude Code fall back to
 // the default folder.
 // Where Claude Code reads `plansDirectory`, lowest precedence first: the home's settings, the
-// project's shared settings, then its local settings; an empty value names nothing.
+// project's shared settings, the starting folder's local settings, then the root's, whose value
+// wins where both set it; an empty value names nothing.
 async fn read_configured_plans_folder(
     config_folder: &Path,
     project_folder: &Path,
+    root_local_settings: &Path,
 ) -> io::Result<Option<String>> {
-    let settings_files = [
+    let local_settings = project_folder.join(".claude").join("settings.local.json");
+    let mut settings_files = vec![
         config_folder.join("settings.json"),
         project_folder.join(".claude").join("settings.json"),
-        project_folder.join(".claude").join("settings.local.json"),
     ];
+    if root_local_settings != local_settings {
+        settings_files.push(local_settings);
+    }
+    settings_files.push(root_local_settings.to_path_buf());
     let mut configured = None;
     for settings_file in settings_files {
         let settings = read_claude_settings_file(&settings_file).await?;
@@ -195,9 +204,11 @@ mod tests {
             in_scratch(local_setting).as_deref(),
         );
 
-        let mut found = find_claude_plan_files(&config_folder, &project_folder, PLAN_SLUG)
-            .await
-            .unwrap();
+        let local_settings = project_folder.join(".claude").join("settings.local.json");
+        let mut found =
+            find_claude_plan_files(&config_folder, &project_folder, &local_settings, PLAN_SLUG)
+                .await
+                .unwrap();
 
         let mut expected: Vec<PathBuf> = vec![
             default_folder.join(format!("{PLAN_SLUG}.md")),

@@ -11,10 +11,16 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde::de::{self, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_platforms::PathRules;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::missing_entry::MissingEntry;
 use crate::provider::driver::claude::session::plan_files::find_claude_plan_files;
+use crate::provider::driver::claude::session::rules::{
+    ClaudeProjectFolder, resolve_claude_local_settings_file,
+};
+use crate::provider::driver::claude::spawn::environment::compose_claude_scratch_folder;
 use crate::provider::inbound_json::decode_inbound_json;
 
 /// The turns one conversation file holds.
@@ -24,26 +30,32 @@ pub(crate) struct ClaudeConversationOutline {
     pub(crate) turn_end_uuids: Vec<String>,
 }
 
+/// Where Claude Code and the daemon keep one conversation's files.
+pub(crate) struct ClaudeConversationFolders<'a> {
+    /// The configuration folder of the Claude Code home the conversation ran on.
+    pub(crate) config_folder: &'a Path,
+    /// The folder the conversation started in, with what Claude Code reads to place its local
+    /// settings.
+    pub(crate) project_folder: &'a ClaudeProjectFolder<'a>,
+    /// The home folder of the place the conversation ran in.
+    pub(crate) home_folder: &'a Path,
+    /// How that place spells paths.
+    pub(crate) path_rules: PathRules,
+    /// The daemon's data folder, which holds the home's scratch folder.
+    pub(crate) data_folder: &'a str,
+    /// The account the conversation ran on; `None`, the person's own home.
+    pub(crate) provider_account_id: Option<&'a ProviderAccountId>,
+}
+
 /// Finds the conversation's file under any project folder of `config_folder`, or `None`. Fails
 /// with any read failure but a missing projects folder.
 pub(crate) async fn find_claude_conversation_file(
     config_folder: &Path,
     provider_session_id: &str,
 ) -> io::Result<Option<PathBuf>> {
-    let projects_folder = config_folder.join("projects");
-    let Some(mut project_folders) = tokio::fs::read_dir(&projects_folder)
-        .await
-        .none_if_missing()?
-    else {
-        return Ok(None);
-    };
     let file_name = format!("{provider_session_id}.jsonl");
-    while let Some(project_folder) = project_folders.next_entry().await? {
-        // A file among the project folders has no conversations, and asking inside it would fail.
-        if !project_folder.file_type().await?.is_dir() {
-            continue;
-        }
-        let file = project_folder.path().join(&file_name);
+    for project_folder in list_project_folders(config_folder).await? {
+        let file = project_folder.join(&file_name);
         if tokio::fs::try_exists(&file).await? {
             return Ok(Some(file));
         }
@@ -51,8 +63,26 @@ pub(crate) async fn find_claude_conversation_file(
     Ok(None)
 }
 
+// The folders of `<config folder>/projects/`, none where it is missing.
+async fn list_project_folders(config_folder: &Path) -> io::Result<Vec<PathBuf>> {
+    let Some(mut entries) = tokio::fs::read_dir(config_folder.join("projects"))
+        .await
+        .none_if_missing()?
+    else {
+        return Ok(Vec::new());
+    };
+    let mut folders = Vec::new();
+    while let Some(entry) = entries.next_entry().await? {
+        // A file among the project folders has no conversations, and asking inside it would fail.
+        if entry.file_type().await?.is_dir() {
+            folders.push(entry.path());
+        }
+    }
+    Ok(folders)
+}
+
 /// Reads a conversation file's turns line by line; a line that is not a JSON object is skipped.
-/// Holds one line at a time, in a buffer as long as the longest line.
+/// Holds one line at a time, in a buffer up to twice the longest line, as the buffer doubles.
 pub(crate) async fn read_claude_conversation_outline(
     file: &Path,
 ) -> io::Result<ClaudeConversationOutline> {
@@ -78,26 +108,36 @@ pub(crate) async fn read_claude_conversation_outline(
     Ok(outline)
 }
 
-/// Deletes every file Claude Code keeps for one conversation, where each exists: under
-/// `config_folder` its file history, session environment, task list, debug log, uploads, dev mods,
-/// image cache and plan files (in the plans folder the settings of `config_folder` and of the
-/// project at `project_folder` name), and beside the conversation file its copies set aside and its
-/// folder of helper transcripts and tool results; under `scratch_folder`, the daemon's
-/// `CLAUDE_CODE_TMPDIR`, the conversation's folder in each project. The conversation file goes
-/// last, since it names the plan files a purge that fails must find again. Fails with the first
-/// read or removal failure.
+/// Deletes every file Claude Code keeps for one conversation, where each exists: under the config
+/// folder its file history, session environment, task list, debug log, uploads, dev mods, image
+/// cache and plan files (in the plans folder the settings of the config folder and of the project
+/// name, the local settings of the starting folder and of the repository's root among them), and in
+/// every project folder the conversation's files, the copies set aside and its folder of helper
+/// transcripts and tool results; under the home's scratch folder, the daemon's `CLAUDE_CODE_TMPDIR`,
+/// the conversation's folder in each project. The conversation's files go last, since they name the
+/// plan files a purge that fails must find again. Fails with the first read or removal failure.
 pub(crate) async fn delete_claude_conversation(
-    config_folder: &Path,
-    project_folder: &Path,
-    scratch_folder: &Path,
+    folders: &ClaudeConversationFolders<'_>,
     provider_session_id: &str,
 ) -> io::Result<()> {
-    let conversation_file =
-        find_claude_conversation_file(config_folder, provider_session_id).await?;
-    let plan_slug = match &conversation_file {
-        Some(file) => read_claude_plan_slug(file).await?,
-        None => None,
-    };
+    let config_folder = folders.config_folder;
+    let file_name = format!("{provider_session_id}.jsonl");
+    let mut conversation_files = Vec::new();
+    let mut set_aside = Vec::new();
+    for project_folder in list_project_folders(config_folder).await? {
+        let file = project_folder.join(&file_name);
+        if tokio::fs::try_exists(&file).await? {
+            conversation_files.push(file);
+        }
+        set_aside.extend(find_set_aside_entries(&project_folder, provider_session_id).await?);
+    }
+    let mut plan_slug = None;
+    for file in &conversation_files {
+        plan_slug = read_claude_plan_slug(file).await?;
+        if plan_slug.is_some() {
+            break;
+        }
+    }
     let mut removed = vec![
         config_folder.join("file-history").join(provider_session_id),
         config_folder.join("session-env").join(provider_session_id),
@@ -110,15 +150,30 @@ pub(crate) async fn delete_claude_conversation(
         config_folder.join("image-cache").join(provider_session_id),
     ];
     if let Some(plan_slug) = &plan_slug {
-        removed.extend(find_claude_plan_files(config_folder, project_folder, plan_slug).await?);
+        let root_local_settings = resolve_claude_local_settings_file(
+            folders.project_folder,
+            folders.home_folder,
+            folders.path_rules,
+        )
+        .path;
+        removed.extend(
+            find_claude_plan_files(
+                config_folder,
+                folders.project_folder.working_folder,
+                &root_local_settings,
+                plan_slug,
+            )
+            .await?,
+        );
     }
-    removed.extend(find_scratch_folders(scratch_folder, provider_session_id).await?);
-    if let Some(file) = &conversation_file
-        && let Some(folder) = file.parent()
-    {
-        removed.extend(find_set_aside_entries(folder, provider_session_id).await?);
-    }
-    removed.extend(conversation_file);
+    let scratch_folder = compose_claude_scratch_folder(
+        folders.data_folder,
+        folders.provider_account_id,
+        folders.path_rules,
+    );
+    removed.extend(find_scratch_folders(Path::new(&scratch_folder), provider_session_id).await?);
+    removed.extend(set_aside);
+    removed.extend(conversation_files);
     for path in removed {
         tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path))
             .await
@@ -127,8 +182,9 @@ pub(crate) async fn delete_claude_conversation(
     Ok(())
 }
 
-// The conversation's own folder and the copies Claude Code set aside beside its file:
-// `<id>/`, `<id>.orphaned-<when>-<suffix>.jsonl` and `<id>.jsonl.superseded-<when>`.
+// The conversation's own folder and the copies Claude Code set aside in one project folder, each
+// found by its own name whether or not the conversation's file is there: `<id>/`,
+// `<id>.orphaned-<when>-<suffix>.jsonl` and `<id>.jsonl.superseded-<when>`.
 async fn find_set_aside_entries(
     folder: &Path,
     provider_session_id: &str,
@@ -179,20 +235,12 @@ async fn find_scratch_folders(
     Ok(found)
 }
 
-// A plan file's name as the conversation's entries carry it: letters, digits and hyphens only, so
-// a name read off the file never reaches outside a plans folder.
-fn is_plan_slug(slug: &str) -> bool {
-    !slug.is_empty()
-        && slug
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-}
-
-// The name of the conversation's plan file, the first `slug` its entries carry that is one.
+// The name of the conversation's plan file, the first `slug` its entries carry that is not empty,
+// since an empty one would name every helper's plan file.
 async fn read_claude_plan_slug(file: &Path) -> io::Result<Option<String>> {
     let mut found = None;
     read_entries(file, |entry| {
-        match entry.slug.filter(|slug| is_plan_slug(slug)) {
+        match entry.slug.filter(|slug| !slug.is_empty()) {
             Some(slug) => {
                 found = Some(slug);
                 ControlFlow::Break(())
@@ -204,7 +252,7 @@ async fn read_claude_plan_slug(file: &Path) -> io::Result<Option<String>> {
     Ok(found)
 }
 
-// Hands each line of `file` that reads as an entry to `visit` until it breaks, reusing one buffer.
+// Hands each line of `file` that is a JSON object to `visit` until it breaks, reusing one buffer.
 async fn read_entries(
     file: &Path,
     mut visit: impl FnMut(ConversationEntry) -> ControlFlow<()>,
@@ -216,7 +264,10 @@ async fn read_entries(
         if reader.read_until(b'\n', &mut line).await? == 0 {
             return Ok(());
         }
-        let Ok(entry) = serde_json::from_str::<ConversationEntry>(&decode_inbound_json(&line))
+        let text = decode_inbound_json(&line);
+        let mut deserializer = serde_json::Deserializer::from_str(&text);
+        let Ok(Some(entry)) = ConversationEntry::read(&mut deserializer)
+            .and_then(|entry| deserializer.end().map(|()| entry))
         else {
             continue;
         };
@@ -366,6 +417,29 @@ impl<'de> Visitor<'de> for LenientVisitor<bool> {
     skip_map!();
 }
 
+impl<'de> Visitor<'de> for LenientVisitor<ConversationEntry> {
+    type Value = Option<ConversationEntry>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    // Only an object is an entry: serde's derive would read an array's items by position.
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        ConversationEntry::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
+    }
+
+    skip_other_shapes!(
+        visit_bool(bool),
+        visit_str(&str),
+        visit_i64(i64),
+        visit_u64(u64),
+        visit_f64(f64),
+        visit_unit(),
+    );
+    skip_sequence!();
+}
+
 impl<'de> Visitor<'de> for LenientVisitor<ConversationMessage> {
     type Value = Option<ConversationMessage>;
 
@@ -462,16 +536,26 @@ macro_rules! lenient {
     )*};
 }
 
-lenient!(String, bool, ConversationMessage, MessageContent);
+lenient!(
+    String,
+    bool,
+    ConversationEntry,
+    ConversationMessage,
+    MessageContent
+);
 
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::Path;
 
+    use sidekicks_platforms::PathRules;
+
     use super::{
-        ClaudeConversationOutline, delete_claude_conversation, read_claude_conversation_outline,
+        ClaudeConversationFolders, ClaudeConversationOutline, delete_claude_conversation,
+        read_claude_conversation_outline,
     };
+    use crate::provider::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
 
@@ -493,6 +577,9 @@ mod tests {
                 "not json\n",
                 r#"{"type":"assistant","uuid":"a2","isMeta":"yes","message":{"content":"done \ud800"}}"#,
                 "\r\n",
+                // An array is no entry, though its items line up with an entry's members.
+                r#"["user",false,"x1",null,{"content":"not a prompt"}]"#,
+                "\n",
                 r#"{"type":"user","uuid":"u2","message":{"content":[{"type":"text","text":"second"}]}}"#,
                 "\n",
                 r#"{"type":"assistant","uuid":"a3","message":"text"}"#,
@@ -519,29 +606,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_purge_deletes_the_conversations_files_and_no_plan_a_bad_slug_names() {
+    async fn a_purge_deletes_the_conversations_files_and_its_plan_where_the_root_names_the_folder()
+    {
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let config = scratch.path().join("config");
-        let project = scratch.path().join("project");
-        let tmp = scratch.path().join("tmp");
-        let project_files = config.join("projects").join("-project");
+        let root = scratch.path().join("root");
+        let worktree = scratch.path().join("worktree");
+        let data = scratch.path().join("data");
+        let data_text = data.to_str().expect("the scratch folder is UTF-8");
+        let common_git_folder = root.join(".git");
+        let project_folder = ClaudeProjectFolder {
+            working_folder: &worktree,
+            repository: Some(ClaudeRepository {
+                root: &root,
+                common_git_folder: &common_git_folder,
+                is_owned_by_user: true,
+            }),
+        };
+        let project_files = config.join("projects").join("-worktree");
+        // A project folder after `/cd` holds only copies set aside.
+        let other_project_files = config.join("projects").join("-elsewhere");
         let conversation = project_files.join(format!("{SESSION_ID}.jsonl"));
+        // An empty slug would name every helper's plan file.
         write(
             &conversation,
-            concat!(
-                r#"{"slug":"../escape"}"#,
-                "\n",
-                r#"{"slug":"plans/../../escape"}"#,
-                "\n",
-            ),
+            concat!(r#"{"slug":""}"#, "\n", r#"{"slug":"brave-otter"}"#, "\n"),
+        );
+        write(
+            &root.join(".claude").join("settings.local.json"),
+            r#"{"plansDirectory":"my-plans"}"#,
         );
         let kept = [
-            config.join("plans").join("escape.md"),
-            config.join("escape.md"),
+            config.join("plans").join("-agent-a1.md"),
             project_files.join("other.jsonl"),
             config.join("uploads").join("other").join("a.png"),
         ];
         let deleted = [
+            worktree.join("my-plans").join("brave-otter.md"),
+            other_project_files.join(format!("{SESSION_ID}.orphaned-2-y.jsonl")),
             project_files
                 .join(SESSION_ID)
                 .join("subagents")
@@ -552,8 +654,10 @@ mod tests {
             config.join("debug").join(format!("{SESSION_ID}.txt")),
             config.join("uploads").join(SESSION_ID).join("a.png"),
             config.join("dev-mods").join(SESSION_ID).join("m"),
-            tmp.join("claude-501")
-                .join("-project")
+            data.join("claude-scratch")
+                .join("own-home")
+                .join("claude-501")
+                .join("-worktree")
                 .join(SESSION_ID)
                 .join("images")
                 .join("a.png"),
@@ -562,9 +666,20 @@ mod tests {
             write(path, "x");
         }
 
-        delete_claude_conversation(&config, &project, &tmp, SESSION_ID)
-            .await
-            .expect("the purge succeeds");
+        delete_claude_conversation(
+            &ClaudeConversationFolders {
+                config_folder: &config,
+                project_folder: &project_folder,
+                home_folder: scratch.path(),
+                // The repository's root keeps the local settings, as on macOS and Linux.
+                path_rules: PathRules::Posix,
+                data_folder: data_text,
+                provider_account_id: None,
+            },
+            SESSION_ID,
+        )
+        .await
+        .expect("the purge succeeds");
 
         for path in &kept {
             assert!(path.exists(), "{} is kept", path.display());
@@ -588,10 +703,22 @@ mod tests {
         let held = sidekicks_platforms::UnremovableFile::create_in(&history, "v1")
             .expect("a held file is made");
 
+        let project = scratch.path().join("project");
         let outcome = delete_claude_conversation(
-            &config,
-            &scratch.path().join("project"),
-            &scratch.path().join("tmp"),
+            &ClaudeConversationFolders {
+                config_folder: &config,
+                project_folder: &ClaudeProjectFolder {
+                    working_folder: &project,
+                    repository: None,
+                },
+                home_folder: scratch.path(),
+                path_rules: PathRules::NATIVE,
+                data_folder: scratch
+                    .path()
+                    .to_str()
+                    .expect("the scratch folder is UTF-8"),
+                provider_account_id: None,
+            },
             SESSION_ID,
         )
         .await;
