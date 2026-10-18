@@ -3,8 +3,11 @@
 
 pub(crate) mod agent;
 pub(crate) mod daemon_turn;
+pub(crate) mod engine;
 pub(crate) mod ids;
+pub(crate) mod pause;
 pub(crate) mod projection;
+pub(crate) mod provider_choice;
 pub(crate) mod read;
 pub(crate) mod refusals;
 pub(crate) mod restart;

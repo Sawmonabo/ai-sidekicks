@@ -30,7 +30,7 @@ use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::WriteError;
 use crate::events::log_service::EventAppendError;
@@ -39,7 +39,7 @@ use crate::events::session::appender::{
     SessionEventLinkage,
 };
 use crate::session::run::projection::{RunStateSwap, swap_run_state_statement};
-use crate::session::run::read::{RunRead, RunStateReader};
+use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::transitions::{RUN_TERMINAL_EVENT_TYPES_SQL, is_transition_allowed};
 
@@ -208,10 +208,7 @@ impl RunStateChange {
         let transition = Transition {
             session_id: swap.session_id,
             run_id: swap.run_id,
-            run_version: u64::try_from(swap.run_version)
-                .ok()
-                .and_then(SafeInt::new)
-                .expect("a run's version counts up from zero within the safe integers"),
+            run_version: safe_run_version(swap.run_version),
             previous_state: swap.previous_state,
             failure_category,
             recovery_condition,
@@ -524,19 +521,12 @@ impl RunStateChangeWriter {
     }
 
     async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunStateChangeError> {
-        self.pool
-            .read(
-                ReadLength::Short,
-                move |reader| -> Result<_, RunStateChangeError> {
-                    Ok(RunStateReader::new(reader).read_run(&run_id)?)
-                },
-            )
-            .await
+        read_run_through(&self.pool, run_id).await
     }
 }
 
-// The position of the statement that refused the write, when a guard's row count refused it.
-fn refused_statement_index(error: &SessionEventAppendError) -> Option<usize> {
+/// The position of the statement that refused the write, when a guard's row count refused it.
+pub(crate) fn refused_statement_index(error: &SessionEventAppendError) -> Option<usize> {
     if let SessionEventAppendError::Append(EventAppendError::Write(WriteError::Refused {
         statement_index,
         ..

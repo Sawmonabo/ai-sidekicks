@@ -158,18 +158,20 @@ pub(crate) fn decide_restart_settlement(
     };
     if let Some(pending) = &facts.pending_interrupt {
         return Some(match pending.record.limit() {
-            Some(RunLimit::StepLimit) => {
-                limit_interrupt(InterruptReason::StepLimit, TurnEndCause::StepLimit)
-            }
-            Some(RunLimit::SpendLimit) => {
-                limit_interrupt(InterruptReason::SpendLimit, TurnEndCause::SpendLimit)
-            }
-            Some(RunLimit::TokenLimit) => RestartDecision {
-                settlement: RestartSettlement::Stopped {
-                    trigger: StopTrigger::TokenLimit,
+            Some(limit) => RestartDecision {
+                settlement: match limit {
+                    RunLimit::StepLimit => RestartSettlement::Interrupted {
+                        trigger: Some(InterruptReason::StepLimit),
+                    },
+                    RunLimit::SpendLimit => RestartSettlement::Interrupted {
+                        trigger: Some(InterruptReason::SpendLimit),
+                    },
+                    RunLimit::TokenLimit => RestartSettlement::Stopped {
+                        trigger: StopTrigger::TokenLimit,
+                    },
                 },
                 open_turn_end: Some(RestartTurnEnd::Interrupted {
-                    cause: TurnEndCause::TokenLimit,
+                    cause: limit_turn_cause(limit),
                 }),
             },
             // The person's interrupt stays theirs: the run carries no trigger of the daemon's.
@@ -191,13 +193,12 @@ pub(crate) fn decide_restart_settlement(
     })
 }
 
-// A run the daemon was interrupting at a step or spend limit, its turn cut by that limit.
-fn limit_interrupt(trigger: InterruptReason, cause: TurnEndCause) -> RestartDecision {
-    RestartDecision {
-        settlement: RestartSettlement::Interrupted {
-            trigger: Some(trigger),
-        },
-        open_turn_end: Some(RestartTurnEnd::Interrupted { cause }),
+/// The turn end cause a limit cuts a turn with.
+pub(crate) fn limit_turn_cause(limit: RunLimit) -> TurnEndCause {
+    match limit {
+        RunLimit::StepLimit => TurnEndCause::StepLimit,
+        RunLimit::SpendLimit => TurnEndCause::SpendLimit,
+        RunLimit::TokenLimit => TurnEndCause::TokenLimit,
     }
 }
 

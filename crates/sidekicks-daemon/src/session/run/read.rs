@@ -8,7 +8,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
@@ -128,4 +130,27 @@ impl<'connection> RunStateReader<'connection> {
             })?
             .collect()
     }
+}
+
+/// The run's current state and version read through `pool`, or `None` for a run the daemon has
+/// no row for. Fails as the pool and the read do.
+pub(crate) async fn read_run_through<Failure>(
+    pool: &DatabaseReadPool,
+    run_id: RunId,
+) -> Result<Option<RunRead>, Failure>
+where
+    Failure: From<DatabaseReadError> + From<rusqlite::Error> + Send + 'static,
+{
+    pool.read(ReadLength::Short, move |reader| -> Result<_, Failure> {
+        Ok(RunStateReader::new(reader).read_run(&run_id)?)
+    })
+    .await
+}
+
+/// A stored run version as the wire carries it.
+pub(crate) fn safe_run_version(version: i64) -> SafeInt<0> {
+    u64::try_from(version)
+        .ok()
+        .and_then(SafeInt::new)
+        .expect("a run's version counts up from zero within the safe integers")
 }
