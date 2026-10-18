@@ -15,6 +15,7 @@ mod event_normalizer;
 mod hooks;
 mod run;
 mod session;
+mod spawn;
 mod spent_retries_signal;
 mod tools;
 mod turn_evidence;
@@ -81,8 +82,13 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         ("BASH_MAX_TIMEOUT_MS", "2147483647"),
     ],
     launch_environment_names: &[],
-    // The account's configuration home and its credential store.
-    credential_home_environment_names: &["CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR"],
+    // The account's configuration home, its credential store, and the scratch folder the daemon
+    // keeps per account home, so a session's temporary files sit where its purge finds them.
+    credential_home_environment_names: &[
+        "CLAUDE_CONFIG_DIR",
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        "CLAUDE_CODE_TMPDIR",
+    ],
     withheld_environment_names: &[
         // Forces the permission mode to `default`.
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",

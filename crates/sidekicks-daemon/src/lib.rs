@@ -26,6 +26,7 @@ pub mod observability;
 pub mod operating_system;
 pub mod orchestration;
 pub mod policy;
+pub mod process_exit;
 pub mod processor_bound;
 pub mod provider;
 pub mod pty;
