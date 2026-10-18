@@ -1,9 +1,10 @@
-//! Reads a run's current state and version from its `runs` row, the runs not yet ended, and the
-//! live provider subagents beneath one run.
+//! Reads a run's current state and version from its `runs` row, the runs not yet ended, the live
+//! provider subagents beneath one run, and the provider a run's runtime binding names.
 
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
@@ -41,6 +42,12 @@ pub(crate) struct LiveRun {
 }
 
 const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WHERE run_id = ?";
+
+// A run's bindings all name the provider its first spawn bound, so the newest one answers.
+const SELECT_RUN_PROVIDER_SQL: &str = "SELECT provider_name FROM runtime_bindings
+  WHERE run_id = ?
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1";
 
 // Walks down `idx_runs_parent` through live provider subagents only, so the read scales with the
 // one run's tree and a subagent that has ended cuts its branch off.
@@ -99,6 +106,7 @@ impl<'connection> RunStateReader<'connection> {
     }
 
     /// Every run in every session that has not ended, queued runs included.
+    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
     pub(crate) fn list_live_runs(&self) -> rusqlite::Result<Vec<LiveRun>> {
         self.reader
             .prepare_cached(&SELECT_LIVE_RUNS_SQL)?
@@ -145,6 +153,20 @@ where
         Ok(RunStateReader::new(reader).read_run(&run_id)?)
     })
     .await
+}
+
+/// The provider `run_id`'s newest runtime binding names, read on `reader`, or `None` for a run
+/// with no binding. Fails when SQLite refuses the read or the stored name is no provider id.
+pub(crate) fn read_run_provider(
+    reader: &Connection,
+    run_id: &RunId,
+) -> rusqlite::Result<Option<ProviderId>> {
+    reader
+        .prepare_cached(SELECT_RUN_PROVIDER_SQL)?
+        .query_row([run_id.text().as_str()], |row| {
+            text_column(row, 0, closed_word::<ProviderId>)
+        })
+        .optional()
 }
 
 /// A stored run version as the wire carries it.

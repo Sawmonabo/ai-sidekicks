@@ -3,7 +3,7 @@
 //! on a run whose provider does not bound them.
 
 use std::borrow::Cow;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use rusqlite::types::Value;
 use rusqlite::{OptionalExtension as _, named_params};
@@ -121,24 +121,14 @@ static SELECT_OPEN_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// How a turn ended, as its provider's end frame reports it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ProviderTurnOutcome {
-    /// The turn ended normally.
-    Completed,
-    /// The turn was cut, its partial output kept.
-    Interrupted,
-    /// The turn failed.
-    Failed,
-}
-
 /// A turn's end its provider's end frame reported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
 pub(crate) struct ProviderTurnEnd {
     /// The turn's number within its run, as its start was numbered.
     pub(crate) turn_number: SafeInt<1>,
-    /// How it ended.
-    pub(crate) outcome: ProviderTurnOutcome,
+    /// How it ended, with no cause: a cause is the daemon's to know.
+    pub(crate) outcome: TurnOutcome,
 }
 
 /// The steps of a run's open turn, counted on a run whose provider does not bound them.
@@ -162,8 +152,9 @@ pub(super) struct TurnEnd {
 
 /// How a turn ended, with why where the daemon knows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TurnOutcome {
+pub(crate) enum TurnOutcome {
     /// `agent.turn.completed`.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     Completed,
     /// `agent.turn.interrupted`.
     Interrupted(Option<TurnEndCause>),
@@ -222,6 +213,7 @@ impl RunEngine {
     /// turn`, which the caller resolves when the turn opens; on a run whose provider does not bound
     /// a turn's steps itself the engine counts them against it. Fails with
     /// `RunRefusal::NotFound` for an unknown run and with the append's failure.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn start_turn(
         &self,
         run_id: RunId,
@@ -230,7 +222,7 @@ impl RunEngine {
     ) -> Result<Option<SafeInt<1>>, RunEngineError> {
         let counted_bound = match step_bound {
             Some(bound) => {
-                let provider = self.provider_of(&run_id)?;
+                let provider = self.provider_of(run_id).await?;
                 let descriptor = self
                     .providers
                     .descriptor(&provider)
@@ -297,6 +289,7 @@ impl RunEngine {
     /// whose provider does not bound a turn's steps; the step that reaches the turn's bound stops
     /// the run at the step limit, once. A run with no count armed is left as it is. Fails as the
     /// stop fails.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn count_step(&self, run_id: RunId) -> Result<(), RunEngineError> {
         let reached = {
             let mut live = self.live();
@@ -321,6 +314,7 @@ impl RunEngine {
     /// that ended beside a live run, or a late end after the run ended. Returns whether it was
     /// written; a duplicate of an end the turn holds is dropped. Fails with
     /// `RunRefusal::NotFound` for an unknown run and with the append's failure.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn record_turn_end(
         &self,
         run_id: RunId,
@@ -344,11 +338,9 @@ impl RunEngine {
             .get(run_id)
             .filter(|cut| cut.turn_number == turn_number)
             .map(|cut| cut.limit);
-        let outcome = match (cut_by, outcome) {
-            (Some(limit), _) => TurnOutcome::Interrupted(Some(limit_turn_cause(limit))),
-            (None, ProviderTurnOutcome::Completed) => TurnOutcome::Completed,
-            (None, ProviderTurnOutcome::Interrupted) => TurnOutcome::Interrupted(None),
-            (None, ProviderTurnOutcome::Failed) => TurnOutcome::Failed(None),
+        let outcome = match cut_by {
+            Some(limit) => TurnOutcome::Interrupted(Some(limit_turn_cause(limit))),
+            None => outcome,
         };
         TurnEnd {
             turn_number,
@@ -404,9 +396,11 @@ impl RunEngine {
             TURN_END_GUARD_COMPANION_INDEX,
             no_turn_end_statement(&run_id, turn_end.turn_number),
         );
-        with_end
-            .preceding_events
-            .insert(0, turn_end.draft(run_id, run)?);
+        // Drafted at each attempt, so a change retried on a run that moved carries the end at the
+        // version it is written from.
+        with_end.leading_event = Some(Arc::new(move |attempted: &RunRead| {
+            turn_end.draft(run_id, attempted)
+        }));
         match self.change(change.clone(), with_end).await {
             Ok(changed) => {
                 self.forget_turn(&run_id, turn_end.turn_number);
@@ -530,5 +524,93 @@ fn turn_guard(sql: &'static str, run_id: &RunId, turn_number: SafeInt<1>) -> Wri
             ),
         ]),
         expected_row_count: Some(0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use sidekicks_contracts::event::session::SessionEvent;
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::wire::integer::SafeInt;
+
+    use super::{no_turn_end_statement, no_turn_start_from_statement};
+    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
+    use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
+    use crate::uuid_v7::mint_uuid_v7;
+
+    fn turn(number: u64) -> SafeInt<1> {
+        SafeInt::new(number).expect("the test's turn numbers count from 1")
+    }
+
+    // Killed by the append not writing an event's turn number, which lets every guard pass on a
+    // NULL column, by the start guard reading `=` for `>=`, which lets a start numbered below the
+    // newest through, or by either guard spelling the category other than the stored word.
+    #[tokio::test]
+    async fn the_turn_guards_refuse_a_taken_number_and_a_second_end() {
+        let database = TestDatabase::new();
+        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens its database");
+        let session_id = test_session_id();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let stored = |event: serde_json::Value| {
+            let event: SessionEvent =
+                serde_json::from_value(event).expect("the test writes a turn event");
+            let envelope = test_envelope(session_id, &event);
+            SessionEventRow {
+                payload: serde_json::to_string(envelope.payload())
+                    .expect("a JSON object serializes"),
+                envelope: Arc::new(envelope),
+                monotonic_ns: monotonic_ns_now(),
+                content_payload: None,
+            }
+        };
+        // Turn 1 started and completed, turn 3 started and open; no start holds 2.
+        let turn_event = |event_type: &str, turn_number: u64| {
+            stored(json!({
+                "type": event_type,
+                "payload": {
+                    "sessionId": session_id,
+                    "runId": run_id,
+                    "runVersion": 2,
+                    "turnNumber": turn_number,
+                },
+            }))
+        };
+        writer
+            .append_events(
+                vec![
+                    turn_event("agent.turn.started", 1),
+                    turn_event("agent.turn.completed", 1),
+                    turn_event("agent.turn.started", 3),
+                ],
+                Vec::new(),
+            )
+            .await
+            .expect("the turn rows are appended");
+
+        for (guard, is_refused) in [
+            (no_turn_start_from_statement(&run_id, turn(2)), true),
+            (no_turn_start_from_statement(&run_id, turn(4)), false),
+            (no_turn_end_statement(&run_id, turn(1)), true),
+            (no_turn_end_statement(&run_id, turn(3)), false),
+        ] {
+            let written = writer.write(vec![guard]).await;
+            assert_eq!(
+                matches!(
+                    written,
+                    Err(WriteError::Refused {
+                        statement_index: 0,
+                        ..
+                    })
+                ),
+                is_refused,
+                "the guard answers {written:?}"
+            );
+        }
     }
 }

@@ -26,7 +26,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::statement::{StatementBindings, WriteStatement, named_bindings, text_binding};
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::contract::{DriverError, ProviderDriver};
@@ -43,6 +43,7 @@ use crate::session::run::state_change::{
 
 /// The statements [`ProviderChoiceResolver`] prepares on a read connection: the newest request of
 /// a choice and a settlement since it.
+#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) const PROVIDER_CHOICE_STATEMENT_CAPACITY: usize = 2;
 
 // The settlement guard is the one companion of a settlement's move, terminal or not.
@@ -67,6 +68,7 @@ const SELECT_SETTLEMENT_SINCE_SQL: &str = "SELECT 1 FROM session_events
 
 /// Who answered a choice: the device of the connection the answer arrived on.
 #[derive(Clone, Debug)]
+#[expect(dead_code, reason = "the provider choice answer handlers")]
 pub(crate) struct ProviderChoiceAnswerOrigin {
     /// The answering device, where the connection names one.
     pub(crate) device_id: Option<DeviceId>,
@@ -108,7 +110,7 @@ impl From<RunEngineError> for ProviderChoiceError {
             | RunEngineError::Gate { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
-            | RunEngineError::Interrupt { .. }
+            | RunEngineError::LimitInterrupt { .. }
             | RunEngineError::Provider(_)
             | RunEngineError::ProviderUnknown { .. }
             | RunEngineError::DaemonTurn(_)
@@ -161,6 +163,7 @@ pub(crate) struct ProviderChoiceResolver {
 
 impl ProviderChoiceResolver {
     /// A resolver reading runs and their log through `pool` and moving them through `engine`.
+    #[expect(dead_code, reason = "the provider choice answer handlers")]
     pub(crate) fn new(pool: Arc<DatabaseReadPool>, engine: Arc<RunEngine>) -> Self {
         Self {
             pool,
@@ -173,6 +176,7 @@ impl ProviderChoiceResolver {
     /// the run to `running`, `editPrompt` ends it `failed` with the provider's refusal. Fails with
     /// [`RunRefusal::InvalidTransition`], nothing sent or written, when the run waits on no such
     /// choice because it was settled or never asked.
+    #[expect(dead_code, reason = "the provider choice answer handlers")]
     pub(crate) async fn resolve_refusal_choice(
         &self,
         request: &AgentRunRefusalChoiceResolveRequest,
@@ -248,6 +252,7 @@ impl ProviderChoiceResolver {
     /// Answers the switch-or-credits choice the run waits on and settles it; either answer returns
     /// the run to `running`. Fails with [`RunRefusal::InvalidTransition`], nothing sent or
     /// written, when the run waits on no such choice.
+    #[expect(dead_code, reason = "the provider choice answer handlers")]
     pub(crate) async fn resolve_usage_credits_choice(
         &self,
         request: &AgentRunUsageCreditsChoiceResolveRequest,
@@ -380,6 +385,7 @@ impl ProviderChoiceResolver {
                 expected_row_count: Some(0),
             }],
             preceding_events: vec![SessionEventDraft::of_session(session_id, settlement)?],
+            leading_event: None,
         };
         match self.engine.transition(change, companions).await {
             Ok(run) => Ok(run_control_response(run_id, &run)),
@@ -435,13 +441,9 @@ fn is_settled_since(
     pending: &PendingChoice,
 ) -> rusqlite::Result<bool> {
     let bindings = settlement_bindings(session_id, run_id, dialog, pending);
-    let named: Vec<(&str, &Value)> = bindings
-        .iter()
-        .map(|(name, value)| (name.as_ref(), value))
-        .collect();
     reader
         .prepare_cached(SELECT_SETTLEMENT_SINCE_SQL)?
-        .exists(named.as_slice())
+        .exists(named_bindings(&bindings).as_slice())
 }
 
 // The settlement read's bindings, which its read and its guard share.

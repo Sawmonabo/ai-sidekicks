@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::orchestration::InterruptReason;
@@ -25,9 +26,10 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::{
-    InterventionTransition, UnresolvedInterventionState, move_intervention_statement,
+    InterventionResolvedError, InterventionTransition, UnresolvedInterventionState,
+    move_intervention_statement,
 };
-use crate::queue::store::QueueItemReader;
+use crate::queue::store::{QueueItemReader, SELECT_WAITING_FOR_RUN_SQL};
 use crate::session::run::read::LiveRun;
 use crate::session::run::state_change::RunStateChangeCompanions;
 
@@ -214,10 +216,15 @@ pub(crate) fn read_pending_interrupt(
         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
             Ok(PendingInterrupt {
                 intervention_id: text_column(row, 0, |text| InterventionId::new(&text))?,
+                // The read selects only the two states before an outcome; any other reads as a
+                // broken row.
                 state: text_column(row, 1, |text| {
                     closed_word::<InterventionState>(text)
                         .map_err(UnresolvedStateError::Unreadable)
-                        .and_then(unresolved_state)
+                        .and_then(|state| {
+                            UnresolvedInterventionState::try_from(state)
+                                .map_err(UnresolvedStateError::Resolved)
+                        })
                 })?,
                 // A row the daemon wrote for itself names no device.
                 actor: optional_text_column(row, 2, closed_word::<InterventionDeviceActor>)?
@@ -238,23 +245,8 @@ pub(crate) fn read_pending_interrupt(
 enum UnresolvedStateError {
     #[error("the stored state is not an intervention state")]
     Unreadable(#[source] serde_json::Error),
-    #[error("an intervention in {} has an outcome", <&'static str>::from(*.0))]
-    Resolved(InterventionState),
-}
-
-// The read selects only the two states before an outcome; any other reads as a broken row.
-fn unresolved_state(
-    state: InterventionState,
-) -> Result<UnresolvedInterventionState, UnresolvedStateError> {
-    match state {
-        InterventionState::Requested => Ok(UnresolvedInterventionState::Requested),
-        InterventionState::Accepted => Ok(UnresolvedInterventionState::Accepted),
-        InterventionState::Applied
-        | InterventionState::Rejected
-        | InterventionState::Degraded
-        | InterventionState::Expired
-        | InterventionState::Failed => Err(UnresolvedStateError::Resolved(state)),
-    }
+    #[error(transparent)]
+    Resolved(InterventionResolvedError),
 }
 
 /// The statement that refuses a settle decided with no pending interrupt once one has appeared, so
@@ -263,6 +255,18 @@ pub(crate) fn no_pending_interrupt_statement(run_id: &RunId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(SELECT_PENDING_INTERRUPT_SQL.as_str()),
         bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
+        expected_row_count: Some(0),
+    }
+}
+
+/// The statement that refuses a queued run's `failed` settle once a queued message targets it
+/// again, so a run its queue still starts is never ended.
+pub(crate) fn no_waiting_item_statement(run_id: &RunId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(SELECT_WAITING_FOR_RUN_SQL.as_str()),
+        bindings: StatementBindings::Positional(vec![Value::Text(
+            run_id.text().as_str().to_owned(),
+        )]),
         expected_row_count: Some(0),
     }
 }
@@ -292,6 +296,7 @@ pub(crate) fn applied_pending_interrupt_of(
             run.run.session_id,
             &SessionEvent::AgentInterventionApplied(applied),
         )?],
+        leading_event: None,
     })
 }
 
@@ -309,12 +314,32 @@ mod tests {
 
     use super::{
         PendingInterrupt, RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
-        decide_restart_settlement,
+        decide_restart_settlement, no_waiting_item_statement,
     };
-    use crate::database::writer::test_file::test_session_id;
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
     use crate::interventions::store::UnresolvedInterventionState;
     use crate::session::run::read::{LiveRun, RunRead};
     use crate::uuid_v7::mint_uuid_v7;
+
+    // The queue table's columns the queue's reads name, as the daemon's schema declares them.
+    const QUEUE_ITEMS_TABLE_SQL: &str = "
+CREATE TABLE queue_items (
+  id                    TEXT PRIMARY KEY,
+  session_id            TEXT NOT NULL,
+  state                 TEXT NOT NULL DEFAULT 'queued'
+                        CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled',
+                                        'notDelivered')),
+  not_delivered_reason  TEXT,
+  payload               TEXT NOT NULL DEFAULT '{}',
+  target_run_id         TEXT,
+  child_handle          TEXT,
+  position              INTEGER NOT NULL DEFAULT 0,
+  client_idempotency_key TEXT,
+  created_at            TEXT NOT NULL,
+  updated_at            TEXT NOT NULL
+) STRICT;
+";
 
     fn ends(settlement: RestartSettlement, turn_end: RestartTurnEnd) -> Option<RestartDecision> {
         Some(RestartDecision {
@@ -442,5 +467,49 @@ mod tests {
         };
 
         assert_eq!(decide_restart_settlement(&run, &facts), expected);
+    }
+
+    // Killed by the guard reading a state other than the stored `queued` word, or by dropping its
+    // run condition: either lets the settle end a run its queue still starts, or refuses one whose
+    // message is gone.
+    #[tokio::test]
+    async fn the_waiting_item_guard_holds_only_while_a_queued_message_targets_the_run() {
+        let database = TestDatabase::new();
+        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens its database");
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let connection = database.reader();
+        connection
+            .execute_batch(QUEUE_ITEMS_TABLE_SQL)
+            .expect("the test makes the queue table");
+        connection
+            .execute(
+                "INSERT INTO queue_items (id, session_id, state, target_run_id, created_at,
+                   updated_at)
+                 VALUES ('item', 'session', 'queued', ?1, '', '')",
+                [run_id.text().as_str()],
+            )
+            .expect("the test queues a message for the run");
+
+        let while_queued = writer.write(vec![no_waiting_item_statement(&run_id)]).await;
+        assert!(
+            matches!(
+                while_queued,
+                Err(WriteError::Refused {
+                    statement_index: 0,
+                    row_count: 1,
+                })
+            ),
+            "a run a queued message targets is not settled: {while_queued:?}"
+        );
+
+        connection
+            .execute("UPDATE queue_items SET state = 'admitted'", [])
+            .expect("the test admits the message");
+        writer
+            .write(vec![no_waiting_item_statement(&run_id)])
+            .await
+            .expect("a run with no queued message behind it is settled");
     }
 }

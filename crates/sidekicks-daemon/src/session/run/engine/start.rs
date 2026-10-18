@@ -12,7 +12,6 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::events::RunStateChangeState;
@@ -30,10 +29,10 @@ use tokio::sync::SetOnce;
 
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::WriteStatement;
+use crate::error_description::describe_error;
 use crate::events::session::appender::SessionEventDraft;
 use crate::provider::driver::contract::bound_failure_detail;
 use crate::queue::store::take_over_interrupted_statement;
-use crate::recovery::database_file::damage::describe_error;
 use crate::session::run::agent::RunAgentReader;
 use crate::session::run::daemon_turn::queue_daemon_turn_run;
 use crate::session::run::engine::{
@@ -71,6 +70,10 @@ impl RunEngine {
     /// `running` write that fails once the driver has the run, after the driver's turn is
     /// interrupted. An interrupt that arrives after the gates is routed once the start settles (see
     /// [`RunEngine::route_interrupt`]).
+    #[expect(
+        dead_code,
+        reason = "the queue's drain, which starts the run of each message it admits"
+    )]
     pub(crate) async fn start_run(
         &self,
         request: RunStartRequest,
@@ -95,6 +98,10 @@ impl RunEngine {
     /// The run of a provider's own turn takes over, in its `running` write, the lead messages
     /// waiting for the session's interrupted lead runs, so a turn that fails to open leaves them
     /// where they were. Fails as [`RunEngine::start_run`] does.
+    #[expect(
+        dead_code,
+        reason = "the turns the daemon starts on a session itself, such as a goal or a review"
+    )]
     pub(crate) async fn start_daemon_turn(
         &self,
         request: DaemonTurnStartRequest,
@@ -181,11 +188,7 @@ impl RunEngine {
             has_ended: AtomicBool::new(false),
             settled: SetOnce::new(),
         });
-        {
-            let mut live = self.live();
-            live.starting.insert(run_id, Arc::clone(&entry));
-            live.providers.insert(run_id, provider);
-        }
+        self.live().starting.insert(run_id, Arc::clone(&entry));
         let mut guard = StartingGuard {
             live: &self.live,
             run_id,
@@ -254,7 +257,7 @@ impl RunEngine {
                 },
                 RunStateChangeCompanions {
                     statements: running_statements.map(|build| build()).unwrap_or_default(),
-                    preceding_events: Vec::new(),
+                    ..RunStateChangeCompanions::default()
                 },
             )
             .await;
@@ -282,6 +285,7 @@ impl RunEngine {
     /// which asked its provider for the subagent, then `starting` and `running`, and returns the
     /// new run's id. Returns `None` with nothing written when the parent has ended, and fails with
     /// [`RunRefusal::NotFound`] for a parent the daemon has no run for.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn start_provider_subagent_run(
         &self,
         parent_run_id: RunId,
@@ -300,7 +304,6 @@ impl RunEngine {
                 )
             })
             .await?;
-        let provider = self.live().providers.get(&parent_run_id).cloned();
         let appended = self
             .append_while_live(parent_run_id, |parent| {
                 let queued = AgentRunQueuedPayload::SessionAgent(RunQueuedSessionAgentPayload {
@@ -329,9 +332,6 @@ impl RunEngine {
             .await?;
         if appended.is_none() {
             return Ok(None);
-        }
-        if let Some(provider) = provider {
-            self.live().providers.insert(run_id, provider);
         }
         self.change(
             RunStateChange {
@@ -365,6 +365,10 @@ impl RunEngine {
     /// the driver started the turn does so after the turn is interrupted. Fails with
     /// [`RunRefusal::InvalidTransition`] for a run that does not read interrupted or is already
     /// being continued.
+    #[expect(
+        dead_code,
+        reason = "the queue's drain, which continues an interrupted run on its next message"
+    )]
     pub(crate) async fn continue_run(
         &self,
         request: RunStartRequest,
@@ -375,7 +379,7 @@ impl RunEngine {
             workspace_id,
             start_path:
                 RunStartPath {
-                    provider,
+                    provider: _,
                     execution_posture,
                     start_driver,
                     interrupt_driver,
@@ -400,7 +404,6 @@ impl RunEngine {
                 settled: SetOnce::new(),
             });
             live.continuing.insert(run_id, Arc::clone(&entry));
-            live.providers.insert(run_id, provider);
             entry
         };
         let _settles_on_exit = ContinuingGuard {
@@ -464,26 +467,22 @@ impl RunEngine {
         }
     }
 
-    /// Continues the interrupted run `run_id` on the turn its provider, `provider`, started itself
-    /// with messages it kept from the run's interrupted turn, and returns the run as `running` left
-    /// it; `None` with nothing written when the run no longer reads interrupted. Whatever the
-    /// provider reports on the run after this call waits for its write. Fails as
-    /// [`RunEngine::transition`] does.
+    /// Continues the interrupted run `run_id` on the turn its provider started itself with
+    /// messages it kept from the run's interrupted turn, and returns the run as `running` left it;
+    /// `None` with nothing written when the run no longer reads interrupted. Whatever the provider
+    /// reports on the run after this call waits for its write. Fails as [`RunEngine::transition`]
+    /// does.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn continue_run_with_kept_messages(
         &self,
         run_id: RunId,
-        provider: ProviderId,
     ) -> Result<Option<RunRead>, RunEngineError> {
         // Taken before any await, so a marker the provider sends next waits for the run to run.
         let entry = Arc::new(ContinuingRun {
             is_turn_started: AtomicBool::new(true),
             settled: SetOnce::new(),
         });
-        {
-            let mut live = self.live();
-            live.continuing.insert(run_id, Arc::clone(&entry));
-            live.providers.insert(run_id, provider);
-        }
+        self.live().continuing.insert(run_id, Arc::clone(&entry));
         let _settles_on_exit = ContinuingGuard {
             live: &self.live,
             run_id,
@@ -507,27 +506,9 @@ impl RunEngine {
             .await;
         match continued {
             Ok(run) => Ok(Some(run)),
-            Err(RunEngineError::Refused(RunRefusal::InvalidTransition { .. })) => {
-                self.forget_provider_unless_live(run_id).await?;
-                Ok(None)
-            }
-            Err(error) => {
-                self.forget_provider_unless_live(run_id).await?;
-                Err(error)
-            }
+            Err(RunEngineError::Refused(RunRefusal::InvalidTransition { .. })) => Ok(None),
+            Err(error) => Err(error),
         }
-    }
-
-    // A continue that did not run its run leaves no provider held for a run that is not live.
-    async fn forget_provider_unless_live(&self, run_id: RunId) -> Result<(), RunEngineError> {
-        if self
-            .read_run(run_id)
-            .await?
-            .is_none_or(|run| run.state.is_terminal())
-        {
-            self.live().providers.remove(&run_id);
-        }
-        Ok(())
     }
 
     // Ends a run whose setup failed `failed`, its cause the failure. A run an interrupt moved out
@@ -614,7 +595,6 @@ impl RunEngine {
         else {
             return Ok(());
         };
-        self.live().providers.remove(&run_id);
         self.gates
             .release_for_terminal(&RunTerminalContext {
                 run_id,
@@ -669,10 +649,12 @@ mod tests {
     use std::time::Duration;
 
     use futures::FutureExt as _;
+    use futures::future::BoxFuture;
     use rusqlite::params;
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::intervention::RunLimit;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_platforms::Spawner;
     use tokio::runtime::Handle;
@@ -687,25 +669,24 @@ mod tests {
     use crate::provider::driver::DriverServices;
     use crate::provider::driver::registry::{ProviderRegistry, test_provider};
     use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
+    use crate::session::run::limit_interrupter::LimitInterrupter;
+    use crate::session::run::projection::RUNS_TABLE_SQL;
     use crate::session::run::start_request::RunStartPath;
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
     use crate::uuid_v7::mint_uuid_v7;
 
-    // The `runs` table as the daemon's schema declares it.
-    const RUNS_TABLE_SQL: &str = "
-CREATE TABLE runs (
-  run_id         TEXT NOT NULL PRIMARY KEY,
-  session_id     TEXT NOT NULL,
-  parent_run_id  TEXT,
-  reached_by     TEXT
-                 CHECK(reached_by IS NULL
-                   OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
-  state          TEXT NOT NULL
-    CHECK(state IN ('queued', 'starting', 'running', 'waitingForApproval', 'waitingForInput',
-                    'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
-  run_version    INTEGER NOT NULL CHECK(run_version >= 0)
-) STRICT;
-";
+    // No run here reaches a limit, so no interrupt for one is ever asked for.
+    struct NoLimitStops;
+
+    impl LimitInterrupter for NoLimitStops {
+        fn interrupt_for_limit(
+            &self,
+            run_id: RunId,
+            _limit: RunLimit,
+        ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+            async move { Err(format!("no test stops run {run_id} at a limit").into()) }.boxed()
+        }
+    }
 
     // Bounds the whole start and report, so a report that deadlocks on the start fails the test.
     const SETTLE_WAIT: Duration = Duration::from_secs(10);
@@ -752,6 +733,7 @@ CREATE TABLE runs (
                 home.path().join("session-token"),
             )),
             providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
+            limit_interrupter: Arc::new(NoLimitStops),
         });
 
         let (driver_started, driver_has_started) = oneshot::channel::<()>();

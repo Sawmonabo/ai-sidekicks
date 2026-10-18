@@ -117,7 +117,7 @@ impl From<RunEngineError> for RunPauseError {
             | RunEngineError::Gate { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
-            | RunEngineError::Interrupt { .. }
+            | RunEngineError::LimitInterrupt { .. }
             | RunEngineError::Provider(_)
             | RunEngineError::ProviderUnknown { .. }
             | RunEngineError::DaemonTurn(_)
@@ -141,6 +141,7 @@ pub(crate) struct RunPauseControl {
 
 impl RunPauseControl {
     /// Pause and resume reading runs through `pool` and moving them through `engine`.
+    #[expect(dead_code, reason = "the run control handlers")]
     pub(crate) fn new(pool: Arc<DatabaseReadPool>, engine: Arc<RunEngine>) -> Self {
         Self {
             pool,
@@ -154,6 +155,7 @@ impl RunPauseControl {
     /// version is not the run's and [`RunRefusal::InvalidTransition`] for a run that is not
     /// running. A pause the driver refuses returns the run to `running` and fails with
     /// [`RunPauseError::Driver`].
+    #[expect(dead_code, reason = "the run control handlers")]
     pub(crate) async fn pause(
         &self,
         request: &AgentRunPauseRequest,
@@ -184,6 +186,7 @@ impl RunPauseControl {
     /// [`RunRefusal::VersionStale`] when the expected version is not the run's and
     /// [`RunRefusal::InvalidTransition`] for a run in any other state, nothing read; the driver's
     /// own failure is [`RunPauseError::Driver`], the run left `running`, its messages given back.
+    #[expect(dead_code, reason = "the run control handlers")]
     pub(crate) async fn resume(
         &self,
         request: &AgentRunResumeRequest,
@@ -262,6 +265,7 @@ impl RunPauseControl {
                 run_id,
                 expected_run_version: expected_run_version.get(),
                 run_version: run.version,
+                source: None,
             }
             .into());
         }
@@ -281,7 +285,7 @@ impl RunPauseControl {
                 &run_id,
                 i64::from(expected_run_version) + 1,
             )],
-            preceding_events: Vec::new(),
+            ..RunStateChangeCompanions::default()
         };
         match self
             .engine
@@ -291,15 +295,18 @@ impl RunPauseControl {
             Ok(run) => Ok(run),
             // The guard's refusal is the version the caller read gone stale; the run's version now
             // is what the refusal reports.
-            Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
-                companion_index: VERSION_GUARD_COMPANION_INDEX,
-                ..
-            })) => match read_run_through::<RunPauseError>(&self.pool, run_id).await? {
+            Err(RunEngineError::Change(
+                refused @ RunStateChangeError::CompanionRefused {
+                    companion_index: VERSION_GUARD_COMPANION_INDEX,
+                    ..
+                },
+            )) => match read_run_through::<RunPauseError>(&self.pool, run_id).await? {
                 None => Err(RunRefusal::NotFound { run_id }.into()),
                 Some(now) => Err(RunRefusal::VersionStale {
                     run_id,
                     expected_run_version: expected_run_version.get(),
                     run_version: now.version,
+                    source: Some(Box::new(refused)),
                 }
                 .into()),
             },

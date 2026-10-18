@@ -32,7 +32,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::writer::WriteError;
 use crate::events::log_service::EventAppendError;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
@@ -110,14 +109,18 @@ pub(crate) enum RunStateEntry {
         execution_posture: Option<ExecutionPosture>,
     },
     /// Into `waitingForApproval`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     WaitingForApproval,
     /// Into `waitingForInput`.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     WaitingForInput,
     /// Into `pausing`.
     Pausing,
     /// Into `paused`.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     Paused,
     /// Into `completed`.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     Completed {
         /// Set only on a terminal the daemon itself closed.
         intended_close: Option<True>,
@@ -298,15 +301,23 @@ impl RunStateChange {
     }
 }
 
+/// An event drafted from the run as one attempt of a change reads it, so the run version it
+/// carries is the one that attempt writes from. Fails when the event breaks a check of its type.
+pub(crate) type RunEventDraft =
+    Arc<dyn Fn(&RunRead) -> Result<SessionEventDraft, SessionEventDraftError> + Send + Sync>;
+
 /// What commits with a run state change in its write: statements run after the run's swap, so one
 /// that reads the run sees the version the change reached, and events appended just before the
 /// change's own. A statement refusing refuses the whole write.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub(crate) struct RunStateChangeCompanions {
     /// Statements run after the swap.
     pub(crate) statements: Vec<WriteStatement>,
     /// Events appended just before the change's own.
     pub(crate) preceding_events: Vec<SessionEventDraft>,
+    /// An event drafted again at each attempt from the run it read, appended before every other
+    /// preceding event.
+    pub(crate) leading_event: Option<RunEventDraft>,
 }
 
 /// Why a run state change was not written; nothing of it is kept.
@@ -411,6 +422,7 @@ impl RunStateChangeWriter {
                     run_id,
                     from_state: run.state,
                     to_state: new_state,
+                    source: None,
                 }
             } else {
                 RunRefusal::InvalidTransition {
@@ -432,8 +444,12 @@ impl RunStateChangeWriter {
         };
         let RunStateChangeCompanions {
             statements,
-            preceding_events,
+            mut preceding_events,
+            leading_event,
         } = companions;
+        if let Some(draft) = leading_event {
+            preceding_events.insert(0, draft(&run)?);
+        }
         let (swap_index, mut transactional_prelude) = if is_terminal {
             (
                 TERMINAL_SWAP_INDEX,
@@ -473,6 +489,7 @@ impl RunStateChangeWriter {
                 run_id,
                 from_state: run.state,
                 to_state: new_state,
+                source: Some(Box::new(error)),
             }
             .into());
         }
@@ -508,6 +525,7 @@ impl RunStateChangeWriter {
                     run_id,
                     from_state: now.state,
                     to_state: new_state,
+                    source: Some(Box::new(refusal)),
                 }
             } else {
                 RunRefusal::InvalidTransition {
@@ -525,14 +543,11 @@ impl RunStateChangeWriter {
     }
 }
 
-/// The position of the statement that refused the write, when a guard's row count refused it.
+/// The position of the statement that refused the append's write, when a guard's row count
+/// refused it.
 pub(crate) fn refused_statement_index(error: &SessionEventAppendError) -> Option<usize> {
-    if let SessionEventAppendError::Append(EventAppendError::Write(WriteError::Refused {
-        statement_index,
-        ..
-    })) = error
-    {
-        Some(*statement_index)
+    if let SessionEventAppendError::Append(EventAppendError::Write(write_error)) = error {
+        write_error.refused_statement_index()
     } else {
         None
     }

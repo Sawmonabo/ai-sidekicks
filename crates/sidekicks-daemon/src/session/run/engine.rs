@@ -33,7 +33,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::{SetOnce, SetOnceError};
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::WriteStatement;
 use crate::events::log_service::{EventLogAppendReceipt, EventLogService};
 use crate::events::session::appender::{
@@ -44,13 +44,13 @@ use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::interventions::store::run_at_version_statement;
 use crate::ipc::domain_error::DomainError;
 use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
 use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::limits::CutTurn;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount};
-use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
+use crate::session::run::limit_interrupter::LimitInterrupter;
+use crate::session::run::read::{RunRead, read_run_provider, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::session::run::setup_gates::{
     RunSetupGate, RunSetupGateError, RunSetupGates, RunTerminalContext, RunTerminalReleaseError,
@@ -63,8 +63,9 @@ use crate::settle_all::{SettleFailures, settle_all};
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live
 /// provider subagents beneath a run, a run's pending interrupt and the queued messages waiting for
-/// it, a run's newest turn start and its open turn, and the two agent reads.
-pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 6 + RUN_AGENT_STATEMENT_CAPACITY;
+/// it, a run's newest turn start and its open turn, its provider, and the two agent reads.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
+pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 7 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -89,6 +90,7 @@ pub(crate) enum InterruptRoute {
 /// session and version when it records it. A turn's start is no marker: [`RunEngine::start_turn`]
 /// numbers it.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(dead_code, reason = "the provider's event delivery")]
 pub(crate) enum RunMarker {
     /// The provider process reported its start for the run (`agent.run.providerInitialized`).
     ProviderInitialized {
@@ -181,20 +183,20 @@ pub(crate) enum RunEngineError {
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
-    /// The driver could not interrupt the run the daemon stopped at a limit.
-    #[error("the provider's driver could not interrupt run {run_id}")]
-    Interrupt {
+    /// The interventions service did not interrupt the run the daemon stopped at a limit.
+    #[error("run {run_id}, stopped at a limit, was not interrupted")]
+    LimitInterrupt {
         /// The run.
         run_id: RunId,
-        /// The driver's failure.
+        /// The service's failure.
         #[source]
-        source: DriverError,
+        source: Box<dyn Error + Send + Sync>,
     },
     /// No registered driver answers the run's provider (`provider.notFound`).
     #[error(transparent)]
     Provider(DomainError),
-    /// The engine holds no provider for the live run, which reached it through no start.
-    #[error("no provider is known for live run {run_id}")]
+    /// The run has no runtime binding, so no provider is known for it.
+    #[error("no provider is known for run {run_id}, which has no runtime binding")]
     ProviderUnknown {
         /// The run.
         run_id: RunId,
@@ -242,6 +244,7 @@ impl From<RunStateChangeError> for RunEngineError {
 }
 
 /// What the run engine reads and writes through.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) struct RunEngineDeps {
     /// The read pool every run read borrows a connection from.
     pub(crate) pool: Arc<DatabaseReadPool>,
@@ -252,6 +255,8 @@ pub(crate) struct RunEngineDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
     pub(crate) providers: Arc<ProviderRegistry>,
+    /// The interventions service, which carries out the interrupt of each limit stop.
+    pub(crate) limit_interrupter: Arc<dyn LimitInterrupter>,
 }
 
 // A run no driver has yet, from `starting` until the driver has it or the run ends. It is
@@ -302,11 +307,9 @@ struct LiveRuns {
     // The fast output level each started run carried, until its settled state is reported or it
     // ends.
     carried_output_speeds: HashMap<RunId, ProviderToken>,
-    // The provider each live run runs on, from the start or continue that handed it its driver.
-    providers: HashMap<RunId, ProviderId>,
     // The open turn's steps on a run whose provider does not bound them.
     step_counts: HashMap<RunId, StepCount>,
-    // The turn a limit stop cut, until that turn's end is written.
+    // The turn a limit stop cut, until that turn's end is written or the run ends.
     cut_turns: HashMap<RunId, CutTurn>,
 }
 
@@ -382,7 +385,29 @@ struct EndingGuard<'engine> {
 
 impl Drop for EndingGuard<'_> {
     fn drop(&mut self) {
-        LiveRuns::remove_own(&mut lock(self.live).ending, &self.run_id, &self.entry);
+        {
+            let mut live = lock(self.live);
+            if live
+                .ending
+                .get(&self.run_id)
+                .is_some_and(|current| Arc::ptr_eq(current, &self.entry))
+            {
+                // An older write still in flight stays for a waiter: the newest that has not
+                // landed takes this one's place, and its own guard clears it once it lands.
+                let mut pending = self.entry.previous.clone();
+                while let Some(write) = pending.clone().filter(|write| write.landed.initialized()) {
+                    pending = write.previous.clone();
+                }
+                match pending {
+                    Some(write) => {
+                        live.ending.insert(self.run_id, write);
+                    }
+                    None => {
+                        live.ending.remove(&self.run_id);
+                    }
+                }
+            }
+        }
         settle(&self.entry.landed, ());
     }
 }
@@ -425,17 +450,20 @@ pub(crate) struct RunEngine {
     gates: RunSetupGates,
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
+    limit_interrupter: Arc<dyn LimitInterrupter>,
     live: Mutex<LiveRuns>,
 }
 
 impl RunEngine {
     /// An engine over `deps`, the posture gate registered as its first setup gate.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: RunEngineDeps) -> Self {
         let RunEngineDeps {
             pool,
             event_log,
             execution_postures,
             providers,
+            limit_interrupter,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -450,12 +478,17 @@ impl RunEngine {
             gates,
             execution_postures,
             providers,
+            limit_interrupter,
             live: Mutex::new(LiveRuns::default()),
         }
     }
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
     /// Gates are registered while the daemon wires its services, before the engine is shared.
+    #[expect(
+        dead_code,
+        reason = "the daemon's start, which registers each feature's setup gate"
+    )]
     pub(crate) fn register_setup_gate(&mut self, gate: Arc<dyn RunSetupGate>) {
         self.gates.register(gate);
     }
@@ -468,6 +501,7 @@ impl RunEngine {
     /// be written. A run being continued answers once its continue settles, `Driver` while it runs
     /// and `Ended` once it ended. Any other run is the driver's to stop. Fails when the run's read
     /// fails.
+    #[expect(dead_code, reason = "the interventions service")]
     pub(crate) async fn route_interrupt(
         &self,
         run_id: RunId,
@@ -530,6 +564,7 @@ impl RunEngine {
     /// the same way, but a terminal before its next turn started belongs to the turn that ended it
     /// and is refused at once. A send's re-open of an ended run is the daemon's, never a
     /// provider's.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         &self,
         change: RunStateChange,
@@ -596,6 +631,7 @@ impl RunEngine {
     /// Records `marker` on its run at the run's current version and returns the id of the event
     /// written, or `None` with nothing written when the run has ended. Fails with
     /// [`RunRefusal::NotFound`] for a run the daemon has no row for.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn append_run_marker(
         &self,
         marker: RunMarker,
@@ -620,6 +656,7 @@ impl RunEngine {
     /// provider runs it at another state, appends one `fastOutputUnavailable` notice naming the
     /// run, with the provider's reason. Only the first report for a started run is compared; a
     /// later one finds nothing. Fails when the notice is not appended.
+    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn record_settled_output_speed(
         &self,
         session_id: SessionId,
@@ -708,22 +745,24 @@ impl RunEngine {
         }
     }
 
-    // What the engine held for a run that has ended; the turn a limit cut stays until its end.
+    // What the engine held for a run that has ended. A late end its provider reports for a turn
+    // a limit cut is then written as reported.
     fn forget_ended_run(&self, run_id: &RunId) {
         let mut live = self.live();
         live.carried_output_speeds.remove(run_id);
-        live.providers.remove(run_id);
         live.step_counts.remove(run_id);
+        live.cut_turns.remove(run_id);
         live.mark_starting_run_ended(run_id);
     }
 
-    // The provider the live run runs on, as its start or continue handed it to the driver.
-    fn provider_of(&self, run_id: &RunId) -> Result<ProviderId, RunEngineError> {
-        self.live()
-            .providers
-            .get(run_id)
-            .cloned()
-            .ok_or(RunEngineError::ProviderUnknown { run_id: *run_id })
+    // The provider the run runs on, from its newest runtime binding.
+    async fn provider_of(&self, run_id: RunId) -> Result<ProviderId, RunEngineError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(read_run_provider(reader, &run_id)?)
+            })
+            .await?
+            .ok_or(RunEngineError::ProviderUnknown { run_id })
     }
 
     // A run being continued reads ended until its continue is written.

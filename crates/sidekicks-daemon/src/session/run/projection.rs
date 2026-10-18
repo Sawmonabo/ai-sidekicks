@@ -15,7 +15,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionType;
-use sidekicks_contracts::run::queued::{AgentRunQueuedPayload, ChildRunProvenance};
+use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::run_facts::{RUN_STATE_EVENT_TYPES, RunStateEventType};
@@ -42,6 +42,24 @@ pub(crate) struct RunStateSwap {
     /// The state the change enters.
     pub(crate) new_state: RunStateChangeState,
 }
+
+/// The `runs` table as the daemon's schema declares it, for a test's database file.
+#[cfg(test)]
+pub(crate) const RUNS_TABLE_SQL: &str = "
+CREATE TABLE runs (
+  run_id         TEXT NOT NULL PRIMARY KEY,
+  session_id     TEXT NOT NULL,
+  parent_run_id  TEXT,
+  reached_by     TEXT
+                 CHECK(reached_by IS NULL
+                   OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
+  is_apart       INTEGER NOT NULL DEFAULT 0 CHECK(is_apart IN (0, 1)),
+  state          TEXT NOT NULL
+    CHECK(state IN ('queued', 'starting', 'running', 'waitingForApproval', 'waitingForInput',
+                    'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
+  run_version    INTEGER NOT NULL CHECK(run_version >= 0)
+) STRICT;
+";
 
 const INSERT_QUEUED_RUN_SQL: &str = "INSERT INTO runs
     (run_id, session_id, parent_run_id, reached_by, is_apart, state, run_version)
@@ -71,6 +89,10 @@ static ADVANCE_RUN_VERSION_SQL: LazyLock<String> = LazyLock::new(|| {
 // Each live run of the session moves to the highest run version any row of the skipped range
 // stored for it, if that is past its own. The run and its version are read from the row's own
 // columns, which the append set from the typed event, so a damaged payload is never parsed.
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which registers the projection with the rebuild"
+)]
 static ADVANCE_PAST_SKIPPED_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE runs
@@ -85,10 +107,18 @@ static ADVANCE_PAST_SKIPPED_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which registers the projection with the rebuild"
+)]
 const DELETE_SESSION_RUNS_SQL: &str = "DELETE FROM runs WHERE session_id = ?";
 
 // Every type the runs fold reads: a run's creation, a skipped range, an intervention's verdict and
 // each state change.
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which registers the projection with the rebuild"
+)]
 static RUNS_EVENT_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
     [
         SessionEventType::AgentRunQueued,
@@ -137,7 +167,9 @@ pub(crate) fn insert_queued_run_statement(payload: &AgentRunQueuedPayload) -> Wr
             ),
             (
                 Cow::Borrowed("@reached_by"),
-                Value::from(reached_by.map(provenance_word)),
+                Value::from(
+                    reached_by.map(|provenance| <&'static str>::from(provenance).to_owned()),
+                ),
             ),
             (
                 Cow::Borrowed("@is_apart"),
@@ -151,14 +183,6 @@ pub(crate) fn insert_queued_run_statement(payload: &AgentRunQueuedPayload) -> Wr
         ]),
         expected_row_count: None,
     }
-}
-
-// The stored word of how a child was reached, its serde spelling.
-fn provenance_word(provenance: ChildRunProvenance) -> String {
-    let word = serde_json::to_value(provenance).expect("a closed word serializes");
-    word.as_str()
-        .expect("a closed word serializes as text")
-        .to_owned()
 }
 
 /// The statement that moves a run from `previous_state` to `new_state` at `run_version`. It
@@ -185,6 +209,10 @@ pub(crate) fn swap_run_state_statement(swap: &RunStateSwap) -> WriteStatement {
 /// change, as a dispatched intervention's verdict does, and leaves an ended run's as it is. It
 /// holds no stale comparand, because no earlier read decides it; it refuses the write only when the
 /// run is not under `session_id`.
+#[expect(
+    dead_code,
+    reason = "the interventions service, which advances a run it applies an intervention to"
+)]
 pub(crate) fn advance_run_version_statement(
     session_id: &SessionId,
     run_id: &RunId,
@@ -218,6 +246,10 @@ macro_rules! state_change_swap {
     }};
 }
 
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which registers the projection with the rebuild"
+)]
 fn state_change_swap_of(event: &SessionEvent) -> Option<RunStateSwap> {
     state_change_swap!(
         event,
@@ -235,6 +267,10 @@ fn state_change_swap_of(event: &SessionEvent) -> Option<RunStateSwap> {
 }
 
 /// The `runs` rows as a rebuild replaces them: one per run, at its last state and version.
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which registers the projection with the rebuild"
+)]
 pub(crate) struct RunsProjection;
 
 impl SessionProjection for RunsProjection {
@@ -264,6 +300,10 @@ impl SessionProjection for RunsProjection {
 }
 
 // Each terminal event already folded, by its run and run version, with its envelope id.
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which registers the projection with the rebuild"
+)]
 struct RunsFold {
     terminal_event_ids: HashMap<(RunId, i64), String>,
 }
