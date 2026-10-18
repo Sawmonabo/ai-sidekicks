@@ -59,8 +59,6 @@ methods! {
                 SessionNotFound,
                 AgentRunNotFound,
                 ArtifactIngestStreamInvalid,
-                ArtifactTypeUnreadable,
-                ArtifactTypeCheckUnavailable,
             ],
         },
         /// Publishes one artifact from a payload the caller holds whole.
@@ -75,8 +73,6 @@ methods! {
                 ArtifactIdempotencyConflict,
                 ArtifactIngestCapacityExhausted,
                 ArtifactTooLarge,
-                ArtifactTypeCheckUnavailable,
-                ArtifactTypeUnreadable,
             ],
         },
     ];

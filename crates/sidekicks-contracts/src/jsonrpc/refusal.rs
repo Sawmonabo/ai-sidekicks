@@ -264,13 +264,6 @@ refusal_codes! {
     ArtifactNotFound = "artifact.notFound" (NotFound, 404);
     /// `data.fields.reason` names which bound it hit.
     ArtifactTooLarge = "artifact.tooLarge" (ResourceExhausted, 413);
-    /// The type check on a payload's leading bytes could not run to an answer, at
-    /// `artifact.ingest.complete` or a client's `artifact.publish`, because the daemon was
-    /// stopping.
-    ArtifactTypeCheckUnavailable = "artifact.typeCheckUnavailable" (Unavailable, 503);
-    /// The type detector ran over a payload's leading bytes and refused them, at
-    /// `artifact.ingest.complete` or a client's `artifact.publish`.
-    ArtifactTypeUnreadable = "artifact.typeUnreadable" (InvalidArgument, 422);
     /// `attention.delivery.test` for a channel that is not set up.
     AttentionDeliveryNotConfigured = "attention.delivery.notConfigured" (FailedPrecondition, 409);
     /// The keychain holding a channel's secret is locked or unavailable.
