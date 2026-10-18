@@ -1,13 +1,12 @@
 //! The daemon's SQLite shell, the `database shell` mode, which the repair runs in, and SQLite's
 //! own recovery, `sqlite3_recover`, run through the shell's `.recover`: one shell reads the damaged
 //! file read-only and writes the SQL that rebuilds every row it can reach, and a second shell runs
-//! that SQL into a fresh file. The shell is SQLite's own, built into the daemon from the release
-//! the library it links bundles, with the page table the recovery reads through; a shell of
-//! another release than the library, or built without the page table, means a damaged install and
-//! is refused before it runs. The recovery's SQL passes through the daemon on its way to the second
-//! shell, and the daemon counts the session events in it. A recovery whose shells have both
-//! stopped working is stopped (`stall_watch`). Every shell is a child process, so a stop ends it at
-//! once.
+//! that SQL into a fresh file. The shell is SQLite's own, built into the daemon's program against
+//! the library it links, so the two are one release; a shell built without the page table the
+//! recovery reads through means a damaged install and is refused before it runs. The recovery's
+//! SQL passes through the daemon on its way to the second shell, and the daemon counts the session
+//! events in it. A recovery whose shells have both stopped working is stopped (`stall_watch`).
+//! Every shell is a child process, so a stop ends it at once.
 
 use std::error::Error;
 use std::ffi::OsStr;
@@ -73,7 +72,7 @@ const COUNTED_ROW_START: &[u8] = b"\nINSERT OR IGNORE INTO 'session_events'(";
 const PUMP_BUFFER_BYTES: usize = 64 * 1024;
 
 // What each shell run is doing, as a failure names it.
-const CHECKING_STEP: &str = "checking its release";
+const CHECKING_STEP: &str = "checking its page table";
 const READING_STEP: &str = "reading the damaged file";
 const WRITING_STEP: &str = "writing the fresh file";
 const COUNTING_STEP: &str = "counting the damaged file's session events";
@@ -125,17 +124,6 @@ pub enum UnfitSqliteShell {
     /// The shell could not be run.
     #[error("the daemon's SQLite shell could not be run, so its install is damaged")]
     Unrunnable(#[source] SqliteShellRunError),
-    /// The shell is of another SQLite release than the library the daemon links.
-    #[error(
-        "the daemon's SQLite shell is {shell} but its library is {library}, so its install is \
-         damaged"
-    )]
-    Release {
-        /// The shell's release.
-        shell: String,
-        /// The library's release.
-        library: &'static str,
-    },
     /// The shell is built without the page table its recovery reads through.
     #[error(
         "the daemon's SQLite shell is built without the page table its recovery reads through \
@@ -173,7 +161,7 @@ pub enum SqliteRecoveryError {
 
 /// Why the damaged file's session events could not be counted.
 #[derive(Debug, thiserror::Error)]
-pub enum DamagedFileCountError {
+pub(crate) enum DamagedFileCountError {
     /// The shell failed, as a damaged index makes it.
     #[error(transparent)]
     Shell(#[from] SqliteShellRunError),
@@ -212,13 +200,12 @@ impl SqliteShell {
         Self { program, spawner }
     }
 
-    /// Checks that the shell runs, is of the SQLite release the daemon's library is, and has the
-    /// page table its recovery reads through. Fails with [`UnfitSqliteShell`] naming which.
-    pub async fn refuse_unfit(&self, stop: &CancellationToken) -> Result<(), UnfitSqliteShell> {
-        let version = self
-            .run(CHECKING_STEP, [OsStr::new("-version")], None, stop)
-            .await
-            .map_err(UnfitSqliteShell::Unrunnable)?;
+    /// Checks that the shell runs and has the page table its recovery reads through. Fails with
+    /// [`UnfitSqliteShell`] naming which.
+    pub(crate) async fn refuse_unfit(
+        &self,
+        stop: &CancellationToken,
+    ) -> Result<(), UnfitSqliteShell> {
         let page_table = self
             .run(
                 CHECKING_STEP,
@@ -228,15 +215,6 @@ impl SqliteShell {
             )
             .await
             .map_err(UnfitSqliteShell::Unrunnable)?;
-        let version = String::from_utf8_lossy(&version);
-        let shell_release = version.split_whitespace().next().unwrap_or_default();
-        let library_release = rusqlite::version();
-        if shell_release != library_release {
-            return Err(UnfitSqliteShell::Release {
-                shell: shell_release.to_owned(),
-                library: library_release,
-            });
-        }
         if String::from_utf8_lossy(&page_table).trim().is_empty() {
             return Err(UnfitSqliteShell::NoPageTable);
         }
@@ -355,7 +333,7 @@ impl SqliteShell {
     /// file holds no thread of the daemon's; the shell waits out the recovery's reader's locks.
     /// Fails when the shell cannot read the count, as a damaged index makes it, and once `stop`
     /// fires, which ends the shell.
-    pub async fn count_damaged_file_events(
+    pub(crate) async fn count_damaged_file_events(
         &self,
         path: &Path,
         stop: &CancellationToken,
@@ -386,7 +364,8 @@ impl SqliteShell {
     }
 
     /// Runs `script` in the shell on the database at `database_path`, stopping at its first error,
-    /// and answers what it wrote, whole, once it has exited. Fails naming the script's step and the
+    /// and answers what it wrote, whole, once it has exited, so a script's output must stay small.
+    /// Fails naming the script's step and the
     /// shell's error output when the shell cannot start or fails, and once `stop` fires, when the
     /// shell has exited.
     pub(crate) async fn run_script(
@@ -706,7 +685,12 @@ mod tests {
             &ended,
         );
         let mut passed = Vec::new();
-        let (pumped, read_to_end) = tokio::join!(pumping, written_side.read_to_end(&mut passed));
+        // Bounded, so a writer's input left open fails the test rather than hanging it.
+        let (pumped, read_to_end) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(pumping, written_side.read_to_end(&mut passed))
+        })
+        .await
+        .expect("the pump ends and the writer's side reaches its end");
 
         assert!(pumped.is_ok());
         read_to_end.expect("the writer's side reads to its end");
