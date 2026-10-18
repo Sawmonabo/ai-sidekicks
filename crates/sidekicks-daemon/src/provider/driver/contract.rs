@@ -25,9 +25,6 @@ use sidekicks_contracts::provider::driver::capabilities::{
 };
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
-use sidekicks_contracts::provider::driver::intervention::{
-    ApplyInterventionResponse, InterruptRunRequest,
-};
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_BINDING_ID_MAX_LEN, PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
@@ -47,8 +44,9 @@ use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
-    FasterModelRetryOutcome, FasterModelRetryParams, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
+    InterruptRunRequest, OverrideDenialParams, PauseRunParams, ResumeRunParams,
+    SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ProviderBuildChange,

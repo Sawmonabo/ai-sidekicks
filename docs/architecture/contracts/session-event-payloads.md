@@ -97,7 +97,7 @@ type EventCategory =
 // ---------------------------------------------------------------------------
 // Payload variants authored in crates/sidekicks-contracts/src/event/declared_variants.rs
 // (session.event.compacted and the eventMaintenance base) and
-// crates/sidekicks-contracts/src/event/variant_types.rs (agent.turn.rerouted, its
+// crates/sidekicks-contracts/src/event/usage.rs (agent.turn.rerouted, its
 // arm in crates/sidekicks-contracts/src/event/session.rs), which Plan-004
 // owns, rather than imported from an emitting plan's module (contrast the
 // repoMount/workspace/worktree family, authored in repo/mount.rs / worktree/lifecycle.rs under

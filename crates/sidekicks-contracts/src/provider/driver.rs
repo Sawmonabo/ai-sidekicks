@@ -4,7 +4,6 @@ pub mod capabilities;
 pub mod commands;
 pub mod compaction;
 pub mod declared_loss;
-pub mod intervention;
 pub mod length_limits;
 pub mod methods;
 pub mod output_speed;

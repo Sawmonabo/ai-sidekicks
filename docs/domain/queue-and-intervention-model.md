@@ -112,11 +112,11 @@ The following field inventory maps each driver payload to its sources.
 
 **The driver's `steer`** (built by the daemon from the queued message when it delivers it, Plan-002 T3.8; it is no intervention and writes no `interventions` row):
 
-| Field | Required | Source: the queued message and the daemon | Source: Spec-004 `ApplyInterventionRequest` |
+| Field | Required | Source: the queued message and the daemon | Source: the driver's `ApplyInterventionParams` |
 | --- | --- | --- | --- |
-| `targetRunId` | yes | the run the daemon delivers into | `ApplyInterventionRequest.targetRunId` |
-| `expectedRunVersion` | yes | the run's `runVersion` at delivery | `ApplyInterventionRequest.expectedRunVersion` |
-| `clientIdempotencyKey` | yes | the daemon's own id on the message | `ApplyInterventionRequest.clientIdempotencyKey` |
+| `targetRunId` | yes | the run the daemon delivers into | `ApplyInterventionParams.targetRunId` |
+| `expectedRunVersion` | yes | the run's `runVersion` at delivery | `ApplyInterventionParams.expectedRunVersion` |
+| `clientIdempotencyKey` | yes | the daemon's own id on the message | `ApplyInterventionParams.clientIdempotencyKey` |
 | `content` | yes | `AgentQueueItemCreateRequest` (the message's text) | `SteerPayload.content` |
 | `attachments` | no | `AgentQueueItemCreateRequest.attachments` (optional, `ArtifactId[]`) | `SteerPayload.attachments` (optional, `ArtifactId[]`) |
 | `skills` | no | `AgentQueueItemCreateRequest.skills` (each `{name, folderPath}`), which the daemon resolves for a Codex agent to the skill Codex's own `skills/list` names | `SteerPayload.skills` (optional, `PickedSkill[]`, each `{name, path}`, `path` the absolute `SKILL.md` file Codex listed) |
@@ -128,16 +128,16 @@ Element type: both `attachments` columns above are `ArtifactId[]` — ids into [
 
 **`interrupt` payload:**
 
-| Field | Required | Source: API Contracts | Source: Spec-004 `ApplyInterventionRequest` |
+| Field | Required | Source: API Contracts | Source: the driver's `ApplyInterventionParams` |
 | --- | --- | --- | --- |
-| `targetRunId` | yes | `AgentRunInterveneRequest` | `ApplyInterventionRequest.targetRunId` |
-| `expectedRunVersion` | yes | `AgentRunInterveneRequest` | `ApplyInterventionRequest.expectedRunVersion` |
-| `clientIdempotencyKey` | yes | `AgentRunInterveneRequest` | `ApplyInterventionRequest.clientIdempotencyKey` |
+| `targetRunId` | yes | `AgentRunInterveneRequest` | `ApplyInterventionParams.targetRunId` |
+| `expectedRunVersion` | yes | `AgentRunInterveneRequest` | `ApplyInterventionParams.expectedRunVersion` |
+| `clientIdempotencyKey` | yes | `AgentRunInterveneRequest` | `ApplyInterventionParams.clientIdempotencyKey` |
 | `pending` | yes | `AgentRunInterveneRequest` | `InterruptPayload.pending` |
 | `deliverFirst` | no | `AgentRunInterveneRequest` (optional) | none: the daemon puts the named message first itself |
 | `reason` | no | `AgentRunInterveneRequest` (optional) | `InterruptPayload.reason` (optional) |
 
-Note: The `ApplyInterventionRequest` interface in Spec-004 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload` or `InterruptPayload`. The `AgentRunInterveneRequest` in the API contracts flattens an intervention's fields into one discriminated union, `interrupt` | `fasterModelRetry`: its `interrupt` arm carries the driver's fields plus `deliverFirst`, which the daemon acts on itself, and `fasterModelRetry` never reaches the driver. The driver's `steer` has no request arm: only the queue's delivery builds it. The `ApplyInterventionResponse` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full seven-state lifecycle per the normative table below.
+Note: The driver's own `ApplyInterventionParams` (`crates/sidekicks-daemon/src/provider/driver/run_control.rs`) splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload` or `InterruptPayload`. The `AgentRunInterveneRequest` in the API contracts flattens an intervention's fields into one discriminated union, `interrupt` | `fasterModelRetry`: its `interrupt` arm carries the driver's fields plus `deliverFirst`, which the daemon acts on itself, and `fasterModelRetry` never reaches the driver. The driver's `steer` has no request arm: only the queue's delivery builds it. The `ApplyInterventionResponse` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full seven-state lifecycle per the normative table below.
 
 ## Driver Result To Lifecycle Mapping
 

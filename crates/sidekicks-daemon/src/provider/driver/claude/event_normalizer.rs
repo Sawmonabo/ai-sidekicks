@@ -699,12 +699,12 @@ mod tests {
     }
 
     #[rstest]
-    #[case::success("result/success", SessionEventType::AgentRunCompleted)]
+    #[case::success("result/success", SessionEventType::AgentTurnCompleted)]
     #[case::error_during_execution(
         "result/error_during_execution",
         SessionEventType::AgentRunFailed
     )]
-    fn a_result_frame_emits_its_run_ending(
+    fn a_result_frame_emits_its_ending_event(
         #[case] frame_kind: &str,
         #[case] event_type: SessionEventType,
     ) {

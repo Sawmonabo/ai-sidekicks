@@ -1,5 +1,5 @@
-//! The stored payloads of a run's state changes, of the markers its provider reports, and of its
-//! interventions, one per event type.
+//! The stored payloads of a run's state changes, of the markers its provider reports, of its turns'
+//! starts and ends, and of its interventions, one per event type.
 
 use std::borrow::Cow;
 
@@ -10,15 +10,14 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::event::envelope::SourcePosition;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
-use crate::provider::driver::intervention::InterventionType;
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
 use crate::provider::id::ProviderId;
-use crate::run::control::{ProcessExit, RunCompletionKind, RunFailureCategory};
+use crate::run::control::{ProcessExit, RunFailureCategory, StopTrigger};
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
-use crate::run::intervention::InterventionId;
+use crate::run::intervention::{InterventionId, InterventionType};
 use crate::run::state::RunState;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -45,9 +44,10 @@ pub enum RunStateChangeState {
     Paused,
     /// Ended with its work done.
     Completed,
-    /// Ended by an interrupt.
+    /// Its turn cut by an interrupt, resting until a send continues it.
     Interrupted,
-    /// A child ended by a stop that reached several agents.
+    /// Ended by a stop: a child ended by a stop that reached several agents, or a run at its token
+    /// limit.
     Stopped,
     /// Ended by a failure.
     Failed,
@@ -168,7 +168,7 @@ run_state_change_payloads! {
     /// The `agent.run.paused` payload.
     pub struct AgentRunPausedPayload: AgentRunPausedNewState {}
 
-    /// The `agent.run.completed` payload, with whether its turn or its whole task finished.
+    /// The `agent.run.completed` payload.
     pub struct AgentRunCompletedPayload: AgentRunCompletedNewState {
         /// Present only on a terminal the daemon itself closed, which is never a crash.
         #[serde(
@@ -178,8 +178,6 @@ run_state_change_payloads! {
         )]
         #[schemars(with = "True")]
         pub intended_close: Option<True>,
-        /// Whether its turn or its whole task finished.
-        pub completion_kind: RunCompletionKind,
     }
 
     /// The `agent.run.interrupted` payload, with why the daemon interrupted the run where it did so
@@ -203,7 +201,8 @@ run_state_change_payloads! {
         pub trigger: Option<InterruptReason>,
     }
 
-    /// The `agent.run.stopped` payload.
+    /// The `agent.run.stopped` payload, with why the daemon stopped the run where it did so
+    /// itself.
     pub struct AgentRunStoppedPayload: AgentRunStoppedNewState {
         /// Present only on a terminal the daemon itself closed, which is never a crash.
         #[serde(
@@ -213,6 +212,14 @@ run_state_change_payloads! {
         )]
         #[schemars(with = "True")]
         pub intended_close: Option<True>,
+        /// Why the daemon itself stopped the run.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "StopTrigger")]
+        pub trigger: Option<StopTrigger>,
     }
 
     /// The `agent.run.failed` payload, with its typed cause, the provider's own words and its
@@ -254,10 +261,38 @@ run_state_change_payloads! {
     }
 }
 
-/// Declares the payload of each provider marker: the run and its version when the marker was
-/// recorded, which the marker leaves as it is, since it changes no state, and the marker's own
-/// members.
-macro_rules! run_marker_payloads {
+/// Who reported a turn's end, not who cut the turn: the provider, whose own end frame arrived, or
+/// the daemon, which wrote the end with no provider frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum TurnEndOrigin {
+    /// The provider's own end frame arrived.
+    Provider,
+    /// The daemon wrote the end with no provider frame.
+    Daemon,
+}
+
+/// Why a turn was interrupted or failed, where the daemon knows it: it saw the provider process
+/// exit, a restart settled the open turn, or a limit the person set cut it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum TurnEndCause {
+    /// The daemon saw the provider process exit under the turn.
+    ProcessExit,
+    /// A restart settled the open turn.
+    DaemonRestart,
+    /// The step limit cut the turn.
+    StepLimit,
+    /// The spend limit cut the turn.
+    SpendLimit,
+    /// The token limit cut the turn.
+    TokenLimit,
+}
+
+/// Declares the payload of each forward run event, a provider's marker or a turn's start or end:
+/// the run and its version when the event was recorded, which the event leaves as it is, since it
+/// changes no state, and the event's own members.
+macro_rules! run_event_payloads {
     ($(
         $(#[doc = $doc:literal])+
         pub struct $name:ident { $($extra:tt)* }
@@ -270,14 +305,14 @@ macro_rules! run_marker_payloads {
             pub session_id: SessionId,
             /// The run.
             pub run_id: RunId,
-            /// The run version when the marker was recorded.
+            /// The run version when the event was recorded.
             pub run_version: SafeInt<0>,
             $($extra)*
         }
     )+};
 }
 
-run_marker_payloads! {
+run_event_payloads! {
     /// The `agent.run.providerInitialized` payload: the provider process reported its start for the
     /// run, with the model it runs where it named one.
     pub struct AgentRunProviderInitializedPayload {
@@ -296,6 +331,8 @@ run_marker_payloads! {
     /// The `agent.turn.started` payload: a turn opened within the run, at the session position the
     /// provider named where it named one.
     pub struct AgentTurnStartedPayload {
+        /// The turn's number within its run, from 1.
+        pub turn_number: SafeInt<1>,
         /// The turn's session position.
         #[serde(
             default,
@@ -304,6 +341,44 @@ run_marker_payloads! {
         )]
         #[schemars(with = "SourcePosition")]
         pub position: Option<SourcePosition>,
+    }
+
+    /// The `agent.turn.completed` payload: the turn ended normally, as the provider reported it.
+    pub struct AgentTurnCompletedPayload {
+        /// The turn's number within its run.
+        pub turn_number: SafeInt<1>,
+    }
+
+    /// The `agent.turn.interrupted` payload: the turn was cut, its partial output kept.
+    pub struct AgentTurnInterruptedPayload {
+        /// The turn's number within its run.
+        pub turn_number: SafeInt<1>,
+        /// Who reported the turn's end.
+        pub origin: TurnEndOrigin,
+        /// Why the turn ended, where the daemon knows it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "TurnEndCause")]
+        pub cause: Option<TurnEndCause>,
+    }
+
+    /// The `agent.turn.failed` payload: the turn failed.
+    pub struct AgentTurnFailedPayload {
+        /// The turn's number within its run.
+        pub turn_number: SafeInt<1>,
+        /// Who reported the turn's end.
+        pub origin: TurnEndOrigin,
+        /// Why the turn ended, where the daemon knows it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "TurnEndCause")]
+        pub cause: Option<TurnEndCause>,
     }
 
     /// The `agent.run.workerShuttingDown` payload: the provider said its worker is shutting down
@@ -463,8 +538,8 @@ intervention_event_payloads! {
 /// The TypeScript module of a run's stored payloads.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/events",
-    doc: "The stored payloads of a run's state changes, of the markers its provider reports, and \
-          of its interventions, one per event type.",
+    doc: "The stored payloads of a run's state changes, of the markers its provider reports, of \
+          its turns' starts and ends, and of its interventions, one per event type.",
     definitions: &[
         Definition::read::<RunStateChangeState>(),
         Definition::read::<AgentRunStartingPayload>(),
@@ -479,6 +554,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentRunFailedPayload>(),
         Definition::read::<AgentRunProviderInitializedPayload>().checked(),
         Definition::read::<AgentTurnStartedPayload>().checked(),
+        Definition::read::<TurnEndOrigin>(),
+        Definition::read::<TurnEndCause>(),
+        Definition::read::<AgentTurnCompletedPayload>().checked(),
+        Definition::read::<AgentTurnInterruptedPayload>().checked(),
+        Definition::read::<AgentTurnFailedPayload>().checked(),
         Definition::read::<AgentRunWorkerShuttingDownPayload>().checked(),
         Definition::read::<InterventionActor>(),
         Definition::read::<AgentInterventionRequestedPayload>(),
@@ -492,3 +572,71 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use crate::event::session::SessionEvent;
+
+    const SESSION_ID: &str = "0190f2a0-0000-7000-8000-000000000000";
+    const RUN_ID: &str = "0190f2a0-0000-7000-8000-000000000001";
+
+    /// A run event of `event_type` whose payload is the run's keys and `members`.
+    fn run_event(event_type: &str, members: &Value) -> Value {
+        let mut payload = json!({ "sessionId": SESSION_ID, "runId": RUN_ID, "runVersion": 3 });
+        for (key, value) in members.as_object().expect("the members are an object") {
+            payload[key] = value.clone();
+        }
+        json!({ "type": event_type, "payload": payload })
+    }
+
+    #[rstest]
+    #[case::turn_completed("agent.turn.completed", json!({ "turnNumber": 1 }))]
+    #[case::turn_interrupted_by_the_provider(
+        "agent.turn.interrupted",
+        json!({ "turnNumber": 2, "origin": "provider" })
+    )]
+    #[case::turn_interrupted_at_the_token_limit(
+        "agent.turn.interrupted",
+        json!({ "turnNumber": 2, "origin": "daemon", "cause": "tokenLimit" })
+    )]
+    #[case::turn_failed_by_the_provider(
+        "agent.turn.failed",
+        json!({ "turnNumber": 4, "origin": "provider" })
+    )]
+    #[case::turn_failed_on_a_process_exit(
+        "agent.turn.failed",
+        json!({ "turnNumber": 4, "origin": "daemon", "cause": "processExit" })
+    )]
+    #[case::run_stopped_at_the_token_limit(
+        "agent.run.stopped",
+        json!({ "previousState": "running", "newState": "stopped", "trigger": "tokenLimit" })
+    )]
+    fn a_turn_end_and_a_token_limit_stop_round_trip(
+        #[case] event_type: &str,
+        #[case] members: Value,
+    ) {
+        let stored = run_event(event_type, &members);
+        let event: SessionEvent =
+            serde_json::from_value(stored.clone()).expect("the stored event reads");
+        assert_eq!(event.event_type().as_str(), event_type);
+        assert_eq!(
+            serde_json::to_value(&event).expect("the event writes"),
+            stored
+        );
+    }
+
+    #[test]
+    fn a_completed_run_refuses_a_completion_kind() {
+        let members = json!({ "previousState": "running", "newState": "completed" });
+        let completed = run_event("agent.run.completed", &members);
+        serde_json::from_value::<SessionEvent>(completed.clone())
+            .expect("a completed run without a completion kind reads");
+
+        let mut with_kind = completed;
+        with_kind["payload"]["completionKind"] = json!("turn");
+        assert!(serde_json::from_value::<SessionEvent>(with_kind).is_err());
+    }
+}
