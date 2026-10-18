@@ -128,8 +128,9 @@ pub struct EventRun {
 
 /// One arm of [`SessionEvent::run`]: the pattern that binds the payload where its run is read,
 /// then the run read from it, as the arm's rule in the registration table says: `versioned` for a
-/// `runId` and a `runVersion`, `turn` for those and a `turnNumber`, `required` for a `runId` alone, `optional` for an optional `runId`,
-/// `read(function)` for a payload union whose arms differ, and no rule for no run.
+/// `runId` and a `runVersion`, `turn` for those and a `turnNumber`, `required` for a `runId`
+/// alone, `optional` for an optional `runId`, `read(function)` for a payload union whose arms
+/// differ, and no rule for no run.
 macro_rules! event_run {
     (@binding $payload:ident) => {
         _
