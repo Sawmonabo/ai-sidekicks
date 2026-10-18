@@ -224,11 +224,16 @@ pub(crate) use methods;
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use serde_json::{Map, Value};
+
     use crate::jsonrpc::message::CancelRequestParams;
     use crate::jsonrpc::negotiation::ConnectionInitializeRequest;
     use crate::jsonrpc::streaming::SubscriptionCancelRequest;
     use crate::provider::tools::{SessionSendArguments, TaskOutputArguments, TaskStopArguments};
-    use crate::schema::received_check;
+    use crate::schema::{generator, received_check};
+    use crate::typescript::{Definition, SchemaContract};
     use crate::workflow::run::tool::WorkflowRunToolInput;
 
     #[test]
@@ -273,5 +278,70 @@ mod tests {
             .filter_map(|(method, error)| Some(format!("{method}: {:?}", error?))),
         );
         assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// A schema as a reader accepts it, with the definitions it refers to.
+    fn read_schema(definition: &Definition) -> (Value, Map<String, Value>) {
+        let mut generator = generator(SchemaContract::Read);
+        let schema = serde_json::to_value((definition.schema)(&mut generator))
+            .expect("a contract schema writes as JSON");
+        let definitions = generator.definitions().clone();
+        (schema, definitions)
+    }
+
+    /// Whether `schema` declares `clientIdempotencyKey` at its top level, or in every arm of its
+    /// union, a referenced arm read from `definitions`.
+    fn declares_idempotency_key(schema: &Value, definitions: &Map<String, Value>) -> bool {
+        if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+            let name = reference.rsplit('/').next().unwrap_or(reference);
+            return definitions
+                .get(name)
+                .is_some_and(|referenced| declares_idempotency_key(referenced, definitions));
+        }
+        if schema
+            .get("properties")
+            .and_then(|properties| properties.get("clientIdempotencyKey"))
+            .is_some()
+        {
+            return true;
+        }
+        ["anyOf", "oneOf"].into_iter().any(|union| {
+            schema
+                .get(union)
+                .and_then(Value::as_array)
+                .is_some_and(|arms| {
+                    !arms.is_empty()
+                        && arms
+                            .iter()
+                            .all(|arm| declares_idempotency_key(arm, definitions))
+                })
+        })
+    }
+
+    #[test]
+    fn a_method_is_keyed_exactly_when_its_params_declare_the_idempotency_key() {
+        let definitions: HashMap<String, &Definition> = crate::typescript_modules()
+            .flat_map(|module| module.definitions)
+            .map(|definition| ((definition.name)().into_owned(), definition))
+            .collect();
+        let mismatches: Vec<String> = crate::typescript_modules()
+            .flat_map(|module| module.method_tables)
+            .flat_map(|table| table.methods)
+            .filter_map(|descriptor| {
+                let params = (descriptor.params.0)();
+                let Some(definition) = definitions.get(params.as_ref()) else {
+                    return Some(format!("{}: {params} is no definition", descriptor.method));
+                };
+                let (schema, referenced) = read_schema(definition);
+                let declares_key = declares_idempotency_key(&schema, &referenced);
+                (declares_key != descriptor.keyed).then(|| {
+                    format!(
+                        "{}: keyed is {}, the params declare the key: {declares_key}",
+                        descriptor.method, descriptor.keyed
+                    )
+                })
+            })
+            .collect();
+        assert!(mismatches.is_empty(), "{mismatches:#?}");
     }
 }
