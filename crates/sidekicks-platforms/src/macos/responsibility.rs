@@ -1,0 +1,454 @@
+//! Which process macOS holds responsible for another, and starting a program as its own
+//! responsible process. macOS charges a process's privacy prompts to its responsible process, which
+//! every process it starts inherits; a start can disclaim it, making the new program its own. The
+//! daemon re-runs itself that way at start, so every process it starts reads the daemon as
+//! responsible, and starts each terminal the person opens the same way, so a terminal's programs do
+//! not.
+//!
+//! The three calls are `libquarantine`'s, which `libSystem` re-exports and no SDK header declares.
+//! Each is looked up once at run time, so a macOS without one refuses instead of failing to load
+//! the daemon.
+
+use std::ffi::{CString, OsString, c_char, c_int, c_short};
+use std::io;
+use std::os::unix::ffi::OsStringExt as _;
+use std::sync::OnceLock;
+
+use crate::own_root::OwnRootError;
+
+/// The environment variable a program re-run as its own responsible process starts with, so the
+/// re-run never repeats; removed as soon as the start reads it.
+const OWN_ROOT_MARKER: &str = "SIDEKICKS_OWN_ROOT";
+
+/// `uint64_t responsibility_get_uniqueid_responsible_for_pid(pid_t)`: the unique id of the process
+/// responsible for `pid`, `UINT64_MAX` with `errno` set on failure.
+type ResponsibleUniqueIdCall = unsafe extern "C" fn(libc::pid_t) -> u64;
+
+/// `pid_t responsibility_get_pid_responsible_for_pid(pid_t)`: the id of the process responsible
+/// for `pid`, -1 with `errno` set on failure.
+type ResponsibleIdCall = unsafe extern "C" fn(libc::pid_t) -> libc::pid_t;
+
+/// `errno_t responsibility_spawnattrs_setdisclaim(posix_spawnattr_t *, bool)`: whether a start
+/// made with the attributes disclaims the starting process's responsibility; an error code on
+/// failure.
+type DisclaimCall = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, c_int) -> c_int;
+
+/// The three private calls, each found in the loaded system libraries.
+#[derive(Clone, Copy)]
+struct ResponsibilityCalls {
+    responsible_unique_id: ResponsibleUniqueIdCall,
+    responsible_id: ResponsibleIdCall,
+    disclaim: DisclaimCall,
+}
+
+/// What the start does about being its own responsible process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OwnRootStep {
+    /// It already is: start.
+    Start,
+    /// It is not and has not re-run itself yet: re-run as its own responsible process.
+    ReRun,
+    /// It re-ran itself and still is not: refuse to start, since another re-run would repeat.
+    StillNotRoot,
+}
+
+/// The three calls, looked up together the first time; `Unsupported` on a macOS that lacks any of
+/// them, so every caller refuses.
+fn responsibility_calls() -> io::Result<ResponsibilityCalls> {
+    static CALLS: OnceLock<Option<ResponsibilityCalls>> = OnceLock::new();
+    CALLS
+        .get_or_init(|| {
+            let responsible_unique_id =
+                look_up(c"responsibility_get_uniqueid_responsible_for_pid")?;
+            let responsible_id = look_up(c"responsibility_get_pid_responsible_for_pid")?;
+            let disclaim = look_up(c"responsibility_spawnattrs_setdisclaim")?;
+            // SAFETY: each symbol is libquarantine's function of exactly the signature it is cast
+            // to.
+            unsafe {
+                Some(ResponsibilityCalls {
+                    responsible_unique_id: std::mem::transmute::<
+                        *mut libc::c_void,
+                        ResponsibleUniqueIdCall,
+                    >(responsible_unique_id),
+                    responsible_id: std::mem::transmute::<*mut libc::c_void, ResponsibleIdCall>(
+                        responsible_id,
+                    ),
+                    disclaim: std::mem::transmute::<*mut libc::c_void, DisclaimCall>(disclaim),
+                })
+            }
+        })
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "this macOS has no call naming a process's responsible process",
+            )
+        })
+}
+
+/// The address of `name` in the loaded images, `None` when no image exports it.
+fn look_up(name: &std::ffi::CStr) -> Option<*mut libc::c_void> {
+    // SAFETY: `RTLD_DEFAULT` searches every loaded image, and the name is a C string.
+    let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
+    (!symbol.is_null()).then_some(symbol)
+}
+
+/// The unique id of the process responsible for process `id`; `None` once no process has the id.
+/// Fails with the system's error, and with `Unsupported` on a macOS without the call.
+pub(crate) fn read_responsible_unique_id(id: u32) -> io::Result<Option<u64>> {
+    let calls = responsibility_calls()?;
+    let Ok(pid) = libc::pid_t::try_from(id) else {
+        return Ok(None);
+    };
+    clear_errno();
+    // SAFETY: the call takes any process id and only reads the kernel's records.
+    let unique_id = unsafe { (calls.responsible_unique_id)(pid) };
+    if unique_id != u64::MAX {
+        return Ok(Some(unique_id));
+    }
+    failure_reading(id)
+}
+
+/// The id of the process responsible for process `id`; `None` once no process has the id. Fails
+/// with the system's error, and with `Unsupported` on a macOS without the call.
+pub(crate) fn read_responsible_id(id: u32) -> io::Result<Option<u32>> {
+    let calls = responsibility_calls()?;
+    let Ok(pid) = libc::pid_t::try_from(id) else {
+        return Ok(None);
+    };
+    clear_errno();
+    // SAFETY: the call takes any process id and only reads the kernel's records.
+    let responsible = unsafe { (calls.responsible_id)(pid) };
+    if let Ok(responsible) = u32::try_from(responsible) {
+        return Ok(Some(responsible));
+    }
+    failure_reading(id)
+}
+
+/// What a responsibility read that answered its failure value means: `None` when process `id` is
+/// gone, the system's error otherwise.
+fn failure_reading<T>(id: u32) -> io::Result<Option<T>> {
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::ESRCH) => Ok(None),
+        Some(0) | None => Err(io::Error::other(format!(
+            "process {id}'s responsible process could not be read, and the system gave no reason"
+        ))),
+        Some(_) => Err(error),
+    }
+}
+
+/// Sets `errno` to zero, so a call that answers its failure value without setting it is told
+/// apart from one that failed for a reason.
+fn clear_errno() {
+    // SAFETY: `__error` returns this thread's `errno`, which only this thread writes.
+    unsafe { *libc::__error() = 0 };
+}
+
+/// A program prepared to replace this process as its own responsible process: every array built
+/// and every call found beforehand, so [`OwnRootStart::exec`] makes the one system call and is safe
+/// in a child forked from a process running other threads.
+pub(crate) struct OwnRootStart {
+    /// `POSIX_SPAWN_SETEXEC` with the disclaim attribute, destroyed when this drops.
+    attributes: libc::posix_spawnattr_t,
+    /// The program's path.
+    program: CString,
+    /// The strings `argument_pointers` points into, kept alive with them.
+    _arguments: Vec<CString>,
+    /// The arguments, `NULL`-terminated.
+    argument_pointers: Vec<*mut c_char>,
+    /// The strings `environment_pointers` points into, kept alive with them.
+    _environment: Vec<CString>,
+    /// The environment as `NAME=value` entries, `NULL`-terminated.
+    environment_pointers: Vec<*mut c_char>,
+}
+
+impl OwnRootStart {
+    /// Prepares `program` to replace this process with exactly `arguments` and `environment`
+    /// (`NAME=value` entries), as its own responsible process. Fails with the error code the
+    /// system answers, and with `Unsupported` on a macOS without the disclaim call.
+    pub(crate) fn new(
+        program: CString,
+        arguments: Vec<CString>,
+        environment: Vec<CString>,
+    ) -> io::Result<Self> {
+        let calls = responsibility_calls()?;
+        let mut attributes: libc::posix_spawnattr_t = std::ptr::null_mut();
+        // SAFETY: `attributes` is a live, writable attributes object for the call to set up.
+        let status = unsafe { libc::posix_spawnattr_init(&raw mut attributes) };
+        if status != 0 {
+            return Err(io::Error::from_raw_os_error(status));
+        }
+        let argument_pointers = null_terminated(&arguments);
+        let environment_pointers = null_terminated(&environment);
+        // From here a failure drops the start, which destroys the attributes.
+        let mut start = Self {
+            attributes,
+            program,
+            _arguments: arguments,
+            argument_pointers,
+            _environment: environment,
+            environment_pointers,
+        };
+        let flags = c_short::try_from(libc::POSIX_SPAWN_SETEXEC)
+            .expect("the exec flag fits the flags' short");
+        // SAFETY: the attributes were set up above and live as long as `start`.
+        let status = unsafe { libc::posix_spawnattr_setflags(&raw mut start.attributes, flags) };
+        if status != 0 {
+            return Err(io::Error::from_raw_os_error(status));
+        }
+        // SAFETY: the attributes were set up above and live as long as `start`.
+        let status = unsafe { (calls.disclaim)(&raw mut start.attributes, 1) };
+        if status != 0 {
+            return Err(io::Error::from_raw_os_error(status));
+        }
+        Ok(start)
+    }
+
+    /// Replaces this process with the program, keeping its id, its descriptors not marked
+    /// close-on-exec and its ignored signals as an exec does; returns only on failure, with the
+    /// error the system answers. `posix_spawn`, never `posix_spawnp`, which runs a file the kernel
+    /// refuses through `/bin/sh`.
+    pub(crate) fn exec(&self) -> io::Error {
+        // SAFETY: the path and both arrays are NUL- and NULL-terminated and live as long as `self`,
+        // and the attributes were set up by `new`.
+        let status = unsafe {
+            libc::posix_spawn(
+                std::ptr::null_mut(),
+                self.program.as_ptr(),
+                std::ptr::null(),
+                &raw const self.attributes,
+                self.argument_pointers.as_ptr(),
+                self.environment_pointers.as_ptr(),
+            )
+        };
+        io::Error::from_raw_os_error(status)
+    }
+}
+
+impl Drop for OwnRootStart {
+    fn drop(&mut self) {
+        // SAFETY: the attributes were set up by `new` and are destroyed only here. The call frees
+        // memory and cannot fail on a set-up object.
+        unsafe { libc::posix_spawnattr_destroy(&raw mut self.attributes) };
+    }
+}
+
+/// Pointers to `strings`, followed by the `NULL` an exec's arrays end with.
+fn null_terminated(strings: &[CString]) -> Vec<*mut c_char> {
+    strings
+        .iter()
+        .map(|string| string.as_ptr().cast_mut())
+        .chain(std::iter::once(std::ptr::null_mut()))
+        .collect()
+}
+
+/// Makes this program its own responsible process: when it is not yet, it re-runs itself in place
+/// with the same id, arguments and environment and the start begins again from the first line of
+/// `main`. Called first, while only the main thread runs and before any folder change. Fails with
+/// [`OwnRootError::ThreadsRunning`] when other threads run, [`OwnRootError::StillNotRoot`] when a
+/// re-run did not take, [`OwnRootError::Read`] when a read fails, and [`OwnRootError::Exec`] when
+/// the re-run cannot start.
+pub fn become_own_root() -> Result<(), OwnRootError> {
+    let count = read_thread_count().map_err(OwnRootError::Read)?;
+    if count > 1 {
+        return Err(OwnRootError::ThreadsRunning { count });
+    }
+    let has_re_run = std::env::var_os(OWN_ROOT_MARKER).is_some();
+    if has_re_run {
+        // SAFETY: only this thread runs, checked above, so nothing reads the environment while it
+        // changes.
+        unsafe { std::env::remove_var(OWN_ROOT_MARKER) };
+    }
+    let id = std::process::id();
+    let responsible = read_responsible_id(id)
+        .map_err(OwnRootError::Read)?
+        .ok_or_else(|| OwnRootError::Read(io::Error::other("this process has no record")))?;
+    match own_root_step(responsible == id, has_re_run) {
+        OwnRootStep::Start => Ok(()),
+        OwnRootStep::StillNotRoot => Err(OwnRootError::StillNotRoot),
+        OwnRootStep::ReRun => {
+            let start = this_program_as_own_root().map_err(OwnRootError::Exec)?;
+            Err(OwnRootError::Exec(start.exec()))
+        }
+    }
+}
+
+/// What the start does, from whether this process is its own responsible process and whether it
+/// has already re-run itself; a re-run is never repeated, so the start cannot loop.
+fn own_root_step(is_own_root: bool, has_re_run: bool) -> OwnRootStep {
+    match (is_own_root, has_re_run) {
+        (true, _) => OwnRootStep::Start,
+        (false, false) => OwnRootStep::ReRun,
+        (false, true) => OwnRootStep::StillNotRoot,
+    }
+}
+
+/// This program, prepared to re-run with its own arguments and environment plus the marker.
+/// Fails when the system cannot name the program, and with `InvalidInput` for a NUL in it.
+fn this_program_as_own_root() -> io::Result<OwnRootStart> {
+    let program = c_string(std::env::current_exe()?.into_os_string())?;
+    let arguments = std::env::args_os()
+        .map(c_string)
+        .collect::<io::Result<Vec<_>>>()?;
+    let mut marker = OsString::from(OWN_ROOT_MARKER);
+    marker.push("=1");
+    let environment = std::env::vars_os()
+        .map(|(name, value)| {
+            let mut entry = name;
+            entry.push("=");
+            entry.push(value);
+            entry
+        })
+        .chain(std::iter::once(marker))
+        .map(c_string)
+        .collect::<io::Result<Vec<_>>>()?;
+    OwnRootStart::new(program, arguments, environment)
+}
+
+/// `text` as a C string; `InvalidInput` when it holds a NUL.
+fn c_string(text: OsString) -> io::Result<CString> {
+    CString::new(text.into_vec()).map_err(io::Error::from)
+}
+
+/// How many threads this process runs. Fails with the system's error.
+fn read_thread_count() -> io::Result<i32> {
+    let pid = libc::pid_t::try_from(std::process::id()).map_err(io::Error::other)?;
+    // SAFETY: `proc_taskinfo` is a C struct of integers, for which all zero bytes are valid.
+    let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
+    let length = c_int::try_from(size_of::<libc::proc_taskinfo>())
+        .expect("the task record's size fits an int");
+    // SAFETY: `info` is a live, writable `proc_taskinfo` of the length given, the record
+    // `PROC_PIDTASKINFO` asks the call to fill.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTASKINFO,
+            0,
+            (&raw mut info).cast(),
+            length,
+        )
+    };
+    if written == length {
+        return Ok(info.pti_threadnum);
+    }
+    if written > 0 {
+        return Err(io::Error::other(format!(
+            "this process's task record came back {written} of {length} bytes"
+        )));
+    }
+    Err(io::Error::last_os_error())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CString;
+    use std::io::Read as _;
+    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+
+    use rstest::rstest;
+
+    use super::{OwnRootStart, OwnRootStep, own_root_step, read_responsible_id};
+    use crate::ResponsibleProcess;
+    use crate::macos::caller_process::{pinned, read_responsible_process};
+
+    #[rstest]
+    #[case::own_root(true, false, OwnRootStep::Start)]
+    #[case::own_root_after_its_re_run(true, true, OwnRootStep::Start)]
+    #[case::not_yet(false, false, OwnRootStep::ReRun)]
+    #[case::still_not_after_its_re_run(false, true, OwnRootStep::StillNotRoot)]
+    fn the_start_re_runs_once_at_most(
+        #[case] is_own_root: bool,
+        #[case] has_re_run: bool,
+        #[case] expected: OwnRootStep,
+    ) {
+        assert_eq!(own_root_step(is_own_root, has_re_run), expected);
+    }
+
+    #[test]
+    fn a_program_started_as_its_own_root_is_responsible_for_itself() {
+        // Built before the fork, so the child makes only the exec's one system call.
+        let start = OwnRootStart::new(
+            CString::from(c"/bin/sleep"),
+            vec![CString::from(c"sleep"), CString::from(c"30")],
+            Vec::new(),
+        )
+        .expect("the start prepares");
+        // A pipe closed on exec, so the parent reads its end once the child has become `sleep`.
+        let mut ends = [0; 2];
+        // SAFETY: `ends` is a live array of the two descriptors the call fills.
+        assert_eq!(
+            unsafe { libc::pipe(ends.as_mut_ptr()) },
+            0,
+            "the pipe opens"
+        );
+        // SAFETY: the call succeeded, so both descriptors are new and owned here alone.
+        let (read_end, write_end) =
+            unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
+        for end in [&read_end, &write_end] {
+            // SAFETY: the descriptor is open; the call only sets its close-on-exec flag.
+            let status = unsafe { libc::fcntl(end.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+            assert_eq!(status, 0, "the pipe closes on exec");
+        }
+
+        // SAFETY: the child calls only `exec`, one system call, and `_exit`, both
+        // async-signal-safe, so the other threads' locks the fork copies are never taken.
+        let child = unsafe { libc::fork() };
+        if child == 0 {
+            drop(start.exec());
+            // SAFETY: `_exit` ends the child without running the parent's exit handlers.
+            unsafe { libc::_exit(127) };
+        }
+        assert!(child > 0, "the child forks");
+        drop(write_end);
+        let mut until_exec = Vec::new();
+        std::fs::File::from(read_end)
+            .read_to_end(&mut until_exec)
+            .expect("the pipe reads until the exec closes it");
+
+        let child_id = u32::try_from(child).expect("a child's id is positive");
+        let process = pinned(child_id)
+            .expect("the child reads")
+            .expect("the child runs");
+        assert_eq!(
+            read_responsible_id(child_id).expect("the read answers"),
+            Some(child_id)
+        );
+        assert!(matches!(
+            read_responsible_process(&process).expect("the read answers"),
+            ResponsibleProcess::Itself
+        ));
+        // SAFETY: `child` is this test's own child, which the test ends and reaps here.
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, std::ptr::null_mut(), 0);
+        }
+
+        // A child started plainly reads the test's own responsible process, never itself.
+        let mut plain = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("the plain child starts");
+        let plain_process = pinned(plain.id())
+            .expect("the plain child reads")
+            .expect("the plain child runs");
+        let own_responsible = read_responsible_id(std::process::id())
+            .expect("the test reads its own")
+            .expect("the test runs");
+        assert_eq!(
+            read_responsible_id(plain.id()).expect("the read answers"),
+            Some(own_responsible)
+        );
+        let plain_responsible = read_responsible_process(&plain_process).expect("the read answers");
+        assert!(
+            !matches!(plain_responsible, ResponsibleProcess::Itself),
+            "a plain child inherits its starter's responsible process"
+        );
+        plain.kill().expect("the plain child ends");
+        plain.wait().expect("the plain child is reaped");
+        // A reaped process is gone: no read names whatever takes its id next.
+        assert!(matches!(
+            read_responsible_process(&plain_process).expect("the read answers"),
+            ResponsibleProcess::Ended
+        ));
+    }
+}

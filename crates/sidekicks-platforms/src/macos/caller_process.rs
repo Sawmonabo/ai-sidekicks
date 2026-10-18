@@ -1,7 +1,8 @@
 //! The process at the other end of a local connection on macOS, read from the socket's audit token
-//! and pinned by its unique id, which the system never gives another process; and a pinned
-//! process's parent, pinned the same way. Every read of a pinned process asks the system to answer
-//! only while the id still names that process, so a reused process id is never read.
+//! and pinned by its unique id, which the system never gives another process; a pinned process's
+//! parent, and the process responsible for it, pinned the same way. Every read of a pinned process
+//! asks the system to answer only while the id still names that process, so a reused process id is
+//! never read.
 
 use std::io;
 use std::os::fd::AsRawFd as _;
@@ -9,7 +10,8 @@ use std::sync::OnceLock;
 
 use interprocess::local_socket::tokio::Stream;
 
-use crate::caller_process::{PARENT_READ_ATTEMPTS, ParentProcess};
+use crate::caller_process::{PARENT_READ_ATTEMPTS, ParentProcess, ResponsibleProcess};
+use crate::macos::responsibility::{read_responsible_id, read_responsible_unique_id};
 
 // The record of a process's unique ids, which the SDK's headers leave out; its layout is fixed.
 const UNIQUE_IDENTIFIERS_FLAVOR: libc::c_int = 17;
@@ -28,9 +30,21 @@ const TOKEN_PROCESS_ID: usize = 5;
 const TOKEN_ID_VERSION: usize = 7;
 
 /// A socket's audit token: who last used its other end.
+#[derive(Clone, Copy, Debug)]
 #[repr(C)]
-struct AuditToken {
+pub(crate) struct AuditToken {
     val: [u32; 8],
+}
+
+impl AuditToken {
+    /// The token's bytes, as the system lays them out.
+    pub(crate) fn to_bytes(self) -> [u8; size_of::<Self>()] {
+        let mut bytes = [0; size_of::<Self>()];
+        for (chunk, word) in bytes.chunks_exact_mut(size_of::<u32>()).zip(self.val) {
+            chunk.copy_from_slice(&word.to_ne_bytes());
+        }
+        bytes
+    }
 }
 
 /// A process's unique ids, the system's `proc_uniqidentifierinfo`.
@@ -75,12 +89,20 @@ fn checked_process_read() -> Option<CheckedProcessRead> {
 pub struct PinnedProcess {
     id: u32,
     unique_id: u64,
+    /// The connection's audit token for a peer, which also names the program the process runs at
+    /// the connect; `None` for a process pinned by its id alone.
+    audit_token: Option<AuditToken>,
 }
 
 impl PinnedProcess {
     /// The process's id.
     pub fn id(&self) -> u32 {
         self.id
+    }
+
+    /// The audit token a peer was read from; `None` for a process pinned by its id alone.
+    pub(crate) fn audit_token(&self) -> Option<AuditToken> {
+        self.audit_token
     }
 }
 
@@ -134,6 +156,7 @@ fn pin_token(token: &AuditToken) -> io::Result<Option<PinnedProcess>> {
     Ok(Some(PinnedProcess {
         id,
         unique_id: identifiers.unique_id,
+        audit_token: Some(*token),
     }))
 }
 
@@ -159,6 +182,7 @@ pub fn read_parent_process(process: &PinnedProcess) -> io::Result<ParentProcess>
                 return Ok(ParentProcess::Pinned(PinnedProcess {
                     id: parent_id,
                     unique_id: parent.unique_id,
+                    audit_token: None,
                 }));
             }
             Some(_) => {}
@@ -167,6 +191,61 @@ pub fn read_parent_process(process: &PinnedProcess) -> io::Result<ParentProcess>
     Err(io::Error::other(
         "the process's parent kept changing while it was read",
     ))
+}
+
+/// The process the system holds responsible for `process`, its answer taken only once `process`
+/// is read still running after it, since a reused id would make it another process's answer. Fails
+/// with the system's error, with `Unsupported` on a macOS without the calls, and with `Other` when
+/// the responsible process kept ending while it was read.
+pub fn read_responsible_process(process: &PinnedProcess) -> io::Result<ResponsibleProcess> {
+    let own_unique_id = read_own_unique_id()?;
+    for _ in 0..RESPONSIBLE_READ_ATTEMPTS {
+        let Some(responsible_unique_id) = read_responsible_unique_id(process.id)? else {
+            return Ok(ResponsibleProcess::Ended);
+        };
+        let Some(responsible_id) = read_responsible_id(process.id)? else {
+            return Ok(ResponsibleProcess::Ended);
+        };
+        if !is_running(process)? {
+            return Ok(ResponsibleProcess::Ended);
+        }
+        if responsible_unique_id == own_unique_id {
+            return Ok(ResponsibleProcess::ThisProcess);
+        }
+        if responsible_unique_id == process.unique_id {
+            return Ok(ResponsibleProcess::Itself);
+        }
+        // Pinned only while its id still names the process the unique id read named; once the
+        // responsible process ends, the system holds the process responsible for itself.
+        if read_unique_identifiers(responsible_id, COMPARE_UNIQUE_ID, responsible_unique_id)?
+            .is_some()
+        {
+            return Ok(ResponsibleProcess::Another(PinnedProcess {
+                id: responsible_id,
+                unique_id: responsible_unique_id,
+                audit_token: None,
+            }));
+        }
+    }
+    Err(io::Error::other(
+        "the process's responsible process kept ending while it was read",
+    ))
+}
+
+/// How many times a responsible read starts over when the responsible process ended between its
+/// reads; the next read finds the process responsible for itself.
+const RESPONSIBLE_READ_ATTEMPTS: usize = 4;
+
+/// This process's unique id, which an exec keeps.
+fn read_own_unique_id() -> io::Result<u64> {
+    let identifiers = read_unique_identifiers(std::process::id(), COMPARE_NOTHING, 0)?
+        .ok_or_else(|| io::Error::other("this process has no record of its own"))?;
+    Ok(identifiers.unique_id)
+}
+
+/// Whether `process` still runs under its id. Fails with the system's error.
+pub(crate) fn is_running(process: &PinnedProcess) -> io::Result<bool> {
+    Ok(read_unique_identifiers(process.id, COMPARE_UNIQUE_ID, process.unique_id)?.is_some())
 }
 
 /// This process, pinned.
@@ -179,11 +258,12 @@ pub fn this_process() -> PinnedProcess {
 
 /// Process `id`, pinned as it runs now; `None` when no process has the id.
 #[cfg(any(test, feature = "test-support"))]
-fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
+pub(crate) fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
     Ok(
         read_unique_identifiers(id, COMPARE_NOTHING, 0)?.map(|identifiers| PinnedProcess {
             id,
             unique_id: identifiers.unique_id,
+            audit_token: None,
         }),
     )
 }
@@ -308,6 +388,7 @@ mod tests {
         let wrong_unique_id = PinnedProcess {
             id: peer.id(),
             unique_id: own.unique_id + 1,
+            audit_token: None,
         };
         assert!(matches!(
             read_parent_process(&wrong_unique_id).expect("a pinned read answers"),
