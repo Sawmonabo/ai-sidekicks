@@ -45,9 +45,19 @@ ts_constants! {
     pub const TERMINAL_PALETTE_LENGTH: usize = 16;
     /// The longest terminal id the daemon accepts.
     pub const TERMINAL_ID_MAX_LEN: usize = 256;
-    /// The longest title a shell carries on the wire; the daemon cuts a longer title the shell
-    /// sets to this many UTF-16 units, on a grapheme boundary.
+    /// The longest title a shell carries on the wire, in code points; the daemon cuts a longer
+    /// title the shell sets to whole graphemes within it, and within it to whole code points only
+    /// when one grapheme alone is longer.
     pub const SHELL_TITLE_MAX_LEN: usize = 256;
+    /// The most UTF-8 bytes one `terminal.write` carries in its `data`.
+    pub const TERMINAL_WRITE_MAX_BYTES: usize = 65_536;
+    /// How many writes to one shell a client keeps waiting for an answer before it joins its next
+    /// typed keys into later writes, sent in order as answers return.
+    pub const TERMINAL_WRITES_WAITING_PER_SHELL: usize = 8;
+    /// How many of one connection's writes to one shell may wait for an answer; a write that finds
+    /// this many waiting is refused `terminal.write.limitReached`. Twice the client's own figure, so
+    /// an interrupt, quit or suspend key sent at once with the keys before it still fits.
+    pub const TERMINAL_WRITES_WAITING_LIMIT: usize = 2 * TERMINAL_WRITES_WAITING_PER_SHELL;
     /// The event every change of one shell's holder is broadcast on.
     pub const TERMINAL_CONTROL_CHANGED_EVENT: &str =
         SessionEventType::TerminalControlChanged.as_str();
@@ -313,9 +323,14 @@ pub struct TerminalOutputFrame {
 /// message cap, all naming the client-minted `pasteId` and the last one `isLastPart`; when the
 /// program in the shell asked for pasted text to be marked as pasted, the daemon marks the whole
 /// paste once around all its parts. Each pane has one paste open at a time: a part naming a new
-/// `pasteId` closes the pane's earlier paste first. The daemon answers a write once its bytes reach
-/// the shell's terminal, so a client that sends a paste's next part after the answer to the last
-/// pastes no faster than the program reads.
+/// `pasteId` closes the pane's earlier paste first. Each write's `data` is at most
+/// `TERMINAL_WRITE_MAX_BYTES`. The daemon answers a write once the shell's write queue takes it,
+/// which it does while the queue holds less than 64 KiB, so typing into a program that is not
+/// reading holds no call open and a paste past the queue's bound is paced by the shell. A write
+/// takes no slot of the connection's call cap: a client keeps at most
+/// `TERMINAL_WRITES_WAITING_PER_SHELL` writes per shell waiting for an answer, and the daemon
+/// refuses one that finds `TERMINAL_WRITES_WAITING_LIMIT` of its connection's writes to that shell
+/// waiting.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
@@ -481,6 +496,7 @@ methods! {
                 TerminalNotFound,
                 TerminalControlNotHeld,
                 TerminalOutputSubscriptionNotFound,
+                TerminalWriteLimitReached,
             ],
         },
         /// Resizes one shell.
