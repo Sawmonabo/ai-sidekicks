@@ -32,6 +32,7 @@ keepawake.workspace = true
 keyring-core.workspace = true
 polling.workspace = true
 process-wrap = { workspace = true, features = ["creation-flags", "process-session"] }
+secrecy.workspace = true
 sysinfo.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
@@ -104,8 +105,8 @@ nix.workspace = true
 
 [features]
 # Helpers other crates' tests use: the per-platform programs a test runs in a terminal, the
-# process's footprint and the `uptime` line the search index's measurements read, and a file whose
-# removal the system refuses.
+# process's footprint and the `uptime` line the search index's measurements read, a file whose
+# removal the system refuses, and a credential store whose calls wait until the test releases them.
 test-support = []
 
 [lints]
