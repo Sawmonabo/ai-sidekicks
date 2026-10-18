@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use sidekicks_daemon::recovery::database_file::aside_copy::{
-    DatabaseFilesAside, copy_database_files_aside,
+    AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
 };
 use sidekicks_daemon::recovery::database_file::check::{
     DatabaseFileCheck, DatabaseFileCheckAnswer,
 };
-use sidekicks_daemon::recovery::database_file::copy::DatabaseFileCopier;
+use sidekicks_daemon::recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
 use sidekicks_daemon::recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_platforms::{Spawner, physical_memory};
 use tokio::runtime::Handle;
@@ -142,7 +142,16 @@ async fn a_stop_leaves_no_copy() {
     )
     .await;
 
-    assert!(copied.is_err());
+    assert!(
+        matches!(
+            copied,
+            Err(AsideCopyError::Copy {
+                source: DatabaseCopyError::Stopped,
+                ..
+            })
+        ),
+        "{copied:?}"
+    );
     assert_eq!(aside_copies(data_folder.path()), Vec::<PathBuf>::new());
 }
 

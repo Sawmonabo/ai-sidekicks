@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, ErrorCode};
 use tokio::task::{JoinError, JoinHandle};
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::setup::open_database_reader;
@@ -47,11 +47,20 @@ pub enum DatabaseFileCheckError {
     /// The check's thread ended before it answered.
     #[error("the database file's check ended before it answered")]
     Interrupted(#[source] JoinError),
+    /// The check answered, but its connection did not close.
+    #[error("the database file's connection did not close after its check")]
+    Close(#[source] rusqlite::Error),
+    /// The check failed, and its connection did not close after it either.
+    #[error(transparent)]
+    Unclosed(Box<CleanupFailures<DatabaseFileCheckError, rusqlite::Error>>),
 }
 
-/// One run of the check on the daemon's database file. Start it with [`DatabaseFileCheck::start`].
+/// One run of the check on the daemon's database file. Start it with [`DatabaseFileCheck::start`];
+/// dropping it stops the check.
 pub struct DatabaseFileCheck {
     stop: CancellationToken,
+    // Stops the check when this is dropped, so a dropped check stops walking the file.
+    _stop_on_drop: DropGuard,
     task: JoinHandle<Result<DatabaseFileCheckAnswer, DatabaseFileCheckError>>,
 }
 
@@ -64,11 +73,15 @@ impl DatabaseFileCheck {
             let stop = stop.clone();
             move || check_database_file(&database_path, &stop)
         });
-        Self { stop, task }
+        Self {
+            _stop_on_drop: stop.clone().drop_guard(),
+            stop,
+            task,
+        }
     }
 
     /// Ends the check if it still runs; its answer is then [`DatabaseFileCheckAnswer::Stopped`].
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         self.stop.cancel();
     }
 
@@ -94,10 +107,24 @@ fn check_database_file(
         }
         Err(failure) => return Err(DatabaseFileCheckError::Open(failure)),
     };
-    connection
+    let checked = connection
         .busy_timeout(READ_BUSY_TIMEOUT)
-        .map_err(DatabaseFileCheckError::Run)?;
-    run_quick_check(&connection, stop)
+        .map_err(DatabaseFileCheckError::Run)
+        .and_then(|()| run_quick_check(&connection, stop));
+    let closed = connection
+        .close()
+        .map_err(|(_, close_failure)| close_failure);
+    match (checked, closed) {
+        (checked, Ok(())) => checked,
+        (Ok(_), Err(close_failure)) => Err(DatabaseFileCheckError::Close(close_failure)),
+        (Err(check_failure), Err(close_failure)) => Err(DatabaseFileCheckError::Unclosed(
+            Box::new(CleanupFailures::new(
+                check_failure,
+                vec![close_failure],
+                "the database file's check",
+            )),
+        )),
+    }
 }
 
 // Runs `quick_check` on `connection`, interrupted once `stop` fires.
