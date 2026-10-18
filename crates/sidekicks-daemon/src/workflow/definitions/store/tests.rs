@@ -11,13 +11,13 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowDocument, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::methods::{
-    WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
+    WorkflowCreateOrigin, WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
     WorkflowDefinitionUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowDefinitionFinding;
 
 use super::{
-    WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY, WorkflowCreateOptions, WorkflowDefinitionStore,
+    WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY, WorkflowDefinitionStore,
     WorkflowDefinitionStoreError, WorkflowSaveAuthor,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
@@ -93,31 +93,33 @@ fn author() -> WorkflowSaveAuthor {
     }
 }
 
-// A create of a document named `name`, a Duplicate of `copied_version_id` when one is given.
-async fn create_copy(
+// A create of a document named `name` whose node reads `path`, from `origin`.
+async fn create_from(
     store: &WorkflowDefinitionStore,
     name: &str,
-    copied_version_id: Option<WorkflowVersionId>,
+    path: &str,
+    origin: WorkflowCreateOrigin,
 ) -> Result<WorkflowDefinitionCreateResponse, WorkflowDefinitionStoreError> {
     store
         .create(
             &WorkflowDefinitionCreateRequest {
-                document: saved_document(name, "notes.md"),
-                copied_version_id,
+                document: saved_document(name, path),
+                origin,
             },
             &author(),
-            WorkflowCreateOptions {
-                is_from_new_workflow_draft: false,
-            },
         )
         .await
 }
 
 async fn create(store: &WorkflowDefinitionStore, name: &str) -> WorkflowDefinitionId {
-    create_copy(store, name, None)
+    create_from(store, name, "notes.md", WorkflowCreateOrigin::FileImport {})
         .await
         .expect("the create commits")
         .definition_id
+}
+
+fn duplicate_of(copied_version_id: WorkflowVersionId) -> WorkflowCreateOrigin {
+    WorkflowCreateOrigin::Duplicate { copied_version_id }
 }
 
 async fn hold_draft(drafts: &WorkflowDraftStore, definition_id: WorkflowDefinitionId) {
@@ -210,39 +212,78 @@ fn definition_name(rows: &Connection, definition_id: WorkflowDefinitionId) -> St
     .expect("the test reads the workflow")
 }
 
-/// A Duplicate is named the first free `<name> copy`, then `<name> copy 2`; one naming a version
-/// no row holds is refused as that version not found, not as a held name, and writes no workflow.
-/// Mutations: answer every refused create as a held name; drop the copied version's check from the
-/// write.
+/// A Duplicate is named the first free `<name> copy`, then `<name> copy 2`; its first version
+/// keeps the copied version's package locks while its document is that version's, and none when it
+/// differs. One naming a version no row holds, or a version of a deleted workflow, is refused as
+/// that version not found, not as a held name, and writes no workflow. Mutations: carry the locks
+/// whatever the document; answer every refused create as a held name; drop the copied version's
+/// check, or its deleted workflow condition, from the write.
 #[tokio::test]
-async fn a_duplicate_takes_the_first_free_copy_name_and_a_missing_version_writes_nothing() {
+async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_same_content() {
     let database = TestDatabase::new();
     let (store, _drafts) = open_stores(&database).await;
-    let source = create_copy(&store, "Nightly", None)
-        .await
-        .expect("the create commits");
+    let source = create_from(
+        &store,
+        "Nightly",
+        "notes.md",
+        WorkflowCreateOrigin::FileImport {},
+    )
+    .await
+    .expect("the create commits");
+    let source_version = source.workflow_version_id;
+    let locks = r#"{"read":{"lodash":"4.17.21"}}"#;
     let rows = database.reader();
-    for expected_name in ["Nightly copy", "Nightly copy 2"] {
-        let copy = create_copy(&store, "Nightly", Some(source.workflow_version_id))
+    rows.execute(
+        "UPDATE workflow_versions SET code_locks_json = ?1 WHERE id = ?2",
+        [locks, source_version.text().as_str()],
+    )
+    .expect("the test locks the source's packages");
+    for (expected_name, path, expected_locks) in [
+        ("Nightly copy", "notes.md", locks),
+        ("Nightly copy 2", "changed.md", "{}"),
+    ] {
+        let copy = create_from(&store, "Nightly", path, duplicate_of(source_version))
             .await
             .expect("the duplicate commits");
         assert_eq!(definition_name(&rows, copy.definition_id), expected_name);
+        let copy_locks: String = rows
+            .query_row(
+                "SELECT code_locks_json FROM workflow_versions WHERE id = ?1",
+                [copy.workflow_version_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the test reads the copy's locks");
+        assert_eq!(copy_locks, expected_locks, "{expected_name}");
     }
 
     let missing = WorkflowVersionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e59")
         .expect("the id is a version id");
-    let refused = create_copy(&store, "Weekly", Some(missing))
-        .await
-        .expect_err("a copied version no row holds is refused");
-    let WorkflowDefinitionStoreError::NotFound(WorkflowNotFound::Version(
-        WorkflowVersionAddress::Id {
-            workflow_version_id,
-        },
-    )) = refused
-    else {
-        panic!("the duplicate is refused as its version not found, not {refused:?}");
-    };
-    assert_eq!(workflow_version_id, missing);
+    let refused_missing = create_from(&store, "Weekly", "notes.md", duplicate_of(missing)).await;
+    rows.execute(
+        "UPDATE workflow_definitions SET deleted_at = ?1 WHERE id = ?2",
+        [
+            "2026-10-14T09:30:00.000Z",
+            source.definition_id.text().as_str(),
+        ],
+    )
+    .expect("the test deletes the source");
+    let refused_deleted =
+        create_from(&store, "Nightly", "notes.md", duplicate_of(source_version)).await;
+    for (refused, copied_version_id) in [
+        (refused_missing, missing),
+        (refused_deleted, source_version),
+    ] {
+        let refused = refused.expect_err("a copied version not in the library is refused");
+        let WorkflowDefinitionStoreError::NotFound(WorkflowNotFound::Version(
+            WorkflowVersionAddress::Id {
+                workflow_version_id,
+            },
+        )) = refused
+        else {
+            panic!("the duplicate is refused as its version not found, not {refused:?}");
+        };
+        assert_eq!(workflow_version_id, copied_version_id);
+    }
     let definition_count: i64 = rows
         .query_row("SELECT COUNT(*) FROM workflow_definitions", [], |row| {
             row.get(0)

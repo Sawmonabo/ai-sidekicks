@@ -23,12 +23,12 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowDocument, WorkflowDocumentSchemaVersion, WorkflowNode,
-    WorkflowVersionId,
+    WorkflowContentHash, WorkflowDefinitionId, WorkflowDocument, WorkflowDocumentSchemaVersion,
+    WorkflowNode, WorkflowVersionId, pick_workflow_document_hashed_body,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowPinnedItem;
 use sidekicks_contracts::workflow::definition::methods::{
-    WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
+    WorkflowCreateOrigin, WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
     WorkflowDefinitionDeleteResponse, WorkflowDefinitionUpdateRequest,
     WorkflowDefinitionUpdateResponse,
 };
@@ -45,7 +45,7 @@ use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::events::canonicalizer::CanonicalizationRefusal;
 use crate::ipc::registry::HandlerError;
 use crate::uuid_v7::mint_uuid_v7;
-use crate::workflow::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_document};
+use crate::workflow::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
 use crate::workflow::definitions::drafts::clear_workflow_draft_statement;
 use crate::workflow::definitions::errors::DefinitionRefusal;
 use crate::workflow::definitions::kept_values::clear_kept_values_statement;
@@ -72,15 +72,17 @@ const INSERT_DEFINITION_SQL: &str = "INSERT INTO workflow_definitions (
     @pin_data_json, @tags, @created_at, @created_by, @created_at
   )";
 
-// A copy's Code nodes hold the code of the version it was copied from, so each keeps that
-// version's package lock.
+// A Duplicate whose document holds the copied version's content, its hash under the source's name
+// matching that version's, keeps that version's package locks; any other first version starts
+// with none, for the package lock writer to fill.
 const INSERT_FIRST_VERSION_SQL: &str = "INSERT INTO workflow_versions (
     id, definition_id, version_number, content_hash, schema_version, definition_body, layout_json,
     created_at, created_by, saved_by_agent_id, code_locks_json
   ) VALUES (
     @id, @definition_id, 1, @content_hash, @schema_version, @definition_body, @layout_json,
     @created_at, @created_by, @saved_by_agent_id,
-    COALESCE((SELECT code_locks_json FROM workflow_versions WHERE id = @copied_version_id), '{}')
+    COALESCE((SELECT code_locks_json FROM workflow_versions
+              WHERE id = @copied_version_id AND content_hash = @sent_content_hash), '{}')
   )";
 
 // Matches only while the expected version is still the latest, so the staleness check and the
@@ -141,10 +143,14 @@ const COUNT_PINNED_RUNS_SQL: &str = "SELECT COUNT(*) FROM workflow_runs
     SELECT id FROM workflow_versions WHERE definition_id = @definition_id
   )";
 
-// The position of the name check among a create's and a save's statements, and of the read of
-// the saved version among a save's.
+// The position of the name check among a create's and a save's statements, of the copied
+// version's check among a Duplicate's, and of the read of the saved version among a save's.
 const NAME_CHECK_INDEX: usize = 0;
+const COPIED_VERSION_INDEX: usize = 1;
 const SAVED_VERSION_INDEX: usize = 3;
+// How many free copy names a Duplicate reads, each followed by one write, so a name taken between
+// a read and its write is read past once before the Duplicate is refused.
+const DUPLICATE_NAME_READS: usize = 2;
 // The position of the pinned runs' count among a delete's statements.
 const PINNED_RUN_COUNT_INDEX: usize = 4;
 
@@ -160,13 +166,6 @@ pub(crate) struct WorkflowSaveAuthor {
     pub(crate) device_id: DeviceId,
     /// The agent that saved it; `None` when the person did.
     pub(crate) agent_id: Option<AgentId>,
-}
-
-/// What a create does beside writing the workflow.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WorkflowCreateOptions {
-    /// True when the builder saves the new workflow's draft, which the save then clears.
-    pub(crate) is_from_new_workflow_draft: bool,
 }
 
 /// Why a write to the library was not kept; a refused write leaves nothing behind.
@@ -249,9 +248,10 @@ impl WorkflowDefinitionStore {
         }
     }
 
-    /// Creates a workflow and its first version in one write, with no policy check. A Duplicate,
-    /// one naming `copied_version_id`, is written under the first free `<name> copy` name after
-    /// the document's and keeps that version's package locks. Fails with
+    /// Creates a workflow and its first version in one write, with no policy check; a create from
+    /// the new-workflow draft clears that draft in the same write. A Duplicate is written under
+    /// the first free `<name> copy` name after the document's and keeps the copied version's
+    /// package locks while the document holds that version's content. Fails with
     /// [`WorkflowDefinitionStoreError::Refused`] for a document with findings or a name another
     /// workflow holds, and with [`WorkflowDefinitionStoreError::NotFound`] for a copied version
     /// not in the library, writing nothing.
@@ -266,28 +266,50 @@ impl WorkflowDefinitionStore {
         &self,
         request: &WorkflowDefinitionCreateRequest,
         author: &WorkflowSaveAuthor,
-        options: WorkflowCreateOptions,
     ) -> Result<WorkflowDefinitionCreateResponse, WorkflowDefinitionStoreError> {
-        let Some(copied_version_id) = request.copied_version_id else {
+        let document = &request.document;
+        let WorkflowCreateOrigin::Duplicate { .. } = request.origin else {
+            self.refuse_findings(document, None).await?;
+            let hash = hash_workflow_body(&pick_workflow_document_hashed_body(document))?;
+            let first_version = FirstVersion {
+                name: &document.name,
+                hash: &hash,
+                sent_content_hash: &hash.content_hash,
+            };
             return self
-                .insert_workflow(&request.document, author, options, None)
-                .await;
+                .insert_workflow(document, &first_version, author, request.origin)
+                .await?
+                .ok_or_else(|| name_taken().into());
         };
-        // The copy's name was free at the read; the write's own name check refuses one taken since.
-        let source_name = request.document.name.as_str().to_owned();
-        let copy_name = self
-            .pool
-            .read(ReadLength::Short, move |connection| {
-                Ok::<_, WorkflowDefinitionStoreError>(
-                    WorkflowLibrary::new(connection).first_free_duplicate_name(&source_name)?,
-                )
-            })
-            .await?;
-        let mut document = request.document.clone();
-        document.name =
-            NonEmptyText::new(copy_name).expect("a copy's name holds its source's name");
-        self.insert_workflow(&document, author, options, Some(copied_version_id))
-            .await
+        // The free copy name read stands for the name check before the write.
+        refuse_unless_empty(self.graph_findings(document))?;
+        let mut hashed_body = pick_workflow_document_hashed_body(document);
+        let sent_content_hash = hash_workflow_body(&hashed_body)?.content_hash;
+        for _ in 0..DUPLICATE_NAME_READS {
+            let source_name = document.name.as_str().to_owned();
+            let copy_name = self
+                .pool
+                .read(ReadLength::Short, move |connection| {
+                    Ok::<_, WorkflowDefinitionStoreError>(
+                        WorkflowLibrary::new(connection).first_free_duplicate_name(&source_name)?,
+                    )
+                })
+                .await?;
+            hashed_body.name =
+                NonEmptyText::new(copy_name).expect("a copy's name holds its source's name");
+            let first_version = FirstVersion {
+                name: &hashed_body.name,
+                hash: &hash_workflow_body(&hashed_body)?,
+                sent_content_hash: &sent_content_hash,
+            };
+            if let Some(created) = self
+                .insert_workflow(document, &first_version, author, request.origin)
+                .await?
+            {
+                return Ok(created);
+            }
+        }
+        Err(name_taken().into())
     }
 
     /// Saves the document as the workflow's next version, only while `expectedVersionNumber` is
@@ -327,7 +349,7 @@ impl WorkflowDefinitionStore {
         let WorkflowDocumentHash {
             canonical_body,
             content_hash,
-        } = hash_workflow_document(document)?;
+        } = hash_workflow_body(&pick_workflow_document_hashed_body(document))?;
         let workflow_version_id = mint_workflow_version_id();
         let created_at = WireInstant::now();
         let name_folded = fold_name(document.name.as_str());
@@ -490,26 +512,31 @@ impl WorkflowDefinitionStore {
         })
     }
 
-    // Writes a workflow and its first version; `copied_version_id` names the version a copy came
-    // from, checked inside the write and whose package locks the first version keeps, or is `None`
-    // for a new workflow.
+    // Writes a workflow and its first version from `document` under the name and hash
+    // `first_version` gives, the copied version checked inside the write for a Duplicate and the
+    // new-workflow draft cleared for a create from it. `None` when the write's name check finds
+    // the name taken.
     async fn insert_workflow(
         &self,
         document: &WorkflowDocument,
+        first_version: &FirstVersion<'_>,
         author: &WorkflowSaveAuthor,
-        options: WorkflowCreateOptions,
-        copied_version_id: Option<WorkflowVersionId>,
-    ) -> Result<WorkflowDefinitionCreateResponse, WorkflowDefinitionStoreError> {
-        self.refuse_findings(document, None).await?;
-        let WorkflowDocumentHash {
-            canonical_body,
-            content_hash,
-        } = hash_workflow_document(document)?;
+        origin: WorkflowCreateOrigin,
+    ) -> Result<Option<WorkflowDefinitionCreateResponse>, WorkflowDefinitionStoreError> {
+        let FirstVersion {
+            name,
+            hash:
+                WorkflowDocumentHash {
+                    canonical_body,
+                    content_hash,
+                },
+            sent_content_hash,
+        } = first_version;
         let definition_id =
             WorkflowDefinitionId::try_from(mint_uuid_v7()).expect("a minted UUID is a workflow id");
         let workflow_version_id = mint_workflow_version_id();
         let created_at = WireInstant::now();
-        let name_folded = fold_name(document.name.as_str());
+        let name_folded = fold_name(name.as_str());
         let definition_text = definition_id.text();
         let schema_version = schema_version_text(document);
         let layout_json = document.layout.as_ref().map(json_text);
@@ -517,6 +544,10 @@ impl WorkflowDefinitionStore {
             .tags
             .as_ref()
             .map_or_else(|| "[]".to_owned(), json_text);
+        let copied_version_id = match origin {
+            WorkflowCreateOrigin::Duplicate { copied_version_id } => Some(copied_version_id),
+            WorkflowCreateOrigin::NewWorkflowDraft {} | WorkflowCreateOrigin::FileImport {} => None,
+        };
         let copied_version_text = copied_version_id.map(|id| id.text());
         let copied_version_binding = || {
             nullable_text_binding(
@@ -537,11 +568,11 @@ impl WorkflowDefinitionStore {
                 sql: Cow::Borrowed(INSERT_DEFINITION_SQL),
                 bindings: StatementBindings::Named(vec![
                     text_binding("@id", definition_text.as_str()),
-                    text_binding("@name", document.name.as_str()),
+                    text_binding("@name", name.as_str()),
                     text_binding("@name_folded", &name_folded),
                     text_binding("@content_hash", content_hash.0.as_str()),
                     text_binding("@schema_version", schema_version),
-                    text_binding("@definition_body", &canonical_body),
+                    text_binding("@definition_body", canonical_body),
                     nullable_text_binding("@layout_json", layout_json.as_deref()),
                     nullable_text_binding(
                         "@pin_data_json",
@@ -560,43 +591,50 @@ impl WorkflowDefinitionStore {
                     text_binding("@definition_id", definition_text.as_str()),
                     text_binding("@content_hash", content_hash.0.as_str()),
                     text_binding("@schema_version", schema_version),
-                    text_binding("@definition_body", &canonical_body),
+                    text_binding("@definition_body", canonical_body),
                     nullable_text_binding("@layout_json", layout_json.as_deref()),
                     text_binding("@created_at", created_at.as_str()),
                     text_binding("@created_by", author.device_id.as_str()),
                     saved_by_agent_binding(author),
                     copied_version_binding(),
+                    text_binding("@sent_content_hash", sent_content_hash.0.as_str()),
                 ]),
                 expected_row_count: None,
             },
         ]);
-        if options.is_from_new_workflow_draft {
+        if matches!(origin, WorkflowCreateOrigin::NewWorkflowDraft {}) {
             statements.push(clear_workflow_draft_statement(None));
         }
-        match self.writer.write(statements).await {
-            Ok(_) => {}
-            Err(WriteError::Refused {
-                statement_index, ..
-            }) => {
-                return Err(match copied_version_id {
-                    Some(workflow_version_id) if statement_index != NAME_CHECK_INDEX => {
-                        WorkflowNotFound::Version(WorkflowVersionAddress::Id {
-                            workflow_version_id,
-                        })
-                        .into()
-                    }
-                    Some(_) | None => name_taken().into(),
-                });
+        match (self.writer.write(statements).await, copied_version_id) {
+            (Ok(_), _) => {}
+            (
+                Err(WriteError::Refused {
+                    statement_index: NAME_CHECK_INDEX,
+                    ..
+                }),
+                _,
+            ) => return Ok(None),
+            (
+                Err(WriteError::Refused {
+                    statement_index: COPIED_VERSION_INDEX,
+                    ..
+                }),
+                Some(workflow_version_id),
+            ) => {
+                return Err(WorkflowNotFound::Version(WorkflowVersionAddress::Id {
+                    workflow_version_id,
+                })
+                .into());
             }
-            Err(error) => return Err(error.into()),
+            (Err(error), _) => return Err(error.into()),
         }
-        Ok(WorkflowDefinitionCreateResponse {
+        Ok(Some(WorkflowDefinitionCreateResponse {
             definition_id,
             version_number: SafeInt::new(1).expect("one is a version number"),
-            content_hash,
+            content_hash: content_hash.clone(),
             workflow_version_id,
             created_at,
-        })
+        }))
     }
 
     // Every graph finding and a held name are refused together, so the author sees them all at
@@ -619,11 +657,7 @@ impl WorkflowDefinitionStore {
         if is_name_held {
             findings.push(name_taken_finding());
         }
-        if findings.is_empty() {
-            Ok(())
-        } else {
-            Err(DefinitionRefusal::Refused { findings }.into())
-        }
+        refuse_unless_empty(findings)
     }
 
     // The graph check over the document's trigger, nodes and edges, each node's handles resolved
@@ -637,7 +671,7 @@ impl WorkflowDefinitionStore {
             })
             .collect();
         check_workflow_graph(
-            Some(&document.trigger),
+            Some(&trigger),
             &document.nodes,
             &document.edges,
             &node_handles,
@@ -671,6 +705,15 @@ impl WorkflowDefinitionStore {
             Err(error) => error,
         }
     }
+}
+
+/// What a create's first version is written under: the workflow's name, the hash of the hashed
+/// body under that name, and the hash of the document as sent, which a Duplicate's lock carry
+/// compares with the copied version's.
+struct FirstVersion<'a> {
+    name: &'a NonEmptyText,
+    hash: &'a WorkflowDocumentHash,
+    sent_content_hash: &'a WorkflowContentHash,
 }
 
 /// The latest version a save just read back in its own write.
@@ -731,6 +774,17 @@ fn read_latest_version(
 fn name_taken_finding() -> WorkflowDefinitionFinding {
     WorkflowDefinitionFinding::NameTaken {
         node_ids: Vec::new(),
+    }
+}
+
+// Refuses the findings whole, so the author sees them all at once.
+fn refuse_unless_empty(
+    findings: Vec<WorkflowDefinitionFinding>,
+) -> Result<(), WorkflowDefinitionStoreError> {
+    if findings.is_empty() {
+        Ok(())
+    } else {
+        Err(DefinitionRefusal::Refused { findings }.into())
     }
 }
 

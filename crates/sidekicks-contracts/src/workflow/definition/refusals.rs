@@ -12,9 +12,7 @@ use crate::jsonrpc::refusal::RefusalCode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::list::BoundedVec;
 use crate::wire::text::NonEmptyText;
-use crate::workflow::definition::document::{
-    WorkflowEdge, WorkflowNode, WorkflowNodeId, WorkflowTriggerNode,
-};
+use crate::workflow::definition::document::{WorkflowEdge, WorkflowNode, WorkflowNodeId};
 use crate::workflow::definition::handle::{
     WorkflowHandle, WorkflowHandleMode, WorkflowHandleType, parse_workflow_handle,
 };
@@ -130,23 +128,22 @@ pub struct WorkflowNodeHandles {
     pub outputs: Vec<WorkflowOutputHandleSpec>,
 }
 
-/// The findings for the rules that need only a document's trigger, nodes and edges and the kinds'
-/// handles: the trigger, an empty document, each edge's nodes and ends, the inputs over their
-/// connection limit, cycles, then orphans, each in document order. `node_handles` holds each node's
-/// handles by node id, built by the caller from the kinds table; a node missing from it is of a
-/// kind the catalog does not list, whose handles and category then go unchecked though its edges
-/// still count toward cycles and reach. An edge naming a node the document does not hold is
-/// `nodeMissing` and is checked no further at that end.
+/// The findings for the rules that need only a document's trigger, as a node, its nodes and edges
+/// and the kinds' handles: the trigger, an empty document, each edge's nodes and ends, the inputs
+/// over their connection limit, cycles, then orphans, each in document order. `node_handles` holds
+/// each node's handles by node id, built by the caller from the kinds table; a node missing from
+/// it is of a kind the catalog does not list, whose handles and category then go unchecked though
+/// its edges still count toward cycles and reach. An edge naming a node the document does not
+/// hold is `nodeMissing` and is checked no further at that end.
 pub fn check_workflow_graph<S: BuildHasher>(
-    trigger: Option<&WorkflowTriggerNode>,
+    trigger: Option<&WorkflowNode>,
     document_nodes: &[WorkflowNode],
     edges: &[WorkflowEdge],
     node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
 ) -> Vec<WorkflowDefinitionFinding> {
-    let trigger = trigger.map(WorkflowNode::from);
-    let nodes: Vec<&WorkflowNode> = trigger.iter().chain(document_nodes).collect();
+    let nodes: Vec<&WorkflowNode> = trigger.into_iter().chain(document_nodes).collect();
     let graph = GraphFacts {
-        trigger_id: trigger.as_ref().map(|trigger| &trigger.id),
+        trigger_id: trigger.map(|trigger| &trigger.id),
         node_by_id: nodes.iter().map(|&node| (&node.id, node)).collect(),
         node_handles,
         edges: edges
@@ -762,7 +759,7 @@ mod tests {
             .filter_map(|node| Some((node.id.clone(), handles_of(node)?)))
             .collect();
         let found = check_workflow_graph(
-            document.trigger.as_ref(),
+            trigger.as_ref(),
             &document.nodes,
             &document.edges,
             &node_handles,

@@ -3,7 +3,7 @@
 
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowContentHash, WorkflowDocument, pick_workflow_document_hashed_body,
+    WorkflowContentHash, WorkflowDocumentHashedBody,
 };
 
 use crate::events::canonicalizer::{CanonicalizationRefusal, canonicalize_json};
@@ -22,10 +22,10 @@ pub(crate) struct WorkflowDocumentHash {
 
 /// Canonicalizes a document's hashed body and hashes it; refuses what the canonicalizer refuses,
 /// such as a body nesting deeper than its ceiling.
-pub(crate) fn hash_workflow_document(
-    document: &WorkflowDocument,
+pub(crate) fn hash_workflow_body(
+    hashed_body: &WorkflowDocumentHashedBody,
 ) -> Result<WorkflowDocumentHash, CanonicalizationRefusal> {
-    let body = serde_json::to_value(pick_workflow_document_hashed_body(document))?;
+    let body = serde_json::to_value(hashed_body)?;
     let canonical_bytes = canonicalize_json(&body)?;
     let content_hash = format!(
         "{CONTENT_HASH_PREFIX}{}",
@@ -44,9 +44,11 @@ pub(crate) fn hash_workflow_document(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use sidekicks_contracts::workflow::definition::document::WorkflowDocument;
+    use sidekicks_contracts::workflow::definition::document::{
+        WorkflowDocument, pick_workflow_document_hashed_body,
+    };
 
-    use super::hash_workflow_document;
+    use super::hash_workflow_body;
 
     /// A document whose objects, `params` among them, list their keys in one order.
     const KEYS_FORWARD: &str = concat!(
@@ -88,7 +90,8 @@ mod tests {
             }],
         }))
         .expect("the document reads");
-        let hash = hash_workflow_document(&document).expect("the document hashes");
+        let hash = hash_workflow_body(&pick_workflow_document_hashed_body(&document))
+            .expect("the document hashes");
         assert_eq!(
             hash.canonical_body,
             concat!(
@@ -108,7 +111,8 @@ mod tests {
 
         let [forward, reversed] = [KEYS_FORWARD, KEYS_REVERSED].map(|text| {
             let document: WorkflowDocument = serde_json::from_str(text).expect("the text reads");
-            hash_workflow_document(&document).expect("the document hashes")
+            hash_workflow_body(&pick_workflow_document_hashed_body(&document))
+                .expect("the document hashes")
         });
         assert_eq!(forward, reversed);
     }
