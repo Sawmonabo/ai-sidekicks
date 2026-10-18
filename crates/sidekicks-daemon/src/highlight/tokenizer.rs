@@ -1,17 +1,20 @@
-//! The colorer's engine: shiki's own TextMate grammars, every one registered when a tokenizer is
-//! built and each compiled on its first use, run line by line with the grammar state carried from
-//! line to line. A source's spans are packed as `[offset, length, class]` triples in UTF-16 code
-//! units, adjacent spans of one class merged and plain text left out. A span never crosses a line
-//! break, so the spans before a line boundary are settled once the line before it is colored, and
-//! a later source that begins with the same text resumes there.
+//! The colorer's engine: shiki's own `TextMate` grammars, every one registered when a tokenizer
+//! is built and each compiled on its first use, run line by line with the grammar state carried
+//! from line to line. A source's spans are packed as `[offset, length, class]` triples in UTF-16
+//! code units, adjacent spans of one class merged and plain text left out. A span never crosses a
+//! line break, so the spans before a line boundary are settled once the line before it is
+//! colored, and a later source that begins with the same text resumes there. Each settled
+//! boundary keeps the SHA-256 of the text before it, hashed line by line as the lines are colored,
+//! so a resumed source is checked against the text its spans came from without hashing that text
+//! again.
 //!
-//! The line rules are shiki's: a line ends at `\n` or `\r\n`, its break left plain; an empty line is
-//! skipped; a line of `MAX_LINE_LENGTH` UTF-16 units or more stays plain. A line the engine cannot
-//! finish within `LINE_TIME_LIMIT` stays plain too, so a slow line holds no thread. Each plain line
-//! keeps the grammar state of the line before it.
+//! The line rules are shiki's: a line ends at `\n` or `\r\n`, its break left plain; an empty line
+//! is skipped; a line of `MAX_LINE_LENGTH` UTF-16 units or more stays plain. A line the engine
+//! cannot finish within `LINE_TIME_LIMIT` stays plain too, so a slow line holds no thread. Each
+//! plain line keeps the grammar state of the line before it.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ferriki_textmate::{
@@ -20,6 +23,7 @@ use ferriki_textmate::{
 };
 use ferroni::regexec::onig_set_time_limit;
 use memchr::memchr;
+use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::highlight::{HIGHLIGHT_SPAN_WIDTH, HighlightLanguage};
 use strum::VariantArray as _;
 
@@ -96,8 +100,9 @@ struct LanguageGrammar {
     names_scopes_from_text: bool,
 }
 
-/// Where a tokenized source's last complete line ends: the grammar state after it and the spans
-/// before it, from which a later source beginning with the same text resumes.
+/// Where a tokenized source's last complete line ends: the grammar state after it, the spans
+/// before it and the hash of the text before it, from which a later source beginning with the
+/// same text resumes.
 #[derive(Clone)]
 pub(crate) struct SettledLines {
     /// The grammar state after the last complete line; `None` before any line was tokenized.
@@ -108,21 +113,31 @@ pub(crate) struct SettledLines {
     pub(crate) utf16_length: u32,
     /// How many numbers of the packed spans lie before the boundary.
     pub(crate) span_count: usize,
+    /// SHA-256 of the text before the boundary, still open to the lines after it.
+    pub(crate) hasher: Sha256,
 }
 
 impl SettledLines {
     /// The boundary before the first line.
-    pub(crate) const START: Self = Self {
-        state: None,
-        byte_length: 0,
-        utf16_length: 0,
-        span_count: 0,
-    };
+    pub(crate) fn start() -> Self {
+        Self {
+            state: None,
+            byte_length: 0,
+            utf16_length: 0,
+            span_count: 0,
+            hasher: Sha256::new(),
+        }
+    }
+
+    /// The SHA-256 of the text before the boundary.
+    pub(crate) fn digest(&self) -> [u8; 32] {
+        self.hasher.clone().finalize().into()
+    }
 }
 
-/// A tokenized source.
+/// A tokenized source, or the part of it a stopped tokenization went through.
 pub(crate) struct Tokenized {
-    /// Every span of the source, packed.
+    /// Every span colored, packed.
     pub(crate) spans: Arc<[u32]>,
     /// Where its last complete line ends; the spans before it are `spans[..settled.span_count]`.
     pub(crate) settled: SettledLines,
@@ -134,11 +149,9 @@ pub(crate) struct Tokenized {
 pub(crate) enum TokenizeEnd {
     /// Every line was gone through.
     Finished(Tokenized),
-    /// No reader held the source any more, so it stopped before the next line.
-    Unwanted {
-        /// The source bytes it went through before it stopped.
-        colored_bytes: usize,
-    },
+    /// The source was no longer wanted, so it stopped before the next line with the lines it had
+    /// gone through.
+    Unwanted(Tokenized),
 }
 
 /// shiki's 15 grammars and the colorer's theme in one registry. The registry is `!Send`, so a
@@ -205,14 +218,14 @@ impl Tokenizer {
         self.before_line = Some(before_line);
     }
 
-    /// Tokenizes `source` as `language`, from the first line or from `resume`: where an earlier
-    /// source beginning with the same text settled, with the spans before it. The source is read
-    /// through `source` before each line, and the tokenization stops `Unwanted` at the first line
-    /// it can no longer be upgraded. Fails when the grammar or one of its patterns does not
-    /// compile.
+    /// Tokenizes the source `wanted_source` gives as `language`, from the first line or from
+    /// `resume`: where an earlier source beginning with the same text settled, with the spans
+    /// before it. The source is read through `wanted_source` before each line, and the
+    /// tokenization stops `Unwanted` at the first line it gives none. Fails when the grammar or
+    /// one of its patterns does not compile.
     pub(crate) fn tokenize(
         &mut self,
-        source: &Weak<String>,
+        wanted_source: impl Fn() -> Option<Arc<String>>,
         language: HighlightLanguage,
         resume: Option<(&SettledLines, &[u32])>,
     ) -> Result<TokenizeEnd, TokenizeError> {
@@ -226,15 +239,20 @@ impl Tokenizer {
             .expect("every language's grammar is registered when the tokenizer is built");
         let (mut settled, mut spans) = match resume {
             Some((settled, spans)) => (settled.clone(), spans.to_vec()),
-            None => (SettledLines::START, Vec::new()),
+            None => (SettledLines::start(), Vec::new()),
         };
         let mut state = settled.state.clone();
+        let mut hasher = settled.hasher.clone();
         let mut byte_offset = settled.byte_length;
         let mut utf16_offset = settled.utf16_length;
         let mut colored_bytes = 0;
         loop {
-            let Some(source) = source.upgrade() else {
-                return Ok(TokenizeEnd::Unwanted { colored_bytes });
+            let Some(source) = wanted_source() else {
+                return Ok(TokenizeEnd::Unwanted(Tokenized {
+                    spans: Arc::from(spans),
+                    settled,
+                    colored_bytes,
+                }));
             };
             let Some(rest) = source.get(byte_offset..).filter(|rest| !rest.is_empty()) else {
                 break;
@@ -253,12 +271,14 @@ impl Tokenizer {
             byte_offset += line_with_break.len();
             utf16_offset += utf16_length(line_with_break);
             colored_bytes += line_with_break.len();
+            hasher.update(line_with_break);
             if has_break {
                 settled = SettledLines {
                     state: state.clone(),
                     byte_length: byte_offset,
                     utf16_length: utf16_offset,
                     span_count: spans.len(),
+                    hasher: hasher.clone(),
                 };
             }
         }
@@ -434,7 +454,7 @@ mod tests {
         let source = Arc::new(source.to_owned());
         finished(
             tokenizer
-                .tokenize(&Arc::downgrade(&source), language, None)
+                .tokenize(|| Some(Arc::clone(&source)), language, None)
                 .expect("the grammar compiles"),
         )
     }
@@ -443,7 +463,7 @@ mod tests {
     fn finished(end: TokenizeEnd) -> Tokenized {
         match end {
             TokenizeEnd::Finished(tokenized) => Some(tokenized),
-            TokenizeEnd::Unwanted { .. } => None,
+            TokenizeEnd::Unwanted(_) => None,
         }
         .expect("the source is held")
     }
@@ -533,7 +553,7 @@ mod tests {
             let version = Arc::new(source[..version_end].to_owned());
             let resumed = tokenizer
                 .tokenize(
-                    &Arc::downgrade(&version),
+                    || Some(Arc::clone(&version)),
                     language,
                     Some((&last.settled, &last.spans[..last.settled.span_count])),
                 )
@@ -557,20 +577,27 @@ mod tests {
         }
     }
 
-    // Mutation: count UTF-8 offsets.
+    // Mutations: count UTF-8 offsets; send an empty line to the engine.
     #[rstest]
     #[case::utf16_offsets_across_crlf(
+        HighlightLanguage::Typescript,
         "let a = 1;\r\n// \u{1F600} x\r\nlet b = 2;\n",
         "kkk.....N...cccccc..kkk.....N.."
     )]
-    #[case::an_empty_line_keeps_the_comment_open(
-        "/* a\n\nb */ let c = 3;\n",
-        "cccc..cccc.kkk.....N.."
+    // Sent to the engine, the empty line would end the paragraph and `---` would be a separator.
+    #[case::an_empty_line_keeps_the_paragraph_open(
+        HighlightLanguage::Markdown,
+        "text\n\n---\n",
+        "......HHH."
     )]
-    fn follows_the_line_rules(#[case] source: &str, #[case] expected: &str) {
+    fn follows_the_line_rules(
+        #[case] language: HighlightLanguage,
+        #[case] source: &str,
+        #[case] expected: &str,
+    ) {
         let mut tokenizer = Tokenizer::build().expect("the tokenizer builds");
 
-        let tokenized = tokenize(&mut tokenizer, HighlightLanguage::Typescript, source);
+        let tokenized = tokenize(&mut tokenizer, language, source);
 
         assert_eq!(letters(source, &tokenized.spans), expected);
     }
@@ -633,7 +660,7 @@ mod tests {
             let source = Arc::new(source);
             let tokenized = SHARED_TOKENIZER
                 .with_borrow_mut(|tokenizer| {
-                    tokenizer.tokenize(&Arc::downgrade(&source), language, None)
+                    tokenizer.tokenize(|| Some(Arc::clone(&source)), language, None)
                 })
                 .expect("the grammar compiles");
             let tokenized = finished(tokenized);

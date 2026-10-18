@@ -1,15 +1,18 @@
 //! The colorer's one thread. The tokenizer's registry is `!Send`, so it is built, used and dropped
 //! on this named thread, which takes jobs in order from a channel and answers each on its own
 //! oneshot. A job no reader wants any more is skipped at its turn, and one running stops at its
-//! next line.
+//! next line, as it does once the colorer stops.
 //!
 //! The tokenizer is dropped after `idle_drop` with nothing asked, and between jobs once it has
-//! colored more than `colored_bytes_budget` bytes in languages whose grammars name scopes from the
-//! text they match, since the engine keeps every such name for the tokenizer's life. Each drop
+//! colored more than `scope_naming_bytes_budget` bytes in languages whose grammars name scopes from
+//! the text they match, since the engine keeps every such name for the tokenizer's life. Each drop
 //! clears the blocks' settled lines with it and hands the freed memory back from this thread.
 //!
-//! For each recent code block the thread keeps where its last version's complete lines ended, so
-//! the block's next version, when it begins with exactly those lines, is colored from there on.
+//! For each recent code block the thread keeps where its last version's complete lines ended, a
+//! version that stopped unwanted included, so the block's next version, when it begins with
+//! exactly those lines, is colored from there on. A version longer than the saved lines is resumed
+//! at once and checked when it finishes, against the hash of its own text up to its last line
+//! break; one that does not match is colored again from its first line.
 
 use std::error::Error;
 use std::num::NonZeroUsize;
@@ -23,7 +26,6 @@ use std::time::Duration;
 
 use lru::LruCache;
 use memchr::memrchr;
-use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::highlight::HighlightLanguage;
 use tokio::sync::oneshot;
 
@@ -40,7 +42,7 @@ const IDLE_DROP: Duration = Duration::from_mins(5);
 
 /// Bytes colored in languages that name scopes from matched text past which the tokenizer is
 /// dropped between jobs: the engine's kept names stay within the colorer's memory budget.
-const COLORED_BYTES_BUDGET: usize = 400 * 1024;
+const SCOPE_NAMING_BYTES_BUDGET: usize = 400 * 1024;
 
 /// How many blocks' settled lines the thread keeps, least recently colored dropped first.
 const SETTLED_BLOCKS_LIMIT: NonZeroUsize = NonZeroUsize::new(8).expect("eight is not zero");
@@ -89,7 +91,7 @@ pub(crate) struct TokenizerThreadOptions {
     pub(crate) idle_drop: Duration,
     /// Source bytes colored in languages that name scopes from matched text, past which the
     /// tokenizer is dropped between jobs; 400 KiB.
-    pub(crate) colored_bytes_budget: usize,
+    pub(crate) scope_naming_bytes_budget: usize,
     /// Run before each line inside its time limit, so a test can hold the thread on a line.
     #[cfg(test)]
     pub(crate) before_line: Option<Arc<dyn Fn(&str) + Send + Sync>>,
@@ -99,7 +101,7 @@ impl Default for TokenizerThreadOptions {
     fn default() -> Self {
         Self {
             idle_drop: IDLE_DROP,
-            colored_bytes_budget: COLORED_BYTES_BUDGET,
+            scope_naming_bytes_budget: SCOPE_NAMING_BYTES_BUDGET,
             #[cfg(test)]
             before_line: None,
         }
@@ -183,7 +185,8 @@ impl TokenizerThread {
         answer
     }
 
-    /// Refuses every waiting and later job `Stopped`; a running one finishes.
+    /// Refuses every waiting and later job `Stopped`; a running one stops at its next line and is
+    /// refused too.
     pub(crate) fn stop(&self) {
         self.is_stopped.store(true, Ordering::Relaxed);
         if self.messages.send(ThreadMessage::Stop).is_err() {
@@ -204,8 +207,7 @@ impl TokenizerThread {
     }
 }
 
-/// Answers a job. A reader that left needs no answer: the spans are the colorer's to cache either
-/// way.
+/// Answers a job. Readers that all left need no answer, and their spans are dropped with it.
 fn send_reply(reply: oneshot::Sender<TokenizeReply>, answer: TokenizeReply) {
     if reply.send(answer).is_err() {
         tracing::trace!("a tokenization's readers left before its answer");
@@ -252,12 +254,11 @@ impl BuiltTokenizer {
 struct SettledBlock {
     /// The language the version was colored as.
     language: HighlightLanguage,
-    /// Where the version's last complete line ends, with the grammar state after it.
+    /// Where the version's last complete line ends, with the grammar state after it and the hash
+    /// of the text before it.
     settled: SettledLines,
     /// The version's packed spans; those before the boundary are `spans[..settled.span_count]`.
     spans: Arc<[u32]>,
-    /// SHA-256 of the version's bytes before the boundary.
-    settled_digest: [u8; 32],
 }
 
 impl ColoringThread {
@@ -310,8 +311,12 @@ impl ColoringThread {
         }
         let mut built = match built {
             Some(built) => built,
-            None => match self.build() {
-                Ok(built) => built,
+            None => match build_tokenizer() {
+                Ok(built) => {
+                    #[cfg(test)]
+                    let built = self.with_test_hooks(built);
+                    built
+                }
                 Err(error) => {
                     tracing::error!(
                         error = &error as &(dyn Error + 'static),
@@ -329,16 +334,19 @@ impl ColoringThread {
         };
         #[cfg(test)]
         self.counts.tokenizations.fetch_add(1, Ordering::Relaxed);
-        let resume = resume
-            .as_ref()
-            .map(|saved| (&saved.settled, &saved.spans[..saved.settled.span_count]));
-        let tokenized = match built.tokenizer.tokenize(&job.source, job.language, resume) {
-            Ok(TokenizeEnd::Finished(tokenized)) => tokenized,
-            // The last reader left while it ran; what it colored still counts.
-            Ok(TokenizeEnd::Unwanted { colored_bytes }) => {
-                built.count_colored(job.language, colored_bytes);
-                return self.keep_within_budget(built);
+        let ended = match self.tokenize_from(&mut built, &job, resume.as_ref()) {
+            // A resumed version whose text before the saved boundary differs is colored again.
+            Ok(TokenizeEnd::Finished(tokenized))
+                if resume.is_some() && tokenized.settled.digest() != job.settled_digest =>
+            {
+                built.count_colored(job.language, tokenized.colored_bytes);
+                self.tokenize_from(&mut built, &job, None)
             }
+            ended => ended,
+        };
+        let (tokenized, is_finished) = match ended {
+            Ok(TokenizeEnd::Finished(tokenized)) => (tokenized, true),
+            Ok(TokenizeEnd::Unwanted(tokenized)) => (tokenized, false),
             Err(error) => {
                 send_reply(reply, Err(error.into()));
                 return Some(built);
@@ -352,55 +360,79 @@ impl ColoringThread {
                     language: job.language,
                     settled: tokenized.settled,
                     spans: Arc::clone(&tokenized.spans),
-                    settled_digest: job.settled_digest,
                 },
             );
         }
-        send_reply(reply, Ok(tokenized.spans));
+        if is_finished {
+            send_reply(reply, Ok(tokenized.spans));
+        } else if self.is_stopped.load(Ordering::Relaxed) {
+            send_reply(reply, Err(TokenizeFailure::Stopped));
+        }
         self.keep_within_budget(built)
+    }
+
+    /// Tokenizes `job` from its first line or after `resume`'s settled lines, reading its source
+    /// before each line until the colorer stops or no reader holds it.
+    fn tokenize_from(
+        &self,
+        built: &mut BuiltTokenizer,
+        job: &TokenizeJob,
+        resume: Option<&SettledBlock>,
+    ) -> Result<TokenizeEnd, TokenizeError> {
+        let wanted_source = || {
+            if self.is_stopped.load(Ordering::Relaxed) {
+                return None;
+            }
+            job.source.upgrade()
+        };
+        let resume = resume.map(|saved| (&saved.settled, &saved.spans[..saved.settled.span_count]));
+        built
+            .tokenizer
+            .tokenize(wanted_source, job.language, resume)
     }
 
     /// Gives back `built`, or drops it once its scope-naming budget is spent.
     fn keep_within_budget(&self, built: BuiltTokenizer) -> Option<BuiltTokenizer> {
-        if built.scope_naming_bytes > self.options.colored_bytes_budget {
+        if built.scope_naming_bytes > self.options.scope_naming_bytes_budget {
             release(Some(built));
             return None;
         }
         Some(built)
     }
 
-    /// Builds a fresh tokenizer with an empty settled-lines store.
-    fn build(&self) -> Result<BuiltTokenizer, TokenizerBuildError> {
-        let tokenizer = Tokenizer::build()?;
-        #[cfg(test)]
-        let tokenizer = {
-            let mut tokenizer = tokenizer;
-            self.counts.tokenizer_builds.fetch_add(1, Ordering::Relaxed);
-            if let Some(before_line) = &self.options.before_line {
-                tokenizer.set_before_line(Arc::clone(before_line));
-            }
-            tokenizer
-        };
-        Ok(BuiltTokenizer {
-            tokenizer,
-            settled_blocks: LruCache::new(SETTLED_BLOCKS_LIMIT),
-            scope_naming_bytes: 0,
-        })
+    /// Counts a fresh tokenizer's build and gives it the test's line hook.
+    #[cfg(test)]
+    fn with_test_hooks(&self, mut built: BuiltTokenizer) -> BuiltTokenizer {
+        self.counts.tokenizer_builds.fetch_add(1, Ordering::Relaxed);
+        if let Some(before_line) = &self.options.before_line {
+            built.tokenizer.set_before_line(Arc::clone(before_line));
+        }
+        built
     }
+}
+
+/// Builds a fresh tokenizer with an empty settled-lines store.
+fn build_tokenizer() -> Result<BuiltTokenizer, TokenizerBuildError> {
+    Ok(BuiltTokenizer {
+        tokenizer: Tokenizer::build()?,
+        settled_blocks: LruCache::new(SETTLED_BLOCKS_LIMIT),
+        scope_naming_bytes: 0,
+    })
 }
 
 /// Where a job's tokenization starts.
 enum TokenizeStart {
     /// From the source's first line.
     FirstLine,
-    /// After the lines its block's last version settled, which the source begins with exactly.
+    /// After the lines its block's last version settled, which the source may begin with.
     Settled(SettledBlock),
     /// Nowhere: no reader holds the source any more.
     Unwanted,
 }
 
-/// Where `job` starts: after its block's last settled lines when the source begins with exactly
-/// those bytes, checked by digest and never by length alone, else from the first line.
+/// Where `job` starts: after its block's last settled lines when the source may begin with
+/// exactly those bytes. Saved lines as long as the source's are checked here by digest; shorter
+/// ones are checked when the tokenization finishes, so the source is never hashed twice.
 fn tokenize_start(
     settled_blocks: &mut LruCache<BlockKey, SettledBlock>,
     job: &TokenizeJob,
@@ -419,15 +451,12 @@ fn tokenize_start(
     };
     let source_settled_length = memrchr(b'\n', source.as_bytes()).map_or(0, |index| index + 1);
     let saved_length = saved.settled.byte_length;
-    let starts_with_saved = if saved_length == source_settled_length {
-        saved.settled_digest == job.settled_digest
+    let may_start_with_saved = if saved_length == source_settled_length {
+        saved.settled.digest() == job.settled_digest
     } else {
-        saved_length < source_settled_length && {
-            let prefix_digest: [u8; 32] = Sha256::digest(&source.as_bytes()[..saved_length]).into();
-            prefix_digest == saved.settled_digest
-        }
+        saved_length < source_settled_length
     };
-    if starts_with_saved {
+    if may_start_with_saved {
         TokenizeStart::Settled(saved.clone())
     } else {
         TokenizeStart::FirstLine
@@ -446,7 +475,7 @@ fn release(built: Option<BuiltTokenizer>) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
 
@@ -517,7 +546,7 @@ mod tests {
         let source = Arc::new(fixture_source(HighlightLanguage::Typescript));
         let first = spans(&thread, job(&source, HighlightLanguage::Typescript, None)).await;
 
-        std::thread::sleep(Duration::from_millis(500));
+        tokio::time::sleep(Duration::from_millis(500)).await;
         let second = spans(&thread, job(&source, HighlightLanguage::Typescript, None)).await;
 
         assert_eq!(thread.tokenizer_build_count(), 2);
@@ -534,7 +563,7 @@ mod tests {
         #[case] build_count: usize,
     ) {
         let thread = start(TokenizerThreadOptions {
-            colored_bytes_budget: 0,
+            scope_naming_bytes_budget: 0,
             ..TokenizerThreadOptions::default()
         });
         let source = Arc::new(fixture_source(language));
@@ -577,7 +606,7 @@ mod tests {
         let versions = cuts
             .into_iter()
             .map(|cut| source[..cut].to_owned())
-            // Longer than the last version, so the saved prefix is hashed from the source.
+            // Longer than the last version but not its continuation: resumed, then colored again.
             .chain([format!("{edited}\nlet appended = 1;\n")])
             // Shorter than the last, so it is never resumed and resets the block.
             .chain([source.clone()])
@@ -590,6 +619,76 @@ mod tests {
             let from_scratch = spans(&thread, job(&version, language, None)).await;
             assert_eq!(*streamed, *from_scratch, "{} bytes", version.len());
         }
+    }
+
+    // Mutations: save nothing when a run stops unwanted; start every version from its first line.
+    #[tokio::test]
+    async fn a_version_stopped_for_the_next_saves_the_lines_it_colored() {
+        let language = HighlightLanguage::Typescript;
+        let colored_lines = Arc::new(Mutex::new(Vec::new()));
+        let (entered, has_entered) = mpsc::channel();
+        let (released, is_released) = mpsc::channel();
+        let thread = start(TokenizerThreadOptions {
+            before_line: Some({
+                let colored_lines = Arc::clone(&colored_lines);
+                let has_held = AtomicBool::new(false);
+                let is_released = Mutex::new(is_released);
+                Arc::new(move |line: &str| {
+                    colored_lines
+                        .lock()
+                        .expect("the hook's lock is never held across a panic")
+                        .push(line.to_owned());
+                    if line == "let c = 3;" && !has_held.swap(true, Ordering::SeqCst) {
+                        entered.send(()).expect("the test waits");
+                        is_released
+                            .lock()
+                            .expect("the hook's lock is never held across a panic")
+                            .recv_timeout(WAIT)
+                            .expect("the test releases the held line");
+                    }
+                })
+            }),
+            ..TokenizerThreadOptions::default()
+        });
+        let block = BlockKey {
+            transport: TransportId(1),
+            block_id: Arc::from("block"),
+        };
+        let first = Arc::new("let a = 1;\nlet b = 2;\nlet c = 3;\nlet d = 4;\n".to_owned());
+        let first_answer = thread.tokenize(job(&first, language, Some(&block)));
+        has_entered
+            .recv_timeout(WAIT)
+            .expect("the thread reaches the held line");
+
+        // The block's next version replaces the first while the thread is on its third line.
+        let second = Arc::new(format!("{first}let e = 5;\n"));
+        drop(first);
+        let second_answer = thread.tokenize(job(&second, language, Some(&block)));
+        released.send(()).expect("the hook waits");
+
+        let first_answered = timeout(WAIT, first_answer)
+            .await
+            .expect("the thread lets the first version go in time");
+        assert!(first_answered.is_err(), "the replaced version was answered");
+        let streamed = timeout(WAIT, second_answer)
+            .await
+            .expect("the thread answers in time")
+            .expect("the thread answers")
+            .expect("the source colors");
+        assert_eq!(
+            *colored_lines
+                .lock()
+                .expect("the hook's lock is never held across a panic"),
+            [
+                "let a = 1;",
+                "let b = 2;",
+                "let c = 3;",
+                "let d = 4;",
+                "let e = 5;"
+            ],
+        );
+        let from_scratch = spans(&thread, job(&second, language, None)).await;
+        assert_eq!(*streamed, *from_scratch);
     }
 
     // Mutation: no upgrade before each line.
