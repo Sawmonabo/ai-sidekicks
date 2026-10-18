@@ -173,7 +173,7 @@ async fn a_chunk_that_breaks_the_stream_ends_it(
 
 /// An original chunk and its resend sent together are written once: the resend waits for the
 /// original inside its stream's exclusion, then is answered without appending again.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_resent_chunk_racing_its_original_is_written_once() {
     let store = ArtifactTestStore::open().await;
     let service = service(&store);
@@ -188,14 +188,18 @@ async fn a_resent_chunk_racing_its_original_is_written_once() {
         .reached
         .await
         .expect("the original reaches the pause");
-    let resend = tokio::spawn({
+    let mut resend = tokio::spawn({
         let service = Arc::clone(&service);
         let ingest_id = ingest_id.clone();
         async move { write(&service, &ingest_id, 0, b"abc").await }
     });
-    for _ in 0..8 {
-        tokio::task::yield_now().await;
-    }
+    // The paused clock moves only once no task can go on, so the wait ends with the resend as far
+    // as it can get.
+    let resend_while_held = tokio::time::timeout(Duration::from_secs(1), &mut resend).await;
+    assert!(
+        resend_while_held.is_err(),
+        "the resend waits for the original"
+    );
     paused.release.send(()).expect("the original waits");
 
     for answered in [original.await, resend.await] {
@@ -304,6 +308,49 @@ async fn a_resent_start_answers_the_first_stream_and_a_changed_one_is_refused() 
         );
     }
     assert!(store.admission.admit(1, None).await.is_err());
+}
+
+/// Two starts sent together under one key open one stream: the second waits for the first, held
+/// inside its admission, then answers the first's stream.
+#[tokio::test(start_paused = true)]
+async fn concurrent_starts_under_one_key_open_one_stream() {
+    let store = ArtifactTestStore::open().await;
+    let service = service(&store);
+    let key = fresh_key();
+    let paused = store.admission.pause.arm();
+    let first = tokio::spawn({
+        let service = Arc::clone(&service);
+        let request = start_request(&store, &key, 10);
+        async move { service.start(request).await }
+    });
+    paused
+        .reached
+        .await
+        .expect("the first start reaches the pause");
+    let mut second = tokio::spawn({
+        let service = Arc::clone(&service);
+        let request = start_request(&store, &key, 10);
+        async move { service.start(request).await }
+    });
+    // The paused clock moves only once no task can go on, the second start's reads included, so
+    // the wait ends with the second start as far as it can get.
+    let second_while_held = tokio::time::timeout(Duration::from_secs(1), &mut second).await;
+    assert!(
+        second_while_held.is_err(),
+        "the second start waits for the first"
+    );
+    paused.release.send(()).expect("the first start waits");
+
+    let first = first
+        .await
+        .expect("the first start ends")
+        .expect("the first start opens a stream");
+    let second = second
+        .await
+        .expect("the second start ends")
+        .expect("the second start answers");
+    assert_eq!(second, first);
+    assert_eq!(service.lock_registry().streams.len(), 1);
 }
 
 /// A write dropped mid-chunk leaves the stream's state unknown, so the next call on it fails and
