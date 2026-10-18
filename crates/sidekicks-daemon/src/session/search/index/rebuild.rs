@@ -54,7 +54,7 @@ pub(crate) enum SearchIndexRebuildReason {
 /// What an open at a start found: the index ready to serve, or why it must be built again.
 pub(crate) enum SearchIndexOpening {
     /// The index, in step with this database up to its last applied outbox id.
-    Opened(SearchIndex),
+    Opened(Box<SearchIndex>),
     /// The index must be built again, any folder it left already removed.
     RebuildNeeded(SearchIndexRebuildReason),
 }
@@ -175,7 +175,7 @@ fn open_in_step(
         }
     };
     if index.last_applied_outbox_id() <= highest_id_given {
-        return Ok(SearchIndexOpening::Opened(index));
+        return Ok(SearchIndexOpening::Opened(Box::new(index)));
     }
     index.close()?;
     // Dropped first, so no file of it is open when its folder goes.
@@ -228,12 +228,11 @@ pub(crate) async fn build_search_index_in_child(
             status = child.wait() => Some(status),
             () = cancellation.cancelled() => None,
         };
-        match ended {
-            Some(status) => (status, false),
-            None => {
-                drop(standard_input);
-                (child.wait().await, true)
-            }
+        if let Some(status) = ended {
+            (status, false)
+        } else {
+            drop(standard_input);
+            (child.wait().await, true)
         }
     };
     let ((status, is_canceled), tail) = tokio::join!(waiting, read_tail(standard_error));
@@ -466,7 +465,6 @@ pub(crate) fn make_index_at(folder: &Path, last_outbox_id: u64) {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
 
     use rstest::rstest;
     use rusqlite::Connection;

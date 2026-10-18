@@ -166,15 +166,13 @@ impl LiveIndex {
             LiveIndexShared::new(Arc::clone(&options.reads), Arc::clone(&options.scheduler));
         let finished = tokio::spawn(run(Arc::clone(&shared), options, commits))
             .map(|joined| {
-                joined
-                    .unwrap_or_else(|failure| {
-                        Err(CleanupFailures::new(
-                            LiveIndexError::Task(failure),
-                            Vec::new(),
-                            "closing the search index",
-                        ))
-                    })
-                    .map_err(Arc::new)
+                joined.unwrap_or_else(|failure| {
+                    Err(Arc::new(CleanupFailures::new(
+                        LiveIndexError::Task(failure),
+                        Vec::new(),
+                        "closing the search index",
+                    )))
+                })
             })
             .boxed()
             .shared();
@@ -433,7 +431,7 @@ async fn run(
     shared: Arc<LiveIndexShared>,
     options: LiveIndexOptions,
     mut commits: watch::Receiver<u64>,
-) -> Result<(), LiveIndexCloseError> {
+) -> Result<(), Arc<LiveIndexCloseError>> {
     let (deletes, applied) = watch::channel(None);
     let deleting = tokio::spawn(delete_applied(Arc::clone(&options.writer), applied));
     let mut failures = serve(&shared, &options, &mut commits, &deletes).await;
@@ -445,11 +443,11 @@ async fn run(
     let mut failures = failures.into_iter();
     match failures.next() {
         None => Ok(()),
-        Some(first) => Err(CleanupFailures::new(
+        Some(first) => Err(Arc::new(CleanupFailures::new(
             first,
             failures.collect(),
             "closing the search index",
-        )),
+        ))),
     }
 }
 
@@ -465,7 +463,7 @@ async fn serve(
         Ok(None) => return Vec::new(),
         Err(failure) => return shared.fail(failure).err().into_iter().collect(),
     };
-    let index = Arc::new(index);
+    let index: Arc<SearchIndex> = Arc::from(index);
     let open = OpenIndex {
         applier: Arc::new(SearchIndexApplier::new(
             Arc::clone(&index),
@@ -531,7 +529,7 @@ async fn serve(
 async fn open_or_build(
     shared: &LiveIndexShared,
     options: &LiveIndexOptions,
-) -> Result<Option<(SearchIndex, Option<SearchIndexRebuildReason>)>, LiveIndexError> {
+) -> Result<Option<(Box<SearchIndex>, Option<SearchIndexRebuildReason>)>, LiveIndexError> {
     let highest_id_given = shared
         .reads
         .read(ReadLength::Short, |connection| {
@@ -658,6 +656,7 @@ mod tests {
     use std::time::Duration;
 
     use sidekicks_platforms::{Spawner, WallClockTimer};
+    use sidekicks_search::index::SearchIndex;
     use tokio::runtime::Handle;
     use tokio::sync::{Notify, watch};
 
@@ -754,7 +753,7 @@ mod tests {
             OUTBOX_STATEMENT_CAPACITY,
         ));
         let shared = LiveIndexShared::new(Arc::clone(&reads), scheduler());
-        let index = Arc::new(index);
+        let index: Arc<SearchIndex> = Arc::from(index);
         let open = OpenIndex {
             applier: Arc::new(SearchIndexApplier::new(Arc::clone(&index), reads)),
             index,

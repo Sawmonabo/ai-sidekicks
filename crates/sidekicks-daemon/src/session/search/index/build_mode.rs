@@ -47,7 +47,7 @@ enum SearchIndexBuildModeError {
     Database(#[from] CleanupFailures<rusqlite::Error>),
     /// The build failed, with the database closed after it.
     #[error(transparent)]
-    Build(#[from] CleanupFailures<SearchIndexBuildError, rusqlite::Error>),
+    Build(#[from] Box<CleanupFailures<SearchIndexBuildError, rusqlite::Error>>),
     /// The index was built and placed, but the database did not close.
     #[error("the database did not close after the search index's build")]
     Close(#[source] rusqlite::Error),
@@ -123,11 +123,11 @@ fn build_from_arguments(
     match (built, closed) {
         (Ok(()), Ok(())) => Ok(()),
         (Ok(()), Err(close_failure)) => Err(SearchIndexBuildModeError::Close(close_failure)),
-        (Err(build_failure), closed) => Err(CleanupFailures::new(
+        (Err(build_failure), closed) => Err(Box::new(CleanupFailures::new(
             build_failure,
             closed.err().into_iter().collect(),
             "the search index's build",
-        )
+        ))
         .into()),
     }
 }
