@@ -166,7 +166,8 @@ pub(crate) fn normalize_metadata_file_name(metadata: JsonRecord) -> JsonRecord {
     {
         *file_name = normalize_file_name(file_name).into_string();
     }
-    JsonRecord::new(members).expect("a record with no __proto__ gains none from a renamed value")
+    JsonRecord::new(members)
+        .expect("a record with no __proto__ gains none when a value is rewritten")
 }
 
 /// Whether a payload written in chunks is valid UTF-8, checked chunk by chunk: a character cut

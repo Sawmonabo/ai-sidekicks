@@ -13,6 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::artifacts::payload_store::{ContentHash, PayloadStore};
 use crate::artifacts::refusals::ArtifactError;
+use crate::artifacts::validation::FILE_NAME_MEMBER;
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::database::stored_column::text_column;
 use crate::provider::driver::attachments::{
@@ -23,7 +24,7 @@ use crate::provider::driver::attachments::{
 // The manifest's newest payload reference within the message's session; a manifest whose payload
 // was reclaimed has none.
 const SELECT_PAYLOAD_SQL: &str = "SELECT refs.storage_path, refs.media_type,
-       json_extract(manifests.metadata, '$.fileName')
+       json_extract(manifests.metadata, @fileNamePath)
   FROM artifact_manifests AS manifests
   JOIN artifact_payload_refs AS refs ON refs.manifest_id = manifests.id
   WHERE manifests.id = @artifactId AND manifests.session_id = @sessionId
@@ -115,6 +116,7 @@ fn read_stored_payload(
             named_params! {
                 "@artifactId": artifact_id.text().as_str(),
                 "@sessionId": session_id.text().as_str(),
+                "@fileNamePath": format!("$.{FILE_NAME_MEMBER}"),
             },
             |row| {
                 Ok(StoredPayload {
