@@ -74,7 +74,10 @@ impl ArtifactTestStore {
                 database.path(),
                 ARTIFACT_STATEMENT_CAPACITY,
             )),
-            payloads: Arc::new(PayloadStore::new(folder.path().join("objects"))),
+            payloads: Arc::new(
+                PayloadStore::new(folder.path().join("objects"))
+                    .expect("the test makes the payload store"),
+            ),
             admission: Arc::new(UploadAdmission::new(
                 folder.path().join("spool"),
                 |_folder| Ok(TEST_VOLUME_FREE_BYTES),

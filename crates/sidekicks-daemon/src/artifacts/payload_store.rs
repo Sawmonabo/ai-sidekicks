@@ -85,12 +85,19 @@ pub(crate) struct PayloadStore {
 }
 
 impl PayloadStore {
-    /// A store under `objects_folder`, which is created when the first payload is stored.
-    pub(crate) fn new(objects_folder: PathBuf) -> Self {
-        Self {
+    /// A store under `objects_folder`, made private here with any missing folder above it, and its
+    /// entry flushed into its parent. Blocks on the file system; fails with its failure.
+    pub(crate) fn new(objects_folder: PathBuf) -> io::Result<Self> {
+        sidekicks_platforms::create_private_folder(&objects_folder)?;
+        sidekicks_platforms::flush_folder(
+            objects_folder
+                .parent()
+                .expect("the store's folder is never a file system root"),
+        )?;
+        Ok(Self {
             objects_folder,
             storage_key_lock: KeyedLock::new(),
-        }
+        })
     }
 
     /// Stores the file at `source_path` under `content_hash`, moving it in place, or deleting it
@@ -163,13 +170,6 @@ fn move_into_store(source: &Path, object: &Path, objects_folder: &Path) -> io::R
     sidekicks_platforms::flush_folder(fan_out_folder)?;
     sidekicks_platforms::flush_folder(algorithm_folder)?;
     sidekicks_platforms::flush_folder(objects_folder)?;
-    // The store's own folder is made by the first move, so its entry in its parent is flushed too;
-    // a check for whether this move made it could miss one a concurrent first move made.
-    sidekicks_platforms::flush_folder(
-        objects_folder
-            .parent()
-            .expect("the store's folder is never a file system root"),
-    )?;
     Ok(false)
 }
 
@@ -187,7 +187,8 @@ mod tests {
     #[tokio::test]
     async fn a_failed_record_takes_back_only_the_bytes_its_own_call_moved_in() {
         let folder = tempfile::tempdir().expect("the test makes a folder");
-        let store = PayloadStore::new(folder.path().join("objects"));
+        let store =
+            PayloadStore::new(folder.path().join("objects")).expect("the test makes the store");
         let stored_hash = content_hash_of(b"kept");
         let source = folder.path().join("first");
         std::fs::write(&source, b"kept").expect("the test writes a spool");
