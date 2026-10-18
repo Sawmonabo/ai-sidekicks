@@ -9,7 +9,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::provider::id::is_provider_id;
 use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_platforms::{PathRules, Spawner, SystemFolderBase};
 
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::output_validation::is_canonical_semver;
@@ -50,6 +50,9 @@ pub(crate) struct ProviderDescriptor {
     pub(crate) built_in_tools: &'static [(&'static str, &'static str)],
     /// How the provider's command is found on each kind of operating system.
     pub(crate) command: ProviderCommand,
+    /// The folder on each operating system the provider reads the settings an administrator
+    /// manages for everyone on the computer from.
+    pub(crate) managed_settings_folders: ManagedSettingsFolders,
     /// The provider's own word for standard output speed, as its declared state reads it; a run
     /// that carried another level and settles on another state is told fast output is unavailable.
     pub(crate) standard_output_speed: &'static str,
@@ -156,6 +159,26 @@ pub(crate) enum InstallFolderBase {
     Home,
     /// The person's own programs folder, which Windows has and macOS and Linux do not.
     UserPrograms,
+}
+
+/// A provider's administrator-managed settings folder on each operating system; `None` where the
+/// provider's documentation names none for that system.
+pub(crate) struct ManagedSettingsFolders {
+    /// On macOS.
+    pub(crate) macos: Option<ManagedSettingsFolder>,
+    /// On Linux.
+    pub(crate) linux: Option<ManagedSettingsFolder>,
+    /// On Windows.
+    pub(crate) windows: Option<ManagedSettingsFolder>,
+}
+
+/// An administrator-managed settings folder: path components under a computer-wide folder the
+/// platforms crate finds, so no descriptor holds a system path.
+pub(crate) struct ManagedSettingsFolder {
+    /// The computer-wide folder the components are under.
+    pub(crate) base: SystemFolderBase,
+    /// The components below `base`, outermost first.
+    pub(crate) components: &'static [&'static str],
 }
 
 /// The longest version text a provider's reply is read as a version from, in characters.

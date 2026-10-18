@@ -1,0 +1,15 @@
+//! The computer-wide folders a program's administrator-managed settings sit under, named here and
+//! found on the running system by the platforms crate, so no caller holds a system path.
+
+/// A computer-wide folder a program keeps its administrator-managed settings under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemFolderBase {
+    /// `/etc` on macOS and Linux.
+    Etc,
+    /// The computer-wide `/Library/Application Support` on macOS.
+    ApplicationSupport,
+    /// The `Program Files` folder on Windows.
+    ProgramFiles,
+    /// The `ProgramData` folder on Windows.
+    ProgramData,
+}

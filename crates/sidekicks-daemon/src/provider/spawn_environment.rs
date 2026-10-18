@@ -325,7 +325,7 @@ mod tests {
         build_project_command_environment, build_provider_process_environment,
         read_environment_value,
     };
-    use crate::provider::driver::{ProviderCommand, ProviderDescriptor};
+    use crate::provider::driver::{ManagedSettingsFolders, ProviderCommand, ProviderDescriptor};
 
     /// A provider that sets, withholds and reserves names of its own.
     const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
@@ -336,6 +336,11 @@ mod tests {
         command: ProviderCommand {
             windows: None,
             unix: None,
+        },
+        managed_settings_folders: ManagedSettingsFolders {
+            macos: None,
+            linux: None,
+            windows: None,
         },
         standard_output_speed: "standard",
         output_speed_levels: None,

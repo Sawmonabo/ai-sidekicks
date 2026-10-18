@@ -3,8 +3,11 @@
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::voice::VoiceKind;
 
+use sidekicks_platforms::SystemFolderBase;
+
 use crate::provider::driver::{
-    InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
+    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ManagedSettingsFolders,
+    ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
 };
 
 mod ask_option_sets;
@@ -56,6 +59,21 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
                 base: InstallFolderBase::Home,
                 components: &[".local", "bin"],
             }],
+        }),
+    },
+    // Where its system `config.toml` and `requirements.toml` sit; macOS reads the Unix folder.
+    managed_settings_folders: ManagedSettingsFolders {
+        macos: Some(ManagedSettingsFolder {
+            base: SystemFolderBase::Etc,
+            components: &["codex"],
+        }),
+        linux: Some(ManagedSettingsFolder {
+            base: SystemFolderBase::Etc,
+            components: &["codex"],
+        }),
+        windows: Some(ManagedSettingsFolder {
+            base: SystemFolderBase::ProgramData,
+            components: &["OpenAI", "Codex"],
         }),
     },
     // Listed first on every model that publishes a tier, and requested by clearing the thread's.
