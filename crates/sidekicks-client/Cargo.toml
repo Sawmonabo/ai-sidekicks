@@ -3,19 +3,15 @@ name = "sidekicks-client"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The typed daemon client: the command line's, and the desktop's through Node-API."
+description = "The typed daemon client: the command line's, and the desktop's through its Node-API addon."
 license.workspace = true
 publish.workspace = true
 
-[lib]
-# The Node-API addon the desktop loads, built with the `node-api` feature.
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
 bytes.workspace = true
+futures.workspace = true
+garde.workspace = true
 interprocess.workspace = true
-napi = { workspace = true, optional = true }
-napi-derive = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sidekicks-contracts.workspace = true
@@ -25,11 +21,10 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
-[build-dependencies]
-napi-build = { workspace = true, optional = true }
-
-[features]
-node-api = ["dep:napi", "dep:napi-build", "dep:napi-derive"]
+[dev-dependencies]
+rstest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true
