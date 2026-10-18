@@ -23,7 +23,7 @@ use crate::uuid_v7::mint_uuid_v7;
     not(test),
     expect(
         dead_code,
-        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
     )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,7 +34,7 @@ pub(crate) struct CommandReceiptId(Uuid);
     not(test),
     expect(
         dead_code,
-        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
     )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,7 +51,7 @@ pub(crate) struct CommandToReceive {
     not(test),
     expect(
         dead_code,
-        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
     )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
@@ -66,7 +66,7 @@ pub(crate) enum CommandAcceptance {
 /// The receipt's status once its command has run. Stored by its camelCase name.
 #[expect(
     dead_code,
-    reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    reason = "the tool call's dispatch, which accepts, claims and completes receipts"
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
@@ -82,7 +82,7 @@ pub(crate) enum CommandOutcome {
     not(test),
     expect(
         dead_code,
-        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
     )
 )]
 #[derive(Debug, thiserror::Error)]
@@ -99,7 +99,7 @@ pub(crate) enum CommandReceiptError {
     not(test),
     expect(
         dead_code,
-        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
     )
 )]
 static ACCEPT_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -115,7 +115,7 @@ static ACCEPT_SQL: LazyLock<String> = LazyLock::new(|| {
     not(test),
     expect(
         dead_code,
-        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
     )
 )]
 static CLAIM_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -129,7 +129,7 @@ static CLAIM_SQL: LazyLock<String> = LazyLock::new(|| {
 
 #[expect(
     dead_code,
-    reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+    reason = "the tool call's dispatch, which accepts, claims and completes receipts"
 )]
 static COMPLETE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -144,7 +144,7 @@ static COMPLETE_SQL: LazyLock<String> = LazyLock::new(|| {
     not(test),
     expect(
         dead_code,
-        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
     )
 )]
 pub(crate) struct CommandReceiptStore {
@@ -158,7 +158,7 @@ impl CommandReceiptStore {
         not(test),
         expect(
             dead_code,
-            reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+            reason = "the tool call's dispatch, which accepts, claims and completes receipts"
         )
     )]
     pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {
@@ -174,7 +174,7 @@ impl CommandReceiptStore {
         not(test),
         expect(
             dead_code,
-            reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+            reason = "the tool call's dispatch, which accepts, claims and completes receipts"
         )
     )]
     pub(crate) async fn accept(
@@ -211,7 +211,7 @@ impl CommandReceiptStore {
         not(test),
         expect(
             dead_code,
-            reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+            reason = "the tool call's dispatch, which accepts, claims and completes receipts"
         )
     )]
     pub(crate) async fn claim_for_execution(
@@ -235,7 +235,7 @@ impl CommandReceiptStore {
     /// was never claimed or already has its terminal status, and as the write fails.
     #[expect(
         dead_code,
-        reason = "the side-effecting tool call's dispatch, which accepts, claims and completes its receipt"
+        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
     )]
     pub(crate) async fn complete(
         &self,

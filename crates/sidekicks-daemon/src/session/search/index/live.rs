@@ -267,11 +267,12 @@ impl LiveIndex {
 
     // Runs `search` on a read connection once the index is open, holding the close off until it
     // has answered.
-    async fn search<Output, Failure>(
+    async fn search<Search, Output, Failure>(
         &self,
-        search: impl FnOnce(&Connection, &SearchIndex, i64) -> Result<Output, Failure> + Send + 'static,
+        search: Search,
     ) -> Result<Output, LiveIndexSearchError<Failure>>
     where
+        Search: FnOnce(&Connection, &SearchIndex, i64) -> Result<Output, Failure> + Send + 'static,
         Output: Send + 'static,
         Failure: Send + 'static,
     {

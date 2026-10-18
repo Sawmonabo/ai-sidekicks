@@ -1,8 +1,8 @@
 //! The approval service's refusals, each sent on the wire by its code: an ask the daemon holds no
 //! row for, one already answered or canceled, an answer that does not fit its ask, an ask raised
 //! after its run or its session ended, a record that could not be kept, a rule the provider could
-//! not keep after the answer reached it, an `Allow once` on a block the daemon holds no record of or
-//! no person may overrule, and a revoke of a rule never made or no longer in force.
+//! not keep after the answer reached it, an `Allow once` on a block the daemon holds no record of
+//! or no person may overrule, and a revoke of a rule never made or no longer in force.
 
 use std::error::Error;
 
