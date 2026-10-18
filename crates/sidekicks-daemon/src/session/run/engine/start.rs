@@ -12,12 +12,10 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
-use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemSummary;
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, ChildRunProvenance, RunQueuedSessionAgentPayload,
 };
@@ -43,9 +41,7 @@ use crate::session::run::projection::insert_queued_run_statement;
 use crate::session::run::read::{RunRead, RunStateReader};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::setup_gates::{RunSetupContext, RunSetupGateError, RunTerminalContext};
-use crate::session::run::start_request::{
-    DaemonTurnStartRequest, RunContinueRequest, RunStartPath, RunStartRequest,
-};
+use crate::session::run::start_request::{DaemonTurnStartRequest, RunStartRequest, RunTurnStart};
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 use crate::uuid_v7::mint_uuid_v7;
 
@@ -72,96 +68,31 @@ impl RunEngine {
     /// `running` write that fails once the driver has the run, after the driver's turn is
     /// interrupted. An interrupt that arrives after the gates is routed once the start settles (see
     /// [`RunEngine::route_interrupt`]).
-    #[expect(
-        dead_code,
-        reason = "the queue's drain, which starts the run of each message it admits"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the queue's drain, which starts the run of each message it admits"
+        )
     )]
     pub(crate) async fn start_run(
         &self,
         request: RunStartRequest,
     ) -> Result<RunRead, RunEngineError> {
         let RunStartRequest {
-            run_id,
-            queue_item,
-            workspace_id,
-            start_path,
-        } = request;
-        self.start(run_id, Some(queue_item), workspace_id, start_path)
-            .await
-    }
-
-    /// Starts a turn the daemon starts on a session itself, such as a goal or a review, as the
-    /// session's own run: `agent.run.queued` naming the session's lead and no parent, then the
-    /// start [`RunEngine::start_run`] makes, its setup gates given no queue item, and returns the
-    /// new run's id once it is `running`. Refuses with [`RunRefusal::SessionTurnHeld`], writing
-    /// nothing, while a lead run of the session is live, and for a turn the daemon starts while a
-    /// lead message waits for the session's interrupted lead run, whose continue is the session's
-    /// next turn; a turn in a process of its own is neither refused nor the session's lead run.
-    /// The run of a provider's own turn takes over, in its `running` write, the lead messages
-    /// waiting for the session's interrupted lead runs, so a turn that fails to open leaves them
-    /// where they were. Fails as [`RunEngine::start_run`] does.
-    #[expect(
-        dead_code,
-        reason = "the turns the daemon starts on a session itself, such as a goal or a review"
-    )]
-    pub(crate) async fn start_daemon_turn(
-        &self,
-        request: DaemonTurnStartRequest,
-    ) -> Result<RunId, RunEngineError> {
-        let session_id = request.session_id;
-        let lead_agent = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(RunAgentReader::new(reader).read_lead_agent(&session_id)?)
-            })
-            .await?;
-        let run_id = queue_daemon_turn_run(&self.appender, &request, lead_agent).await?;
-        let DaemonTurnStartRequest {
-            provider,
-            execution_posture,
-            is_provider_started,
-            start_turn,
-            interrupt_turn,
-            ..
-        } = request;
-        let running_statements: Option<Box<dyn FnOnce() -> Vec<WriteStatement> + Send>> =
-            is_provider_started.then(|| {
-                let take_over: Box<dyn FnOnce() -> Vec<WriteStatement> + Send> =
-                    Box::new(move || {
-                        let now = WireInstant::from_timestamp(Timestamp::now())
-                            .expect("the clock reads after year 0000");
-                        vec![take_over_interrupted_statement(&session_id, &run_id, &now)]
-                    });
-                take_over
-            });
-        let start_path = RunStartPath {
-            provider,
-            output_speed: None,
-            execution_posture,
-            start_driver: Box::new(move |_resolved_posture: ExecutionPosture| start_turn(run_id)),
-            interrupt_driver: Box::new(move || interrupt_turn(run_id)),
-            running_statements,
-        };
-        self.start(run_id, None, None, start_path).await?;
-        Ok(run_id)
-    }
-
-    // `starting`, every setup gate, the driver's start, then `running`; see `start_run`.
-    async fn start(
-        &self,
-        run_id: RunId,
-        queue_item: Option<QueueItemSummary>,
-        workspace_id: Option<WorkspaceId>,
-        start_path: RunStartPath,
-    ) -> Result<RunRead, RunEngineError> {
-        let RunStartPath {
+            turn:
+                RunTurnStart {
+                    run_id,
+                    queue_item,
+                    workspace_id,
+                    execution_posture,
+                    start_driver,
+                    interrupt_driver,
+                },
             provider,
             output_speed,
-            execution_posture,
-            start_driver,
-            interrupt_driver,
             running_statements,
-        } = start_path;
+        } = request;
         // A carried speed is read against its provider's standard before anything is written, so
         // a provider no driver answers refuses the start whole.
         let carried_output_speed = match output_speed {
@@ -282,6 +213,69 @@ impl RunEngine {
         }
     }
 
+    /// Starts a turn the daemon starts on a session itself, such as a goal or a review, as the
+    /// session's own run: `agent.run.queued` naming the session's lead and no parent, then the
+    /// start [`RunEngine::start_run`] makes, its setup gates given no queue item, and returns the
+    /// new run's id once it is `running`. Refuses with [`RunRefusal::SessionTurnHeld`], writing
+    /// nothing, while a lead run of the session is live, and for a turn the daemon starts while a
+    /// lead message waits for the session's interrupted lead run, whose continue is the session's
+    /// next turn; a turn in a process of its own is neither refused nor the session's lead run.
+    /// The run of a provider's own turn takes over, in its `running` write, the lead messages
+    /// waiting for the session's interrupted lead runs, so a turn that fails to open leaves them
+    /// where they were. Fails as [`RunEngine::start_run`] does.
+    #[expect(
+        dead_code,
+        reason = "the turns the daemon starts on a session itself, such as a goal or a review"
+    )]
+    pub(crate) async fn start_daemon_turn(
+        &self,
+        request: DaemonTurnStartRequest,
+    ) -> Result<RunId, RunEngineError> {
+        let session_id = request.session_id;
+        let lead_agent = self
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(RunAgentReader::new(reader).read_lead_agent(&session_id)?)
+            })
+            .await?;
+        let run_id = queue_daemon_turn_run(&self.appender, &request, lead_agent).await?;
+        let DaemonTurnStartRequest {
+            provider,
+            execution_posture,
+            is_provider_started,
+            start_turn,
+            interrupt_turn,
+            ..
+        } = request;
+        let running_statements: Option<Box<dyn FnOnce() -> Vec<WriteStatement> + Send>> =
+            is_provider_started.then(|| {
+                let take_over: Box<dyn FnOnce() -> Vec<WriteStatement> + Send> =
+                    Box::new(move || {
+                        let now = WireInstant::from_timestamp(Timestamp::now())
+                            .expect("the clock reads after year 0000");
+                        vec![take_over_interrupted_statement(&session_id, &run_id, &now)]
+                    });
+                take_over
+            });
+        self.start_run(RunStartRequest {
+            turn: RunTurnStart {
+                run_id,
+                queue_item: None,
+                workspace_id: None,
+                execution_posture,
+                start_driver: Box::new(move |_resolved_posture: ExecutionPosture| {
+                    start_turn(run_id)
+                }),
+                interrupt_driver: Box::new(move || interrupt_turn(run_id)),
+            },
+            provider,
+            output_speed: None,
+            running_statements,
+        })
+        .await?;
+        Ok(run_id)
+    }
+
     /// Starts the run of a subagent the provider started beneath `parent_run_id`, sharing its
     /// process and so its provider: `agent.run.queued` naming the parent and the parent's agent,
     /// which asked its provider for the subagent, then `starting` and `running`, and returns the
@@ -373,9 +367,9 @@ impl RunEngine {
     )]
     pub(crate) async fn continue_run(
         &self,
-        request: RunContinueRequest,
+        request: RunTurnStart,
     ) -> Result<RunRead, RunEngineError> {
-        let RunContinueRequest {
+        let RunTurnStart {
             run_id,
             queue_item,
             workspace_id,
@@ -412,7 +406,7 @@ impl RunEngine {
                 .assert_run_ready(&RunSetupContext {
                     run_id,
                     session_id: run.session_id,
-                    queue_item: Some(queue_item),
+                    queue_item,
                     workspace_id,
                     execution_posture,
                 })
@@ -657,7 +651,7 @@ mod tests {
     use crate::provider::driver::registry::test_provider;
     use crate::session::run::engine::tests::test_engine;
     use crate::session::run::projection::RUNS_TABLE_SQL;
-    use crate::session::run::start_request::RunStartPath;
+    use crate::session::run::start_request::{RunStartRequest, RunTurnStart};
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
     use crate::uuid_v7::mint_uuid_v7;
 
@@ -696,31 +690,36 @@ mod tests {
         let (driver_started, driver_has_started) = oneshot::channel::<()>();
         let (release_driver, driver_released) = oneshot::channel::<()>();
         let held_driver = Mutex::new(Some((driver_started, driver_released)));
-        let start_path = RunStartPath {
+        let request = RunStartRequest {
+            turn: RunTurnStart {
+                run_id,
+                queue_item: None,
+                workspace_id: None,
+                execution_posture: compose_execution_posture(
+                    PermissionLevel::Readonly,
+                    FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+                ),
+                start_driver: Box::new(move |_resolved_posture: ExecutionPosture| {
+                    let (started, released) = held_driver
+                        .lock()
+                        .expect("the test's driver is not poisoned")
+                        .take()
+                        .expect("the driver starts the run once");
+                    async move {
+                        started
+                            .send(())
+                            .expect("the test waits for the driver's start");
+                        released.await?;
+                        Ok::<(), Box<dyn Error + Send + Sync>>(())
+                    }
+                    .boxed()
+                }),
+                interrupt_driver: Box::new(|| {
+                    async { Ok::<(), Box<dyn Error + Send + Sync>>(()) }.boxed()
+                }),
+            },
             provider: test_provider(),
             output_speed: None,
-            execution_posture: compose_execution_posture(
-                PermissionLevel::Readonly,
-                FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-            ),
-            start_driver: Box::new(move |_resolved_posture: ExecutionPosture| {
-                let (started, released) = held_driver
-                    .lock()
-                    .expect("the test's driver is not poisoned")
-                    .take()
-                    .expect("the driver starts the run once");
-                async move {
-                    started
-                        .send(())
-                        .expect("the test waits for the driver's start");
-                    released.await?;
-                    Ok::<(), Box<dyn Error + Send + Sync>>(())
-                }
-                .boxed()
-            }),
-            interrupt_driver: Box::new(|| {
-                async { Ok::<(), Box<dyn Error + Send + Sync>>(()) }.boxed()
-            }),
             running_statements: None,
         };
 
@@ -741,10 +740,7 @@ mod tests {
             tokio::join!(report, release).0
         };
         let (started, reported) = tokio::time::timeout(SETTLE_WAIT, async {
-            tokio::join!(
-                engine.start(run_id, None, None, start_path),
-                report_during_start
-            )
+            tokio::join!(engine.start_run(request), report_during_start)
         })
         .await
         .expect("the report and the start settle without waiting on each other");
