@@ -13,11 +13,11 @@ use unicode_segmentation::GraphemeCursor;
 // What a tail reads when the process printed nothing but whitespace, since the wire refuses blank.
 const NO_OUTPUT: &str = "(no output)";
 
-/// The last stretch of a child's output, fed chunk by chunk: bytes are held until they make a
-/// whole UTF-8 sequence and each invalid one reads as U+FFFD once, and at most about twice the cap
-/// is kept in memory however much the child prints.
-pub(crate) struct OutputTail {
-    cap: usize,
+/// The last `CAP` code points of a child's output, fed chunk by chunk: bytes are held until they
+/// make a whole UTF-8 sequence and each invalid one reads as U+FFFD once, and at most about twice
+/// the cap is kept in memory however much the child prints. `CAP` is at most the wire's
+/// failure-detail cap, which the build checks.
+pub(crate) struct OutputTail<const CAP: usize> {
     text: String,
     // Code points in `text`.
     text_len: usize,
@@ -25,11 +25,16 @@ pub(crate) struct OutputTail {
     pending: Vec<u8>,
 }
 
-impl OutputTail {
-    /// An empty tail that keeps the last `cap` code points.
-    pub(crate) fn new(cap: usize) -> Self {
+impl<const CAP: usize> OutputTail<CAP> {
+    /// An empty tail.
+    pub(crate) fn new() -> Self {
+        const {
+            assert!(
+                CAP <= PROVIDER_FAILURE_DETAIL_MAX_LEN,
+                "a tail's cap fits the failure-detail cap"
+            );
+        }
         Self {
-            cap,
             text: String::new(),
             text_len: 0,
             pending: Vec::new(),
@@ -64,7 +69,7 @@ impl OutputTail {
         }
     }
 
-    /// The tail as the wire carries it: the last `cap` code points, moved forward to the next
+    /// The tail as the wire carries it: the last `CAP` code points, moved forward to the next
     /// grapheme boundary so no character is split from its marks, each NUL read as U+FFFD, and
     /// `(no output)` for output that was empty or only whitespace.
     pub(crate) fn into_text(mut self) -> String {
@@ -74,7 +79,7 @@ impl OutputTail {
         let cut = self
             .text
             .char_indices()
-            .nth(self.text_len.saturating_sub(self.cap))
+            .nth(self.text_len.saturating_sub(CAP))
             .map_or(self.text.len(), |(offset, _)| offset);
         let start = if cut == 0 {
             0
@@ -102,8 +107,8 @@ impl OutputTail {
         self.text_len += text.chars().count();
         // Trimmed past twice the cap to half again the cap, so trimming is rare and the cut at the
         // end still sees the characters before it.
-        if self.text_len > self.cap.saturating_mul(2) {
-            let kept = self.cap + self.cap / 2;
+        if self.text_len > CAP.saturating_mul(2) {
+            let kept = CAP + CAP / 2;
             let dropped = self.text_len - kept;
             let offset = self
                 .text
@@ -118,12 +123,11 @@ impl OutputTail {
 
 /// The exit a process that ended on its own crosses the wire with: the name of the signal that
 /// ended it where there is one, else its exit code (a Windows code read as its unsigned 32-bit
-/// value, so a crash reads 3221225477, and a missing code 0), with its output tail. The tail's cap
-/// is at most the wire's failure-detail cap.
-pub(crate) fn compose_process_exit(
+/// value, so a crash reads 3221225477, and a missing code 0), with its output tail.
+pub(crate) fn compose_process_exit<const CAP: usize>(
     exit_code: Option<i32>,
     signal_name: Option<String>,
-    output_tail: OutputTail,
+    output_tail: OutputTail<CAP>,
 ) -> ProcessExit {
     let output_tail = FreeFormText::<PROVIDER_FAILURE_DETAIL_MAX_LEN>::new(output_tail.into_text())
         .expect("a tail is never blank, holds no NUL and is within the failure-detail cap");
@@ -149,8 +153,8 @@ mod tests {
 
     use super::{OutputTail, compose_process_exit};
 
-    fn tail_of(cap: usize, chunks: &[&[u8]]) -> String {
-        let mut tail = OutputTail::new(cap);
+    fn tail_of<const CAP: usize>(chunks: &[&[u8]]) -> String {
+        let mut tail = OutputTail::<CAP>::new();
         for chunk in chunks {
             tail.push(chunk);
         }
@@ -158,23 +162,23 @@ mod tests {
     }
 
     #[rstest]
-    // `é` split across two chunks decodes once, as itself.
-    #[case::a_split_character(10, &[b"caf\xC3".as_slice(), b"\xA9".as_slice()], "café")]
+    // `ï` split across two chunks decodes once, as itself.
+    #[case::a_split_character(tail_of::<10>(&[b"na\xC3".as_slice(), b"\xAFve".as_slice()]), "naïve")]
     // A sequence left unfinished at the end reads as one U+FFFD.
-    #[case::an_unfinished_character(10, &[b"ok\xE2\x82".as_slice()], "ok\u{FFFD}")]
+    #[case::an_unfinished_character(tail_of::<10>(&[b"ok\xE2\x82".as_slice()]), "ok\u{FFFD}")]
     // The last three code points start inside `e` with its accent, so the cut moves past both.
-    #[case::a_grapheme_boundary(3, &[b"abe\xCC\x81cd".as_slice()], "cd")]
+    #[case::a_grapheme_boundary(tail_of::<3>(&[b"abe\xCC\x81cd".as_slice()]), "cd")]
     // Long output trimmed while it streams keeps exactly the last code points.
-    #[case::the_last_code_points(4, &[b"0123456789".as_slice(), b"abcdef".as_slice()], "cdef")]
-    #[case::blank_output(10, &[b" \n\t".as_slice()], "(no output)")]
-    #[case::no_output(10, &[], "(no output)")]
-    fn keeps_the_tail(#[case] cap: usize, #[case] chunks: &[&[u8]], #[case] expected: &str) {
-        assert_eq!(tail_of(cap, chunks), expected);
+    #[case::the_last_code_points(tail_of::<4>(&[b"0123456789".as_slice(), b"abcdef".as_slice()]), "cdef")]
+    #[case::blank_output(tail_of::<10>(&[b" \n\t".as_slice()]), "(no output)")]
+    #[case::no_output(tail_of::<10>(&[]), "(no output)")]
+    fn keeps_the_tail(#[case] tail: String, #[case] expected: &str) {
+        assert_eq!(tail, expected);
     }
 
     #[test]
     fn a_tail_holding_nul_still_builds_an_exit() {
-        let mut tail = OutputTail::new(32);
+        let mut tail = OutputTail::<32>::new();
         tail.push(b"failed\0here");
 
         let ProcessExit::Code(exit) = compose_process_exit(Some(-1_073_741_819), None, tail) else {
