@@ -191,14 +191,19 @@ fn socklen_of<T>() -> libc::socklen_t {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::{CString, OsString};
-    use std::io::{Read as _, Write as _};
-    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
-    use std::os::unix::ffi::OsStringExt as _;
+    use std::fmt::Write as _;
+    use std::io::Write as _;
+    use std::os::fd::OwnedFd;
     use std::process::{Command, Output, Stdio};
 
     use super::{ShellStartConfirmation, receive_confirmation};
-    use crate::macos::responsibility::{OwnRootStart, read_responsible_id};
+    use crate::macos::responsibility::{
+        read_responsible_id, run_test_as_own_root, this_test_program,
+    };
+
+    /// The `shell` mode stand-in's test.
+    const SHELL_MODE_STAND_IN: &str =
+        "macos::shell_start_confirmation::tests::the_shell_mode_stand_in_receives_its_confirmation";
 
     /// What the `shell` mode stand-in prints once its confirmation is received.
     const RECEIVED: &str = "the shell start was confirmed";
@@ -206,36 +211,65 @@ mod tests {
     /// What the own-root parent stand-in prints once every start it confirmed went as expected.
     const PARENT_CHECKED: &str = "the own-root parent's starts went as expected";
 
-    /// This test program, run with only the test `name`, ignored ones included, its output kept.
-    fn this_test_program(name: &str) -> Command {
-        let mut command =
-            Command::new(std::env::current_exe().expect("the test program names itself"));
-        command.args(["--exact", name, "--include-ignored", "--nocapture"]);
-        command
+    /// Who writes the confirmation of the `shell` mode stand-in this process starts.
+    enum Writer {
+        /// This process, naming the child's own id.
+        ThisProcessNamingTheChild,
+        /// This process, naming `id`.
+        ThisProcessNaming(u32),
+        /// Another process, a child of this one, naming the stand-in's own id on this process's
+        /// end, which this process keeps open.
+        AnotherProcessNamingTheChild,
     }
 
-    /// Starts the `shell` mode stand-in as this process's child, confirms `confirmed_id` (the
-    /// child's own id when `None`) and answers its output.
-    fn start_confirmed(confirmed_id: Option<u32>) -> Output {
+    /// Starts the `shell` mode stand-in as this process's child, has `writer` confirm it and
+    /// answers its output.
+    fn start_confirmed(writer: &Writer) -> Output {
         let mut confirmation = ShellStartConfirmation::new().expect("the pair opens");
         let (name, value) = confirmation
             .environment_entry()
             .expect("macOS confirms a shell's start");
-        let child = this_test_program(
-            "macos::shell_start_confirmation::tests::the_shell_mode_stand_in_receives_its_confirmation",
-        )
-        .env(name, value)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the stand-in starts");
-        confirmation
-            .confirm(confirmed_id.unwrap_or_else(|| child.id()))
-            .expect("the confirmation is written");
+        let child = this_test_program(SHELL_MODE_STAND_IN)
+            .env(name, value)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the stand-in starts");
+        match writer {
+            Writer::ThisProcessNamingTheChild => confirmation.confirm(child.id()),
+            Writer::ThisProcessNaming(id) => confirmation.confirm(*id),
+            Writer::AnotherProcessNamingTheChild => {
+                drop(confirmation.shell_end.take());
+                write_from_another_process(&confirmation, child.id());
+                Ok(())
+            }
+        }
+        .expect("the confirmation is written");
         // Kept open until the stand-in ends, as the daemon keeps it for the shell's life.
         let output = child.wait_with_output().expect("the stand-in ends");
         drop(confirmation);
         output
+    }
+
+    /// Has a shell, this process's child, write `id` on a copy of the daemon's end of
+    /// `confirmation`.
+    fn write_from_another_process(confirmation: &ShellStartConfirmation, id: u32) {
+        let daemon_end = OwnedFd::from(
+            confirmation
+                .daemon_end
+                .try_clone()
+                .expect("the daemon's end copies"),
+        );
+        let mut escaped = String::new();
+        for byte in id.to_ne_bytes() {
+            write!(escaped, "\\{byte:03o}").expect("a string takes every write");
+        }
+        let status = Command::new("/bin/sh")
+            .args(["-c", "printf \"$1\"", "sh", &escaped])
+            .stdout(Stdio::from(daemon_end))
+            .status()
+            .expect("the writer runs");
+        assert!(status.success(), "the writer wrote the id");
     }
 
     /// Whether the stand-in that printed `output` received its confirmation.
@@ -260,13 +294,19 @@ mod tests {
             Some(own_id),
             "the stand-in started as its own responsible process"
         );
-        let own_child = start_confirmed(None);
+        let own_child = start_confirmed(&Writer::ThisProcessNamingTheChild);
         assert!(
             was_received(&own_child),
             "{}",
             String::from_utf8_lossy(&own_child.stderr)
         );
-        assert!(!was_received(&start_confirmed(Some(own_id))));
+        assert!(!was_received(&start_confirmed(&Writer::ThisProcessNaming(
+            own_id
+        ))));
+        // A process other than the parent writing the stand-in's own id on a held end is refused.
+        assert!(!was_received(&start_confirmed(
+            &Writer::AnotherProcessNamingTheChild
+        )));
         writeln!(std::io::stdout(), "{PARENT_CHECKED}").expect("the stand-in writes its output");
     }
 
@@ -274,68 +314,15 @@ mod tests {
     fn a_shell_start_is_confirmed_only_by_an_own_root_parent_naming_it() {
         // The test runs under its runner, which is responsible for it, as the daemon is for every
         // process an agent runs: its confirmation of its own child is refused.
-        assert!(!was_received(&start_confirmed(None)));
-
-        // Built before the fork, so the child makes only the exec's one system call.
-        let program = std::env::current_exe().expect("the test program names itself");
-        let arguments = [
-            program.clone().into_os_string(),
-            OsString::from("--exact"),
-            OsString::from(
-                "macos::shell_start_confirmation::tests::an_own_root_parent_confirms_only_the_process_it_started",
-            ),
-            OsString::from("--include-ignored"),
-            OsString::from("--nocapture"),
-        ];
-        let c_string = |text: OsString| CString::new(text.into_vec()).expect("no NUL");
-        let environment = std::env::vars_os()
-            .map(|(mut name, value)| {
-                name.push("=");
-                name.push(value);
-                c_string(name)
-            })
-            .collect();
-        let start = OwnRootStart::new(
-            c_string(program.into_os_string()),
-            arguments.into_iter().map(c_string).collect(),
-            environment,
-        )
-        .expect("the start prepares");
-        let mut ends = [0; 2];
-        // SAFETY: `ends` is a live array of the two descriptors the call fills.
-        let status = unsafe { libc::pipe(ends.as_mut_ptr()) };
-        assert_eq!(status, 0, "the pipe opens");
-        // SAFETY: the call succeeded, so both descriptors are new and owned here alone.
-        let (read_end, write_end) =
-            unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
-        // SAFETY: the descriptor is open; the call only sets its close-on-exec flag.
-        let status = unsafe { libc::fcntl(read_end.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
-        assert_eq!(status, 0, "the read end closes on exec");
-        let write_descriptor = write_end.as_raw_fd();
-
-        // SAFETY: the child calls only `dup2`, `exec` and `_exit`, each async-signal-safe, so the
-        // other threads' locks the fork copies are never taken.
-        let child = unsafe { libc::fork() };
-        if child == 0 {
-            // SAFETY: both descriptors are open in the child; `dup2` makes the pipe its output.
-            unsafe { libc::dup2(write_descriptor, libc::STDOUT_FILENO) };
-            drop(start.exec());
-            // SAFETY: `_exit` ends the child without running the parent's exit handlers.
-            unsafe { libc::_exit(127) };
-        }
-        assert!(child > 0, "the child forks");
-        drop(write_end);
-        let mut output = String::new();
-        std::fs::File::from(read_end)
-            .read_to_string(&mut output)
-            .expect("the stand-in's output reads");
-        let mut status = 0;
-        // SAFETY: `child` is this test's own child, which the test reaps here.
-        assert_eq!(unsafe { libc::waitpid(child, &raw mut status, 0) }, child);
+        assert!(!was_received(&start_confirmed(
+            &Writer::ThisProcessNamingTheChild
+        )));
+        let (has_passed, output) = run_test_as_own_root(
+            "macos::shell_start_confirmation::tests::an_own_root_parent_confirms_only_the_process_it_started",
+        );
         assert!(
-            libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
+            has_passed && output.contains(PARENT_CHECKED),
             "the own-root parent's checks pass: {output}"
         );
-        assert!(output.contains(PARENT_CHECKED), "{output}");
     }
 }
