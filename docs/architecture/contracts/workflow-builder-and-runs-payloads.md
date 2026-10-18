@@ -218,7 +218,7 @@ interface WorkflowStepTabArtifactCreateResponse {
 interface WorkflowRunRetryRequest {
   workflowRunId: WorkflowRunId;
   fromNodeId: WorkflowNodeId;
-  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first retry's run, never a second
+  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first retry's run, never a second (return-or-conflict on the call's own record)
 }
 interface WorkflowRunRetryResponse {
   workflowRunId: WorkflowRunId; // the new run, never the source
@@ -234,7 +234,7 @@ interface WorkflowRunRetryResponse {
 // answer is a start's answer.
 interface WorkflowRunRerunRequest {
   workflowRunId: WorkflowRunId; // the run to re-run
-  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first re-run's run, never a second
+  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first re-run's run, never a second (return-or-conflict on the call's own record)
 }
 // → WorkflowRunStartResponse, naming the new run
 

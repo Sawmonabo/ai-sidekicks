@@ -46,7 +46,7 @@ interface ArtifactPublishRequest {
   runId?: RunId;
   artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-012 §Interfaces And Contracts; D-011-3)
   payload: Uint8Array; // the artifact bytes, a `Bytes` attachment beside the JSON in the frame codec, bounded by the frame's 4 MiB attachment cap. The daemon hashes the bytes as sent: content_hash and size_bytes bind them, so two publishes of identical content share one CAS entry. A boundary-crossing publish is single-call; larger file bytes take the ArtifactIngest trio, and daemon-internal publishes never cross the wire (Spec-012 §Ingest Validation And Payload Bounds (V1))
-  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first publish, never a second
+  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first publish, never a second (return-or-conflict on the call's own record)
   mediaType: string; // MIME type
   // `size`/`digest` are not here: the daemon derives size_bytes + content_hash from `payload`
   // (D-011-2).
@@ -179,7 +179,7 @@ interface ArtifactIngestStartRequest {
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-012 §Implementation Notes)
   mediaType?: string; // ADVISORY and OPTIONAL — absent is a first-class state; the type read from the bytes is what the manifest records, a declared text type kept only for UTF-8 bytes that name no type, and no declaration refuses anything (Spec-012 pipeline step 1)
   declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: reserved against the spool volume's free space, read at admission (a declaration the free disk cannot hold even with no other stream open is refused artifact.tooLarge (413) up front, naming the file and the room the disk has, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
-  clientIdempotencyKey: string; // a UUID, through the command receipts: a resend under the same key after a reconnect answers the first Start's `ingestId`, never a second stream
+  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first Start's `ingestId`, never a second stream (return-or-conflict on the call's own record)
 }
 interface ArtifactIngestStartResponse {
   ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Start; scopes every subsequent Write/Complete call — each refused artifact.ingest.streamInvalid (409) once the stream is terminated, expired, or unknown, and every Write once it is completed. ONE carved exception: a retried Complete on a completed stream whose completion record still lives returns the saved result, the original response verbatim — see ArtifactIngestCompleteRequest
