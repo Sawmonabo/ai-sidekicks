@@ -3,7 +3,6 @@
 //! `transcript.search`, one session's find over every row it holds, newest first. Each reads only
 //! the session the request names, up to the request's own limit.
 
-use std::error::Error;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -15,60 +14,44 @@ use sidekicks_contracts::transcript::content::{
 use sidekicks_contracts::transcript::methods::{
     TranscriptBodyRead, TranscriptRead, TranscriptSearch,
 };
-use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, TranscriptReadResponse};
+use sidekicks_contracts::transcript::operations::TranscriptReadRequest;
 use sidekicks_contracts::transcript::search::TranscriptSearchRequest;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use crate::session::search::index::live::LiveIndex;
-use crate::transcript::body::read_stored_event_row;
-use crate::transcript::window::read_transcript_window;
+use crate::session::service::SessionService;
 
-/// What `transcript.read` and `transcript.body.read` read the session's log through.
-pub(crate) struct TranscriptLogReads {
-    /// The daemon's read connections.
-    pub(crate) reads: Arc<DatabaseReadPool>,
-    /// Where a damaged session's reads stop.
-    pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
-}
-
-/// Registers `transcript.read` and `transcript.body.read` over `log_reads`, and
-/// `transcript.search` over `search_index`.
-/// Each refuses a session the daemon does not hold `session.notFound`; a cursor naming no position
-/// is refused `session.event.cursorUnresolvable`, an `aroundCursor` or a `rowId` at which the
-/// session holds no row `transcript.row.notFound`, and a body `offset` inside a character or past
-/// the body's end `transcript.body.offsetInvalid`. Fails the start when a method is already
-/// registered.
+/// Registers `transcript.read` and `transcript.body.read` over `sessions` and `transcript.search`
+/// over `search_index`, each refusing by the codes its method lists. Fails the start when a method
+/// is already registered.
 pub(crate) fn register_transcript_reads(
     registry: &mut MethodRegistryBuilder,
-    log_reads: TranscriptLogReads,
+    sessions: Arc<SessionService>,
     search_index: Arc<LiveIndex>,
 ) -> Result<(), RegistrationError> {
-    let log_reads = Arc::new(log_reads);
-    let windows = Arc::clone(&log_reads);
+    let windows = Arc::clone(&sessions);
     registry.register::<TranscriptRead, _>(
         move |request: TranscriptReadRequest, _context: HandlerContext| {
-            let log_reads = Arc::clone(&windows);
-            async move { read_window(&log_reads, request).await }.boxed()
+            let sessions = Arc::clone(&windows);
+            async move { Ok(sessions.read_transcript_window(request).await?) }.boxed()
         },
     )?;
-    let bodies = Arc::clone(&log_reads);
+    let bodies = Arc::clone(&sessions);
     registry.register::<TranscriptBodyRead, _>(
         move |request: TranscriptBodyReadRequest, _context: HandlerContext| {
-            let log_reads = Arc::clone(&bodies);
-            async move { read_body(&log_reads, request).await }.boxed()
+            let sessions = Arc::clone(&bodies);
+            async move { read_body(&sessions, request).await }.boxed()
         },
     )?;
     registry.register::<TranscriptSearch, _>(
         move |request: TranscriptSearchRequest, _context: HandlerContext| {
-            let read_damaged_from_sequence = Arc::clone(&log_reads.read_damaged_from_sequence);
+            let sessions = Arc::clone(&sessions);
             let search_index = Arc::clone(&search_index);
             async move {
-                let damaged_from_sequence = read_damaged_from_sequence(&request.session_id);
+                let damaged_from_sequence = sessions.damaged_from_sequence(&request.session_id);
                 Ok(search_index
                     .search_transcript(request, damaged_from_sequence)
                     .await?)
@@ -78,48 +61,15 @@ pub(crate) fn register_transcript_reads(
     )
 }
 
-async fn read_window(
-    log_reads: &TranscriptLogReads,
-    request: TranscriptReadRequest,
-) -> Result<TranscriptReadResponse, HandlerError> {
-    let read_damaged_from_sequence = Arc::clone(&log_reads.read_damaged_from_sequence);
-    let window = log_reads
-        .reads
-        .read(ReadLength::Long, move |connection| {
-            let read_damaged_from_sequence: &DamagedFromSequenceReader =
-                &*read_damaged_from_sequence;
-            Ok::<_, DatabaseReadError>(read_transcript_window(
-                connection,
-                &read_damaged_from_sequence,
-                &request,
-            ))
-        })
-        .await
-        .map_err(internal)??;
-    Ok(window)
-}
-
+// The part of a row's body from the request's offset. A row the session does not hold is refused
+// `transcript.row.notFound`, so it never reads like a row with no body.
 async fn read_body(
-    log_reads: &TranscriptLogReads,
+    sessions: &SessionService,
     request: TranscriptBodyReadRequest,
 ) -> Result<TranscriptBodyReadResponse, HandlerError> {
-    let read_damaged_from_sequence = Arc::clone(&log_reads.read_damaged_from_sequence);
-    let session_id = request.session_id;
-    let row_id = request.row_id.clone();
-    let stored_row = log_reads
-        .reads
-        .read(ReadLength::Short, move |connection| {
-            let read_damaged_from_sequence: &DamagedFromSequenceReader =
-                &*read_damaged_from_sequence;
-            Ok::<_, DatabaseReadError>(read_stored_event_row(
-                connection,
-                &read_damaged_from_sequence,
-                &session_id,
-                row_id.as_str(),
-            ))
-        })
-        .await
-        .map_err(internal)??;
+    let stored_row = sessions
+        .read_stored_event_row(request.session_id, request.row_id.as_str().to_owned())
+        .await?;
     let Some(stored_row) = stored_row else {
         return Err(DomainError::new(
             "This session holds no row with that id.",
@@ -130,9 +80,7 @@ async fn read_body(
     };
     let stored_body = stored_row
         .content_payload
-        .map(|body| StoredBodyText::new(body).ok_or(StoredBodyOverCap))
-        .transpose()
-        .map_err(internal)?;
+        .map(|body| StoredBodyText::new(body).expect("a stored body within its cap"));
     // An offset past what `usize` holds lies past every body's end, so it is refused as one.
     let offset = request
         .offset
@@ -143,16 +91,6 @@ async fn read_body(
         stored_body.as_ref(),
         offset,
     )?)
-}
-
-/// A stored body longer than the cap every append cuts a body to, which only a write outside the
-/// append path can leave.
-#[derive(Debug, thiserror::Error)]
-#[error("a stored body is longer than the cap every append holds it to")]
-struct StoredBodyOverCap;
-
-fn internal(fault: impl Error + Send + Sync + 'static) -> HandlerError {
-    HandlerError::Internal(Box::new(fault))
 }
 
 #[cfg(test)]
@@ -169,12 +107,13 @@ mod tests {
     };
     use sidekicks_contracts::wire::text::FreeFormText;
 
-    use super::{TranscriptLogReads, read_body};
+    use super::read_body;
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+    use crate::events::log_service::EventLogAppendOptions;
     use crate::events::log_service::tests::open_log;
-    use crate::events::log_service::{EVENT_LOG_STATEMENT_CAPACITY, EventLogAppendOptions};
     use crate::ipc::registry::HandlerError;
+    use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 
     #[tokio::test]
     async fn a_row_the_session_lacks_is_refused_where_a_row_with_no_body_reads_absent() {
@@ -193,20 +132,20 @@ mod tests {
             )
             .await
             .expect("the append commits");
-        let log_reads = TranscriptLogReads {
-            reads: Arc::new(DatabaseReadPool::new(
+        let sessions = SessionService::new(
+            Arc::new(DatabaseReadPool::new(
                 database.path(),
-                EVENT_LOG_STATEMENT_CAPACITY,
+                SESSION_SERVICE_STATEMENT_CAPACITY,
             )),
-            read_damaged_from_sequence: Arc::new(|_session_id: &SessionId| None),
-        };
+            Arc::new(|_session_id: &SessionId| None),
+        );
         let body_of = |row_id: FreeFormText<EVENT_FIELD_MAX_LEN>| TranscriptBodyReadRequest {
             session_id,
             row_id,
             offset: None,
         };
 
-        let held = read_body(&log_reads, body_of(receipt.id))
+        let held = read_body(&sessions, body_of(receipt.id))
             .await
             .expect("a row the session holds reads");
         assert_eq!(
@@ -217,7 +156,7 @@ mod tests {
         );
 
         let missing_id = FreeFormText::new("no-such-row".to_owned()).expect("a row id");
-        let refused = read_body(&log_reads, body_of(missing_id))
+        let refused = read_body(&sessions, body_of(missing_id))
             .await
             .expect_err("a row the session does not hold is refused");
         let HandlerError::Refused(refusal) = refused else {

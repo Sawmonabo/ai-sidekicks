@@ -37,6 +37,7 @@ use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, Transcri
 use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::{False, True};
 
+use crate::database::connection::read_pool::DatabaseReadError;
 use crate::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
@@ -65,6 +66,10 @@ pub(crate) enum TranscriptReadError {
     /// The window's events could not be projected into rows.
     #[error(transparent)]
     Projection(#[from] TranscriptProjectionError),
+    /// The read pool is closed, a connection did not open, or the read's blocking task did not
+    /// finish.
+    #[error(transparent)]
+    Pool(#[from] DatabaseReadError),
 }
 
 impl From<TranscriptReadError> for HandlerError {
@@ -76,7 +81,8 @@ impl From<TranscriptReadError> for HandlerError {
             TranscriptReadError::CursorUnresolvable(unresolvable) => unresolvable.into(),
             fault @ (TranscriptReadError::Log(_)
             | TranscriptReadError::Database(_)
-            | TranscriptReadError::Projection(_)) => Self::Internal(Box::new(fault)),
+            | TranscriptReadError::Projection(_)
+            | TranscriptReadError::Pool(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -113,7 +119,7 @@ pub(crate) fn read_transcript_window<DamagedFrom>(
     request: &TranscriptReadRequest,
 ) -> Result<TranscriptReadResponse, TranscriptReadError>
 where
-    DamagedFrom: Fn(&SessionId) -> Option<i64>,
+    DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
 {
     let snapshot = reader.unchecked_transaction()?;
     let window = WindowReads {
@@ -150,7 +156,7 @@ where
 }
 
 /// The reads of one window, all on one connection inside its snapshot.
-struct WindowReads<'window, DamagedFrom> {
+struct WindowReads<'window, DamagedFrom: ?Sized> {
     reader: &'window Connection,
     read_damaged_from_sequence: &'window DamagedFrom,
     session_id: &'window SessionId,
@@ -158,7 +164,7 @@ struct WindowReads<'window, DamagedFrom> {
 
 impl<DamagedFrom> WindowReads<'_, DamagedFrom>
 where
-    DamagedFrom: Fn(&SessionId) -> Option<i64>,
+    DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
 {
     // The oldest rows after `after_position`, up to `before_position` when one bounds the window.
     fn read_forward(
