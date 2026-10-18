@@ -24,9 +24,11 @@ name = "sidekicks"
 path = "src/main.rs"
 
 [dependencies]
-# Whether each output stream shows styles, read as clap's own output reads it (`NO_COLOR`,
-# `CLICOLOR_FORCE`, the terminal's color support): picked over `anstream`, whose stream wrappers
-# the command line has no use for, since clap's text is rendered into the run's own writers.
+# Whether each output stream shows styles: `anstream`'s own choice for a stream, the rule clap's
+# output follows, picked over writing that rule again with `anstyle-query`; `anstyle-query` turns on
+# a Windows console's escape codes, as `anstream` does before it writes styles to one. Only the
+# choice is used, since clap's text is rendered into the run's own writers.
+anstream.workspace = true
 anstyle-query.workspace = true
 anyhow.workspace = true
 clap.workspace = true

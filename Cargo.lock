@@ -8170,6 +8170,7 @@ dependencies = [
 name = "sidekicks-cli"
 version = "0.0.0"
 dependencies = [
+ "anstream",
  "anstyle-query",
  "anyhow",
  "clap",

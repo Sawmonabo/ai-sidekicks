@@ -9,29 +9,37 @@ mod command_context;
 mod exit_codes;
 mod program;
 
-use std::io::{self, IsTerminal as _};
+use std::io;
 
+use anstream::stream::RawStream;
+use anstream::{AutoStream, ColorChoice};
 use command_context::CommandContext;
 use exit_codes::ProcessEnding;
 
 fn main() -> std::process::ExitCode {
-    let (stdout, stderr) = (io::stdout(), io::stderr());
+    let (stdout, stderr) = (io::stdout().lock(), io::stderr().lock());
     let mut context = CommandContext {
-        is_stdout_styled: shows_styles(stdout.is_terminal()),
-        is_stderr_styled: shows_styles(stderr.is_terminal()),
-        stdout: stdout.lock(),
-        stderr: stderr.lock(),
+        is_stdout_styled: shows_styles(&stdout),
+        is_stderr_styled: shows_styles(&stderr),
+        stdout,
+        stderr,
     };
     match program::run_program(std::env::args_os(), &mut context) {
         ProcessEnding::Exit(code) => code.into(),
     }
 }
 
-/// Whether a stream shows styles, as clap's own output decides: never under `NO_COLOR`, always
-/// under `CLICOLOR_FORCE`, and otherwise when it is a terminal that shows colors, so no file or
-/// pipe receives an escape code unasked.
-fn shows_styles(is_terminal: bool) -> bool {
-    !anstyle_query::no_color()
-        && (anstyle_query::clicolor_force()
-            || (is_terminal && anstyle_query::term_supports_color()))
+/// Whether `stream` shows styles, as clap's own output decides: `anstream`'s choice for it
+/// (`NO_COLOR`, then `CLICOLOR_FORCE`, then `CLICOLOR=0`, then a terminal that shows colors or
+/// runs under a truthy `CLICOLOR` or `CI`), and on a terminal whose escape codes cannot be turned
+/// on (a Windows console without them) never, so no stream receives an escape code it would print.
+fn shows_styles<S: RawStream>(stream: &S) -> bool {
+    match AutoStream::choice(stream) {
+        ColorChoice::Never | ColorChoice::Auto => false,
+        ColorChoice::Always | ColorChoice::AlwaysAnsi => {
+            !stream.is_terminal()
+                || anstyle_query::windows::enable_ansi_colors().unwrap_or(true)
+                || anstyle_query::term_supports_ansi_color()
+        }
+    }
 }
