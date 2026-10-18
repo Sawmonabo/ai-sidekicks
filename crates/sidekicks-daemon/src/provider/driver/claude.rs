@@ -2,11 +2,14 @@
 
 use sidekicks_contracts::mcp::server::config::McpTransport;
 use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::{PerSystem, SystemFolderBase};
+use sidekicks_platforms::{
+    LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
+    WindowsSystemFolder,
+};
 
 use crate::provider::driver::{
-    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ProviderCommand,
-    ProviderCommandLookup, ProviderDescriptor,
+    CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup,
+    ProviderDescriptor, ProviderMemoryEstimates,
 };
 
 mod capability_probe;
@@ -52,19 +55,40 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         }),
     },
     // Where `managed-settings.json`, `managed-settings.d/` and `managed-mcp.json` sit.
-    managed_settings_folders: PerSystem {
-        macos: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::ApplicationSupport,
+    managed_settings_folders: SystemFolders {
+        macos: Some(SystemFolder {
+            base: MacosSystemFolder::ApplicationSupport,
             components: &["ClaudeCode"],
         }),
-        linux: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::Etc,
+        linux: Some(SystemFolder {
+            base: LinuxSystemFolder::Etc,
             components: &["claude-code"],
         }),
-        windows: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::ProgramFiles,
+        windows: Some(SystemFolder {
+            base: WindowsSystemFolder::ProgramFiles,
             components: &["ClaudeCode"],
         }),
+    },
+    // Seatbelt on macOS and bubblewrap on Linux; on Windows it runs commands unsandboxed.
+    command_sandbox: PerSystem {
+        macos: true,
+        linux: true,
+        windows: false,
+    },
+    // On Linux its sandbox runs the system's bubblewrap and socat in a user namespace; macOS
+    // ships Seatbelt.
+    command_sandbox_needs: PerSystem {
+        macos: CommandSandboxNeeds::NOTHING,
+        linux: CommandSandboxNeeds {
+            programs: &["bwrap", "socat"],
+            user_namespace: true,
+        },
+        windows: CommandSandboxNeeds::NOTHING,
+    },
+    // Each conversation is a process of its own, measured at a peak of 182 MB.
+    memory: ProviderMemoryEstimates {
+        process_bytes: 182_000_000,
+        conversation_bytes: None,
     },
     standard_output_speed: "off",
     // Its declared state has a third value, which the provider enters after a rate limit and no

@@ -2,14 +2,16 @@
 //! machinery. A provider's code stays in its own folder below; this file is the one other place
 //! that names one, in its table entry.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::provider::id::is_provider_id;
 use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::{PathRules, PerSystem, Spawner, SystemFolderBase, system_folder_path};
+use sidekicks_platforms::{
+    PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
+};
 
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::output_validation::is_canonical_semver;
@@ -37,7 +39,8 @@ pub(crate) mod unified_diff;
 #[expect(
     dead_code,
     reason = "the provider list, the daemon's start, the capability report, the spawn \
-              environment and the managed-settings checks read each descriptor's facts"
+              environment, the managed-settings checks, the memory gate and the sandboxed \
+              permission level's check read each descriptor's facts"
 )]
 pub(crate) struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
@@ -52,7 +55,13 @@ pub(crate) struct ProviderDescriptor {
     pub(crate) command: ProviderCommand,
     /// The folder on each operating system the provider reads the settings an administrator
     /// manages for everyone on the computer from; `None` where its documentation names none.
-    pub(crate) managed_settings_folders: PerSystem<Option<ManagedSettingsFolder>>,
+    pub(crate) managed_settings_folders: SystemFolders,
+    /// Whether the provider runs its commands in a kernel sandbox on each operating system.
+    pub(crate) command_sandbox: PerSystem<bool>,
+    /// What the provider's command sandbox needs from the computer on each operating system.
+    pub(crate) command_sandbox_needs: PerSystem<CommandSandboxNeeds>,
+    /// What one start of the provider costs in memory before this machine has measured it.
+    pub(crate) memory: ProviderMemoryEstimates,
     /// The provider's own word for standard output speed, as its declared state reads it; a run
     /// that carried another level and settles on another state is told fast output is unavailable.
     pub(crate) standard_output_speed: &'static str,
@@ -96,15 +105,38 @@ impl ProviderDescriptor {
     /// The folder on the running system the provider reads its administrator-managed settings
     /// from, `None` where it names none there; the WSL server, a Linux build, answers Linux's.
     pub(crate) fn managed_settings_folder(&self) -> Option<PathBuf> {
-        let folder = self.managed_settings_folders.native().as_ref()?;
-        Some(
-            folder
-                .components
-                .iter()
-                .fold(system_folder_path(folder.base), |path, component| {
-                    path.join(component)
-                }),
-        )
+        self.managed_settings_folders.native_path()
+    }
+
+    /// Whether the provider can run its commands in its kernel sandbox on the running system: it
+    /// sandboxes there, every program the sandbox needs is found from `environment`, the
+    /// provider's own, with `working_folder` and `skipped_folders` as the executable search takes
+    /// them, and a user namespace is made where the sandbox needs one. It reads the file system
+    /// and starts a short check process, so it runs on the daemon's spawner thread; the WSL
+    /// server, a Linux build, answers Linux's. Fails with the system's error from the namespace
+    /// check.
+    pub(crate) fn can_run_command_sandbox(
+        &self,
+        environment: &[(String, String)],
+        working_folder: &Path,
+        skipped_folders: &[PathBuf],
+    ) -> std::io::Result<bool> {
+        if !*self.command_sandbox.native() {
+            return Ok(false);
+        }
+        let needs = self.command_sandbox_needs.native();
+        let has_programs = needs.programs.iter().all(|program| {
+            find_executables(program, environment, working_folder, skipped_folders)
+                .next()
+                .is_some()
+        });
+        if !has_programs {
+            return Ok(false);
+        }
+        if needs.user_namespace {
+            return can_create_user_namespace();
+        }
+        Ok(true)
     }
 
     /// The output-speed levels a capability report carries: the driver's fixed set where
@@ -175,13 +207,32 @@ pub(crate) enum InstallFolderBase {
     UserPrograms,
 }
 
-/// An administrator-managed settings folder: path components under a computer-wide folder the
-/// platforms crate finds, so no descriptor holds a system path.
-pub(crate) struct ManagedSettingsFolder {
-    /// The computer-wide folder the components are under.
-    pub(crate) base: SystemFolderBase,
-    /// The components below `base`, outermost first.
-    pub(crate) components: &'static [&'static str],
+/// What a provider's command sandbox needs from the computer on one operating system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CommandSandboxNeeds {
+    /// The programs it runs from the provider's search path.
+    pub(crate) programs: &'static [&'static str],
+    /// Whether it makes a user namespace, which a computer can refuse a person.
+    pub(crate) user_namespace: bool,
+}
+
+impl CommandSandboxNeeds {
+    /// A sandbox that needs nothing the computer can lack.
+    pub(crate) const NOTHING: Self = Self {
+        programs: &[],
+        user_namespace: false,
+    };
+}
+
+/// What one start of a provider costs in memory before this machine has measured it, each figure
+/// the top of the range measured, in bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderMemoryEstimates {
+    /// A new process of the provider.
+    pub(crate) process_bytes: u64,
+    /// One more conversation on a process of the provider already running; `None` where each
+    /// conversation is a process of its own.
+    pub(crate) conversation_bytes: Option<u64>,
 }
 
 /// The longest version text a provider's reply is read as a version from, in characters.

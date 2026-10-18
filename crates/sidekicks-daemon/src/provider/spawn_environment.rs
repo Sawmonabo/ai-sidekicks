@@ -306,14 +306,16 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::machine::settings::{APP_SET_ENVIRONMENT_NAMES, EnvironmentRow};
     use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
-    use sidekicks_platforms::{PathRules, PerSystem};
+    use sidekicks_platforms::{PathRules, PerSystem, SystemFolders};
 
     use super::{
         ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
         SpawnEnvironmentError, build_conversation_command_environment,
         build_project_command_environment, build_provider_process_environment,
     };
-    use crate::provider::driver::{ProviderCommand, ProviderDescriptor};
+    use crate::provider::driver::{
+        CommandSandboxNeeds, ProviderCommand, ProviderDescriptor, ProviderMemoryEstimates,
+    };
 
     /// A provider that sets, withholds and reserves names of its own.
     const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
@@ -325,10 +327,24 @@ mod tests {
             windows: None,
             unix: None,
         },
-        managed_settings_folders: PerSystem {
+        managed_settings_folders: SystemFolders {
             macos: None,
             linux: None,
             windows: None,
+        },
+        command_sandbox: PerSystem {
+            macos: false,
+            linux: false,
+            windows: false,
+        },
+        command_sandbox_needs: PerSystem {
+            macos: CommandSandboxNeeds::NOTHING,
+            linux: CommandSandboxNeeds::NOTHING,
+            windows: CommandSandboxNeeds::NOTHING,
+        },
+        memory: ProviderMemoryEstimates {
+            process_bytes: 0,
+            conversation_bytes: None,
         },
         standard_output_speed: "standard",
         output_speed_levels: None,
