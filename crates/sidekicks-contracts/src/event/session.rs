@@ -114,18 +114,21 @@ approval_reviewer_denied_payload! {
     pub struct ApprovalReviewerDeniedEventPayload
 }
 
-/// The run an event belongs to: its payload's `runId`, with its `runVersion` where it carries one.
+/// The run an event belongs to: its payload's `runId`, with its `runVersion` and `turnNumber`
+/// where it carries them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EventRun {
     /// The run.
     pub run_id: RunId,
     /// The run's progression counter the event was written at.
     pub run_version: Option<SafeInt<0>>,
+    /// The turn's number within its run, on a turn's start and its end.
+    pub turn_number: Option<SafeInt<1>>,
 }
 
 /// One arm of [`SessionEvent::run`]: the pattern that binds the payload where its run is read,
 /// then the run read from it, as the arm's rule in the registration table says: `versioned` for a
-/// `runId` and a `runVersion`, `required` for a `runId` alone, `optional` for an optional `runId`,
+/// `runId` and a `runVersion`, `turn` for those and a `turnNumber`, `required` for a `runId` alone, `optional` for an optional `runId`,
 /// `read(function)` for a payload union whose arms differ, and no rule for no run.
 macro_rules! event_run {
     (@binding $payload:ident) => {
@@ -141,18 +144,28 @@ macro_rules! event_run {
         Some(EventRun {
             run_id: $payload.run_id,
             run_version: Some($payload.run_version),
+            turn_number: None,
+        })
+    };
+    ($payload:ident turn) => {
+        Some(EventRun {
+            run_id: $payload.run_id,
+            run_version: Some($payload.run_version),
+            turn_number: Some($payload.turn_number),
         })
     };
     ($payload:ident required) => {
         Some(EventRun {
             run_id: $payload.run_id,
             run_version: None,
+            turn_number: None,
         })
     };
     ($payload:ident optional) => {
         $payload.run_id.map(|run_id| EventRun {
             run_id,
             run_version: None,
+            turn_number: None,
         })
     };
     ($payload:ident read($read:ident)) => {
@@ -268,13 +281,13 @@ session_events! {
     AgentRunProviderInitialized(AgentRunProviderInitializedPayload)
         = "agent.run.providerInitialized" => versioned,
     /// Emitted when a turn opens within a run; it moves no state.
-    AgentTurnStarted(AgentTurnStartedPayload) = "agent.turn.started" => versioned,
+    AgentTurnStarted(AgentTurnStartedPayload) = "agent.turn.started" => turn,
     /// Emitted when a turn ends normally; it moves no state.
-    AgentTurnCompleted(AgentTurnCompletedPayload) = "agent.turn.completed" => versioned,
+    AgentTurnCompleted(AgentTurnCompletedPayload) = "agent.turn.completed" => turn,
     /// Emitted when a turn is cut, its partial output kept; it moves no state.
-    AgentTurnInterrupted(AgentTurnInterruptedPayload) = "agent.turn.interrupted" => versioned,
+    AgentTurnInterrupted(AgentTurnInterruptedPayload) = "agent.turn.interrupted" => turn,
     /// Emitted when a turn fails; it moves no state.
-    AgentTurnFailed(AgentTurnFailedPayload) = "agent.turn.failed" => versioned,
+    AgentTurnFailed(AgentTurnFailedPayload) = "agent.turn.failed" => turn,
     /// Emitted when the provider says its worker is shutting down mid-run; never the run's end.
     AgentRunWorkerShuttingDown(AgentRunWorkerShuttingDownPayload) = "agent.run.workerShuttingDown"
         => versioned,
@@ -581,6 +594,7 @@ fn agent_output_run(payload: &AgentOutputPayload) -> Option<EventRun> {
         AgentOutputPayload::Run(output) => Some(EventRun {
             run_id: output.run_id,
             run_version: None,
+            turn_number: None,
         }),
         AgentOutputPayload::Voice(_) => None,
     }
@@ -592,6 +606,7 @@ fn question_asked_run(payload: &QuestionAskedPayload) -> Option<EventRun> {
         QuestionAskedPayload::Run(question) => Some(EventRun {
             run_id: question.run_id,
             run_version: None,
+            turn_number: None,
         }),
         QuestionAskedPayload::Wait(_) => None,
     }
@@ -604,6 +619,7 @@ fn git_settled_run(payload: &GitSettledPayload) -> Option<EventRun> {
         | GitSettledPayload::PullRequestOpened { run_id, .. } => run_id.map(|run_id| EventRun {
             run_id,
             run_version: None,
+            turn_number: None,
         }),
         GitSettledPayload::Pushed { .. }
         | GitSettledPayload::Pulled { .. }
@@ -624,6 +640,7 @@ fn run_queued_run(payload: &AgentRunQueuedPayload) -> Option<EventRun> {
     Some(EventRun {
         run_id,
         run_version: Some(run_version),
+        turn_number: None,
     })
 }
 
@@ -637,6 +654,7 @@ fn session_notice_run(payload: &SessionNoticePostedPayload) -> Option<EventRun> 
     Some(EventRun {
         run_id: *run_id,
         run_version: None,
+        turn_number: None,
     })
 }
 
