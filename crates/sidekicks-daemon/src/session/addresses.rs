@@ -4,96 +4,111 @@
 
 use std::sync::Arc;
 
-use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::place::Place;
+use sidekicks_contracts::place::{Place, WindowsPlace};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionAddress;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_platforms::PathRules;
 
-use crate::provider::port::session_inbox_folder::SessionInboxFolders;
+use crate::provider::port::session_inbox_address::SessionInboxAddresser;
+
+/// A place listed for a computer whose own system cannot hold it: on Windows every place, the
+/// computer's own system included, is named, and on macOS and Linux none is.
+#[derive(Debug, thiserror::Error)]
+#[error("{place:?} is not a place on a computer whose own system follows {native_rules:?} rules")]
+pub(crate) struct ForeignPlaceError {
+    /// The place listed.
+    pub(crate) place: Option<Place>,
+    /// The rules of the computer's own system.
+    pub(crate) native_rules: PathRules,
+}
 
 /// Composes each session's inbox addresses on this computer.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start builds it for session.read")
+)]
 pub(crate) struct SessionInboxAddresses {
-    /// The rules of the computer's own system.
-    native_rules: PathRules,
-    /// The places a messaging provider is installed in, `None` the computer's own system.
+    /// The computer's own system: `windows` on Windows, `None` on macOS and Linux.
+    own_system: Option<Place>,
+    /// The places a messaging provider is installed in, each once.
     installed_places: Vec<Option<Place>>,
-    /// The folder each place's inbox socket sits in.
-    inbox_folders: Arc<dyn SessionInboxFolders>,
+    /// Whether the computer has a WSL 2 distribution, whether or not a provider is installed there.
+    has_wsl_distribution: bool,
+    /// Answers the address in each place.
+    addresser: Arc<dyn SessionInboxAddresser>,
 }
 
 impl SessionInboxAddresses {
     /// The composer for a computer whose own system follows `native_rules`, with a messaging
-    /// provider installed in `installed_places` and its inbox folders answered by `inbox_folders`.
+    /// provider installed in `installed_places` and addresses answered by `addresser`. Refuses a
+    /// place the computer's own system cannot hold: `None` on Windows, any place elsewhere.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start builds it from its place discovery"
+        )
+    )]
     pub(crate) fn new(
         native_rules: PathRules,
         installed_places: Vec<Option<Place>>,
-        inbox_folders: Arc<dyn SessionInboxFolders>,
-    ) -> Self {
-        Self {
-            native_rules,
-            installed_places,
-            inbox_folders,
+        has_wsl_distribution: bool,
+        addresser: Arc<dyn SessionInboxAddresser>,
+    ) -> Result<Self, ForeignPlaceError> {
+        let is_windows = native_rules == PathRules::Windows;
+        if let Some(place) = installed_places
+            .iter()
+            .find(|place| place.is_some() != is_windows)
+        {
+            return Err(ForeignPlaceError {
+                place: place.clone(),
+                native_rules,
+            });
         }
+        Ok(Self {
+            own_system: is_windows.then_some(Place::Windows(WindowsPlace::Value)),
+            installed_places,
+            has_wsl_distribution,
+            addresser,
+        })
     }
 
-    /// `session_id`'s inbox addresses: its own place's first, then each other installed place's
-    /// once. The own place's entry is always built, so the list is never empty; on a computer
-    /// without a WSL distribution it is that one entry, naming no place.
+    /// `session_id`'s inbox addresses: its own place's first (the computer's own system where
+    /// `own_place` is `None`), then each other installed place's once. The own place's entry is
+    /// always built, so the list is never empty; on a computer without a WSL 2 distribution it is
+    /// that one entry, naming no place.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "session.read composes each session's addresses with it"
+        )
+    )]
     pub(crate) fn addresses_of(
         &self,
         session_id: &SessionId,
         own_place: Option<&Place>,
     ) -> UniqueList<SessionAddress, 1, { usize::MAX }> {
-        let has_distributions = own_place
-            .into_iter()
-            .chain(self.installed_places.iter().flatten())
-            .any(|place| matches!(place, Place::Wsl(_)));
-        let mut places = vec![own_place.cloned().filter(|_| has_distributions)];
-        if has_distributions {
+        let own_place = own_place.or(self.own_system.as_ref());
+        let address_in = |place: Option<&Place>| SessionAddress {
+            address: self.addresser.session_inbox_address(session_id, place),
+            place: place.cloned().filter(|_| self.has_wsl_distribution),
+        };
+        let mut addresses = vec![address_in(own_place)];
+        if self.has_wsl_distribution {
             for place in &self.installed_places {
-                if !places.contains(place) {
-                    places.push(place.clone());
+                if place.as_ref() != own_place {
+                    addresses.push(address_in(place.as_ref()));
                 }
             }
         }
-        let addresses = places
-            .into_iter()
-            .map(|place| SessionAddress {
-                address: self.address_in(session_id, place.as_ref()),
-                place,
-            })
-            .collect();
         UniqueList::new(addresses).expect("each place is listed once")
-    }
-
-    // The socket `sidekicks-<session id>.sock` in the place's inbox folder, or on Windows the
-    // named pipe `\\.\pipe\sidekicks-<session id>`.
-    fn address_in(&self, session_id: &SessionId, place: Option<&Place>) -> FilesystemPath {
-        let rules = match place {
-            None => self.native_rules,
-            Some(Place::Windows(_)) => PathRules::Windows,
-            Some(Place::Wsl(_)) => PathRules::Posix,
-        };
-        let separator = rules.separator();
-        let name = format!("sidekicks-{}", session_id.text().as_str());
-        let address = match rules {
-            PathRules::Windows => {
-                format!("{separator}{separator}.{separator}pipe{separator}{name}")
-            }
-            PathRules::Posix => format!(
-                "{}{separator}{name}.sock",
-                self.inbox_folders.inbox_folder(place).to_string_lossy()
-            ),
-        };
-        FilesystemPath::new(address).expect("an inbox address is short and holds no NUL")
     }
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use std::path::PathBuf;
+mod tests {
     use std::sync::Arc;
 
     use serde_json::json;
@@ -102,58 +117,72 @@ pub(crate) mod tests {
 
     use super::SessionInboxAddresses;
     use crate::database::writer::test_file::test_session_id;
-    use crate::provider::port::session_inbox_folder::SessionInboxFolders;
-
-    /// An inbox folder that is the same in every place.
-    pub(crate) struct FixedInboxFolder(pub(crate) &'static str);
-
-    impl SessionInboxFolders for FixedInboxFolder {
-        fn inbox_folder(&self, _place: Option<&Place>) -> PathBuf {
-            PathBuf::from(self.0)
-        }
-    }
+    use crate::provider::driver::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+    use crate::provider::port::session_inbox_address::SessionInboxAddresser as _;
 
     #[test]
     fn each_place_gets_its_own_form_and_the_session_s_own_place_comes_first() {
         let session_id = test_session_id();
-        let id = session_id.text();
-        let socket = format!("/run/inboxes/sidekicks-{}.sock", id.as_str());
-        let pipe = format!(r"\\.\pipe\sidekicks-{}", id.as_str());
         let ubuntu: Place =
             serde_json::from_value(json!({ "distro": "Ubuntu" })).expect("a WSL place");
         let windows = Place::Windows(WindowsPlace::Value);
-        let compose = |rules, installed: Vec<Option<Place>>, own: Option<&Place>| {
-            let addresses = SessionInboxAddresses::new(
-                rules,
-                installed,
-                Arc::new(FixedInboxFolder("/run/inboxes")),
-            );
+        let login_shell = [("XDG_RUNTIME_DIR".to_owned(), "/run/user/1000".to_owned())];
+        let addresser = Arc::new(ClaudeSessionInboxAddresser::new([(
+            Some(ubuntu.clone()),
+            PlaceInboxEnvironment {
+                login_shell: &login_shell,
+                user_id: 1000,
+            },
+        )]));
+        let socket = addresser
+            .session_inbox_address(&session_id, Some(&ubuntu))
+            .as_str()
+            .to_owned();
+        let pipe = addresser
+            .session_inbox_address(&session_id, Some(&windows))
+            .as_str()
+            .to_owned();
+        assert!(socket.starts_with("/run/user/1000/cc-socks/"), "{socket}");
+        assert!(pipe.starts_with(r"\\.\pipe\cc-msg-"), "{pipe}");
+        assert_eq!(pipe.len(), r"\\.\pipe\cc-msg-".len() + 32, "{pipe}");
+        let compose = |rules, installed: Vec<Option<Place>>, has_wsl, own: Option<&Place>| {
+            let addresses =
+                SessionInboxAddresses::new(rules, installed, has_wsl, Arc::clone(&addresser) as _)
+                    .expect("the places fit the computer");
             serde_json::to_value(addresses.addresses_of(&session_id, own))
                 .expect("the addresses serialize")
         };
 
         assert_eq!(
-            compose(PathRules::Posix, vec![None], None),
-            json!([{ "address": socket }])
-        );
-        assert_eq!(
-            compose(
-                PathRules::Windows,
-                vec![Some(windows.clone())],
-                Some(&windows)
-            ),
+            compose(PathRules::Windows, vec![Some(windows.clone())], false, None),
             json!([{ "address": pipe }])
         );
         assert_eq!(
             compose(
                 PathRules::Windows,
                 vec![Some(windows.clone()), Some(ubuntu.clone())],
+                true,
                 Some(&ubuntu)
             ),
             json!([
                 { "place": { "distro": "Ubuntu" }, "address": socket },
                 { "place": "windows", "address": pipe },
             ])
+        );
+        assert_eq!(
+            compose(
+                PathRules::Windows,
+                vec![Some(ubuntu.clone())],
+                true,
+                Some(&windows)
+            ),
+            json!([
+                { "place": "windows", "address": pipe },
+                { "place": { "distro": "Ubuntu" }, "address": socket },
+            ])
+        );
+        assert!(
+            SessionInboxAddresses::new(PathRules::Windows, vec![None], true, addresser).is_err()
         );
     }
 }

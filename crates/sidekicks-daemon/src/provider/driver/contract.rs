@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
@@ -57,6 +58,7 @@ use crate::provider::driver::session_control::{
     StartReviewParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
+use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 use crate::text_cut::cut_to_code_points;
 
 /// The fixed sentence every `provider.capability.unsupported` refusal carries.
@@ -338,6 +340,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// Stops every provider process and service this driver started, as a deliberate stop; the
     /// daemon calls it once while it stops. A service the person runs themselves is never stopped.
     fn shutdown(&self) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// The inbox addresses the daemon holds for every session, where this provider's sessions
+    /// must answer them; `None` for a provider whose sessions answer no inbox.
+    fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
 }
 
 /// A follow of a session's live command list, ended when this drops.

@@ -120,8 +120,8 @@ mod tests {
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::handlers::session::draft_update::register_session_draft_update;
     use crate::ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
+    use crate::provider::driver::ClaudeSessionInboxAddresser;
     use crate::session::addresses::SessionInboxAddresses;
-    use crate::session::addresses::tests::FixedInboxFolder;
     use crate::session::draft_store::{SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore};
     use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
     use crate::session::staged_attachments::{StagedAttachments, StagedAttachmentsError};
@@ -195,11 +195,16 @@ CREATE TABLE session_drafts (
             )),
             drafts,
             Arc::new(NoStagedAttachments),
-            Arc::new(SessionInboxAddresses::new(
-                PathRules::Windows,
-                vec![Some(Place::Windows(WindowsPlace::Value))],
-                Arc::new(FixedInboxFolder("/run/inboxes")),
-            )),
+            // The session's own distribution is one the start did not list.
+            Arc::new(
+                SessionInboxAddresses::new(
+                    PathRules::Windows,
+                    vec![Some(Place::Windows(WindowsPlace::Value))],
+                    true,
+                    Arc::new(ClaudeSessionInboxAddresser::new([])),
+                )
+                .expect("the places fit the computer"),
+            ),
         )
         .expect("session.read registers");
         let registry = builder.freeze();
@@ -219,6 +224,10 @@ CREATE TABLE session_drafts (
                 read["session"]["addresses"][0]["place"],
                 json!({ "distro": "Ubuntu" })
             );
+            let address = read["session"]["addresses"][0]["address"]
+                .as_str()
+                .expect("an address is text");
+            assert!(address.starts_with("/tmp/cc-socks/"), "{address}");
         }
     }
 }
