@@ -35,7 +35,7 @@ Local IPC traffic (Plan-005 daemon ↔ in-tree clients) frames errors per [JSON-
 | `-32700` | ParseError | Frame body is not valid JSON |
 | `-32600` | InvalidRequest | JSON parses but the envelope or its framing is not a valid JSON-RPC Request (`connection.message.tooLarge`, `request.protocolVersion.invalid`) |
 | `-32601` | MethodNotFound | Method is not registered against the dispatcher |
-| `-32602` | InvalidParams | The params failed the method's contract check (`request.paramsInvalid`, `daemon.bootstrap.unknownSetting`) |
+| `-32602` | InvalidParams | The params failed the method's contract check (`request.paramsInvalid`) |
 | `-32603` | InternalError | The daemon's own fault: a result that failed its check, an unhandled failure or a programmer-error path (`request.resultInvalid`, `system.internalError`) |
 | `-32800` | RequestCanceled | The client canceled the call with `$/cancelRequest` before the daemon reached its commit point |
 | `-31000` | (application) | Every domain refusal: a well-formed call the daemon refuses on what it names or on the state it meets, whose code and category ride in `data` |
@@ -62,7 +62,7 @@ Every code carries one category from gRPC's canonical status codes (`google.rpc.
 | `canceled`           | Nothing: the caller canceled                                           |
 | `internal`           | Report it: the service failed                                          |
 
-Each code also keeps one hand-set HTTP status, set by what the code means and never derived from the category: 400 for a malformed request, 422 for a well-formed request refused on its meaning, 409 for a state conflict, 401 only for the caller's own credential. Only the control plane's routes and the workflow webhook listener send one; on every other code the status is notional, and a code only a JSON-RPC connection meets (`connection.handshake.required`, `connection.handshake.alreadyCompleted`, `connection.version.mismatch`, `connection.version.floorExceeded`, `connection.version.ceilingExceeded`, `auth.callerRefused`, `request.resultInvalid`, `request.canceled`, `terminal.write.limitReached`, `connection.call.limitReached`, `daemon.bootstrap.unknownSetting`) has none.
+Each code also keeps one hand-set HTTP status, set by what the code means and never derived from the category: 400 for a malformed request, 422 for a well-formed request refused on its meaning, 409 for a state conflict, 401 only for the caller's own credential. Only the control plane's routes and the workflow webhook listener send one; on every other code the status is notional, and a code only a JSON-RPC connection meets (`connection.handshake.required`, `connection.handshake.alreadyCompleted`, `connection.version.mismatch`, `connection.version.floorExceeded`, `connection.version.ceilingExceeded`, `auth.callerRefused`, `request.resultInvalid`, `request.canceled`, `terminal.write.limitReached`, `connection.call.limitReached`) has none.
 
 ### Two-Layer Envelope Shape
 
@@ -87,7 +87,6 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 
 | `data.type` | JSON-RPC `code` | Category | Trigger |
 | --- | --- | --- | --- |
-| `daemon.bootstrap.unknownSetting` | `-32602` | `invalidArgument` | Bootstrap rejected an unrecognized SecureDefaults config key (T-005p-1-3) |
 | `request.methodNotFound` | `-32601` | `unimplemented` | The request names a method the daemon does not register; no handler runs |
 | `request.paramsInvalid` | `-32602` | `invalidArgument` | The request's params failed the method's contract check, so no handler ran. Params that pass the check but name nothing the daemon holds are a domain refusal of the owner's namespace (§Numeric Code Space), and two workflow versions of different workflows are `workflow.version.diffCrossWorkflow` |
 | `request.envelopeInvalid` | `-32600` | `invalidArgument` | The request's envelope breaks the wire format before dispatch: its `id` is over `JSON_RPC_ID_MAX_BYTES` once JSON-encoded, so the refusal carries `id: null` ([Local IPC Payload Contracts §JSON-RPC Request `id` Bound](./local-ipc-payloads.md#json-rpc-request-id-bound)); over HTTP, a body that does not parse or carries no JSON content type, or a body over the route's size limit, which answers 413 with `reason: tooLarge` |
@@ -96,11 +95,11 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | `connection.unavailable` | `-31000` | `unavailable` | The client cannot reach the daemon's OS-local socket or named pipe, or its link to the daemon is down; no fallback transport exists |
 | `connection.message.tooLarge` | `-32600` | `resourceExhausted` | An inbound message passed the message cap on its JSON or on its attachments ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format); the InvalidRequest classification of [Plan-005 §Phase 2: Wire Substrate](../../plans/005-local-ipc-and-daemon-control.md#phase-2-wire-substrate), T-005p-2-2): a framing error, answered with this error frame before the connection closes. A reply of the daemon's own past the cap closes the connection with no answer. It is a 413-semantic peer misframing of the wire layer, never a domain-level refusal. |
 | `connection.subscription.limitReached` | `-31000` | `resourceExhausted` | A subscribe call found its connection already holding 10,000 open subscriptions, the backstop against a client that opens them in a loop; it may be sent again once one of them closes. A subscription costs the daemon only its place in the data, so no real use comes near it |
-| `request.protocolVersion.invalid` | `-32600` | `invalidArgument` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate `dispatchFrame` gate in `crates/sidekicks-daemon/src/ipc/local_gateway.rs` (`LocalIpcGateway`) enforces per I-005-6 BEFORE handler dispatch; the handshake (`connection.initialize`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `connection.version.mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
+| `connection.call.limitReached` | `-31000` | `resourceExhausted` | A call found its connection already holding `MAX_CALLS_IN_FLIGHT` (100) calls in flight, refused at once and never run; a subscription cancel, a stop and a `terminal.write` take no slot. A client holds its calls past the cap and sends each as a slot frees, so only a client fault reaches it, and the client never sends it again |
+| `request.protocolVersion.invalid` | `-32600` | `invalidArgument` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate's one admission site, `ConnectionReader::admit` in `crates/sidekicks-daemon/src/ipc/local_gateway/connection.rs` (of `LocalGateway`), enforces it per I-005-6 BEFORE handler dispatch; the handshake (`connection.initialize`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `connection.version.mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once per request, the registry-side gate fires once-per-incompatible-mutating-op. |
 
 `data.fields` shape per code:
 
-- `daemon.bootstrap.unknownSetting`: `{ setting: string, value: unknown }`
 - `request.methodNotFound`: none
 - `request.envelopeInvalid`: over HTTP, `{ reason: "tooLarge" }` for a body over the route's size limit, answered 413; otherwise none
 - `request.paramsInvalid`: `{ issues }`, the failed check's issues, each with its `path` and `message`, absent when the list is empty
@@ -109,6 +108,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 - `connection.unavailable`: for a socket the client cannot reach, `{ reason }`, one listed reason (`ConnectionUnavailableReason` in `crates/sidekicks-contracts/src/jsonrpc/message.rs`, its generated TypeScript at `packages/contracts/src/jsonrpc/message.ts`): `notListening` when nothing answers on it (the system's `ENOENT` or `ECONNREFUSED`, `io::ErrorKind::NotFound` or `ConnectionRefused`), `accessDenied` when the client may not open it (`EACCES`, `EPERM`, `io::ErrorKind::PermissionDenied`) and `unreachable` for any other socket failure. The system's own error code never rides in `reason`. A link that is down carries no `fields`
 - `connection.message.tooLarge`: `{ limit: number, observed: number }`
 - `connection.subscription.limitReached`: `{ limit: number }`
+- `connection.call.limitReached`: `{ limit: number }`
 - `request.protocolVersion.invalid`: `{ reason: "missing" | "wrongType" | "invalidFormat", observedType?: string }` (`observedType` is the offending value's JSON type, as the gateway writes it: `"null"` for `null`, `"object"` for an object or an array, else `"boolean"`, `"number"` or `"string"`; present only when `reason === "wrongType"`; the offending VALUE itself is NOT echoed back so client-supplied content does not leak through observability)
 
 ### Negotiation Refusals
@@ -132,10 +132,10 @@ Test code asserting on JSON-RPC error envelopes MUST discriminate on `data.type`
 ```rust
 let envelope = serde_json::to_value(&error).expect("an error envelope serializes");
 assert_eq!(envelope["code"], -32602);
-assert!(envelope["message"].as_str().expect("message is text").contains("daemon.bootstrap.unknownSetting"));
-assert_eq!(envelope["data"]["type"], "daemon.bootstrap.unknownSetting");
+assert_eq!(envelope["message"], "the params break the method's contract");
+assert_eq!(envelope["data"]["type"], "request.paramsInvalid");
 assert_eq!(envelope["data"]["category"], "invalidArgument");
-assert!(envelope["data"]["fields"]["setting"].is_string());
+assert!(envelope["data"]["fields"]["issues"].is_array());
 ```
 
 ---
@@ -557,7 +557,6 @@ A per-place provider call's `place` is judged by its name on every Windows compu
 | --- | --- | --- | --- |
 | `daemon.writeRefused` | A mutating call refused by the whole service until the restart's recovery pass has listed the sessions it rebuilds, a call with no top-level `sessionId` until the pass ends, since it can reach any session through a project, a mount, a workspace or a tree, or any call while the local store is unavailable; a session the pass is still rebuilding refuses on its own with `session.rebuilding`, and one whose history is degraded or damaged with `session.history.damaged`. `daemon.stop`, `daemon.restart` and `daemon.flush` are never refused, so the service can always be repaired. `data.fields.recovery`: the machine's state on `daemon.status.read`, `rebuilding` \| `blocked` | `unavailable` | 503 |
 | `daemon.repairing` | The answer to a `connection.initialize` carrying the start's session token while the service repairs its database file, when it serves only the lifecycle verbs on that connection, so `daemon.stop` or `daemon.restart` ends the repair; a client waits and sends `connection.initialize` again rather than ending the service as one that never answered. `data.fields.progress` is `{ done, total }`, the session events recovered so far of those the damaged file lists, read afresh at each handshake, and is absent while the step the repair is on gives no count. A handshake with any other token is refused `auth.token.invalid` | `unavailable` | 503 |
-| `daemon.bootstrap.unknownSetting` | Bootstrap rejected an unrecognized secure-defaults setting; answered `-32602`. `data.fields`: `setting` and `value` | `invalidArgument` | — |
 | `daemon.limitExceeded` | A request would pass a daemon limit. `data.fields`: `resource` (the limit's name), `limit` and `current`, all required. The screen says the limit was reached in words and draws no figure | `resourceExhausted` | 429 |
 
 ### Attention

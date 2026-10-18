@@ -1,0 +1,77 @@
+# The Rust crates' tests on macOS, called by `ci.yml` as its `macos-crates` job, which `ci-gate`
+# needs: the session search's addon crate on an Intel Mac, and the operating-system crate, whose
+# macOS caller read rests on a private system call, so a macOS that changes or drops it fails here.
+#
+# A called workflow reads the caller's `github` context, so the event check below is `ci.yml`'s
+# event.
+
+name: macOS crates
+
+on:
+  workflow_call:
+    inputs:
+      run-search-index:
+        description: Whether the addon crate, the Cargo workspace files or this workflow changed.
+        type: boolean
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  # As in `ci.yml`: empty except on `schedule`, where checkout would otherwise test the default
+  # branch instead of `develop`.
+  SWEEP_REF: ${{ github.event_name == 'schedule' && 'refs/heads/develop' || '' }}
+
+jobs:
+  # The addon crate's tests on x64 macOS, which the `test` job's Linux runner does not cover.
+  search-index-intel-mac:
+    name: search index (macOS x64)
+    if: inputs.run-search-index
+    runs-on: macos-26-intel
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      # The newest stable Rust, with the WebAssembly target `rust-toolchain.toml` lists for the
+      # compression module, so Cargo finds it installed; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Test the addon's crate
+        run: cargo test -p search-index --locked
+
+  platforms-macos:
+    name: platforms (macOS)
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      # The same Rust set-up as `ci.yml`'s `test` job; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # nextest's prebuilt macOS binary, one exact release, checked against its pinned SHA-256
+      # before it is unpacked.
+      - name: Install cargo-nextest
+        run: |
+          ASSET="cargo-nextest-0.9.148-universal-apple-darwin.tar.gz"
+          curl -fsSL "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/${ASSET}" -o "/tmp/${ASSET}"
+          echo "6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b  /tmp/${ASSET}" | shasum -a 256 -c -
+          tar -xzf "/tmp/${ASSET}" -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+
+      - name: Test the operating-system crate
+        run: cargo nextest run -p sidekicks-platforms --locked

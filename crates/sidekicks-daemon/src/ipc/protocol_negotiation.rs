@@ -25,6 +25,7 @@ use sidekicks_contracts::jsonrpc::negotiation::{
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_platforms::PinnedProcess;
 use subtle::ConstantTimeEq as _;
 
 use crate::ipc::domain_error::DomainError;
@@ -33,10 +34,12 @@ use crate::ipc::registry::{
     RegistrationError, Reply, Request, TransportId,
 };
 
-/// Answers whether a handshake carrying the session token from the process with this id is still
+/// Answers whether a handshake carrying the session token from this pinned process is still
 /// refused because the process is an agent's; a failed read answers the handshake `-32603`.
 pub(crate) type RefusedCallerCheck = Arc<
-    dyn Fn(u32) -> BoxFuture<'static, Result<bool, Arc<dyn Error + Send + Sync>>> + Send + Sync,
+    dyn Fn(PinnedProcess) -> BoxFuture<'static, Result<bool, Arc<dyn Error + Send + Sync>>>
+        + Send
+        + Sync,
 >;
 
 /// Reads how far a database file's repair has come; `None` while the step it is on gives no count.
@@ -246,11 +249,13 @@ impl ProtocolNegotiator {
         request: ConnectionInitializeRequest,
         context: HandlerContext,
     ) -> Result<ConnectionInitializeResponse, HandlerError> {
+        // Read before anything latches, so a connection wired with no device latches nothing.
+        let device_id = context.calling_device(CONNECTION_INITIALIZE_METHOD)?;
         let turn = match self.latched(context.transport_id) {
             Some(handshake) => HandshakeTurn::Repeat(handshake),
             None => self.latch_handshake(&request, &context).await?,
         };
-        Ok(acknowledgment(turn, context.device_id))
+        Ok(acknowledgment(turn, device_id))
     }
 
     async fn answer_repairing_handshake(
@@ -290,7 +295,7 @@ impl ProtocolNegotiator {
                 .refuse(transport, ConnectionRefusal::TokenInvalid)
                 .into());
         }
-        let Some(caller_process_id) = context.caller_process_id else {
+        let Some(caller_process) = context.caller_process.clone() else {
             return Err(self
                 .refuse(transport, ConnectionRefusal::CallerRefused)
                 .into());
@@ -306,7 +311,7 @@ impl ProtocolNegotiator {
                 }
                 Some(ConnectionNegotiation::ReadingCaller(caller_read)) => caller_read.clone(),
                 None => {
-                    let caller_read = (self.is_refused_caller)(caller_process_id).shared();
+                    let caller_read = (self.is_refused_caller)(caller_process).shared();
                     connections.insert(
                         transport,
                         ConnectionNegotiation::ReadingCaller(caller_read.clone()),
@@ -507,6 +512,7 @@ mod tests {
     use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
     use sidekicks_contracts::schema::received_check;
     use sidekicks_contracts::typescript::TypeName;
+    use sidekicks_platforms::{PinnedProcess, this_process};
     use tokio::sync::{Notify, mpsc};
 
     use super::{NegotiationGate, ProtocolNegotiator, RefusedCallerCheck};
@@ -596,66 +602,66 @@ mod tests {
         negotiator.gate(Arc::clone(&registry) as Arc<dyn Dispatch>, registry)
     }
 
-    /// The context of a call on connection 1 from the process `caller_process_id`.
-    fn caller_context(caller_process_id: Option<u32>) -> HandlerContext {
+    /// The context of a call on connection 1, from this test's own process when `is_caller_named`.
+    fn caller_context(is_caller_named: bool) -> HandlerContext {
         HandlerContext {
-            caller_process_id,
+            caller_process: is_caller_named.then(this_process),
             ..context(1)
         }
     }
 
     #[rstest]
-    #[case::wrong_token_latches_refused(Some(7), false, &[
+    #[case::wrong_token_latches_refused(true, false, &[
         (Call::Handshake("a-wrong-token", CURRENT_PROTOCOL_VERSION),
             Answer::Refused(RefusalCode::AuthTokenInvalid)),
         (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
             Answer::Refused(RefusalCode::AuthTokenInvalid)),
         (Call::Read, Answer::Refused(RefusalCode::AuthTokenInvalid)),
     ])]
-    #[case::floor(Some(7), false, &[
+    #[case::floor(true, false, &[
         (Call::Handshake(SESSION_TOKEN, "2000-01-01"),
             Answer::Ack(false, Some(NegotiationIncompatibleReason::FloorExceeded))),
         (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
         (Call::Read, Answer::Served),
     ])]
-    #[case::ceiling(Some(7), false, &[
+    #[case::ceiling(true, false, &[
         (Call::Handshake(SESSION_TOKEN, "2999-12-31"),
             Answer::Ack(false, Some(NegotiationIncompatibleReason::CeilingExceeded))),
         (Call::Write, Answer::Refused(RefusalCode::ConnectionVersionMismatch)),
         (Call::Read, Answer::Served),
     ])]
-    #[case::compatible(Some(7), false, &[
+    #[case::compatible(true, false, &[
         (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION), Answer::Ack(true, None)),
         (Call::Write, Answer::Served),
         (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
             Answer::Ack(false, Some(NegotiationIncompatibleReason::HandshakeAlreadyCompleted))),
     ])]
-    #[case::before_the_handshake(Some(7), false, &[
+    #[case::before_the_handshake(true, false, &[
         (Call::Read, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
         (Call::Write, Answer::Refused(RefusalCode::ConnectionHandshakeRequired)),
     ])]
-    #[case::agent_process(Some(7), true, &[
+    #[case::agent_process(true, true, &[
         (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
             Answer::Refused(RefusalCode::AuthCallerRefused)),
         (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
     ])]
-    #[case::unnamed_caller(None, false, &[
+    #[case::unnamed_caller(false, false, &[
         (Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION),
             Answer::Refused(RefusalCode::AuthCallerRefused)),
         (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
     ])]
     #[tokio::test]
     async fn the_gate_and_the_handshake_answer_each_connection_state(
-        #[case] caller_process_id: Option<u32>,
+        #[case] is_caller_named: bool,
         #[case] is_agent_process: bool,
         #[case] calls: &[(Call, Answer)],
     ) {
-        let gate = gate_over(Arc::new(move |_process_id: u32| {
+        let gate = gate_over(Arc::new(move |_process: PinnedProcess| {
             futures::future::ready(Ok::<_, Arc<dyn Error + Send + Sync>>(is_agent_process)).boxed()
         }));
         for &(call, expected) in calls {
             let answer = gate
-                .dispatch(request(call), caller_context(caller_process_id))
+                .dispatch(request(call), caller_context(is_caller_named))
                 .await;
             match (answer, expected) {
                 (Ok(Reply::Result(encoded)), Answer::Ack(compatible, reason)) => {
@@ -686,7 +692,7 @@ mod tests {
         let (read_started, mut has_read_started) = mpsc::unbounded_channel();
         let release = Arc::new(Notify::new());
         let read_release = Arc::clone(&release);
-        let gate = gate_over(Arc::new(move |_process_id: u32| {
+        let gate = gate_over(Arc::new(move |_process: PinnedProcess| {
             read_started.send(()).expect("the test listens");
             let release = Arc::clone(&read_release);
             async move {
@@ -698,7 +704,7 @@ mod tests {
 
         let handshake = tokio::spawn(gate.dispatch(
             request(Call::Handshake(SESSION_TOKEN, CURRENT_PROTOCOL_VERSION)),
-            caller_context(Some(7)),
+            caller_context(true),
         ));
         has_read_started
             .recv()
@@ -707,7 +713,7 @@ mod tests {
         let wrong = gate
             .dispatch(
                 request(Call::Handshake("a-wrong-token", CURRENT_PROTOCOL_VERSION)),
-                caller_context(Some(7)),
+                caller_context(true),
             )
             .await;
         assert!(matches!(
@@ -723,7 +729,7 @@ mod tests {
             Err(DispatchError::Refused(refusal)) if refusal.code == RefusalCode::AuthTokenInvalid
         ));
         let read = gate
-            .dispatch(request(Call::Read), caller_context(Some(7)))
+            .dispatch(request(Call::Read), caller_context(true))
             .await;
         assert!(matches!(
             read,

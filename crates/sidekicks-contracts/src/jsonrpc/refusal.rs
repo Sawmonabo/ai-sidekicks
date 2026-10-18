@@ -319,9 +319,6 @@ refusal_codes! {
     ConnectionVersionFloorExceeded = "connection.version.floorExceeded" (FailedPrecondition);
     /// A mutating call on a connection whose handshake settled as incompatible.
     ConnectionVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
-    /// Bootstrap rejected an unrecognized `SecureDefaults` config key.
-    DaemonBootstrapUnknownSetting = "daemon.bootstrap.unknownSetting"
-        (InvalidArgument; InvalidParams);
     /// A request would pass a daemon limit.
     DaemonLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
     /// The answer to a `connection.initialize` carrying the start's session token while the service
