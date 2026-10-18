@@ -35,10 +35,10 @@ use crate::provider::driver::contract::bound_failure_detail;
 use crate::queue::store::take_over_interrupted_statement;
 use crate::session::run::agent::RunAgentReader;
 use crate::session::run::daemon_turn::queue_daemon_turn_run;
-use crate::session::run::engine::{
-    ContinuingGuard, ContinuingRun, LiveAppend, RunEngine, RunEngineError, StartingGuard,
-    StartingRun, with_cleanup_failures,
+use crate::session::run::engine::live::{
+    ContinuingGuard, ContinuingRun, StartingGuard, StartingRun,
 };
+use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, with_cleanup_failures};
 use crate::session::run::projection::insert_queued_run_statement;
 use crate::session::run::read::{RunRead, RunStateReader};
 use crate::session::run::refusals::RunRefusal;
@@ -638,10 +638,9 @@ fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+mod tests {
     use std::error::Error;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
     use std::time::Duration;
 
     use futures::FutureExt as _;
@@ -650,49 +649,17 @@ pub(super) mod tests {
     use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
-    use sidekicks_platforms::Spawner;
-    use tokio::runtime::Handle;
     use tokio::sync::oneshot;
 
-    use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::events::log_service::EventLogService;
     use crate::events::log_service::tests::open_log;
-    use crate::policy::execution_posture_service::{
-        ExecutionPostureService, compose_execution_posture,
-    };
-    use crate::provider::driver::DriverServices;
-    use crate::provider::driver::registry::{ProviderRegistry, test_provider};
-    use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
+    use crate::policy::execution_posture_service::compose_execution_posture;
+    use crate::provider::driver::registry::test_provider;
+    use crate::session::run::engine::tests::test_engine;
     use crate::session::run::projection::RUNS_TABLE_SQL;
     use crate::session::run::start_request::RunStartPath;
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
     use crate::uuid_v7::mint_uuid_v7;
-
-    /// An engine on `database`, appending through `event_log`, with no registered driver and its
-    /// posture files under `home`; a test makes the tables its runs need.
-    pub(crate) fn test_engine(
-        database: &TestDatabase,
-        event_log: Arc<EventLogService>,
-        home: &Path,
-    ) -> RunEngine {
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: PathBuf::from("data"),
-        };
-        RunEngine::new(RunEngineDeps {
-            pool: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                RUN_ENGINE_STATEMENT_CAPACITY,
-            )),
-            event_log,
-            execution_postures: Arc::new(ExecutionPostureService::new(
-                home,
-                home.join("session-token"),
-            )),
-            providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
-        })
-    }
 
     // Bounds the whole start and report, so a report that deadlocks on the start fails the test.
     const SETTLE_WAIT: Duration = Duration::from_secs(10);

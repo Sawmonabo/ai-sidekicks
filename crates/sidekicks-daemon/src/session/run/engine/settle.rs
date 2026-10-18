@@ -325,7 +325,6 @@ fn no_terminal_since_statement(run_id: &RunId, run_version: i64) -> WriteStateme
 #[cfg(test)]
 mod tests {
     use rusqlite::params;
-    use serde_json::Value;
     use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::run::events::{
         AgentRunInterruptedNewState, AgentRunInterruptedPayload, AgentTurnStartedPayload,
@@ -340,7 +339,7 @@ mod tests {
     use crate::events::log_service::tests::open_log;
     use crate::events::session::appender::SessionEventDraft;
     use crate::session::run::engine::RunEngine;
-    use crate::session::run::engine::start::tests::test_engine;
+    use crate::session::run::engine::tests::{stored_events, stored_run_state, test_engine};
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::projection::RUNS_TABLE_SQL;
     use crate::session::run::read::{LiveRun, RunRead};
@@ -359,34 +358,6 @@ CREATE TABLE interventions (
   device_id      TEXT
 ) STRICT;
 ";
-
-    // The run's stored events in order: each type, with the payload's `cause`.
-    fn stored_events(database: &TestDatabase, run_id: &RunId) -> Vec<(String, Option<String>)> {
-        database
-            .reader()
-            .prepare("SELECT type, payload FROM session_events WHERE run_id = ?1 ORDER BY sequence")
-            .expect("the test reads the run's events")
-            .query_map([run_id.text().as_str()], |row| {
-                let payload: String = row.get(1)?;
-                let payload: Value =
-                    serde_json::from_str(&payload).expect("a stored payload is JSON");
-                Ok((row.get(0)?, payload["cause"].as_str().map(str::to_owned)))
-            })
-            .expect("the run's events read")
-            .collect::<Result<_, _>>()
-            .expect("each event reads")
-    }
-
-    fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64) {
-        database
-            .reader()
-            .query_row(
-                "SELECT state, run_version FROM runs WHERE run_id = ?1",
-                [run_id.text().as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("the test reads the run's row")
-    }
 
     async fn append(engine: &RunEngine, session_id: SessionId, event: &SessionEvent) {
         engine

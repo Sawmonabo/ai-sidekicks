@@ -7,16 +7,17 @@
 //! it at the fast output level it carried.
 
 mod limits;
+mod live;
 mod settle;
 mod start;
+#[cfg(test)]
+mod tests;
 pub(crate) mod turns;
 
-use std::collections::HashMap;
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
@@ -47,8 +48,10 @@ use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
 use crate::session::run::daemon_turn::DaemonTurnQueueError;
-use crate::session::run::engine::limits::CutTurn;
-use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount};
+use crate::session::run::engine::live::{
+    ContinuingRun, EndingGuard, EndingWrite, LiveRuns, StartingRun, lock,
+};
+use crate::session::run::engine::turns::ProviderTurnEnd;
 use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::read::{RunRead, read_run_provider, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
@@ -263,175 +266,6 @@ pub(crate) struct RunEngineDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
     pub(crate) providers: Arc<ProviderRegistry>,
-}
-
-// A run no driver has yet, from `starting` until the driver has it or the run ends. It is
-// claimable while its setup gates run and after a start that left it live without a driver, and
-// settling from the gates' end until its start settles, when an interrupt waits for `settled`. The
-// flags are atomics because the start and every call routed around it share the entry, which
-// stays theirs after it leaves the map.
-struct StartingRun {
-    is_claimable: AtomicBool,
-    is_interrupted: AtomicBool,
-    has_ended: AtomicBool,
-    // Whether the driver has the run, once the start has settled and its `running` write landed.
-    settled: SetOnce<bool>,
-}
-
-impl StartingRun {
-    fn is_claimable(&self) -> bool {
-        self.is_claimable.load(Ordering::Acquire)
-    }
-
-    fn has_ended(&self) -> bool {
-        self.has_ended.load(Ordering::Acquire)
-    }
-}
-
-// An interrupted run being continued, until its `running` write landed or its continue failed.
-// Its next turn has started once the driver started it, or at once when the provider started it.
-struct ContinuingRun {
-    is_turn_started: AtomicBool,
-    settled: SetOnce<()>,
-}
-
-// One terminal write of a run, in flight until it lands or is refused, linked to the one before it
-// that was still in flight when it began, so a waiter reads every end written before it.
-struct EndingWrite {
-    previous: Option<Arc<EndingWrite>>,
-    landed: SetOnce<()>,
-}
-
-// What the engine holds per live run, under one lock never held across an await. Every map is
-// bounded by the live runs: an entry leaves when its run, its start, its continue, its write or
-// its turn ends, on every exit path.
-#[derive(Default)]
-struct LiveRuns {
-    starting: HashMap<RunId, Arc<StartingRun>>,
-    continuing: HashMap<RunId, Arc<ContinuingRun>>,
-    ending: HashMap<RunId, Arc<EndingWrite>>,
-    // The fast output level each started run carried, until its settled state is reported or it
-    // ends.
-    carried_output_speeds: HashMap<RunId, ProviderToken>,
-    // The open turn's steps on a run whose provider does not bound them.
-    step_counts: HashMap<RunId, StepCount>,
-    // The turn a limit stop cut, until that turn's end is written or the run ends.
-    cut_turns: HashMap<RunId, CutTurn>,
-}
-
-impl LiveRuns {
-    // A start, continue or write that settled leaves its own entry only, so a newer one for the
-    // same run is never removed by an older one.
-    fn remove_own<Entry>(map: &mut HashMap<RunId, Arc<Entry>>, run_id: &RunId, own: &Arc<Entry>) {
-        if map
-            .get(run_id)
-            .is_some_and(|current| Arc::ptr_eq(current, own))
-        {
-            map.remove(run_id);
-        }
-    }
-
-    // A run that ends while no driver has it: an entry still settling learns it ended; a
-    // claimable one has nothing left to claim.
-    fn mark_starting_run_ended(&mut self, run_id: &RunId) {
-        if let Some(starting) = self.starting.get(run_id) {
-            starting.has_ended.store(true, Ordering::Release);
-            if starting.is_claimable() {
-                self.starting.remove(run_id);
-            }
-        }
-    }
-}
-
-// Settles a start's entry on every exit path of the start, its future dropped included: the entry
-// leaves once the driver has the run or the run ended, and stays claimable otherwise.
-struct StartingGuard<'engine> {
-    live: &'engine Mutex<LiveRuns>,
-    run_id: RunId,
-    entry: Arc<StartingRun>,
-    has_driver_run: bool,
-}
-
-impl Drop for StartingGuard<'_> {
-    fn drop(&mut self) {
-        {
-            let mut live = lock(self.live);
-            if self.has_driver_run || self.entry.has_ended() {
-                LiveRuns::remove_own(&mut live.starting, &self.run_id, &self.entry);
-            } else {
-                // A run left live without a driver stays for an interrupt to claim, until its end.
-                self.entry.is_claimable.store(true, Ordering::Release);
-            }
-        }
-        settle(&self.entry.settled, self.has_driver_run);
-    }
-}
-
-// Settles a continue's entry on every exit path of the continue.
-struct ContinuingGuard<'engine> {
-    live: &'engine Mutex<LiveRuns>,
-    run_id: RunId,
-    entry: Arc<ContinuingRun>,
-}
-
-impl Drop for ContinuingGuard<'_> {
-    fn drop(&mut self) {
-        LiveRuns::remove_own(&mut lock(self.live).continuing, &self.run_id, &self.entry);
-        settle(&self.entry.settled, ());
-    }
-}
-
-// Lands a terminal write's link on every exit path of the write, its future dropped included,
-// since a write once queued is not withdrawn.
-struct EndingGuard<'engine> {
-    live: &'engine Mutex<LiveRuns>,
-    run_id: RunId,
-    entry: Arc<EndingWrite>,
-}
-
-impl Drop for EndingGuard<'_> {
-    fn drop(&mut self) {
-        {
-            let mut live = lock(self.live);
-            // Landed under the lock, so a newer write's guard walking back never puts this one
-            // back once this guard has run.
-            settle(&self.entry.landed, ());
-            if live
-                .ending
-                .get(&self.run_id)
-                .is_some_and(|current| Arc::ptr_eq(current, &self.entry))
-            {
-                // An older write still in flight stays for a waiter: the newest that has not
-                // landed takes this one's place, and its own guard clears it once it lands.
-                let mut pending = self.entry.previous.clone();
-                while let Some(write) = pending.clone().filter(|write| write.landed.initialized()) {
-                    pending = write.previous.clone();
-                }
-                match pending {
-                    Some(write) => {
-                        live.ending.insert(self.run_id, write);
-                    }
-                    None => {
-                        live.ending.remove(&self.run_id);
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Sets an entry's settlement from its guard. Each entry has one guard and a guard drops once, so
-// the settlement is empty here; were it set, the first settlement would stand and `value` is
-// dropped.
-fn settle<Value>(settlement: &SetOnce<Value>, value: Value) {
-    if let Err(SetOnceError(later)) = settlement.set(value) {
-        drop(later);
-    }
-}
-
-// The map holds whole entries only, so a panic elsewhere leaves nothing half written.
-fn lock(live: &Mutex<LiveRuns>) -> MutexGuard<'_, LiveRuns> {
-    live.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
