@@ -293,10 +293,11 @@ impl RunEngine {
     /// Counts one step of the open turn on `run_id`, which the driver's delivery reports for a run
     /// whose provider does not bound a turn's steps; the step that reaches the turn's bound stops
     /// the run at the step limit, once. A run with no count armed is left as it is. Fails as the
-    /// stop fails.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    /// stop fails; a stop the interventions service did not carry out is tried again at the next
+    /// step.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(&self, run_id: RunId) -> Result<(), RunEngineError> {
-        let reached = {
+        let (turn_number, reached) = {
             let mut live = self.live();
             let Some(count) = live.step_counts.get_mut(&run_id) else {
                 return Ok(());
@@ -309,10 +310,23 @@ impl RunEngine {
                 return Ok(());
             }
             count.is_stopping = true;
-            count.bound
+            (count.turn_number, count.bound)
         };
-        self.stop_at_limit(run_id, LimitStop::Step { count: reached })
-            .await
+        let stopped = self
+            .stop_at_limit(run_id, LimitStop::Step { count: reached })
+            .await;
+        if matches!(
+            stopped,
+            Err(RunEngineError::LimitInterrupterGone { .. } | RunEngineError::LimitInterrupt { .. })
+        ) && let Some(count) = self
+            .live()
+            .step_counts
+            .get_mut(&run_id)
+            .filter(|count| count.turn_number == turn_number)
+        {
+            count.is_stopping = false;
+        }
+        stopped
     }
 
     /// Writes the end its provider reported for a turn of `run_id` that changes no run: a turn
@@ -557,10 +571,13 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::wire::integer::SafeInt;
 
-    use super::{no_turn_end_statement, no_turn_start_from_statement};
+    use super::{StepCount, no_turn_end_statement, no_turn_start_from_statement};
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
+    use crate::events::log_service::tests::open_log;
     use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
+    use crate::session::run::engine::RunEngineError;
+    use crate::session::run::engine::tests::{stored_events, test_engine};
     use crate::uuid_v7::mint_uuid_v7;
 
     fn turn(number: u64) -> SafeInt<1> {
@@ -633,5 +650,40 @@ mod tests {
                 "the guard answers {written:?}"
             );
         }
+    }
+
+    // Killed by a limit stop reading the run or writing before it finds the interventions service
+    // gone, and by a failed stop leaving the count stopping, so the next step reaches no stop.
+    #[tokio::test]
+    async fn a_limit_stop_with_no_interventions_service_writes_nothing_and_is_tried_again() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let home = tempfile::tempdir().expect("the test makes a home folder");
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let engine = test_engine(&database, log.service, home.path());
+
+        let spend_stop = engine.stop_at_spend_limit(run_id).await;
+        assert!(
+            matches!(spend_stop, Err(RunEngineError::LimitInterrupterGone { .. })),
+            "the spend stop answers {spend_stop:?}"
+        );
+
+        engine.live().step_counts.insert(
+            run_id,
+            StepCount {
+                turn_number: turn(1),
+                bound: turn(1),
+                steps: 0,
+                is_stopping: false,
+            },
+        );
+        for step in 1..=2 {
+            let counted = engine.count_step(run_id).await;
+            assert!(
+                matches!(counted, Err(RunEngineError::LimitInterrupterGone { .. })),
+                "step {step} answers {counted:?}"
+            );
+        }
+        assert!(stored_events(&database, &run_id).is_empty());
     }
 }

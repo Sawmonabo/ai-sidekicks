@@ -127,9 +127,12 @@ pub(super) fn limit_run_end(limit: RunLimit) -> RunStateEntry {
 impl RunEngine {
     /// Stops `run_id` at the session's spend limit, the interrupt handed to the interventions
     /// service. Fails as the stop fails.
-    #[expect(
-        dead_code,
-        reason = "the budget accountant calls it when a session's spend reaches its limit"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the budget accountant calls it when a session's spend reaches its limit"
+        )
     )]
     pub(crate) async fn stop_at_spend_limit(&self, run_id: RunId) -> Result<(), RunEngineError> {
         self.stop_at_limit(run_id, LimitStop::Spend).await
