@@ -137,6 +137,7 @@ Sources:
 - [Microsoft Learn — code-signing options](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options) — SmartScreen on an unsigned file; SignPath Foundation for open-source projects
 - [Squirrel.Mac `SQRLCodeSignature.m`](https://github.com/Squirrel/Squirrel.Mac/blob/8d808803bc89ec0e2aa1450474856dfee3b00c6b/Squirrel/SQRLCodeSignature.m) — an update must satisfy the running app's designated requirement
 - [Electron code-signing tutorial](https://www.electronjs.org/docs/latest/tutorial/code-signing) — `autoUpdater` without a consistent signature
+- [Apple Developer ID](https://developer.apple.com/developer-id/) — Apple notarizes only Developer ID code
 - [Windows 10 lifecycle](https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro)
 
 ## Crash Reporting
