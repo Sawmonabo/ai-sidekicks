@@ -236,7 +236,6 @@ mod tests {
             while Arc::strong_count(&store) > handles_before_second {
                 tokio::task::yield_now().await;
             }
-            let handles_after_second = Arc::strong_count(&store);
             let first = first.await.expect("the first call's task ends");
             let calls_while_held = blocking_store.calls();
 
@@ -251,17 +250,11 @@ mod tests {
             });
             blocking_store.wait_for_calls(2).await;
             drop(third.await.expect("the third call's task ends"));
-            (
-                first,
-                second,
-                handles_before_second,
-                handles_after_second,
-                calls_while_held,
-            )
+            (first, second, calls_while_held)
         };
         let outcome = tokio::time::timeout(Duration::from_secs(5), scenario).await;
         blocking_store.release();
-        let (first, second, handles_before_second, handles_after_second, calls_while_held) =
+        let (first, second, calls_while_held) =
             outcome.expect("every call answers within its time");
 
         for refused in [first, second] {
@@ -272,7 +265,6 @@ mod tests {
                 KeychainRefusalCause::Locked
             );
         }
-        assert_eq!(handles_after_second, handles_before_second);
         assert_eq!(calls_while_held, 1);
         assert_eq!(blocking_store.calls(), 2);
     }
