@@ -29,7 +29,7 @@ use windows_sys::Win32::System::JobObjects::{
     CreateJobObjectW, IsProcessInJob, TerminateJobObject,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_BREAKAWAY_FROM_JOB, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DETACHED_PROCESS,
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
     GetExitCodeProcess, INFINITE, InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
     OpenProcessToken, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST,
@@ -38,6 +38,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::lasting_child::{LastingChild, LastingCommand};
+use crate::path::rules::PathRules;
 use crate::windows::pinned_process::{KILLED_EXIT_CODE, PinnedProcess};
 
 // The start of every lasting child's job name; random bytes follow it.
@@ -49,11 +50,11 @@ const JOB_NAME_RANDOM_BYTES: usize = 16;
 /// Starts `command` as a child that outlives the daemon, then pins it and reads its record: it
 /// breaks away from any job the daemon runs in and joins a new job of its own, named at random in
 /// its record and open only to this user, with no kill on its handle's close, so a later daemon
-/// opens it by name and ends the whole tree; it has no console and inherits only its standard
-/// handles, so it never holds a pipe the daemon's starter waits on. Runs on the daemon's one
-/// spawner thread, the `spawner` module's [`crate::Spawner`]: the two inheritable copies of those
-/// handles live in the daemon until this returns, and a start on another thread meanwhile would
-/// inherit them. Fails with the system's error from the start, a refused breakaway among them,
+/// opens it by name and ends the whole tree; it has a console of its own with no window, which a
+/// console program it starts inherits, and inherits only its standard handles, so it never holds a
+/// pipe the daemon's starter waits on. Runs on the daemon's one spawner thread, the `spawner`
+/// module's [`crate::Spawner`]: the two inheritable copies of those handles live in the daemon
+/// until this returns, and a start on another thread meanwhile would inherit them. Fails with the system's error from the start, a refused breakaway among them,
 /// never retried inside the daemon's job; with `AlreadyExists` when a job of the drawn name exists;
 /// or from the pin, which ends the job first.
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
@@ -87,7 +88,7 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     startup.StartupInfo.hStdOutput = standard_stream.as_raw_handle();
     startup.StartupInfo.hStdError = error_output.as_raw_handle();
     startup.lpAttributeList = attributes.list;
-    let mut flags = CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT | DETACHED_PROCESS;
+    let mut flags = CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW;
     if is_in_job()? {
         flags |= CREATE_BREAKAWAY_FROM_JOB;
     }
@@ -450,8 +451,8 @@ fn append_argument(line: &mut Vec<u16>, argument: &[u16]) {
 }
 
 // The environment block: each `NAME=value`, NUL-ended, sorted by name without case as Windows
-// keeps it, then one more NUL. Names that differ only in case are one variable, as std's `Command`
-// folds them: the first spelling with the last value. Fails with `InvalidInput` for a name that is
+// keeps it, then one more NUL. Names that share their environment key are one variable, as std's
+// `Command` folds them: the first spelling with the last value. Fails with `InvalidInput` for a name that is
 // empty or holds `=`, or text holding a NUL.
 fn compose_environment_block(environment: &[(String, String)]) -> io::Result<Vec<u16>> {
     let mut variables: BTreeMap<String, (&str, &str)> = BTreeMap::new();
@@ -463,7 +464,7 @@ fn compose_environment_block(environment: &[(String, String)]) -> io::Result<Vec
             ));
         }
         variables
-            .entry(name.to_uppercase())
+            .entry(PathRules::Windows.environment_name_key(name).into_owned())
             .and_modify(|(_, kept_value)| *kept_value = value)
             .or_insert((name, value));
     }
