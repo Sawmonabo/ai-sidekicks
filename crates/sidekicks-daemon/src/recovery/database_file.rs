@@ -35,3 +35,11 @@ pub(crate) fn sibling_path(database_path: &Path, suffix: &str) -> PathBuf {
     path.push(suffix);
     PathBuf::from(path)
 }
+
+/// The folder the database file at `database_path` sits in; the daemon's path to it always names
+/// one.
+pub(crate) fn store_folder(database_path: &Path) -> &Path {
+    database_path
+        .parent()
+        .expect("the database file's path names its folder")
+}

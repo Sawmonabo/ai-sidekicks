@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_platforms::{create_private_folder, flush_folder, remove_tree};
+use sidekicks_platforms::{create_private_folder, file_facts, flush_folder, remove_tree};
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -24,7 +24,7 @@ use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::missing_entry::MissingEntry as _;
 use crate::random_hex::random_hex;
 use crate::recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
-use crate::recovery::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
+use crate::recovery::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX, store_folder};
 
 /// The two files SQLite keeps beside a database in write-ahead-log mode.
 pub(crate) const DATABASE_COMPANION_FILE_SUFFIXES: [&str; 2] =
@@ -98,7 +98,7 @@ struct StoredFile {
     name: String,
     size: u64,
     // Its modification time, in nanoseconds since the Unix epoch.
-    modified_at: i64,
+    modified_at: i128,
 }
 
 /// A damaged session healed after a copy, with the head its damage left.
@@ -170,8 +170,14 @@ pub async fn copy_database_files_aside(
             ))),
         });
     }
-    // The new folder's own entry, so the copy is found after a power loss.
-    run_folder_call(move || flush_folder(&aside_root)).await?;
+    // The new folder's entry, and the copies' folder's own in the data folder, which a first copy
+    // made, so the copy is found after a power loss.
+    let data_folder = aside.data_folder.to_path_buf();
+    run_folder_call(move || {
+        flush_folder(&aside_root)?;
+        flush_folder(&data_folder)
+    })
+    .await?;
     Ok(folder)
 }
 
@@ -256,38 +262,42 @@ async fn copy_files_into(
     .await
 }
 
-// The database and the companion files that exist, with their sizes and times.
+// The database and the companion files that exist, with their sizes and times, each read from one
+// stat on the blocking pool.
 async fn describe_database_files(database_path: &Path) -> Result<Vec<StoredFile>, AsideCopyError> {
-    let store_folder = store_folder(database_path);
-    let database_name = database_file_name(database_path).map_err(AsideCopyError::Read)?;
-    let mut files = Vec::with_capacity(1 + DATABASE_COMPANION_FILE_SUFFIXES.len());
-    let names = std::iter::once(database_name.to_owned()).chain(
-        DATABASE_COMPANION_FILE_SUFFIXES
-            .iter()
-            .map(|suffix| format!("{database_name}{suffix}")),
-    );
-    for name in names {
-        let metadata = tokio::fs::metadata(store_folder.join(&name)).await;
-        // A database closed cleanly keeps no log beside it.
-        let metadata = if name == database_name {
-            Some(metadata.map_err(AsideCopyError::Read)?)
-        } else {
-            metadata.none_if_missing().map_err(AsideCopyError::Read)?
-        };
-        let Some(metadata) = metadata else {
-            continue;
-        };
-        let modified_at = metadata
-            .modified()
-            .and_then(nanoseconds_since_epoch)
-            .map_err(AsideCopyError::Read)?;
-        files.push(StoredFile {
-            name,
-            size: metadata.len(),
-            modified_at,
-        });
-    }
-    Ok(files)
+    let store_folder = store_folder(database_path).to_path_buf();
+    let database_name = database_file_name(database_path)
+        .map_err(AsideCopyError::Read)?
+        .to_owned();
+    tokio::task::spawn_blocking(move || {
+        let mut files = Vec::with_capacity(1 + DATABASE_COMPANION_FILE_SUFFIXES.len());
+        let names = std::iter::once(database_name.clone()).chain(
+            DATABASE_COMPANION_FILE_SUFFIXES
+                .iter()
+                .map(|suffix| format!("{database_name}{suffix}")),
+        );
+        for name in names {
+            let facts = file_facts(&store_folder.join(&name));
+            // A database closed cleanly keeps no log beside it.
+            let facts = if name == database_name {
+                Some(facts?)
+            } else {
+                facts.none_if_missing()?
+            };
+            let Some(facts) = facts else {
+                continue;
+            };
+            files.push(StoredFile {
+                name,
+                size: facts.size,
+                modified_at: facts.modified,
+            });
+        }
+        Ok(files)
+    })
+    .await
+    .map_err(AsideCopyError::Interrupted)?
+    .map_err(AsideCopyError::Read)
 }
 
 // Whether a copy's recorded files are the files as they stand, in any order.
@@ -338,13 +348,6 @@ async fn write_record(folder: &Path, record: &AsideCopyRecord) -> Result<(), Asi
         .map_err(AsideCopyError::RecordWrite)
 }
 
-// The folder the database file sits in.
-fn store_folder(database_path: &Path) -> &Path {
-    database_path
-        .parent()
-        .expect("the database file's path names its folder")
-}
-
 // The database file's name, which the daemon gives in UTF-8. Fails with `InvalidInput` when the
 // path has no name or one that is not UTF-8.
 fn database_file_name(database_path: &Path) -> io::Result<&str> {
@@ -357,15 +360,6 @@ fn database_file_name(database_path: &Path) -> io::Result<&str> {
                 "the database file's path has no UTF-8 name",
             )
         })
-}
-
-// A file time as nanoseconds since the Unix epoch. Fails with `InvalidData` for a time an `i64` of
-// nanoseconds cannot hold.
-fn nanoseconds_since_epoch(time: std::time::SystemTime) -> io::Result<i64> {
-    let timestamp = jiff::Timestamp::try_from(time)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
-    i64::try_from(timestamp.as_nanosecond())
-        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
 }
 
 // Runs a blocking call on a folder on the blocking pool.

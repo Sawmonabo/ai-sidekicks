@@ -18,7 +18,7 @@ use tokio::task::JoinError;
 
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::missing_entry::MissingEntry as _;
-use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
+use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path, store_folder};
 
 /// How the last run on the database file ended, as its record tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,8 +36,10 @@ pub(crate) enum LastRunEnd {
 /// Why the last run's record could not be read or written.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum LastRunError {
-    /// The file system refused a read or a removal.
-    #[error("the database file's last-run record could not be read or removed")]
+    /// The file system refused a read or a removal of the record, or the flush of its folder.
+    #[error(
+        "the database file's last-run record could not be read or removed, or its folder flushed"
+    )]
     Read(#[source] io::Error),
     /// The record could not be written.
     #[error("the database file's last-run record could not be written")]
@@ -115,10 +117,7 @@ pub(crate) async fn forget_last_run(database_path: &Path) -> Result<(), LastRunE
         .await
         .none_if_missing()
         .map_err(LastRunError::Read)?;
-    let folder = database_path
-        .parent()
-        .expect("the database file's path names its folder")
-        .to_path_buf();
+    let folder = store_folder(database_path).to_path_buf();
     tokio::task::spawn_blocking(move || flush_folder(&folder))
         .await
         .map_err(LastRunError::Interrupted)?
