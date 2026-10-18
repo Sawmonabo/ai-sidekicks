@@ -15,6 +15,7 @@ pub mod database;
 pub mod events;
 pub mod file;
 pub mod git;
+pub(crate) mod helper_mode;
 pub mod highlight;
 pub mod interventions;
 pub mod ipc;

@@ -17,16 +17,18 @@ use std::process::{ExitStatus, Stdio};
 
 use memchr::memmem::Finder;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_platforms::{Spawner, prepare_child_command};
+use sidekicks_platforms::Spawner;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::process::{Child, ChildStderr, Command};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::helper_mode::child::start_helper_mode_child;
+use crate::helper_mode::error_output::read_error_output_tail;
 use crate::recovery::database_file::stall_watch::{
     RECOVERY_STALL_WINDOW, RecoveryStallWatch, ShellProcessorTimeReader, ShellProcessorTimes,
 };
-use crate::recovery::database_file::{READ_BUSY_TIMEOUT, read_error_tail};
+use crate::recovery::database_file::{ERROR_OUTPUT_KEPT_BYTES, READ_BUSY_TIMEOUT};
 
 /// The arguments the daemon's own program is started with to run SQLite's shell; the shell's own
 /// arguments follow them.
@@ -408,27 +410,21 @@ impl SqliteShell {
         Ok(String::from_utf8_lossy(&output).into_owned())
     }
 
-    // The shell's command with `arguments`, armed to end with the daemon and ended if dropped.
+    // The shell's command with `arguments`.
     fn command<'a>(&self, arguments: impl IntoIterator<Item = &'a OsStr>) -> Command {
         let mut command = Command::new(&self.program);
-        command
-            .args(DATABASE_SHELL_MODE)
-            .args(arguments)
-            .kill_on_drop(true);
-        prepare_child_command(&mut command, std::process::id());
+        command.args(DATABASE_SHELL_MODE).args(arguments);
         command
     }
 
-    // Starts `command` on the spawner's thread.
+    // Starts `command` on the spawner's thread, armed to end with the daemon and ended if dropped.
     async fn start(
         &self,
-        mut command: Command,
+        command: Command,
         step: &'static str,
     ) -> Result<Child, SqliteShellRunError> {
-        self.spawner
-            .run(move || command.spawn())
+        start_helper_mode_child(&self.spawner, command)
             .await
-            .and_then(|spawned| spawned)
             .map_err(|source| SqliteShellRunError::Start { step, source })
     }
 
@@ -573,7 +569,10 @@ async fn finish_shell(
             }
         }
     };
-    let ((status, is_ended), tail) = tokio::join!(waiting, read_error_tail(errors));
+    let ((status, is_ended), tail) = tokio::join!(
+        waiting,
+        read_error_output_tail(errors, ERROR_OUTPUT_KEPT_BYTES)
+    );
     let status = status.map_err(|source| SqliteShellRunError::Pipe { step, source })?;
     let error_output = tail.map_err(|source| SqliteShellRunError::Pipe { step, source })?;
     if status.success() {

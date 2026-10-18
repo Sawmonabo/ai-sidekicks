@@ -6,21 +6,20 @@
 //! daemon holds open for the copy's life, so a stop ends it at once.
 
 use std::env;
-use std::error::Error;
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{ExitCode, ExitStatus, Stdio};
-use std::sync::mpsc;
-use std::thread;
+use std::process::{ExitCode, ExitStatus};
 
-use sidekicks_platforms::{Spawner, prepare_child_command};
+use sidekicks_platforms::Spawner;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
+use crate::helper_mode::child::{HelperModeChildError, HelperModeEnd, run_helper_mode_child};
+use crate::helper_mode::input_watch::run_until_input_ends;
 use crate::missing_entry::MissingEntry as _;
-use crate::recovery::database_file::read_error_tail;
+use crate::recovery::database_file::ERROR_OUTPUT_KEPT_BYTES;
 
 /// The arguments the daemon's own program is started with to copy one file; the source and the
 /// copy's path follow them.
@@ -59,12 +58,6 @@ enum CopyModeError {
     Copy(#[source] io::Error),
 }
 
-// What ended the mode first: the copy, or the end of standard input.
-enum CopyModeEnd {
-    Copy(Result<(), CopyModeError>),
-    Input(io::Result<()>),
-}
-
 /// Starts the daemon's own program in the `database copy` mode, each child on one spawner.
 pub struct DatabaseFileCopier {
     program: PathBuf,
@@ -79,61 +72,36 @@ impl DatabaseFileCopier {
 
     /// Copies `source` to `destination`, replacing it, as a clone where the file system makes one,
     /// and flushes the copy to disk, all in the mode's child process, since a copy in the service
-    /// would release the writer's locks on the file; answers once the child has exited. Fails with [`DatabaseCopyError::Failed`] naming the copy's own error, and with
+    /// would release the writer's locks on the file; answers once the child has exited. Fails with
+    /// [`DatabaseCopyError::Failed`] naming the copy's own error, and with
     /// [`DatabaseCopyError::Stopped`] once `stop` fires and the child has exited.
-    pub async fn copy_file(
+    pub(crate) async fn copy_file(
         &self,
         source: &Path,
         destination: &Path,
         stop: &CancellationToken,
     ) -> Result<(), DatabaseCopyError> {
-        if stop.is_cancelled() {
-            return Err(DatabaseCopyError::Stopped);
-        }
         let mut command = Command::new(&self.program);
         command
             .args(DATABASE_COPY_MODE)
             .arg(source)
-            .arg(destination)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        prepare_child_command(&mut command, std::process::id());
-        let mut child = self
-            .spawner
-            .run(move || command.spawn())
+            .arg(destination);
+        let ended = run_helper_mode_child(&self.spawner, command, stop, ERROR_OUTPUT_KEPT_BYTES)
             .await
-            .and_then(|spawned| spawned)
-            .map_err(DatabaseCopyError::Start)?;
-        // Held until the copy ends or is stopped: the mode stops once its standard input ends.
-        let standard_input = child.stdin.take();
-        let standard_error = child
-            .stderr
-            .take()
-            .expect("the copy's standard error is piped");
-        let waiting = async {
-            tokio::select! {
-                biased;
-                status = child.wait() => (status, false),
-                () = stop.cancelled() => {
-                    drop(standard_input);
-                    (child.wait().await, true)
-                }
-            }
-        };
-        let ((status, is_stopped), tail) = tokio::join!(waiting, read_error_tail(standard_error));
-        let status = status.map_err(DatabaseCopyError::Wait)?;
-        let error_output = tail.map_err(DatabaseCopyError::Wait)?;
-        if status.success() {
-            Ok(())
-        } else if is_stopped {
-            Err(DatabaseCopyError::Stopped)
-        } else {
-            Err(DatabaseCopyError::Failed {
+            .map_err(|failure| match failure {
+                HelperModeChildError::Start(failure) => DatabaseCopyError::Start(failure),
+                HelperModeChildError::Wait(failure) => DatabaseCopyError::Wait(failure),
+            })?;
+        match ended {
+            HelperModeEnd::Succeeded => Ok(()),
+            HelperModeEnd::Stopped => Err(DatabaseCopyError::Stopped),
+            HelperModeEnd::Failed {
                 status,
                 error_output,
-            })
+            } => Err(DatabaseCopyError::Failed {
+                status,
+                error_output,
+            }),
         }
     }
 }
@@ -142,30 +110,7 @@ impl DatabaseFileCopier {
 /// path. Exits 0 once the copy is made and on disk, 1 with why on standard error when it fails,
 /// and 1 as soon as standard input ends, the copy's thread ending with the process.
 pub fn run_database_copy() -> ExitCode {
-    let (ended, first_end) = mpsc::channel();
-    let input_ended = ended.clone();
-    // Standard input carries nothing; its end says the daemon stopped waiting for the copy.
-    let watching = thread::Builder::new().spawn(move || {
-        let read = io::copy(&mut io::stdin().lock(), &mut io::sink()).map(|_| ());
-        // A send fails only once the mode has answered, and the process is ending.
-        input_ended.send(CopyModeEnd::Input(read)).unwrap_or(());
-    });
-    let copying = thread::Builder::new().spawn(move || {
-        let copied = copy_from_arguments(env::args_os().skip(1 + DATABASE_COPY_MODE.len()));
-        ended.send(CopyModeEnd::Copy(copied)).unwrap_or(());
-    });
-    if let Err(failure) = watching.and(copying) {
-        return exit_with_failure(&failure);
-    }
-    match first_end
-        .recv()
-        .expect("a thread holds a sender until it sends its end")
-    {
-        CopyModeEnd::Copy(Ok(())) => ExitCode::SUCCESS,
-        CopyModeEnd::Copy(Err(failure)) => exit_with_failure(&failure),
-        CopyModeEnd::Input(Ok(())) => ExitCode::FAILURE,
-        CopyModeEnd::Input(Err(failure)) => exit_with_failure(&failure),
-    }
+    run_until_input_ends(|| copy_from_arguments(env::args_os().skip(1 + DATABASE_COPY_MODE.len())))
 }
 
 /// Copies `source` to `destination`, replacing it: a file already at `destination` is removed
@@ -185,21 +130,6 @@ fn copy_from_arguments(mut arguments: impl Iterator<Item = OsString>) -> Result<
         return Err(CopyModeError::Arguments);
     };
     copy_file_replacing(Path::new(&source), Path::new(&destination)).map_err(CopyModeError::Copy)
-}
-
-// Writes `failure` and its causes to standard error, whose tail the daemon keeps, and answers the
-// failed exit; when the write fails, the exit code alone tells the daemon.
-fn exit_with_failure(failure: &(dyn Error + 'static)) -> ExitCode {
-    let mut standard_error = io::stderr().lock();
-    let mut written = write!(standard_error, "{failure}");
-    let mut cause = failure.source();
-    while let Some(source) = cause {
-        written = written.and_then(|()| write!(standard_error, ": {source}"));
-        cause = source.source();
-    }
-    match written.and_then(|()| writeln!(standard_error)) {
-        Ok(()) | Err(_) => ExitCode::FAILURE,
-    }
 }
 
 #[cfg(test)]
