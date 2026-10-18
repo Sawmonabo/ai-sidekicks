@@ -1,7 +1,8 @@
 //! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
 //! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands and which
 //! message a fork keeps up to; deleted on a purge with every other file Claude Code keeps for the
-//! conversation under the same config folder and the daemon's scratch folder.
+//! conversation under the same config folder and the daemon's scratch folder, a batch of
+//! conversations of one home listing each folder it searches once.
 
 use std::fmt;
 use std::io;
@@ -30,29 +31,36 @@ pub(crate) struct ClaudeConversationOutline {
     pub(crate) turn_end_uuids: Vec<String>,
 }
 
-/// Where Claude Code and the daemon keep one conversation's files.
+/// Where Claude Code and the daemon keep the conversations' files of one Claude Code home.
 pub(crate) struct ClaudeConversationFolders<'a> {
-    /// The configuration folder of the Claude Code home the conversation ran on.
+    /// The configuration folder of the Claude Code home the conversations ran on.
     pub(crate) config_folder: &'a Path,
-    /// The folder the conversation started in, with what Claude Code reads to place its local
-    /// settings.
-    pub(crate) project_folder: &'a ClaudeProjectFolder<'a>,
-    /// The home folder of the place the conversation ran in.
+    /// The home folder of the place the conversations ran in.
     pub(crate) home_folder: &'a Path,
     /// How that place spells paths.
     pub(crate) path_rules: PathRules,
     /// The daemon's data folder, which holds the home's scratch folder.
     pub(crate) data_folder: &'a str,
-    /// The account the conversation ran on; `None`, the person's own home.
+    /// The account the conversations ran on; `None`, the person's own home.
     pub(crate) provider_account_id: Option<&'a ProviderAccountId>,
 }
 
+/// One conversation a purge deletes.
+pub(crate) struct ClaudeConversation<'a> {
+    /// Claude Code's id for it, which names its files.
+    pub(crate) provider_session_id: &'a str,
+    /// The folder it started in, with what Claude Code reads to place its local settings.
+    pub(crate) project_folder: &'a ClaudeProjectFolder<'a>,
+}
+
 /// Finds the conversation's file under any project folder of `config_folder`, or `None`. Fails
-/// with any read failure but a missing projects folder.
+/// with any read failure but a missing projects folder, and with `InvalidInput` for an id that is
+/// not one plain path component.
 pub(crate) async fn find_claude_conversation_file(
     config_folder: &Path,
     provider_session_id: &str,
 ) -> io::Result<Option<PathBuf>> {
+    check_session_id(provider_session_id)?;
     let file_name = format!("{provider_session_id}.jsonl");
     for project_folder in list_project_folders(config_folder).await? {
         let file = project_folder.join(&file_name);
@@ -108,72 +116,98 @@ pub(crate) async fn read_claude_conversation_outline(
     Ok(outline)
 }
 
-/// Deletes every file Claude Code keeps for one conversation, where each exists: under the config
-/// folder its file history, session environment, task list, debug log, uploads, dev mods, image
-/// cache and plan files (in the plans folder the settings of the config folder and of the project
-/// name, the local settings of the starting folder and of the repository's root among them), and in
-/// every project folder the conversation's files, the copies set aside and its folder of helper
-/// transcripts and tool results; under the home's scratch folder, the daemon's `CLAUDE_CODE_TMPDIR`,
-/// the conversation's folder in each project. The conversation's files go last, since they name the
-/// plan files a purge that fails must find again. Fails with the first read or removal failure.
-pub(crate) async fn delete_claude_conversation(
+/// Deletes every file Claude Code keeps for each of `conversations`, where each exists: under the
+/// config folder its file history, session environment, task list, debug log, uploads, dev mods,
+/// image cache and plan files (in the plans folder the settings of the config folder and of the
+/// project name, the local settings of the starting folder and of the repository's root among
+/// them), and in every project folder the conversation's files, the copies set aside and its folder
+/// of helper transcripts and tool results; under the home's scratch folder, the daemon's
+/// `CLAUDE_CODE_TMPDIR`, the conversation's folder in each project. Each project folder and scratch
+/// folder is listed once for the whole batch. The conversations' files go last, since they name the
+/// plan files a purge that fails must find again. Fails with `InvalidInput`, before anything is
+/// listed or removed, for an id that is not one plain path component, else with the first read or
+/// removal failure.
+pub(crate) async fn delete_claude_conversations(
     folders: &ClaudeConversationFolders<'_>,
-    provider_session_id: &str,
+    conversations: &[ClaudeConversation<'_>],
 ) -> io::Result<()> {
+    for conversation in conversations {
+        check_session_id(conversation.provider_session_id)?;
+    }
     let config_folder = folders.config_folder;
-    let file_name = format!("{provider_session_id}.jsonl");
-    let mut conversation_files = Vec::new();
-    let mut set_aside = Vec::new();
+    let session_ids: Vec<&str> = conversations
+        .iter()
+        .map(|conversation| conversation.provider_session_id)
+        .collect();
+    let mut conversation_files = vec![Vec::new(); conversations.len()];
+    let mut removed = Vec::new();
     for project_folder in list_project_folders(config_folder).await? {
-        let file = project_folder.join(&file_name);
-        if tokio::fs::try_exists(&file).await? {
-            conversation_files.push(file);
+        let mut entries = tokio::fs::read_dir(&project_folder).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            for (index, session_id) in session_ids.iter().enumerate() {
+                match read_project_entry(name, session_id) {
+                    Some(ProjectEntry::Conversation) => {
+                        conversation_files[index].push(entry.path())
+                    }
+                    Some(ProjectEntry::SetAside) => removed.push(entry.path()),
+                    None => {}
+                }
+            }
         }
-        set_aside.extend(find_set_aside_entries(&project_folder, provider_session_id).await?);
     }
-    let mut plan_slug = None;
-    for file in &conversation_files {
-        plan_slug = read_claude_plan_slug(file).await?;
-        if plan_slug.is_some() {
-            break;
-        }
-    }
-    let mut removed = vec![
-        config_folder.join("file-history").join(provider_session_id),
-        config_folder.join("session-env").join(provider_session_id),
-        config_folder.join("tasks").join(provider_session_id),
-        config_folder
-            .join("debug")
-            .join(format!("{provider_session_id}.txt")),
-        config_folder.join("uploads").join(provider_session_id),
-        config_folder.join("dev-mods").join(provider_session_id),
-        config_folder.join("image-cache").join(provider_session_id),
-    ];
-    if let Some(plan_slug) = &plan_slug {
-        let root_local_settings = resolve_claude_local_settings_file(
-            folders.project_folder,
-            folders.home_folder,
-            folders.path_rules,
-        )
-        .path;
-        removed.extend(
-            find_claude_plan_files(
-                config_folder,
-                folders.project_folder.working_folder,
-                &root_local_settings,
-                plan_slug,
-            )
-            .await?,
-        );
-    }
-    let scratch_folder = compose_claude_scratch_folder(
+    let scratch_projects = list_scratch_projects(Path::new(&compose_claude_scratch_folder(
         folders.data_folder,
         folders.provider_account_id,
-        folders.path_rules,
-    );
-    removed.extend(find_scratch_folders(Path::new(&scratch_folder), provider_session_id).await?);
-    removed.extend(set_aside);
-    removed.extend(conversation_files);
+    )))
+    .await?;
+    for (conversation, files) in conversations.iter().zip(&conversation_files) {
+        let session_id = conversation.provider_session_id;
+        removed.extend([
+            config_folder.join("file-history").join(session_id),
+            config_folder.join("session-env").join(session_id),
+            config_folder.join("tasks").join(session_id),
+            config_folder
+                .join("debug")
+                .join(format!("{session_id}.txt")),
+            config_folder.join("uploads").join(session_id),
+            config_folder.join("dev-mods").join(session_id),
+            config_folder.join("image-cache").join(session_id),
+        ]);
+        removed.extend(
+            scratch_projects
+                .iter()
+                .map(|scratch_project| scratch_project.join(session_id)),
+        );
+        let mut plan_slug = None;
+        for file in files {
+            plan_slug = read_claude_plan_slug(file).await?;
+            if plan_slug.is_some() {
+                break;
+            }
+        }
+        if let Some(plan_slug) = &plan_slug {
+            let root_local_settings = resolve_claude_local_settings_file(
+                conversation.project_folder,
+                folders.home_folder,
+                folders.path_rules,
+            )
+            .path;
+            removed.extend(
+                find_claude_plan_files(
+                    config_folder,
+                    conversation.project_folder.working_folder,
+                    &root_local_settings,
+                    plan_slug,
+                )
+                .await?,
+            );
+        }
+    }
+    removed.extend(conversation_files.into_iter().flatten());
     for path in removed {
         tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path))
             .await
@@ -182,38 +216,48 @@ pub(crate) async fn delete_claude_conversation(
     Ok(())
 }
 
-// The conversation's own folder and the copies Claude Code set aside in one project folder, each
-// found by its own name whether or not the conversation's file is there: `<id>/`,
-// `<id>.orphaned-<when>-<suffix>.jsonl` and `<id>.jsonl.superseded-<when>`.
-async fn find_set_aside_entries(
-    folder: &Path,
-    provider_session_id: &str,
-) -> io::Result<Vec<PathBuf>> {
-    let orphaned_prefix = format!("{provider_session_id}.orphaned-");
-    let superseded_prefix = format!("{provider_session_id}.jsonl.superseded-");
-    let mut found = vec![folder.join(provider_session_id)];
-    let mut entries = tokio::fs::read_dir(folder).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        let is_orphaned = name
-            .strip_prefix(&orphaned_prefix)
-            .is_some_and(|rest| rest.strip_suffix(".jsonl").is_some());
-        if is_orphaned || name.starts_with(&superseded_prefix) {
-            found.push(entry.path());
-        }
+// Refuses an id that is not one plain path component, `[A-Za-z0-9_-]+`, since the purge joins it
+// onto folders it deletes: an empty id would name the folder itself and `..` its parent.
+fn check_session_id(provider_session_id: &str) -> io::Result<()> {
+    let is_plain = !provider_session_id.is_empty()
+        && provider_session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+    if is_plain {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a Claude Code session id is not one plain path component",
+        ))
     }
-    Ok(found)
 }
 
-// The conversation's folder in each project of each folder Claude Code keeps under the scratch
-// folder, `claude-<uid>/` or `claude/`: `<scratch>/<child>/<project>/<id>/`.
-async fn find_scratch_folders(
-    scratch_folder: &Path,
-    provider_session_id: &str,
-) -> io::Result<Vec<PathBuf>> {
+// What an entry of a project folder is to one conversation.
+enum ProjectEntry {
+    // Its file, `<id>.jsonl`.
+    Conversation,
+    // Its folder `<id>/` or a copy Claude Code set aside, `<id>.orphaned-<when>-<suffix>.jsonl` or
+    // `<id>.jsonl.superseded-<when>`.
+    SetAside,
+}
+
+fn read_project_entry(name: &str, session_id: &str) -> Option<ProjectEntry> {
+    let rest = name.strip_prefix(session_id)?;
+    if rest == ".jsonl" {
+        return Some(ProjectEntry::Conversation);
+    }
+    let is_set_aside = rest.is_empty()
+        || rest
+            .strip_prefix(".orphaned-")
+            .is_some_and(|rest| rest.ends_with(".jsonl"))
+        || rest.starts_with(".jsonl.superseded-");
+    is_set_aside.then_some(ProjectEntry::SetAside)
+}
+
+// The project folders of each folder Claude Code keeps under the scratch folder, `claude-<uid>/` or
+// `claude/`, each holding a conversation's folder by its id: `<scratch>/<child>/<project>/`.
+async fn list_scratch_projects(scratch_folder: &Path) -> io::Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     let Some(mut children) = tokio::fs::read_dir(scratch_folder)
         .await
@@ -228,7 +272,7 @@ async fn find_scratch_folders(
         let mut projects = tokio::fs::read_dir(child.path()).await?;
         while let Some(project) = projects.next_entry().await? {
             if project.file_type().await?.is_dir() {
-                found.push(project.path().join(provider_session_id));
+                found.push(project.path());
             }
         }
     }
@@ -552,12 +596,13 @@ mod tests {
     use sidekicks_platforms::PathRules;
 
     use super::{
-        ClaudeConversationFolders, ClaudeConversationOutline, delete_claude_conversation,
-        read_claude_conversation_outline,
+        ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
+        delete_claude_conversations, read_claude_conversation_outline,
     };
     use crate::provider::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
+    const OTHER_SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000002";
 
     #[tokio::test]
     async fn a_tool_result_or_an_entry_claude_code_wrote_starts_no_turn() {
@@ -661,22 +706,27 @@ mod tests {
                 .join(SESSION_ID)
                 .join("images")
                 .join("a.png"),
+            // A second conversation of the batch, found in the same listings.
+            other_project_files.join(format!("{OTHER_SESSION_ID}.jsonl")),
+            config.join("tasks").join(OTHER_SESSION_ID).join("t"),
         ];
         for path in kept.iter().chain(&deleted) {
             write(path, "x");
         }
 
-        delete_claude_conversation(
+        delete_claude_conversations(
             &ClaudeConversationFolders {
                 config_folder: &config,
-                project_folder: &project_folder,
                 home_folder: scratch.path(),
                 // The repository's root keeps the local settings, as on macOS and Linux.
                 path_rules: PathRules::Posix,
                 data_folder: data_text,
                 provider_account_id: None,
             },
-            SESSION_ID,
+            &[SESSION_ID, OTHER_SESSION_ID].map(|provider_session_id| ClaudeConversation {
+                provider_session_id,
+                project_folder: &project_folder,
+            }),
         )
         .await
         .expect("the purge succeeds");
@@ -704,13 +754,9 @@ mod tests {
             .expect("a held file is made");
 
         let project = scratch.path().join("project");
-        let outcome = delete_claude_conversation(
+        let outcome = delete_claude_conversations(
             &ClaudeConversationFolders {
                 config_folder: &config,
-                project_folder: &ClaudeProjectFolder {
-                    working_folder: &project,
-                    repository: None,
-                },
                 home_folder: scratch.path(),
                 path_rules: PathRules::NATIVE,
                 data_folder: scratch
@@ -719,12 +765,69 @@ mod tests {
                     .expect("the scratch folder is UTF-8"),
                 provider_account_id: None,
             },
-            SESSION_ID,
+            &[ClaudeConversation {
+                provider_session_id: SESSION_ID,
+                project_folder: &ClaudeProjectFolder {
+                    working_folder: &project,
+                    repository: None,
+                },
+            }],
         )
         .await;
 
         drop(held);
         assert!(outcome.is_err());
         assert!(conversation.exists());
+    }
+
+    #[rstest::rstest]
+    #[case::an_empty_id("")]
+    #[case::the_parent_folder("..")]
+    #[case::a_path("a/b")]
+    #[tokio::test]
+    async fn an_id_that_is_no_plain_name_deletes_nothing(#[case] provider_session_id: &str) {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let config = scratch.path().join("config");
+        let data = scratch.path().join("data");
+        let kept = [
+            config.join("file-history").join(SESSION_ID).join("v1"),
+            config.join("projects").join("-project").join("a.jsonl"),
+            data.join("claude-scratch")
+                .join("own-home")
+                .join("claude-501")
+                .join("-project")
+                .join("a"),
+            config.join("settings.json"),
+        ];
+        for path in &kept {
+            write(path, "x");
+        }
+        let project = scratch.path().join("project");
+
+        let outcome = delete_claude_conversations(
+            &ClaudeConversationFolders {
+                config_folder: &config,
+                home_folder: scratch.path(),
+                path_rules: PathRules::Posix,
+                data_folder: data.to_str().expect("the scratch folder is UTF-8"),
+                provider_account_id: None,
+            },
+            &[ClaudeConversation {
+                provider_session_id,
+                project_folder: &ClaudeProjectFolder {
+                    working_folder: &project,
+                    repository: None,
+                },
+            }],
+        )
+        .await;
+
+        assert_eq!(
+            outcome.map_err(|failure| failure.kind()),
+            Err(std::io::ErrorKind::InvalidInput)
+        );
+        for path in &kept {
+            assert!(path.exists(), "{} is kept", path.display());
+        }
     }
 }

@@ -3,8 +3,9 @@
 //! on every Claude Code process, the account's folders where it runs on one, and its scratch
 //! folder, which the daemon keeps under its own data folder for each Claude Code home.
 
+use std::path::{Path, PathBuf};
+
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::PathRules;
 
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::spawn_environment::{
@@ -43,21 +44,19 @@ pub(crate) struct ClaudeProcessEnvironmentRequest<'a> {
 }
 
 /// The daemon's own scratch folder for the Claude Code home of `provider_account_id` (`None`, the
-/// person's own), under `data_folder` in a place that spells paths by `path_rules`: every process
-/// of that home takes it as `CLAUDE_CODE_TMPDIR`, so a session's temporary files sit where its
-/// purge finds them.
+/// person's own), under `data_folder`: every process of that home takes it as
+/// `CLAUDE_CODE_TMPDIR`, so a session's temporary files sit where its purge finds them.
 pub(crate) fn compose_claude_scratch_folder(
     data_folder: &str,
     provider_account_id: Option<&ProviderAccountId>,
-    path_rules: PathRules,
-) -> String {
-    let separator = path_rules.separator().to_string();
-    let mut parts = vec![data_folder, CLAUDE_SCRATCH_FOLDER];
+) -> PathBuf {
+    let scratch_folders = Path::new(data_folder).join(CLAUDE_SCRATCH_FOLDER);
     match provider_account_id {
-        Some(account) => parts.extend([ACCOUNT_SCRATCH_FOLDERS, account.as_str()]),
-        None => parts.push(OWN_HOME_SCRATCH_FOLDER),
+        Some(account) => scratch_folders
+            .join(ACCOUNT_SCRATCH_FOLDERS)
+            .join(account.as_str()),
+        None => scratch_folders.join(OWN_HOME_SCRATCH_FOLDER),
     }
-    parts.join(&separator)
 }
 
 /// The whole environment a session process, a relaunch or the sign-in check starts with, with
@@ -81,11 +80,9 @@ pub(crate) fn compose_claude_process_environment(
     }
     credential_homes.push((
         "CLAUDE_CODE_TMPDIR".to_owned(),
-        compose_claude_scratch_folder(
-            request.data_folder,
-            request.provider_account_id,
-            request.session.rules,
-        ),
+        compose_claude_scratch_folder(request.data_folder, request.provider_account_id)
+            .to_string_lossy()
+            .into_owned(),
     ));
     build_provider_process_environment(
         &ProviderEnvironmentRequest {
