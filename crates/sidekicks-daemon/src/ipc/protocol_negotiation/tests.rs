@@ -267,12 +267,17 @@ async fn a_repairing_service_answers_a_repeat_as_it_admitted_the_first(
     .await;
 }
 
-#[tokio::test]
-async fn a_handshake_during_the_first_ones_caller_read_gets_the_first_ones_outcome() {
-    let (read_started, mut has_read_started) = mpsc::unbounded_channel();
+/// A caller check whose read reports its start on the receiver and answers `TokenRequired` once
+/// the notifier is told to release it.
+fn held_caller_read() -> (
+    CallerAdmissionCheck,
+    Arc<Notify>,
+    mpsc::UnboundedReceiver<()>,
+) {
+    let (read_started, has_read_started) = mpsc::unbounded_channel();
     let release = Arc::new(Notify::new());
     let read_release = Arc::clone(&release);
-    let gate = gate_over(
+    let check: CallerAdmissionCheck =
         Arc::new(move |_process: PinnedProcess, _is_tokenless: bool| {
             read_started.send(()).expect("the test listens");
             let release = Arc::clone(&read_release);
@@ -281,9 +286,23 @@ async fn a_handshake_during_the_first_ones_caller_read_gets_the_first_ones_outco
                 Ok::<_, Arc<dyn Error + Send + Sync>>(CallerAdmission::TokenRequired)
             }
             .boxed()
-        }),
-        false,
-    );
+        });
+    (check, release, has_read_started)
+}
+
+/// Checks that `answer`, to the call `what` names, is refused with `code`.
+fn expect_refused(answer: Result<Reply, DispatchError>, code: RefusalCode, what: &str) {
+    match answer {
+        Err(DispatchError::Refused(refusal)) => assert_eq!(refusal.code, code, "{what}"),
+        Err(error) => panic!("{what}: expected a refusal, got {error:?}"),
+        Ok(_) => panic!("{what}: expected a refusal, got a reply"),
+    }
+}
+
+#[tokio::test]
+async fn a_handshake_during_the_first_ones_caller_read_gets_the_first_ones_outcome() {
+    let (check, release, mut has_read_started) = held_caller_read();
+    let gate = gate_over(check, false);
 
     // A wrong guess starts the caller read and waits on it.
     let mut wrong = gate.dispatch(
@@ -318,12 +337,45 @@ async fn a_handshake_during_the_first_ones_caller_read_gets_the_first_ones_outco
         (right, "the token's handshake"),
         (read, "a later call"),
     ] {
-        match answer {
-            Err(DispatchError::Refused(refusal)) => {
-                assert_eq!(refusal.code, RefusalCode::AuthTokenInvalid, "{what}");
-            }
-            Err(error) => panic!("{what}: expected a refusal, got {error:?}"),
-            Ok(_) => panic!("{what}: expected a refusal, got a reply"),
-        }
+        expect_refused(answer, RefusalCode::AuthTokenInvalid, what);
     }
+}
+
+#[tokio::test]
+async fn a_repairing_service_refuses_a_wrong_token_repeat_sent_during_the_caller_read() {
+    let (check, release, mut has_read_started) = held_caller_read();
+    let gate = gate_over(check, true);
+
+    // The token's handshake starts the caller read; a repeat with a wrong token joins it.
+    let mut first = gate.dispatch(
+        request(Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION)),
+        caller_context(true),
+    );
+    assert!(
+        futures::poll!(&mut first).is_pending(),
+        "the handshake waits for its caller read"
+    );
+    has_read_started
+        .try_recv()
+        .expect("the handshake started the caller read");
+    let mut repeat = gate.dispatch(
+        request(Call::Handshake(WRONG_TOKEN, CURRENT_PROTOCOL_VERSION)),
+        caller_context(true),
+    );
+    assert!(
+        futures::poll!(&mut repeat).is_pending(),
+        "the repeat waits for the same read"
+    );
+
+    release.notify_one();
+    expect_refused(
+        first.await,
+        RefusalCode::DaemonRepairing,
+        "the token's handshake",
+    );
+    expect_refused(
+        repeat.await,
+        RefusalCode::AuthTokenInvalid,
+        "the wrong-token repeat",
+    );
 }

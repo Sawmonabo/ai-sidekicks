@@ -329,16 +329,23 @@ impl ProtocolNegotiator {
         context: HandlerContext,
         read_progress: RepairProgressReader,
     ) -> Result<ConnectionInitializeResponse, HandlerError> {
-        match self.latched(context.transport_id) {
-            None => {
-                self.latch_handshake(&request, &context).await?;
-            }
-            Some((_, Admission::Signature)) => {}
-            Some((_, Admission::Token)) => {
-                if !self.is_session_token(request.session_token.as_ref()) {
-                    return Err(ConnectionRefusal::TokenInvalid.error().into());
-                }
-            }
+        let is_repeat = match self.latched(context.transport_id) {
+            None => matches!(
+                self.latch_handshake(&request, &context).await?,
+                HandshakeTurn::Repeat(_)
+            ),
+            Some(_) => true,
+        };
+        // A repeat on a connection its token admitted carries that token, whether it came before
+        // or during the first handshake's caller read.
+        if is_repeat
+            && matches!(
+                self.latched(context.transport_id),
+                Some((_, Admission::Token))
+            )
+            && !self.is_session_token(request.session_token.as_ref())
+        {
+            return Err(ConnectionRefusal::TokenInvalid.error().into());
         }
         // A handshake always fails, so a client keeps waiting for the repair to end.
         Err(
