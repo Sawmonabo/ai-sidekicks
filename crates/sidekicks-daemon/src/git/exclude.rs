@@ -7,13 +7,15 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use crate::file::real_location::resolve_real_location;
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry;
 
 // The list is the person's to read, as git leaves it.
 const EXCLUDE_FILE_MODE: u32 = 0o644;
 
-// Held on a list's path across its read and write, so two writers never drop each other's line.
+// Held on a list's resolved path across its read and write, so two writers never drop each
+// other's line, however each spells the path.
 static EXCLUDE_LIST_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
 
 /// Why a pattern could not be added to a repository's exclude list.
@@ -49,7 +51,13 @@ pub(crate) async fn add_repository_exclude(
     pattern: &str,
 ) -> Result<(), ExcludeError> {
     let exclude_path = common_git_folder.join("info").join("exclude");
-    let _hold = EXCLUDE_LIST_LOCK.acquire(exclude_path.clone()).await;
+    let lock_key = resolve_real_location(&exclude_path)
+        .await
+        .map_err(|failure| ExcludeError::Read {
+            path: exclude_path.clone(),
+            failure,
+        })?;
+    let _hold = EXCLUDE_LIST_LOCK.acquire(lock_key).await;
     let text = tokio::fs::read_to_string(&exclude_path)
         .await
         .none_if_missing()

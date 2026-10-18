@@ -107,6 +107,7 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
 
     remove_claude_project_rule(
         &folders,
+        &home.join(".claude"),
         &home,
         PathRules::Posix,
         &allow_command("npm test"),
@@ -265,6 +266,7 @@ async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case
 #[tokio::test]
 async fn a_revoke_of_a_rule_no_local_file_holds_names_where_it_is_kept_and_makes_no_file() {
     let folder = tempfile::tempdir().expect("a project folder");
+    let config_folder = tempfile::tempdir().expect("a config folder");
     let shared_file = folder.path().join(".claude").join("settings.json");
     fs::create_dir_all(folder.path().join(".claude")).expect("the folder is made");
     fs::write(
@@ -272,15 +274,22 @@ async fn a_revoke_of_a_rule_no_local_file_holds_names_where_it_is_kept_and_makes
         "{\"permissions\": {\"allow\": [\"Bash(npm test *)\"]}}",
     )
     .expect("the shared file is written");
+    let user_file = config_folder.path().join("settings.json");
+    fs::write(
+        &user_file,
+        "{\"permissions\": {\"allow\": [\"Bash(cargo build *)\"]}}",
+    )
+    .expect("the user settings are written");
     let folders = [ClaudeProjectFolder {
         working_folder: folder.path(),
         repository: None,
     }];
     let mut outcomes = Vec::new();
-    for subject in ["npm test", "ls"] {
+    for subject in ["npm test", "cargo build", "ls"] {
         outcomes.push(
             remove_claude_project_rule(
                 &folders,
+                config_folder.path(),
                 folder.path(),
                 PathRules::Posix,
                 &allow_command(subject),
@@ -288,11 +297,16 @@ async fn a_revoke_of_a_rule_no_local_file_holds_names_where_it_is_kept_and_makes
             .await,
         );
     }
-    let [in_shared_file, nowhere] = <[_; 2]>::try_from(outcomes).expect("two revokes ran");
+    let [in_shared_file, in_user_file, nowhere] =
+        <[_; 3]>::try_from(outcomes).expect("three revokes ran");
 
     assert!(matches!(
         in_shared_file,
         Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == shared_file
+    ));
+    assert!(matches!(
+        in_user_file,
+        Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == user_file
     ));
     assert!(matches!(nowhere, Err(ClaudeRulesError::RuleNotFound)));
     assert!(!local_settings(folder.path()).exists());
@@ -305,7 +319,7 @@ async fn a_removed_tool_servers_rules_go_in_claude_codes_spelling_and_other_serv
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
-        "{\"permissions\": {\"allow\": [\"mcp__my_server__read\", \"mcp__my_server\", \"mcp__reports\", \"mcp__reports__search\", \"mcp__reports__v2__*\", \"mcp__other__x\", \"mcp__my_serverx__y\", \"mcp__claude_ai_Notion_beta__search\"], \"deny\": [\"mcp__my_server__*\"]}}",
+        "{\"permissions\": {\"allow\": [\"mcp__my_server__read\", \"mcp__my_server\", \"mcp__reports\", \"mcp__reports__search\", \"mcp__reports__v2__*\", \"mcp__reports___*\", \"mcp__other__x\", \"mcp__my_serverx__y\", \"mcp__claude_ai_Notion_beta__search\"], \"deny\": [\"mcp__my_server__*\"]}}",
     )
     .expect("the file is written");
     let folders = [ClaudeProjectFolder {
@@ -321,7 +335,7 @@ async fn a_removed_tool_servers_rules_go_in_claude_codes_spelling_and_other_serv
 
     assert_eq!(
         read(&file),
-        "{\"permissions\": {\"allow\": [\"mcp__reports__v2__*\", \"mcp__other__x\", \"mcp__my_serverx__y\"], \"deny\": []}}"
+        "{\"permissions\": {\"allow\": [\"mcp__reports__v2__*\", \"mcp__reports___*\", \"mcp__other__x\", \"mcp__my_serverx__y\"], \"deny\": []}}"
     );
 }
 
@@ -352,6 +366,7 @@ async fn a_revoke_keeps_every_byte_of_the_list_but_the_entry_and_its_separator(
 
     remove_claude_project_rule(
         &folders,
+        folder.path(),
         folder.path(),
         PathRules::Posix,
         &allow_command("a"),

@@ -25,6 +25,7 @@ use sidekicks_platforms::PathRules;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use crate::file::real_location::resolve_real_location;
 use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::keyed_lock::KeyedLock;
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
@@ -41,6 +42,10 @@ const CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN: &str = "/.claude/settings.local.jso
 
 // The project's shared settings file, which the person commits and the daemon never edits.
 const CLAUDE_SHARED_SETTINGS_FILE: [&str; 2] = [".claude", "settings.json"];
+
+// The person's own settings file in a Claude Code home's config folder, which the daemon never
+// edits.
+const CLAUDE_USER_SETTINGS_FILE: &str = "settings.json";
 
 // The name Claude Code gives a connector it fetches itself starts so, and is written more tightly.
 const CLAUDE_CONNECTOR_SERVER_PREFIX: &str = "claude.ai ";
@@ -304,10 +309,12 @@ pub(crate) async fn write_claude_project_rule(
 /// Removes a revoked project rule from the local settings of each of `folders`: the file Claude
 /// Code keeps for the folder and the one in the folder itself, since Claude Code applies the rules
 /// of both. A file that does not exist holds none and is not made. Refuses a rule no local file
-/// held: `RuleInUneditedFile` where a folder's shared `.claude/settings.json` keeps it, else
+/// held: `RuleInUneditedFile` where a file Claude Code reads and the daemon does not edit keeps
+/// it, the user settings of `config_folder` or a folder's shared `.claude/settings.json`, else
 /// `RuleNotFound`.
 pub(crate) async fn remove_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
+    config_folder: &Path,
     home_folder: &Path,
     path_rules: PathRules,
     rule: &ProviderAskRule,
@@ -321,14 +328,19 @@ pub(crate) async fn remove_claude_project_rule(
     }
     let entries = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    for folder in folders {
-        let shared_file = settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE);
-        let settings = read_claude_settings_file(&shared_file)
-            .await
-            .map_err(|failure| ClaudeRulesError::Read {
-                path: shared_file.clone(),
-                failure,
-            })?;
+    let unedited_files = std::iter::once(config_folder.join(CLAUDE_USER_SETTINGS_FILE)).chain(
+        folders
+            .iter()
+            .map(|folder| settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE)),
+    );
+    for file in unedited_files {
+        let settings =
+            read_claude_settings_file(&file)
+                .await
+                .map_err(|failure| ClaudeRulesError::Read {
+                    path: file.clone(),
+                    failure,
+                })?;
         let is_kept = settings
             .as_ref()
             .and_then(|settings| settings.get("permissions")?.get(list)?.as_array())
@@ -337,7 +349,7 @@ pub(crate) async fn remove_claude_project_rule(
                     .any(|kept| entries.iter().any(|entry| kept.as_str() == Some(entry)))
             });
         if is_kept {
-            return Err(ClaudeRulesError::RuleInUneditedFile { path: shared_file });
+            return Err(ClaudeRulesError::RuleInUneditedFile { path: file });
         }
     }
     Err(ClaudeRulesError::RuleNotFound)
@@ -355,7 +367,9 @@ pub(crate) async fn remove_claude_tool_server_rules(
     let server_name = compose_claude_tool_server_name(server_name);
     let is_server_rule = |entry: &str| is_claude_tool_server_rule(entry, &server_name);
     for file in every_local_settings_file(folders, home_folder, path_rules) {
-        let _hold = LOCAL_SETTINGS_LOCK.acquire(file.clone()).await;
+        let _hold = LOCAL_SETTINGS_LOCK
+            .acquire(resolve_lock_key(&file).await?)
+            .await;
         let Some(text) = read_local_settings(&file).await? else {
             continue;
         };
@@ -398,10 +412,12 @@ fn compose_claude_tool_server_name(server_name: &str) -> String {
     trimmed.strip_suffix('_').unwrap_or(trimmed).to_owned()
 }
 
-// Whether a rule names the tool server Claude Code calls `server_name`: its wildcard
-// `mcp__<server>__*`, its whole-server `mcp__<server>`, which Claude Code reads as that server's
-// only while the name holds no `__`, and a tool's `mcp__<server>__<tool>` whose tool holds no `__`.
-// A longer name's rules, `mcp__<server>__v2__*` among them, belong to the server that name names.
+// Whether a rule names the tool server Claude Code calls `server_name`, split as Claude Code splits
+// a rule at each `__` (the server the piece after `mcp`, the tool the rest): its wildcard
+// `mcp__<server>__*`, its whole-server `mcp__<server>`, read as that server's only while the name
+// holds no `__`, and a tool's `mcp__<server>__<tool>`. A tool piece holding `__` or starting `_` is
+// a longer name's rule, `mcp__<server>__v2__*` or `mcp__<server>___*`, the one Claude Code's
+// documentation has a name ending in `_` write, so it stays with the server that name names.
 fn is_claude_tool_server_rule(entry: &str, server_name: &str) -> bool {
     let Some(rest) = entry
         .strip_prefix(TOOL_SERVER_TOOL_PREFIX)
@@ -410,7 +426,9 @@ fn is_claude_tool_server_rule(entry: &str, server_name: &str) -> bool {
         return false;
     };
     match rest.strip_prefix("__") {
-        Some(tool) => tool == "*" || (!tool.is_empty() && !tool.contains("__")),
+        Some(tool) => {
+            tool == "*" || (!tool.is_empty() && !tool.starts_with('_') && !tool.contains("__"))
+        }
         None => rest.is_empty() && !server_name.contains("__"),
     }
 }
@@ -569,7 +587,9 @@ async fn remove_rule_from_file(
 ) -> Result<bool, ClaudeRulesError> {
     let removed = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    let _hold = LOCAL_SETTINGS_LOCK.acquire(file.to_path_buf()).await;
+    let _hold = LOCAL_SETTINGS_LOCK
+        .acquire(resolve_lock_key(file).await?)
+        .await;
     let Some(text) = read_local_settings(file).await? else {
         return Ok(false);
     };
@@ -597,7 +617,9 @@ async fn edit_local_settings(
     excluded_repositories: &Mutex<HashSet<PathBuf>>,
     changes: &[ListChange<'_>],
 ) -> Result<(), ClaudeRulesError> {
-    let _hold = LOCAL_SETTINGS_LOCK.acquire(file.to_path_buf()).await;
+    let _hold = LOCAL_SETTINGS_LOCK
+        .acquire(resolve_lock_key(file).await?)
+        .await;
     let edited = if let Some(text) = read_local_settings(file).await? {
         edit_permission_lists(file, &text, |permissions, path| {
             apply_list_changes(permissions, path, changes)
@@ -633,6 +655,16 @@ async fn edit_local_settings(
         Some(edited) => write_local_settings(file, edited).await,
         None => Ok(()),
     }
+}
+
+// A local settings file as its lock knows it, one key for every spelling of the file.
+async fn resolve_lock_key(file: &Path) -> Result<PathBuf, ClaudeRulesError> {
+    resolve_real_location(file)
+        .await
+        .map_err(|failure| ClaudeRulesError::Read {
+            path: file.to_path_buf(),
+            failure,
+        })
 }
 
 // The file's text, or `None` where there is no file.
