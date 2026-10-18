@@ -179,6 +179,15 @@ where
     }
 }
 
+/// Holds a received message to `T`'s contract as [`parse_received`] does, keeping nothing: the
+/// check a method descriptor holds for a caller that has the params only as JSON.
+pub fn check_received<T>(json: &[u8], attachments: Vec<ByteBuffer>) -> Result<(), ReceivedError>
+where
+    T: DeserializeOwned + JsonSchema + garde::Validate<Context = ()> + 'static,
+{
+    parse_received::<T>(json, attachments).map(drop)
+}
+
 /// Why a read inside an attachment context failed: the reader's own refusal, or an attachment no
 /// placeholder took.
 enum AttachmentReadError<Read> {

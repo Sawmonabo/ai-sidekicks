@@ -56,6 +56,7 @@ methods! {
         /// A confirmed stop goes ahead at once, with no wait for the other connected clients.
         DaemonStop = mutation "daemon.stop" {
             mutating: true,
+            takes_call_slot: false,
             params: EmptyPayload,
             result: DaemonLifecycleAccepted,
             refusals: [],
@@ -78,6 +79,7 @@ methods! {
         /// only after 5 s with no frame from the service, so a busy link carries none.
         DaemonPing = query "daemon.ping" {
             mutating: false,
+            takes_call_slot: false,
             params: EmptyPayload,
             result: EmptyPayload,
             refusals: [],

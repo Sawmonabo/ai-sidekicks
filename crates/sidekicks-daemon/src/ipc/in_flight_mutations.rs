@@ -168,6 +168,7 @@ mod tests {
     use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
     use sidekicks_contracts::schema::received_check;
     use sidekicks_contracts::typescript::TypeName;
+    use sidekicks_contracts::wire::attachment::check_received;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
@@ -189,6 +190,9 @@ mod tests {
             emission: None,
             refusals: &[],
             received_check: received_check::<Nothing>,
+            check_params: check_received::<Nothing>,
+            keyed: false,
+            takes_call_slot: true,
         };
     }
 

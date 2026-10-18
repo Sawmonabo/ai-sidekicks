@@ -12,6 +12,7 @@ use crate::agent::definition::binding::{AgentProviderBinding, provider_binding};
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
+use crate::method::KeyedRequest;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::Place;
@@ -386,6 +387,8 @@ pub enum SessionCreateRequest {
     Chat(SessionCreateChatRequest),
 }
 
+impl KeyedRequest for SessionCreateRequest {}
+
 /// What `session.create` answers. `lead` is the binding the daemon resolved for the lead, the
 /// account among it; `place` is where the session runs, its project's place, or for a chat the
 /// place its provider is installed in.
@@ -432,6 +435,8 @@ pub struct SessionForkRequest {
     /// The key that makes a repeated fork one fork.
     pub client_idempotency_key: ClientUuid,
 }
+
+impl KeyedRequest for SessionForkRequest {}
 
 /// The fork. A project fork lands on a new worktree cut from the parent's current one; a chat fork
 /// gets its own managed workspace and has no worktree.

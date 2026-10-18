@@ -10,6 +10,7 @@ use crate::schema::received_check;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeName, TypeScriptModule, ts_constants};
 use crate::wire;
+use crate::wire::attachment::check_received;
 use crate::wire::list::BoundedVec;
 use crate::wire::name::is_wire_name;
 use crate::wire::text::{BoundedText, pattern_text};
@@ -181,6 +182,9 @@ impl Method for DaemonHandshake {
             RefusalCode::DaemonRepairing,
         ],
         received_check: received_check::<ConnectionInitializeRequest>,
+        check_params: check_received::<ConnectionInitializeRequest>,
+        keyed: false,
+        takes_call_slot: true,
     };
 }
 

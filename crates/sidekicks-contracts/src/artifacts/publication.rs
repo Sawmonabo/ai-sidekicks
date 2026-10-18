@@ -8,6 +8,7 @@ use serde_json::{Map, Value};
 use crate::artifacts::id::ArtifactId;
 use crate::artifacts::manifest::{ArtifactManifest, ArtifactState, ArtifactType, Extensible};
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
+use crate::method::KeyedRequest;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -51,6 +52,8 @@ pub struct ArtifactPublishRequest {
     #[schemars(with = "JsonRecord")]
     pub metadata: Option<JsonRecord>,
 }
+
+impl KeyedRequest for ArtifactPublishRequest {}
 
 /// The published artifact's manifest: its id is the artifact id, its digest the content hash.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]

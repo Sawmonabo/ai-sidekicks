@@ -23,6 +23,7 @@ use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::jsonrpc::streaming::{
     STREAM_FRAME_MAX_CHANGES, SubscribeAcknowledgmentResponse, SubscriptionId,
 };
+use crate::method::KeyedRequest;
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
 use crate::session::id::SessionId;
@@ -156,6 +157,8 @@ pub struct TerminalOpenRequest {
     /// The caller's key for this open.
     pub client_idempotency_key: ClientUuid,
 }
+
+impl KeyedRequest for TerminalOpenRequest {}
 
 /// The new shell's id. A shell that fails to start still has one: its tab stays and its list entry
 /// reads `didNotStart` with the cause.
@@ -494,6 +497,7 @@ methods! {
         /// Writes input to one shell.
         TerminalWrite = mutation "terminal.write" {
             mutating: true,
+            takes_call_slot: false,
             params: TerminalWriteRequest,
             result: NullPayload,
             refusals: [

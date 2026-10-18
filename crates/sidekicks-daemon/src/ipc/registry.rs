@@ -555,6 +555,7 @@ mod tests {
     use sidekicks_contracts::schema::received_check;
     use sidekicks_contracts::typescript::TypeName;
     use sidekicks_contracts::wire::attachment::ReceivedError;
+    use sidekicks_contracts::wire::attachment::check_received;
 
     use super::{
         Dispatch as _, DispatchError, HandlerContext, MethodRegistryBuilder, RegistrationError,
@@ -579,6 +580,9 @@ mod tests {
             emission: None,
             refusals: &[],
             received_check: received_check::<Named>,
+            check_params: check_received::<Named>,
+            keyed: false,
+            takes_call_slot: true,
         };
     }
 

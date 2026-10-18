@@ -12,6 +12,7 @@ use crate::mcp::server::inventory::{
     McpToolOverrideFacet,
 };
 use crate::mcp::server::{McpApplicationGrade, McpToolName, binding_addressed};
+use crate::method::KeyedRequest;
 use crate::place::WslPlace;
 use crate::session::id::SessionId;
 use crate::web_address::WebAddress;
@@ -49,6 +50,8 @@ binding_addressed! {
     }
 }
 
+impl KeyedRequest for McpServerUpsertRequest {}
+
 binding_addressed! {
     /// Removes a binding from its provider's config. A plugin's server leaves only with its
     /// plugin, and a connector or an organization's server only with the provider's own account or
@@ -58,6 +61,8 @@ binding_addressed! {
         client_idempotency_key: ClientUuid,
     }
 }
+
+impl KeyedRequest for McpServerDeleteRequest {}
 
 binding_addressed! {
     /// Turns one binding on or off. A connector or an organization's server is switched for one
@@ -93,6 +98,8 @@ binding_addressed! {
     }
 }
 
+impl KeyedRequest for McpServerEnabledUpdateRequest {}
+
 binding_addressed! {
     /// A keyed command on one binding with nothing else to say: starting the daemon's sign-in.
     pub enum McpServerSignInRequest in every scope {
@@ -100,6 +107,8 @@ binding_addressed! {
         client_idempotency_key: ClientUuid,
     }
 }
+
+impl KeyedRequest for McpServerSignInRequest {}
 
 binding_addressed! {
     /// Sets one tool's override on a binding.
@@ -111,6 +120,8 @@ binding_addressed! {
         r#override: McpToolOverride,
     }
 }
+
+impl KeyedRequest for McpToolOverrideUpdateRequest {}
 
 binding_addressed! {
     /// Clears one facet of one tool's override, returning that facet to the server's own value
@@ -125,6 +136,8 @@ binding_addressed! {
     }
 }
 
+impl KeyedRequest for McpToolOverrideClearRequest {}
+
 /// Signs out of one server: the daemon's single sign-in for it, which every provider and every
 /// binding naming it share. `serverId` is the server's address, not a scope-qualified binding.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -136,6 +149,8 @@ pub struct McpServerSignOutRequest {
     /// The server's address.
     pub server_id: McpServerAddress,
 }
+
+impl KeyedRequest for McpServerSignOutRequest {}
 
 binding_addressed! {
     /// Asks the provider to open a binding's connection again. It carries no key: it writes

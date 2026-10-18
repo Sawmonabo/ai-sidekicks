@@ -10,6 +10,7 @@ use strum::VariantArray;
 
 use crate::agent::tree::{AgentTreeMember, ChildHandle};
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::method::KeyedRequest;
 use crate::provider::driver::methods::PROVIDER_WIRE_REASON_MAX_LEN;
 use crate::run::id::RunId;
 use crate::run::queue::{MessageContent, QueueItemId};
@@ -48,6 +49,8 @@ pub struct AgentChildRunSteerRequest {
     pub replaces_queue_item_id: Option<QueueItemId>,
 }
 
+impl KeyedRequest for AgentChildRunSteerRequest {}
+
 /// Interrupts one child, and only that child (`agent.childRun.interrupt`); its pending messages go
 /// as its next turn, with `deliver_first`, the row `Send now` was pressed on, ahead of the rest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -71,6 +74,8 @@ pub struct AgentChildRunInterruptRequest {
     #[schemars(with = "QueueItemId")]
     pub deliver_first: Option<QueueItemId>,
 }
+
+impl KeyedRequest for AgentChildRunInterruptRequest {}
 
 /// Where the child stands after the interrupt. A child that had already finished answers the state
 /// it finished in.
@@ -101,6 +106,8 @@ pub struct AgentChildRunPausedUpdateRequest {
     /// A retry under the same key answers what the first saved.
     pub client_idempotency_key: ClientUuid,
 }
+
+impl KeyedRequest for AgentChildRunPausedUpdateRequest {}
 
 /// A child held paused after the set.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

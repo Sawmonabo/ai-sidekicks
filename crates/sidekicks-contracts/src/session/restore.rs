@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::artifacts::attachment_reference::AttachmentReferenceList;
 use crate::free_form_string::FilesystemPath;
+use crate::method::KeyedRequest;
 use crate::method::methods;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
@@ -275,6 +276,8 @@ pub struct SessionRestoreRequest {
     }))]
     pub resend: Option<SessionRestoreResend>,
 }
+
+impl KeyedRequest for SessionRestoreRequest {}
 
 /// Why one asked-for part did not go back, in the daemon's words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
