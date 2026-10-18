@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
-    ERROR_FILE_NOT_FOUND, ERROR_INVALID_PARAMETER, FALSE, FILETIME, HANDLE, WAIT_FAILED,
-    WAIT_OBJECT_0, WAIT_TIMEOUT,
+    ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_PARAMETER, FALSE, FILETIME, HANDLE,
+    WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::JobObjects::{IsProcessInJob, OpenJobObjectW, TerminateJobObject};
 use windows_sys::Win32::System::SystemServices::{JOB_OBJECT_QUERY, JOB_OBJECT_TERMINATE};
@@ -169,12 +169,21 @@ impl PinnedProcess {
 }
 
 /// The process `record` names, held open; `None` when it has ended or its id now names another
-/// process, whose creation time differs. Fails with the system's error.
+/// process, whose creation time differs or which this user cannot open. Fails with the system's
+/// error.
 pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
     let mut process = match open_process(record.id) {
         Ok(process) => process,
-        // No process has the id.
-        Err(error) if win32_code(&error) == Some(ERROR_INVALID_PARAMETER) => return Ok(None),
+        // No process has the id, or it names a process of another user or a higher integrity,
+        // which a lasting child this user started never is.
+        Err(error)
+            if matches!(
+                win32_code(&error),
+                Some(ERROR_INVALID_PARAMETER | ERROR_ACCESS_DENIED)
+            ) =>
+        {
+            return Ok(None);
+        }
         Err(error) => return Err(error),
     };
     process.job.clone_from(&record.job);
@@ -233,4 +242,91 @@ fn read_creation_time(process: HANDLE) -> io::Result<u64> {
         return Err(io::Error::last_os_error());
     }
     Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use sysinfo::{Pid, ProcessesToUpdate, System};
+
+    use super::PinnedProcess;
+    use crate::child_command::ChildEnd;
+    use crate::lasting_child::LastingCommand;
+    use crate::pin_child_process;
+    use crate::pinned_process::KILL_WAIT_BOUND;
+    use crate::windows::lasting_child::spawn_lasting_child;
+
+    // Mutations killed: ending the process alone, or re-pinning it without its job's name, leaves
+    // its own child running.
+    #[test]
+    fn pinned_process_stop_ends_a_re_pinned_lasting_child_and_its_child() {
+        let shell = std::env::var_os("ComSpec").expect("Windows names its command shell");
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let arguments = [
+            "/d",
+            "/c",
+            "start",
+            "/b",
+            "ping",
+            "-n",
+            "60",
+            "127.0.0.1",
+            "&",
+            "ping",
+            "-n",
+            "60",
+            "127.0.0.1",
+        ];
+        let child = spawn_lasting_child(LastingCommand {
+            program: shell.into(),
+            arguments: arguments.map(str::to_owned).to_vec(),
+            environment: std::env::vars().collect(),
+            working_folder: folder.path().to_owned(),
+            error_output: tempfile::tempfile().expect("the error output file is made"),
+        })
+        .expect("the lasting child starts");
+        let grandchild = find_child_of(child.process.id());
+        let re_pinned = child
+            .record
+            .pin()
+            .expect("the re-pin reads")
+            .expect("the child runs");
+
+        let end = re_pinned
+            .stop(Duration::ZERO)
+            .expect("the stop ends the child");
+
+        assert_eq!(end, ChildEnd::Kill);
+        assert!(
+            child
+                .process
+                .wait_for_exit(KILL_WAIT_BOUND)
+                .expect("the child's wait reads")
+        );
+        assert!(
+            grandchild
+                .wait_for_exit(KILL_WAIT_BOUND)
+                .expect("the grandchild's wait reads")
+        );
+    }
+
+    // A child of process `parent`, pinned, once one has started; fails the test after ten seconds.
+    fn find_child_of(parent: u32) -> PinnedProcess {
+        let give_up_at = Instant::now() + Duration::from_secs(10);
+        let mut system = System::new();
+        loop {
+            system.refresh_processes(ProcessesToUpdate::All, true);
+            let found = system
+                .processes()
+                .iter()
+                .find(|(_, process)| process.parent().map(Pid::as_u32) == Some(parent))
+                .map(|(id, _)| id.as_u32());
+            if let Some(id) = found {
+                return pin_child_process(id).expect("the grandchild pins");
+            }
+            assert!(Instant::now() < give_up_at, "the child started no process");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
 }

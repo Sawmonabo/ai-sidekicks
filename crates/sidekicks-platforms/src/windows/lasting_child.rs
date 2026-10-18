@@ -3,6 +3,7 @@
 //! job of its own whose random name its record keeps, so a later daemon can end its whole tree,
 //! and inherits no handle but the standard ones it is given.
 
+use std::collections::BTreeMap;
 use std::ffi::{OsStr, c_void};
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
@@ -49,10 +50,12 @@ const JOB_NAME_RANDOM_BYTES: usize = 16;
 /// breaks away from any job the daemon runs in and joins a new job of its own, named at random in
 /// its record and open only to this user, with no kill on its handle's close, so a later daemon
 /// opens it by name and ends the whole tree; it has no console and inherits only its standard
-/// handles, so it never holds a pipe the daemon's starter waits on. Runs on the daemon's spawner
-/// thread. Fails with the system's error from the start, a refused breakaway among them, never
-/// retried inside the daemon's job; with `AlreadyExists` when a job of the drawn name exists; or
-/// from the pin, which ends the job first.
+/// handles, so it never holds a pipe the daemon's starter waits on. Runs on the daemon's one
+/// spawner thread, the `spawner` module's [`crate::Spawner`]: the two inheritable copies of those
+/// handles live in the daemon until this returns, and a start on another thread meanwhile would
+/// inherit them. Fails with the system's error from the start, a refused breakaway among them,
+/// never retried inside the daemon's job; with `AlreadyExists` when a job of the drawn name exists;
+/// or from the pin, which ends the job first.
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
     let (job, job_name) = create_named_job()?;
     let null_device = OpenOptions::new().read(true).write(true).open("NUL")?;
@@ -447,18 +450,25 @@ fn append_argument(line: &mut Vec<u16>, argument: &[u16]) {
 }
 
 // The environment block: each `NAME=value`, NUL-ended, sorted by name without case as Windows
-// keeps it, then one more NUL. Fails with `InvalidInput` for a name holding `=` or a NUL.
+// keeps it, then one more NUL. Names that differ only in case are one variable, as std's `Command`
+// folds them: the first spelling with the last value. Fails with `InvalidInput` for a name that is
+// empty or holds `=`, or text holding a NUL.
 fn compose_environment_block(environment: &[(String, String)]) -> io::Result<Vec<u16>> {
-    let mut pairs: Vec<&(String, String)> = environment.iter().collect();
-    pairs.sort_by_cached_key(|(name, _)| name.to_uppercase());
-    let mut block = Vec::new();
-    for (name, value) in pairs {
+    let mut variables: BTreeMap<String, (&str, &str)> = BTreeMap::new();
+    for (name, value) in environment {
         if name.is_empty() || name.contains('=') {
             return Err(io::Error::new(
                 ErrorKind::InvalidInput,
                 "an environment name is empty or holds `=`",
             ));
         }
+        variables
+            .entry(name.to_uppercase())
+            .and_modify(|(_, kept_value)| *kept_value = value)
+            .or_insert((name, value));
+    }
+    let mut block = Vec::new();
+    for (name, value) in variables.into_values() {
         block.extend(wide_text(OsStr::new(name))?);
         block.push(u16::from(b'='));
         block.extend(wide_text(OsStr::new(value))?);
@@ -546,7 +556,19 @@ unsafe extern "system" fn notify_exit(context: *mut c_void, _timed_out: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::append_argument;
+    use super::{append_argument, compose_environment_block};
+
+    // Mutation killed: a block that keeps both spellings lets the child read the first value,
+    // where every other start reads the last.
+    #[test]
+    fn a_lasting_child_environment_keeps_one_variable_per_name_without_case() {
+        let environment = [("Path", "first"), ("ONE", "1"), ("PATH", "last")]
+            .map(|(name, value)| (name.to_owned(), value.to_owned()));
+
+        let block = compose_environment_block(&environment).expect("the block is composed");
+
+        assert_eq!(String::from_utf16_lossy(&block), "ONE=1\0Path=last\0\0");
+    }
 
     // Mutation killed: dropping the doubled backslashes before a quote changes what the child
     // reads back.
