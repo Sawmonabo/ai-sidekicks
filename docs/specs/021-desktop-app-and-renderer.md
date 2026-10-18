@@ -95,20 +95,20 @@ The renderer must never fork, spawn, or exec a process. The renderer must never 
 
 The renderer is **untrusted** relative to the main process and the daemon, consistent with `container-architecture.md` §Trust Boundaries and `desktop.md` §Trust Boundaries.
 
-The client helper holds one secret, and neither main nor the renderer holds it:
+The client helper holds at most one secret, and neither main nor the renderer holds it:
 
-- the local daemon session token, read from its file at every connect and never once at app start, because the daemon makes a new token at every restart: `$XDG_RUNTIME_DIR/ai-sidekicks/daemon.token` where the session sets `XDG_RUNTIME_DIR` (a Linux login session does) and otherwise `<temporary folder>/ai-sidekicks-<uid>/daemon.token` (always on macOS, whose temporary folder is the per-user `$TMPDIR`), and `%LOCALAPPDATA%\ai-sidekicks\run\daemon.token` on Windows, per Security Architecture §Local Daemon Authentication
+- on Linux and Windows, and in an unpackaged development build on macOS, the local daemon session token, read from its file at every connect and never once at app start, because the daemon makes a new token at every restart: `$XDG_RUNTIME_DIR/ai-sidekicks/daemon.token` where the session sets `XDG_RUNTIME_DIR` (a Linux login session does) and otherwise `<temporary folder>/ai-sidekicks-<uid>/daemon.token` (always on macOS, whose temporary folder is the per-user `$TMPDIR`), and `%LOCALAPPDATA%\ai-sidekicks\run\daemon.token` on Windows, per Security Architecture §Local Daemon Authentication
 
 This machine's DPoP key, the hosted account's access and refresh tokens and every other secret the daemon keeps are the daemon's, and reach neither the main process nor the renderer.
 
 All renderer-originated daemon or control-plane requests go to the client helper over a `MessagePort` that main hands the page through the preload, so their values skip `contextBridge`. The client helper:
 
 1. checks each request against its method allowlist and the method's params check
-2. carries it on its own daemon connection, whose `connection.initialize` presented the session token
+2. carries it on its own daemon connection, whose `connection.initialize` presented the session token or, in the packaged app on macOS, was admitted by the helper's code signature
 3. forwards the request to the daemon over the Spec-006 frame-codec JSON-RPC transport; a control-plane request takes the same path, and the daemon sends it to the control plane over the ADR-013 HTTP routes and WebSocket transport under this machine's access token and DPoP proof
 4. returns only the sanitized response payload to the renderer — never the session token
 
-Main's own daemon calls reach the client helper over its `parentPort`, through the same allowlist, and main keeps the file tokens (§Renderer → Client Helper → Daemon). `security-architecture.md` §Local Daemon Authentication carries the same stance: the renderer is **not a direct daemon client**, and neither main nor the renderer holds the session token. The client helper and the CLI both present the 256-bit session token at daemon-connect time, as the first message, in `connection.initialize` — the token is primary and socket permissions 0700 are defense-in-depth — and neither connects without it.
+Main's own daemon calls reach the client helper over its `parentPort`, through the same allowlist, and main keeps the file tokens (§Renderer → Client Helper → Daemon). `security-architecture.md` §Local Daemon Authentication carries the same stance: the renderer is **not a direct daemon client**, and neither main nor the renderer holds the session token. The CLI, and on Linux and Windows the client helper, present the 256-bit session token at daemon-connect time, as the first message, in `connection.initialize` — the token is primary and socket permissions 0700 are defense-in-depth — and neither connects without it; on macOS the packaged app's client helper connects with no token and the daemon admits it by its code signature.
 
 ### Security Hardening Baseline
 
@@ -492,7 +492,7 @@ The Runtime settings page is the one console surface that drives this lifecycle 
 - The updater's record is its own file, `userData/updater-state.json`, owned by main: the last release version seen, read and written whether or not the service is running, application state and never a setting, written by no wire; a missing or broken file reads as the installed version
 - Console layout, scroll position, selection, pins, and expansion sets — UI state only, never user-authored content: a draft, its staged files and a review's held notes are daemon-held and session-scoped and never enter this store, so they are covered by the daemon's own [Spec-020](./020-data-retention-export-and-deletion.md) selectors rather than by a renderer one — persisted **per install** in IndexedDB on the privileged renderer scheme (§Console Design (Meridian) §Persistence on the renderer scheme) — never a projection, which is re-derived on reconnect; this is the one renderer-storage tier the app has, it holds no auth material, and it exists because the scheme is registered `standard: true` before `app.ready` (Plan-020 I-020-6)
 - Main keeps no credential material and no keystore entry: this machine's DPoP key, the hosted account's tokens and every other secret are the daemon's. No credential is in the machine's settings file, main's own files or the renderer's storage
-- The daemon session token is read from its file at every connect and held in the client helper's memory only; it is rotated on daemon restart per [Security Architecture §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication)
+- On Linux and Windows the daemon session token is read from its file at every connect and held in the client helper's memory only, and the packaged app on macOS never reads it, its helper being admitted by its code signature; it is rotated on daemon restart per [Security Architecture §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication)
 - Crash reports are built and kept on the machine that crashed, stripped of personal data there, read through `daemon.crashReport.list`, and deleted with the diagnostic logs; with `Keep crash reports` off, none is kept
 - Update artifact cache: main-owned; cleared after a successful apply or after a configurable retention window
 
