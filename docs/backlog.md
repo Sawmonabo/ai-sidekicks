@@ -4,16 +4,16 @@ Work that is waiting on something outside this repository. Everything else is ei
 
 Each item names what it is waiting for and what would close it. Delete an item when it closes; closed items live in [Backlog Archive](./archive/backlog-archive.md).
 
-## BL-108: Windows signing procurement evidence
+## BL-108: SignPath Foundation's acceptance for Windows signing
 
 - Status: `blocked` (external-world wait — SignPath Foundation's acceptance)
 - Priority: `P2`
 - Owner: `unassigned`
 - References: the release workflow's Windows signing of the `sidekicks-daemon` program, [Plan-020](./plans/020-desktop-app-and-renderer.md) T-020r-6-2 (the Windows signing), [ADR-018](./decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) §Decision items 5 and 6, [ADR-022](./decisions/022-v1-ci-cd-and-release-automation.md) §Axis 5
-- Summary: Two records from outside this repository gate the release workflow's Windows signing: (a) SignPath Foundation accepting the project into its free open-source program ([signpath.org/terms](https://signpath.org/terms)); (b) the first release whose Windows binaries — the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium` — name SignPath Foundation as publisher. If SignPath Foundation finds the project ineligible, the choice goes back to the person and the distribution plan does not change on its own.
-- V1 Release Impact: Windows signing through SignPath Foundation gates the Windows release; if the project is not eligible, that goes back to the person and the distribution plan does not change silently. Until SignPath Foundation signs, no Windows release ships unsigned.
+- Summary: One answer from outside this repository gates the release workflow's Windows signing: SignPath Foundation accepting the project into its free open-source program ([signpath.org/terms](https://signpath.org/terms)), which the release workflow applies for once a release exists, as the program's terms ask. Once accepted, the workflow signs every Windows binary — the Electron app, `sidekicks-daemon`, `sidekicks`, the client's `.node` and `libpdfium` — with SignPath Foundation as publisher. If SignPath Foundation finds the project ineligible, the choice goes back to the person and the distribution plan does not change on its own.
+- V1 Release Impact: Until SignPath Foundation signs, Windows builds publish unsigned: SmartScreen's prompt is cleared once with `Run anyway`, and a Windows machine with Smart App Control on cannot run them, a gap until then. If the project is not eligible, that goes back to the person and the distribution plan does not change silently.
 - Named gate: SignPath Foundation's acceptance of the project. Nothing in this repository blocks.
-- Exit Criteria: both records attached to this entry, and the release workflow's Windows signing of the `sidekicks-daemon` program checked.
+- Exit Criteria: SignPath Foundation's acceptance attached to this entry, and the release workflow's Windows signing checked on the first release it signs.
 
 ## BL-155: The remote channel's hybrid post-quantum Noise profile
 

@@ -212,7 +212,7 @@ Phases still to build, and the order between them, live in [`docs/architecture/c
 
 ## Project Status
 
-Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). The Windows signing of the `sidekicks-daemon` and `sidekicks-platforms` programs waits on hardware and certificate procurement ([BL-108](docs/backlog.md#bl-108-windows-signing-procurement-evidence)).
+Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). Until SignPath Foundation accepts the project and signs them, the Windows builds publish unsigned, and a Windows machine with Smart App Control on cannot run them ([BL-108](docs/backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing)).
 
 ---
 
