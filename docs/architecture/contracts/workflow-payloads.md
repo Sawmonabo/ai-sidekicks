@@ -12,16 +12,30 @@ Order, fan-out and join are the document's own edges ([Workflow Graph Model §Gr
 
 ```ts
 // WorkflowDefinitionCreate — workflow.definition.create
+// Where a create comes from, tagged on `kind`.
+type WorkflowCreateOrigin =
+  // A Save of the editor's new workflow; the create clears the new-workflow draft in its write.
+  | { kind: "newWorkflowDraft" }
+  // A file import; it clears no draft.
+  | { kind: "fileImport" }
+  // A Duplicate names the version it copies and clears no draft; the daemon names the copy the
+  // first free `<name> copy`, `<name> copy 2` and on after the document's name, and its first
+  // version keeps that version's package locks while the document holds that version's content.
+  // A version not in the library is refused `workflow.version.notFound`.
+  | { kind: "duplicate"; copiedVersionId: WorkflowVersionId };
+
 interface WorkflowDefinitionCreateRequest {
   // A save from the Save panel, a Duplicate, and a file import all ride this one operation into the
-  // one library, with no role check; the name is the document's own, and one another workflow holds
-  // is refused. A document the daemon's re-check refuses answers `workflow.definition.refused`,
-  // carrying every finding with the rule it breaks and the nodes it names.
+  // one library, with no role check, told apart by `origin`; the name is the document's own, except
+  // a Duplicate's, which the daemon names, and one another workflow holds is refused. A document
+  // the daemon's re-check refuses answers `workflow.definition.refused`, carrying every finding
+  // with the rule it breaks and the nodes it names.
   // The authored body is the NODE-GRAPH DOCUMENT in workflow-document-payloads.md: exactly one trigger node, the other
   // nodes, and the edges between them. There is no second, compiled form: the agent and
   // human kinds are node kinds like any other, and their executors call the existing
   // run-admission, orchestration, approval and form paths at run time.
   document: WorkflowDocument;
+  origin: WorkflowCreateOrigin;
 }
 
 interface WorkflowDefinitionCreateResponse {
@@ -617,7 +631,7 @@ Daemon JSON-RPC; the `workflow` root, each name following the wire-name grammar,
 
 | Method | Procedure type | Request → Response | Notes |
 | --- | --- | --- | --- |
-| `workflow.definition.create` | `mutation` | `WorkflowDefinitionCreateRequest` → `WorkflowDefinitionCreateResponse` | Content-hashes and persists version 1; the daemon re-checks the whole document and refuses `workflow.definition.refused` with every finding |
+| `workflow.definition.create` | `mutation` | `WorkflowDefinitionCreateRequest` → `WorkflowDefinitionCreateResponse` | Content-hashes and persists version 1; the daemon re-checks the whole document and refuses `workflow.definition.refused` with every finding, and `workflow.version.notFound` for a Duplicate's `copiedVersionId` not in the library |
 | `workflow.definition.read` | `query` | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Definition header plus the current version pointer and the workflow's own permission level; the latest version unless `version` is supplied; carries a webhook workflow's token dates and last fire, never the token; a deleted workflow still reads, with `deletedAt` set |
 | `workflow.definition.list` | `query` | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | Every workflow in the one library with the facts its catalog row shows, each entry carrying its last run, its last skipped fire, its schedule and whether it is enabled, paged |
 | `workflow.version.read` | `query` | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body, addressed by definition id and version number; a running instance stays pinned to its own |
