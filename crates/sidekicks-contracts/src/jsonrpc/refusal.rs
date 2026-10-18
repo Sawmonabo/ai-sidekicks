@@ -241,10 +241,14 @@ refusal_codes! {
     ApprovalRuleNotKept = "approval.rule.notKept" (Internal, 500);
     /// A client's `artifact.publish` declared `artifactType: "file"`.
     ArtifactFilePublishRefused = "artifact.filePublishRefused" (InvalidArgument, 422);
-    /// `artifact.ingest.start`, or a client's `artifact.publish` before its payload is decoded,
-    /// refused because the open-upload count (ingest streams and client publishes in flight
-    /// together) has reached `max_active_ingest_streams` or the spool's volume, read at admission,
-    /// has no room for this declaration beside the open uploads' reservations.
+    /// An `artifact.publish` or `artifact.ingest.start` reused a `clientIdempotencyKey` with a
+    /// differing request; what the key first answered is untouched (`data.fields`: `artifactId`
+    /// of a publish's first manifest, or `ingestId` of an opening's first stream).
+    ArtifactIdempotencyConflict = "artifact.idempotencyConflict" (InvalidArgument, 422);
+    /// `artifact.ingest.start`, or a client's `artifact.publish` once its frame is read, refused
+    /// because the open-upload count (ingest streams and client publishes in flight together) has
+    /// reached `max_active_ingest_streams` or the spool's volume, read at admission, has no room
+    /// for this declaration beside the open uploads' reservations.
     ArtifactIngestCapacityExhausted = "artifact.ingest.capacityExhausted" (ResourceExhausted, 429);
     /// An ingest stream call that cannot proceed and cannot be retried in place, with
     /// `data.fields.reason` naming why: `sequenceBroken` (a sequence gap, regression, or same-

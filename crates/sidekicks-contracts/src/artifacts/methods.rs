@@ -38,6 +38,7 @@ methods! {
             refusals: [
                 SessionNotFound,
                 AgentRunNotFound,
+                ArtifactIdempotencyConflict,
                 ArtifactTooLarge,
                 ArtifactIngestCapacityExhausted,
             ],
@@ -71,6 +72,7 @@ methods! {
                 SessionNotFound,
                 AgentRunNotFound,
                 ArtifactFilePublishRefused,
+                ArtifactIdempotencyConflict,
                 ArtifactIngestCapacityExhausted,
                 ArtifactTooLarge,
                 ArtifactTypeCheckUnavailable,
