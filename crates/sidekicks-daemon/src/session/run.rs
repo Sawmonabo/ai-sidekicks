@@ -1,5 +1,6 @@
 //! A session's runs: their ids, reads, `runs` rows, state transitions and their writes, refusals,
-//! the gates a start passes, the daemon's own turns and how a restart settles a live run.
+//! the gates a start passes, the run engine, the daemon's own turns, pause and resume, the
+//! provider's choices, and how a restart settles a live run.
 
 pub(crate) mod agent;
 pub(crate) mod daemon_turn;
