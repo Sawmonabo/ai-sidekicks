@@ -2,8 +2,15 @@
 # The edition-2024 default, which a virtual workspace must state.
 resolver = "3"
 # `packages/search-index` and `packages/sidecar-rust-pty` move into `crates/` with the code that
-# replaces them.
-members = ["crates/*", "packages/search-index", "packages/sidecar-rust-pty"]
+# replaces them. The fuzz targets are a member so they share the lock and the reader list; a build
+# from the root without `--workspace` leaves them out.
+members = [
+  "crates/*",
+  "crates/sidekicks-daemon/fuzz",
+  "packages/search-index",
+  "packages/sidecar-rust-pty",
+]
+default-members = ["crates/*", "packages/search-index", "packages/sidecar-rust-pty"]
 
 [workspace.package]
 version = "0.0.0"
@@ -211,8 +218,9 @@ dugong = "0.9.0"
 fast_image_resize = "6.1.0"
 fast_qr = "0.14.0"
 ferriki = "1.0.0"
-# A payload's media type from its leading bytes. The readers that need bytes past that prefix (ZIP,
-# CFB, ID3v2, ASF) stay off, so their formats are named by their signatures alone.
+# A payload's media type from its leading bytes. ZIP, CFB and ID3v2 need bytes past that prefix and
+# ASF overflows on a crafted size, so those readers stay off and their formats are named by their
+# signatures alone. The daemon and its fuzz target take this one reader list.
 file-format = {
   version = "0.29.0",
   features = [
@@ -315,6 +323,7 @@ worker = { version = "0.8.7", features = ["axum", "http"] }
 caseless = "0.2.2"
 dhat = "0.3.3"
 insta = { version = "1.49.0", features = ["json"] }
+libfuzzer-sys = "0.4.13"
 mockall = "0.15.0"
 proptest = "1.12.0"
 rstest = "0.27.0"

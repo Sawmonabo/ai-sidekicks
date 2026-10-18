@@ -1,15 +1,14 @@
 [package]
 name = "sidekicks-daemon-fuzz"
-version = "0.0.0"
-edition = "2024"
-publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The daemon's fuzz targets, built and run by `cargo fuzz`."
+license.workspace = true
+publish.workspace = true
 
 [package.metadata]
 cargo-fuzz = true
-
-# A workspace of its own, so the repository's `crates/*` workspace does not claim it.
-[workspace]
-members = ["."]
 
 [[bin]]
 bench = false
@@ -18,18 +17,11 @@ name = "media_type"
 path = "fuzz_targets/media_type.rs"
 test = false
 
-# The target builds the daemon's own detection module, so it needs the daemon's `file-format`
-# with the same reader features; the whole daemon does not build under sancov in 6 GB.
+# The target builds the daemon's own detection module, so it takes the daemon's `file-format`; the
+# whole daemon does not build under sancov in 6 GB.
 [dependencies]
-file-format = {
-  version = "0.29.0",
-  features = [
-    "reader-ebml",
-    "reader-exe",
-    "reader-mp4",
-    "reader-pdf",
-    "reader-sqlite3",
-    "reader-xml",
-  ]
-}
-libfuzzer-sys = "0.4.13"
+file-format.workspace = true
+libfuzzer-sys.workspace = true
+
+[lints]
+workspace = true

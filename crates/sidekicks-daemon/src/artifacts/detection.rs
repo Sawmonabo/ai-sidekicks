@@ -29,6 +29,8 @@ pub(crate) fn detect_media_type(leading_bytes: &[u8]) -> Option<FileFormat> {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::Path};
+
     use file_format::FileFormat;
     use rstest::rstest;
 
@@ -125,5 +127,27 @@ mod tests {
             format.is_some_and(|format| accepted.contains(&format)),
             "{format:?} is not one of {accepted:?}"
         );
+    }
+
+    /// Every input of the fuzz target's committed corpus, its minimized crashers included, goes
+    /// through the daemon's own detection and is answered without a panic.
+    #[test]
+    fn every_fuzz_corpus_input_is_answered() {
+        let mut folders =
+            vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/corpus/media_type")];
+        let mut answered = 0_usize;
+        while let Some(folder) = folders.pop() {
+            for entry in fs::read_dir(&folder).expect("the corpus folder reads") {
+                let path = entry.expect("a corpus entry reads").path();
+                if path.is_dir() {
+                    folders.push(path);
+                } else {
+                    let leading_bytes = fs::read(&path).expect("a corpus input reads");
+                    let _format = detect_media_type(&leading_bytes);
+                    answered += 1;
+                }
+            }
+        }
+        assert!(answered > 0, "the corpus holds inputs");
     }
 }
