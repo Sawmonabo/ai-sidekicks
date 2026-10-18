@@ -116,6 +116,12 @@ pub fn read_peer_process(stream: &Stream) -> io::Result<Option<PinnedProcess>> {
             "the socket's audit token came back {length} of {token_length} bytes"
         )));
     }
+    pin_token(&token)
+}
+
+/// The process `token` names, pinned by a read the kernel answers only while the token's id
+/// version still names it; `None` once that process has ended.
+fn pin_token(token: &AuditToken) -> io::Result<Option<PinnedProcess>> {
     let id = token.val[TOKEN_PROCESS_ID];
     let Some(identifiers) = read_unique_identifiers(
         id,
@@ -263,8 +269,8 @@ mod tests {
     use interprocess::os::unix::uds_local_socket::tokio::Stream as UnixSocketStream;
 
     use super::{
-        COMPARE_ID_VERSION, COMPARE_NOTHING, PinnedProcess, pinned, read_parent_process,
-        read_peer_process, read_unique_identifiers,
+        AuditToken, COMPARE_NOTHING, PinnedProcess, TOKEN_ID_VERSION, TOKEN_PROCESS_ID, pin_token,
+        pinned, read_parent_process, read_peer_process, read_unique_identifiers,
     };
     use crate::caller_process::ParentProcess;
 
@@ -290,16 +296,15 @@ mod tests {
                 panic!("expected the parent, got {other:?}")
             }
         }
-        // A read pinned to another id version, or to another unique id, finds nothing.
+        // A token naming this process under another id version, or a pin to another unique id,
+        // finds nothing.
         let own = read_unique_identifiers(peer.id(), COMPARE_NOTHING, 0)
             .expect("this process reads its own record")
             .expect("this process runs");
-        let wrong_version = u64::from(own.id_version.cast_unsigned().wrapping_add(1));
-        assert!(
-            read_unique_identifiers(peer.id(), COMPARE_ID_VERSION, wrong_version)
-                .expect("a pinned read answers")
-                .is_none()
-        );
+        let mut token = AuditToken { val: [0; 8] };
+        token.val[TOKEN_PROCESS_ID] = peer.id();
+        token.val[TOKEN_ID_VERSION] = own.id_version.cast_unsigned().wrapping_add(1);
+        assert!(pin_token(&token).expect("a pinned read answers").is_none());
         let wrong_unique_id = PinnedProcess {
             id: peer.id(),
             unique_id: own.unique_id + 1,
