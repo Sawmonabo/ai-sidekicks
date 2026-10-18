@@ -30,6 +30,7 @@
 mod atomic_replace;
 mod caller_process;
 mod code_signature;
+mod credential_store;
 mod entry_identity;
 mod file_facts;
 #[cfg(any(test, feature = "test-support"))]
@@ -64,6 +65,9 @@ pub use caller_process::{ParentProcess, ResponsibleProcess};
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
+#[cfg(any(test, feature = "test-support"))]
+pub use credential_store::blocking::BlockingCredentialStore;
+pub use credential_store::{CredentialStore, CredentialStoreError};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use file_facts::FileFacts;
 #[cfg(any(test, feature = "test-support"))]

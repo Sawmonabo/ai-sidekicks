@@ -8438,6 +8438,7 @@ dependencies = [
  "polling",
  "process-wrap",
  "rstest",
+ "secrecy",
  "secret-service",
  "security-framework",
  "serde_json",
