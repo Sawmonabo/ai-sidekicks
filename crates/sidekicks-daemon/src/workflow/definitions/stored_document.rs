@@ -66,12 +66,15 @@ pub(crate) enum StoredDocumentError {
     },
 }
 
-/// Parses a stored canonical body, which the store wrote from a checked document; fails with the
-/// parser's error, which can quote the text.
+/// Parses a stored canonical body, which the store wrote from a checked document; fails with
+/// [`StoredDocumentError::DefinitionBody`], which keeps only where the parser stopped.
 pub(crate) fn parse_stored_workflow_body(
     definition_body: &str,
-) -> serde_json::Result<WorkflowDocumentHashedBody> {
-    serde_json::from_str(definition_body)
+) -> Result<WorkflowDocumentHashedBody, StoredDocumentError> {
+    serde_json::from_str(definition_body).map_err(|error| StoredDocumentError::DefinitionBody {
+        line: error.line(),
+        column: error.column(),
+    })
 }
 
 /// Rebuilds the document a save stored: a member with nothing stored stays out of it, and an empty
@@ -82,12 +85,7 @@ pub(crate) fn read_stored_workflow_document(
     let schema_version: WorkflowDocumentSchemaVersion =
         serde_json::from_value(Value::String(columns.schema_version.to_owned()))
             .map_err(|_names_the_text| StoredDocumentError::SchemaVersion)?;
-    let body = parse_stored_workflow_body(columns.definition_body).map_err(|error| {
-        StoredDocumentError::DefinitionBody {
-            line: error.line(),
-            column: error.column(),
-        }
-    })?;
+    let body = parse_stored_workflow_body(columns.definition_body)?;
     let layout = columns
         .layout_json
         .map(serde_json::from_str::<WorkflowLayout>)

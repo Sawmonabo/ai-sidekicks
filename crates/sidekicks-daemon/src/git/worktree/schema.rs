@@ -198,16 +198,14 @@ mod tests {
     use rstest::rstest;
     use rusqlite::{Connection, ErrorCode};
     use serde::Serialize;
-    use sidekicks_contracts::project::ProjectState;
     use sidekicks_contracts::repo::mount::ExecutionMode;
     use sidekicks_contracts::worktree::lifecycle::WorktreeState;
     use strum::VariantArray;
 
-    use super::WORKTREE_SCHEMA_SQL;
-    use crate::workspace::schema::WORKSPACE_SCHEMA_SQL;
-
-    const AT: &str = "2026-10-14T09:30:00.000Z";
-    const PARENT_WORKTREE: &str = "parent-worktree";
+    use crate::git::worktree::test_rows::{
+        PARENT_WORKTREE_ID, create_worktree_tables, insert_worktree_rows, worktree_row,
+    };
+    use crate::workspace::test_rows::PARENT_ROWS_AT;
 
     // A closed-set value in serde's spelling, the text the wire and the rows carry.
     fn serde_text(value: &impl Serialize) -> String {
@@ -222,45 +220,6 @@ mod tests {
         value.map_or_else(|| "NULL".to_owned(), |value| format!("'{value}'"))
     }
 
-    // The rows every case's rows reference: a project, its mount, a workspace on it, a live
-    // worktree and that worktree's branch context.
-    fn parent_rows() -> Vec<String> {
-        let active = <&'static str>::from(ProjectState::Active);
-        let provisioned = <&'static str>::from(ExecutionMode::ProvisionedWorktree);
-        let ready = <&'static str>::from(WorktreeState::Ready);
-        vec![
-            format!(
-                "INSERT INTO projects (id, name, slug, folder_path, state, setup, created_at, \
-                 updated_at) VALUES ('project', 'app', 'app', '/repos/app', '{active}', '{{}}', \
-                 '{AT}', '{AT}')"
-            ),
-            format!(
-                "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, project_id, \
-                 attached_at, updated_at) VALUES ('mount', 'machine', '/repos/app', '/repos/app', \
-                 'project', '{AT}', '{AT}')"
-            ),
-            format!(
-                "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, \
-                 created_at, updated_at) VALUES ('workspace', 'session', 'mount', '{provisioned}', \
-                 '{AT}', '{AT}')"
-            ),
-            worktree_row(PARENT_WORKTREE, "parent", ready),
-            format!(
-                "INSERT INTO branch_contexts (id, workspace_id, worktree_id, base_branch, \
-                 head_branch, created_at, updated_at) VALUES ('branch-context', 'workspace', \
-                 '{PARENT_WORKTREE}', 'main', 'parent', '{AT}', '{AT}')"
-            ),
-        ]
-    }
-
-    fn worktree_row(id: &str, branch_name: &str, state: &str) -> String {
-        format!(
-            "INSERT INTO worktrees (id, repo_mount_id, created_by_session_id, branch_name, \
-             base_ref, fs_root, state, created_at, updated_at) VALUES ('{id}', 'mount', \
-             'session', '{branch_name}', 'main', '/worktrees/{id}', '{state}', '{AT}', '{AT}')"
-        )
-    }
-
     fn run_context_row(
         run_id: &str,
         execution_mode: &str,
@@ -272,7 +231,7 @@ mod tests {
             "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
              execution_mode, execution_root, checkout_root, git_common_dir, worktree_id, \
              branch_context_id, created_at) VALUES ('{run_id}', 'session', 'workspace', \
-             '{execution_mode}', '/repos/app', {}, {}, {}, 'branch-context', '{AT}')",
+             '{execution_mode}', '/repos/app', {}, {}, {}, 'branch-context', '{PARENT_ROWS_AT}')",
             sql_text(checkout_root),
             sql_text(git_common_dir),
             sql_text(worktree_id),
@@ -283,7 +242,7 @@ mod tests {
     fn run_context_in_shape(run_id: &str, mode: ExecutionMode) -> String {
         let worktree_id = match mode {
             ExecutionMode::BoundRoot => None,
-            ExecutionMode::ProvisionedWorktree => Some(PARENT_WORKTREE),
+            ExecutionMode::ProvisionedWorktree => Some(PARENT_WORKTREE_ID),
         };
         run_context_row(
             run_id,
@@ -356,7 +315,7 @@ mod tests {
         false
     )]
     #[case::bound_root_naming_a_worktree(
-        bound_root_row(Some(PARENT_WORKTREE), Some("/repos/app")),
+        bound_root_row(Some(PARENT_WORKTREE_ID), Some("/repos/app")),
         false
     )]
     #[case::without_a_checkout_root(bound_root_row(None, None), false)]
@@ -388,17 +347,8 @@ mod tests {
         #[case] is_last_admitted: bool,
     ) {
         let connection = Connection::open_in_memory().expect("an in-memory database opens");
-        connection
-            .execute_batch(&WORKSPACE_SCHEMA_SQL)
-            .expect("the workspace schema runs");
-        connection
-            .execute_batch(&WORKTREE_SCHEMA_SQL)
-            .expect("the worktree schema runs");
-        for row in parent_rows() {
-            connection
-                .execute_batch(&row)
-                .expect("a parent row is admitted");
-        }
+        create_worktree_tables(&connection).expect("the workspace and worktree schemas run");
+        insert_worktree_rows(&connection);
         let (last, earlier) = rows.split_last().expect("each case writes a row");
         for row in earlier {
             connection

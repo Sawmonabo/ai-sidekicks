@@ -10,4 +10,6 @@ pub(crate) mod folder_names;
 pub(crate) mod projector;
 pub(crate) mod rows;
 pub(crate) mod schema;
+#[cfg(test)]
+pub(crate) mod test_rows;
 pub(crate) mod unfinished_discards;

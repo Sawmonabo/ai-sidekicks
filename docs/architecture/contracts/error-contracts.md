@@ -372,7 +372,7 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
 | `workflow.definition.notFound` | A workflow definition that does not exist | `notFound` | 404 |
-| `workflow.version.notFound` | A workflow version that does not exist, by number or by id | `notFound` | 404 |
+| `workflow.version.notFound` | A workflow version that does not exist, by number or by id, a Duplicate's `copiedVersionId` on `workflow.definition.create` among them | `notFound` | 404 |
 | `workflow.run.notFound` | A workflow run that does not exist | `notFound` | 404 |
 | `workflow.step.notFound` | A step key the run does not hold | `notFound` | 404 |
 | `workflow.invalidTransition` | A run or step move its status does not allow: retrying from a step that did not fail, posting the results of an unfinished run, or opening a fix session on a step that did not fail | `failedPrecondition` | 409 |

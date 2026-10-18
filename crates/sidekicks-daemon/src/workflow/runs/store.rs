@@ -20,8 +20,8 @@ use crate::database::stored_column::{
 use crate::workflow::not_found::WorkflowNotFound;
 use crate::workflow::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
 use crate::workflow::runs::record::{
-    InstantNamesNoDay, RUN_COLUMNS, STEP_COLUMNS, StoredInstantBound, StoredWorkflowRun,
-    StoredWorkflowStep, column, stored_instant_bound, stored_run_from_row, stored_step_from_row,
+    RUN_COLUMNS, STEP_COLUMNS, StoredInstantBound, StoredWorkflowRun, StoredWorkflowStep, column,
+    stored_instant_bound, stored_run_from_row, stored_step_from_row,
 };
 use crate::workflow::runs::spent_account::spent_account_columns;
 
@@ -81,9 +81,6 @@ pub(crate) enum WorkflowRunStoreError {
     /// The cursor is not one this store wrote (`workflow.cursorUnresolvable`).
     #[error(transparent)]
     CursorUnresolvable(#[from] WorkflowCursorUnresolvable),
-    /// A date filter's date names no day of the calendar, which its contract check does not see.
-    #[error(transparent)]
-    InstantNamesNoDay(#[from] InstantNamesNoDay),
     /// SQLite failed the read, or a stored value did not read as its type.
     #[error("reading the workflow runs failed")]
     Database(#[from] rusqlite::Error),
@@ -208,9 +205,8 @@ impl<'connection> WorkflowRunStore<'connection> {
 
     /// One page of at most `page_size` runs the request's filters match, newest first, after the
     /// run its cursor names. Fails with [`WorkflowRunStoreError::CursorUnresolvable`] for a cursor
-    /// this store did not write, [`WorkflowRunStoreError::InstantNamesNoDay`] for a date filter
-    /// naming no day, and [`WorkflowRunStoreError::Database`] when SQLite fails or a stored value
-    /// does not read.
+    /// this store did not write, and [`WorkflowRunStoreError::Database`] when SQLite fails or a
+    /// stored value does not read.
     pub(crate) fn list(
         &self,
         request: &WorkflowRunListRequest,
@@ -221,13 +217,13 @@ impl<'connection> WorkflowRunStore<'connection> {
             .as_ref()
             .map(decode_run_list_cursor)
             .transpose()?;
-        let started_after = match bound_of(request.started_after.as_ref())? {
+        let started_after = match request.started_after.as_ref().map(stored_instant_bound) {
             // Every stored start is after an instant before the year 0000.
             None | Some(StoredInstantBound::BeforeEvery) => None,
             Some(StoredInstantBound::At(instant)) => Some(instant),
             Some(StoredInstantBound::AfterEvery) => return Ok(empty_page()),
         };
-        let started_before = match bound_of(request.started_before.as_ref())? {
+        let started_before = match request.started_before.as_ref().map(stored_instant_bound) {
             // Every stored start is before an instant past the last a timestamp holds.
             None | Some(StoredInstantBound::AfterEvery) => None,
             Some(StoredInstantBound::At(instant)) => Some(instant),
@@ -256,7 +252,11 @@ impl<'connection> WorkflowRunStore<'connection> {
                 .as_ref()
                 .map(UuidText::as_str),
             "@after_started_at": after.as_ref().map(|after| after.started_at.as_str()),
-            "@after_run_id": after.as_ref().map(|after| after.workflow_run_id.text()).as_ref().map(UuidText::as_str),
+            "@after_run_id": after
+                .as_ref()
+                .map(|after| after.workflow_run_id.text())
+                .as_ref()
+                .map(UuidText::as_str),
             "@page_row_limit": page_row_limit,
         })?;
         let mut total_count = None;
@@ -334,19 +334,13 @@ fn decode_run_list_cursor(
     if encode_run_list_cursor(&place.started_at, place.workflow_run_id).as_str() == cursor.as_str()
         && matches!(
             stored_instant_bound(&place.started_at),
-            Ok(StoredInstantBound::At(ref stored)) if stored == &place.started_at
+            StoredInstantBound::At(ref stored) if stored == &place.started_at
         )
     {
         Ok(place)
     } else {
         Err(not_written())
     }
-}
-
-fn bound_of(
-    instant: Option<&WireInstant>,
-) -> Result<Option<StoredInstantBound>, InstantNamesNoDay> {
-    instant.map(stored_instant_bound).transpose()
 }
 
 fn empty_page() -> StoredWorkflowRunListPage {

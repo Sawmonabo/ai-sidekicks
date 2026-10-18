@@ -12,7 +12,6 @@
 use std::sync::Arc;
 
 use garde::Validate as _;
-use jiff::Timestamp;
 use serde::ser::Error as _;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::{EventCategory, EventOccurredAt};
@@ -289,7 +288,7 @@ impl SessionEventAppender {
             .map(|preceding| {
                 UnsequencedEventEnvelope::new(
                     preceding,
-                    read_clock(),
+                    EventOccurredAt::now(),
                     None,
                     None,
                     self.version.clone(),
@@ -298,7 +297,7 @@ impl SessionEventAppender {
             .collect();
         let occurred_at = match occurred_at {
             Some(occurred_at) => normalize_occurred_at(occurred_at.as_str())?,
-            None => read_clock(),
+            None => EventOccurredAt::now(),
         };
         let envelope = UnsequencedEventEnvelope::new(
             draft,
@@ -314,11 +313,6 @@ impl SessionEventAppender {
         };
         Ok((envelope, options))
     }
-}
-
-/// The clock's instant in the stored form.
-fn read_clock() -> EventOccurredAt {
-    EventOccurredAt::from_timestamp(Timestamp::now()).expect("the clock reads after year 0000")
 }
 
 /// `event`'s payload members, as the envelope stores them, serialized once from the typed event.

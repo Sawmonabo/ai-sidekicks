@@ -40,9 +40,33 @@ use crate::workflow::run::status::WorkflowRunStatus;
 
 // workflow.definition.create
 
+/// Where a create comes from, tagged on `kind`: a Save of the editor's new workflow, which clears
+/// the new-workflow draft in the same write; a file import; or a Duplicate of a saved version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum WorkflowCreateOrigin {
+    /// A Save of the editor's new workflow; the create clears the new-workflow draft.
+    NewWorkflowDraft {},
+    /// A file import; the create clears no draft.
+    FileImport {},
+    /// A Duplicate, which clears no draft. The daemon names the copy the first free `<name> copy`,
+    /// `<name> copy 2` and on after the document's name, and its first version keeps the copied
+    /// version's package locks while the document holds that version's content. A version not in
+    /// the library is refused `workflow.version.notFound`.
+    Duplicate {
+        /// The version copied; the document is that version's, under its own name.
+        copied_version_id: WorkflowVersionId,
+    },
+}
+
 /// The `workflow.definition.create` input, which saving a new workflow, duplicating one and
-/// importing a file all send. A name another workflow holds, compared ignoring case, is refused
-/// with `workflow.definition.refused`, finding `nameTaken`.
+/// importing a file all send, told apart by `origin`. A name another workflow holds, compared
+/// ignoring case, is refused with `workflow.definition.refused`, finding `nameTaken`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -50,6 +74,8 @@ pub struct WorkflowDefinitionCreateRequest {
     /// The document.
     #[garde(dive)]
     pub document: WorkflowDocument,
+    /// Where the create comes from.
+    pub origin: WorkflowCreateOrigin,
 }
 
 /// The `workflow.definition.create` result: the new definition and its first version, with what a
@@ -549,7 +575,7 @@ methods! {
             mutating: true,
             params: WorkflowDefinitionCreateRequest,
             result: WorkflowDefinitionCreateResponse,
-            refusals: [WorkflowDefinitionRefused],
+            refusals: [WorkflowDefinitionRefused, WorkflowVersionNotFound],
         },
         /// Reads one definition at a version, the latest by default.
         WorkflowDefinitionRead = query "workflow.definition.read" {
@@ -662,12 +688,12 @@ methods! {
             result: WorkflowDraftUpdateResponse,
             refusals: [WorkflowDefinitionNotFound],
         },
-        /// Reads the held draft back after a reload.
+        /// Reads the held draft back after a reload; a workflow with no draft held reads as none.
         WorkflowDraftRead = query "workflow.draft.read" {
             mutating: false,
             params: WorkflowDraftReadRequest,
             result: WorkflowDraftReadResponse,
-            refusals: [WorkflowDefinitionNotFound],
+            refusals: [],
         },
         /// Evaluates one expression against an item of the last run; never resolves a secret.
         WorkflowExpressionPreview = query "workflow.expression.preview" {
@@ -706,6 +732,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The `workflow.*` methods over definitions: create, read, list, update, delete, export \
           and import, and the one method table for every definition method.",
     definitions: &[
+        Definition::read::<WorkflowCreateOrigin>(),
         Definition::read::<WorkflowDefinitionCreateRequest>().checked(),
         Definition::read::<WorkflowDefinitionCreateResponse>().checked(),
         Definition::read::<WorkflowDefinitionReadRequest>().checked(),

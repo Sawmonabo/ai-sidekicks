@@ -148,22 +148,25 @@ pub struct HighlightSpans(#[garde(custom(are_spans_paintable))] pub Vec<Highligh
 
 impl Serialize for HighlightSpans {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        flat_spans(&self.0).serialize(serializer)
+        FlatSpans(&self.0).serialize(serializer)
     }
 }
 
-fn flat_spans(spans: &[HighlightSpan]) -> Vec<u64> {
-    spans
-        .iter()
-        .flat_map(|span| {
+/// Spans written as the flat `[offset, length, class, …]` list one number at a time, so neither a
+/// reply nor its size check builds the list.
+struct FlatSpans<'spans>(&'spans [HighlightSpan]);
+
+impl Serialize for FlatSpans<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.iter().flat_map(|span| {
             let class = HighlightSpanClass::VARIANTS
                 .iter()
                 .position(|class| *class == span.class)
                 .expect("every class is listed");
             let class = u64::try_from(class).expect("eleven classes fit");
             [span.offset.get(), span.length.get(), class]
-        })
-        .collect()
+        }))
+    }
 }
 
 impl<'de> Deserialize<'de> for HighlightSpans {
@@ -229,7 +232,7 @@ fn are_spans_paintable(spans: &Vec<HighlightSpan>, (): &()) -> garde::Result {
         }
         previous_end = span.offset.get() + span.length.get();
     }
-    fits_budget(&flat_spans(spans), HIGHLIGHT_SPANS_MAX_BYTES)
+    fits_budget(&FlatSpans(spans), HIGHLIGHT_SPANS_MAX_BYTES)
 }
 
 /// A source's color spans, in source order, never overlapping.

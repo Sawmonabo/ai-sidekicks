@@ -338,6 +338,13 @@ impl EventOccurredAt {
     pub fn from_timestamp(timestamp: jiff::Timestamp) -> Option<Self> {
         stored_instant_text(timestamp).map(Self)
     }
+
+    /// The system clock's instant in the stored form. It is left out of WebAssembly builds, since
+    /// jiff reads the clock through std, which panics on `wasm32-unknown-unknown`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn now() -> Self {
+        Self::from_timestamp(jiff::Timestamp::now()).expect("the clock reads after year 0000")
+    }
 }
 
 impl JsonSchema for EventOccurredAt {

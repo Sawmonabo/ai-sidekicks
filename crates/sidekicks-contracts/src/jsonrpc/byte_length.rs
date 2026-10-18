@@ -4,8 +4,10 @@
 //! is allocated. `serde_json` writes strings as `JSON.stringify` does and member order does not
 //! change a length, but its numbers differ (`1.0` where JavaScript writes `1`, `1e+20` where it
 //! writes `100000000000000000000`, an integer past 2^53 in full), so a formatter writes every
-//! number in ECMAScript's `Number::toString` form. The one check that holds a value to a byte cap
-//! lives here too.
+//! number in ECMAScript's `Number::toString` form, a number `serde_json` kept as its text (its
+//! `arbitrary_precision` feature, which a dependency of the daemon turns on for every build that
+//! links it) included, as the double `JSON.parse` reads from that text. The one check that holds a
+//! value to a byte cap lives here too.
 
 use std::io;
 
@@ -109,6 +111,19 @@ impl Formatter for EcmaScriptNumbers {
 
     fn write_f64<W: ?Sized + io::Write>(&mut self, writer: &mut W, value: f64) -> io::Result<()> {
         writer.write_all(ryu_js::Buffer::new().format_finite(value).as_bytes())
+    }
+
+    fn write_number_str<W: ?Sized + io::Write>(
+        &mut self,
+        writer: &mut W,
+        value: &str,
+    ) -> io::Result<()> {
+        // A number kept as its text is the double `JSON.parse` reads from it; a text `serde_json`
+        // kept is a JSON number, which always parses.
+        let parsed: f64 = value
+            .parse()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        self.write_f64(writer, parsed)
     }
 
     fn write_raw_fragment<W: ?Sized + io::Write>(

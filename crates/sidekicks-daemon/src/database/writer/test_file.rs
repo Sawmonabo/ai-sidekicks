@@ -112,7 +112,7 @@ pub(crate) fn test_envelope(
     UnsequencedEventEnvelope::new(
         SessionEventDraft::of_session(session_id, event)
             .expect("the test's event passes its checks"),
-        EventOccurredAt::from_timestamp(jiff::Timestamp::now()).expect("now is after year 0000"),
+        EventOccurredAt::now(),
         None,
         None,
         SESSION_EVENT_VERSION.clone(),

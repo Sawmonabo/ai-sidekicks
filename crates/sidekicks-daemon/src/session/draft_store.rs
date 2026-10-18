@@ -4,7 +4,6 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use jiff::Timestamp;
 use rusqlite::types::Value;
 use rusqlite::{OptionalExtension as _, named_params};
 use sidekicks_contracts::session::id::SessionId;
@@ -92,8 +91,7 @@ impl SessionDraftStore {
         session_id: SessionId,
         text: String,
     ) -> Result<WireInstant, SessionDraftError> {
-        let updated_at =
-            WireInstant::from_timestamp(Timestamp::now()).expect("the clock reads after year 0000");
+        let updated_at = WireInstant::now();
         let session_text = session_id.text();
         let change = if text.is_empty() {
             WriteStatement {

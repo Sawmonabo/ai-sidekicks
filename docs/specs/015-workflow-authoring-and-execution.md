@@ -345,7 +345,7 @@ The wire registry carries the `workflow.*` methods, each named by the wire-name 
 
 | Method | Purpose |
 | --- | --- |
-| `workflow.definition.create` | Takes a workflow document, content-hashes it, persists version 1, and validates the full refusal set, a name another workflow holds among them; also serves Duplicate. |
+| `workflow.definition.create` | Takes a workflow document, content-hashes it, persists version 1, and validates the full refusal set, a name another workflow holds among them; its `origin` says where the create comes from: the new-workflow draft, whose draft the create clears in the same write; a file import; or a Duplicate, whose `copiedVersionId` names the version copied, so the copy, named by the daemon, keeps that version's package locks while its document holds that version's content, and which is refused `workflow.version.notFound` when that version is not in the library. |
 | `workflow.definition.read` | The latest version unless one is named. A deleted workflow still reads, marked deleted, so the run filter names it; only a definition never created is not found. |
 | `workflow.definition.update` | A new immutable version of an existing definition, optimistic on the expected version; Save, Restore and the schedule verb ride it. |
 | `workflow.definition.list` | Every workflow in the one library, each entry carrying its last run, its schedule and whether it is enabled. |
@@ -414,7 +414,7 @@ Two `daemon.*` methods serve the Code node's package caches on the Runtime setti
 ### Core SDK and persistence contracts
 
 - `WorkflowDefinitionCreate` must persist the document and version metadata with its schema version marker (C-8). The stored body embeds the whole declared topology — the node list and the edge list ([Workflow Graph Model §Graph model — nodes, ports, and edges (SA-29)](../domain/workflow-graph-model.md#graph-model--nodes-ports-and-edges-sa-29)) — so the stored bytes are the complete executable graph and no edge lives outside them.
-- `WorkflowDefinitionCreate` — direct authoring, Duplicate and file import alike, which all ride the one operation — writes the definition into the one library: nothing checks who saved it, and a name another workflow holds is refused with the finding `nameTaken`.
+- `WorkflowDefinitionCreate` — direct authoring, Duplicate and file import alike, which all ride the one operation and are told apart by its `origin` (a Duplicate's names the version it copies as `copiedVersionId`) — writes the definition into the one library: nothing checks who saved it, and a name another workflow holds is refused with the finding `nameTaken`.
 - `WorkflowDefinitionRead` must return the canonical definition record and selected version metadata.
 - `WorkflowDefinitionList` must enumerate every workflow in the one library. Enumeration is not optional polish: every other operation here addresses a definition by an id the caller must already hold, so without it a definition that is not already known cannot be reached at all.
 - `WorkflowRunStart` must bind a workflow version to a session and create step execution state.
