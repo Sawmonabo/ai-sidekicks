@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use serde_json::json;
-use sidekicks_contracts::jsonrpc::issue::{Issue, IssuePathSegment};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::transcript::content::{
     StoredBodyText, TranscriptBodyReadRequest, TranscriptBodyReadResponse, stored_body_content_of,
@@ -42,7 +41,7 @@ pub(crate) struct TranscriptLogReads {
 /// Each refuses a session the daemon does not hold `session.notFound`; a cursor naming no position
 /// is refused `session.event.cursorUnresolvable`, an `aroundCursor` or a `rowId` at which the
 /// session holds no row `transcript.row.notFound`, and a body `offset` inside a character or past
-/// the body's end `request.paramsInvalid` on that path. Fails the start when a method is already
+/// the body's end `transcript.body.offsetInvalid`. Fails the start when a method is already
 /// registered.
 pub(crate) fn register_transcript_reads(
     registry: &mut MethodRegistryBuilder,
@@ -139,27 +138,11 @@ async fn read_body(
         .offset
         .map_or(Ok(0), |offset| usize::try_from(offset.get()))
         .unwrap_or(usize::MAX);
-    stored_body_content_of(
+    Ok(stored_body_content_of(
         Some(&stored_row.envelope.payload),
         stored_body.as_ref(),
         offset,
-    )
-    .map_err(|_refused| offset_refused().into())
-}
-
-/// The refusal of a body `offset` inside a character or past the body's end, on the request's
-/// `offset` path, as a params refusal names its fault.
-fn offset_refused() -> DomainError {
-    let issue = Issue {
-        path: vec![IssuePathSegment::Member("offset".to_owned())],
-        message: "is inside a character or past the body's end".to_owned(),
-        params: None,
-    };
-    DomainError::new(
-        "The offset is no place in the body to read from.",
-        RefusalCode::RequestParamsInvalid,
-    )
-    .with_detail(json!({ "issues": [issue] }))
+    )?)
 }
 
 /// A stored body longer than the cap every append cuts a body to, which only a write outside the

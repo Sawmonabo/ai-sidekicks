@@ -42,7 +42,7 @@ methods! {
             mutating: false,
             params: TranscriptBodyReadRequest,
             result: TranscriptBodyReadResponse,
-            refusals: [SessionNotFound, TranscriptRowNotFound],
+            refusals: [SessionNotFound, TranscriptRowNotFound, TranscriptBodyOffsetInvalid],
         },
         /// Reads every file patch a tool call left out.
         TranscriptPatchList = query "transcript.patch.list" {

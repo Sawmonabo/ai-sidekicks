@@ -526,6 +526,7 @@ Transcript codes ride the daemon JSON-RPC wire with notional HTTP statuses.
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
+| `transcript.body.offsetInvalid` | A `transcript.body.read` `offset` that is no place to resume from: inside a character or past the body's end. `data.fields`: `offset`, `bodyLength` (the body's length in UTF-8 bytes) | `invalidArgument` | 422 |
 | `transcript.row.notFound` | A transcript read named a row the session does not hold: `transcript.body.read`'s row id, so it never reads like a row that carries no body, or `transcript.read`'s `aroundCursor`, at which no row stands. `data.fields`: `rowId` or `aroundCursor` | `notFound` | 404 |
 
 ### Provider

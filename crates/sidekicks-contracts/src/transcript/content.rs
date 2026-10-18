@@ -120,7 +120,7 @@ pub fn hydrated_content_of(
 }
 
 /// A `transcript.body.read` offset that is no place to resume from: inside a character, or past
-/// the body's end. It is refused on the request's `offset` path.
+/// the body's end. It is refused `transcript.body.offsetInvalid`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("offset {offset} is inside a character or past the body's {body_length} bytes")]
 pub struct BodyReadOffsetRefused {
