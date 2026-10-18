@@ -1,5 +1,6 @@
 //! The task handle recorder: the one writer of `command_receipts.mcp_task_id`, the handle an MCP
-//! task-augmented call's acceptance names, which recovery polls instead of halting the call.
+//! task-augmented call's acceptance names, which recovery polls instead of halting the call, and of
+//! `mcp_task_generation`, which says how to poll it and is written in the same statement.
 //!
 //! - A handle past the column's bound is refused, never cut, since a cut handle names another
 //!   task; a refusal leaves the column `NULL`, so after a restart the call stays halted, never
@@ -29,8 +30,11 @@ use crate::provider::driver::diagnostics::{
 /// an opaque constraint failure.
 pub(crate) const MCP_TASK_ID_MAX_LENGTH: usize = 256;
 
-/// Claims the receipt's handle column, only while it is still `NULL`.
-const CLAIM_HANDLE_SQL: &str = "UPDATE command_receipts SET mcp_task_id = @mcp_task_id \
+/// Claims the receipt's handle and generation columns together, only while the handle is still
+/// `NULL`, since the table's check holds both set or both `NULL`.
+const CLAIM_HANDLE_SQL: &str = "UPDATE command_receipts \
+                                SET mcp_task_id = @mcp_task_id, \
+                                    mcp_task_generation = @mcp_task_generation \
                                 WHERE command_id = @command_id AND mcp_task_id IS NULL";
 
 /// Reads the receipt's handle back, in the same write as the claim.
@@ -148,6 +152,10 @@ impl McpTaskHandleRecorder {
                     CLAIM_HANDLE_SQL,
                     vec![
                         text_binding("@mcp_task_id", handle),
+                        text_binding(
+                            "@mcp_task_generation",
+                            <&str>::from(observation.mcp_task_generation),
+                        ),
                         text_binding("@command_id", command_id),
                     ],
                 ),
