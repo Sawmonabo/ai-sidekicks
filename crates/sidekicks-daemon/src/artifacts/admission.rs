@@ -138,6 +138,7 @@ fn lock_open_uploads(open_uploads: &OpenUploads) -> MutexGuard<'_, Vec<Arc<Atomi
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use rstest::rstest;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -190,7 +191,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn two_admissions_against_one_place_left_admit_exactly_one() {
         let folder = tempfile::tempdir().expect("the test makes a folder");
         let admission = Arc::new(test_admission(&folder));
@@ -208,14 +209,18 @@ mod tests {
             .reached
             .await
             .expect("the first admission reaches the pause");
-        let second = tokio::spawn({
+        let mut second = tokio::spawn({
             let admission = Arc::clone(&admission);
             // The upload is kept, so its place stays taken while the other admission runs.
             async move { admission.admit(1, None).await.ok() }
         });
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
+        // The paused clock moves only once no task can go on, the second admission's disk read
+        // included, so the wait ends with the second admission as far as it can get.
+        let second_while_held = tokio::time::timeout(Duration::from_secs(1), &mut second).await;
+        assert!(
+            second_while_held.is_err(),
+            "the second admission waits for the first"
+        );
         paused.release.send(()).expect("the first admission waits");
         let admitted = [
             first.await.expect("the first admission ends"),

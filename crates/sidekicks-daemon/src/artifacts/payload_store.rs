@@ -226,7 +226,12 @@ mod tests {
             ContentHash::from_stored(hash.as_str().to_owned()).as_ref(),
             Ok(&hash)
         );
-        for damaged in ["sha256:../../etc", "sha256:ABCDEF", "md5:00", ""] {
+        let (algorithm, hex) = hash
+            .as_str()
+            .split_once(':')
+            .expect("a hash names its algorithm");
+        let uppercase = format!("{algorithm}:{}", hex.to_ascii_uppercase());
+        for damaged in ["sha256:../../etc", &uppercase, "md5:00", ""] {
             assert!(ContentHash::from_stored(damaged.to_owned()).is_err());
         }
     }
