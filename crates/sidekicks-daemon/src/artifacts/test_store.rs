@@ -44,7 +44,8 @@ pub(crate) struct ArtifactTestStore {
     /// The seeded run, one of the session's.
     pub(crate) run_id: RunId,
     database: TestDatabase,
-    folder: TempDir,
+    // Held only so the temporary folder lives as long as the store.
+    _folder: TempDir,
 }
 
 impl ArtifactTestStore {
@@ -81,18 +82,13 @@ impl ArtifactTestStore {
             session_id,
             run_id,
             database,
-            folder,
+            _folder: folder,
         }
     }
 
     /// The folder the admission spools into.
     pub(crate) fn spool_folder(&self) -> &Path {
         self.admission.spool_folder()
-    }
-
-    /// The folder holding the store's and the spool's folders.
-    pub(crate) fn root(&self) -> &Path {
-        self.folder.path()
     }
 
     /// How many rows `table` holds, read on a connection of the test's own.
