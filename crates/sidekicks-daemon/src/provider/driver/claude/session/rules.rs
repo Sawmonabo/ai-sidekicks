@@ -10,9 +10,10 @@
 //! over a force push or a branch delete is never handed over: the daemon answers each ask it
 //! covers.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use futures::FutureExt;
 use jsonc_parser::ParseOptions;
@@ -26,9 +27,10 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::keyed_lock::KeyedLock;
-use crate::mcp::tool_name::compose_tool_server_tool_name;
+use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::missing_entry::MissingEntry;
 use crate::policy::destructive_git::covers_destructive_git;
+use crate::provider::driver::claude::session::settings_file::read_claude_settings_file;
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 use crate::provider::project_rule_folders::write_into_project_folders;
 
@@ -36,6 +38,15 @@ use crate::provider::project_rule_folders::write_into_project_folders;
 // line, read from the worktree's root.
 const CLAUDE_LOCAL_SETTINGS_FILE: [&str; 2] = [".claude", "settings.local.json"];
 const CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN: &str = "/.claude/settings.local.json";
+
+// The project's shared settings file, which the person commits and the daemon never edits.
+const CLAUDE_SHARED_SETTINGS_FILE: [&str; 2] = [".claude", "settings.json"];
+
+// The name Claude Code gives a connector it fetches itself starts so, and is written more tightly.
+const CLAUDE_CONNECTOR_SERVER_PREFIX: &str = "claude.ai ";
+
+// Held on a local settings file across its read and write, so two edits never drop each other's.
+static LOCAL_SETTINGS_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
 
 // The local settings file is the person's own, readable as Claude Code leaves it.
 const CLAUDE_LOCAL_SETTINGS_MODE: u32 = 0o644;
@@ -81,6 +92,15 @@ pub(crate) enum ClaudeRulesError {
     /// The settings file could not be listed in the repository's exclude list.
     #[error("keeping the project's local settings out of commits failed")]
     Exclude(#[source] ExcludeError),
+    /// A revoked rule is in no local settings file, nor in a file the daemon does not edit.
+    #[error("the rule is in none of the project's settings files")]
+    RuleNotFound,
+    /// A revoked rule is kept in a settings file the daemon never edits, so it still applies.
+    #[error("the rule is kept in {}, which the daemon does not edit", path.display())]
+    RuleInUneditedFile {
+        /// The file that keeps it.
+        path: PathBuf,
+    },
 }
 
 /// One Claude Code permission rule: its tool and, where it names one, what the rule matches, as an
@@ -211,17 +231,16 @@ pub(crate) fn compose_claude_project_allow_update(
 
 /// Adds a project rule once to the local settings file of each of `folders`, in the list of its
 /// sense, taking the same entries out of the other list so an allow and a block never stand
-/// together; `written_by_answer`, the file Claude Code itself writes for the answer's allow, is
-/// skipped, and taken back with the rest when a later file fails. A file the daemon creates in a
-/// repository is first listed in its exclude list. Holds `lock` on each file across its read and
-/// write.
+/// together; `written_by_answer`, the resolved file Claude Code itself writes for the answer's allow
+/// (the repository root's in the normal case), is skipped, and taken back with the rest when a
+/// later file fails. A file the daemon creates in a repository is first listed in its exclude list,
+/// each repository's list read once per call. One edit at a time on each file.
 pub(crate) async fn write_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,
     path_rules: PathRules,
     rule: &ProviderAskRule,
     written_by_answer: Option<&Path>,
-    lock: &'static KeyedLock<PathBuf>,
 ) -> Result<(), CleanupFailures<ClaudeRulesError>> {
     let mut common_git_folders: HashMap<PathBuf, Option<PathBuf>> = HashMap::new();
     let mut files = Vec::new();
@@ -238,17 +257,20 @@ pub(crate) async fn write_claude_project_rule(
         .map(Path::to_path_buf)
         .into_iter()
         .collect();
+    let excluded_repositories = Arc::new(Mutex::new(HashSet::new()));
     write_into_project_folders(
         &files,
         rule,
         |file: &Path, rule: &ProviderAskRule| {
             let common_git_folder = common_git_folders.get(file).cloned().flatten();
+            let excluded_repositories = Arc::clone(&excluded_repositories);
             async move {
                 let written = rule_entries(rule, path_rules)?;
                 let (list, other_list) = sense_lists(rule.sense);
                 edit_local_settings(
                     file,
                     common_git_folder.as_deref(),
+                    &excluded_repositories,
                     &[
                         ListChange {
                             list: other_list,
@@ -261,14 +283,18 @@ pub(crate) async fn write_claude_project_rule(
                             remove: &[],
                         },
                     ],
-                    lock,
                 )
                 .await
             }
             .boxed()
         },
         |file: &Path, rule: &ProviderAskRule| {
-            async move { remove_rule_from_file(file, rule, path_rules, lock).await }.boxed()
+            async move {
+                remove_rule_from_file(file, rule, path_rules)
+                    .await
+                    .map(|_is_removed| ())
+            }
+            .boxed()
         },
         &written_already,
     )
@@ -277,36 +303,59 @@ pub(crate) async fn write_claude_project_rule(
 
 /// Removes a revoked project rule from the local settings of each of `folders`: the file Claude
 /// Code keeps for the folder and the one in the folder itself, since Claude Code applies the rules
-/// of both. A file that does not exist holds none and is not made. Holds `lock` on each file.
+/// of both. A file that does not exist holds none and is not made. Refuses a rule no local file
+/// held: `RuleInUneditedFile` where a folder's shared `.claude/settings.json` keeps it, else
+/// `RuleNotFound`.
 pub(crate) async fn remove_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,
     path_rules: PathRules,
     rule: &ProviderAskRule,
-    lock: &KeyedLock<PathBuf>,
 ) -> Result<(), ClaudeRulesError> {
+    let mut is_removed = false;
     for file in every_local_settings_file(folders, home_folder, path_rules) {
-        remove_rule_from_file(&file, rule, path_rules, lock).await?;
+        is_removed |= remove_rule_from_file(&file, rule, path_rules).await?;
     }
-    Ok(())
+    if is_removed {
+        return Ok(());
+    }
+    let entries = rule_entries(rule, path_rules)?;
+    let (list, _) = sense_lists(rule.sense);
+    for folder in folders {
+        let shared_file = settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE);
+        let settings = read_claude_settings_file(&shared_file)
+            .await
+            .map_err(|failure| ClaudeRulesError::Read {
+                path: shared_file.clone(),
+                failure,
+            })?;
+        let is_kept = settings
+            .as_ref()
+            .and_then(|settings| settings.get("permissions")?.get(list)?.as_array())
+            .is_some_and(|kept| {
+                kept.iter()
+                    .any(|kept| entries.iter().any(|entry| kept.as_str() == Some(entry)))
+            });
+        if is_kept {
+            return Err(ClaudeRulesError::RuleInUneditedFile { path: shared_file });
+        }
+    }
+    Err(ClaudeRulesError::RuleNotFound)
 }
 
-/// Removes every allow and block over a removed tool server's tools, `mcp__<server>` and
-/// `mcp__<server>__<tool>`, from the local settings of each of `folders`, both of each folder's
-/// files as [`remove_claude_project_rule`] reads them. Holds `lock` on each file.
+/// Removes every allow and block over a removed tool server's tools from the local settings of
+/// each of `folders`, both of each folder's files as [`remove_claude_project_rule`] reads them.
+/// The server is named as Claude Code names it in its tools, so only that server's rules go.
 pub(crate) async fn remove_claude_tool_server_rules(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,
     path_rules: PathRules,
     server_name: &str,
-    lock: &KeyedLock<PathBuf>,
 ) -> Result<(), ClaudeRulesError> {
-    let server_rule = compose_tool_server_tool_name(server_name, "");
-    let whole_server_rule = server_rule.trim_end_matches("__").to_owned();
-    let is_server_rule =
-        |entry: &str| entry == whole_server_rule || entry.starts_with(server_rule.as_str());
+    let server_name = compose_claude_tool_server_name(server_name);
+    let is_server_rule = |entry: &str| is_claude_tool_server_rule(entry, &server_name);
     for file in every_local_settings_file(folders, home_folder, path_rules) {
-        let _hold = lock.acquire(file.clone()).await;
+        let _hold = LOCAL_SETTINGS_LOCK.acquire(file.clone()).await;
         let Some(text) = read_local_settings(&file).await? else {
             continue;
         };
@@ -323,9 +372,55 @@ pub(crate) async fn remove_claude_tool_server_rules(
     Ok(())
 }
 
+// A server's name as Claude Code writes it into its tools' names: each UTF-16 unit outside ASCII
+// letters, digits, `_` and `-` read as `_`, and a connector's name, which starts `claude.ai `, with
+// each run of `_` made one and the `_` at either end dropped.
+fn compose_claude_tool_server_name(server_name: &str) -> String {
+    let mut name = String::with_capacity(server_name.len());
+    for character in server_name.chars() {
+        if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+            name.push(character);
+        } else {
+            // A character past U+FFFF is two UTF-16 units, each of which becomes `_`.
+            name.extend(std::iter::repeat_n('_', character.len_utf16()));
+        }
+    }
+    if !server_name.starts_with(CLAUDE_CONNECTOR_SERVER_PREFIX) {
+        return name;
+    }
+    let mut collapsed = String::with_capacity(name.len());
+    for character in name.chars() {
+        if !(character == '_' && collapsed.ends_with('_')) {
+            collapsed.push(character);
+        }
+    }
+    let trimmed = collapsed.strip_prefix('_').unwrap_or(&collapsed);
+    trimmed.strip_suffix('_').unwrap_or(trimmed).to_owned()
+}
+
+// Whether a rule names the tool server Claude Code calls `server_name`: its wildcard
+// `mcp__<server>__*`, its whole-server `mcp__<server>`, which Claude Code reads as that server's
+// only while the name holds no `__`, and a tool's `mcp__<server>__<tool>` whose tool holds no `__`.
+// A longer name's rules, `mcp__<server>__v2__*` among them, belong to the server that name names.
+fn is_claude_tool_server_rule(entry: &str, server_name: &str) -> bool {
+    let Some(rest) = entry
+        .strip_prefix(TOOL_SERVER_TOOL_PREFIX)
+        .and_then(|rest| rest.strip_prefix(server_name))
+    else {
+        return false;
+    };
+    match rest.strip_prefix("__") {
+        Some(tool) => tool == "*" || (!tool.is_empty() && !tool.contains("__")),
+        None => rest.is_empty() && !server_name.contains("__"),
+    }
+}
+
 fn local_settings_path(folder: &Path) -> PathBuf {
-    CLAUDE_LOCAL_SETTINGS_FILE
-        .iter()
+    settings_path(folder, CLAUDE_LOCAL_SETTINGS_FILE)
+}
+
+fn settings_path(folder: &Path, file: [&str; 2]) -> PathBuf {
+    file.iter()
         .fold(folder.to_path_buf(), |path, part| path.join(part))
 }
 
@@ -347,13 +442,6 @@ fn every_local_settings_file(
     files
 }
 
-fn opposite_sense(sense: RememberedRuleSense) -> RememberedRuleSense {
-    match sense {
-        RememberedRuleSense::Allow => RememberedRuleSense::Block,
-        RememberedRuleSense::Block => RememberedRuleSense::Allow,
-    }
-}
-
 // The list a rule of `sense` goes in, and the other one.
 fn sense_lists(sense: RememberedRuleSense) -> (&'static str, &'static str) {
     match sense {
@@ -364,7 +452,9 @@ fn sense_lists(sense: RememberedRuleSense) -> (&'static str, &'static str) {
 
 // The rules one standing rule is in Claude Code's own words. A command's covers the command alone
 // and with any arguments after it, which matches no longer program name; one that would also cover
-// a destructive git command, or whose words hold a wildcard, is none.
+// a destructive git command, or whose words hold a wildcard, is none. A path on a Windows network
+// share is none: Claude Code documents its path rules only for drive paths, and an allow never
+// spares a network read its prompt.
 fn compose_rule_values(
     rule: &ProviderAskRule,
     path_rules: PathRules,
@@ -380,6 +470,11 @@ fn compose_rule_values(
             } else {
                 vec![value("Bash", Some(format!("{} *", rule.subject)))]
             }
+        }
+        ProviderAskActionKind::FileChange | ProviderAskActionKind::FileRead
+            if is_windows_network_path(&rule.subject, path_rules) =>
+        {
+            Vec::new()
         }
         ProviderAskActionKind::FileChange => vec![value(
             "Edit",
@@ -397,6 +492,18 @@ fn compose_rule_values(
             return Err(ClaudeRulesError::UnkeptKind(rule.action.into()));
         }
     })
+}
+
+// A `\\server\share` path, which any two leading separators name on Windows.
+fn is_windows_network_path(path: &str, path_rules: PathRules) -> bool {
+    let mut characters = path.chars();
+    path_rules == PathRules::Windows
+        && characters
+            .next()
+            .is_some_and(|first| path_rules.is_separator(first))
+        && characters
+            .next()
+            .is_some_and(|second| path_rules.is_separator(second))
 }
 
 fn write_rule_value(value: &ClaudePermissionRuleValue) -> String {
@@ -454,41 +561,43 @@ struct ListChange<'entries> {
     remove: &'entries [String],
 }
 
+// Whether the rule was in the file and went.
 async fn remove_rule_from_file(
     file: &Path,
     rule: &ProviderAskRule,
     path_rules: PathRules,
-    lock: &KeyedLock<PathBuf>,
-) -> Result<(), ClaudeRulesError> {
+) -> Result<bool, ClaudeRulesError> {
     let removed = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    let _hold = lock.acquire(file.to_path_buf()).await;
+    let _hold = LOCAL_SETTINGS_LOCK.acquire(file.to_path_buf()).await;
     let Some(text) = read_local_settings(file).await? else {
-        return Ok(());
+        return Ok(false);
     };
     let change = ListChange {
         list,
         add: &[],
         remove: &removed,
     };
-    if let Some(edited) = edit_permission_lists(file, &text, |permissions, path| {
+    let Some(edited) = edit_permission_lists(file, &text, |permissions, path| {
         apply_list_changes(permissions, path, std::slice::from_ref(&change))
-    })? {
-        write_local_settings(file, edited).await?;
-    }
-    Ok(())
+    })?
+    else {
+        return Ok(false);
+    };
+    write_local_settings(file, edited).await?;
+    Ok(true)
 }
 
 // Applies `changes` to `file`, made where missing and an entry is added (first listed in the
-// repository's exclude list when `common_git_folder` names one), holding `lock` across the read and
-// the write.
+// exclude list of the repository `common_git_folder` names, unless `excluded_repositories` holds
+// it already), one edit at a time on the file.
 async fn edit_local_settings(
     file: &Path,
     common_git_folder: Option<&Path>,
+    excluded_repositories: &Mutex<HashSet<PathBuf>>,
     changes: &[ListChange<'_>],
-    lock: &KeyedLock<PathBuf>,
 ) -> Result<(), ClaudeRulesError> {
-    let _hold = lock.acquire(file.to_path_buf()).await;
+    let _hold = LOCAL_SETTINGS_LOCK.acquire(file.to_path_buf()).await;
     let edited = if let Some(text) = read_local_settings(file).await? {
         edit_permission_lists(file, &text, |permissions, path| {
             apply_list_changes(permissions, path, changes)
@@ -501,14 +610,15 @@ async fn edit_local_settings(
         if added.is_empty() {
             return Ok(());
         }
-        if let Some(common_git_folder) = common_git_folder {
-            add_repository_exclude(
-                common_git_folder,
-                CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN,
-                lock,
-            )
-            .await
-            .map_err(ClaudeRulesError::Exclude)?;
+        if let Some(common_git_folder) = common_git_folder
+            && excluded_repositories
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(common_git_folder.to_path_buf())
+        {
+            add_repository_exclude(common_git_folder, CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN)
+                .await
+                .map_err(ClaudeRulesError::Exclude)?;
         }
         let lists: serde_json::Map<String, serde_json::Value> = added
             .iter()
@@ -677,8 +787,15 @@ fn remove_entries(
         .ok_or_else(|| ClaudeRulesError::Refused {
             path: file.to_path_buf(),
         })?;
+    let is_after_bracket = |node: Option<CstNode>| {
+        node.and_then(|node| node.previous_sibling())
+            .is_some_and(|previous| previous.token_char() == Some('['))
+    };
+    // Whether the person wrote the first entry right after the bracket, as in `["a", "b"]`.
+    let is_first_flush = is_after_bracket(array.elements().first().cloned());
     let mut is_changed = false;
-    for element in array.elements() {
+    let mut is_first_removed = false;
+    for (index, element) in array.elements().into_iter().enumerate() {
         let is_picked = element
             .as_string_lit()
             .and_then(|entry| entry.decoded_value().ok())
@@ -686,11 +803,13 @@ fn remove_entries(
         if is_picked {
             element.remove();
             is_changed = true;
+            is_first_removed |= index == 0;
         }
     }
-    // The CST keeps the space that followed a removed entry, so a list whose first entry went
-    // would read `[ "Read"]`; the space between the bracket and the new first entry goes too.
-    if is_changed
+    // jsonc-parser keeps the separator that followed a removed first entry, so `["a", "b"]` would
+    // read `[ "b"]`; that separator goes when the person's first entry sat right after the bracket.
+    if is_first_flush
+        && is_first_removed
         && let Some(first) = array.elements().first()
         && let Some(space) = first
             .previous_sibling()

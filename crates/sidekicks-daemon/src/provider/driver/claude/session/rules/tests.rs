@@ -8,15 +8,9 @@ use sidekicks_platforms::PathRules;
 use super::{
     ClaudeProjectFolder, ClaudeRepository, ClaudeRulesError, compose_claude_project_allow_update,
     compose_claude_session_rule_lists, remove_claude_project_rule, remove_claude_tool_server_rules,
-    write_claude_project_rule,
+    resolve_claude_local_settings_file, write_claude_project_rule,
 };
-use crate::keyed_lock::KeyedLock;
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
-
-// Every write holds a `'static` lock, so each test takes one of its own for the test's life.
-fn lock() -> &'static KeyedLock<PathBuf> {
-    Box::leak(Box::new(KeyedLock::new()))
-}
 
 fn rule(
     sense: RememberedRuleSense,
@@ -90,7 +84,6 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
         "{\"permissions\": {\"allow\": [\"Bash(npm test *)\", \"Read\"]}}",
     )
     .expect("the old file is written");
-    let lock = lock();
 
     for _ in 0..2 {
         write_claude_project_rule(
@@ -99,7 +92,6 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
             PathRules::Posix,
             &allow_command("npm test"),
             None,
-            lock,
         )
         .await
         .expect("the rule is written");
@@ -118,7 +110,6 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
         &home,
         PathRules::Posix,
         &allow_command("npm test"),
-        lock,
     )
     .await
     .expect("the rule is revoked");
@@ -127,6 +118,77 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
         read(&local_settings(&worktree)),
         "{\"permissions\": {\"allow\": [\"Read\"]}}"
     );
+}
+
+#[rstest]
+#[case::at_the_root_of_the_repository(PathRules::Posix, Some("root"), true, "root")]
+#[case::outside_git(PathRules::Posix, None, true, "worktree")]
+#[case::on_windows(PathRules::Windows, Some("root"), true, "worktree")]
+#[case::at_a_root_that_is_the_home_folder(PathRules::Posix, Some("home"), true, "worktree")]
+#[case::at_a_root_the_person_does_not_own(PathRules::Posix, Some("root"), false, "worktree")]
+fn claude_codes_local_file_sits_at_the_root_only_where_claude_code_puts_it(
+    #[case] path_rules: PathRules,
+    #[case] root: Option<&str>,
+    #[case] is_owned_by_user: bool,
+    #[case] anchor: &str,
+) {
+    let repository = Repository::new();
+    let root = root.map(|name| repository.path(name));
+    let (worktree, home, common_git_folder) = (
+        repository.path("worktree"),
+        repository.path("home"),
+        repository.path("root/.git"),
+    );
+    let folder = ClaudeProjectFolder {
+        working_folder: &worktree,
+        repository: root.as_deref().map(|root| ClaudeRepository {
+            root,
+            common_git_folder: &common_git_folder,
+            is_owned_by_user,
+        }),
+    };
+
+    let resolved = resolve_claude_local_settings_file(&folder, &home, path_rules);
+
+    assert_eq!(resolved.path, local_settings(&repository.path(anchor)));
+}
+
+#[tokio::test]
+async fn the_file_claude_code_writes_for_the_answer_is_left_to_it() {
+    let repository = Repository::new();
+    let (root, worktree, home) = (
+        repository.path("root"),
+        repository.path("worktree"),
+        repository.path("home"),
+    );
+    let common_git_folder = root.join(".git");
+    let folders = [
+        ClaudeProjectFolder {
+            working_folder: &root,
+            repository: Some(ClaudeRepository {
+                root: &root,
+                common_git_folder: &common_git_folder,
+                is_owned_by_user: true,
+            }),
+        },
+        ClaudeProjectFolder {
+            working_folder: &worktree,
+            repository: None,
+        },
+    ];
+
+    write_claude_project_rule(
+        &folders,
+        &home,
+        PathRules::Posix,
+        &allow_command("npm test"),
+        Some(&local_settings(&root)),
+    )
+    .await
+    .expect("the rule is written");
+
+    assert!(!local_settings(&root).exists());
+    assert!(read(&local_settings(&worktree)).contains("Bash(npm test *)"));
 }
 
 #[tokio::test]
@@ -154,7 +216,6 @@ async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
             "example.com",
         ),
         None,
-        lock(),
     )
     .await
     .expect("the block is written");
@@ -189,7 +250,6 @@ async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case
         PathRules::Posix,
         &allow_command("ls"),
         None,
-        lock(),
     )
     .await;
 
@@ -203,38 +263,49 @@ async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case
 }
 
 #[tokio::test]
-async fn a_revoke_and_a_server_removal_make_no_file() {
+async fn a_revoke_of_a_rule_no_local_file_holds_names_where_it_is_kept_and_makes_no_file() {
     let folder = tempfile::tempdir().expect("a project folder");
+    let shared_file = folder.path().join(".claude").join("settings.json");
+    fs::create_dir_all(folder.path().join(".claude")).expect("the folder is made");
+    fs::write(
+        &shared_file,
+        "{\"permissions\": {\"allow\": [\"Bash(npm test *)\"]}}",
+    )
+    .expect("the shared file is written");
     let folders = [ClaudeProjectFolder {
         working_folder: folder.path(),
         repository: None,
     }];
-    let lock = lock();
+    let mut outcomes = Vec::new();
+    for subject in ["npm test", "ls"] {
+        outcomes.push(
+            remove_claude_project_rule(
+                &folders,
+                folder.path(),
+                PathRules::Posix,
+                &allow_command(subject),
+            )
+            .await,
+        );
+    }
+    let [in_shared_file, nowhere] = <[_; 2]>::try_from(outcomes).expect("two revokes ran");
 
-    remove_claude_project_rule(
-        &folders,
-        folder.path(),
-        PathRules::Posix,
-        &allow_command("ls"),
-        lock,
-    )
-    .await
-    .expect("the revoke succeeds");
-    remove_claude_tool_server_rules(&folders, folder.path(), PathRules::Posix, "docs", lock)
-        .await
-        .expect("the removal succeeds");
-
+    assert!(matches!(
+        in_shared_file,
+        Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == shared_file
+    ));
+    assert!(matches!(nowhere, Err(ClaudeRulesError::RuleNotFound)));
     assert!(!local_settings(folder.path()).exists());
 }
 
 #[tokio::test]
-async fn a_removed_tool_servers_rules_go_and_other_servers_stay() {
+async fn a_removed_tool_servers_rules_go_in_claude_codes_spelling_and_other_servers_stay() {
     let folder = tempfile::tempdir().expect("a project folder");
     let file = local_settings(folder.path());
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
-        "{\"permissions\": {\"allow\": [\"mcp__srv__read\", \"mcp__srv\", \"mcp__other__x\", \"mcp__srvx__y\"], \"deny\": [\"mcp__srv__write\"]}}",
+        "{\"permissions\": {\"allow\": [\"mcp__my_server__read\", \"mcp__my_server\", \"mcp__reports\", \"mcp__reports__search\", \"mcp__reports__v2__*\", \"mcp__other__x\", \"mcp__my_serverx__y\", \"mcp__claude_ai_Notion_beta__search\"], \"deny\": [\"mcp__my_server__*\"]}}",
     )
     .expect("the file is written");
     let folders = [ClaudeProjectFolder {
@@ -242,13 +313,55 @@ async fn a_removed_tool_servers_rules_go_and_other_servers_stay() {
         repository: None,
     }];
 
-    remove_claude_tool_server_rules(&folders, folder.path(), PathRules::Posix, "srv", lock())
-        .await
-        .expect("the server's rules are removed");
+    for server in ["my.server", "reports", "claude.ai Notion (beta)"] {
+        remove_claude_tool_server_rules(&folders, folder.path(), PathRules::Posix, server)
+            .await
+            .expect("the server's rules are removed");
+    }
 
     assert_eq!(
         read(&file),
-        "{\"permissions\": {\"allow\": [\"mcp__other__x\", \"mcp__srvx__y\"], \"deny\": []}}"
+        "{\"permissions\": {\"allow\": [\"mcp__reports__v2__*\", \"mcp__other__x\", \"mcp__my_serverx__y\"], \"deny\": []}}"
+    );
+}
+
+#[rstest]
+#[case::the_first_entry_right_after_the_bracket("[\"a\", \"b\"]", "[\"b\"]")]
+#[case::spaces_inside_the_brackets("[ \"a\", \"b\" ]", "[ \"b\" ]")]
+#[case::a_list_over_lines("[\n  \"a\",\n  \"b\"\n]", "[\n  \"b\"\n]")]
+#[tokio::test]
+async fn a_revoke_keeps_every_byte_of_the_list_but_the_entry_and_its_separator(
+    #[case] list: &str,
+    #[case] expected: &str,
+) {
+    let folder = tempfile::tempdir().expect("a project folder");
+    let file = local_settings(folder.path());
+    fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
+    fs::write(
+        &file,
+        format!(
+            "{{\"permissions\": {{\"allow\": {}}}}}",
+            list.replace("\"a\"", "\"Bash(a *)\"")
+        ),
+    )
+    .expect("the file is written");
+    let folders = [ClaudeProjectFolder {
+        working_folder: folder.path(),
+        repository: None,
+    }];
+
+    remove_claude_project_rule(
+        &folders,
+        folder.path(),
+        PathRules::Posix,
+        &allow_command("a"),
+    )
+    .await
+    .expect("the rule is revoked");
+
+    assert_eq!(
+        read(&file),
+        format!("{{\"permissions\": {{\"allow\": {expected}}}}}")
     );
 }
 
@@ -259,7 +372,6 @@ async fn two_writes_to_one_file_at_once_both_land() {
         working_folder: folder.path(),
         repository: None,
     }];
-    let lock = lock();
     let write = |subject: &'static str| {
         let folders = &folders;
         let home = folder.path();
@@ -270,7 +382,6 @@ async fn two_writes_to_one_file_at_once_both_land() {
                 PathRules::Posix,
                 &allow_command(subject),
                 None,
-                lock,
             )
             .await
         }
@@ -298,16 +409,9 @@ async fn an_allow_that_would_stretch_is_never_handed_over(#[case] subject: &str)
     }];
     let allow = allow_command(subject);
 
-    write_claude_project_rule(
-        &folders,
-        folder.path(),
-        PathRules::Posix,
-        &allow,
-        None,
-        lock(),
-    )
-    .await
-    .expect("nothing is written");
+    write_claude_project_rule(&folders, folder.path(), PathRules::Posix, &allow, None)
+        .await
+        .expect("nothing is written");
 
     assert!(!local_settings(folder.path()).exists());
     assert_eq!(
@@ -324,13 +428,15 @@ async fn an_allow_that_would_stretch_is_never_handed_over(#[case] subject: &str)
 }
 
 #[rstest]
-#[case::a_windows_drive(PathRules::Windows, "C:\\a[1]\\b", "Edit(//c/a\\[1\\]/b)")]
-#[case::a_posix_path(PathRules::Posix, "/srv/a?b*\\c", "Edit(//srv/a\\?b\\*\\\\c)")]
-#[case::a_relative_path(PathRules::Posix, "src/[id].ts", "Edit(src/\\[id\\].ts)")]
+#[case::a_windows_drive(PathRules::Windows, "C:\\a[1]\\b", &["Edit(//c/a\\[1\\]/b)"])]
+#[case::a_posix_path(PathRules::Posix, "/srv/a?b*\\c", &["Edit(//srv/a\\?b\\*\\\\c)"])]
+#[case::a_relative_path(PathRules::Posix, "src/[id].ts", &["Edit(src/\\[id\\].ts)"])]
+// Claude Code asks before any read of a network path whatever the rules say, so none is kept.
+#[case::a_windows_network_path(PathRules::Windows, "\\\\server\\share\\a.txt", &[])]
 fn a_path_rule_matches_only_the_path_in_claude_codes_words(
     #[case] path_rules: PathRules,
     #[case] path: &str,
-    #[case] expected: &str,
+    #[case] expected: &[&str],
 ) {
     let lists = compose_claude_session_rule_lists(
         &[rule(
@@ -342,7 +448,7 @@ fn a_path_rule_matches_only_the_path_in_claude_codes_words(
     )
     .expect("a file rule composes");
 
-    assert_eq!(lists.allow, [expected]);
+    assert_eq!(lists.allow, expected);
 }
 
 #[test]
