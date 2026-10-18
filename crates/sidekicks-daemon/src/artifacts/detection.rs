@@ -11,14 +11,7 @@ pub(crate) const DETECTION_PREFIX_BYTES: usize = 4100;
 
 /// The format `leading_bytes` names, or `None` when they are empty or name none, so the caller
 /// reads them as text or as an unknown binary. Reads only the first [`DETECTION_PREFIX_BYTES`].
-#[cfg_attr(
-    not(fuzzing),
-    expect(
-        unreachable_pub,
-        reason = "public only so the fuzz build re-exports it from the crate root"
-    )
-)]
-pub fn detect_media_type(leading_bytes: &[u8]) -> Option<FileFormat> {
+pub(crate) fn detect_media_type(leading_bytes: &[u8]) -> Option<FileFormat> {
     let prefix = leading_bytes
         .get(..DETECTION_PREFIX_BYTES)
         .unwrap_or(leading_bytes);
