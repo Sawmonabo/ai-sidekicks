@@ -301,6 +301,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+
+[[package]]
 name = "arc-swap"
 version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1527,7 +1533,7 @@ checksum = "3748e166981fa3ba9dc54ff950ad0ed5ca4aab4b73eae21d9f539659fe806e28"
 dependencies = [
  "cfg-if",
  "libc",
- "mach2",
+ "mach2 0.6.0",
 ]
 
 [[package]]
@@ -1539,7 +1545,7 @@ dependencies = [
  "cfg-if",
  "crash-context",
  "libc",
- "mach2",
+ "mach2 0.6.0",
  "parking_lot",
 ]
 
@@ -2800,6 +2806,12 @@ name = "fiat-crypto"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
+
+[[package]]
+name = "file-format"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55d9ccda37e95b4f0978a3074b4a9939979103a7256459cfb449c9c84d1adf23"
 
 [[package]]
 name = "filedescriptor"
@@ -4675,6 +4687,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 
 [[package]]
+name = "libfuzzer-sys"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2"
+dependencies = [
+ "arbitrary",
+ "cc",
+]
+
+[[package]]
 name = "libloading"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4928,32 +4950,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "llrt_logging"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "itoa",
- "llrt_context",
- "llrt_encoding",
- "llrt_json",
- "llrt_numbers",
- "llrt_utils",
- "rquickjs",
- "ryu",
-]
-
-[[package]]
-name = "llrt_numbers"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "itoa",
- "llrt_utils",
- "rquickjs",
- "ryu",
-]
-
-[[package]]
 name = "llrt_stream_web"
 version = "0.9.0-beta"
 source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
@@ -4975,19 +4971,6 @@ dependencies = [
  "once_cell",
  "rquickjs",
  "tokio",
-]
-
-[[package]]
-name = "llrt_util"
-version = "0.9.0-beta"
-source = "git+https://github.com/awslabs/llrt?rev=71dab66c9074d64ff3243de936b67ebdc1c67196#71dab66c9074d64ff3243de936b67ebdc1c67196"
-dependencies = [
- "llrt_context",
- "llrt_encoding",
- "llrt_logging",
- "llrt_stream_web",
- "llrt_utils",
- "rquickjs",
 ]
 
 [[package]]
@@ -5147,6 +5130,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 
 [[package]]
+name = "mach2"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0d28e293f2b8c9d2b2d1c0193bd3c1cbdc0d2cf396888dc01162f7cf9d6c3f3"
+
+[[package]]
 name = "maplit"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5287,7 +5276,7 @@ dependencies = [
  "goblin",
  "libc",
  "log",
- "mach2",
+ "mach2 0.6.0",
  "memmap2",
  "minidump-common",
  "process-backend",
@@ -8288,6 +8277,7 @@ dependencies = [
 name = "sidekicks-daemon"
 version = "0.0.0"
 dependencies = [
+ "alacritty_terminal",
  "anyhow",
  "axum",
  "base16ct 1.0.0",
@@ -8298,6 +8288,7 @@ dependencies = [
  "chacha20poly1305 0.11.0",
  "chromiumoxide_cdp",
  "clap",
+ "console",
  "crash-handler",
  "croner",
  "csv",
@@ -8308,6 +8299,7 @@ dependencies = [
  "ed25519-dalek",
  "fast_image_resize",
  "ferriki",
+ "file-format",
  "flate2",
  "flexi_logger",
  "form_urlencoded",
@@ -8331,13 +8323,8 @@ dependencies = [
  "jwt-simple",
  "lettre",
  "libsqlite3-sys",
- "llrt_abort",
  "llrt_buffer",
  "llrt_crypto",
- "llrt_exceptions",
- "llrt_stream_web",
- "llrt_timers",
- "llrt_util",
  "lru 0.18.5",
  "memchr",
  "minidumper",
@@ -8396,9 +8383,11 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
  "unicode-normalization",
+ "unicode-properties",
  "unicode-segmentation",
  "url",
  "uuid",
+ "vte",
  "web-push-native",
  "webp",
  "x-wing",
@@ -8407,6 +8396,14 @@ dependencies = [
  "zeroize",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "sidekicks-daemon-fuzz"
+version = "0.0.0"
+dependencies = [
+ "file-format",
+ "libfuzzer-sys",
 ]
 
 [[package]]
@@ -8427,11 +8424,13 @@ dependencies = [
  "keyring-core",
  "libc",
  "libmimalloc-sys",
+ "mach2 0.7.0",
  "mimalloc",
  "nix 0.31.3",
  "objc2-core-foundation",
  "objc2-foundation",
  "objc2-io-kit",
+ "objc2-security",
  "objc2-service-management",
  "polling",
  "process-wrap",
@@ -8444,6 +8443,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tree-sitter",
  "typed-path",
  "uds_windows",
  "walkdir",
@@ -8486,6 +8486,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "vte",
 ]

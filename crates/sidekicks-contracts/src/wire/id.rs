@@ -102,6 +102,12 @@ impl UuidTextForm {
     }
 }
 
+impl From<Uuid> for UuidTextForm {
+    fn from(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
 impl Serialize for UuidTextForm {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(UuidText::new(self.0).as_str())

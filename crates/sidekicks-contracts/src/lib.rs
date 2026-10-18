@@ -4,6 +4,7 @@
 
 pub mod account;
 pub mod agent;
+pub mod app_identity;
 pub mod app_link;
 pub mod approval;
 pub mod artifacts;
@@ -97,6 +98,7 @@ pub fn typescript_modules() -> impl Iterator<Item = &'static TypeScriptModule> {
 /// The TypeScript modules of the root contract modules.
 const ROOT_TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &account::TYPESCRIPT_MODULE,
+    &app_identity::TYPESCRIPT_MODULE,
     &app_link::TYPESCRIPT_MODULE,
     &approval::TYPESCRIPT_MODULE,
     &attention::TYPESCRIPT_MODULE,

@@ -1,8 +1,9 @@
 //! Sessions: creating, converting and searching them, reading a session's record and log, their
-//! groups, drafts, directory and working folder.
+//! groups, tags, drafts, directory and working folder.
 
 pub(crate) mod console_state;
 pub(crate) mod directory;
+pub(crate) mod draft_store;
 pub(crate) mod groups;
 pub(crate) mod links;
 pub(crate) mod not_found;
@@ -13,4 +14,5 @@ pub(crate) mod related;
 pub(crate) mod run;
 pub(crate) mod search;
 pub(crate) mod service;
+pub(crate) mod tags;
 pub(crate) mod working_folder;

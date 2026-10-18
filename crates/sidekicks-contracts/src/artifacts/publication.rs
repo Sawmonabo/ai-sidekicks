@@ -12,12 +12,14 @@ use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::attachment::Bytes;
+use crate::wire::id::ClientUuid;
 use crate::wire::record::{JsonRecord, prototype_free, prototype_free_names};
 use crate::wire::text::NonEmptyText;
 
 /// Publishes one artifact in a single call. The daemon hashes the payload's bytes, so the digest
 /// and size are never the caller's to declare, and it reads the recorded type from the bytes. A
-/// client's `file` is refused: a file comes in through ingest.
+/// client's `file` is refused: a file comes in through ingest. A resend under the same
+/// `clientIdempotencyKey` answers the first publish's manifest, never a second artifact.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -36,6 +38,8 @@ pub struct ArtifactPublishRequest {
     pub artifact_type: ArtifactType,
     /// The payload's bytes.
     pub payload: Bytes<0, MAX_ONE_ATTACHMENT_BYTES>,
+    /// The key that makes a resent publish one artifact.
+    pub client_idempotency_key: ClientUuid,
     /// The caller's media type for the payload.
     pub media_type: NonEmptyText,
     /// The artifact's freeform provenance.

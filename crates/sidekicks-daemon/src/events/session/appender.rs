@@ -223,6 +223,18 @@ pub(crate) enum SessionEventAppendError {
     Append(#[from] EventAppendError),
 }
 
+/// Why an emitter's typed event was not appended, refused at its draft or at its append; none of
+/// its write is kept.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SessionEventEmitError {
+    /// The event breaks one of its type's checks.
+    #[error("the event could not be drafted")]
+    Draft(#[from] SessionEventDraftError),
+    /// The event log did not keep the append.
+    #[error("the event was not appended")]
+    Append(#[from] SessionEventAppendError),
+}
+
 /// Builds one session event envelope from a typed event and appends it to the event log.
 pub(crate) struct SessionEventAppender {
     event_log: Arc<EventLogService>,
