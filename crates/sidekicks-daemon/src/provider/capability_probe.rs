@@ -211,14 +211,14 @@ pub(crate) async fn read_capability_detection(
             continue;
         };
         for &probe_name in probe_names {
-            let answer = match answers.iter().find(|(name, _)| *name == probe_name) {
-                Some(&(_, answer)) => answer,
-                None => {
+            let answer =
+                if let Some(&(_, answer)) = answers.iter().find(|(name, _)| *name == probe_name) {
+                    answer
+                } else {
                     let answer = dispatch_probe(&provider, rules, probe_name, exchange).await?;
                     answers.push((probe_name, answer));
                     answer
-                }
-            };
+                };
             let reason = match answer {
                 ProbeAnswer::Accepted => continue,
                 ProbeAnswer::UnknownName => WithdrawalReason::UnknownName,
