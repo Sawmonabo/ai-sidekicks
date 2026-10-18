@@ -446,6 +446,23 @@ pub(crate) fn close_after_failure<Failure>(
     CleanupFailures::new(error, cleanup_failures, operation)
 }
 
+/// Makes an index in `folder` whose newest commit records `last_outbox_id` and holds no row, for a
+/// test.
+#[cfg(test)]
+pub(crate) fn make_index_at(folder: &Path, last_outbox_id: u64) {
+    let index = SearchIndex::open(folder, SEARCH_INDEX_OPTIONS).expect("a fresh index opens");
+    index
+        .apply(&IndexBatch {
+            last_outbox_id,
+            rows: Vec::new(),
+            removed_keys: Vec::new(),
+            removed_owners: Vec::new(),
+            group_members: Vec::new(),
+        })
+        .expect("the batch applies");
+    index.close().expect("the index closes");
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -453,67 +470,26 @@ mod tests {
 
     use rstest::rstest;
     use rusqlite::Connection;
-    use sidekicks_search::index::{IndexBatch, SearchIndex};
+    use sidekicks_search::index::SearchIndex;
 
     use super::{
         SEARCH_INDEX_OPTIONS, SearchIndexOpening, SearchIndexRebuildReason, build_search_index,
-        open_search_index,
+        make_index_at, open_search_index,
     };
-    use crate::session::search::index::outbox::OutboxReader;
     use crate::session::search::index::rows::IndexRowReader;
-    use crate::session::search::index::schema::SEARCH_INDEX_SCHEMA_SQL;
-
-    // The source tables the schema's triggers and the row reads name, with only the columns they
-    // read.
-    const SOURCE_TABLES_SQL: &str = "
-CREATE TABLE sessions (
-  id TEXT NOT NULL UNIQUE, name TEXT, group_id TEXT, last_activity_at TEXT);
-CREATE TABLE session_groups (id TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
-CREATE TABLE session_tags (session_id TEXT NOT NULL, tag TEXT NOT NULL, tag_folded TEXT NOT NULL);
-CREATE TABLE session_events (
-  id TEXT NOT NULL, session_id TEXT NOT NULL, sequence INTEGER NOT NULL, type TEXT NOT NULL,
-  payload TEXT NOT NULL, content_payload BLOB);";
+    use crate::session::search::index::schema::{add_titled_session, make_search_source_tables};
 
     // A database holding one titled session, whose insert gave the outbox its first ids, and the
     // outbox's highest id.
     fn database_with_one_session() -> (Connection, u64) {
         let connection = Connection::open_in_memory().expect("an in-memory database opens");
-        connection
-            .execute_batch(SOURCE_TABLES_SQL)
-            .expect("the source tables are made");
-        connection
-            .execute_batch(&SEARCH_INDEX_SCHEMA_SQL)
-            .expect("the search index's schema runs");
-        connection
-            .execute(
-                "INSERT INTO sessions (id, name, last_activity_at)
-                 VALUES ('session-1', 'Billing fix', '2026-10-18T12:00:00.000Z')",
-                [],
-            )
-            .expect("the session is written");
-        let highest_id_given = OutboxReader::new(&connection)
-            .highest_id_given()
-            .expect("the outbox's highest id reads");
+        make_search_source_tables(&connection);
+        let highest_id_given = add_titled_session(&connection, "session-1");
         assert!(
             highest_id_given > 0,
             "the session's insert wrote an outbox row"
         );
         (connection, highest_id_given)
-    }
-
-    // Makes an index in `folder` whose newest commit records `last_outbox_id`.
-    fn make_index_at(folder: &Path, last_outbox_id: u64) {
-        let index = SearchIndex::open(folder, SEARCH_INDEX_OPTIONS).expect("a fresh index opens");
-        index
-            .apply(&IndexBatch {
-                last_outbox_id,
-                rows: Vec::new(),
-                removed_keys: Vec::new(),
-                removed_owners: Vec::new(),
-                group_members: Vec::new(),
-            })
-            .expect("the batch applies");
-        index.close().expect("the index closes");
     }
 
     #[tokio::test]

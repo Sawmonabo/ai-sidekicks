@@ -252,3 +252,40 @@ CREATE TABLE session_search_rowid_floors (
 "
     )
 }
+
+/// Makes, on a test's `connection`, the source tables the schema's triggers and the row reads
+/// name, with only the columns they read, then runs the search index's schema over them.
+#[cfg(test)]
+pub(crate) fn make_search_source_tables(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch(
+            "
+CREATE TABLE sessions (
+  id TEXT NOT NULL UNIQUE, name TEXT, group_id TEXT, last_activity_at TEXT);
+CREATE TABLE session_groups (id TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
+CREATE TABLE session_tags (session_id TEXT NOT NULL, tag TEXT NOT NULL, tag_folded TEXT NOT NULL);
+CREATE TABLE session_events (
+  id TEXT NOT NULL, session_id TEXT NOT NULL, sequence INTEGER NOT NULL, type TEXT NOT NULL,
+  payload TEXT NOT NULL, content_payload BLOB);",
+        )
+        .expect("the source tables are made");
+    connection
+        .execute_batch(&SEARCH_INDEX_SCHEMA_SQL)
+        .expect("the search index's schema runs");
+}
+
+/// Writes a titled session with the id `session_id` on a test's `connection`, whose insert gives
+/// the outbox rows, and answers the outbox's highest id after it.
+#[cfg(test)]
+pub(crate) fn add_titled_session(connection: &rusqlite::Connection, session_id: &str) -> u64 {
+    connection
+        .execute(
+            "INSERT INTO sessions (id, name, last_activity_at)
+             VALUES (?1, 'Billing fix', '2026-10-18T12:00:00.000Z')",
+            [session_id],
+        )
+        .expect("the session is written");
+    crate::session::search::index::outbox::OutboxReader::new(connection)
+        .highest_id_given()
+        .expect("the outbox's highest id reads")
+}

@@ -162,15 +162,8 @@ impl LiveIndex {
     pub(crate) fn start(options: LiveIndexOptions) -> Self {
         // Followed before the open, so a commit during it is applied once the index is open.
         let commits = options.writer.follow_commits();
-        let shared = Arc::new(LiveIndexShared {
-            state: watch::Sender::new(LiveIndexState::Opening),
-            searches: Arc::new(RwLock::new(())),
-            reads: Arc::clone(&options.reads),
-            session_search: SessionSearchService::new(),
-            scheduler: Arc::clone(&options.scheduler),
-            held_search_expiry: Mutex::new(None),
-            stop: CancellationToken::new(),
-        });
+        let shared =
+            LiveIndexShared::new(Arc::clone(&options.reads), Arc::clone(&options.scheduler));
         let finished = tokio::spawn(run(Arc::clone(&shared), options, commits))
             .map(|joined| {
                 joined
@@ -333,6 +326,19 @@ impl Drop for LiveIndex {
 }
 
 impl LiveIndexShared {
+    // Shared state for an index still opening, holding no search.
+    fn new(reads: Arc<DatabaseReadPool>, scheduler: Arc<Scheduler>) -> Arc<Self> {
+        Arc::new(Self {
+            state: watch::Sender::new(LiveIndexState::Opening),
+            searches: Arc::new(RwLock::new(())),
+            reads,
+            session_search: SessionSearchService::new(),
+            scheduler,
+            held_search_expiry: Mutex::new(None),
+            stop: CancellationToken::new(),
+        })
+    }
+
     // Records `failure` as the live index's, failing every search from now on; once a close has
     // begun, the close answers it instead.
     fn fail(&self, failure: LiveIndexError) -> Result<(), LiveIndexError> {
@@ -653,13 +659,27 @@ mod tests {
 
     use sidekicks_platforms::{Spawner, WallClockTimer};
     use tokio::runtime::Handle;
+    use tokio::sync::{Notify, watch};
 
-    use super::{LiveIndex, LiveIndexOptions};
+    use super::{LiveIndex, LiveIndexOptions, LiveIndexShared, OpenIndex, catch_up};
     use crate::daemon::scheduler::Scheduler;
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
+    use crate::session::search::index::applier::SearchIndexApplier;
+    use crate::session::search::index::outbox::{AppliedOutbox, OUTBOX_STATEMENT_CAPACITY};
+    use crate::session::search::index::rebuild::{
+        SearchIndexOpening, make_index_at, open_search_index,
+    };
+    use crate::session::search::index::schema::{add_titled_session, make_search_source_tables};
+
+    // The daemon's scheduler on the system's wall-clock timer.
+    fn scheduler() -> Arc<Scheduler> {
+        Arc::new(Scheduler::start(
+            Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
+            None,
+        ))
+    }
 
     // A file the stand-in build writes beside the index folder.
     fn build_marker(index_folder: &Path, name: &str) -> PathBuf {
@@ -694,10 +714,7 @@ mod tests {
                 OUTBOX_STATEMENT_CAPACITY,
             )),
             writer: Arc::new(writer),
-            scheduler: Arc::new(Scheduler::start(
-                Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-                None,
-            )),
+            scheduler: scheduler(),
         });
         let started = build_marker(&index_folder, "started");
         tokio::time::timeout(Duration::from_secs(30), async {
@@ -714,5 +731,48 @@ mod tests {
             build_marker(&index_folder, "exited").exists(),
             "the close settles only once the build's process has exited"
         );
+    }
+
+    #[tokio::test]
+    async fn the_start_reports_the_newest_commit_before_it_applies_what_waits() {
+        let database = TestDatabase::new();
+        let connection = database.reader();
+        make_search_source_tables(&connection);
+        let committed_id = add_titled_session(&connection, "session-1");
+        let highest_id_given = add_titled_session(&connection, "session-2");
+        let folder = tempfile::tempdir().expect("the test makes a temporary folder");
+        let index_folder = folder.path().join("search-index");
+        make_index_at(&index_folder, committed_id);
+        let SearchIndexOpening::Opened(index) = open_search_index(index_folder, highest_id_given)
+            .await
+            .expect("the index opens")
+        else {
+            panic!("an index at an id the outbox gave serves");
+        };
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            OUTBOX_STATEMENT_CAPACITY,
+        ));
+        let shared = LiveIndexShared::new(Arc::clone(&reads), scheduler());
+        let index = Arc::new(index);
+        let open = OpenIndex {
+            applier: Arc::new(SearchIndexApplier::new(Arc::clone(&index), reads)),
+            index,
+        };
+        let (deletes, _applied) = watch::channel(None);
+
+        catch_up(&shared, &open, &deletes, &Notify::new())
+            .await
+            .expect("the index catches up");
+
+        assert_eq!(
+            *deletes.borrow(),
+            Some(AppliedOutbox {
+                last_outbox_id: highest_id_given,
+                kept_floor_position: open.applier.floor_position(),
+            }),
+            "the last rows reported are the newest applied, with the applier's floor kept"
+        );
+        open.index.close().expect("the index closes");
     }
 }
