@@ -107,7 +107,7 @@ static APPLIED_ROWS_DELETE_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // The rows a batch names are read this many outbox rows at a time, so a batch stops within one
-// such read past its text bound: a log row's stored body is at most 256 KiB.
+// such read past its text bound: a log row's stored body is bounded in code points.
 const ROWS_READ_AT_ONCE: usize = 32;
 
 /// Reads the outbox on one connection, with the index rows and the rowid floor log it names read
