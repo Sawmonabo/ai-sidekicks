@@ -1,10 +1,11 @@
 //! `session.event.subscribe`: a session's events, caught up from after `afterCursor` (from the
 //! start of its log when absent) and then followed, in batched frames, each change carrying its
 //! cursor and, for an event of a run, the run stamp its transcript row carries. The stream reads
-//! its frames from the log at its cursor only once the subscription's lane has credit and the
-//! connection has room, so the catch-up goes at the connection's pace and nothing is dropped. A
-//! session the daemon does not hold, or a cursor it cannot read, is refused before anything opens,
-//! and a read that fails later ends the subscription with the failure.
+//! its first frame when the call is taken and every later one from the log at its cursor only once
+//! the subscription's lane has credit and the connection has room, so the catch-up goes at the
+//! connection's pace and nothing is dropped. A session the daemon does not hold, a cursor it cannot
+//! read, or a first frame that cannot be read is refused before anything opens, and a read that
+//! fails later ends the subscription with the failure.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -25,14 +26,15 @@ use crate::database::connection::read_pool::DatabaseReadError;
 use crate::events::log_service::{EventLogReadError, EventLogService, FollowStart};
 use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use crate::ipc::stream::feed::{ChangeRecord, Feed};
-use crate::ipc::stream::frame_batcher::{ChangeFeed, FrameBatcher};
+use crate::ipc::stream::frame_batcher::ChangeFeed;
 use crate::transcript::turn_attribution::{
     RunTurnReads, SessionTurnAttribution, TurnAttributionError,
 };
 
 /// Registers `session.event.subscribe` over `log`. Refuses a session the daemon does not hold
-/// `session.notFound` and a cursor it cannot read `session.event.cursorUnresolvable`, opening
-/// nothing. Fails the start when the method is already registered.
+/// `session.notFound` and a cursor it cannot read `session.event.cursorUnresolvable`, and fails the
+/// call when its first page cannot be read, each opening nothing. Fails the start when the method
+/// is already registered.
 pub(crate) fn register_session_event_subscribe(
     registry: &mut MethodRegistryBuilder,
     log: Arc<EventLogService>,
@@ -48,10 +50,10 @@ pub(crate) fn register_session_event_subscribe(
                     .map_or(FollowStart::StartOfLog, FollowStart::After);
                 let cursor = log.read_follow_start(request.session_id, start).await?;
                 let record = Arc::new(SessionEventRecord::new(log, request.session_id));
-                let feed: Box<dyn Feed<Emission = SessionStreamFrame>> = Box::new(ChangeFeed::new(
-                    FrameBatcher::new(record, cursor),
-                    |changes| SessionStreamFrame { changes },
-                ));
+                let feed: Box<dyn Feed<Emission = SessionStreamFrame>> = Box::new(
+                    ChangeFeed::open(record, cursor, |changes| SessionStreamFrame { changes })
+                        .await?,
+                );
                 Ok((SubscribeAcknowledgmentResponse { subscription_id }, feed))
             }
             .boxed()
@@ -150,6 +152,13 @@ impl ChangeRecord for SessionEventRecord {
     fn change_count(&self) -> watch::Receiver<u64> {
         self.log.change_count(&self.session_id)
     }
+
+    fn is_store_closed(error: &SessionEventStreamError) -> bool {
+        match error {
+            SessionEventStreamError::Log(error) => error.is_pool_closed(),
+            SessionEventStreamError::Attribution(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -162,7 +171,8 @@ mod tests {
     use super::*;
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::events::log_service::EventLogAppendOptions;
-    use crate::ipc::call_fixtures::{context, request, test_event_log};
+    use crate::events::log_service::tests::open_log;
+    use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::registry::{Dispatch as _, EncodedFeed, Reply};
     use crate::ipc::stream::feed::CreditGate;
 
@@ -201,9 +211,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_catch_up_reads_only_while_the_lane_has_credit_then_follows_new_events() {
+    async fn the_catch_up_reads_past_its_first_page_only_once_the_lane_has_credit_then_follows() {
         let database = TestDatabase::new();
-        let log = test_event_log(&database).await;
+        let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
         for _ in 0..60 {
             pin(&log, session_id).await;
@@ -216,7 +226,7 @@ mod tests {
             .dispatch(
                 request(
                     SessionEventSubscribe::DESCRIPTOR.method,
-                    &json!({ "sessionId": session_id }),
+                    Some(&json!({ "sessionId": session_id })),
                 ),
                 context(1),
             )
@@ -225,7 +235,7 @@ mod tests {
             panic!("a held session's subscribe answers a subscription");
         };
 
-        let gate = CreditGate::with_credit(0);
+        let gate = CreditGate::spending(0);
         assert!(
             tokio::time::timeout(QUIET, feed.next(&gate)).await.is_err(),
             "nothing goes out while the lane has no credit"
@@ -235,16 +245,24 @@ mod tests {
             next_sequences(&mut feed, &gate).await,
             (0..50).collect::<Vec<u64>>()
         );
+        // An event stored while the lane has no credit is in the next page, read once credit comes.
+        assert!(
+            tokio::time::timeout(QUIET, feed.next(&gate)).await.is_err(),
+            "nothing goes out while the lane has no credit"
+        );
+        pin(&log, session_id).await;
+        gate.credit.add_permits(1);
         assert_eq!(
             next_sequences(&mut feed, &gate).await,
-            (50..60).collect::<Vec<u64>>()
+            (50..61).collect::<Vec<u64>>()
         );
         // Caught up: the stream is quiet until the log takes a new event, which it then follows.
+        let gate = CreditGate::with_credit(1);
         assert!(
             tokio::time::timeout(QUIET, feed.next(&gate)).await.is_err(),
             "the caught-up stream waits for the log"
         );
         let (followed, ()) = tokio::join!(next_sequences(&mut feed, &gate), pin(&log, session_id));
-        assert_eq!(followed, [60]);
+        assert_eq!(followed, [61]);
     }
 }
