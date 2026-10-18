@@ -14,12 +14,13 @@ use nix::sys::prctl::{set_pdeathsig, set_thp_disable};
 use nix::sys::signal::{SigHandler, Signal, signal};
 #[cfg(target_os = "linux")]
 use nix::unistd::execve;
-use nix::unistd::{AccessFlags, Pid, access, getppid};
+use nix::unistd::{Pid, getppid};
 
 #[cfg(target_os = "macos")]
 use crate::macos::responsibility::OwnRootStart;
 #[cfg(target_os = "macos")]
 use crate::macos::shell_start_confirmation::receive_confirmation;
+use crate::posix::executable_file::is_executable_file;
 use crate::shell_start::{ShellStart, ShellStartError};
 
 // zsh, the system's own shell on macOS.
@@ -142,12 +143,7 @@ fn find_program(name: &OsStr, search_path: &str) -> io::Result<PathBuf> {
     search_path
         .split(':')
         .map(|folder| Path::new(if folder.is_empty() { "." } else { folder }).join(name))
-        .find(|candidate| {
-            candidate
-                .metadata()
-                .is_ok_and(|metadata| metadata.is_file())
-                && access(candidate, AccessFlags::X_OK).is_ok()
-        })
+        .find(|candidate| is_executable_file(candidate))
         .ok_or_else(|| io::Error::from(Errno::ENOENT))
 }
 

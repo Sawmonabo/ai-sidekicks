@@ -9,6 +9,7 @@ pub(crate) mod caller_process;
 pub(crate) mod credential_store;
 pub(crate) mod memory;
 pub(crate) mod processes;
+pub(crate) mod user_scope;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 

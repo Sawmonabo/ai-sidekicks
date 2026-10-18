@@ -9,7 +9,10 @@
     reason = "the terminal's window size, mode read (`tcgetattr`), signal request (`TIOCSIG`), \
               console, console input count (`GetNumberOfConsoleInputEvents`) and library-search \
               calls, the shell start's signal and console-handler calls, the parent check \
-              a `Command` child runs in `pre_exec`, the Windows host-name, free-room and \
+              a `Command` child runs in `pre_exec`, a lasting child's `setsid` and `prctl` in \
+              `pre_exec`, the stop of a pinned process (Linux's `pidfd_send_signal`, macOS's \
+              exit filter, Windows' `OpenProcess`, `GetProcessTimes`, `WaitForSingleObject` and \
+              `TerminateProcess`), the inherit flag cleared on Windows' standard handles, the Windows host-name, free-room and \
               file-information calls, the Windows replacing rename's `MoveFileExW`, the caller \
               reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
               checked process reads and responsible-process reads), macOS's code-signature \
@@ -29,9 +32,12 @@
 
 mod atomic_replace;
 mod caller_process;
+mod child_command;
 mod code_signature;
+mod command_sandbox;
 mod credential_store;
 mod entry_identity;
+mod executable_search;
 mod file_facts;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
@@ -45,6 +51,7 @@ mod own_root;
 mod path;
 #[cfg(unix)]
 mod posix;
+mod program_start;
 mod run_folder;
 mod shell_start;
 mod socket_listener;
@@ -61,21 +68,28 @@ mod wsl;
 pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
 #[cfg(not(target_os = "macos"))]
 pub use caller_process::read_responsible_process;
-pub use caller_process::{ParentProcess, ResponsibleProcess};
+pub use caller_process::{ParentProcess, ProcessRecord, ResponsibleProcess};
+pub use child_command::ChildEnd;
+#[cfg(not(target_os = "linux"))]
+pub use child_command::leave_daemon_scope;
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
+pub use command_sandbox::has_command_sandbox;
 #[cfg(any(test, feature = "test-support"))]
 pub use credential_store::blocking::BlockingCredentialStore;
 pub use credential_store::{CredentialStore, CredentialStoreError};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
+pub use executable_search::{find_executables, user_programs_folder};
 pub use file_facts::FileFacts;
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::caller_process::this_process;
 #[cfg(target_os = "linux")]
-pub use linux::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
+pub use linux::caller_process::{
+    PinnedProcess, pin_child_process, read_parent_process, read_peer_process,
+};
 #[cfg(target_os = "linux")]
 pub use linux::memory::{
     available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
@@ -87,6 +101,8 @@ pub use linux::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
 #[cfg(target_os = "linux")]
+pub use linux::user_scope::leave_daemon_scope;
+#[cfg(target_os = "linux")]
 pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "linux")]
 pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
@@ -95,7 +111,8 @@ pub use machine_name::MachineNameError;
 pub use macos::caller_process::this_process;
 #[cfg(target_os = "macos")]
 pub use macos::caller_process::{
-    PinnedProcess, read_parent_process, read_peer_process, read_responsible_process,
+    PinnedProcess, pin_child_process, read_parent_process, read_peer_process,
+    read_responsible_process,
 };
 #[cfg(target_os = "macos")]
 pub use macos::code_signature::DesktopClientRequirement;
@@ -122,7 +139,7 @@ pub use own_root::OwnRootError;
 #[cfg(not(target_os = "macos"))]
 pub use own_root::become_own_root;
 pub use path::resolution::{resolve_path, resolve_path_against};
-pub use path::rules::PathRules;
+pub use path::rules::{FolderCommand, PathRules, ShellWordRefused};
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use posix::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
@@ -130,7 +147,10 @@ pub use posix::allocator::{
 #[cfg(unix)]
 pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
-pub use posix::child_command::prepare_child_command;
+pub use posix::child_command::{
+    CAN_SIGNAL_A_STOP, ask_child_to_stop, exit_signal_name, prepare_child_command,
+    prepare_lasting_child_command, wrap_child_command,
+};
 #[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, read_exact_at, volume_free_bytes,
@@ -183,6 +203,7 @@ pub use posix::terminal::{
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+pub use program_start::{ProgramStart, program_start};
 pub use run_folder::{DaemonRunFolder, RunFolderRefused};
 #[cfg(not(target_os = "macos"))]
 pub use shell_start::ShellStartConfirmation;
@@ -190,7 +211,7 @@ pub use shell_start::{ShellStart, ShellStartError};
 pub use socket_listener::ExistingSocket;
 pub use socket_path::SocketPathRefused;
 pub use spawner::Spawner;
-pub use system_folder::SystemFolderBase;
+pub use system_folder::{PerSystem, SystemFolderBase, system_folder_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
@@ -208,9 +229,14 @@ pub use windows::askpass::askpass_listener;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::caller_process::this_process;
 #[cfg(target_os = "windows")]
-pub use windows::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
+pub use windows::caller_process::{
+    PinnedProcess, pin_child_process, read_parent_process, read_peer_process,
+};
 #[cfg(target_os = "windows")]
-pub use windows::child_command::prepare_child_command;
+pub use windows::child_command::{
+    CAN_SIGNAL_A_STOP, ask_child_to_stop, exit_signal_name, prepare_child_command,
+    prepare_lasting_child_command, wrap_child_command,
+};
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]

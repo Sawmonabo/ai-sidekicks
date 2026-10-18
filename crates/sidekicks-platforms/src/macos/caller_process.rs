@@ -1,20 +1,34 @@
 //! The process at the other end of a local connection on macOS, read from the socket's audit token
 //! and pinned by its unique id, which the system never gives another process; a pinned process's
-//! parent, and the process responsible for it, pinned the same way. Every read of a pinned process
-//! asks the system to answer only while the id still names that process, so a reused process id is
-//! never read.
+//! parent, and the process responsible for it, pinned the same way; a pinned process's record, its
+//! re-pin and its stop. Every read of a pinned process asks the system to answer only while the id
+//! still names that process, so a reused process id is never read.
 
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, ErrorKind};
+use std::num::NonZeroI32;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::ffi::OsStringExt as _;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use interprocess::local_socket::tokio::Stream;
+use nix::errno::Errno;
+use nix::sys::signal::{Signal, kill};
+use nix::unistd::Pid;
+use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
+use polling::{PollMode, Poller};
 
-use crate::caller_process::{PARENT_READ_ATTEMPTS, ParentProcess, ResponsibleProcess};
+use crate::caller_process::{
+    PARENT_READ_ATTEMPTS, ParentProcess, ProcessRecord, ResponsibleProcess,
+};
+use crate::child_command::ChildEnd;
 use crate::macos::responsibility::{read_responsible_id, read_responsible_unique_id};
+use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
+
+// The key a stop registers the process's exit filter under, the only source its poller watches.
+const EXIT_KEY: usize = 0;
 
 // The record of a process's unique ids, which the SDK's headers leave out; its layout is fixed.
 const UNIQUE_IDENTIFIERS_FLAVOR: libc::c_int = 17;
@@ -111,6 +125,104 @@ impl PinnedProcess {
     /// The audit token a peer was read from; `None` for a process pinned by its id alone.
     pub(crate) fn audit_token(&self) -> Option<AuditToken> {
         self.audit_token
+    }
+
+    /// The record a later process re-pins this one from; `None` once it has ended. Fails with the
+    /// system's error, and with `Unsupported` on a macOS without the checked read.
+    pub fn record(&self) -> io::Result<Option<ProcessRecord>> {
+        Ok(is_running(self)?.then_some(ProcessRecord::new(self.id, self.unique_id)))
+    }
+
+    /// Stops the process: `SIGTERM`, then `SIGKILL` once `grace` passes without its exit, each
+    /// sent only after a read finds the id still names this process; blocking, so it runs in
+    /// `spawn_blocking`. Answers the end that took effect, [`ChildEnd::Stop`] for a process already
+    /// gone; fails with `TimedOut` when it outlives the kill's bound, else with the system's error.
+    pub fn stop(&self, grace: Duration) -> io::Result<ChildEnd> {
+        // Watched before the first signal, so the exit that signal causes is never missed.
+        let exit_watch = ExitWatch::attach(self.id)?;
+        stop_pinned_process(
+            grace,
+            |signal| self.send_signal(signal),
+            |bound| exit_watch.wait(bound),
+        )
+    }
+
+    // Sends `signal` once the id still names this process; `false` when it has ended. The id can
+    // still pass to another process between the read and the send, a window macOS has no
+    // id-checked signal to close.
+    fn send_signal(&self, signal: Signal) -> io::Result<bool> {
+        if !is_running(self)? {
+            return Ok(false);
+        }
+        let pid = libc::pid_t::try_from(self.id)
+            .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
+        match kill(Pid::from_raw(pid), signal) {
+            Ok(()) => Ok(true),
+            Err(Errno::ESRCH) => Ok(false),
+            Err(errno) => Err(io::Error::from(errno)),
+        }
+    }
+}
+
+impl ProcessRecord {
+    /// The process this record names, pinned; `None` when it has ended or its id now names another
+    /// process. Fails with the system's error, and with `Unsupported` on a macOS without the
+    /// checked read.
+    pub fn pin(self) -> io::Result<Option<PinnedProcess>> {
+        Ok(
+            read_unique_identifiers(self.id(), COMPARE_UNIQUE_ID, self.start())?.map(|_| {
+                PinnedProcess {
+                    id: self.id(),
+                    unique_id: self.start(),
+                    audit_token: None,
+                }
+            }),
+        )
+    }
+}
+
+/// The caller's own child `id`, pinned; the child is not yet reaped, so no other process can take
+/// its id meanwhile. Fails with `ESRCH` when the system has no record of it, else with the
+/// system's error.
+pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
+    pinned(id)?.ok_or_else(|| io::Error::from(Errno::ESRCH))
+}
+
+/// A `kqueue` exit filter on one process, or nothing to watch when the process was already
+/// exiting as the filter was attached.
+struct ExitWatch {
+    poller: Option<Poller>,
+}
+
+impl ExitWatch {
+    /// Attaches the exit filter to process `id`. Fails with the system's error.
+    fn attach(id: u32) -> io::Result<Self> {
+        let raw_pid = i32::try_from(id)
+            .ok()
+            .and_then(NonZeroI32::new)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no process has this id"))?;
+        let poller = Poller::new()?;
+        // SAFETY: the kernel's exit filter watches any process this user runs, not only a child;
+        // a process given the id after the pinned one ended is never signaled, since each signal
+        // first reads that the id still names the pinned process, so the stop ends at once.
+        let process = unsafe { Process::from_pid(raw_pid, ProcessOps::Exit) };
+        match poller.add_filter(process, EXIT_KEY, PollMode::Oneshot) {
+            Ok(()) => Ok(Self {
+                poller: Some(poller),
+            }),
+            // The kernel refuses the filter for a process already exiting.
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(Self { poller: None }),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Waits up to `bound` for the process's exit; answers whether it came. The one-shot filter
+    /// posts once, so a wait follows only waits that answered `false`.
+    fn wait(&self, bound: Duration) -> io::Result<bool> {
+        let Some(poller) = &self.poller else {
+            return Ok(true);
+        };
+        wait_for_event(poller, bound)
     }
 }
 

@@ -1,8 +1,10 @@
 //! A pinned process's parent and its responsible process: what the daemon reads of the caller of a
-//! local connection to tell its own descendants from everyone else's.
+//! local connection to tell its own descendants from everyone else's; and the record a later
+//! process re-pins a process from.
 
 #[cfg(not(target_os = "macos"))]
 use std::io;
+use std::time::Duration;
 
 use crate::PinnedProcess;
 
@@ -10,6 +12,35 @@ use crate::PinnedProcess;
 /// parent by the time it checked; a process re-parented that often during one read is refused.
 #[cfg(unix)]
 pub(crate) const PARENT_READ_ATTEMPTS: usize = 16;
+
+/// How long a pinned process's stop waits for it to end once it is killed, before the stop fails.
+pub(crate) const KILL_WAIT_BOUND: Duration = Duration::from_secs(10);
+
+/// What a later process re-pins a process from: its id and the system's mark of that process's
+/// start, which no later process given the same id carries (on Linux its start in clock ticks
+/// since boot, on macOS its unique id, on Windows its creation time as one `FILETIME` integer).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcessRecord {
+    id: u32,
+    start: u64,
+}
+
+impl ProcessRecord {
+    /// The record of process `id` whose start the system marked `start`.
+    pub const fn new(id: u32, start: u64) -> Self {
+        Self { id, start }
+    }
+
+    /// The process's id.
+    pub const fn id(self) -> u32 {
+        self.id
+    }
+
+    /// The system's mark of the process's start.
+    pub const fn start(self) -> u64 {
+        self.start
+    }
+}
 
 /// A pinned process's parent, or why a walk up from it ends there.
 #[derive(Clone, Debug)]

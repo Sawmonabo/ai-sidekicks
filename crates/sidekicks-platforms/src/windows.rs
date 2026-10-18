@@ -9,9 +9,11 @@ pub(crate) mod credential_store;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
 pub(crate) mod error_codes;
+pub(crate) mod executable_file;
 pub(crate) mod file_facts;
 pub(crate) mod file_information;
 pub(crate) mod file_system;
+pub(crate) mod known_folder;
 pub(crate) mod login_shell;
 pub(crate) mod machine_name;
 #[cfg(any(test, feature = "test-support"))]

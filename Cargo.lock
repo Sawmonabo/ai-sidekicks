@@ -8413,6 +8413,7 @@ dependencies = [
  "objc2-service-management",
  "polling",
  "process-wrap",
+ "regex",
  "rstest",
  "secrecy",
  "secret-service",
