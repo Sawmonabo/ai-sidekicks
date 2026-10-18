@@ -184,12 +184,13 @@ pub fn reader_issue_path(path: &serde_path_to_error::Path) -> Vec<IssuePathSegme
 
 /// The issues a refused received message names, in the check's order and at most [`ISSUES_MAX`]:
 /// each schema fault at its place with its keyword, serde's fault where its reader stopped, an
-/// attachment no placeholder names, and each broken garde rule through [`rule_issues`]. None quotes
-/// a value, and a message that is no JSON names none. Fails where the contract's check could not be
-/// built, which is no fault of the message.
+/// attachment no placeholder names, and each broken garde rule through [`rule_issues`], each path
+/// at most [`ISSUE_PATH_SEGMENTS_MAX`] steps. None quotes a value, and a message that is no JSON
+/// names none. Fails where the contract's check could not be built, which is no fault of the
+/// message.
 pub fn received_issues(refused: ReceivedError) -> Result<Vec<Issue>, ReceivedCheckError> {
     let issue = |path: Vec<IssuePathSegment>, message: String| Issue {
-        path,
+        path: capped_path(path),
         message,
         params: None,
     };
@@ -216,9 +217,9 @@ pub fn received_issues(refused: ReceivedError) -> Result<Vec<Issue>, ReceivedChe
 }
 
 /// The first [`ISSUES_MAX`] broken rules of `report`, each at its path resolved against `checked`,
-/// the JSON the value was read from or written as, with garde's message; no path past them is
-/// resolved. A repeated workflow node id also carries its `nodeIdDuplicate` finding over the id
-/// at that path.
+/// the JSON the value was read from or written as, and cut to [`ISSUE_PATH_SEGMENTS_MAX`] steps,
+/// with garde's message; no path past them is resolved. A repeated workflow node id also carries
+/// its `nodeIdDuplicate` finding over the id at that path.
 pub fn rule_issues(report: &garde::Report, checked: &Value) -> Vec<Issue> {
     report
         .iter()
@@ -229,12 +230,19 @@ pub fn rule_issues(report: &garde::Report, checked: &Value) -> Vec<Issue> {
                 .then(|| node_id_duplicate_finding(&path, checked))
                 .flatten();
             Issue {
-                path,
+                path: capped_path(path),
                 message: rule_error.message().to_owned(),
                 params,
             }
         })
         .collect()
+}
+
+/// `path` cut to its first [`ISSUE_PATH_SEGMENTS_MAX`] steps, so a deeper fault is named at its
+/// ancestor that deep.
+fn capped_path(mut path: Vec<IssuePathSegment>) -> Vec<IssuePathSegment> {
+    path.truncate(ISSUE_PATH_SEGMENTS_MAX);
+    path
 }
 
 /// The `nodeIdDuplicate` finding over the node id `checked` holds at `path`; `None` where the
@@ -278,7 +286,7 @@ enum CheckPathStepKind {
 /// camelCase of the field where `received` holds that; a step neither resolves (a member serde
 /// renamed) ends the path at its parent. An index into a tuple serde writes as its one field (a
 /// newtype) adds no step.
-pub fn resolve_issue_path(check_path: &garde::Path, received: &Value) -> Vec<IssuePathSegment> {
+fn resolve_issue_path(check_path: &garde::Path, received: &Value) -> Vec<IssuePathSegment> {
     let steps: Vec<(CheckPathStepKind, String)> = serde_json::to_value(check_path)
         .and_then(serde_json::from_value)
         .expect("garde writes a path as a list of kind and component pairs");
@@ -364,7 +372,11 @@ mod tests {
     use serde::Deserialize;
     use serde_json::json;
 
-    use super::{IssuePathSegment, resolve_issue_path};
+    use super::{
+        ISSUE_PATH_SEGMENTS_MAX, IssuePathSegment, ShapeFault, received_issues, resolve_issue_path,
+        rule_issues,
+    };
+    use crate::wire::attachment::ReceivedError;
     use crate::wire::integer::SafeInt;
 
     #[derive(Deserialize, garde::Validate)]
@@ -420,5 +432,44 @@ mod tests {
                 ],
             ],
         );
+    }
+
+    #[derive(Deserialize, garde::Validate)]
+    struct Nested {
+        #[garde(dive)]
+        inner: Option<Box<Nested>>,
+        #[garde(length(max = 0))]
+        name: String,
+    }
+
+    // A schema fault and a broken rule one step deeper than the cap are both named at their
+    // ancestor at the cap, so no refusal a client builds carries a longer path.
+    #[test]
+    fn a_fault_deeper_than_the_cap_is_named_at_its_ancestor_that_deep() {
+        let mut received = json!({ "name": "deepest" });
+        for _ in 0..ISSUE_PATH_SEGMENTS_MAX {
+            received = json!({ "inner": received, "name": "" });
+        }
+        let nested: Nested = serde_json::from_value(received.clone()).expect("the shape reads");
+        let report = garde::Validate::validate(&nested).expect_err("the deepest name breaks");
+        let at_the_cap =
+            vec![IssuePathSegment::Member("inner".to_owned()); ISSUE_PATH_SEGMENTS_MAX];
+        let mut too_deep = at_the_cap.clone();
+        too_deep.push(IssuePathSegment::Member("name".to_owned()));
+
+        let rule_paths: Vec<_> = rule_issues(&report, &received)
+            .into_iter()
+            .map(|issue| issue.path)
+            .collect();
+        assert_eq!(rule_paths, [at_the_cap.clone()]);
+        let shape = received_issues(ReceivedError::Shape {
+            faults: vec![ShapeFault {
+                path: too_deep,
+                keyword: "type".to_owned(),
+            }],
+        })
+        .expect("a shape fault names its issues");
+        assert_eq!(shape.len(), 1);
+        assert_eq!(shape[0].path, at_the_cap);
     }
 }
