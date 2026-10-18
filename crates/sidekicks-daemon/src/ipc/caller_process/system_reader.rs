@@ -2,28 +2,27 @@
 //! crate's pinned reads.
 
 use std::io;
-use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use interprocess::local_socket::tokio::Stream;
 use sidekicks_platforms::{ParentProcess, PinnedProcess, read_parent_process, read_peer_process};
 
-use crate::ipc::caller_process::contract::CallerProcessReader;
+use crate::ipc::caller_process::contract::{CallerProcessReader, PeerRead};
 
 /// Reads callers and their parents from the system's process table. Both reads can touch the
 /// process table's files, so both run on the blocking pool.
 pub(crate) struct ProcessTableReader;
 
 impl CallerProcessReader for ProcessTableReader {
-    fn read_peer_process(
-        &self,
-        stream: Arc<Stream>,
-    ) -> BoxFuture<'_, io::Result<Option<PinnedProcess>>> {
+    fn read_peer_process(&self, stream: Stream) -> BoxFuture<'_, PeerRead> {
         async move {
-            tokio::task::spawn_blocking(move || read_peer_process(&stream))
-                .await
-                .map_err(io::Error::other)?
+            tokio::task::spawn_blocking(move || {
+                let read = read_peer_process(&stream);
+                (stream, read)
+            })
+            .await
+            .map_err(io::Error::other)
         }
         .boxed()
     }

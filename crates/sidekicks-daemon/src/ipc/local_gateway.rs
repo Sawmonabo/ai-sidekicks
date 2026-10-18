@@ -123,26 +123,31 @@ impl LocalGateway {
 }
 
 /// Reads the caller at the other end of `stream`. A caller nobody can name is refused at its
-/// handshake, and only a failed read is logged and reported.
+/// handshake, and only a failed read is logged and reported; `None` when the read could not run,
+/// which loses the connection.
 async fn read_caller(
     reader: Arc<dyn CallerProcessReader>,
     stream: Stream,
     transport: TransportId,
     services: &GatewayServices,
-) -> (Stream, Option<PinnedProcess>) {
-    let stream = Arc::new(stream);
-    let read = reader.read_peer_process(Arc::clone(&stream)).await;
-    let stream = Arc::into_inner(stream).expect("a finished read holds no part of the stream");
-    match read {
-        Ok(caller_process) => (stream, caller_process),
+) -> Option<(Stream, Option<PinnedProcess>)> {
+    let report = |error: &io::Error| {
+        tracing::warn!(
+            transport = transport.0,
+            error = error as &(dyn Error + 'static),
+            "The caller of a local connection could not be read"
+        );
+        services.hooks.on_error(transport, error);
+    };
+    match reader.read_peer_process(stream).await {
+        Ok((stream, Ok(caller_process))) => Some((stream, caller_process)),
+        Ok((stream, Err(error))) => {
+            report(&error);
+            Some((stream, None))
+        }
         Err(error) => {
-            tracing::warn!(
-                transport = transport.0,
-                error = &error as &(dyn Error + 'static),
-                "The caller of a local connection could not be read"
-            );
-            services.hooks.on_error(transport, &error);
-            (stream, None)
+            report(&error);
+            None
         }
     }
 }
@@ -172,8 +177,11 @@ async fn accept_connections(
                     let services = Arc::clone(&services);
                     let stop = connections_stop.clone();
                     connections.spawn(async move {
-                        let (stream, caller_process) =
-                            read_caller(reader, stream, transport, &services).await;
+                        let Some((stream, caller_process)) =
+                            read_caller(reader, stream, transport, &services).await
+                        else {
+                            return;
+                        };
                         connection::serve_connection(
                             stream,
                             Outbox::new(),

@@ -42,16 +42,19 @@ impl ProviderServiceProcesses {
         }
     }
 
-    /// Holds the process serving the dialed `stream` until the returned hold drops. An error when
-    /// the system cannot name the process, the service having closed its end included.
+    /// Holds the process serving the dialed `stream` until the returned hold drops, handing the
+    /// stream back beside it. An error when the system cannot name the process, the service having
+    /// closed its end included.
     pub(crate) async fn hold_serving(
         &self,
-        stream: Arc<Stream>,
-    ) -> Result<ProviderServiceHold, HoldServingError> {
-        let process_id = self
+        stream: Stream,
+    ) -> Result<(Stream, ProviderServiceHold), HoldServingError> {
+        let (stream, read) = self
             .reader
             .read_peer_process(stream)
             .await
+            .map_err(HoldServingError::Read)?;
+        let process_id = read
             .map_err(HoldServingError::Read)?
             .ok_or(HoldServingError::PeerClosed)?
             .id();
@@ -61,10 +64,11 @@ impl ProviderServiceProcesses {
             .unwrap_or_else(PoisonError::into_inner)
             .entry(process_id)
             .or_default() += 1;
-        Ok(ProviderServiceHold {
+        let hold = ProviderServiceHold {
             holds: Arc::clone(&self.holds),
             process_id,
-        })
+        };
+        Ok((stream, hold))
     }
 
     /// Whether the process with `process_id` serves a provider service connection the daemon
