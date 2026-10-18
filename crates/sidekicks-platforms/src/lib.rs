@@ -9,10 +9,11 @@
     reason = "the terminal's window size, mode read (`tcgetattr`), signal request (`TIOCSIG`), \
               console, console input count (`GetNumberOfConsoleInputEvents`) and library-search \
               calls, the shell start's signal and console-handler calls, the parent check \
-              a `Command` child runs in `pre_exec`, the Windows host-name, free-room, \
-              entry-identity and file-facts calls, the Windows replacing rename's `MoveFileExW`, the caller reads \
-              (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, checked \
-              process reads and responsible-process reads), macOS's code-signature checks, the \
+              a `Command` child runs in `pre_exec`, the Windows host-name, free-room and \
+              file-information calls, the Windows replacing rename's `MoveFileExW`, the caller \
+              reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
+              checked process reads and responsible-process reads), macOS's code-signature \
+              checks, the \
               start as its own responsible process (its thread count, its program's path, its \
               marker's removal from the environment and the disclaiming exec), the socket pair a \
               shell's start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
