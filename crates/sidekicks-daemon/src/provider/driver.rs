@@ -36,8 +36,8 @@ pub(crate) mod unified_diff;
 /// account, model and session; what depends on those comes from the driver's methods.
 #[expect(
     dead_code,
-    reason = "the provider list, the daemon's start, the capability report and the spawn \
-              environment read each descriptor's facts"
+    reason = "the provider list, the daemon's start, the capability report, the spawn \
+              environment and the managed-settings checks read each descriptor's facts"
 )]
 pub(crate) struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
