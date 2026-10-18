@@ -82,6 +82,12 @@ pub enum FramingError {
         /// The lane.
         lane: u32,
     },
+    /// A DATA or ABORT frame opens a lane no call the receiver admitted opens.
+    #[error("lane {lane} opens with no call the receiver admitted")]
+    LaneNotAdmitted {
+        /// The lane that would open.
+        lane: u32,
+    },
     /// A frame opens a lane while [`incoming::MAX_OPEN_LANES`] are open. Every lane a peer opens
     /// follows a call the receiver admitted, so a peer past the limit is misbehaving.
     #[error("lane {lane} opens past the {}-lane limit", incoming::MAX_OPEN_LANES)]
@@ -197,7 +203,7 @@ mod tests {
     use tokio_util::codec::{Decoder, Encoder};
 
     use super::frame::{Frame, FrameCodec, LaneId};
-    use super::incoming::{IncomingLanes, MAX_OPEN_LANES, OwedCredit};
+    use super::incoming::{IncomingLanes, MAX_OPEN_LANES};
     use super::{
         FramingError, INITIAL_LANE_CREDIT, MAX_ATTACHMENT_BYTES, MAX_CHUNK_BYTES,
         MAX_MESSAGE_BYTES, MessageBody, MessagePart,
@@ -286,14 +292,15 @@ mod tests {
         ) {
             let encoded = body.encode().expect("a small message is within its caps");
             let mut lanes = IncomingLanes::default();
+            lanes.admit_lane();
             let mut received = None;
             for frame in Frame::data_chunks(LaneId::new(3), encoded.clone(), chunk_bytes, false) {
-                let outcome = lanes.receive(frame).expect("an ordered message is no fault");
+                let message = lanes.receive(frame).expect("an ordered message is no fault");
                 prop_assert!(
-                    outcome.credit.is_none(),
+                    lanes.release_owed().is_empty(),
                     "a message under the window owes no early credit"
                 );
-                received = received.or(outcome.message);
+                received = received.or(message);
             }
             let message = received.expect("the last chunk completes the message");
             prop_assert_eq!(&message.body, &body);
@@ -343,54 +350,46 @@ mod tests {
     #[test]
     fn a_lane_holds_its_sender_to_credit_and_its_lengths_and_caps() {
         let window = vec![0; usize::try_from(INITIAL_LANE_CREDIT).expect("fits")];
+        let window_credit = Frame::Credit {
+            lane: LaneId::CONTROL,
+            granted: INITIAL_LANE_CREDIT,
+        };
         let mut lanes = IncomingLanes::default();
-        let early = lanes
-            .receive(data(1, false, &window))
+        lanes
+            .receive(data(0, false, &window))
             .expect("the window is the credit");
-        let owed = early
-            .credit
-            .expect("a message past the window owes its partial bytes back before it stalls");
-        assert_eq!(
-            owed,
-            OwedCredit {
-                lane: LaneId::new(1),
-                granted: INITIAL_LANE_CREDIT
-            }
-        );
         assert!(
             matches!(
-                lanes.receive(data(1, false, b"x")),
-                Err(FramingError::DataBeyondCredit { lane: 1 })
+                lanes.receive(data(0, false, b"x")),
+                Err(FramingError::DataBeyondCredit { lane: 0 })
             ),
             "owed credit is no credit until it is released"
         );
         let mut lanes = IncomingLanes::default();
-        let owed = lanes
-            .receive(data(1, false, &window))
-            .expect("the window is the credit")
-            .credit
-            .expect("the partial bytes are owed");
+        lanes
+            .receive(data(0, false, &window))
+            .expect("the window is the credit");
         assert_eq!(
-            lanes.release(owed),
-            Some(Frame::Credit {
-                lane: LaneId::new(1),
-                granted: INITIAL_LANE_CREDIT
-            })
+            lanes.release_owed(),
+            vec![window_credit.clone()],
+            "a message past the window owes its partial bytes back before it stalls"
         );
-        let again = lanes
-            .receive(data(1, false, &window))
+        lanes
+            .receive(data(0, false, &window))
             .expect("the released credit is spent again");
-        assert!(
-            again.credit.is_some(),
+        assert_eq!(
+            lanes.release_owed(),
+            vec![window_credit],
             "each window of a message longer than several is owed back, so it never stalls"
         );
         let past_the_credit = vec![0; window.len() + 1];
         assert!(matches!(
-            lanes.receive(data(1, false, &past_the_credit)),
-            Err(FramingError::DataBeyondCredit { lane: 1 })
+            lanes.receive(data(0, false, &past_the_credit)),
+            Err(FramingError::DataBeyondCredit { lane: 0 })
         ));
 
         let mut lanes = IncomingLanes::default();
+        lanes.admit_lane();
         let closing = Frame::Data {
             lane: LaneId::new(2),
             is_end: true,
@@ -446,9 +445,7 @@ mod tests {
         let outcome = (0..chunks_past_the_cap)
             .map(|_| {
                 let received = lanes.receive(data(0, false, &chunk))?;
-                if let Some(owed) = received.credit {
-                    lanes.release(owed);
-                }
+                lanes.release_owed();
                 Ok(received)
             })
             .find(Result::is_err);
@@ -470,6 +467,9 @@ mod tests {
     fn a_peer_opens_lanes_up_to_the_limit(#[case] opened: usize, #[case] is_accepted: bool) {
         let mut lanes = IncomingLanes::default();
         let last = u32::try_from(opened).expect("fits");
+        for _ in 0..last {
+            lanes.admit_lane();
+        }
         for lane in 1..last {
             lanes
                 .receive(data(lane, false, b""))
@@ -484,5 +484,32 @@ mod tests {
                 "{outcome:?}"
             );
         }
+    }
+
+    #[test]
+    fn dropped_messages_owe_one_credit_per_lane_for_their_sum() {
+        let mut lanes = IncomingLanes::default();
+        for _ in 0..1000 {
+            lanes
+                .receive(data(0, false, b"x"))
+                .expect("a byte is within the window");
+            lanes
+                .receive(Frame::Abort {
+                    lane: LaneId::CONTROL,
+                    closes_lane: false,
+                })
+                .expect("an ABORT drops the partial message");
+        }
+        assert_eq!(
+            lanes.release_owed(),
+            vec![Frame::Credit {
+                lane: LaneId::CONTROL,
+                granted: 1000
+            }]
+        );
+        assert!(
+            lanes.release_owed().is_empty(),
+            "released credit is owed no more"
+        );
     }
 }

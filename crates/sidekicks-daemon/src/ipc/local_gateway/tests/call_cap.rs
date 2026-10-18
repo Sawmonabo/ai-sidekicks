@@ -8,8 +8,8 @@ use sidekicks_contracts::jsonrpc::framing::{INITIAL_LANE_CREDIT, MAX_CHUNK_BYTES
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 
 use super::{
-    Connection, SESSION_TOKEN, assert_refusal, call, cancel_request, channel_feed, harness, settle,
-    subscribe, subscription_id,
+    Connection, Event, SESSION_TOKEN, assert_refusal, call, cancel_request, channel_feed, harness,
+    settle, subscribe, subscription_id, within,
 };
 
 /// Asserts `answer` refuses call `id` for the cap.
@@ -191,15 +191,16 @@ async fn slotless_messages_never_keep_the_reader_from_a_call_or_the_credit_that_
     } = harness.connect(1 << 20);
     client.grants_credit = false;
 
-    // Slotless calls still running hold no reply place, only a running count, so a call after
-    // them is taken.
-    let writes: Vec<Value> = (1..=99_u64)
+    // Shell writes still running hold no reply place and no running count, so past a hundred of
+    // them every write and a call after them are taken.
+    let writes: Vec<Value> = (1..=150_u64)
         .map(|id| call(id, "terminal.write", &json!({})))
         .collect();
     client.send_all(&writes).await;
     // Its answer passes lane 0's credit, which the client returns only below.
-    client.send(&call(101, "test.large", &json!({}))).await;
+    client.send(&call(151, "test.large", &json!({}))).await;
     settle().await;
+    assert_eq!(harness.script.dispatched("terminal.write").len(), 150);
     assert_eq!(harness.script.dispatched("test.large").len(), 1);
 
     // A hundred refusals wait behind it, every reply place held; the next message waits untaken.
@@ -248,7 +249,7 @@ async fn slotless_messages_never_keep_the_reader_from_a_call_or_the_credit_that_
             granted: INITIAL_LANE_CREDIT,
         })
         .await;
-    assert_eq!(client.answer().await["id"], json!(101));
+    assert_eq!(client.answer().await["id"], json!(151));
     for id in 1001..=1101_u64 {
         assert_eq!(client.answer().await["id"], json!(id));
     }
@@ -257,7 +258,7 @@ async fn slotless_messages_never_keep_the_reader_from_a_call_or_the_credit_that_
 }
 
 #[tokio::test(start_paused = true)]
-async fn at_most_a_hundred_slotless_calls_run_while_more_wait_untaken() {
+async fn at_most_a_hundred_subscription_cancels_run_and_a_freed_count_takes_the_next() {
     let harness = harness();
     let mut connection = harness.connect(1024);
     let (values, _taken, feed) = channel_feed();
@@ -284,6 +285,24 @@ async fn at_most_a_hundred_slotless_calls_run_while_more_wait_untaken() {
         harness.script.dispatched("$/subscription/cancel").len(),
         100
     );
+
+    // The client reads again but sends nothing, so only a count given back wakes the reader: the
+    // lane closes, the cancels answer, and the one that waited is taken and answered.
+    connection.client.grants_credit = false;
+    let mut answered = Vec::new();
+    while answered.len() < 102 {
+        match within(connection.client.next_event()).await {
+            Event::Message { lane, json, .. } if lane.is_control() => {
+                answered.push(json["id"].clone());
+            }
+            Event::Message { .. } | Event::Abort(_) => {}
+        }
+    }
+    assert_eq!(
+        harness.script.dispatched("$/subscription/cancel").len(),
+        101
+    );
+    assert!(answered.contains(&json!(103)), "{answered:?}");
 }
 
 /// The credit `json` spends as one message.

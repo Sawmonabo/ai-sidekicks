@@ -1,7 +1,7 @@
 //! Every way a connection closes: both cleanups, every call canceled, the feeds released and one
 //! disconnect; and the stop, which sends what lane 0 holds before it cuts the connection.
 
-use bytes::{BufMut as _, BytesMut};
+use bytes::{BufMut as _, Bytes, BytesMut};
 use futures::StreamExt as _;
 use rstest::rstest;
 use serde_json::value::RawValue;
@@ -25,6 +25,7 @@ use crate::ipc::registry::{Dispatch as _, DispatchError, Reply, Request, Transpo
 enum Ending {
     ClientClose,
     MalformedFrame,
+    UnadmittedLane,
     ReadError,
     OversizedMessage,
     OversizedReply,
@@ -53,6 +54,7 @@ async fn gate_refusal(harness: &Harness, transport: TransportId) -> RefusalCode 
 #[rstest]
 #[case::client_close(Ending::ClientClose, SupervisionDisconnectReason::ClientClose, 0)]
 #[case::malformed_frame(Ending::MalformedFrame, SupervisionDisconnectReason::MalformedFrame, 1)]
+#[case::unadmitted_lane(Ending::UnadmittedLane, SupervisionDisconnectReason::MalformedFrame, 1)]
 #[case::read_error(Ending::ReadError, SupervisionDisconnectReason::TransportError, 1)]
 #[case::oversized_message(
     Ending::OversizedMessage,
@@ -118,6 +120,18 @@ async fn every_close_cleans_up_cancels_every_call_and_disconnects_once(
             connection
                 .client
                 .write_raw(&[0x04, 0, 0, 0, 0, 1, 0, 0, 0, 0])
+                .await;
+        }
+        Ending::UnadmittedLane => {
+            // The daemon admits no lane but lane 0.
+            connection
+                .client
+                .send_frame(Frame::Data {
+                    lane: LaneId::new(1),
+                    is_end: false,
+                    closes_lane: false,
+                    body: Bytes::new(),
+                })
                 .await;
         }
         Ending::OversizedMessage => {

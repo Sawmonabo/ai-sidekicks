@@ -461,6 +461,7 @@ impl TestClient {
                 self.incoming
                     .receive(frame.clone())
                     .expect("the daemon's ABORT is well formed");
+                self.release_owed().await;
                 return Some(Event::Abort(*lane));
             }
             Frame::Data {
@@ -481,20 +482,28 @@ impl TestClient {
             .incoming
             .receive(frame)
             .expect("the daemon keeps to its credit and lane order");
-        // Owed credit is released into this client's own count whether or not it is sent.
-        if let Some(credit) = received.credit.and_then(|owed| self.incoming.release(owed)) {
-            self.grant(credit).await;
-        }
-        let message = received.message?;
+        self.release_owed().await;
+        let message = received?;
         if let Some(credit) = self.incoming.take(message.lane, message.credit_due) {
             self.grant(credit).await;
         }
-        let json = serde_json::from_slice(&message.body.json).expect("a message is JSON");
+        let json: Value = serde_json::from_slice(&message.body.json).expect("a message is JSON");
+        // A subscription's acknowledgment admits the lane its stream opens next.
+        if lane.is_control() && json["result"]["subscriptionId"].is_string() {
+            self.incoming.admit_lane();
+        }
         Some(Event::Message {
             lane,
             json,
             closes_lane,
         })
+    }
+
+    /// Releases owed credit into this client's own count, whether or not it is sent.
+    async fn release_owed(&mut self) {
+        for credit in self.incoming.release_owed() {
+            self.grant(credit).await;
+        }
     }
 
     async fn grant(&mut self, credit: Frame) {
