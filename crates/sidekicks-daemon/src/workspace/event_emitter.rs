@@ -18,8 +18,8 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::events::log_service::{EventLogAppendReceipt, EventLogService};
 use crate::events::session::appender::{
-    AppendedPayload, SessionEventAppendError, SessionEventAppender, SessionEventDraft,
-    SessionEventDraftError, SessionEventLinkage,
+    AppendedPayload, SessionEventAppender, SessionEventDraft, SessionEventEmitError,
+    SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
 
@@ -38,17 +38,6 @@ pub(crate) struct EmitWorkspaceEventInput {
     pub(crate) actor: Option<LifecycleActor>,
 }
 
-/// Why a workspace or mount event was not appended; none of its write is kept.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum WorkspaceEventEmitError {
-    /// The event breaks one of its type's checks.
-    #[error("the workspace event could not be drafted")]
-    Draft(#[from] SessionEventDraftError),
-    /// The event log did not keep the append.
-    #[error("the workspace event was not appended")]
-    Append(#[from] SessionEventAppendError),
-}
-
 /// Appends workspace lifecycle and mount health events, one per call. Each emit returns the
 /// receipt carrying the sequence the append assigned.
 pub(crate) struct WorkspaceEventEmitter {
@@ -64,59 +53,59 @@ impl WorkspaceEventEmitter {
     }
 
     /// Appends `workspace.preparing`: the workspace's preparation began. Fails as
-    /// [`WorkspaceEventEmitError`] says.
+    /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_workspace_preparing(
         &self,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorkspaceEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         self.append_workspace_event(WorkspaceTransition::Preparing, input, linkage)
             .await
     }
 
     /// Appends `workspace.prepared`: the workspace is ready for runs. Fails as
-    /// [`WorkspaceEventEmitError`] says.
+    /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_workspace_prepared(
         &self,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorkspaceEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         self.append_workspace_event(WorkspaceTransition::Prepared, input, linkage)
             .await
     }
 
     /// Appends `workspace.rootLost`: the workspace's working root became unavailable, and it needs
-    /// preparing again before further use. Fails as [`WorkspaceEventEmitError`] says.
+    /// preparing again before further use. Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_workspace_root_lost(
         &self,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorkspaceEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         self.append_workspace_event(WorkspaceTransition::RootLost, input, linkage)
             .await
     }
 
     /// Appends `workspace.archived`: the workspace reached its terminal state; the input names the
-    /// mount when the archival is a detach's. Fails as [`WorkspaceEventEmitError`] says.
+    /// mount when the archival is a detach's. Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_workspace_archived(
         &self,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorkspaceEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         self.append_workspace_event(WorkspaceTransition::Archived, input, linkage)
             .await
     }
 
     /// Appends `repoMount.health.changed` on `session_id`'s log: the mount `repo_mount_id` now
     /// reads `health`. The payload names no session, so it is given beside it. Fails as
-    /// [`WorkspaceEventEmitError`] says.
+    /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_mount_health_changed(
         &self,
         session_id: SessionId,
         repo_mount_id: RepoMountId,
         health: RepoMountHealth,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorkspaceEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let event = SessionEvent::RepoMountHealthChanged(RepoMountHealthChangedPayload {
             repo_mount_id,
             health,
@@ -130,7 +119,7 @@ impl WorkspaceEventEmitter {
         transition: WorkspaceTransition,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorkspaceEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let payload = WorkspaceLifecyclePayload {
             session_id: input.session_id,
             repo_mount_id: input.repo_mount_id,

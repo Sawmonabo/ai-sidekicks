@@ -27,8 +27,8 @@ use uuid::Uuid;
 
 use crate::events::log_service::{EventLogAppendReceipt, EventLogService};
 use crate::events::session::appender::{
-    AppendedPayload, SessionEventAppendError, SessionEventAppender, SessionEventDraft,
-    SessionEventDraftError, SessionEventLinkage,
+    AppendedPayload, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
+    SessionEventEmitError, SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
 
@@ -47,17 +47,6 @@ pub(crate) struct EmitWorktreeEventInput {
     pub(crate) actor: Option<LifecycleActor>,
 }
 
-/// Why a worktree event was not appended; none of its write is kept.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeEventEmitError {
-    /// The event breaks one of its type's checks.
-    #[error("the worktree event could not be drafted")]
-    Draft(#[from] SessionEventDraftError),
-    /// The event log did not keep the append.
-    #[error("the worktree event was not appended")]
-    Append(#[from] SessionEventAppendError),
-}
-
 /// Appends the five worktree lifecycle events and the two session records a tree's life writes.
 /// Each emit returns the receipt carrying the sequence the append assigned.
 pub(crate) struct WorktreeEventEmitter {
@@ -73,26 +62,26 @@ impl WorktreeEventEmitter {
     }
 
     /// Appends `worktree.created`: a `worktrees` row was written in state `creating`, from the
-    /// kept copy `restored_from` on a put-back. Fails as [`WorktreeEventEmitError`] says.
+    /// kept copy `restored_from` on a put-back. Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_worktree_created(
         &self,
         input: EmitWorktreeEventInput,
         restored_from: Option<RemovedWorktreeId>,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         self.append(created_draft(input, restored_from)?, linkage)
             .await
     }
 
     /// Appends `worktree.created` then `worktree.bound` in one write, for a row the prelude writes
     /// and binds together, so neither event commits without the other; the created event follows
-    /// any the linkage already puts first. Fails as [`WorktreeEventEmitError`] says.
+    /// any the linkage already puts first. Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_worktree_created_and_bound(
         &self,
         input: EmitWorktreeEventInput,
         restored_from: Option<RemovedWorktreeId>,
         mut linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let bound = SessionEventDraft::new(
             lifecycle_payload(WorktreeTransition::Bound, input.clone()),
             SessionEvent::WorktreeBound,
@@ -104,36 +93,36 @@ impl WorktreeEventEmitter {
     }
 
     /// Appends `worktree.bound`: the checkout is made and bound as an execution root. Fails as
-    /// [`WorktreeEventEmitError`] says.
+    /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_worktree_bound(
         &self,
         input: EmitWorktreeEventInput,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let payload = lifecycle_payload(WorktreeTransition::Bound, input);
         let draft = SessionEventDraft::new(payload, SessionEvent::WorktreeBound)?;
         self.append(draft, linkage).await
     }
 
     /// Appends `worktree.dirtied`: uncommitted work was seen in the checkout. Fails as
-    /// [`WorktreeEventEmitError`] says.
+    /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_worktree_dirtied(
         &self,
         input: EmitWorktreeEventInput,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let payload = lifecycle_payload(WorktreeTransition::Dirtied, input);
         let draft = SessionEventDraft::new(payload, SessionEvent::WorktreeDirtied)?;
         self.append(draft, linkage).await
     }
 
     /// Appends `worktree.merged`: the tree's branch has merged back. Fails as
-    /// [`WorktreeEventEmitError`] says.
+    /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_worktree_merged(
         &self,
         input: EmitWorktreeEventInput,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let payload = lifecycle_payload(WorktreeTransition::Merged, input);
         let draft = SessionEventDraft::new(payload, SessionEvent::WorktreeMerged)?;
         self.append(draft, linkage).await
@@ -141,13 +130,13 @@ impl WorktreeEventEmitter {
 
     /// Appends `worktree.retired`, the terminal state, naming the kept copy `removed_worktree_id`
     /// on a discard. It is appended before any disk change, so it does not mean the folder is
-    /// gone. Fails as [`WorktreeEventEmitError`] says.
+    /// gone. Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_worktree_retired(
         &self,
         input: EmitWorktreeEventInput,
         removed_worktree_id: Option<RemovedWorktreeId>,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let WorktreeLifecyclePayload {
             session_id,
             repo_mount_id,
@@ -171,23 +160,23 @@ impl WorktreeEventEmitter {
 
     /// Appends `session.sweptToCheckout`: a removal moved the session back to the repository's
     /// checkout, or cleared its pending move into the removed tree. Fails as
-    /// [`WorktreeEventEmitError`] says.
+    /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_session_swept_to_checkout(
         &self,
         payload: SessionSweptToCheckoutPayload,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let draft = SessionEventDraft::new(payload, SessionEvent::SessionSweptToCheckout)?;
         self.append(draft, linkage).await
     }
 
     /// Appends `session.branch.changed`: the branch the session's folder is on changed outside the
-    /// app, written back to the session's record. Fails as [`WorktreeEventEmitError`] says.
+    /// app, written back to the session's record. Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_branch_changed(
         &self,
         payload: SessionBranchChangedPayload,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let draft = SessionEventDraft::new(payload, SessionEvent::SessionBranchChanged)?;
         self.append(draft, linkage).await
     }
@@ -196,7 +185,7 @@ impl WorktreeEventEmitter {
         &self,
         draft: SessionEventDraft,
         linkage: SessionEventLinkage,
-    ) -> Result<EventLogAppendReceipt, WorktreeEventEmitError> {
+    ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         Ok(self.appender.append(draft, linkage).await?)
     }
 }
