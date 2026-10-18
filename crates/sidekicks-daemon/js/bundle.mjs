@@ -4,11 +4,12 @@
 //
 // It also writes the TextMate grammars the daemon's colorer runs into `dist/grammars/`: one
 // `<name>.json` per grammar the colorable languages' modules carry, `notices.txt` with the license
-// of the package they come from and each grammar's upstream source and license, and
+// of the package they come from and each grammar's upstream source and license text, and
 // `scopes-named-from-text.json`, the scope names of the grammars that build a scope name from the
 // text they match, directly or through a grammar they include, whose highlighter the colorer
 // rebuilds after a set amount of such source.
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,7 @@ const PACKAGE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIRECTORY = path.join(PACKAGE_DIRECTORY, "src");
 const DIST_DIRECTORY = path.join(PACKAGE_DIRECTORY, "dist");
 const GRAMMAR_DIRECTORY = path.join(DIST_DIRECTORY, "grammars");
+const VENDOR_DIRECTORY = path.join(PACKAGE_DIRECTORY, "vendor");
 
 /** The `@shikijs/langs` module of each language the daemon colors, the contract's language set. */
 const COLORABLE_LANGUAGE_MODULES = [
@@ -45,7 +47,8 @@ const CAPTURE_REFERENCE = /\$(?:\d+|\{\d+:\/(?:downcase|upcase)\})/;
 
 /**
  * The license of a grammar whose `tm-grammars` record names none, read from its upstream source at
- * the commit the record names; a record at another commit fails the bundle until it is read again.
+ * the commit the record names and kept byte for byte under `vendor/`, checked by its SHA-256; a
+ * record at another commit fails the bundle until it is read again.
  */
 const UNRECORDED_GRAMMAR_LICENSES = {
   yaml: {
@@ -53,8 +56,13 @@ const UNRECORDED_GRAMMAR_LICENSES = {
     license: "MIT",
     licenseUrl:
       "https://github.com/textmate/yaml.tmbundle/blob/e54ceae3b719506dba7e481a77cea4a8b576ae46/Syntaxes/YAML-license.txt",
+    licenseFile: "yaml.tmbundle/YAML-license.txt",
+    licenseSha256: "e581bcdef2143dd5f06596801baebd40c0a31ee04b039b65f07a9ee3a5ea2afc",
   },
 };
+
+/** The line `tm-grammars`' NOTICE file names each third-party section's grammar files on. */
+const NOTICE_SECTION_FILES = /^Files:\s+(.+)$/gm;
 
 /** A package's legal files, by the names packages ship them under (`LICENSE.md`, `COPYING`, …). */
 const LEGAL_FILE_NAME = /^(licen[cs]e|copying|notice)/i;
@@ -240,33 +248,80 @@ writeFileSync(
   `${JSON.stringify(findScopesNamedFromText(grammarsByScopeName))}\n`,
 );
 /**
- * A grammar's upstream source and license, from `tm-grammars` at the version `@shikijs/langs` was
- * built from. Throws when neither its record nor `UNRECORDED_GRAMMAR_LICENSES` names a license.
+ * The license texts in `tm-grammars`' NOTICE file by the grammar file they cover: each section
+ * names its files, its license's address and SPDX id, then a dashed line and the text, up to the
+ * line of equals signs before the next section's files (a text may carry such lines of its own).
  */
-function composeGrammarNotice(grammar) {
+function readNoticeTexts(noticeFile) {
+  const notice = readFileSync(noticeFile, "utf8");
+  const sections = [...notice.matchAll(NOTICE_SECTION_FILES)];
+  const texts = new Map();
+  sections.forEach((files, index) => {
+    const end = index + 1 < sections.length ? sections[index + 1].index : notice.length;
+    const section = notice.slice(files.index + files[0].length, end);
+    const divider = /^-+$/m.exec(section);
+    if (divider === null) {
+      throw new Error(`the ${files[1]} section of ${noticeFile} carries no text`);
+    }
+    const text = section
+      .slice(divider.index + divider[0].length)
+      .replace(/\n=+\n*$/, "")
+      .trim();
+    for (const file of files[1].split(",")) {
+      texts.set(file.trim(), text);
+    }
+  });
+  return texts;
+}
+
+/** A vendored license text, checked byte for byte against the hash recorded beside its source. */
+function readVendoredLicense({ licenseFile, licenseSha256 }) {
+  const bytes = readFileSync(path.join(VENDOR_DIRECTORY, licenseFile));
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (digest !== licenseSha256) {
+    throw new Error(`vendor/${licenseFile} hashes to ${digest}, not the ${licenseSha256} recorded`);
+  }
+  return bytes.toString("utf8").trim();
+}
+
+/**
+ * A grammar's upstream source, license and license text, from `tm-grammars` at the version
+ * `@shikijs/langs` was built from. Throws when neither its record nor `UNRECORDED_GRAMMAR_LICENSES`
+ * names a license, or no text is found for it.
+ */
+function composeGrammarNotice(grammar, noticeTexts) {
   const record = grammarSources.find((source) => source.scopeName === grammar.scopeName);
   if (record === undefined) {
     throw new Error(`tm-grammars has no record of ${grammar.scopeName}`);
   }
   const unrecorded = UNRECORDED_GRAMMAR_LICENSES[record.name];
-  const { license, licenseUrl } =
-    record.license === undefined && unrecorded?.sha === record.sha ? unrecorded : record;
+  const vendored = record.license === undefined && unrecorded?.sha === record.sha;
+  const { license, licenseUrl } = vendored ? unrecorded : record;
   if (license === undefined || licenseUrl === undefined) {
     throw new Error(`${record.name} at ${record.sha} names no license to carry`);
+  }
+  const text = vendored ? readVendoredLicense(unrecorded) : noticeTexts.get(`${record.name}.json`);
+  if (text === undefined) {
+    throw new Error(`tm-grammars' NOTICE carries no license text for ${record.name}.json`);
   }
   return [
     `${record.displayName} grammar (${grammar.scopeName}, ${license})`,
     `Source: ${record.source}`,
     `License: ${licenseUrl}`,
+    "",
+    text,
   ].join("\n");
 }
 
 const grammarPackageDirectory = findPackageDirectory(
   fileURLToPath(import.meta.resolve("@shikijs/langs/bash")),
 );
+const noticeTexts = readNoticeTexts(
+  path.join(findPackageDirectory(fileURLToPath(import.meta.resolve("tm-grammars"))), "NOTICE"),
+);
 const grammarNotices = [...grammarsByScopeName.values()]
   .sort((left, right) => left.scopeName.localeCompare(right.scopeName))
-  .map(composeGrammarNotice);
+  .map((grammar) => composeGrammarNotice(grammar, noticeTexts));
 writeFileSync(
   path.join(GRAMMAR_DIRECTORY, "notices.txt"),
   `${[composeNotice(grammarPackageDirectory), ...grammarNotices].join("\n\n---\n\n")}\n`,
