@@ -21,7 +21,7 @@ use crate::ipc::registry::{
 };
 use crate::ipc::stream::feed::Feed;
 use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
-use crate::session::links::service::{SessionLinkError, SessionLinkService};
+use crate::session::links::service::SessionLinkService;
 use crate::session::related::ranking::{SessionRelatedRanking, SessionRelatedReadError};
 
 /// Registers the two link verbs over `links` and `session.relatedSession.subscribe` over
@@ -100,32 +100,6 @@ async fn follow_related_list(
         }
     });
     Ok(move || following.abort())
-}
-
-impl From<SessionLinkError> for HandlerError {
-    /// A refused change answers by its code; a write not kept or a failed read is a fault in the
-    /// daemon.
-    fn from(error: SessionLinkError) -> Self {
-        match error {
-            SessionLinkError::Refused(refusal) => Self::Refused(refusal),
-            fault @ (SessionLinkError::Write(_)
-            | SessionLinkError::Database(_)
-            | SessionLinkError::Pool(_)) => Self::Internal(Box::new(fault)),
-        }
-    }
-}
-
-impl From<SessionRelatedReadError> for HandlerError {
-    /// A session the daemon does not hold answers `session.notFound`; a failed read is a fault in
-    /// the daemon.
-    fn from(error: SessionRelatedReadError) -> Self {
-        match error {
-            SessionRelatedReadError::Refused(refusal) => Self::Refused(refusal),
-            fault @ (SessionRelatedReadError::Database(_) | SessionRelatedReadError::Pool(_)) => {
-                Self::Internal(Box::new(fault))
-            }
-        }
-    }
 }
 
 #[cfg(test)]

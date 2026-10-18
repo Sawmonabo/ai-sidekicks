@@ -41,6 +41,7 @@ use crate::events::session::read::{
     readable_event_sql, session_read_bound,
 };
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::session::console_state::read_session_max_steps_per_turn;
 use crate::session::not_found::session_not_found;
 use crate::session::projector::{SessionRebuildError, rebuild_session};
@@ -154,6 +155,21 @@ pub(crate) enum SessionServiceError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl From<SessionServiceError> for HandlerError {
+    /// A session the daemon does not hold answers `session.notFound`; every other failure is a
+    /// fault in the daemon.
+    fn from(error: SessionServiceError) -> Self {
+        match error {
+            SessionServiceError::Refused(refusal) => Self::Refused(refusal),
+            fault @ (SessionServiceError::Database(_)
+            | SessionServiceError::Log(_)
+            | SessionServiceError::RunNamesNoAgent { .. }
+            | SessionServiceError::Rebuild(_)
+            | SessionServiceError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 const SELECT_ROW_SQL: &str = "SELECT state, shape, name, muted_at, pending_working_folder,

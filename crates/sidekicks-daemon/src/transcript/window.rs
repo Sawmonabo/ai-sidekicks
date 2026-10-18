@@ -41,6 +41,7 @@ use crate::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::session::not_found::session_not_found;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
 use crate::transcript::run_facts::TranscriptRunFactsReader;
@@ -64,6 +65,20 @@ pub(crate) enum TranscriptReadError {
     /// The window's events could not be projected into rows.
     #[error(transparent)]
     Projection(#[from] TranscriptProjectionError),
+}
+
+impl From<TranscriptReadError> for HandlerError {
+    /// A session the daemon does not hold or a row it does not hold answers by its code, a cursor
+    /// it cannot read `session.event.cursorUnresolvable`; a failed read is a fault in the daemon.
+    fn from(error: TranscriptReadError) -> Self {
+        match error {
+            TranscriptReadError::Refused(refusal) => Self::Refused(refusal),
+            TranscriptReadError::CursorUnresolvable(unresolvable) => unresolvable.into(),
+            fault @ (TranscriptReadError::Log(_)
+            | TranscriptReadError::Database(_)
+            | TranscriptReadError::Projection(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 /// The head a transcript read checks its cursors against, `None` for a session whose history is

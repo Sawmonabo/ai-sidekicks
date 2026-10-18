@@ -35,6 +35,7 @@ use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::events::session::pending::PendingSessions;
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::retry_waits::retry_wait;
 use crate::session::directory::lookups::SESSION_EXISTS_SQL;
 use crate::session::not_found::session_not_found;
@@ -88,6 +89,19 @@ pub(crate) enum SessionRelatedReadError {
     /// The read pool is closed, a connection did not open, or the read's task did not finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl From<SessionRelatedReadError> for HandlerError {
+    /// A session the daemon does not hold answers `session.notFound`; a failed read is a fault in
+    /// the daemon.
+    fn from(error: SessionRelatedReadError) -> Self {
+        match error {
+            SessionRelatedReadError::Refused(refusal) => Self::Refused(refusal),
+            fault @ (SessionRelatedReadError::Database(_) | SessionRelatedReadError::Pool(_)) => {
+                Self::Internal(Box::new(fault))
+            }
+        }
+    }
 }
 
 // Why a re-score round, or the read of the lists that show a renamed session, failed.

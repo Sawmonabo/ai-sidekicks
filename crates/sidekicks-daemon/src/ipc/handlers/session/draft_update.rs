@@ -9,11 +9,8 @@ use sidekicks_contracts::session::draft::{
     SessionDraftUpdate, SessionDraftUpdateRequest, SessionDraftUpdateResponse,
 };
 
-use crate::ipc::registry::{
-    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
-};
-use crate::session::directory::lookups::SessionWriteError;
-use crate::session::draft_store::{SessionDraftError, SessionDraftStore};
+use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use crate::session::draft_store::SessionDraftStore;
 
 /// Registers `session.draft.update` over `drafts`, answering the session and when the draft was
 /// stored. Refuses a session the daemon does not hold `session.notFound`, keeping nothing. Fails
@@ -35,28 +32,4 @@ pub(crate) fn register_session_draft_update(
             .boxed()
         },
     )
-}
-
-impl From<SessionWriteError> for HandlerError {
-    /// A session the daemon does not hold answers `session.notFound`; a write not kept is a fault
-    /// in the daemon.
-    fn from(error: SessionWriteError) -> Self {
-        match error {
-            SessionWriteError::Refused(refusal) => Self::Refused(refusal),
-            SessionWriteError::Write(fault) => Self::Internal(Box::new(fault)),
-        }
-    }
-}
-
-impl From<SessionDraftError> for HandlerError {
-    /// A store refused for its session answers as that refusal does; a failed read is a fault in
-    /// the daemon.
-    fn from(error: SessionDraftError) -> Self {
-        match error {
-            SessionDraftError::Write(write) => write.into(),
-            fault @ (SessionDraftError::Database(_) | SessionDraftError::Pool(_)) => {
-                Self::Internal(Box::new(fault))
-            }
-        }
-    }
 }

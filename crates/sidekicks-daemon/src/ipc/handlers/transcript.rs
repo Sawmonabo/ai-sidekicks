@@ -25,10 +25,9 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::session::search::index::live::{LiveIndex, LiveIndexSearchError};
-use crate::session::search::transcript::TranscriptSearchError;
+use crate::session::search::index::live::LiveIndex;
 use crate::transcript::body::read_stored_event_row;
-use crate::transcript::window::{TranscriptReadError, read_transcript_window};
+use crate::transcript::window::read_transcript_window;
 
 /// What `transcript.read` and `transcript.body.read` read the session's log through.
 pub(crate) struct TranscriptLogReads {
@@ -171,45 +170,6 @@ struct StoredBodyOverCap;
 
 fn internal(fault: impl Error + Send + Sync + 'static) -> HandlerError {
     HandlerError::Internal(Box::new(fault))
-}
-
-impl From<TranscriptReadError> for HandlerError {
-    /// A session the daemon does not hold or a row it does not hold answers by its code, a cursor
-    /// it cannot read `session.event.cursorUnresolvable`; a failed read is a fault in the daemon.
-    fn from(error: TranscriptReadError) -> Self {
-        match error {
-            TranscriptReadError::Refused(refusal) => Self::Refused(refusal),
-            TranscriptReadError::CursorUnresolvable(unresolvable) => unresolvable.into(),
-            fault @ (TranscriptReadError::Log(_)
-            | TranscriptReadError::Database(_)
-            | TranscriptReadError::Projection(_)) => Self::Internal(Box::new(fault)),
-        }
-    }
-}
-
-impl From<LiveIndexSearchError<TranscriptSearchError>> for HandlerError {
-    /// A session the daemon does not hold answers `session.notFound`, a cursor it cannot read
-    /// `session.event.cursorUnresolvable`; an index that cannot answer or a failed read is a
-    /// fault in the daemon.
-    fn from(error: LiveIndexSearchError<TranscriptSearchError>) -> Self {
-        match error {
-            LiveIndexSearchError::Search(TranscriptSearchError::Refused(refusal)) => {
-                Self::Refused(refusal)
-            }
-            LiveIndexSearchError::Search(TranscriptSearchError::CursorUnresolvable(
-                unresolvable,
-            )) => unresolvable.into(),
-            LiveIndexSearchError::Search(
-                fault @ (TranscriptSearchError::Database(_)
-                | TranscriptSearchError::Index(_)
-                | TranscriptSearchError::HitPosition(_)
-                | TranscriptSearchError::HitRowId(_)),
-            ) => Self::Internal(Box::new(fault)),
-            fault @ (LiveIndexSearchError::Closed
-            | LiveIndexSearchError::Failed(_)
-            | LiveIndexSearchError::Pool(_)) => Self::Internal(Box::new(fault)),
-        }
-    }
 }
 
 #[cfg(test)]

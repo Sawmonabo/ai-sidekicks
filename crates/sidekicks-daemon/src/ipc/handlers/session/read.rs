@@ -18,9 +18,7 @@ use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use crate::session::draft_store::SessionDraftStore;
-use crate::session::service::{
-    SessionLogRead, SessionReadRecord, SessionService, SessionServiceError,
-};
+use crate::session::service::{SessionLogRead, SessionReadRecord, SessionService};
 
 /// A session's inbox addresses, the session's own place first.
 pub(crate) type SessionAddresses = UniqueList<SessionAddress, 1, { usize::MAX }>;
@@ -112,21 +110,6 @@ async fn read_session(
         live_runs,
         standing_events,
     })
-}
-
-impl From<SessionServiceError> for HandlerError {
-    /// A session the daemon does not hold answers `session.notFound`; every other failure is a
-    /// fault in the daemon.
-    fn from(error: SessionServiceError) -> Self {
-        match error {
-            SessionServiceError::Refused(refusal) => Self::Refused(refusal),
-            fault @ (SessionServiceError::Database(_)
-            | SessionServiceError::Log(_)
-            | SessionServiceError::RunNamesNoAgent { .. }
-            | SessionServiceError::Rebuild(_)
-            | SessionServiceError::Pool(_)) => Self::Internal(Box::new(fault)),
-        }
-    }
 }
 
 #[cfg(test)]
