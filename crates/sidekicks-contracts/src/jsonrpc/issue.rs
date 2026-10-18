@@ -154,8 +154,7 @@ fn pointer_issue_path(pointer: &str, received: &Value) -> Vec<IssuePathSegment> 
         .collect()
 }
 
-/// The message of an issue whose value the schema accepts but serde's reader of its type refuses;
-/// it never quotes the value.
+/// The message of an issue serde's reader of its type refuses; it never quotes the value.
 pub const UNREADABLE_VALUE_ISSUE_MESSAGE: &str = "this value does not read as its type";
 
 /// The path serde's reader names for its fault: a map's key or an externally tagged variant as a
