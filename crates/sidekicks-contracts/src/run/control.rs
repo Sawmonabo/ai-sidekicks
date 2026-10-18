@@ -129,13 +129,11 @@ pub enum StopTrigger {
     TokenLimit,
 }
 
-/// Declares the three bodies of a state change: each carries the members every transition has and
-/// adds what its own target state may carry.
+/// Declares the four bodies of a state change: each carries the members every transition has and
+/// adds what its own target state may carry. A body marked `not_failed` also refuses the failure
+/// cause and the process exit, which only `failed` carries.
 macro_rules! run_state_change_members {
-    ($(
-        $(#[doc = $doc:literal])+
-        pub struct $name:ident { $($extra:tt)* }
-    )+) => {$(
+    (@body $(#[doc = $doc:literal])+ $name:ident { $($extra:tt)* }) => {
         $(#[doc = $doc])+
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -195,29 +193,55 @@ macro_rules! run_state_change_members {
             #[garde(dive)]
             pub timestamp: WireInstant,
         }
+    };
+    (@kind failed $(#[doc = $doc:literal])+ $name:ident { $($extra:tt)* }) => {
+        run_state_change_members!(@body $(#[doc = $doc])+ $name { $($extra)* });
+    };
+    (@kind not_failed $(#[doc = $doc:literal])+ $name:ident { $($extra:tt)* }) => {
+        run_state_change_members!(@body $(#[doc = $doc])+ $name {
+            /// Never present outside `failed`.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Never")]
+            pub failure_cause: Option<Never>,
+            /// Never present outside `failed`.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Never")]
+            pub process_exit: Option<Never>,
+            $($extra)*
+        });
+    };
+    ($(
+        $(#[doc = $doc:literal])+
+        pub struct $name:ident: $kind:ident { $($extra:tt)* }
+    )+) => {$(
+        run_state_change_members!(@kind $kind $(#[doc = $doc])+ $name { $($extra)* });
     )+};
 }
 
 run_state_change_members! {
-    /// A transition into any state but `stopped` or `failed`, which carries no failure cause or
-    /// process exit, and the daemon's own interrupt reason where it has one.
-    pub struct RunStateChangeMembers {
-        /// Never present outside `failed`.
+    /// A transition into any state but `interrupted`, `stopped` or `failed`, which carries no
+    /// failure cause, process exit or trigger.
+    pub struct RunStateChangeMembers: not_failed {
+        /// Never present outside `interrupted` and `stopped`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
         #[schemars(with = "Never")]
-        pub failure_cause: Option<Never>,
-        /// Never present outside `failed`.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Never")]
-        pub process_exit: Option<Never>,
+        pub trigger: Option<Never>,
+    }
+
+    /// A transition into `interrupted`, with the daemon's own interrupt reason where it has one.
+    pub struct RunInterruptedStateChangeMembers: not_failed {
         /// Why the daemon itself interrupted the run; absent when it did not.
         #[serde(
             default,
@@ -229,23 +253,7 @@ run_state_change_members! {
     }
 
     /// A transition into `stopped`, with the daemon's own stop reason where it has one.
-    pub struct RunStoppedStateChangeMembers {
-        /// Never present outside `failed`.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Never")]
-        pub failure_cause: Option<Never>,
-        /// Never present outside `failed`.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "Never")]
-        pub process_exit: Option<Never>,
+    pub struct RunStoppedStateChangeMembers: not_failed {
         /// Why the daemon itself stopped the run; absent when it did not.
         #[serde(
             default,
@@ -257,7 +265,7 @@ run_state_change_members! {
     }
 
     /// A transition into `failed`, with its typed cause and its provider process's own exit.
-    pub struct RunFailedStateChangeMembers {
+    pub struct RunFailedStateChangeMembers: failed {
         /// The run's typed failure cause.
         #[serde(
             default,
@@ -275,20 +283,21 @@ run_state_change_members! {
         )]
         #[schemars(with = "ProcessExit")]
         pub process_exit: Option<ProcessExit>,
-        /// Why the daemon itself interrupted the run; absent when it did not.
+        /// Never present outside `interrupted` and `stopped`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "InterruptReason")]
-        pub trigger: Option<InterruptReason>,
+        #[schemars(with = "Never")]
+        pub trigger: Option<Never>,
     }
 }
 
 /// One run state transition as `agent.run.subscribe` delivers it, tagged on its new state, with its
-/// new run version; only a transition into `failed` carries a failure cause or a process exit.
-/// `sessionId` is carried by the subscription's scope, not repeated per event.
+/// new run version; only a transition into `failed` carries a failure cause or a process exit, and
+/// only one into `interrupted` or `stopped` carries the daemon's own trigger. `sessionId` is
+/// carried by the subscription's scope, not repeated per event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(tag = "newState", rename_all = "camelCase")]
 pub enum RunStateChangeEvent {
@@ -309,7 +318,7 @@ pub enum RunStateChangeEvent {
     /// Into `completed`.
     Completed(#[garde(dive)] RunStateChangeMembers),
     /// Into `interrupted`.
-    Interrupted(#[garde(dive)] RunStateChangeMembers),
+    Interrupted(#[garde(dive)] RunInterruptedStateChangeMembers),
     /// Into `stopped`.
     Stopped(#[garde(dive)] RunStoppedStateChangeMembers),
     /// Into `failed`.

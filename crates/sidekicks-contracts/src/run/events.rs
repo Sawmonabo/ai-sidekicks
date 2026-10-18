@@ -10,7 +10,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::event::envelope::SourcePosition;
 use crate::orchestration::InterruptReason;
 use crate::provider::driver::capabilities::ExecutionPosture;
-use crate::provider::driver::intervention::InterventionType;
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use crate::provider::driver::recovery::RecoveryCondition;
@@ -18,7 +17,7 @@ use crate::provider::id::ProviderId;
 use crate::run::control::{ProcessExit, RunFailureCategory, StopTrigger};
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
-use crate::run::intervention::InterventionId;
+use crate::run::intervention::{InterventionId, InterventionType};
 use crate::run::state::RunState;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -47,7 +46,7 @@ pub enum RunStateChangeState {
     Completed,
     /// Its turn cut by an interrupt, resting until a send continues it.
     Interrupted,
-    /// Ended by a stop: a child a stop that reached several agents ended, or a run at its token
+    /// Ended by a stop: a child ended by a stop that reached several agents, or a run at its token
     /// limit.
     Stopped,
     /// Ended by a failure.
@@ -293,7 +292,7 @@ pub enum TurnEndCause {
 /// Declares the payload of each forward run event, a provider's marker or a turn's start or end:
 /// the run and its version when the event was recorded, which the event leaves as it is, since it
 /// changes no state, and the event's own members.
-macro_rules! run_marker_payloads {
+macro_rules! run_event_payloads {
     ($(
         $(#[doc = $doc:literal])+
         pub struct $name:ident { $($extra:tt)* }
@@ -313,7 +312,7 @@ macro_rules! run_marker_payloads {
     )+};
 }
 
-run_marker_payloads! {
+run_event_payloads! {
     /// The `agent.run.providerInitialized` payload: the provider process reported its start for the
     /// run, with the model it runs where it named one.
     pub struct AgentRunProviderInitializedPayload {

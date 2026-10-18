@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
 
 use crate::internal::branded::branded_uuid_id;
-use crate::provider::driver::intervention::InterventionType;
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{
     PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
@@ -23,6 +22,21 @@ use crate::wire::text::FreeFormText;
 branded_uuid_id! {
     /// Identifies one intervention on a run.
     InterventionId
+}
+
+/// How a caller acts on a live run, as its intervention row records it: interrupt, or retry on a
+/// faster model, which the daemon carries out by stopping the turn and sending its message again on
+/// the named model. A person's message mid-turn is a queue send, never an intervention.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum InterventionType {
+    /// Stops the turn.
+    Interrupt,
+    /// Stops the turn and sends its message again on a faster model.
+    FasterModelRetry,
 }
 
 /// Where an intervention stands, from request to outcome; each state has its own event. `failed`
@@ -288,6 +302,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           passes through.",
     definitions: &[
         Definition::read::<InterventionId>().checked(),
+        Definition::read::<InterventionType>().checked(),
         Definition::read::<InterventionState>(),
         Definition::read::<AgentRunInterveneRequest>().checked(),
         Definition::read::<AgentRunInterveneResponse>().checked(),
