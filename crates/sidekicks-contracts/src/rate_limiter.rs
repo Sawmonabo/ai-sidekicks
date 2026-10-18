@@ -25,7 +25,8 @@ literal! {
 
 literal! {
     /// The category of a sign-in route's 429, the one `relay.rateLimited` carries.
-    pub enum RelayRateLimitedCategory = const RefusalCode::RelayRateLimited.known_category().as_str();
+    pub enum RelayRateLimitedCategory =
+        const RefusalCode::RelayRateLimited.known_category().as_str();
 }
 
 /// The body of a 429 from a sign-in route. `retryAfter` is whole seconds until a retry is allowed,
