@@ -90,24 +90,18 @@ impl ShellStartConfirmation {
 }
 
 /// Waits for the confirmation that this process's parent started it as a terminal's `shell` mode:
-/// the end the variable names is an unnamed local socket whose other end the parent wrote this
-/// process's id on, and the parent is its own responsible process, as the daemon is and no process
-/// an agent runs is. Closes that end. Fails with `NotFound` when no end is named, `InvalidData`
-/// when it is not such a socket or the confirmation is not this process's, `PermissionDenied` when
-/// the parent did not write it or is not its own responsible process, `UnexpectedEof` when the
-/// other end closed unwritten, and the system's error otherwise.
+/// the end the variable names is a local socket whose other end the parent wrote this process's id
+/// on, and the parent is its own responsible process, as the daemon is and no process an agent
+/// runs is. Closes that end. Fails with `NotFound` when no end is named, `InvalidData` when it is
+/// not a socket or the confirmation is not this process's, `PermissionDenied` when the parent did
+/// not write it or is not its own responsible process, `UnexpectedEof` when the other end closed
+/// unwritten, and the system's error otherwise.
 pub(crate) fn receive_confirmation() -> io::Result<()> {
     let descriptor = std::env::var(SHELL_START_CONFIRMATION)
         .map_err(|error| io::Error::new(io::ErrorKind::NotFound, error))?
         .parse::<RawFd>()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let mut end = UnixStream::from(take_socket(descriptor)?);
-    if !is_unnamed_peer(&end)? {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "the confirmation's socket is connected to a named socket",
-        ));
-    }
     let mut confirmed: ConfirmedId = [0; size_of::<u32>()];
     end.read_exact(&mut confirmed)?;
     let writer = read_peer_id(&end)?;
@@ -158,22 +152,6 @@ fn take_socket(descriptor: RawFd) -> io::Result<OwnedFd> {
     // SAFETY: the descriptor is open, and nothing else in this process uses it: it was inherited
     // for this read alone.
     Ok(unsafe { OwnedFd::from_raw_fd(descriptor) })
-}
-
-/// Whether `end` is a local socket whose other end has no name, as one of a socket pair has and a
-/// connection to a listening socket does not. Fails with the system's error.
-fn is_unnamed_peer(end: &UnixStream) -> io::Result<bool> {
-    // SAFETY: `sockaddr_un` is a C struct of integers, for which all zero bytes are valid.
-    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-    let mut length = socklen_of::<libc::sockaddr_un>();
-    // SAFETY: the socket is open, and `address` is a live, writable `sockaddr_un` of the length
-    // given, which the call fills.
-    let status =
-        unsafe { libc::getpeername(end.as_raw_fd(), (&raw mut address).cast(), &raw mut length) };
-    if status != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(libc::c_int::from(address.sun_family) == libc::AF_UNIX && address.sun_path[0] == 0)
 }
 
 /// The id of the process that last used the other end of `end`. Fails with the system's error.
