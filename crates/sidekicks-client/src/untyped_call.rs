@@ -26,12 +26,12 @@ use crate::transport::json_rpc::RawRequest;
 /// call or the reverse (`is_subscription` says which the caller makes), or params that break the
 /// contract, whose `request.paramsInvalid` names each fault's place and rule, never its value.
 pub fn checked_request(
-    method: String,
+    method: &str,
     params_json: String,
     attachments: Vec<Bytes>,
     is_subscription: bool,
 ) -> Result<RawRequest, JsonRpcError> {
-    let descriptor = method_descriptor(&method).ok_or_else(|| {
+    let descriptor = method_descriptor(method).ok_or_else(|| {
         refusal(
             RefusalCode::RequestMethodNotFound,
             format!("No method {method} is declared"),
@@ -46,10 +46,10 @@ pub fn checked_request(
         ));
     }
     let params = RawValue::from_string(params_json)
-        .map_err(|error| params_refusal(&method, &format!("are not JSON ({error})"), Vec::new()))?;
+        .map_err(|error| params_refusal(method, &format!("are not JSON ({error})"), Vec::new()))?;
     if let Err(refused) = (descriptor.check_params)(params.get().as_bytes(), attachments.clone()) {
         return Err(match received_issues(refused) {
-            Ok(issues) => params_refusal(&method, "break its contract", issues),
+            Ok(issues) => params_refusal(method, "break its contract", issues),
             Err(error) => internal_error(format!(
                 "The contract check of {method} could not be built: {error}"
             )),
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn params_that_break_their_contract_are_refused_before_anything_is_sent() {
-        let refused = checked_request("daemon.ping".to_owned(), "[]".to_owned(), Vec::new(), false)
+        let refused = checked_request("daemon.ping", "[]".to_owned(), Vec::new(), false)
             .expect_err("an array is no params object");
         let data = refused.data.expect("a refusal carries its code");
         assert_eq!(data.refusal, RefusalCode::RequestParamsInvalid.as_str());
@@ -156,7 +156,7 @@ mod tests {
                 .is_some_and(|issues| !issues.is_empty()),
             "{issues}"
         );
-        let request = checked_request("daemon.ping".to_owned(), "{}".to_owned(), Vec::new(), false)
+        let request = checked_request("daemon.ping", "{}".to_owned(), Vec::new(), false)
             .expect("empty params pass");
         assert_eq!(request.descriptor.method, "daemon.ping");
     }
@@ -166,13 +166,8 @@ mod tests {
     #[test]
     fn params_that_break_a_rule_only_garde_holds_are_refused_at_the_member() {
         let params = json!({ "sessionId": SESSION_ID, "targetSessionId": SESSION_ID });
-        let refused = checked_request(
-            "session.link.add".to_owned(),
-            params.to_string(),
-            Vec::new(),
-            false,
-        )
-        .expect_err("a session is never linked to itself");
+        let refused = checked_request("session.link.add", params.to_string(), Vec::new(), false)
+            .expect_err("a session is never linked to itself");
         let data = refused.data.expect("a refusal carries its code");
         assert_eq!(data.refusal, RefusalCode::RequestParamsInvalid.as_str());
         let fields = serde_json::to_value(&data.fields).expect("the fields write as JSON");

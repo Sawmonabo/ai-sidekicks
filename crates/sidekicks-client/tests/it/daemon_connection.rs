@@ -172,6 +172,10 @@ struct MemoryConnector {
 impl DaemonConnector for MemoryConnector {
     type Stream = DuplexStream;
 
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "the in-memory daemon answers at once, where the real connector awaits a socket"
+    )]
     async fn open_stream(&self) -> Result<DuplexStream, ClientError> {
         self.attempted_at
             .lock()
@@ -191,6 +195,10 @@ impl DaemonConnector for MemoryConnector {
         Ok(client_side)
     }
 
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "the test's token is a constant, where the real connector reads a file"
+    )]
     async fn read_token(&self) -> Result<NegotiationText, ClientError> {
         Ok(NegotiationText::new(TOKEN.to_owned()).expect("the test's token is a token"))
     }

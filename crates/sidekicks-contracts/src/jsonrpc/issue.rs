@@ -463,7 +463,7 @@ mod tests {
             .into_iter()
             .map(|issue| issue.path)
             .collect();
-        assert_eq!(rule_paths, [at_the_cap.clone()]);
+        assert_eq!(rule_paths, std::slice::from_ref(&at_the_cap));
         let shape = received_issues(ReceivedError::Shape {
             faults: vec![ShapeFault {
                 path: too_deep,

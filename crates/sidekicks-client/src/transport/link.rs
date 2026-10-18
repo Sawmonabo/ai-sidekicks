@@ -536,22 +536,21 @@ fn route_lane(
     let is_end = method == SUBSCRIPTION_END_METHOD;
     let mut state = link.lock();
     let mut orphan = None;
-    let subscription_id = match state.lanes.get(&lane) {
-        Some(subscription_id) => Some(*subscription_id),
-        None => {
-            let probed = params
-                .as_deref()
-                .filter(|_| is_notify || is_end)
-                .and_then(|params| probe_subscription_id(params).ok());
-            if let Some(subscription_id) = probed {
-                state.lanes.insert(lane, subscription_id);
-                let is_held = state.subscriptions.contains_key(&subscription_id);
-                if !is_held && !state.released.remove(&subscription_id) && is_notify {
-                    orphan = Some(subscription_id);
-                }
+    let subscription_id = if let Some(subscription_id) = state.lanes.get(&lane) {
+        Some(*subscription_id)
+    } else {
+        let probed = params
+            .as_deref()
+            .filter(|_| is_notify || is_end)
+            .and_then(|params| probe_subscription_id(params).ok());
+        if let Some(subscription_id) = probed {
+            state.lanes.insert(lane, subscription_id);
+            let is_held = state.subscriptions.contains_key(&subscription_id);
+            if !is_held && !state.released.remove(&subscription_id) && is_notify {
+                orphan = Some(subscription_id);
             }
-            probed
         }
+        probed
     };
     let subscription = subscription_id.and_then(|subscription_id| {
         if is_end {

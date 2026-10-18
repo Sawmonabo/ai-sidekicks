@@ -120,22 +120,21 @@ impl ClientState {
             .calls
             .get_mut(&key)
             .expect("a call being sent is in the table");
-        let message = match call.message.take() {
-            Some(message) => message,
-            None => {
-                let request = call
-                    .resend
-                    .clone()
-                    .expect("a call sent again keeps its request");
-                call.id = take_id(ids);
-                match encode_request(call.id, request) {
-                    Ok(message) => message,
-                    Err(error) => {
-                        if let Some(call) = self.calls.remove(&key) {
-                            call.answer.fail(error);
-                        }
-                        return;
+        let message = if let Some(message) = call.message.take() {
+            message
+        } else {
+            let request = call
+                .resend
+                .clone()
+                .expect("a call sent again keeps its request");
+            call.id = take_id(ids);
+            match encode_request(call.id, request) {
+                Ok(message) => message,
+                Err(error) => {
+                    if let Some(call) = self.calls.remove(&key) {
+                        call.answer.fail(error);
                     }
+                    return;
                 }
             }
         };

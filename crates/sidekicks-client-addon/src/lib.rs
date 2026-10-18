@@ -83,12 +83,15 @@ pub struct StreamEvent {
 /// The connection to the daemon the client helper holds.
 #[napi]
 pub struct DaemonClient {
+    /// The typed client over the connection's link.
     client: JsonRpcClient,
+    /// The connection, taken out once by `close`.
     connection: tokio::sync::Mutex<Option<DaemonConnection>>,
     /// The cancel of each call the page may still cancel, by the page's call id.
     calls: Arc<Mutex<HashMap<u32, CancellationToken>>>,
     /// The cancel of each open stream, by the id the addon gave it; a stream leaves it as it ends.
     streams: Arc<Mutex<HashMap<u32, CancellationToken>>>,
+    /// The id the next stream takes.
     next_stream_id: AtomicU32,
 }
 
@@ -140,6 +143,10 @@ pub async fn connect(on_state: Callback<String>) -> ConnectOutcome {
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Node-API hands a JavaScript string to the addon as an owned String"
+)]
 #[napi]
 impl DaemonClient {
     /// Calls `method` with `params_json` and its attachments, after checking the params against the
@@ -155,7 +162,7 @@ impl DaemonClient {
         params_json: String,
         attachments: Vec<Buffer>,
     ) -> napi::Result<AsyncBlock<CallOutcome>> {
-        let checked = checked_request(method, params_json, attachments, false);
+        let checked = checked_request(&method, params_json, attachments, false);
         let answer = checked.map(|request| {
             let cancel = CancellationToken::new();
             lock(&self.calls).insert(call_id, cancel.clone());
@@ -212,7 +219,7 @@ impl DaemonClient {
             acknowledgment: None,
             error: Some(error),
         };
-        let request = match checked_request(method, params_json, attachments, true) {
+        let request = match checked_request(&method, params_json, attachments, true) {
             Ok(request) => request,
             Err(error) => return refused(error),
         };
@@ -299,9 +306,14 @@ impl DaemonClient {
 /// A pane's input to one shell.
 #[napi]
 pub struct ShellInputHandle {
+    /// The shell's input, shared with the pane's other handles.
     input: ShellInput,
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Node-API hands a JavaScript string to the addon as an owned String"
+)]
 #[napi]
 impl ShellInputHandle {
     /// Types `keys` into the shell, in order with every earlier key.
@@ -365,13 +377,14 @@ fn wire_error(error: &ClientError) -> Value {
     wire_value(&untyped_call::wire_error(error))
 }
 
+/// A JSON-RPC error as the JSON value the page reads.
 fn wire_value(error: &JsonRpcError) -> Value {
     serde_json::to_value(error).expect("a JSON-RPC error writes as JSON")
 }
 
 /// The request for `method`, checked against its contract, or its refusal as the page reads it.
 fn checked_request(
-    method: String,
+    method: &str,
     params_json: String,
     attachments: Vec<Buffer>,
     is_subscription: bool,
@@ -384,6 +397,7 @@ fn checked_request(
         .map_err(|refusal| wire_value(&refusal))
 }
 
+/// A reply's JSON text and attachments as the page reads them.
 fn wire_reply(reply: RawReply) -> WireReply {
     WireReply {
         json: reply.json.get().to_owned(),
@@ -395,6 +409,7 @@ fn wire_reply(reply: RawReply) -> WireReply {
     }
 }
 
+/// The mutex's guard, a poisoned one included: the maps hold only cancel tokens.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

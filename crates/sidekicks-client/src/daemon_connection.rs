@@ -308,33 +308,29 @@ async fn watch_link(
             continue;
         }
         state.send_replace(ConnectionState::Quiet);
-        let mut ping = pin!(client.call::<DaemonPing>(&EmptyPayload {}));
-        loop {
-            tokio::select! {
-                fault = link.ended() => return fault,
-                answer = &mut ping => {
-                    match answer {
-                        // A refusal is the daemon's own frame, so the link is live too.
-                        Ok(EmptyPayload {}) | Err(ClientError::Remote(_)) => {
-                            state.send_replace(ConnectionState::Open);
-                        }
-                        // The link's end, which the next round reads, is the failure that counts.
-                        Err(error) => tracing::debug!(
-                            error = &error as &(dyn std::error::Error + 'static),
-                            "The link watch's ping failed"
-                        ),
+        let ping = pin!(client.call::<DaemonPing>(&EmptyPayload {}));
+        tokio::select! {
+            fault = link.ended() => return fault,
+            answer = ping => {
+                match answer {
+                    // A refusal is the daemon's own frame, so the link is live too.
+                    Ok(EmptyPayload {}) | Err(ClientError::Remote(_)) => {
+                        state.send_replace(ConnectionState::Open);
                     }
-                    break;
+                    // The link's end, which the next round reads, is the failure that counts.
+                    Err(error) => tracing::debug!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "The link watch's ping failed"
+                    ),
                 }
-                () = sleep_until(link.last_frame_at() + LOST_AFTER) => {
-                    if Instant::now() >= link.last_frame_at() + LOST_AFTER {
-                        link.close(LinkFault::Silent);
-                        return LinkFault::Silent;
-                    }
-                    // A frame came while the timer ran: the link is live, and watched afresh.
-                    state.send_replace(ConnectionState::Open);
-                    break;
+            }
+            () = sleep_until(link.last_frame_at() + LOST_AFTER) => {
+                if Instant::now() >= link.last_frame_at() + LOST_AFTER {
+                    link.close(LinkFault::Silent);
+                    return LinkFault::Silent;
                 }
+                // A frame came while the timer ran: the link is live, and watched afresh.
+                state.send_replace(ConnectionState::Open);
             }
         }
     }

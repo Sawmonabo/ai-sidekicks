@@ -55,6 +55,10 @@ pub(crate) fn run_program<Output: Write, ErrorOutput: Write>(
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "a command is consumed by its run; no command exists yet"
+)]
 fn run_command<Output: Write, ErrorOutput: Write>(
     command: Command,
     _context: &mut CommandContext<Output, ErrorOutput>,
@@ -233,7 +237,7 @@ mod tests {
         let mut context = context();
         let ending = report_failure(&failure, &mut context);
         assert_eq!(ending, ProcessEnding::Exit(expected));
-        assert!(context.stdout.is_empty());
+        assert_eq!(context.stdout, b"");
         assert_eq!(String::from_utf8(context.stderr).expect("UTF-8"), reported);
     }
 }
