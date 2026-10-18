@@ -101,7 +101,7 @@ Asking the person to deploy a relay before a phone can reach their machine is fr
 
 A public relay serves other people, and serving other people brings billing, bans, per-person credentials and witnessing that one user does not need. Linear / Notion / Figma / Warp are not counter-examples — they are hosted-only products whose value is the hosted surface (sync, collaboration UX, account-side features). This product's value is the agent runtime itself, which works identically on either relay. The Workers relay deploys into the person's own Cloudflare account with nothing to keep running, which keeps the setup cost to one deployment. Two relays cost some QA-matrix work (bounded, covered by the one rate limiter and the shared protocol contract). The community-support drag is real and is managed via the Tripwires below.
 
-The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The self-hostable relay is the same crate's native program, which adds mostly "here is the WebSocket server loop and here is the sign-in counter, kept in the program's own memory" — one codebase, not two.
+The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The self-hostable relay is the same crate's native program, which adds mostly "here is the WebSocket server loop and here is the sign-in counter over the account's SQLite file" — one codebase, not two.
 
 ## Alternatives Considered
 
