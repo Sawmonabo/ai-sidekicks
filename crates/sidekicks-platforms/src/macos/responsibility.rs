@@ -9,15 +9,16 @@
 //! Each is looked up once at run time, so a macOS without one refuses instead of failing to load
 //! the daemon.
 
-use std::ffi::{CString, OsString, c_char, c_int, c_short};
+use std::ffi::{CString, OsStr, OsString, c_char, c_int, c_short};
 use std::io;
 use std::os::unix::ffi::OsStringExt as _;
 use std::sync::OnceLock;
 
 use crate::own_root::OwnRootError;
 
-/// The environment variable a program re-run as its own responsible process starts with, so the
-/// re-run never repeats; removed as soon as the start reads it.
+/// The environment variable a program re-run as its own responsible process starts with, holding
+/// the id of the process that set it, which the re-run keeps, so the re-run never repeats; removed
+/// as soon as the start reads it.
 const OWN_ROOT_MARKER: &str = "SIDEKICKS_OWN_ROOT";
 
 /// `uint64_t responsibility_get_uniqueid_responsible_for_pid(pid_t)`: the unique id of the process
@@ -253,13 +254,14 @@ pub fn become_own_root() -> Result<(), OwnRootError> {
     if count > 1 {
         return Err(OwnRootError::ThreadsRunning { count });
     }
-    let has_re_run = std::env::var_os(OWN_ROOT_MARKER).is_some();
-    if has_re_run {
+    let id = std::process::id();
+    let marker = std::env::var_os(OWN_ROOT_MARKER);
+    let has_re_run = is_own_marker(marker.as_deref(), id);
+    if marker.is_some() {
         // SAFETY: only this thread runs, checked above, so nothing reads the environment while it
         // changes.
         unsafe { std::env::remove_var(OWN_ROOT_MARKER) };
     }
-    let id = std::process::id();
     let responsible = read_responsible_id(id)
         .map_err(OwnRootError::Read)?
         .ok_or_else(|| OwnRootError::Read(io::Error::other("this process has no record")))?;
@@ -267,10 +269,16 @@ pub fn become_own_root() -> Result<(), OwnRootError> {
         OwnRootStep::Start => Ok(()),
         OwnRootStep::StillNotRoot => Err(OwnRootError::StillNotRoot),
         OwnRootStep::ReRun => {
-            let start = this_program_as_own_root().map_err(OwnRootError::Exec)?;
+            let start = this_program_as_own_root(id).map_err(OwnRootError::Exec)?;
             Err(OwnRootError::Exec(start.exec()))
         }
     }
+}
+
+/// Whether `marker` is the one this process set before re-running itself: the marker names the
+/// process that set it, and the re-run keeps its id, so one inherited from another process is not.
+fn is_own_marker(marker: Option<&OsStr>, id: u32) -> bool {
+    marker.is_some_and(|marker| marker.to_str() == Some(id.to_string().as_str()))
 }
 
 /// What the start does, from whether this process is its own responsible process and whether it
@@ -283,15 +291,16 @@ fn own_root_step(is_own_root: bool, has_re_run: bool) -> OwnRootStep {
     }
 }
 
-/// This program, prepared to re-run with its own arguments and environment plus the marker.
-/// Fails when the system cannot name the program, and with `InvalidInput` for a NUL in it.
-fn this_program_as_own_root() -> io::Result<OwnRootStart> {
+/// This program, prepared to re-run with its own arguments and environment plus the marker
+/// naming process `id`. Fails when the system cannot name the program, and with `InvalidInput` for
+/// a NUL in it.
+fn this_program_as_own_root(id: u32) -> io::Result<OwnRootStart> {
     let program = c_string(std::env::current_exe()?.into_os_string())?;
     let arguments = std::env::args_os()
         .map(c_string)
         .collect::<io::Result<Vec<_>>>()?;
     let mut marker = OsString::from(OWN_ROOT_MARKER);
-    marker.push("=1");
+    marker.push(format!("={id}"));
     let environment = std::env::vars_os()
         .map(|(name, value)| {
             let mut entry = name;
@@ -341,13 +350,13 @@ fn read_thread_count() -> io::Result<i32> {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::CString;
+    use std::ffi::{CString, OsStr};
     use std::io::Read as _;
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 
     use rstest::rstest;
 
-    use super::{OwnRootStart, OwnRootStep, own_root_step, read_responsible_id};
+    use super::{OwnRootStart, OwnRootStep, is_own_marker, own_root_step, read_responsible_id};
     use crate::ResponsibleProcess;
     use crate::macos::caller_process::{pinned, read_responsible_process};
 
@@ -362,6 +371,18 @@ mod tests {
         #[case] expected: OwnRootStep,
     ) {
         assert_eq!(own_root_step(is_own_root, has_re_run), expected);
+    }
+
+    #[rstest]
+    #[case::none(None, false)]
+    #[case::set_by_this_process(Some("4242"), true)]
+    #[case::inherited_from_another_process(Some("17"), false)]
+    #[case::not_a_process_id(Some("yes"), false)]
+    fn only_the_marker_this_process_set_counts_as_its_re_run(
+        #[case] marker: Option<&str>,
+        #[case] is_own: bool,
+    ) {
+        assert_eq!(is_own_marker(marker.map(OsStr::new), 4242), is_own);
     }
 
     #[test]
