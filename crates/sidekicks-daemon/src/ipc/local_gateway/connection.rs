@@ -522,13 +522,19 @@ impl PendingCall {
         let outcome = answer.await;
         self.cancel_table.remove(&self.id, self.call);
         if self.permit.is_none() {
-            // Once the connection closes no place frees for certain, and no reply would be sent.
-            let place = tokio::select! {
-                biased;
-                () = self.connection_calls.cancelled() => return,
-                place = Arc::clone(&self.slotless_replies).acquire_owned() => place,
+            let place = match Arc::clone(&self.slotless_replies).try_acquire_owned() {
+                Ok(place) => place,
+                // Once the connection closes no place frees for certain, and no reply would be
+                // sent.
+                Err(_no_place) => tokio::select! {
+                    biased;
+                    () = self.connection_calls.cancelled() => return,
+                    place = Arc::clone(&self.slotless_replies).acquire_owned() => {
+                        place.expect("the slotless replies' semaphore is never closed")
+                    }
+                },
             };
-            self.permit = Some(place.expect("the slotless replies' semaphore is never closed"));
+            self.permit = Some(place);
         }
         match outcome {
             Ok(Reply::Result(value)) => match encode_response(self.id, value) {
