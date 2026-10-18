@@ -9,13 +9,16 @@
               signal and console-handler calls, the parent check `scutil`'s child runs in \
               `pre_exec`, the Windows host-name, free-room and entry-identity calls, the Windows \
               replacing rename's `MoveFileExW`, the caller reads (Linux's peer process descriptor \
-              and `pidfd_open`, macOS's audit token and checked process reads), the measurement \
-              tests' footprint read on macOS, and the power notifications and wall-clock timers \
-              of macOS and Windows are C interfaces"
+              and `pidfd_open`, macOS's audit token, checked process reads and responsible-process \
+              reads), macOS's code-signature checks, the start as its own responsible process \
+              (its thread count, its marker's removal from the environment and the disclaiming \
+              exec), the measurement tests' footprint read on macOS, and the power notifications \
+              and wall-clock timers of macOS and Windows are C interfaces"
 )]
 
 mod atomic_replace;
 mod caller_process;
+mod code_signature;
 mod entry_identity;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
@@ -24,6 +27,7 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod own_root;
 mod path;
 #[cfg(unix)]
 mod posix;
@@ -39,7 +43,12 @@ mod windows;
 mod wsl;
 
 pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
-pub use caller_process::ParentProcess;
+#[cfg(not(target_os = "macos"))]
+pub use caller_process::read_responsible_process;
+pub use caller_process::{ParentProcess, ResponsibleProcess};
+pub use code_signature::CodeSignatureError;
+#[cfg(not(target_os = "macos"))]
+pub use code_signature::DesktopClientRequirement;
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
@@ -59,15 +68,24 @@ pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::caller_process::this_process;
 #[cfg(target_os = "macos")]
-pub use macos::caller_process::{PinnedProcess, read_parent_process, read_peer_process};
+pub use macos::caller_process::{
+    PinnedProcess, read_parent_process, read_peer_process, read_responsible_process,
+};
+#[cfg(target_os = "macos")]
+pub use macos::code_signature::DesktopClientRequirement;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::process_footprint;
 #[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
+pub use macos::responsibility::become_own_root;
+#[cfg(target_os = "macos")]
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
+pub use own_root::OwnRootError;
+#[cfg(not(target_os = "macos"))]
+pub use own_root::become_own_root;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::PathRules;
 #[cfg(unix)]
