@@ -22,6 +22,7 @@
 
 use std::sync::Arc;
 
+use rusqlite::Connection;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::session::event_cursor::{
@@ -31,6 +32,7 @@ use sidekicks_contracts::session::event_cursor::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use tokio::sync::watch;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::WriteStatement;
@@ -160,6 +162,43 @@ pub(crate) enum EventLogReadError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+/// Where a follow of a session's log starts.
+#[derive(Clone, Debug)]
+pub(crate) enum FollowStart {
+    /// Before the session's first event.
+    StartOfLog,
+    /// After the session's newest readable event.
+    Newest,
+    /// After the event this cursor names.
+    After(EventCursor),
+}
+
+/// Why a follow of a session's log could not start.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum EventLogFollowError {
+    /// The session has no events and no damaged history, so the daemon holds no such session.
+    #[error("session {0} has no events to follow")]
+    SessionNotFound(SessionId),
+    /// The cursor could not be resolved, or the read failed.
+    #[error(transparent)]
+    Read(#[from] EventLogReadError),
+}
+
+impl From<DatabaseReadError> for EventLogFollowError {
+    fn from(error: DatabaseReadError) -> Self {
+        Self::Read(error.into())
+    }
+}
+
+/// One page a change stream reads of a session's log: the session's head when the page's read
+/// began, then the events after the page's position.
+pub(crate) struct EventStreamPage {
+    /// The session's newest readable sequence, read before the events, `None` when it has none.
+    pub(crate) head: Option<i64>,
+    /// The events after the position, of the page's types, in sequence order.
+    pub(crate) events: Vec<EventEnvelope>,
 }
 
 /// What [`EventLogService::read_after_cursor`] reads.
@@ -353,6 +392,91 @@ impl EventLogService {
         .await
     }
 
+    /// The position a follow of `session_id` starts after, as a cursor: the start of its log, its
+    /// newest readable event, or the event `start` names, checked against its head. Fails with
+    /// [`EventLogFollowError::SessionNotFound`] for a session with no events and no damaged
+    /// history, with [`EventLogReadError::CursorUnresolvable`] for a cursor that names no position
+    /// or one past the head, and as the read fails.
+    pub(crate) async fn read_follow_start(
+        &self,
+        session_id: SessionId,
+        start: FollowStart,
+    ) -> Result<EventCursor, EventLogFollowError> {
+        let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        self.read(ReadLength::Short, move |reads| {
+            let head = reads
+                .read_head(&session_id)
+                .map_err(EventLogReadError::from)?;
+            if head.is_none() && read_damaged_from_sequence(&session_id).is_none() {
+                return Err(EventLogFollowError::SessionNotFound(session_id));
+            }
+            let position = match start {
+                FollowStart::StartOfLog => START_OF_LOG_POSITION,
+                FollowStart::Newest => head.unwrap_or(START_OF_LOG_POSITION),
+                FollowStart::After(cursor) => {
+                    resolve_event_cursor(Some(&cursor), head).map_err(EventLogReadError::from)?
+                }
+            };
+            Ok(encode_event_cursor(position).map_err(EventLogReadError::from)?)
+        })
+        .await
+    }
+
+    /// Reads one page of a change stream over `session_id`'s log: its head, then at most `max`
+    /// events after `after_position`, only of `event_types` when given, and answers what
+    /// `changes_of` makes of them on the same connection, which may read more of the log. Fails
+    /// with `changes_of`'s failure, and as the read fails.
+    pub(crate) async fn read_stream_page<Changes, Failure>(
+        &self,
+        session_id: SessionId,
+        after_position: i64,
+        max: usize,
+        event_types: Option<&'static [&'static str]>,
+        changes_of: impl FnOnce(
+            &Connection,
+            &DamagedFromSequenceReader,
+            EventStreamPage,
+        ) -> Result<Changes, Failure>
+        + Send
+        + 'static,
+    ) -> Result<Changes, Failure>
+    where
+        Changes: Send + 'static,
+        Failure: From<EventLogReadError> + From<DatabaseReadError> + Send + 'static,
+    {
+        let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        self.pool
+            .read(ReadLength::Long, move |connection| {
+                let reads = SessionEventReads::new(connection, &*read_damaged_from_sequence);
+                let head = reads
+                    .read_head(&session_id)
+                    .map_err(EventLogReadError::from)?;
+                let events = reads
+                    .read_after(
+                        &session_id,
+                        after_position,
+                        i64::try_from(max).unwrap_or(i64::MAX),
+                        SessionEventFilter {
+                            event_types,
+                            before_sequence: None,
+                        },
+                    )
+                    .map_err(EventLogReadError::from)?;
+                changes_of(
+                    connection,
+                    &*read_damaged_from_sequence,
+                    EventStreamPage { head, events },
+                )
+            })
+            .await
+    }
+
+    /// The change count of `session_id`'s log, which a change stream over it waits on: it grows by
+    /// one per event committed once that event can be read.
+    pub(crate) fn change_count(&self, session_id: &SessionId) -> watch::Receiver<u64> {
+        self.followers.change_count(session_id)
+    }
+
     /// The events with a sequence from the request's first to its last, in sequence order. Fails
     /// as the read fails.
     pub(crate) async fn read_window(
@@ -378,11 +502,15 @@ impl EventLogService {
     }
 
     /// Runs `read` on a borrowed connection on a blocking thread.
-    async fn read<Output: Send + 'static>(
+    async fn read<Output, Failure>(
         &self,
         length: ReadLength,
-        read: impl FnOnce(&LogReads<'_>) -> Result<Output, EventLogReadError> + Send + 'static,
-    ) -> Result<Output, EventLogReadError> {
+        read: impl FnOnce(&LogReads<'_>) -> Result<Output, Failure> + Send + 'static,
+    ) -> Result<Output, Failure>
+    where
+        Output: Send + 'static,
+        Failure: From<DatabaseReadError> + Send + 'static,
+    {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(length, move |connection| {

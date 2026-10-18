@@ -4,16 +4,20 @@
 //! while a frame is written only when it next looks, so that change waits the write plus one
 //! window. The batcher holds only its cursor: it reads the next frame from the record once the
 //! send gate lets it through, so a slow reader costs no more than the one message its lane has
-//! begun, and loses nothing.
+//! begun, and loses nothing. A change feed hands its frames to the subscription.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use sidekicks_contracts::jsonrpc::streaming::STREAM_FRAME_MAX_CHANGES;
+use sidekicks_contracts::wire::list::BoundedVec;
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
 
-use crate::ipc::stream::feed::{ChangeRecord, SendGate};
+use crate::ipc::registry::HandlerError;
+use crate::ipc::stream::feed::{ChangeRecord, Feed, SendGate};
 
 /// How long the first change of a frame waits for others before the frame goes out.
 pub(crate) const STREAM_WINDOW: Duration = Duration::from_millis(16);
@@ -105,6 +109,49 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
                 }
             }
         }
+    }
+}
+
+/// One frame's changes as its stream's contract holds them.
+pub(crate) type FrameChanges<Change> = BoundedVec<Change, 1, STREAM_FRAME_MAX_CHANGES>;
+
+/// A change stream's feed: each frame its batcher reads from the record, made into the stream's
+/// frame by `frame_of`. A failed read ends the subscription as a fault in the daemon.
+pub(crate) struct ChangeFeed<Record: ChangeRecord, Frame> {
+    /// The frames' batcher.
+    batcher: FrameBatcher<Record>,
+    /// Makes one frame of its changes.
+    frame_of: fn(FrameChanges<Record::Change>) -> Frame,
+}
+
+impl<Record: ChangeRecord, Frame> ChangeFeed<Record, Frame> {
+    /// The feed of `batcher`'s frames, each made by `frame_of`.
+    pub(crate) fn new(
+        batcher: FrameBatcher<Record>,
+        frame_of: fn(FrameChanges<Record::Change>) -> Frame,
+    ) -> Self {
+        Self { batcher, frame_of }
+    }
+}
+
+impl<Record: ChangeRecord, Frame: Send> Feed for ChangeFeed<Record, Frame> {
+    type Emission = Frame;
+
+    fn next<'a>(
+        &'a mut self,
+        gate: &'a dyn SendGate,
+    ) -> BoxFuture<'a, Result<Option<Frame>, HandlerError>> {
+        async move {
+            match self.batcher.next_frame(gate).await {
+                Ok(Some(changes)) => Ok(Some((self.frame_of)(
+                    BoundedVec::new(changes)
+                        .expect("a frame holds one to STREAM_FRAME_MAX_CHANGES changes"),
+                ))),
+                Ok(None) => Ok(None),
+                Err(error) => Err(HandlerError::Internal(Box::new(error))),
+            }
+        }
+        .boxed()
     }
 }
 

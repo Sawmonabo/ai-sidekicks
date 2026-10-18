@@ -305,7 +305,6 @@ impl Drop for Subscription {
 #[cfg(test)]
 mod tests {
     use futures::future::BoxFuture;
-    use serde_json::value::RawValue;
     use serde_json::{Value, json};
     use sidekicks_contracts::jsonrpc::streaming::{
         SUBSCRIPTION_CANCEL_METHOD, SubscribeAcknowledgmentResponse,
@@ -313,11 +312,10 @@ mod tests {
 
     use super::*;
     use crate::ipc::call_fixtures::{
-        Named, NamedSubscribe, SUBSCRIBE_METHOD as METHOD, channel_feed, context, subscription_id,
+        Named, NamedSubscribe, SUBSCRIBE_METHOD as METHOD, channel_feed, context, request,
+        subscription_id,
     };
-    use crate::ipc::registry::{
-        Dispatch as _, DispatchError, HandlerError, MethodRegistry, Reply, Request,
-    };
+    use crate::ipc::registry::{Dispatch as _, DispatchError, HandlerError, MethodRegistry, Reply};
     use crate::ipc::stream::feed::{CreditGate, Feed};
 
     /// A typed feed whose emission breaks its length rule.
@@ -334,14 +332,6 @@ mod tests {
                 name: "far too long".to_owned(),
             })))
             .boxed()
-        }
-    }
-
-    fn request(method: &str, params: &Value) -> Request {
-        Request {
-            method: method.to_owned(),
-            params: Some(RawValue::from_string(params.to_string()).expect("the params are JSON")),
-            attachments: Vec::new(),
         }
     }
 
