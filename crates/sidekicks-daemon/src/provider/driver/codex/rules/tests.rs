@@ -6,8 +6,8 @@ use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
 
 use super::{
-    CodexProjectRules, CodexRuleSources, CodexRulesError, CodexUnreadRuleFile,
-    read_codex_project_rules, remove_codex_project_rule, write_codex_project_rule,
+    CodexProjectRule, CodexRuleSources, CodexRulesError, read_codex_project_rules,
+    remove_codex_project_rule, write_codex_project_rule,
 };
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 
@@ -36,7 +36,7 @@ fn rule_file(project_folder: &Path) -> PathBuf {
     project_folder.join(".codex/rules/sidekicks.rules")
 }
 
-// A Codex home and a project folder, both under one scratch folder.
+// A system settings folder, a Codex home and a project folder, all under one scratch folder.
 struct Places {
     scratch: tempfile::TempDir,
 }
@@ -44,43 +44,77 @@ struct Places {
 impl Places {
     fn new() -> Self {
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        for folder in ["home/rules", "project/.codex/rules"] {
+        for folder in ["system/rules", "home/rules", "project/.codex/rules"] {
             fs::create_dir_all(scratch.path().join(folder)).expect("the folder is made");
         }
         Self { scratch }
     }
 
-    fn project(&self) -> PathBuf {
-        self.scratch.path().join("project")
+    fn path(&self, path: &str) -> PathBuf {
+        self.scratch.path().join(path)
     }
 
     fn write(&self, file: &str, text: &str) -> PathBuf {
-        let path = self.scratch.path().join(file);
+        let path = self.path(file);
         fs::write(&path, text).expect("the rule file is written");
         path
     }
 
-    async fn read(&self, is_project_trusted: bool) -> Result<CodexProjectRules, CodexRulesError> {
-        read_codex_project_rules(&CodexRuleSources {
-            codex_home: &self.scratch.path().join("home"),
-            project_folder: &self.project(),
+    // The sources of the project's sessions, run on the Codex home at `codex_home`.
+    fn sources<'a>(
+        &self,
+        paths: &'a (PathBuf, PathBuf, PathBuf),
+        is_project_trusted: bool,
+    ) -> CodexRuleSources<'a> {
+        CodexRuleSources {
+            system_folder: &paths.0,
+            codex_home: &paths.1,
+            project_folder: &paths.2,
             is_project_trusted,
             path_rules: PathRules::Posix,
-        })
-        .await
+        }
+    }
+
+    fn paths(&self, codex_home: &str) -> (PathBuf, PathBuf, PathBuf) {
+        (
+            self.path("system"),
+            self.path(codex_home),
+            self.path("project"),
+        )
+    }
+
+    async fn read(
+        &self,
+        is_project_trusted: bool,
+    ) -> Result<Vec<CodexProjectRule>, CodexRulesError> {
+        let paths = self.paths("home");
+        read_codex_project_rules(&self.sources(&paths, is_project_trusted)).await
     }
 
     async fn read_rules(&self) -> Vec<ProviderAskRule> {
         let read = self.read(true).await.expect("the rules read");
-        assert_eq!(read.unread_files, []);
-        read.rules.into_iter().map(|kept| kept.rule).collect()
+        read.into_iter().map(|kept| kept.rule).collect()
+    }
+
+    async fn write_rule(
+        &self,
+        git_folder: Option<&Path>,
+        rule: &ProviderAskRule,
+    ) -> Result<(), CodexRulesError> {
+        let paths = self.paths("home");
+        write_codex_project_rule(&self.sources(&paths, true), git_folder, rule).await
+    }
+
+    async fn remove_rule(&self, rule: &ProviderAskRule) -> Result<(), CodexRulesError> {
+        let paths = self.paths("home");
+        remove_codex_project_rule(&self.sources(&paths, true), rule).await
     }
 }
 
 #[tokio::test]
 async fn a_block_replaces_the_allow_and_a_revoke_of_the_last_rule_deletes_the_file() {
     let places = Places::new();
-    let project = places.project();
+    let project = places.path("project");
     let git_folder = tempfile::tempdir().expect("a git folder");
     let allow = rule(
         RememberedRuleSense::Allow,
@@ -95,7 +129,8 @@ async fn a_block_replaces_the_allow_and_a_revoke_of_the_last_rule_deletes_the_fi
     let command = allow_command("npm  test");
 
     for written in [&allow, &command, &block] {
-        write_codex_project_rule(&project, Some(git_folder.path()), written)
+        places
+            .write_rule(Some(git_folder.path()), written)
             .await
             .expect("the rule is written");
     }
@@ -111,12 +146,14 @@ async fn a_block_replaces_the_allow_and_a_revoke_of_the_last_rule_deletes_the_fi
         "/.codex/rules/sidekicks.rules\n"
     );
 
-    remove_codex_project_rule(&project, &block, PathRules::Posix)
+    places
+        .remove_rule(&block)
         .await
         .expect("the block is removed");
     assert_eq!(places.read_rules().await, [allow_command("npm test")]);
 
-    remove_codex_project_rule(&project, &command, PathRules::Posix)
+    places
+        .remove_rule(&command)
         .await
         .expect("the last rule is removed");
     assert!(!rule_file(&project).exists());
@@ -125,26 +162,43 @@ async fn a_block_replaces_the_allow_and_a_revoke_of_the_last_rule_deletes_the_fi
 #[tokio::test]
 async fn a_revoke_of_a_rule_the_daemons_file_lacks_names_where_it_is_kept() {
     let places = Places::new();
-    let project = places.project();
     let own_file = places.write(
         "project/.codex/rules/sidekicks.rules",
         "prefix_rule(pattern=[\"ls\"])\n",
     );
     let team_file = places.write(
         "project/.codex/rules/team.rules",
-        "prefix_rule(pattern=[\"npm\", \"test\"])\n",
+        "for tool in [\"npm\", \"pnpm\"]:\n    prefix_rule(pattern=[tool, \"test\"])\n",
+    );
+    let persons_file = places.write(
+        "home/rules/default.rules",
+        "prefix_rule(pattern=[\"cargo\", \"build\"], decision=\"allow\")\n",
     );
 
-    let in_team_file =
-        remove_codex_project_rule(&project, &allow_command("npm test"), PathRules::Posix).await;
-    let nowhere =
-        remove_codex_project_rule(&project, &allow_command("cargo build"), PathRules::Posix).await;
+    let in_team_file = places.remove_rule(&allow_command("pnpm test")).await;
+    let in_persons_file = places.remove_rule(&allow_command("cargo build")).await;
+    let nowhere = places.remove_rule(&allow_command("make")).await;
 
     assert!(matches!(
         in_team_file,
         Err(CodexRulesError::RuleInUneditedFile { path }) if path == team_file
     ));
+    assert!(matches!(
+        in_persons_file,
+        Err(CodexRulesError::RuleInUneditedFile { path }) if path == persons_file
+    ));
     assert!(matches!(nowhere, Err(CodexRulesError::RuleNotFound)));
+
+    // A file Codex refuses still keeps the rule its text spells out.
+    let refused_file = places.write(
+        "system/rules/base.rules",
+        "prefix_rule(pattern=[\"go\", \"vet\"], decision=\"allow\")\nundefined_name\n",
+    );
+    let in_refused_file = places.remove_rule(&allow_command("go vet")).await;
+    assert!(matches!(
+        in_refused_file,
+        Err(CodexRulesError::RuleInUneditedFile { path }) if path == refused_file
+    ));
     assert_eq!(
         fs::read_to_string(own_file).expect("the daemon's file reads"),
         "prefix_rule(pattern=[\"ls\"])\n"
@@ -163,12 +217,18 @@ async fn a_revoke_of_a_rule_the_daemons_file_lacks_names_where_it_is_kept() {
 #[case::a_url(
     ProviderAskActionKind::Network,
     "https://x",
-    Some("Codex refuses this network rule's host: the host names a scheme or a path")
+    Some(
+        "Codex refuses this network rule's host: network_rule host must be a hostname or IP \
+         literal (without scheme or path)"
+    )
 )]
 #[case::a_wildcard(
     ProviderAskActionKind::Network,
     "*.example.com",
-    Some("Codex refuses this network rule's host: the host holds a wildcard")
+    Some(
+        "Codex refuses this network rule's host: network_rule host must be a specific host; \
+         wildcards are not allowed"
+    )
 )]
 #[case::a_file(
     ProviderAskActionKind::FileChange,
@@ -181,17 +241,14 @@ async fn an_allow_codex_would_stretch_or_refuse_leaves_the_file_untouched(
     #[case] subject: &str,
     #[case] refusal: Option<&str>,
 ) {
-    let project = tempfile::tempdir().expect("a project folder");
+    let places = Places::new();
+    let project = places.path("project");
     let existing = "prefix_rule(pattern=[\"ls\"], decision=\"allow\")\n";
-    fs::create_dir_all(project.path().join(".codex/rules")).expect("the folder is made");
-    fs::write(rule_file(project.path()), existing).expect("the rule file is written");
+    fs::write(rule_file(&project), existing).expect("the rule file is written");
 
-    let outcome = write_codex_project_rule(
-        project.path(),
-        None,
-        &rule(RememberedRuleSense::Allow, action, subject),
-    )
-    .await;
+    let outcome = places
+        .write_rule(None, &rule(RememberedRuleSense::Allow, action, subject))
+        .await;
 
     assert_eq!(
         outcome
@@ -201,42 +258,61 @@ async fn an_allow_codex_would_stretch_or_refuse_leaves_the_file_untouched(
         refusal
     );
     assert_eq!(
-        fs::read_to_string(rule_file(project.path())).expect("the rule file reads"),
+        fs::read_to_string(rule_file(&project)).expect("the rule file reads"),
         existing
     );
 }
 
 #[tokio::test]
-async fn the_persons_own_rule_files_are_read_as_codex_reads_them() {
+async fn the_rules_a_file_computes_are_read_as_codex_evaluates_them() {
     let places = Places::new();
+    // A host executable the system declares reaches the examples of every later file.
+    places.write(
+        "system/rules/base.rules",
+        "GIT = \"/usr/bin/git\"\nhost_executable(name = \"git\", paths = [GIT])\n",
+    );
     places.write(
         "project/.codex/rules/team.rules",
         "\"\"\"The team's rules.\"\"\"\n\
-         host_executable(name = \"git\", paths = [\"/usr/bin/git\"])\n\
          prefix_rule(pattern = [[\"npm\", \"pnpm\"], \"install\"], match = [\"pnpm install x\"])\n\
          prefix_rule([\"rm\"], \"forbidden\", not_match = [[\"rmdir\"]])\n\
          prefix_rule(pattern = [\"curl\"], decision = \"prompt\")\n\
          prefix_rule(pattern = [\"git\", \"status\"], match = [\"/usr/bin/git status\"])\n\
-         network_rule(host = \"Example.COM:443\", protocol = \"https\", decision = \"deny\")\n",
+         network_rule(host = \"Example.COM:443\", protocol = \"https\", decision = \"deny\")\n\
+         TOOL = \"cargo\"\n\
+         for verb in [\"test\", \"check\"]:\n    prefix_rule(pattern = [TOOL, verb], decision = \"forbidden\")\n\
+         def allow(*words):\n    prefix_rule(pattern = list(words))\n\
+         allow(\"ls\", \"-la\")\n",
+    );
+    // A file may define its own `prefix_rule`, which then makes no rule.
+    places.write(
+        "project/.codex/rules/z.rules",
+        "def prefix_rule(*args, **kwargs):\n    pass\nprefix_rule(\"a\", decision = \"nope\")\n",
     );
     places.write("project/.codex/rules/notes.txt", "not a rule file");
 
+    let block = |subject| {
+        rule(
+            RememberedRuleSense::Block,
+            ProviderAskActionKind::Command,
+            subject,
+        )
+    };
     assert_eq!(
         places.read_rules().await,
         [
             allow_command("npm install"),
             allow_command("pnpm install"),
-            rule(
-                RememberedRuleSense::Block,
-                ProviderAskActionKind::Command,
-                "rm"
-            ),
+            block("rm"),
             allow_command("git status"),
             rule(
                 RememberedRuleSense::Block,
                 ProviderAskActionKind::Network,
                 "example.com"
             ),
+            block("cargo test"),
+            block("cargo check"),
+            allow_command("ls -la"),
         ]
     );
 }
@@ -260,6 +336,12 @@ async fn the_persons_own_rule_files_are_read_as_codex_reads_them() {
     "host_executable(name = \"git\", paths = [\"/usr/bin/rg\"])"
 )]
 #[case::a_name_codex_does_not_know("allow_rule(pattern = [\"ls\"])")]
+#[case::a_misspelled_value_beside_a_variable(
+    "X = \"a\"\nprefix_rule(pattern = [X], decision = allw)"
+)]
+#[case::a_bare_unknown_name("foo")]
+#[case::a_top_level_fail("fail(\"stop\")")]
+#[case::a_name_another_file_binds("prefix_rule(pattern = [SHARED])")]
 #[case::a_value_of_another_type("prefix_rule(pattern = [\"ls\"], decision = None)")]
 #[case::a_load("load(\"other.star\", \"rule\")")]
 #[tokio::test]
@@ -267,7 +349,7 @@ async fn a_file_codex_refuses_drops_every_rule(#[case] text: &str) {
     let places = Places::new();
     places.write(
         "project/.codex/rules/a.rules",
-        "prefix_rule(pattern = [\"ls\"])\n",
+        "SHARED = \"ls\"\nprefix_rule(pattern = [SHARED])\n",
     );
     let refused = places.write("project/.codex/rules/b.rules", text);
 
@@ -279,67 +361,69 @@ async fn a_file_codex_refuses_drops_every_rule(#[case] text: &str) {
     );
 }
 
-#[rstest]
-#[case::a_variable("words = [\"cargo\"]\nprefix_rule(pattern = words)", "a variable")]
-#[case::a_loop(
-    "for tool in [\"cargo\"]:\n    prefix_rule(pattern = [tool])",
-    "a loop"
-)]
-#[case::a_function("def allow(word):\n    prefix_rule(pattern = [word])", "a function")]
-#[case::a_computed_argument(
-    "prefix_rule(pattern = [\"car\" + \"go\"])",
-    "a rule built from a computed value"
-)]
 #[tokio::test]
-async fn a_file_only_running_would_read_is_listed_unread_and_none_of_its_rules(
-    #[case] text: &str,
-    #[case] reason: &str,
-) {
+async fn a_file_that_runs_past_the_time_limit_drops_every_rule() {
     let places = Places::new();
-    places.write(
+    let endless = places.write(
         "project/.codex/rules/a.rules",
-        "prefix_rule(pattern = [\"ls\"])\n",
-    );
-    let unread = places.write(
-        "project/.codex/rules/b.rules",
-        &format!("prefix_rule(pattern = [\"cat\"])\n{text}\n"),
+        "for i in range(2000000000):\n    for j in range(2000000000):\n        pass\n",
     );
 
-    let read = places.read(true).await.expect("the rules read");
+    let outcome = places.read(true).await;
 
-    assert_eq!(
-        read.rules
-            .into_iter()
-            .map(|kept| kept.rule)
-            .collect::<Vec<_>>(),
-        [allow_command("ls")]
-    );
-    assert_eq!(
-        read.unread_files,
-        [CodexUnreadRuleFile {
-            file: unread,
-            reason: reason.to_owned(),
-        }]
+    assert!(
+        matches!(
+            &outcome,
+            Err(CodexRulesError::Unloadable { path, reason })
+                if *path == endless && reason == "did not finish"
+        ),
+        "{outcome:?}"
     );
 }
 
 #[tokio::test]
-async fn a_broken_file_of_the_persons_own_drops_the_projects_rules_and_an_untrusted_project_has_none()
+async fn a_broken_system_or_persons_file_drops_the_projects_rules_and_an_untrusted_project_has_none()
  {
     let places = Places::new();
     places.write(
         "project/.codex/rules/a.rules",
         "prefix_rule(pattern = [\"ls\"])\n",
     );
-    assert_eq!(
-        places.read(false).await.expect("nothing is read"),
-        CodexProjectRules::default()
-    );
+    assert_eq!(places.read(false).await.expect("nothing is read"), []);
 
     let broken = places.write("home/rules/default.rules", "prefix_rule(pattern = [])\n");
+    assert!(matches!(
+        places.read(false).await,
+        Err(CodexRulesError::Unloadable { path, .. }) if path == broken
+    ));
+    fs::remove_file(&broken).expect("the broken file goes");
 
+    let broken = places.write("system/rules/base.rules", "prefix_rule(pattern = [])\n");
     assert!(matches!(
         places.read(true).await,
         Err(CodexRulesError::Unloadable { path, .. }) if path == broken
     ));
+}
+
+#[tokio::test]
+async fn a_project_whose_codex_folder_is_the_codex_home_reads_the_home_once_and_takes_no_rule() {
+    let places = Places::new();
+    places.write(
+        "project/.codex/rules/default.rules",
+        "prefix_rule(pattern = [\"ls\"])\n",
+    );
+    let paths = places.paths("project/.codex");
+    let sources = places.sources(&paths, true);
+
+    assert_eq!(
+        read_codex_project_rules(&sources)
+            .await
+            .expect("the rules read"),
+        []
+    );
+    assert!(matches!(
+        write_codex_project_rule(&sources, None, &allow_command("npm test")).await,
+        Err(CodexRulesError::ProjectIsCodexHome)
+    ));
+    assert!(!rule_file(&places.path("project")).exists());
 }

@@ -91,7 +91,6 @@ anyhow.workspace = true
 axum = { workspace = true, features = ["http1", "tokio"] }
 base16ct.workspace = true
 base64.workspace = true
-blake3.workspace = true
 bytes.workspace = true
 cedar-policy.workspace = true
 chacha20poly1305.workspace = true
@@ -171,7 +170,7 @@ sidekicks-search = { workspace = true, features = ["index"] }
 sidekicks-terminal.workspace = true
 snow.workspace = true
 sse-stream.workspace = true
-starlark_syntax.workspace = true
+starlark.workspace = true
 strum.workspace = true
 subtle.workspace = true
 sysinfo.workspace = true
