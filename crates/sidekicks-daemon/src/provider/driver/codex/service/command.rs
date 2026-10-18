@@ -65,6 +65,13 @@ pub(crate) enum CodexCommandError {
 /// answers its standard output; its input is closed and its error output discarded. Fails with
 /// [`CodexCommandError`] when it cannot start, prints past 16 MiB, outlives `deadline` (both of
 /// which kill it), exits with a failure code or a signal, or prints anything but UTF-8 text.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex driver's one-shot reads, its version and catalog among them, run through it"
+    )
+)]
 pub(crate) async fn run_codex_command(
     spawner: &Spawner,
     launch: CodexProcessLaunch,

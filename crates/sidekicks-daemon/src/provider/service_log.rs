@@ -1,15 +1,16 @@
 //! The log of a provider's lasting service, one per provider and home in the daemon's `logs/`
 //! folder, `<provider id>-service-<home key>.log`: begun empty at each start with the former
 //! start's last 256 KiB kept beside it as `.previous.log`, written by the service in append mode,
-//! and cut the same way in place once it passes 64 MiB, so a service that runs for weeks never
-//! fills the disk. The diagnostic-log expiry deletes these files with the daemon's own.
+//! and cut the same way in place once it passes [`SERVICE_LOG_CAP_BYTES`], so a service that runs
+//! for weeks never fills the disk. The diagnostic-log expiry deletes these files with the daemon's
+//! own.
 
 use std::error::Error;
 use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use sidekicks_contracts::provider::id::is_provider_id;
+use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::process_exit::OutputTail;
@@ -17,8 +18,8 @@ use crate::process_exit::OutputTail;
 /// How much of the log is kept beside it when a start or the cap begins it again.
 const PREVIOUS_LOG_TAIL_BYTES: u64 = 256 * 1024;
 
-/// The size past which a running service's log is cut.
-const SERVICE_LOG_CAP_BYTES: u64 = 64 * 1024 * 1024;
+/// The size past which a running service's log is cut: 64 MiB.
+pub(crate) const SERVICE_LOG_CAP_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The hex digits of a home's key: the first 16 of its path's `blake3` hash.
 const HOME_KEY_HEX_DIGITS: usize = 16;
@@ -39,17 +40,32 @@ pub(crate) fn provider_home_key(home: &Path) -> String {
 
 /// The log of `provider_id`'s lasting service on `home`, in the daemon's `logs_folder`; `home` is
 /// resolved first. Fails with the resolve's error, a missing home among them.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start names a lasting provider service's log by its provider and home"
+    )
+)]
 pub(crate) fn provider_service_log_file(
     logs_folder: &Path,
-    provider_id: &str,
+    provider_id: &ProviderId,
     home: &Path,
 ) -> io::Result<PathBuf> {
     let key = provider_home_key(&sidekicks_platforms::real_path(home)?);
+    let provider_id = provider_id.as_str();
     Ok(logs_folder.join(format!("{provider_id}{SERVICE_LOG_NAME_INFIX}{key}.log")))
 }
 
 /// Whether `file_name` names a provider service's log, the tail kept beside it, or that tail
 /// while it is written: `<provider id>-service-<16 hex digits>` and one of their endings.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the diagnostic-log expiry the scheduler runs matches the provider services' logs"
+    )
+)]
 pub(crate) fn is_provider_service_log_file_name(file_name: &str) -> bool {
     let Some(stem) = SERVICE_LOG_ENDINGS
         .iter()
@@ -94,12 +110,16 @@ pub(crate) async fn open_provider_service_log(log_file: &Path) -> io::Result<std
     Ok(log.into_std().await)
 }
 
-/// Cuts a running service's `log_file` once it passes 64 MiB: its last 256 KiB kept beside it,
-/// then the log emptied in place, which its append-mode writers carry on from. A missing log is
-/// left alone. Fails with the read's, the keep's or the cut's error.
-pub(crate) async fn cap_provider_service_log(log_file: &Path) -> io::Result<()> {
+/// Cuts a running service's `log_file` once it passes `cap_bytes`, [`SERVICE_LOG_CAP_BYTES`]
+/// outside a test: its last 256 KiB kept beside it, then the log emptied in place. The cut is
+/// safe only because every writer appends: each write lands at the file's end as it is then, so
+/// after the cut the service writes from the start, where a writer holding its own offset would
+/// leave a hole of NUL bytes as long as the log was. It is logrotate's copy and truncate, with
+/// its gap: what the service appends between the tail's read and the cut lands in neither file.
+/// A missing log is left alone. Fails with the read's, the keep's or the cut's error.
+pub(crate) async fn cap_provider_service_log(log_file: &Path, cap_bytes: u64) -> io::Result<()> {
     match tokio::fs::symlink_metadata(log_file).await {
-        Ok(metadata) if metadata.is_file() && metadata.len() > SERVICE_LOG_CAP_BYTES => {}
+        Ok(metadata) if metadata.is_file() && metadata.len() > cap_bytes => {}
         Ok(_) => return Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
@@ -124,7 +144,7 @@ pub(crate) async fn read_provider_service_log_tail(
         .expect("the tail's byte count fits 64 bits");
     let mut tail = OutputTail::new();
     tail.push(&read_last_bytes(log_file, count).await?);
-    cap_provider_service_log(log_file).await?;
+    cap_provider_service_log(log_file, SERVICE_LOG_CAP_BYTES).await?;
     Ok(tail)
 }
 
@@ -183,8 +203,8 @@ mod tests {
     use rstest::rstest;
 
     use super::{
-        PREVIOUS_LOG_TAIL_BYTES, is_provider_service_log_file_name, open_provider_service_log,
-        previous_log_file,
+        PREVIOUS_LOG_TAIL_BYTES, cap_provider_service_log, is_provider_service_log_file_name,
+        open_provider_service_log, previous_log_file,
     };
 
     // Fails when the keep copies the whole log or its first 256 KiB, when the start leaves the
@@ -223,6 +243,39 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&log_file).expect("the log is read"),
             "former\nnew\n"
+        );
+    }
+
+    // Fails when the cut runs below its cap, leaves the log whole, keeps no tail, or loses the
+    // writer's place, so its next line lands past a hole of NUL bytes.
+    #[tokio::test]
+    async fn a_service_log_past_its_cap_is_cut_and_written_on_from_its_start() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let log_file = folder.path().join("first-service-0123456789abcdef.log");
+        let mut writer = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file)
+            .expect("the service's log opens");
+        writer.write_all(b"0123456789").expect("the service writes");
+
+        cap_provider_service_log(&log_file, 10)
+            .await
+            .expect("a log at its cap is left");
+        let at_cap = std::fs::read(&log_file).expect("the log is read");
+        cap_provider_service_log(&log_file, 9)
+            .await
+            .expect("a log past its cap is cut");
+        writer.write_all(b"next\n").expect("the service writes on");
+
+        assert_eq!(at_cap, b"0123456789");
+        assert_eq!(
+            std::fs::read(previous_log_file(&log_file)).expect("the kept tail is read"),
+            b"0123456789"
+        );
+        assert_eq!(
+            std::fs::read(&log_file).expect("the log is read"),
+            b"next\n"
         );
     }
 

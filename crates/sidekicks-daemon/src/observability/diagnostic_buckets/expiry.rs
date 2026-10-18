@@ -14,7 +14,9 @@ use std::time::{Duration, SystemTime};
 
 use crate::daemon::service_log::is_service_log_file_name;
 use crate::missing_entry::MissingEntry;
-use crate::provider::service_log::{cap_provider_service_log, is_provider_service_log_file_name};
+use crate::provider::service_log::{
+    SERVICE_LOG_CAP_BYTES, cap_provider_service_log, is_provider_service_log_file_name,
+};
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
@@ -53,7 +55,7 @@ pub(crate) async fn expire_diagnostic_logs(
         let path = logs_folder.join(&name);
         if live_file_names.contains(&OsStr::new(&name)) {
             if is_provider_service_log_file_name(&name)
-                && let Err(failure) = cap_provider_service_log(&path).await
+                && let Err(failure) = cap_provider_service_log(&path, SERVICE_LOG_CAP_BYTES).await
             {
                 tracing::warn!(
                     file = %path.display(),

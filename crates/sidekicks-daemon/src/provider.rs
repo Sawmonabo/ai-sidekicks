@@ -15,14 +15,6 @@ pub(crate) mod output_validation;
 pub(crate) mod port;
 pub(crate) mod project_rule_folders;
 pub(crate) mod record_readers;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the lasting provider services and the diagnostic-log expiry write, cut and \
-                  match these logs"
-    )
-)]
 pub(crate) mod service_log;
 pub(crate) mod spawn_environment;
 pub(crate) mod terminal_emission_gate;

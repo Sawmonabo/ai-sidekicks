@@ -7,7 +7,9 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use sidekicks_platforms::{ProcessRecord, create_private_folder, replace_file_atomically};
+use sidekicks_platforms::{
+    ProcessRecord, create_private_folder, real_path, replace_file_atomically,
+};
 
 use crate::provider::service_log::provider_home_key;
 
@@ -24,15 +26,24 @@ pub(crate) struct LastingServiceRecordFile {
     lock: PathBuf,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start keeps the lasting Codex service's record under its lock"
+    )
+)]
 impl LastingServiceRecordFile {
-    /// The record file of the service on `codex_home`, a path with every link resolved, in
-    /// `data_folder`.
-    pub(crate) fn of_home(data_folder: &Path, codex_home: &Path) -> Self {
+    /// The record file of the service on `codex_home`, in `data_folder`; `codex_home` is resolved
+    /// first, so two spellings of one folder share one record. Fails with the resolve's error, a
+    /// missing folder among them.
+    pub(crate) fn of_home(data_folder: &Path, codex_home: &Path) -> io::Result<Self> {
+        let key = provider_home_key(&real_path(codex_home)?);
         let record = data_folder
             .join(RECORD_FOLDER_NAME)
-            .join(format!("{}.json", provider_home_key(codex_home)));
+            .join(format!("{key}.json"));
         let lock = record.with_extension("json.lock");
-        Self { record, lock }
+        Ok(Self { record, lock })
     }
 
     /// Takes the record's lock, waiting while another daemon holds it; blocking, so it runs in
@@ -64,6 +75,13 @@ pub(crate) struct LockedServiceRecord<'file> {
     _lock: File,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start reads, writes and removes the lasting Codex service's record"
+    )
+)]
 impl LockedServiceRecord<'_> {
     /// The record kept, or `None` when none is. Blocking. Fails with the read's error, and with
     /// `InvalidData` for a file that does not read as a record.
@@ -113,7 +131,8 @@ mod tests {
             .record()
             .expect("the record reads")
             .expect("this process runs");
-        let file = LastingServiceRecordFile::of_home(data_folder.path(), data_folder.path());
+        let file = LastingServiceRecordFile::of_home(data_folder.path(), data_folder.path())
+            .expect("the folder resolves");
 
         let locked = file.lock().expect("the lock is taken");
         let before = locked.read().expect("a missing record reads");
