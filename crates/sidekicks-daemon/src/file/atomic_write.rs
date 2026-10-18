@@ -12,7 +12,7 @@ use crate::cleanup_failures::CleanupFailures;
 
 /// Why a crash-safe write failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum AtomicWriteError {
+pub enum AtomicWriteError {
     /// Making, writing, flushing or renaming the temporary file failed, so the target keeps its
     /// old contents; the temporary file's removal failure, if any, rides beside it.
     #[error("writing {} failed", path.display())]
