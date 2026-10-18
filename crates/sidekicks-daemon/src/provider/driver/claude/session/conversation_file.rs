@@ -17,7 +17,7 @@ use sidekicks_platforms::PathRules;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::missing_entry::MissingEntry;
-use crate::provider::driver::claude::session::plan_files::find_claude_plan_files;
+use crate::provider::driver::claude::session::plan_files::{ClaudePlan, find_claude_plan_files};
 use crate::provider::driver::claude::session::rules::{
     ClaudeProjectFolder, resolve_claude_local_settings_file,
 };
@@ -122,8 +122,8 @@ pub(crate) async fn read_claude_conversation_outline(
 /// project name, the local settings of the starting folder and of the repository's root among
 /// them), and in every project folder the conversation's files, the copies set aside and its folder
 /// of helper transcripts and tool results; under the home's scratch folder, the daemon's
-/// `CLAUDE_CODE_TMPDIR`, the conversation's folder in each project. Each project folder and scratch
-/// folder is listed once for the whole batch. The conversations' files go last, since they name the
+/// `CLAUDE_CODE_TMPDIR`, the conversation's folder in each project. Each project folder, scratch
+/// folder and plans folder is listed once for the whole batch. The conversations' files go last, since they name the
 /// plan files a purge that fails must find again. Fails with `InvalidInput`, before anything is
 /// listed or removed, for an id that is not one plain path component, else with the first read or
 /// removal failure.
@@ -159,11 +159,12 @@ pub(crate) async fn delete_claude_conversations(
             }
         }
     }
-    let scratch_projects = list_scratch_projects(Path::new(&compose_claude_scratch_folder(
+    let scratch_projects = list_scratch_projects(&compose_claude_scratch_folder(
         folders.data_folder,
         folders.provider_account_id,
-    )))
+    ))
     .await?;
+    let mut plans = Vec::new();
     for (conversation, files) in conversations.iter().zip(&conversation_files) {
         let session_id = conversation.provider_session_id;
         removed.extend([
@@ -189,24 +190,20 @@ pub(crate) async fn delete_claude_conversations(
                 break;
             }
         }
-        if let Some(plan_slug) = &plan_slug {
-            let root_local_settings = resolve_claude_local_settings_file(
-                conversation.project_folder,
-                folders.home_folder,
-                folders.path_rules,
-            )
-            .path;
-            removed.extend(
-                find_claude_plan_files(
-                    config_folder,
-                    conversation.project_folder.working_folder,
-                    &root_local_settings,
-                    plan_slug,
+        if let Some(plan_slug) = plan_slug {
+            plans.push(ClaudePlan {
+                project_folder: conversation.project_folder.working_folder,
+                root_local_settings: resolve_claude_local_settings_file(
+                    conversation.project_folder,
+                    folders.home_folder,
+                    folders.path_rules,
                 )
-                .await?,
-            );
+                .path,
+                plan_slug,
+            });
         }
     }
+    removed.extend(find_claude_plan_files(config_folder, &plans).await?);
     removed.extend(conversation_files.into_iter().flatten());
     for path in removed {
         tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path))
