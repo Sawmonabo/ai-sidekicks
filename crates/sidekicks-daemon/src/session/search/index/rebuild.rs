@@ -22,6 +22,7 @@ use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::session::search::index::build_mode::SEARCH_INDEX_BUILD_MODE;
 use crate::session::search::index::columns::source_rowid_of;
 use crate::session::search::index::rows::{
     INDEX_BATCH_ROW_LIMIT, IndexRowReader, SourceRow, empty_index_batch_room, index_row_of,
@@ -36,9 +37,6 @@ const SEARCH_INDEX_OPTIONS: SearchIndexOptions = SearchIndexOptions {
 // The most of the build's standard error a failure keeps: its last 16 KiB, where a failure's own
 // words sit.
 const STANDARD_ERROR_TAIL_BYTES: usize = 16 * 1024;
-
-// The daemon's own program runs the build in this mode.
-const BUILD_MODE: &str = "index";
 
 /// Why the index was built again at a start, logged by its word (`anotherDatabase`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
@@ -205,7 +203,7 @@ pub(crate) async fn build_search_index_in_child(
     }
     let mut command = Command::new(program);
     command
-        .arg(BUILD_MODE)
+        .arg(SEARCH_INDEX_BUILD_MODE)
         .arg(&request.database_path)
         .arg(&request.index_folder)
         .arg(request.last_outbox_id.to_string())
