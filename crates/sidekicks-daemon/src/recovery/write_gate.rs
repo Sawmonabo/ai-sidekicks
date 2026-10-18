@@ -208,10 +208,7 @@ fn named_session(params: Option<&RawValue>) -> Option<SessionId> {
 }
 
 fn daemon_write_refused(method: &str, recovery: DaemonWriteRefusedRecovery) -> DomainError {
-    let state = match recovery {
-        DaemonWriteRefusedRecovery::Rebuilding => "rebuilding",
-        DaemonWriteRefusedRecovery::Blocked => "blocked",
-    };
+    let state: &'static str = recovery.into();
     DomainError::new(
         format!("The service is not taking {method} until its recovery lets it; it is {state}"),
         RefusalCode::DaemonWriteRefused,
