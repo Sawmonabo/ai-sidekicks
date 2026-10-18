@@ -218,7 +218,8 @@ async fn writes_from_two_connections_and_the_screen_s_answers_reach_the_program_
         calls.push(registry.dispatch(write(FIRST_PANE, part, Some(index == 3)), context(1)));
     }
     calls.push(registry.dispatch(write(SECOND_PANE, "three", None), context(2)));
-    for call in calls {
+    // Awaited last to first, so the order can only come from each call's dispatch, never its poll.
+    for call in calls.into_iter().rev() {
         tokio::time::timeout(OUTPUT_BOUND, call)
             .await
             .expect("each write is taken in time")
