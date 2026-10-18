@@ -1,9 +1,9 @@
 //! Which process macOS holds responsible for another, and starting a program as its own
 //! responsible process. macOS charges a process's privacy prompts to its responsible process, which
 //! every process it starts inherits; a start can disclaim it, making the new program its own. The
-//! daemon re-runs itself that way at start, unless another running daemon started it, so every
-//! process it starts reads the daemon as responsible, and starts each terminal the person opens the
-//! same way, so a terminal's programs do not.
+//! daemon re-runs itself that way at start, unless another running instance of it is responsible
+//! for it, so every process it starts reads the daemon as responsible, and starts each terminal the
+//! person opens the same way, so a terminal's programs do not.
 //!
 //! The three calls are `libquarantine`'s, which `libSystem` re-exports and no SDK header declares.
 //! Each is looked up once at run time, so a macOS without one refuses instead of failing to load
