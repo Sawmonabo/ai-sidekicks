@@ -32,7 +32,11 @@ serde_json.workspace = true
 sidekicks-client.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
 
 [lints]
 workspace = true
