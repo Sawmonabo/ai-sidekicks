@@ -565,7 +565,8 @@ impl Outbox {
     }
 
     /// Closes the canceled subscription's lane: its unsent messages are dropped, then an ABORT
-    /// with CLOSE is written if the lane was numbered, and only then is `subscription` dropped.
+    /// with CLOSE is written, and only then is `subscription` dropped. A lane not yet numbered
+    /// takes its number for that ABORT, which spends the lane the client admitted for it.
     fn abort_lane(&self, key: LaneKey, subscription: Subscription) {
         let (messages, released) = {
             let mut state = self.lock();
@@ -575,14 +576,21 @@ impl Outbox {
                     if lane.is_queued {
                         state.sendable.retain(|queued| *queued != key);
                     }
-                    match lane.number {
+                    let number = match lane.number {
                         Some(number) => {
                             state.numbered.remove(&number);
+                            Ok(number)
+                        }
+                        None => state.lanes.open(),
+                    };
+                    match number {
+                        Ok(number) => {
                             state.lanes.close(number);
                             state.aborts.push_back((number, subscription));
                             (lane.messages, None)
                         }
-                        None => (lane.messages, Some(subscription)),
+                        // Every lane number is spent, so no lane could open for it either.
+                        Err(LanesExhausted) => (lane.messages, Some(subscription)),
                     }
                 }
             }
