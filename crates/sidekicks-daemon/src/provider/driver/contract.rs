@@ -25,11 +25,8 @@ use sidekicks_contracts::provider::driver::capabilities::{
 };
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
-use sidekicks_contracts::provider::driver::intervention::{
-    ApplyInterventionResponse, InterruptRunRequest,
-};
 use sidekicks_contracts::provider::driver::length_limits::{
-    DRIVER_BINDING_ID_MAX_LEN, DRIVER_FAILURE_DETAIL_MAX_LEN, DRIVER_FALLBACK_ACTION_MAX_LEN,
+    PROVIDER_BINDING_ID_MAX_LEN, PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
@@ -48,8 +45,9 @@ use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
-    FasterModelRetryOutcome, FasterModelRetryParams, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
+    InterruptRunRequest, OverrideDenialParams, PauseRunParams, ResumeRunParams,
+    SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ProviderBuildChange,
@@ -65,7 +63,7 @@ pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.
-const DRIVER_AUTH_DETAIL_MAX_LEN: usize = 512;
+const PROVIDER_AUTH_DETAIL_MAX_LEN: usize = 512;
 
 /// Why a driver operation did not answer: a refusal a client reads by its code, a steer whose turn
 /// ended before it was sent (the message waits for the next turn), or a failure inside the driver,
@@ -564,7 +562,7 @@ pub(crate) enum DriverResumeResult {
     /// The conversation resumed.
     Resumed {
         /// The new binding, stored by the daemon.
-        binding_id: FreeFormText<DRIVER_BINDING_ID_MAX_LEN>,
+        binding_id: FreeFormText<PROVIDER_BINDING_ID_MAX_LEN>,
         /// The driver's monotonic session position (a turn or event ordinal), which the daemon
         /// compares with its recorded one to catch a provider that answered with a fresh session.
         session_position: SafeInt<0>,
@@ -577,7 +575,7 @@ pub(crate) enum DriverResumeResult {
         /// What recovery the run needs.
         recovery_condition: RecoveryCondition,
         /// The provider's failure, fitted by [`bound_failure_detail`].
-        provider_failure_detail: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
+        provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
 }
 
@@ -585,14 +583,14 @@ pub(crate) enum DriverResumeResult {
 /// both ends, cut to the cap in code points, and `empty_fallback` where nothing is left.
 pub(crate) fn bound_failure_detail(
     detail: &str,
-    empty_fallback: FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN>,
-) -> FreeFormText<DRIVER_FAILURE_DETAIL_MAX_LEN> {
+    empty_fallback: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
     let without_nuls = detail.replace('\0', "");
     let trimmed = without_nuls.trim_matches(is_ecmascript_whitespace);
     if trimmed.is_empty() {
         return empty_fallback;
     }
-    FreeFormText::new(cut_to_code_points(trimmed, DRIVER_FAILURE_DETAIL_MAX_LEN).to_owned())
+    FreeFormText::new(cut_to_code_points(trimmed, PROVIDER_FAILURE_DETAIL_MAX_LEN).to_owned())
         .expect("trimmed, NUL-free text cut to the cap is non-blank and within it")
 }
 
@@ -622,7 +620,7 @@ pub(crate) enum MoveSessionToForkResult {
     /// The driver took a fallback instead.
     Degraded {
         /// The fallback it took.
-        fallback_action: Option<FreeFormText<DRIVER_FALLBACK_ACTION_MAX_LEN>>,
+        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     },
 }
 
@@ -634,7 +632,7 @@ pub(crate) enum DriverGoalResult {
     /// The provider did not take it.
     Degraded {
         /// The fallback the driver took.
-        fallback_action: Option<FreeFormText<DRIVER_FALLBACK_ACTION_MAX_LEN>>,
+        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     },
 }
 
@@ -689,7 +687,7 @@ pub(crate) struct DriverAuthProbeResult {
     pub(crate) status: DriverAuthProbeStatus,
     /// The provider's account or plan descriptor, which can hold an email address: shown to the
     /// person and never stored or carried on an event.
-    pub(crate) detail: Option<FreeFormText<DRIVER_AUTH_DETAIL_MAX_LEN>>,
+    pub(crate) detail: Option<FreeFormText<PROVIDER_AUTH_DETAIL_MAX_LEN>>,
 }
 
 /// A probe's answer with `detail` cut to its cap, and dropped where it is still not valid text,
@@ -700,7 +698,7 @@ pub(crate) fn build_auth_probe_result(
 ) -> DriverAuthProbeResult {
     // A blank or NUL-holding descriptor is dropped: it only explains the status.
     let detail =
-        FreeFormText::new(cut_to_code_points(detail, DRIVER_AUTH_DETAIL_MAX_LEN).to_owned()).ok();
+        FreeFormText::new(cut_to_code_points(detail, PROVIDER_AUTH_DETAIL_MAX_LEN).to_owned()).ok();
     DriverAuthProbeResult { status, detail }
 }
 

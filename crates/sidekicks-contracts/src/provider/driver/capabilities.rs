@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
-use crate::provider::driver::methods::{DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN};
+use crate::provider::driver::methods::{PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
@@ -19,11 +19,11 @@ use crate::wire::text::FreeFormText;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderModel {
     /// The model's id.
-    pub id: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    pub id: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     /// The model's name.
-    pub name: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    pub name: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     /// What the model can do, in the provider's words.
-    pub capabilities: Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>,
+    pub capabilities: Vec<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>,
     /// The model's reasoning-effort levels, as the installed build offers them; absent means the
     /// model has no effort axis, which an empty list would deny.
     #[serde(
@@ -31,8 +31,8 @@ pub struct ProviderModel {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>")]
-    pub effort_levels: Option<Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>>,
+    #[schemars(with = "Vec<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>")]
+    pub effort_levels: Option<Vec<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>>,
     /// The model's output-speed levels where its provider publishes them per model; absent means
     /// the model exposes no speed selection.
     #[serde(
@@ -40,8 +40,8 @@ pub struct ProviderModel {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>")]
-    pub output_speed_levels: Option<Vec<FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>>>,
+    #[schemars(with = "Vec<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>")]
+    pub output_speed_levels: Option<Vec<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>>,
     /// Whether the model has a fast output mode, as its provider reports it.
     pub fast: bool,
     /// Whether this row is the model's larger window, offered beside its default row.
@@ -72,14 +72,14 @@ pub fn find_provider_model_row<'rows>(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderMode {
     /// The mode's id.
-    pub id: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    pub id: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     /// The mode's name.
-    pub name: FreeFormText<DRIVER_WIRE_TOKEN_MAX_LEN>,
+    pub name: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
 }
 
 /// The name of the credential deny list handed to the provider, a reference so the list itself is
 /// never embedded.
-pub type CredentialPolicyRef = FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>;
+pub type CredentialPolicyRef = FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>;
 
 /// Declares the execution posture: each permission level's arm repeats the credential policy, then
 /// adds its writable roots.

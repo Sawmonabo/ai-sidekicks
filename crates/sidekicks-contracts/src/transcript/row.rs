@@ -97,7 +97,7 @@ pub fn is_transcript_run_scoped_event_type(event_type: SessionEventType) -> bool
             USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN.contains(&event_type)
         }
         EventCategory::ApprovalFlow => APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN.contains(&event_type),
-        EventCategory::AssistantOutput
+        EventCategory::AgentOutput
         | EventCategory::ArtifactPublication
         | EventCategory::SessionLifecycle
         | EventCategory::RecoveryEvents

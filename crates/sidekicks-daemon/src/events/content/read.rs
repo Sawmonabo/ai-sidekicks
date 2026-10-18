@@ -5,7 +5,7 @@
 //!   must be able to tell what the daemon stored from what a read added, so the projection is a
 //!   pair ([`HydratedSessionEvent`]).
 //! - A row with no body reads on the `unavailable` arm, never as an empty `available` body, which
-//!   would claim the assistant said nothing.
+//!   would claim the agent said nothing.
 //! - `content_payload` stays on its machine, so a row carried in from a peer reads as `absent`.
 
 use sidekicks_contracts::event::envelope::{EventEnvelope, HydratedSessionEvent};

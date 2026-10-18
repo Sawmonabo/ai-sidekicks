@@ -408,7 +408,7 @@ impl JsonSchema for BranchNamePattern {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LastLeadModel {
     /// The provider.
-    pub driver_name: ProviderId,
+    pub provider_name: ProviderId,
     /// The model.
     pub model_id: ProviderToken,
     /// The effort, or `null` for the driver's default.

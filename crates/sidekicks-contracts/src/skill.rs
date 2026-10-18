@@ -21,7 +21,7 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::WslPlace;
 use crate::project::ProjectId;
-use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
@@ -48,10 +48,10 @@ branded_uuid_id! {
 /// A new skill's name, before the daemon folds it into a folder name. Bounded by the call form that
 /// holds it; each provider's own name cap is its driver's, checked by the daemon for every provider
 /// the skill is on.
-pub type NewSkillName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
+pub type NewSkillName = FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>;
 
 /// What a person types to call a skill on one provider.
-pub type SkillCallForm = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
+pub type SkillCallForm = FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>;
 
 /// Whether a skill is on one provider.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -171,8 +171,8 @@ pub struct SkillListEntry {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>")]
-    pub plugin_name: Option<FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>")]
+    pub plugin_name: Option<FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>>,
     /// Every project, or one.
     pub scope: AgentDefinitionScope,
     /// The project, on a project skill.
@@ -515,7 +515,7 @@ pub struct SkillScanRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SkillScanTool {
     /// The tool, in words.
-    pub name: FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>,
+    pub name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// What happens instead.
     pub what_happens_instead: FreeFormText<SKILL_SCAN_TOOL_INSTEAD_MAX_LEN>,
 }

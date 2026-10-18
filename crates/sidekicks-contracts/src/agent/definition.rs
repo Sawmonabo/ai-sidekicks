@@ -14,7 +14,7 @@ use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::place::WslPlace;
 use crate::project::ProjectId;
-use crate::provider::driver::length_limits::DRIVER_TOOL_NAME_MAX_LEN;
+use crate::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::schema::{push_all_of, required_member};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -66,7 +66,7 @@ branded_uuid_id! {
 }
 
 /// A tool name on an allowlist, as the catalog spells it.
-pub type ToolName = FreeFormText<DRIVER_TOOL_NAME_MAX_LEN>;
+pub type ToolName = FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>;
 
 /// Where an agent's one memory lives: `user` in the daemon's own agent-memory folder, for every
 /// project; `project` in the project's repository; `local` in the project but kept out of the

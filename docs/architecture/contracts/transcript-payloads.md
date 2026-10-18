@@ -125,7 +125,7 @@ interface TranscriptOmittedPatch {
 // The refusal is THREE-LEGGED, not category alone (Plan-010 Phase 1): category is decisive only for
 // runLifecycle, so the arm also refuses a canonical type in the census of Spec-005 types whose
 // registered payload names a run unconditionally, and — for the types whose run identity is
-// registered OPTIONAL (every artifactPublication and assistantOutput type, the assistantOutput run
+// registered OPTIONAL (every artifactPublication and agentOutput type, the agentOutput run
 // being absent on a voice call's spoken answer, the usageTelemetry and approvalFlow types not
 // listed by name below, approval.rule.revoked among them, the agent.queueItem types,
 // user.message.sent and question.asked), which no type-level test can decide — a payload naming a

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
-use crate::provider::driver::methods::DRIVER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
@@ -30,15 +30,15 @@ pub struct SubagentLifecyclePayload {
     /// The provider.
     pub provider: ProviderId,
     /// The provider's own id for the helper.
-    pub subagent_id: FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>,
+    pub subagent_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     /// The tool call the helper was opened under, where the provider names one.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>")]
-    pub parent_tool_call_id: Option<FreeFormText<DRIVER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+    pub parent_tool_call_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// The execution epoch a late row is attributed to; comes with `source_position`.
     #[serde(
         default,

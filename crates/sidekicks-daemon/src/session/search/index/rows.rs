@@ -19,7 +19,7 @@ use crate::database::stored_column::{optional_text_column, rowid_column};
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::session::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
 
-// The log rows the index holds: a person's message, an assistant's message and a tool call, each
+// The log rows the index holds: a person's message, an agent's message and a tool call, each
 // stored once settled. A thinking update is narration a later event supersedes, so it is never
 // indexed.
 const INDEXED_EVENT_TYPES: [SessionEventType; 3] = [
@@ -28,7 +28,7 @@ const INDEXED_EVENT_TYPES: [SessionEventType; 3] = [
     SessionEventType::AgentToolCallInvoked,
 ];
 
-/// The log rows the index holds, as a SQL list: a person's message, an assistant's message and a
+/// The log rows the index holds, as a SQL list: a person's message, an agent's message and a
 /// tool call, each stored once settled, never a thinking update or a streamed chunk.
 pub(crate) static INDEXED_EVENT_TYPES_SQL: LazyLock<String> =
     LazyLock::new(|| sql_list_of(INDEXED_EVENT_TYPES.map(SessionEventType::as_str)));
@@ -93,7 +93,7 @@ pub(crate) struct LogRowPosition {
     pub(crate) sequence: i64,
 }
 
-// A log row's text: a person's words, an assistant's reply, or a tool's name then its arguments;
+// A log row's text: a person's words, an agent's reply, or a tool's name then its arguments;
 // none for a payload that is not JSON, which `json_extract` would refuse with an error.
 const EVENT_TEXT_SQL: &str = "CASE
            WHEN NOT json_valid(event.payload) THEN NULL

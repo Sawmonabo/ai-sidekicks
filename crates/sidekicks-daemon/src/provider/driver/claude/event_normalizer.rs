@@ -477,7 +477,7 @@ pub(crate) fn resolve_claude_frame_emission_route(
     let Ok(census_kind) = ClaudeWireFrameKind::from_str(frame_kind) else {
         let record = DriverDiagnosticRecord {
             provider: ProviderId::new(super::DESCRIPTOR.id.to_owned())
-                .expect("the driver id matches the pattern"),
+                .expect("the provider id matches the pattern"),
             provider_account_id,
             kind: DriverDiagnosticKind::UnmappedWireKind,
             raw_wire_type: Some(frame_kind.to_owned()),
@@ -699,12 +699,12 @@ mod tests {
     }
 
     #[rstest]
-    #[case::success("result/success", SessionEventType::AgentRunCompleted)]
+    #[case::success("result/success", SessionEventType::AgentTurnCompleted)]
     #[case::error_during_execution(
         "result/error_during_execution",
         SessionEventType::AgentRunFailed
     )]
-    fn a_result_frame_emits_its_run_ending(
+    fn a_result_frame_emits_its_ending_event(
         #[case] frame_kind: &str,
         #[case] event_type: SessionEventType,
     ) {
