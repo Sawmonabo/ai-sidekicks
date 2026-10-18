@@ -471,18 +471,21 @@ impl TerminalWatch {
         read_into: Option<&mut [u8]>,
         write_from: Option<&[u8]>,
     ) -> io::Result<Option<TerminalWake>> {
+        let mut is_child_event = false;
         let mut is_readable = false;
         let mut is_writable = false;
         for event in self.events.iter() {
-            if event.key == CHILD_KEY {
-                return Ok(Some(TerminalWake::ChildEvent));
-            }
-            is_readable |= event.readable;
-            is_writable |= event.writable;
+            is_child_event |= event.key == CHILD_KEY;
+            is_readable |= event.readable && event.key != CHILD_KEY;
+            is_writable |= event.writable && event.key != CHILD_KEY;
         }
         // The poll just asked whether the terminal takes input, so a write it found no room for is
-        // refused until a later poll finds room, and one it found room for is not.
+        // refused until a later poll finds room, and one it found room for is not; set before the
+        // program's event returns, so the signal keys taken next never read a stale refusal.
         let is_newly_refused = write_from.is_some() && self.input_refusal.set(!is_writable);
+        if is_child_event {
+            return Ok(Some(TerminalWake::ChildEvent));
+        }
         if is_readable && let Some(buffer) = read_into {
             match (&self.master).read(buffer) {
                 Ok(0) => return Ok(Some(TerminalWake::OutputEnded)),
