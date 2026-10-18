@@ -6,7 +6,7 @@ use bytes::Bytes;
 use sidekicks_terminal::{TerminalEvent, TerminalExit};
 use tokio::time::timeout;
 
-use crate::helpers::{KeepAllOutput, NoListener, OUTPUT_BOUND, read_to_exit, request, terminals};
+use crate::helpers::{KeepAllOutput, OUTPUT_BOUND, no_listener, read_to_exit, request, terminals};
 
 /// How many numbered lines the program prints, far more than a terminal's buffer holds.
 const LINE_COUNT: usize = 20_000;
@@ -16,7 +16,7 @@ async fn a_paused_shell_leaves_its_output_waiting_and_the_resume_delivers_it_in_
     let terminals = terminals();
     let program = sidekicks_platforms::waiting_printer(LINE_COUNT);
     let mut spawned = terminals
-        .spawn(request(program), NoListener, KeepAllOutput)
+        .spawn(request(program), no_listener, KeepAllOutput)
         .await
         .expect("the shell starts");
 
@@ -40,9 +40,11 @@ async fn a_paused_shell_leaves_its_output_waiting_and_the_resume_delivers_it_in_
 
     terminals.pause(spawned.handle).expect("the shell pauses");
     terminals
-        .write(spawned.handle, Bytes::from_static(b"go\r\n"))
+        .queue_write(spawned.handle, Bytes::from_static(b"go\r\n"))
+        .expect("the input line is handed over")
+        .taken()
         .await
-        .expect("the input line is written");
+        .expect("the input line is taken");
     assert!(
         timeout(Duration::from_millis(500), spawned.output.next())
             .await

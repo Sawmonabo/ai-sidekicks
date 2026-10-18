@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::event::EventListener;
 use alacritty_terminal::tty::Pty;
 use bytes::Bytes;
 use sidekicks_platforms::{TerminalSignal, TerminalWake, TerminalWaker, TerminalWatch};
@@ -21,11 +20,8 @@ use tracing::Instrument;
 use vte::ansi::Processor;
 
 use crate::exit::TerminalExit;
-use crate::pty::{TerminalWriteError, WriteQueue};
-use crate::screen::TerminalScreen;
-
-/// How many of the caller's writes wait for the loop before a writer waits for room.
-const WRITE_CAPACITY: usize = 16;
+use crate::pty::{QueuedWrite, TerminalAnswers, TerminalWriteError, WriteIntake, WriteQueue};
+use crate::screen::{ScreenListener, TerminalScreen};
 
 /// How many of the caller's resizes wait for the loop before a caller waits for room.
 const RESIZE_CAPACITY: usize = 4;
@@ -108,12 +104,6 @@ impl Drop for TerminalOutput {
     }
 }
 
-/// A caller's write the loop carries out on the terminal.
-struct WriteCommand {
-    bytes: Bytes,
-    answer: oneshot::Sender<Result<(), TerminalWriteError>>,
-}
-
 /// A caller's resize the loop carries out on the terminal and its screen copy.
 struct ResizeCommand {
     rows: u16,
@@ -134,7 +124,7 @@ struct ChildState {
 
 /// One shell's controls, shared by the terminals and the shell's read loop.
 pub(crate) struct TerminalControl {
-    writes: mpsc::Sender<WriteCommand>,
+    writes: WriteIntake,
     resizes: mpsc::Sender<ResizeCommand>,
     waker: TerminalWaker,
     is_paused: AtomicBool,
@@ -157,26 +147,44 @@ impl TerminalControl {
         self.process_id
     }
 
-    /// Writes `bytes` to the terminal's input, answering once every byte is written; waits for
-    /// room while the loop holds 64 KiB of writes. Fails with `Closed` once the close began,
-    /// `Ended` once the input or the program ended, and `Failed` for a write the system refused.
+    /// Writes `bytes` to the terminal's input behind every write handed over before it,
+    /// answering once every byte is written. Fails with `Closed` once the close began, `Ended`
+    /// once the input or the program ended, and `Failed` for a write the system refused.
     pub(crate) async fn write(&self, bytes: Bytes) -> Result<(), TerminalWriteError> {
-        if self.is_closing() {
-            return Err(TerminalWriteError::Closed);
-        }
         let (answer, answered) = oneshot::channel();
-        if self
-            .writes
-            .send(WriteCommand { bytes, answer })
-            .await
-            .is_err()
-        {
-            return Err(self.ended_write_error());
-        }
-        self.waker.wake();
+        self.hand_over(QueuedWrite::awaiting_written(bytes, answer))?;
         answered
             .await
             .unwrap_or_else(|_loop_ended| Err(self.ended_write_error()))
+    }
+
+    /// Hands `bytes` to the terminal's input behind every write handed over before it, at once
+    /// and without waiting; the answer resolves once the terminal's write queue takes it, which it
+    /// does while the queue holds fewer than 64 KiB. Fails at once with `Closed` once the close
+    /// began and `Ended` once the read loop is gone; the answer fails the same way when the close
+    /// or the input's end comes before the take.
+    pub(crate) fn queue_write(
+        self: &Arc<Self>,
+        bytes: Bytes,
+    ) -> Result<WriteTaken, TerminalWriteError> {
+        let (taken, answer) = oneshot::channel();
+        self.hand_over(QueuedWrite::awaiting_take(bytes, taken))?;
+        Ok(WriteTaken {
+            answer,
+            control: Arc::clone(self),
+        })
+    }
+
+    /// Puts `write` in the intake and wakes the loop to take it.
+    fn hand_over(&self, write: QueuedWrite) -> Result<(), TerminalWriteError> {
+        if self.is_closing() {
+            return Err(TerminalWriteError::Closed);
+        }
+        if self.writes.send(write).is_err() {
+            return Err(self.ended_write_error());
+        }
+        self.waker.wake();
+        Ok(())
     }
 
     /// Resizes the terminal and its screen copy to `rows` by `columns` cells, ahead of any write
@@ -344,8 +352,26 @@ impl TerminalControl {
     }
 }
 
+/// A write handed to a terminal, waiting for its write queue to take it; dropping it leaves the
+/// write in line.
+pub struct WriteTaken {
+    answer: oneshot::Receiver<Result<(), TerminalWriteError>>,
+    control: Arc<TerminalControl>,
+}
+
+impl WriteTaken {
+    /// Resolves once the terminal's write queue has taken the write. Fails with `Closed` when the
+    /// close began first and `Ended` when the input or the program ended first.
+    pub async fn taken(self) -> Result<(), TerminalWriteError> {
+        let Self { answer, control } = self;
+        answer
+            .await
+            .unwrap_or_else(|_loop_ended| Err(control.ended_write_error()))
+    }
+}
+
 /// A shell whose read loop is running: its controls, its screen copy and its output.
-pub(crate) struct StartedLoop<L: EventListener> {
+pub(crate) struct StartedLoop<L: ScreenListener> {
     /// The controls the terminals drive the shell with.
     pub(crate) control: Arc<TerminalControl>,
     /// The screen copy and the scrollback window, under the lock the loop draws them with.
@@ -361,20 +387,20 @@ type PtySlot = Arc<Mutex<Option<Pty>>>;
 type Release = Box<dyn FnOnce() + Send>;
 
 /// Starts the read loop of the shell in `pty` on `runtime`, its screen copy `rows` by `columns`
-/// cells heard by `listener`, every chunk of output passing `filter` first; `name` names the
-/// loop in logs and threads. Fails when the loop's waker or thread cannot be made; the PTY is then
-/// released off the runtime's workers.
+/// cells heard by the listener `listen` makes from the shell's answers, every chunk of output
+/// passing `filter` first; `name` names the loop in logs and threads. Fails when the loop's waker
+/// or thread cannot be made; the PTY is then released off the runtime's workers.
 pub(crate) fn start_read_loop<L, F>(
     runtime: &Handle,
     name: &str,
     pty: Pty,
     rows: u16,
     columns: u16,
-    listener: L,
+    listen: impl FnOnce(TerminalAnswers) -> L,
     filter: F,
 ) -> io::Result<StartedLoop<L>>
 where
-    L: EventListener + Clone + Send + 'static,
+    L: ScreenListener,
     F: OutputFilter,
 {
     let process_id = sidekicks_platforms::child_process_id(&pty);
@@ -389,7 +415,8 @@ where
             return Err(error);
         }
     };
-    let (writes, write_receiver) = mpsc::channel(WRITE_CAPACITY);
+    let (writes, write_receiver) = mpsc::unbounded_channel();
+    let answers = TerminalAnswers::new(writes.clone());
     let (resizes, resize_receiver) = mpsc::channel(RESIZE_CAPACITY);
     let control = Arc::new(TerminalControl {
         writes,
@@ -404,7 +431,11 @@ where
         exit_report: Mutex::new(ExitReport::Pending),
         exit_reported: watch::Sender::new(false),
     });
-    let screen = Arc::new(Mutex::new(TerminalScreen::new(rows, columns, listener)));
+    let screen = Arc::new(Mutex::new(TerminalScreen::new(
+        rows,
+        columns,
+        listen(answers),
+    )));
     let (output_sender, output_receiver) = mpsc::channel(OUTPUT_CAPACITY);
     let read_loop = ReadLoop {
         name: name.to_owned(),
@@ -484,12 +515,12 @@ enum LoopEnd {
 }
 
 /// What one shell's read loop owns besides its watch.
-struct ReadLoop<L: EventListener, F> {
+struct ReadLoop<L: ScreenListener, F> {
     name: String,
     control: Arc<TerminalControl>,
     screen: Arc<Mutex<TerminalScreen<L>>>,
     filter: F,
-    writes: mpsc::Receiver<WriteCommand>,
+    writes: mpsc::UnboundedReceiver<QueuedWrite>,
     resizes: mpsc::Receiver<ResizeCommand>,
     processor: Processor,
     queue: WriteQueue,
@@ -506,7 +537,7 @@ struct ReadLoop<L: EventListener, F> {
 
 impl<L, F> ReadLoop<L, F>
 where
-    L: EventListener + Clone + Send + 'static,
+    L: ScreenListener,
     F: OutputFilter,
 {
     async fn run(mut self, pty_slot: PtySlot) {
@@ -561,12 +592,13 @@ where
             // close's hangup is not blocked on a full terminal.
             let can_read = !self.is_output_ended
                 && (self.output.is_none() || (self.permit.is_some() && !self.control.is_paused()));
-            let deadline = self.processor.sync_timeout().sync_timeout();
+            // The screen copy draws a synchronized update's held output at each chunk's end, so no
+            // update's deadline is waited on.
             let wake = watch
                 .wait(
                     can_read.then_some(&mut *self.read_buffer),
                     self.queue.pending_bytes(),
-                    deadline,
+                    None,
                 )
                 .await;
             match wake {
@@ -586,8 +618,7 @@ where
                         return end;
                     }
                 }
-                Ok(TerminalWake::Woken) => {}
-                Ok(TerminalWake::Deadline) => self.stop_sync(),
+                Ok(TerminalWake::Woken | TerminalWake::Deadline) => {}
                 Err(error) => {
                     tracing::error!(
                         error = &error as &(dyn Error + 'static),
@@ -625,17 +656,12 @@ where
             let is_reading = has_room && !is_reading_done;
             quiet_until = is_reading
                 .then(|| quiet_until.unwrap_or_else(|| Instant::now() + EXIT_QUIET_PERIOD));
-            let sync_deadline = self.processor.sync_timeout().sync_timeout();
-            let deadline = match (sync_deadline, quiet_until) {
-                (Some(sync), Some(quiet)) => Some(sync.min(quiet)),
-                (sync, quiet) => sync.or(quiet),
-            };
             let read_limit = self
                 .read_buffer
                 .len()
                 .min(EXIT_DRAIN_BYTES.saturating_sub(drained));
             let read_into = is_reading.then(|| &mut self.read_buffer[..read_limit]);
-            match watch.wait(read_into, None, deadline).await {
+            match watch.wait(read_into, None, quiet_until).await {
                 Ok(TerminalWake::Read(count)) => {
                     drained += count;
                     quiet_until = Some(Instant::now() + EXIT_QUIET_PERIOD);
@@ -643,11 +669,7 @@ where
                 }
                 Ok(TerminalWake::OutputEnded) => self.is_output_ended = true,
                 Ok(TerminalWake::Deadline) => {
-                    let now = Instant::now();
-                    if sync_deadline.is_some_and(|sync| now >= sync) {
-                        self.stop_sync();
-                    }
-                    if quiet_until.is_some_and(|quiet| now >= quiet) {
+                    if quiet_until.is_some_and(|quiet| Instant::now() >= quiet) {
                         self.is_output_ended = true;
                     }
                 }
@@ -670,8 +692,8 @@ where
         self.control.report_exit(TerminalExit::from_status(status));
     }
 
-    /// Carries out every waiting resize, then takes waiting writes while the queue has room, so a
-    /// resize never waits behind writes.
+    /// Carries out every waiting resize, then takes waiting writes and answers while the queue has
+    /// room, so a resize never waits behind writes.
     fn take_commands(&mut self, watch: &mut TerminalWatch) {
         while let Ok(ResizeCommand {
             rows,
@@ -684,11 +706,7 @@ where
                 tracing::debug!("a terminal resize's caller stopped waiting for its answer");
             }
         }
-        while self.queue.has_room()
-            && let Ok(WriteCommand { bytes, answer }) = self.writes.try_recv()
-        {
-            self.queue.push(bytes, answer);
-        }
+        self.queue.take_from(&mut self.writes);
     }
 
     fn resize(&self, watch: &mut TerminalWatch, rows: u16, columns: u16) -> io::Result<()> {
@@ -767,10 +785,6 @@ where
         permit.send(chunk);
     }
 
-    fn stop_sync(&mut self) {
-        lock_screen(&self.screen).stop_sync(&mut self.processor);
-    }
-
     /// Drops the output and its room, which closes the channel once the caller drained it.
     fn end_output(&mut self) {
         self.permit = None;
@@ -781,7 +795,7 @@ where
     }
 }
 
-fn lock_screen<L: EventListener>(
+fn lock_screen<L: ScreenListener>(
     screen: &Mutex<TerminalScreen<L>>,
 ) -> MutexGuard<'_, TerminalScreen<L>> {
     screen

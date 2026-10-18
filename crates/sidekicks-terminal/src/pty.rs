@@ -1,5 +1,5 @@
-//! A shell's PTY: how it opens, the environment it hands the `shell` mode, and the queue that
-//! carries writes to the terminal in order.
+//! A shell's PTY: how it opens, the environment it hands the `shell` mode, and the intake and
+//! queue that carry writes and the screen copy's answers to the terminal in order.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
@@ -7,14 +7,21 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::{self, Pty};
 use bytes::Bytes;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
-/// The most bytes a terminal's write queue takes before a writer waits for room.
+/// The most bytes a terminal's write queue takes: a write is taken from the intake while the queue
+/// holds fewer, so a write of any size is taken whole once there is room.
 pub(crate) const WRITE_QUEUE_BYTES: usize = 64 * 1024;
+
+/// The most bytes of the screen copy's answers one shell holds before the terminal has written
+/// them; an answer past it is dropped, so a program that asks without reading its input cannot
+/// grow the intake, and answers a caller holds back for a while keep to the same bound.
+pub const ANSWER_BYTES_LIMIT: usize = 64 * 1024;
 
 /// A program and the arguments it starts with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -203,14 +210,136 @@ pub enum TerminalWriteError {
     Failed(#[source] Arc<io::Error>),
 }
 
-/// The answer a write is waiting for.
+/// The answer a write is waiting for: written whole, or the error that left it unwritten.
 type WriteAnswer = oneshot::Sender<Result<(), TerminalWriteError>>;
+
+/// One write in a terminal's intake, in the order it was handed over: its bytes, who waits for
+/// its take into the queue or for its last byte, and the answer count it holds while it is not
+/// written.
+pub(crate) struct QueuedWrite {
+    bytes: Bytes,
+    taken: Option<WriteAnswer>,
+    written: Option<WriteAnswer>,
+    answer_bytes: Option<AnswerBytes>,
+}
+
+impl QueuedWrite {
+    /// A write whose caller waits until the queue takes it, answered through `taken`.
+    pub(crate) fn awaiting_take(bytes: Bytes, taken: WriteAnswer) -> Self {
+        Self {
+            bytes,
+            taken: Some(taken),
+            written: None,
+            answer_bytes: None,
+        }
+    }
+
+    /// A write whose caller waits until its last byte is written, answered through `written`.
+    pub(crate) fn awaiting_written(bytes: Bytes, written: WriteAnswer) -> Self {
+        Self {
+            bytes,
+            taken: None,
+            written: Some(written),
+            answer_bytes: None,
+        }
+    }
+}
+
+/// The intake every write and answer of one terminal joins, in the order they are handed over;
+/// unbounded, since a write joins it at once under its caller's lock, and bounded in practice by
+/// the callers' own windows and [`ANSWER_BYTES_LIMIT`].
+pub(crate) type WriteIntake = mpsc::UnboundedSender<QueuedWrite>;
+
+/// The count of one terminal's answer bytes not yet written, and whether a dropped answer was
+/// logged since the count was last zero.
+struct AnswerCount {
+    bytes: AtomicUsize,
+    has_logged_drop: AtomicBool,
+}
+
+/// Bytes of an answer held against the count until the write leaves the queue, written or
+/// refused; dropping it gives them back.
+struct AnswerBytes {
+    count: Arc<AnswerCount>,
+    length: usize,
+}
+
+impl Drop for AnswerBytes {
+    fn drop(&mut self) {
+        let before = self.count.bytes.fetch_sub(self.length, Ordering::SeqCst);
+        if before == self.length {
+            self.count.has_logged_drop.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Where a shell's screen copy hands its answers to the program's questions: into the terminal's
+/// intake behind every write handed over before them, at most [`ANSWER_BYTES_LIMIT`] of them
+/// waiting. The read loop takes them before it next waits.
+#[derive(Clone)]
+pub struct TerminalAnswers {
+    intake: WriteIntake,
+    count: Arc<AnswerCount>,
+}
+
+impl TerminalAnswers {
+    /// Answers handed into `intake`, none yet waiting.
+    pub(crate) fn new(intake: WriteIntake) -> Self {
+        Self {
+            intake,
+            count: Arc::new(AnswerCount {
+                bytes: AtomicUsize::new(0),
+                has_logged_drop: AtomicBool::new(false),
+            }),
+        }
+    }
+
+    /// Queues `answer` for the program behind every earlier write, unless the answers not yet
+    /// written would pass [`ANSWER_BYTES_LIMIT`]: then it is dropped, logged once until every
+    /// answer waiting has been written. Nothing is queued once the terminal has closed.
+    pub fn queue(&self, answer: Bytes) {
+        if answer.is_empty() {
+            return;
+        }
+        let length = answer.len();
+        let has_room = self
+            .count
+            .bytes
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |waiting| {
+                (waiting + length <= ANSWER_BYTES_LIMIT).then_some(waiting + length)
+            })
+            .is_ok();
+        if !has_room {
+            if !self.count.has_logged_drop.swap(true, Ordering::SeqCst) {
+                tracing::warn!(
+                    limit = ANSWER_BYTES_LIMIT,
+                    "a program asked its terminal more than it read, so later answers are dropped"
+                );
+            }
+            return;
+        }
+        let write = QueuedWrite {
+            bytes: answer,
+            taken: None,
+            written: None,
+            answer_bytes: Some(AnswerBytes {
+                count: Arc::clone(&self.count),
+                length,
+            }),
+        };
+        if self.intake.send(write).is_err() {
+            tracing::debug!("an answer came after the terminal's read loop ended");
+        }
+    }
+}
 
 /// One write waiting for the terminal, and how much of it is written.
 struct PendingWrite {
     bytes: Bytes,
     written: usize,
-    answer: WriteAnswer,
+    answer: Option<WriteAnswer>,
+    /// Held until the write leaves the queue; dropped with it.
+    _answer_bytes: Option<AnswerBytes>,
 }
 
 /// Why a queue takes no more writes.
@@ -253,21 +382,50 @@ impl WriteQueue {
         self.pending_byte_count < WRITE_QUEUE_BYTES
     }
 
-    /// Queues `bytes` behind every earlier write; once the queue is closed or ended the write is
-    /// answered with that error at once, and an empty write is answered at once.
-    pub(crate) fn push(&mut self, bytes: Bytes, answer: WriteAnswer) {
-        if let Some(stop) = self.stop {
-            answer_write(answer, Err(stop.error()));
-        } else if bytes.is_empty() {
-            answer_write(answer, Ok(()));
-        } else {
-            self.pending_byte_count += bytes.len();
-            self.pending.push_back(PendingWrite {
-                bytes,
-                written: 0,
-                answer,
-            });
+    /// Takes writes from `intake` in order while the queue has room, answering each one's take.
+    pub(crate) fn take_from(&mut self, intake: &mut mpsc::UnboundedReceiver<QueuedWrite>) {
+        while self.has_room()
+            && let Ok(write) = intake.try_recv()
+        {
+            self.push(write);
         }
+    }
+
+    /// Queues `write` behind every earlier write and answers its take; once the queue is closed
+    /// or ended the write is answered with that error at once, and an empty write is answered
+    /// written at once.
+    fn push(&mut self, write: QueuedWrite) {
+        let QueuedWrite {
+            bytes,
+            taken,
+            written,
+            answer_bytes,
+        } = write;
+        if let Some(stop) = self.stop {
+            if let Some(taken) = taken {
+                answer_write(taken, Err(stop.error()));
+            }
+            if let Some(written) = written {
+                answer_write(written, Err(stop.error()));
+            }
+            return;
+        }
+        if let Some(taken) = taken {
+            answer_write(taken, Ok(()));
+        }
+        if bytes.is_empty() {
+            if let Some(written) = written {
+                answer_write(written, Ok(()));
+            }
+            return;
+        }
+        self.pending_byte_count += bytes.len();
+        self.pending.push_back(PendingWrite {
+            bytes,
+            written: 0,
+            answer: written,
+            _answer_bytes: answer_bytes,
+        });
     }
 
     /// The bytes of the head write not yet written; `None` with no write waiting.
@@ -288,8 +446,8 @@ impl WriteQueue {
         self.pending_byte_count -= written;
         if head.written < head.bytes.len() {
             self.pending.push_front(head);
-        } else {
-            answer_write(head.answer, Ok(()));
+        } else if let Some(answer) = head.answer {
+            answer_write(answer, Ok(()));
         }
     }
 
@@ -309,10 +467,9 @@ impl WriteQueue {
         let error = Arc::new(error);
         self.pending_byte_count = 0;
         for write in self.pending.drain(..) {
-            answer_write(
-                write.answer,
-                Err(TerminalWriteError::Failed(Arc::clone(&error))),
-            );
+            if let Some(answer) = write.answer {
+                answer_write(answer, Err(TerminalWriteError::Failed(Arc::clone(&error))));
+            }
         }
     }
 
@@ -320,7 +477,9 @@ impl WriteQueue {
         self.stop = Some(stop);
         self.pending_byte_count = 0;
         for write in self.pending.drain(..) {
-            answer_write(write.answer, Err(stop.error()));
+            if let Some(answer) = write.answer {
+                answer_write(answer, Err(stop.error()));
+            }
         }
     }
 }
@@ -341,10 +500,12 @@ mod tests {
 
     use bytes::Bytes;
     use rstest::rstest;
+    use tokio::sync::mpsc;
     use tokio::sync::oneshot::{self, error::TryRecvError};
 
     use super::{
-        ShellEnvironmentError, TerminalWriteError, WriteQueue, check_environment,
+        ANSWER_BYTES_LIMIT, QueuedWrite, ShellEnvironmentError, TerminalAnswers,
+        TerminalWriteError, WRITE_QUEUE_BYTES, WriteQueue, check_environment,
         encode_shell_environment, shell_environment, shell_environment_name,
     };
 
@@ -352,8 +513,31 @@ mod tests {
 
     fn push(queue: &mut WriteQueue, bytes: &'static [u8]) -> Answer {
         let (answer, receiver) = oneshot::channel();
-        queue.push(Bytes::from_static(bytes), answer);
+        queue.push(QueuedWrite::awaiting_written(
+            Bytes::from_static(bytes),
+            answer,
+        ));
         receiver
+    }
+
+    /// Hands `bytes` to the intake as a write whose caller waits for its take.
+    fn hand_over(intake: &mpsc::UnboundedSender<QueuedWrite>, bytes: Bytes) -> Answer {
+        let (taken, receiver) = oneshot::channel();
+        intake
+            .send(QueuedWrite::awaiting_take(bytes, taken))
+            .expect("the intake is open");
+        receiver
+    }
+
+    /// Writes every byte the queue holds, in order, as the terminal would.
+    fn write_all(queue: &mut WriteQueue) -> Vec<u8> {
+        let mut written = Vec::new();
+        while let Some(pending) = queue.pending_bytes() {
+            written.extend_from_slice(pending);
+            let count = pending.len();
+            queue.advance(count);
+        }
+        written
     }
 
     fn is_waiting(receiver: &mut Answer) -> bool {
@@ -415,6 +599,105 @@ mod tests {
             assert!(is_written(&mut second));
             assert_eq!(queue.pending_bytes(), None);
         }
+    }
+
+    #[test]
+    fn a_write_is_answered_once_the_queue_takes_it_and_waits_while_the_queue_is_full() {
+        let (intake, mut receiver) = mpsc::unbounded_channel();
+        let mut queue = WriteQueue::new();
+        let half = Bytes::from(vec![b'a'; WRITE_QUEUE_BYTES / 2]);
+
+        // A program that never reads: nothing is written, yet the writes the queue has room for
+        // are answered.
+        let mut first = hand_over(&intake, half.clone());
+        let mut second = hand_over(&intake, half.clone());
+        let mut third = hand_over(&intake, half);
+        queue.take_from(&mut receiver);
+        assert!(is_written(&mut first));
+        assert!(is_written(&mut second));
+        assert!(
+            is_waiting(&mut third),
+            "a write past the bound waits for room"
+        );
+
+        // The program reads: the queue drains and the waiting write is taken.
+        queue.advance(WRITE_QUEUE_BYTES / 2);
+        queue.take_from(&mut receiver);
+        assert!(is_written(&mut third));
+    }
+
+    #[test]
+    fn writes_and_answers_reach_the_program_in_the_order_handed_over() {
+        let (intake, mut receiver) = mpsc::unbounded_channel();
+        let answers = TerminalAnswers::new(intake.clone());
+        let mut queue = WriteQueue::new();
+        let paste = Bytes::from(vec![b'p'; 200 * 1024]);
+
+        let _first = hand_over(&intake, Bytes::from_static(b"one"));
+        answers.queue(Bytes::from_static(b"\x1b[?1;2c"));
+        let _second = hand_over(&intake, Bytes::from_static(b"two"));
+        let mut pasted = hand_over(&intake, paste.clone());
+        queue.take_from(&mut receiver);
+        assert!(
+            is_written(&mut pasted),
+            "a paste larger than the bound is taken whole"
+        );
+
+        let mut expected = b"one\x1b[?1;2ctwo".to_vec();
+        expected.extend_from_slice(&paste);
+        assert_eq!(write_all(&mut queue), expected);
+    }
+
+    #[test]
+    fn answers_stop_at_their_bound_while_keystrokes_still_queue() {
+        let (intake, mut receiver) = mpsc::unbounded_channel();
+        let answers = TerminalAnswers::new(intake.clone());
+        let answer = Bytes::from_static(b"\x1b[?1;2c");
+        let fitting = ANSWER_BYTES_LIMIT / answer.len();
+
+        // A program that asks far more than it reads: answers past the bound are dropped.
+        for _ in 0..fitting + 10 {
+            answers.queue(answer.clone());
+        }
+        assert!(
+            answers
+                .count
+                .has_logged_drop
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+        let _keystroke = hand_over(&intake, Bytes::from_static(b"q"));
+
+        let mut queue = WriteQueue::new();
+        let mut written = Vec::new();
+        loop {
+            queue.take_from(&mut receiver);
+            let drained = write_all(&mut queue);
+            if drained.is_empty() {
+                break;
+            }
+            written.extend_from_slice(&drained);
+        }
+        let mut expected = answer.repeat(fitting);
+        expected.push(b'q');
+        assert_eq!(
+            written, expected,
+            "the keystroke after the dropped answers arrives"
+        );
+
+        // Every answer written, the count is back to zero and the next drop logs again.
+        assert_eq!(
+            answers
+                .count
+                .bytes
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        assert!(
+            !answers
+                .count
+                .has_logged_drop
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
     }
 
     #[test]

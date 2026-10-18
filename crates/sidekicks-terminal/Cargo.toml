@@ -22,5 +22,9 @@ rstest.workspace = true
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
 
+[features]
+# The screen copy drawn without a shell, for the daemon's tests of its screen listener.
+test-support = []
+
 [lints]
 workspace = true

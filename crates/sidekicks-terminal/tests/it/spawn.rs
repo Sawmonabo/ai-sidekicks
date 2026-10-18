@@ -2,14 +2,14 @@
 
 use sidekicks_terminal::TerminalExit;
 
-use crate::helpers::{KeepAllOutput, NoListener, read_to_exit, request, terminals};
+use crate::helpers::{KeepAllOutput, no_listener, read_to_exit, request, terminals};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_shell_delivers_its_output_then_its_exit_code() {
     let terminals = terminals();
     let program = sidekicks_platforms::echo_program("hello");
     let mut spawned = terminals
-        .spawn(request(program), NoListener, KeepAllOutput)
+        .spawn(request(program), no_listener, KeepAllOutput)
         .await
         .expect("the shell starts");
 
@@ -34,7 +34,7 @@ async fn an_abnormal_end_reports_the_code_and_signal_the_system_gave() {
     let terminals = terminals();
     let abnormal = sidekicks_platforms::abnormal_exit();
     let mut spawned = terminals
-        .spawn(request(abnormal.program), NoListener, KeepAllOutput)
+        .spawn(request(abnormal.program), no_listener, KeepAllOutput)
         .await
         .expect("the shell starts");
 

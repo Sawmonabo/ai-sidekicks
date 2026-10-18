@@ -6,7 +6,8 @@ use std::time::Duration;
 use alacritty_terminal::event::EventListener;
 use sidekicks_platforms::{Spawner, TestProgram};
 use sidekicks_terminal::{
-    CommandLine, OutputFilter, SpawnRequest, TerminalEvent, TerminalExit, TerminalOutput, Terminals,
+    CommandLine, OutputFilter, ScreenListener, SpawnRequest, TerminalAnswers, TerminalEvent,
+    TerminalExit, TerminalOutput, Terminals,
 };
 
 /// The bound on every wait for a test shell's output or exit, so a stalled loop fails the test.
@@ -23,11 +24,22 @@ impl OutputFilter for KeepAllOutput {
     fn finish(&mut self, _kept: &mut Vec<u8>) {}
 }
 
-/// A screen-copy listener that hears nothing.
+/// A screen-copy listener that hears nothing and answers nothing.
 #[derive(Clone)]
 pub(crate) struct NoListener;
 
 impl EventListener for NoListener {}
+
+impl ScreenListener for NoListener {
+    fn find_questions(&mut self, _output: &[u8], _ends: &mut Vec<usize>) {}
+
+    fn answer_question(&mut self) {}
+}
+
+/// Makes the listener that hears nothing, leaving the shell's answers unused.
+pub(crate) fn no_listener(_answers: TerminalAnswers) -> NoListener {
+    NoListener
+}
 
 /// Terminals on a spawner thread of their own; no test here stops a shell through the console,
 /// so the console helper is never run.

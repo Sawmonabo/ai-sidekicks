@@ -2,7 +2,8 @@
 //!
 //! [`Terminals`] starts each shell, carries its input, resize, pause and stops, and drains every
 //! shell at the service's stop; each shell's output and exit reach the caller through its
-//! [`TerminalOutput`], and its screen copy and scrollback through its [`TerminalScreen`].
+//! [`TerminalOutput`], its screen copy and scrollback through its [`TerminalScreen`], and the
+//! screen's answers to a program's questions go back through its [`TerminalAnswers`].
 
 mod exit;
 mod kill;
@@ -32,10 +33,11 @@ use uuid::Uuid;
 pub use exit::TerminalExit;
 pub use kill::KillError;
 pub use pty::{
-    CommandLine, ShellEnvironmentError, SpawnRequest, TerminalWriteError, shell_environment,
+    ANSWER_BYTES_LIMIT, CommandLine, ShellEnvironmentError, SpawnRequest, TerminalAnswers,
+    TerminalWriteError, shell_environment,
 };
-pub use read_loop::{OutputFilter, TerminalEvent, TerminalOutput};
-pub use screen::{ScrollbackRead, TerminalScreen};
+pub use read_loop::{OutputFilter, TerminalEvent, TerminalOutput, WriteTaken};
+pub use screen::{ScreenListener, ScrollbackRead, TerminalScreen};
 pub use sidekicks_platforms::TerminalSignal;
 
 use crate::kill::{ChildEnding, Escalation};
@@ -142,18 +144,19 @@ impl Terminals {
         }
     }
 
-    /// Starts a shell on the spawner thread and its read loop on the current runtime. `listener`
-    /// hears the screen copy's events under its lock and must not block; `filter` takes each chunk
-    /// of output first. Refused while draining; fails with `InvalidInput` for a size the terminal
-    /// cannot take or an environment `open` refuses, and when the shell or its loop cannot start.
+    /// Starts a shell on the spawner thread and its read loop on the current runtime. `listen`
+    /// makes, from the shell's answers, the listener that hears the screen copy under its lock and
+    /// must not block; `filter` takes each chunk of output first. Refused while draining; fails
+    /// with `InvalidInput` for a size the terminal cannot take or an environment `open` refuses,
+    /// and when the shell or its loop cannot start.
     pub async fn spawn<L, F>(
         &self,
         request: SpawnRequest,
-        listener: L,
+        listen: impl FnOnce(TerminalAnswers) -> L,
         filter: F,
     ) -> Result<SpawnedTerminal<L>, TerminalError>
     where
-        L: EventListener + Clone + Send + 'static,
+        L: ScreenListener,
         F: OutputFilter,
     {
         if self.is_draining.load(Ordering::SeqCst) {
@@ -174,7 +177,7 @@ impl Terminals {
             pty,
             rows,
             columns,
-            listener,
+            listen,
             filter,
         )
         .map_err(TerminalError::Spawn)?;
@@ -231,11 +234,17 @@ impl Terminals {
             .map_err(TerminalError::Resize)
     }
 
-    /// Writes `bytes` to the terminal's input, answering once every byte is written; fails for an
-    /// unknown handle and for a write the terminal's close or end left unwritten.
-    pub async fn write(&self, handle: TerminalHandle, bytes: Bytes) -> Result<(), TerminalError> {
-        let entry = self.entry(handle)?;
-        Ok(entry.control.write(bytes).await?)
+    /// Hands `bytes` to the terminal's input behind every write and answer handed over before it,
+    /// at once and without waiting, so writes keep the order of the calls; the [`WriteTaken`]
+    /// resolves once the terminal's write queue takes the write, which it does while the queue
+    /// holds fewer than 64 KiB. Fails at once for an unknown handle and a terminal closing or
+    /// ended.
+    pub fn queue_write(
+        &self,
+        handle: TerminalHandle,
+        bytes: Bytes,
+    ) -> Result<WriteTaken, TerminalError> {
+        Ok(self.entry(handle)?.control.queue_write(bytes)?)
     }
 
     /// Stops reading the terminal, so its output waits in the system's buffer and the program
