@@ -3,6 +3,7 @@
 //! whether it, or a provider service it reaches, started that process.
 
 use std::io;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use interprocess::local_socket::tokio::Stream;
@@ -13,7 +14,11 @@ pub(crate) trait CallerProcessReader: Send + Sync {
     /// The process at the other end of `stream`, pinned: on Linux the one that connected (or
     /// listened, on a socket the daemon dialed), as recorded at the connect; on macOS the one that
     /// last used that end. `None` when that end has closed; an error when the system cannot say.
-    fn read_peer_process(&self, stream: &Stream) -> io::Result<Option<PinnedProcess>>;
+    /// The read lets go of `stream` once it answers.
+    fn read_peer_process(
+        &self,
+        stream: Arc<Stream>,
+    ) -> BoxFuture<'_, io::Result<Option<PinnedProcess>>>;
 
     /// The parent of `process`, pinned, or why there is none to walk to; an error on any other
     /// refusal.

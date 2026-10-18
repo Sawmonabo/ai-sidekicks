@@ -122,21 +122,17 @@ impl LocalGateway {
     }
 }
 
-/// Reads the caller at the other end of `stream`, on the blocking pool since the read can touch the
-/// process table's files. A caller nobody can name is refused at its handshake, and only a failed
-/// read is logged and reported.
+/// Reads the caller at the other end of `stream`. A caller nobody can name is refused at its
+/// handshake, and only a failed read is logged and reported.
 async fn read_caller(
     reader: Arc<dyn CallerProcessReader>,
     stream: Stream,
     transport: TransportId,
     services: &GatewayServices,
 ) -> (Stream, Option<PinnedProcess>) {
-    let (stream, read) = tokio::task::spawn_blocking(move || {
-        let read = reader.read_peer_process(&stream);
-        (stream, read)
-    })
-    .await
-    .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()));
+    let stream = Arc::new(stream);
+    let read = reader.read_peer_process(Arc::clone(&stream)).await;
+    let stream = Arc::into_inner(stream).expect("a finished read holds no part of the stream");
     match read {
         Ok(caller_process) => (stream, caller_process),
         Err(error) => {

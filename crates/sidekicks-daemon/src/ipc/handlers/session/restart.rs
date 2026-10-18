@@ -140,6 +140,8 @@ mod tests {
         UnknownRun,
         /// A session with no restart target, and no driver loaded.
         UnknownSession,
+        /// A session whose provider no loaded driver answers.
+        NoProvider,
         /// A session whose driver does not declare `resume`; the driver is never called.
         NoResume,
         /// A session whose driver's resume failed with this condition.
@@ -229,6 +231,11 @@ mod tests {
         RefusalCode::SessionNotFound,
         json!({ "sessionId": SESSION })
     )]
+    #[case::no_provider(
+        Setup::NoProvider,
+        RefusalCode::ProviderNotFound,
+        json!({ "providerId": PROVIDERS[0].id })
+    )]
     #[case::no_resume(
         Setup::NoResume,
         RefusalCode::ProviderCapabilityUnsupported,
@@ -271,6 +278,12 @@ mod tests {
                     other => panic!("expected a refusal, got {:?}", other.err()),
                 }
             }
+            Setup::NoProvider => {
+                match restart(&providers(None, true), &targets(true), session_id).await {
+                    Err(HandlerError::Refused(refusal)) => refusal,
+                    other => panic!("expected a refusal, got {:?}", other.err()),
+                }
+            }
             Setup::NoResume => {
                 let registry = providers(Some(|_| Arc::new(MockProviderDriver::new())), false);
                 match restart(&registry, &targets(true), session_id).await {
@@ -279,7 +292,7 @@ mod tests {
                 }
             }
             Setup::ResumeFailed(condition) => {
-                let build: fn(&DriverServices) -> Arc<dyn ProviderDriver> = match condition {
+                let build: BuildDriver = match condition {
                     RecoveryCondition::RecoveryNeeded => {
                         |_| failing_driver(RecoveryCondition::RecoveryNeeded)
                     }

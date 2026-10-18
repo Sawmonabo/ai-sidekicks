@@ -56,3 +56,21 @@ impl SecureDefaults {
         &self.local_ipc_path
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{SecureDefaults, SecureDefaultsConfig, SecureDefaultsError};
+
+    #[test]
+    fn an_empty_socket_path_ends_the_start() {
+        let loaded = SecureDefaults::load(SecureDefaultsConfig {
+            local_ipc_path: PathBuf::new(),
+        });
+        assert!(matches!(
+            loaded,
+            Err(SecureDefaultsError::EmptyLocalIpcPath)
+        ));
+    }
+}
