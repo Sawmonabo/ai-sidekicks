@@ -8,9 +8,11 @@ use std::io;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::runtime::Handle;
+use tokio::time::Instant;
 
 use crate::input::queue::{QueuedWrite, WriteIntake};
 
@@ -21,16 +23,23 @@ use crate::input::queue::{QueuedWrite, WriteIntake};
 /// input.
 pub const ANSWER_BYTES_LIMIT: usize = 64 * 1024;
 
+/// The least time between two readings a stalled console's answers ask for, so a program that
+/// reads again gets its answers soon after, not only after another [`ANSWER_BYTES_LIMIT`] of them.
+const STALLED_READING_INTERVAL: Duration = Duration::from_secs(1);
+
 /// Reads how many input events wait unread on a shell's console, through the console helper;
 /// fails with the helper's error.
 pub(crate) type ConsoleInputRead =
     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = io::Result<u32>> + Send>> + Send + Sync>;
 
 /// A shell's console, read once after each [`ANSWER_BYTES_LIMIT`] of answers written or dropped:
-/// while its waiting input count has not fallen since the reading before, the program reads none
-/// of its input, so newer answers are dropped. Dropped answers count toward the next reading like
-/// written ones, so the answers start again once a reading finds the count fallen, and a program
-/// that keeps asking costs one reading per bound of its answers, never one per answer.
+/// while its waiting input count is above zero and has not fallen since the reading before, the
+/// program reads none of its input, so newer answers are dropped. Dropped answers count toward the
+/// next reading like written ones, so a program that keeps asking costs one reading per bound of
+/// its answers, never one per answer. While the input has stalled, an answer about to be dropped
+/// also asks for a reading when the last one began a second or more before, so the answers start
+/// again soon after the program reads again, however few it asks for; nothing reads the console
+/// while no answer comes, so a quiet shell is never polled.
 struct ConsoleInputWatch {
     read: ConsoleInputRead,
     runtime: Handle,
@@ -40,8 +49,10 @@ struct ConsoleInputWatch {
     is_reading: AtomicBool,
     /// The last count read, which the next reading is weighed against.
     last_count: Mutex<Option<u32>>,
-    /// Set while the last two readings found the count not fallen.
+    /// Set while the last two readings found the count above zero and not fallen.
     is_input_stalled: AtomicBool,
+    /// When the last reading began, which a stalled answer's reading waits a second after.
+    last_reading_began: Mutex<Option<Instant>>,
 }
 
 impl ConsoleInputWatch {
@@ -51,6 +62,10 @@ impl ConsoleInputWatch {
         if self.is_reading.swap(true, Ordering::SeqCst) {
             return;
         }
+        *self
+            .last_reading_began
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
         let watch = Arc::clone(self);
         let reading = (self.read)();
         self.runtime.spawn(async move {
@@ -60,7 +75,9 @@ impl ConsoleInputWatch {
                         .last_count
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner);
-                    let is_stalled = last_count.is_some_and(|previous| count >= previous);
+                    // A program that reads promptly leaves nothing waiting, which is no stall.
+                    let is_stalled =
+                        count > 0 && last_count.is_some_and(|previous| count >= previous);
                     *last_count = Some(count);
                     watch.is_input_stalled.store(is_stalled, Ordering::SeqCst);
                 }
@@ -74,6 +91,18 @@ impl ConsoleInputWatch {
             }
             watch.is_reading.store(false, Ordering::SeqCst);
         });
+    }
+
+    /// Asks for a reading as a stalled console's answer is dropped, unless the last one began
+    /// less than [`STALLED_READING_INTERVAL`] before.
+    fn ask_for_stalled_reading(self: &Arc<Self>) {
+        let last_reading_began = *self
+            .last_reading_began
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if last_reading_began.is_none_or(|began| began.elapsed() >= STALLED_READING_INTERVAL) {
+            self.ask_for_reading();
+        }
     }
 
     /// Counts `length` answer bytes written or dropped, asking for a reading after each
@@ -140,27 +169,30 @@ pub struct TerminalAnswers {
 
 impl TerminalAnswers {
     /// Answers handed into `intake`, none yet waiting; with `console_read`, the shell's console is
-    /// read on `runtime` after each [`ANSWER_BYTES_LIMIT`] of answers written or dropped.
+    /// read on `runtime` after each [`ANSWER_BYTES_LIMIT`] of answers written or dropped, and at
+    /// most once a second as answers drop while its input has stalled.
     pub(crate) fn new(
         intake: WriteIntake,
         console_read: Option<ConsoleInputRead>,
         runtime: &Handle,
     ) -> Self {
+        let console = console_read.map(|read| {
+            Arc::new(ConsoleInputWatch {
+                read,
+                runtime: runtime.clone(),
+                answered_since_reading: AtomicUsize::new(0),
+                is_reading: AtomicBool::new(false),
+                last_count: Mutex::new(None),
+                is_input_stalled: AtomicBool::new(false),
+                last_reading_began: Mutex::new(None),
+            })
+        });
         Self {
             intake,
             count: Arc::new(AnswerCount {
                 bytes: AtomicUsize::new(0),
                 has_logged_drop: AtomicBool::new(false),
-                console: console_read.map(|read| {
-                    Arc::new(ConsoleInputWatch {
-                        read,
-                        runtime: runtime.clone(),
-                        answered_since_reading: AtomicUsize::new(0),
-                        is_reading: AtomicBool::new(false),
-                        last_count: Mutex::new(None),
-                        is_input_stalled: AtomicBool::new(false),
-                    })
-                }),
+                console,
             }),
         }
     }
@@ -168,8 +200,9 @@ impl TerminalAnswers {
     /// Queues `answer` for the program behind every earlier write, unless the answers not yet
     /// written would pass [`ANSWER_BYTES_LIMIT`] or the shell's console shows its program reading
     /// none of its input: then it is dropped, logged once until every answer waiting has been
-    /// written, and counted toward the console's next reading. Nothing is queued once the terminal
-    /// has closed.
+    /// written, and counted toward the console's next reading, which a stalled console's dropped
+    /// answer asks for at once when the last began a second or more before. Nothing is queued once
+    /// the terminal has closed.
     pub fn queue(&self, answer: Bytes) {
         if answer.is_empty() {
             return;
@@ -194,6 +227,9 @@ impl TerminalAnswers {
                 );
             }
             if let Some(console) = console {
+                if is_input_stalled {
+                    console.ask_for_stalled_reading();
+                }
                 console.count_answered(length);
             }
             return;
@@ -221,7 +257,7 @@ mod tests {
     use tokio::runtime::Handle;
     use tokio::sync::mpsc;
 
-    use super::{ANSWER_BYTES_LIMIT, ConsoleInputRead, TerminalAnswers};
+    use super::{ANSWER_BYTES_LIMIT, ConsoleInputRead, STALLED_READING_INTERVAL, TerminalAnswers};
     use crate::input::queue::WriteQueue;
     use crate::input::queue::tests::{hand_over, is_written, write_all};
 
@@ -304,21 +340,41 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn answers_drop_while_the_console_s_waiting_input_has_not_fallen() {
-        let counts = Arc::new(Mutex::new(VecDeque::from([40, 40, 12])));
-        let read_counts = Arc::clone(&counts);
-        let console_read: ConsoleInputRead = Arc::new(move || {
+    /// A console whose readings answer `counts` in order, one each.
+    fn console_reading(counts: &Arc<Mutex<VecDeque<u32>>>) -> ConsoleInputRead {
+        let read_counts = Arc::clone(counts);
+        Arc::new(move || {
             let count = read_counts
                 .lock()
                 .expect("no test panics while holding the counts")
                 .pop_front()
                 .expect("the test reads no more counts than it holds");
             Box::pin(async move { Ok(count) })
-        });
+        })
+    }
+
+    /// Hands over and writes one bound of answers, then waits for the reading it asked for.
+    async fn answer_a_bound(
+        answers: &TerminalAnswers,
+        queue: &mut WriteQueue,
+        receiver: &mut mpsc::UnboundedReceiver<crate::input::queue::QueuedWrite>,
+    ) {
+        for _ in 0..=ANSWER_BYTES_LIMIT / ANSWER.len() {
+            answers.queue(Bytes::from_static(ANSWER));
+            write_everything(queue, receiver);
+        }
+        reading_done(answers).await;
+    }
+
+    // The clock stands still, so a stalled answer asks for no reading of its own while the test
+    // runs.
+    #[tokio::test(start_paused = true)]
+    async fn answers_drop_while_the_console_s_waiting_input_has_not_fallen() {
+        let counts = Arc::new(Mutex::new(VecDeque::from([0, 0, 40, 12])));
         let readings_left = || counts.lock().expect("no test panicked").len();
         let (intake, mut receiver) = mpsc::unbounded_channel();
-        let answers = TerminalAnswers::new(intake, Some(console_read), &Handle::current());
+        let answers =
+            TerminalAnswers::new(intake, Some(console_reading(&counts)), &Handle::current());
         let answer = Bytes::from_static(ANSWER);
         let fitting = ANSWER_BYTES_LIMIT / answer.len();
 
@@ -331,17 +387,20 @@ mod tests {
         }
         stopped.take_from(&mut receiver);
         stopped.close();
-        assert_eq!(readings_left(), 3, "a stop's answers ask for no reading");
+        assert_eq!(readings_left(), 4, "a stop's answers ask for no reading");
 
-        // Two bounds of answers written: two readings, the second finding the count not fallen.
+        // A program that reads promptly leaves no input waiting: two readings of zero are no
+        // stall, and its answers keep reaching it.
         let mut queue = WriteQueue::new();
         for _ in 0..2 {
-            for _ in 0..=fitting {
-                answers.queue(answer.clone());
-                write_everything(&mut queue, &mut receiver);
-            }
-            reading_done(&answers).await;
+            answer_a_bound(&answers, &mut queue, &mut receiver).await;
         }
+        assert_eq!(readings_left(), 2);
+        answers.queue(answer.clone());
+        assert_eq!(write_everything(&mut queue, &mut receiver), ANSWER);
+
+        // A bound of answers written later finds input waiting and not fallen.
+        answer_a_bound(&answers, &mut queue, &mut receiver).await;
         assert_eq!(readings_left(), 1);
 
         // A program that keeps asking while its input has stalled: its answers drop, and a
@@ -368,6 +427,51 @@ mod tests {
         );
         reading_done(&answers).await;
         answers.queue(answer.clone());
+        assert_eq!(write_everything(&mut queue, &mut receiver), ANSWER);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_console_is_read_again_only_as_an_answer_comes_at_most_once_a_second() {
+        let counts = Arc::new(Mutex::new(VecDeque::from([5, 5, 5, 2, 9])));
+        let readings_left = || counts.lock().expect("no test panicked").len();
+        let (intake, mut receiver) = mpsc::unbounded_channel();
+        let answers =
+            TerminalAnswers::new(intake, Some(console_reading(&counts)), &Handle::current());
+        let mut queue = WriteQueue::new();
+        let answer = || Bytes::from_static(ANSWER);
+
+        // Two bounds of answers whose readings find the input not fallen stall it.
+        for _ in 0..2 {
+            answer_a_bound(&answers, &mut queue, &mut receiver).await;
+        }
+        assert_eq!(readings_left(), 3);
+
+        // With no answer asked, nothing reads the console.
+        tokio::time::advance(10 * STALLED_READING_INTERVAL).await;
+        assert_eq!(readings_left(), 3, "a quiet shell's console is not read");
+
+        // An answer asks for one reading; another within the second asks for none.
+        answers.queue(answer());
+        reading_done(&answers).await;
+        assert_eq!(readings_left(), 2);
+        answers.queue(answer());
+        reading_done(&answers).await;
+        assert_eq!(
+            readings_left(),
+            2,
+            "a second answer within the second reads nothing"
+        );
+        assert!(
+            write_everything(&mut queue, &mut receiver).is_empty(),
+            "answers while the input has stalled are dropped"
+        );
+
+        // A second later an answer asks again, and the reading finds the count fallen.
+        tokio::time::advance(STALLED_READING_INTERVAL).await;
+        answers.queue(answer());
+        reading_done(&answers).await;
+        assert_eq!(readings_left(), 1);
+        answers.queue(answer());
         assert_eq!(write_everything(&mut queue, &mut receiver), ANSWER);
     }
 }
