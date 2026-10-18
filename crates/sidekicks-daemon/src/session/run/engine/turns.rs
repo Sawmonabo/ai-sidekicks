@@ -434,13 +434,15 @@ impl RunEngine {
                 self.forget_turn(&run_id, turn_end.turn_number);
                 self.change(change, companions).await
             }
-            // One of the caller's own companions refused, numbered as the caller placed it.
+            // One of the caller's own companions refused, numbered as the caller placed it: each
+            // from the turn end's guard's place on sits one later in the write.
             Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
                 companion_index,
                 source,
             })) => Err(RunEngineError::Change(
                 RunStateChangeError::CompanionRefused {
-                    companion_index: companion_index - 1,
+                    companion_index: companion_index
+                        - usize::from(companion_index > TURN_END_GUARD_COMPANION_INDEX),
                     source,
                 },
             )),
