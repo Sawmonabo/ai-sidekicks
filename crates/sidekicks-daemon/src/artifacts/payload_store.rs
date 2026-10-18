@@ -163,6 +163,13 @@ fn move_into_store(source: &Path, object: &Path, objects_folder: &Path) -> io::R
     sidekicks_platforms::flush_folder(fan_out_folder)?;
     sidekicks_platforms::flush_folder(algorithm_folder)?;
     sidekicks_platforms::flush_folder(objects_folder)?;
+    // The store's own folder is made by the first move, so its entry in its parent is flushed too;
+    // a check for whether this move made it could miss one a concurrent first move made.
+    sidekicks_platforms::flush_folder(
+        objects_folder
+            .parent()
+            .expect("the store's folder is never a file system root"),
+    )?;
     Ok(false)
 }
 
