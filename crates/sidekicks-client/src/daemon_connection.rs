@@ -1,14 +1,15 @@
-//! A connection to the daemon on this machine, opened the one way every client opens it: connect
-//! to its socket, check that the run folder is this account's alone, read the session token the
-//! daemon wrote at its current start, then `connection.initialize` with that token before any other
-//! call, answered within [`HANDSHAKE_DEADLINE`]. The token is read at every connect, because each
-//! daemon start writes a new one, and once more when the daemon refuses it. A supervisor then
-//! watches the link: after 5 s with no frame it sends `daemon.ping` and reports the link quiet, and
-//! after 20 s with no frame it counts the link lost. A lost link is opened again on the client's
-//! own schedule, [`LINK_REOPEN_BACKOFF_MS`], calls made meanwhile held for it; once every attempt
-//! failed the connection is down, every call settles `connection.unavailable` at once, and only
-//! `retry` starts the schedule again.
+//! A connection to the daemon, opened the one way every client opens it: open a stream to it,
+//! checked as the daemon's own before any byte is written, read the session token the daemon wrote
+//! at its current start, then `connection.initialize` with that token before any other call,
+//! answered within [`HANDSHAKE_DEADLINE`]. The token is read at every connect, because each daemon
+//! start writes a new one, and once more when the daemon refuses it. A supervisor then watches the
+//! link: after 5 s with no frame it sends `daemon.ping` and reports the link quiet, and after 20 s
+//! with no frame it counts the link lost. A lost link is opened again on the client's own schedule,
+//! [`LINK_REOPEN_BACKOFF_MS`], for [`LINK_REOPEN_WINDOW`], calls made meanwhile held for it; once
+//! the window has passed with every attempt failed the connection is down, every call settles
+//! `connection.unavailable` at once, and only `retry` starts the schedule again.
 
+use std::future::Future;
 use std::io;
 use std::path::Path;
 use std::pin::pin;
@@ -26,22 +27,26 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::{DaemonRunFolder, check_private_run_folder, daemon_run_folder};
 use subtle::ConstantTimeEq as _;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, sleep, sleep_until, timeout};
+use tokio::time::{Instant, sleep_until, timeout};
 
 use crate::error::{ClientError, LinkFault, RemoteError};
 use crate::transport::json_rpc::JsonRpcClient;
 use crate::transport::link::Link;
-use crate::transport::local_socket::connect_local_socket;
+use crate::transport::local_socket::{LocalSocketStream, connect_local_socket};
 
 /// The client's own schedule for a lost link: the wait before each attempt to open it again, in
-/// milliseconds. Once the attempt after the last wait fails the connection is down until `retry`,
-/// which starts the schedule again from its first wait.
+/// milliseconds, the last one repeated between attempts until [`LINK_REOPEN_WINDOW`] has passed.
 pub const LINK_REOPEN_BACKOFF_MS: [u64; 5] = [100, 300, 1_000, 3_000, 10_000];
 
+/// How long after a loss, or after a `retry`, the client keeps opening the link again: an attempt
+/// starts only within it, and the connection is down once it has passed with every attempt failed.
+pub const LINK_REOPEN_WINDOW: Duration = Duration::from_secs(120);
+
 /// How long a connect waits for the daemon's answer to `connection.initialize`; a daemon that
-/// accepts the socket and never answers fails the attempt as `connection.unavailable`.
+/// accepts the stream and never answers fails the attempt as `connection.unavailable`.
 pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
 
 /// How long the link may carry no frame before the supervisor sends `daemon.ping`.
@@ -70,6 +75,40 @@ impl DaemonEndpoint {
     }
 }
 
+/// How a client reaches the daemon: a stream to it, checked as the daemon's own before any byte is
+/// written, and the session token the daemon wrote at its current start.
+pub trait DaemonConnector: Send + Sync + 'static {
+    /// The stream a connection runs over.
+    type Stream: AsyncRead + AsyncWrite + Send + 'static;
+
+    /// Opens a stream to the daemon. Fails with `ClientError::Unavailable` when nothing answers,
+    /// and `RunFolder` when the stream reaches no daemon of this account's alone.
+    fn open_stream(&self) -> impl Future<Output = Result<Self::Stream, ClientError>> + Send;
+
+    /// Reads the session token the daemon wrote at its current start. Fails with
+    /// `ClientError::Token` when it cannot be read.
+    fn read_token(&self) -> impl Future<Output = Result<NegotiationText, ClientError>> + Send;
+}
+
+/// The daemon on this machine through its run folder: its socket, and its token file. Connecting
+/// first makes a daemon that is not running read as `Unavailable` rather than a missing folder or
+/// token file.
+impl DaemonConnector for DaemonEndpoint {
+    type Stream = LocalSocketStream;
+
+    async fn open_stream(&self) -> Result<LocalSocketStream, ClientError> {
+        let stream = connect_local_socket(&self.run_folder.socket_path).await?;
+        // A folder another account made could hold its own socket and token, which would then
+        // prove nothing.
+        check_private_run_folder(&self.run_folder.folder_path)?;
+        Ok(stream)
+    }
+
+    async fn read_token(&self) -> Result<NegotiationText, ClientError> {
+        read_token(&self.run_folder.token_path).await
+    }
+}
+
 /// How the connection to the daemon stands, as the supervisor reports it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnectionState {
@@ -77,10 +116,11 @@ pub enum ConnectionState {
     Open,
     /// The link is open but no frame came for a while; a `daemon.ping` is out.
     Quiet,
-    /// The link was lost and is being opened again on the schedule; calls are held for it.
+    /// The link was lost and is being opened again on the schedule, for the whole reopen window;
+    /// calls are held for it.
     Reconnecting,
-    /// Every attempt on the schedule failed; calls settle `connection.unavailable` at once until
-    /// `retry`.
+    /// The reopen window passed with every attempt failed; calls settle `connection.unavailable`
+    /// at once until `retry`.
     Down,
 }
 
@@ -89,28 +129,26 @@ pub enum ConnectionState {
 pub struct DaemonConnection {
     client: JsonRpcClient,
     initialize_response: ConnectionInitializeResponse,
-    state: watch::Receiver<ConnectionState>,
+    state: Arc<watch::Sender<ConnectionState>>,
     retry: Arc<Notify>,
     supervisor: JoinHandle<()>,
 }
 
 impl DaemonConnection {
-    /// Connects to the daemon at `endpoint` and completes `connection.initialize`. Fails with
-    /// `ClientError::Unavailable` when nothing answers on the socket or the handshake passes
-    /// [`HANDSHAKE_DEADLINE`], `RunFolder` when the run folder is not this account's alone,
-    /// `Token` when the token file cannot be read (`NotFound` while a daemon that has bound its
-    /// socket has not yet written it), and `Remote` with `auth.token.invalid` when the daemon
-    /// refuses the token and the file still holds the one presented.
-    pub async fn connect(endpoint: DaemonEndpoint) -> Result<Self, ClientError> {
+    /// Connects to the daemon through `connector` and completes `connection.initialize`. Fails
+    /// as the connector does, with `ClientError::Unavailable` when the handshake passes
+    /// [`HANDSHAKE_DEADLINE`], and with `Remote` and `auth.token.invalid` when the daemon refuses
+    /// the token and the connector still reads the one presented.
+    pub async fn connect<C: DaemonConnector>(connector: C) -> Result<Self, ClientError> {
         let client = JsonRpcClient::new();
-        let (initialize_response, link) = open_link(&client, &endpoint.run_folder).await?;
-        let (state_sender, state) = watch::channel(ConnectionState::Open);
+        let (initialize_response, link) = open_link(&client, &connector).await?;
+        let state = Arc::new(watch::Sender::new(ConnectionState::Open));
         let retry = Arc::new(Notify::new());
         let supervisor = tokio::spawn(supervise(
             client.clone(),
-            endpoint,
+            connector,
             link,
-            state_sender,
+            Arc::clone(&state),
             Arc::clone(&retry),
         ));
         Ok(Self {
@@ -140,21 +178,37 @@ impl DaemonConnection {
 
     /// The connection's state as it changes.
     pub fn state_changes(&self) -> watch::Receiver<ConnectionState> {
-        self.state.clone()
+        self.state.subscribe()
     }
 
-    /// Starts the reconnect schedule again from its first wait once the connection is down; does
-    /// nothing in any other state.
+    /// Starts the reconnect schedule again from its first wait once the connection is down,
+    /// holding calls for it again; does nothing in any other state, so a second press while the
+    /// schedule runs starts nothing more.
     pub fn retry(&self) {
-        if self.state() == ConnectionState::Down {
+        let is_restarted = self.state.send_if_modified(|state| {
+            if *state != ConnectionState::Down {
+                return false;
+            }
+            *state = ConnectionState::Reconnecting;
+            self.client.hold_calls();
+            true
+        });
+        if is_restarted {
             self.retry.notify_one();
         }
     }
 
-    /// Stops the supervisor and closes the link; every call still waiting settles
-    /// `ClientError::Unavailable`.
-    pub async fn close(self) {
+    /// Stops the supervisor, waiting until it has stopped so no reopen lands after, then closes
+    /// the link; every call still waiting settles `ClientError::Unavailable`.
+    pub async fn close(mut self) {
         self.supervisor.abort();
+        match (&mut self.supervisor).await {
+            Err(error) if error.is_panic() => tracing::error!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "The connection's supervisor failed"
+            ),
+            Ok(()) | Err(_) => {}
+        }
         self.client.close().await;
     }
 }
@@ -165,13 +219,14 @@ impl Drop for DaemonConnection {
     }
 }
 
-/// Watches each link until it ends, then opens it again on the schedule; once the schedule failed
-/// it takes the client down and waits for a `retry`, which starts the schedule again.
-async fn supervise(
+/// Watches each link until it ends, then opens it again on the schedule; once the reopen window
+/// passed it takes the client down and waits for a `retry`, which holds calls again and starts the
+/// schedule again.
+async fn supervise<C: DaemonConnector>(
     client: JsonRpcClient,
-    endpoint: DaemonEndpoint,
+    connector: C,
     first_link: Link,
-    state: watch::Sender<ConnectionState>,
+    state: Arc<watch::Sender<ConnectionState>>,
     retry: Arc<Notify>,
 ) {
     let mut link = first_link;
@@ -179,25 +234,36 @@ async fn supervise(
         let fault = watch_link(&client, &link, &state).await;
         state.send_replace(ConnectionState::Reconnecting);
         link = loop {
-            if let Some(reopened) = reopen_on_schedule(&client, &endpoint.run_folder).await {
+            if let Some(reopened) = reopen_on_schedule(&client, &connector).await {
                 break reopened;
             }
             client.abandon(fault.clone());
             state.send_replace(ConnectionState::Down);
             retry.notified().await;
-            client.hold_calls();
-            state.send_replace(ConnectionState::Reconnecting);
         };
         state.send_replace(ConnectionState::Open);
     }
 }
 
-/// Waits each step of [`LINK_REOPEN_BACKOFF_MS`] and then tries to open the link; answers the
-/// first link that opens, or `None` once the attempt after the last wait failed.
-async fn reopen_on_schedule(client: &JsonRpcClient, run_folder: &DaemonRunFolder) -> Option<Link> {
-    for wait in LINK_REOPEN_BACKOFF_MS {
-        sleep(Duration::from_millis(wait)).await;
-        match open_link(client, run_folder).await {
+/// Tries to open the link after each wait of [`LINK_REOPEN_BACKOFF_MS`], then after its last wait
+/// again and again, while the attempt starts within [`LINK_REOPEN_WINDOW`]; answers the first link
+/// that opens, or `None` once the window has passed with every attempt failed.
+async fn reopen_on_schedule<C: DaemonConnector>(
+    client: &JsonRpcClient,
+    connector: &C,
+) -> Option<Link> {
+    let gives_up_at = Instant::now() + LINK_REOPEN_WINDOW;
+    let mut waits = LINK_REOPEN_BACKOFF_MS.iter().copied();
+    let last_wait = LINK_REOPEN_BACKOFF_MS[LINK_REOPEN_BACKOFF_MS.len() - 1];
+    loop {
+        let wait = waits.next().unwrap_or(last_wait);
+        let attempt_at = Instant::now() + Duration::from_millis(wait);
+        if attempt_at >= gives_up_at {
+            sleep_until(gives_up_at).await;
+            return None;
+        }
+        sleep_until(attempt_at).await;
+        match open_link(client, connector).await {
             Ok((_initialize_response, link)) => return Some(link),
             Err(error) => tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
@@ -205,12 +271,12 @@ async fn reopen_on_schedule(client: &JsonRpcClient, run_folder: &DaemonRunFolder
             ),
         }
     }
-    None
 }
 
 /// Watches one link until it ends, answering why: after [`QUIET_AFTER`] with no frame it reports
-/// the link quiet and sends `daemon.ping`, which takes no call slot, and once [`LOST_AFTER`] has
-/// passed with no frame it closes the link as silent.
+/// the link quiet and sends `daemon.ping`, which takes no call slot; a frame or the ping's answer
+/// reports it open again, and once [`LOST_AFTER`] has passed with no frame it closes the link as
+/// silent.
 async fn watch_link(
     client: &JsonRpcClient,
     link: &Link,
@@ -244,28 +310,30 @@ async fn watch_link(
                     break;
                 }
                 () = sleep_until(link.last_frame_at() + LOST_AFTER) => {
-                    // A frame that came while the timer ran moves the deadline on.
                     if Instant::now() >= link.last_frame_at() + LOST_AFTER {
                         link.close(LinkFault::Silent);
                         return LinkFault::Silent;
                     }
+                    // A frame came while the timer ran: the link is live, and watched afresh.
+                    state.send_replace(ConnectionState::Open);
+                    break;
                 }
             }
         }
     }
 }
 
-/// Opens one link: a refused token is read again, and when the file has changed since it was
-/// presented the link is opened once more on a new connection with the new token, since a daemon
-/// writes its token just after it binds and the refused connection serves nothing more.
-async fn open_link(
+/// Opens one link: a refused token is read again, and when it has changed since it was presented
+/// the link is opened once more on a new stream with the new token, since a daemon writes its
+/// token just after it binds and the refused connection serves nothing more.
+async fn open_link<C: DaemonConnector>(
     client: &JsonRpcClient,
-    run_folder: &DaemonRunFolder,
+    connector: &C,
 ) -> Result<(ConnectionInitializeResponse, Link), ClientError> {
-    let (presented_token, outcome) = open_link_with_token(client, run_folder, None).await;
+    let (presented_token, outcome) = open_link_with_token(client, connector, None).await;
     match outcome {
         Err(ClientError::Remote(refusal)) if is_token_refusal(&refusal) => {
-            let current_token = read_token(&run_folder.token_path).await?;
+            let current_token = connector.read_token().await?;
             let is_unchanged = presented_token.as_ref().is_some_and(|presented| {
                 bool::from(
                     presented
@@ -277,7 +345,7 @@ async fn open_link(
             if is_unchanged {
                 return Err(ClientError::Remote(refusal));
             }
-            open_link_with_token(client, run_folder, Some(current_token))
+            open_link_with_token(client, connector, Some(current_token))
                 .await
                 .1
         }
@@ -285,30 +353,23 @@ async fn open_link(
     }
 }
 
-/// Connects, checks the run folder before any byte is written, reads the token unless one is
-/// given, and opens the link with it; answers the token presented beside the outcome. Connecting
-/// first makes a daemon that is not running read as `Unavailable` rather than a missing folder or
-/// token file.
-async fn open_link_with_token(
+/// Opens a stream, reads the token unless one is given, and opens the link with it, the
+/// handshake held to [`HANDSHAKE_DEADLINE`]; answers the token presented beside the outcome.
+async fn open_link_with_token<C: DaemonConnector>(
     client: &JsonRpcClient,
-    run_folder: &DaemonRunFolder,
+    connector: &C,
     token: Option<NegotiationText>,
 ) -> (
     Option<NegotiationText>,
     Result<(ConnectionInitializeResponse, Link), ClientError>,
 ) {
-    let stream = match connect_local_socket(&run_folder.socket_path).await {
+    let stream = match connector.open_stream().await {
         Ok(stream) => stream,
         Err(error) => return (None, Err(error)),
     };
-    // A folder another account made could hold its own socket and token, which would then prove
-    // nothing.
-    if let Err(refused) = check_private_run_folder(&run_folder.folder_path) {
-        return (None, Err(refused.into()));
-    }
     let token = match token {
         Some(token) => token,
-        None => match read_token(&run_folder.token_path).await {
+        None => match connector.read_token().await {
             Ok(token) => token,
             Err(error) => return (None, Err(error)),
         },

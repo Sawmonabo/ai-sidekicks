@@ -1,6 +1,6 @@
 //! A dropped link: an unkeyed call in flight settles unavailable at once, and a keyed one is sent
 //! once more on the next link, under a new id, before the calls held meanwhile; a keyed call lost
-//! a second time settles unavailable.
+//! a second time settles unavailable, and one whose caller went away is never sent again.
 
 use std::pin::pin;
 
@@ -95,6 +95,28 @@ async fn a_keyed_call_lost_a_second_time_settles_unavailable() {
         "the second loss settles it"
     );
     let (_third_link, mut daemon) = open_link(&client).await;
+    daemon
+        .assert_no_message_within(std::time::Duration::from_secs(5))
+        .await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_keyed_call_whose_caller_went_away_in_flight_is_not_sent_again() {
+    let client = JsonRpcClient::new();
+    let (_first_link, mut daemon) = open_link(&client).await;
+    let never = CancellationToken::new();
+    let keyed = client.call_raw(
+        raw_request(
+            &SessionCreate::DESCRIPTOR,
+            &json!({ "clientIdempotencyKey": "key-3" }),
+        ),
+        &never,
+    );
+    assert_eq!(daemon.next_message().await["method"], "session.create");
+
+    drop(keyed);
+    drop(daemon);
+    let (_second_link, mut daemon) = open_link(&client).await;
     daemon
         .assert_no_message_within(std::time::Duration::from_secs(5))
         .await;

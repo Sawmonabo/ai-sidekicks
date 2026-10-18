@@ -5,5 +5,6 @@ mod credit;
 mod daemon_connection;
 mod helpers;
 mod keyed_resend;
+mod orphan_lane;
 mod refusals;
 mod terminal_write;

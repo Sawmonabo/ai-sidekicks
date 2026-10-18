@@ -85,8 +85,9 @@ struct LinkState {
     subscriptions: HashMap<SubscriptionId, Arc<SubscriptionShared>>,
     /// Each lane the daemon opened, bound by its first message to its subscription.
     lanes: HashMap<LaneId, SubscriptionId>,
-    /// The subscriptions released before any lane bound to them, until their cancel is answered,
-    /// after which no message of theirs is on its way.
+    /// The subscriptions released before any lane bound to them, until their cancel is answered;
+    /// a message the daemon queued before the cancel can still come after, and then cancels its
+    /// subscription once more, answered `canceled: false`.
     released: HashSet<SubscriptionId>,
     last_frame_at: Instant,
     fault: Option<LinkFault>,
