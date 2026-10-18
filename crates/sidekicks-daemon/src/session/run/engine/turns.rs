@@ -100,7 +100,8 @@ static SELECT_TURN_END_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The run's newest started turn that holds no end.
+// The run's newest started turn that holds no end, started at or before `@started_by` where one is
+// bound.
 static SELECT_OPEN_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
     let category = EventCategory::RunLifecycle.as_str();
     format!(
@@ -108,6 +109,7 @@ static SELECT_OPEN_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
   WHERE started.category = '{category}'
     AND started.type = '{}'
     AND started.run_id = @run_id
+    AND (@started_by IS NULL OR started.run_version <= @started_by)
     AND NOT EXISTS (
       SELECT 1 FROM session_events AS ended
        WHERE ended.category = '{category}'
@@ -442,11 +444,13 @@ impl RunEngine {
         }
     }
 
-    /// The number of the newest turn of `run_id` that holds no end, `None` when every started turn
-    /// has ended or none started. Fails when the read fails.
+    /// The number of the newest turn of `run_id` that holds no end, started at or before the run
+    /// version `started_by` where one is given; `None` when no such turn is open. Fails when the
+    /// read fails.
     pub(super) async fn read_open_turn(
         &self,
         run_id: RunId,
+        started_by: Option<i64>,
     ) -> Result<Option<SafeInt<1>>, RunEngineError> {
         let open_turn: Option<i64> = self
             .pool
@@ -454,9 +458,13 @@ impl RunEngine {
                 Ok::<_, RunEngineError>(
                     reader
                         .prepare_cached(&SELECT_OPEN_TURN_SQL)?
-                        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
-                            row.get(0)
-                        })
+                        .query_row(
+                            named_params! {
+                                "@run_id": run_id.text().as_str(),
+                                "@started_by": started_by,
+                            },
+                            |row| row.get(0),
+                        )
                         .optional()?,
                 )
             })

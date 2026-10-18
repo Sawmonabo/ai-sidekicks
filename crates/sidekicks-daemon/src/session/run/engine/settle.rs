@@ -72,8 +72,9 @@ impl RunEngine {
     /// with the limit as its cause, in the same write, so the provider's later end of that turn is
     /// dropped. Returns `false` with no change of the run written when the run has ended since
     /// that version, even if it was continued after, which is what the interrupt asked for; the
-    /// caller then records the verdict alone, and a cut turn of a run that has ended still takes
-    /// its end. Fails as [`RunEngine::transition`] does.
+    /// caller then records the verdict alone. On a run that reads ended, the limit's turn end is
+    /// written on its own for the newest open turn started at or before that version, if any, so a
+    /// turn of a run continued since never takes it. Fails as [`RunEngine::transition`] does.
     #[cfg_attr(
         not(test),
         expect(
@@ -111,7 +112,10 @@ impl RunEngine {
                     .map(|cut| cut.turn_number);
                 let turn_number = match cut_turn {
                     Some(turn_number) => Some(turn_number),
-                    None => self.read_open_turn(run_id).await?,
+                    None => {
+                        self.read_open_turn(run_id, Some(accepted_run_version))
+                            .await?
+                    }
                 };
                 let turn_end = turn_number.map(|turn_number| TurnEnd {
                     turn_number,
@@ -178,7 +182,7 @@ impl RunEngine {
         process_exit: &ProcessExit,
     ) -> Result<(), RunEngineError> {
         let run = self.require_run(run_id).await?;
-        let open_turn = self.read_open_turn(run_id).await?;
+        let open_turn = self.read_open_turn(run_id, None).await?;
         let failed = RunStateChange {
             failure_category: Some(RunFailureCategory::ProviderFailure),
             ..RunStateChange::new(
@@ -282,7 +286,7 @@ impl RunEngine {
                 .push(no_waiting_item_statement(&run_id));
         }
         let open_turn = match decision.open_turn_end {
-            Some(_) => self.read_open_turn(run_id).await?,
+            Some(_) => self.read_open_turn(run_id, None).await?,
             None => None,
         };
         let turn_end = decision
@@ -339,6 +343,7 @@ mod tests {
     use crate::events::log_service::tests::open_log;
     use crate::events::session::appender::SessionEventDraft;
     use crate::session::run::engine::RunEngine;
+    use crate::session::run::engine::limits::CutTurn;
     use crate::session::run::engine::tests::{stored_events, stored_run_state, test_engine};
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::projection::RUNS_TABLE_SQL;
@@ -371,10 +376,45 @@ CREATE TABLE interventions (
             .expect("the test's event is appended");
     }
 
+    fn run_version(version: u64) -> SafeInt<0> {
+        SafeInt::new(version).expect("the test's run versions are safe integers")
+    }
+
+    fn interrupted_at(session_id: SessionId, run_id: RunId, version: u64) -> SessionEvent {
+        SessionEvent::AgentRunInterrupted(AgentRunInterruptedPayload {
+            session_id,
+            run_id,
+            run_version: run_version(version),
+            previous_state: RunState::Running,
+            new_state: AgentRunInterruptedNewState::Value,
+            failure_category: None,
+            recovery_condition: None,
+            intended_close: None,
+            trigger: None,
+        })
+    }
+
+    fn turn_started_at(
+        session_id: SessionId,
+        run_id: RunId,
+        turn: u64,
+        version: u64,
+    ) -> SessionEvent {
+        SessionEvent::AgentTurnStarted(AgentTurnStartedPayload {
+            session_id,
+            run_id,
+            run_version: run_version(version),
+            turn_number: SafeInt::new(turn).expect("the test's turn numbers count from 1"),
+            position: None,
+        })
+    }
+
     // Killed by the limit's end leaving the cut turn's end to its provider, which writes it with
-    // no cause, by the since-guard's refusal read at the position the turn end's guard shifts it
-    // to, which answers a run ended since with an error, and by dropping that guard, which ends a
-    // run continued after the interrupt was accepted.
+    // no cause; by the since-guard's refusal read at the position the turn end's guard shifts it
+    // to, which answers a run ended since with an error; by dropping that guard, which ends a run
+    // continued after the interrupt was accepted; and by the open-turn read taking a turn started
+    // after the accepted version, which marks a later turn of a run continued since, or leaving
+    // out one started at that version.
     #[tokio::test]
     async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since() {
         let database = TestDatabase::new();
@@ -382,6 +422,7 @@ CREATE TABLE interventions (
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let turn_one = SafeInt::new(1).expect("1 is a turn number");
         // Interrupted at version 3, continued at 4, and running turn 1 at 5.
         database
             .reader()
@@ -396,36 +437,23 @@ CREATE TABLE interventions (
             )
             .expect("the test writes the run");
         let engine = test_engine(&database, log.service, home.path());
+        append(&engine, session_id, &interrupted_at(session_id, run_id, 3)).await;
         append(
             &engine,
             session_id,
-            &SessionEvent::AgentRunInterrupted(AgentRunInterruptedPayload {
-                session_id,
-                run_id,
-                run_version: SafeInt::new(3).expect("3 is a run version"),
-                previous_state: RunState::Running,
-                new_state: AgentRunInterruptedNewState::Value,
-                failure_category: None,
-                recovery_condition: None,
-                intended_close: None,
-                trigger: None,
-            }),
-        )
-        .await;
-        append(
-            &engine,
-            session_id,
-            &SessionEvent::AgentTurnStarted(AgentTurnStartedPayload {
-                session_id,
-                run_id,
-                run_version: SafeInt::new(5).expect("5 is a run version"),
-                turn_number: SafeInt::new(1).expect("1 is a turn number"),
-                position: None,
-            }),
+            &turn_started_at(session_id, run_id, 1, 5),
         )
         .await;
         let seeded = stored_events(&database, &run_id);
 
+        // A stop cut turn 1 for an interrupt accepted before the run's end at version 3.
+        engine.live().cut_turns.insert(
+            run_id,
+            CutTurn {
+                limit: RunLimit::StepLimit,
+                turn_number: turn_one,
+            },
+        );
         let ended_since = engine
             .end_run_for_interrupt(
                 run_id,
@@ -442,10 +470,12 @@ CREATE TABLE interventions (
             ("running".to_owned(), 5)
         );
 
+        // With no cut held, the read finds turn 1, started at the accepted version.
+        engine.forget_cut_turn(&run_id, turn_one);
         let ended = engine
             .end_run_for_interrupt(
                 run_id,
-                3,
+                5,
                 Some(RunLimit::StepLimit),
                 RunStateChangeCompanions::default(),
             )
@@ -456,7 +486,7 @@ CREATE TABLE interventions (
             .record_turn_end(
                 run_id,
                 ProviderTurnEnd {
-                    turn_number: SafeInt::new(1).expect("1 is a turn number"),
+                    turn_number: turn_one,
                     outcome: TurnOutcome::Interrupted(None),
                 },
             )
@@ -481,6 +511,39 @@ CREATE TABLE interventions (
         assert_eq!(
             stored_run_state(&database, &run_id),
             ("interrupted".to_owned(), 6)
+        );
+
+        // Continued at 7 on turn 2, which a person's interrupt at 8 left with no end, before the
+        // limit accepted at 5 is ended again.
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 2, 7),
+        )
+        .await;
+        append(&engine, session_id, &interrupted_at(session_id, run_id, 8)).await;
+        database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = 'interrupted', run_version = 8 WHERE run_id = ?1",
+                [run_id.text().as_str()],
+            )
+            .expect("the test ends the run again");
+        let continued = stored_events(&database, &run_id);
+        let ended_again = engine
+            .end_run_for_interrupt(
+                run_id,
+                5,
+                Some(RunLimit::StepLimit),
+                RunStateChangeCompanions::default(),
+            )
+            .await
+            .expect("a run that ended again is left");
+        assert!(!ended_again);
+        assert_eq!(
+            stored_events(&database, &run_id),
+            continued,
+            "a turn started after the limit was accepted takes no limit end"
         );
     }
 

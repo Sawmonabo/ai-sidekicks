@@ -170,7 +170,7 @@ impl RunEngine {
             .ok_or(RunEngineError::LimitInterrupterGone { run_id })?;
         let limit = stop.limit();
         let to_state = limit_run_end(limit).state();
-        let open_turn = self.read_open_turn(run_id).await?;
+        let open_turn = self.read_open_turn(run_id, None).await?;
         let is_live = match stop {
             LimitStop::Spend => {
                 let run = self.require_run(run_id).await?;
