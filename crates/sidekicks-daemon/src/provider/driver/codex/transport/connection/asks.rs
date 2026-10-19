@@ -79,6 +79,8 @@ impl CodexAppServerConnection {
     /// with `CodexError::Transport` when no ask is held under `request_id` or another answer to it
     /// is being sent, or when `answer` does not fit the ask (the ask stays held for one that
     /// does), and as a send fails otherwise, the ask staying held for another answer.
+    /// `request_id` is the request id's JSON text, as `CodexInboundServerRequest::request_id`
+    /// carries it.
     pub(crate) async fn answer_held_request(
         &self,
         request_id: &str,
@@ -117,13 +119,15 @@ impl CodexAppServerConnection {
         Ok(())
     }
 
-    /// Whether this connection holds an ask under `request_id` for the person.
+    /// Whether this connection holds an ask under `request_id` for the person. `request_id` is the
+    /// request id's JSON text, as `CodexInboundServerRequest::request_id` carries it.
     pub(crate) fn holds_request(&self, request_id: &str) -> bool {
         self.shared.lock_state().held.contains_key(request_id)
     }
 
     /// Lets go of a held ask Codex settled itself, so no answer is sent for it later. Answers who
-    /// the ask was for, or `None` when none was held under `request_id`.
+    /// the ask was for, or `None` when none was held under `request_id`. `request_id` is the
+    /// request id's JSON text, as `CodexInboundServerRequest::request_id` carries it.
     pub(crate) fn forget_held_request(&self, request_id: &str) -> Option<CodexAskKind> {
         let mut state = self.shared.lock_state();
         state.answering.remove(request_id);
