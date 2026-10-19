@@ -153,7 +153,7 @@ impl StepCount {
     not(test),
     expect(
         dead_code,
-        reason = "the provider's event delivery and the run control and provider choice handlers"
+        reason = "the daemon's start and the provider's event delivery"
     )
 )]
 pub(crate) struct WriteWithResend<Written> {
@@ -167,7 +167,10 @@ impl<Written> WriteWithResend<Written> {
     /// What was written, the failure of the interrupts handed again logged for the next hand.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the run control and provider choice handlers")
+        expect(
+            dead_code,
+            reason = "the daemon's start and the provider's event delivery"
+        )
     )]
     pub(crate) fn log_resend_failure(self, run_id: RunId) -> Written {
         if let Some(error) = &self.resend_failure {
