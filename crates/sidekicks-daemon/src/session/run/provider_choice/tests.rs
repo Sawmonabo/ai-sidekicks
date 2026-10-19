@@ -86,7 +86,7 @@ impl Fixture {
     }
 
     /// How many settlements of the choice the log holds.
-    fn settlements(&self) -> usize {
+    fn settlements(&self) -> i64 {
         self.database
             .reader()
             .query_row(
