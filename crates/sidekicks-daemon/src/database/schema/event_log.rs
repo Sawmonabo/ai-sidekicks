@@ -242,24 +242,42 @@ mod tests {
         }
     }
 
+    // One column of an index's key: `run_id`, or the column the index pairs with it.
+    #[derive(Clone, Copy, Debug)]
+    enum KeyColumn {
+        RunId,
+        Paired,
+    }
+
+    impl KeyColumn {
+        fn name(self, index: KeyedIndex) -> &'static str {
+            match self {
+                Self::RunId => "run_id",
+                Self::Paired => index.key_column(),
+            }
+        }
+    }
+
     // A write against a log holding one keyed row of the index (`keyed`) and one run row outside
     // it with no key (`unkeyed`).
     #[derive(Clone, Copy, Debug)]
     enum Write {
-        InsertWithNullKey,
-        UpdateNullingKey,
-        UpdateRekeying,
+        InsertWithNullKey(KeyColumn),
+        UpdateNullingKey(KeyColumn),
+        UpdateRekeying(KeyColumn),
         PromoteAnotherRow,
+        UpdateMovingOut,
         InsertWithKey,
     }
 
-    fn insert_sql(index: KeyedIndex, id: &str, sequence: u32, key: &str) -> String {
+    // `run_id` and `key` are SQL literals.
+    fn insert_sql(index: KeyedIndex, id: &str, sequence: u32, run_id: &str, key: &str) -> String {
         format!(
             "INSERT INTO {SESSION_EVENTS_TABLE}
                (id, session_id, sequence, occurred_at, monotonic_ns, category, type, run_id,
                 {column})
              VALUES ('{id}', 'session-1', {sequence}, '2026-01-01T00:00:00.000Z', {sequence},
-               '{category}', '{event_type}', 'run-1', {key})",
+               '{category}', '{event_type}', {run_id}, {key})",
             column = index.key_column(),
             category = EventCategory::RunLifecycle.as_str(),
             event_type = index.event_type(),
@@ -267,31 +285,54 @@ mod tests {
     }
 
     fn write_sql(index: KeyedIndex, write: Write) -> String {
-        let column = index.key_column();
         match write {
-            Write::InsertWithNullKey => insert_sql(index, "added", 3, "NULL"),
-            Write::UpdateNullingKey => {
-                format!("UPDATE {SESSION_EVENTS_TABLE} SET {column} = NULL WHERE id = 'keyed'")
+            Write::InsertWithNullKey(KeyColumn::RunId) => {
+                insert_sql(index, "added", 3, "NULL", "2")
             }
-            Write::UpdateRekeying => {
-                format!("UPDATE {SESSION_EVENTS_TABLE} SET {column} = 2 WHERE id = 'keyed'")
+            Write::InsertWithNullKey(KeyColumn::Paired) => {
+                insert_sql(index, "added", 3, "'run-1'", "NULL")
+            }
+            Write::UpdateNullingKey(column) => format!(
+                "UPDATE {SESSION_EVENTS_TABLE} SET {} = NULL WHERE id = 'keyed'",
+                column.name(index)
+            ),
+            Write::UpdateRekeying(column) => {
+                let value = match column {
+                    KeyColumn::RunId => "'run-2'",
+                    KeyColumn::Paired => "2",
+                };
+                format!(
+                    "UPDATE {SESSION_EVENTS_TABLE} SET {} = {value} WHERE id = 'keyed'",
+                    column.name(index)
+                )
             }
             Write::PromoteAnotherRow => format!(
                 "UPDATE {SESSION_EVENTS_TABLE} SET type = '{}' WHERE id = 'unkeyed'",
                 index.event_type()
             ),
-            Write::InsertWithKey => insert_sql(index, "added", 3, "2"),
+            Write::UpdateMovingOut => format!(
+                "UPDATE {SESSION_EVENTS_TABLE} SET type = '{}' WHERE id = 'keyed'",
+                RunStateEventType::Queued.session_event_type().as_str()
+            ),
+            Write::InsertWithKey => insert_sql(index, "added", 3, "'run-1'", "2"),
         }
     }
 
     // Each refused write slips past the unique index without its trigger: a NULL key is distinct
-    // from every other, and a re-key or promote leaves no duplicate. So the refusal must be the
-    // trigger's own.
+    // from every other, and a re-key, a promote or a move out leaves no duplicate. So the refusal
+    // must be the trigger's own.
     #[rstest]
-    #[case::insert_with_a_null_key(Write::InsertWithNullKey, false)]
-    #[case::update_nulling_a_committed_key(Write::UpdateNullingKey, false)]
-    #[case::update_rekeying_a_committed_row(Write::UpdateRekeying, false)]
+    #[case::insert_with_a_null_run_id(Write::InsertWithNullKey(KeyColumn::RunId), false)]
+    #[case::insert_with_a_null_paired_key(Write::InsertWithNullKey(KeyColumn::Paired), false)]
+    #[case::update_nulling_a_committed_run_id(Write::UpdateNullingKey(KeyColumn::RunId), false)]
+    #[case::update_nulling_a_committed_paired_key(
+        Write::UpdateNullingKey(KeyColumn::Paired),
+        false
+    )]
+    #[case::update_rekeying_a_committed_run_id(Write::UpdateRekeying(KeyColumn::RunId), false)]
+    #[case::update_rekeying_a_committed_paired_key(Write::UpdateRekeying(KeyColumn::Paired), false)]
     #[case::promote_of_another_row(Write::PromoteAnotherRow, false)]
+    #[case::update_moving_a_committed_row_out(Write::UpdateMovingOut, false)]
     #[case::insert_with_its_key(Write::InsertWithKey, true)]
     fn the_key_triggers_hold_each_unique_index_to_its_key(
         #[values(KeyedIndex::RunTerminal, KeyedIndex::TurnStart, KeyedIndex::TurnEnd)]
@@ -304,7 +345,7 @@ mod tests {
             .execute_batch(&event_log_schema_sql())
             .expect("the event log's schema runs");
         connection
-            .execute_batch(&insert_sql(index, "keyed", 1, "1"))
+            .execute_batch(&insert_sql(index, "keyed", 1, "'run-1'", "1"))
             .expect("a keyed row is admitted");
         connection
             .execute_batch(&format!(
