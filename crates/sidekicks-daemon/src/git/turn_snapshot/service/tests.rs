@@ -153,7 +153,7 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_and_nothing_else(
     let root = tempfile::tempdir().expect("the temporary folder is made");
     let (repository, commit) = repository_with_a_commit(&git, root.path()).await;
     let git_common_dir = if is_git_folder_present {
-        read_git_common_folder(&git, None, &repository)
+        read_git_common_folder(&git, None, &repository, None)
             .await
             .expect("the repository's git folder is read")
     } else {

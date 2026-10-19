@@ -1,7 +1,8 @@
 //! The one runner for git: the absolute `git` found along the person's search path, argv only and
-//! no shell, an environment cleared of the variables that redirect which repository git reads, a
-//! bound on its output and on its time, and an end that reaches every process it started. A read
-//! runs no hook and no file-watch helper program; a write keeps the repository's hooks.
+//! no shell, the login shell's environment cleared of the variables that redirect which repository
+//! git reads, a bound on its output and on its time, and an end that reaches every process it
+//! started. A read runs no hook and no file-watch helper program; a write keeps the repository's
+//! hooks. A long call whose standard error its caller reads as it goes is started instead of run.
 
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
@@ -13,8 +14,8 @@ use std::time::Duration;
 
 use sidekicks_contracts::place::{DistroName, Place};
 use sidekicks_platforms::{
-    ChildTreeOutputError, NULL_DEVICE_PATH, Spawner, find_executables, path_from_program_output,
-    start_child_tree,
+    ChildTree, ChildTreeOutputError, NULL_DEVICE_PATH, PathRules, Spawner, find_executables,
+    path_from_program_output, start_child_tree,
 };
 use tokio::process::Command;
 use tokio::sync::OnceCell;
@@ -170,8 +171,8 @@ enum GitFileWatch {
     Repository,
 }
 
-/// One git call: its whole argument list, `-C <folder>` included, and what it adds to git's
-/// environment and gives git on its standard input.
+/// One git call: its whole argument list, `-C <folder>` included, what it adds to git's
+/// environment and gives git on its standard input, and any bound on its time below the runner's.
 #[derive(Debug)]
 pub(crate) struct GitCall {
     hooks: GitHooks,
@@ -179,6 +180,7 @@ pub(crate) struct GitCall {
     arguments: Vec<OsString>,
     environment: Vec<(OsString, OsString)>,
     input: Option<Vec<u8>>,
+    timeout: Option<Duration>,
 }
 
 impl GitCall {
@@ -206,10 +208,11 @@ impl GitCall {
             arguments: arguments.into_iter().map(Into::into).collect(),
             environment: Vec::new(),
             input: None,
+            timeout: None,
         }
     }
 
-    /// The call with `name` set to `value` in git's environment, over the daemon's own and the
+    /// The call with `name` set to `value` in git's environment, over the login shell's and the
     /// pinned locale, as a scratch index reaches only the calls that stage into it.
     pub(crate) fn with_environment(
         mut self,
@@ -227,6 +230,14 @@ impl GitCall {
         self
     }
 
+    /// The call held to `timeout` where that is shorter than the runner's bound, for a quick answer
+    /// a person waits on, which a hung network folder would otherwise hold for the runner's whole
+    /// bound; `None` keeps the runner's bound.
+    pub(crate) fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
     /// A read of the live index in `folder`, run with `arguments` there and no optional lock: no
     /// hook runs, and git's built-in file-watch daemon is kept where the repository turns it on
     /// and the git program has it, since the read walks the whole tree without it; any other file
@@ -240,6 +251,25 @@ impl GitCall {
             },
             background_read(folder, arguments),
         )
+    }
+}
+
+// A call ready to start: its whole argument list, settings first, what it adds to git's
+// environment and what it writes to git's standard input.
+struct PreparedCall {
+    arguments: Vec<OsString>,
+    environment: Vec<(OsString, OsString)>,
+    input: Option<Vec<u8>>,
+}
+
+impl PreparedCall {
+    // A call of `arguments` alone.
+    fn of(arguments: Vec<OsString>) -> Self {
+        Self {
+            arguments,
+            environment: Vec::new(),
+            input: None,
+        }
     }
 }
 
@@ -267,12 +297,16 @@ impl GitLimits {
     };
 }
 
-/// The daemon's git: the program found at start, started from the spawner's thread, each call
-/// held to the runner's bounds. Cloning it shares the program and what was read of its build.
+/// The daemon's git: the program found at start, started from the spawner's thread in the login
+/// shell's environment, each call held to the runner's bounds. Cloning it shares the program, the
+/// environment and what was read of its build.
 #[derive(Clone)]
 pub(crate) struct GitRunner {
     spawner: Spawner,
     executable: Option<Arc<Path>>,
+    // The login shell's environment captured at the daemon's start, never the daemon's own, which
+    // a program the system starts holds without the person's search path.
+    login_environment: Arc<[(String, String)]>,
     limits: GitLimits,
     // Whether the program was built with its file-watch daemon, read once it is first needed.
     has_built_in_file_watch: Arc<OnceCell<bool>>,
@@ -280,7 +314,8 @@ pub(crate) struct GitRunner {
 
 impl GitRunner {
     /// The runner for the git at `executable`, an absolute path, or for none found, when every
-    /// call fails with [`GitError::NotFound`] where git is first needed rather than at start.
+    /// call fails with [`GitError::NotFound`] where git is first needed rather than at start; each
+    /// call's environment starts from `login_environment`, the login shell's captured at start.
     #[cfg_attr(
         not(test),
         expect(
@@ -288,10 +323,16 @@ impl GitRunner {
             reason = "the daemon's start makes its git runner through it"
         )
     )]
-    pub(crate) fn new(spawner: Spawner, executable: Option<PathBuf>, limits: GitLimits) -> Self {
+    pub(crate) fn new(
+        spawner: Spawner,
+        executable: Option<PathBuf>,
+        login_environment: Arc<[(String, String)]>,
+        limits: GitLimits,
+    ) -> Self {
         Self {
             spawner,
             executable: executable.map(Arc::from),
+            login_environment,
             limits,
             has_built_in_file_watch: Arc::new(OnceCell::new()),
         }
@@ -309,18 +350,56 @@ impl GitRunner {
         place: Option<&Place>,
         call: GitCall,
     ) -> Result<GitOutput, GitError> {
+        let executable = self.executable_for(place)?;
+        let timeout = call.timeout.map_or(self.limits.timeout, |timeout| {
+            timeout.min(self.limits.timeout)
+        });
+        let prepared = self.prepare(executable, call).await?;
+        self.run_git(executable, prepared, timeout).await
+    }
+
+    /// Starts `call` for a project at `place` and hands back its tree, its standard error piped
+    /// for the caller to read as git writes it, its standard input and output the null device and
+    /// no bound on its time: the caller ends it, and dropping the tree before git exits ends it.
+    /// A call's input is not written. Fails as [`run`](Self::run) does before git starts.
+    #[expect(dead_code, reason = "the clone service's git and the background fetch")]
+    pub(crate) async fn start(
+        &self,
+        place: Option<&Place>,
+        call: GitCall,
+    ) -> Result<ChildTree, GitError> {
+        let executable = self.executable_for(place)?;
+        let prepared = self.prepare(executable, call).await?;
+        self.start_git(
+            executable,
+            prepared.arguments,
+            prepared.environment,
+            false,
+            Stdio::null(),
+        )
+        .await
+    }
+
+    // The git program for a project at `place`; fails with `WslPlace` for a project in a WSL 2
+    // distribution and `NotFound` when no git was found.
+    fn executable_for(&self, place: Option<&Place>) -> Result<&Path, GitError> {
         if let Some(Place::Wsl(wsl)) = place {
             return Err(GitError::WslPlace {
                 distro: wsl.distro.clone(),
             });
         }
-        let executable = self.executable.as_deref().ok_or(GitError::NotFound)?;
+        self.executable.as_deref().ok_or(GitError::NotFound)
+    }
+
+    // `call`'s whole argument list with its settings first, its environment and its input.
+    async fn prepare(&self, executable: &Path, call: GitCall) -> Result<PreparedCall, GitError> {
         let GitCall {
             hooks,
             file_watch,
             arguments,
             environment,
             input,
+            timeout: _,
         } = call;
         let file_watch_setting = match file_watch {
             GitFileWatch::Off => Some(FILE_WATCH_OFF_SETTING),
@@ -331,7 +410,11 @@ impl GitRunner {
         };
         let mut settings = call_settings(hooks, file_watch_setting);
         settings.extend(arguments);
-        self.run_git(executable, settings, environment, input).await
+        Ok(PreparedCall {
+            arguments: settings,
+            environment,
+            input,
+        })
     }
 
     // The file-watch setting a live index read of the repository in `folder` runs with: the
@@ -348,7 +431,10 @@ impl GitRunner {
             folder,
             &["config", "--type=bool-or-str", "--get", "core.fsmonitor"],
         ));
-        let is_built_in_on = match self.run_git(executable, arguments, Vec::new(), None).await {
+        let is_built_in_on = match self
+            .run_git(executable, PreparedCall::of(arguments), self.limits.timeout)
+            .await
+        {
             Ok(output) => strip_line_end(output.stdout) == b"true",
             Err(GitError::Exited {
                 code: Some(CONFIG_UNSET_EXIT_CODE),
@@ -369,7 +455,7 @@ impl GitRunner {
             .get_or_try_init(|| async {
                 let arguments = vec![OsString::from("version"), OsString::from("--build-options")];
                 let output = self
-                    .run_git(executable, arguments, Vec::new(), None)
+                    .run_git(executable, PreparedCall::of(arguments), self.limits.timeout)
                     .await?;
                 Ok(output
                     .stdout
@@ -380,35 +466,30 @@ impl GitRunner {
             .copied()
     }
 
-    // Starts the git at `executable` with `arguments` and holds it to the runner's bounds.
+    // Starts the git at `executable` with `arguments` and holds it to `timeout` and the runner's
+    // output bound.
     async fn run_git(
         &self,
         executable: &Path,
-        arguments: Vec<OsString>,
-        environment: Vec<(OsString, OsString)>,
-        input: Option<Vec<u8>>,
+        call: PreparedCall,
+        timeout: Duration,
     ) -> Result<GitOutput, GitError> {
-        let mut command = Command::new(executable);
-        command
-            .args(arguments)
-            .env_clear()
-            .envs(git_environment(std::env::vars_os(), environment))
-            .stdin(if input.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let daemon_pid = std::process::id();
+        let PreparedCall {
+            arguments,
+            environment,
+            input,
+        } = call;
         let mut child = self
-            .spawner
-            .run(move || start_child_tree(command, daemon_pid))
-            .await
-            .map_err(GitError::Start)?
-            .map_err(GitError::Start)?;
+            .start_git(
+                executable,
+                arguments,
+                environment,
+                input.is_some(),
+                Stdio::piped(),
+            )
+            .await?;
         let waited = tokio::time::timeout(
-            self.limits.timeout,
+            timeout,
             child.wait_with_output(input, self.limits.output_bytes),
         )
         .await;
@@ -427,9 +508,7 @@ impl GitRunner {
             }
             Ok(Err(ChildTreeOutputError::TooLarge { bound })) => GitError::OutputTooLarge { bound },
             Ok(Err(ChildTreeOutputError::Io(error))) => GitError::Read(error),
-            Err(_elapsed) => GitError::TimedOut {
-                timeout: self.limits.timeout,
-            },
+            Err(_elapsed) => GitError::TimedOut { timeout },
         };
         if let Err(error) = child.end_tree().await {
             tracing::warn!(
@@ -438,6 +517,41 @@ impl GitRunner {
             );
         }
         Err(failure)
+    }
+
+    // Starts the git at `executable` with `arguments` in the login shell's environment from the
+    // spawner's thread, leading a tree of its own, its standard error piped, its standard input
+    // piped when `is_input_written` and its standard output as `stdout` sets it.
+    async fn start_git(
+        &self,
+        executable: &Path,
+        arguments: Vec<OsString>,
+        environment: Vec<(OsString, OsString)>,
+        is_input_written: bool,
+        stdout: Stdio,
+    ) -> Result<ChildTree, GitError> {
+        let login_environment = self
+            .login_environment
+            .iter()
+            .map(|(name, value)| (OsString::from(name), OsString::from(value)));
+        let mut command = Command::new(executable);
+        command
+            .args(arguments)
+            .env_clear()
+            .envs(git_environment(login_environment, environment))
+            .stdin(if is_input_written {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(stdout)
+            .stderr(Stdio::piped());
+        let daemon_pid = std::process::id();
+        self.spawner
+            .run(move || start_child_tree(command, daemon_pid))
+            .await
+            .map_err(GitError::Start)?
+            .map_err(GitError::Start)
     }
 }
 
@@ -458,20 +572,23 @@ pub(crate) fn find_git_executable(environment: &[(String, String)]) -> Option<Pa
 }
 
 /// The absolute git folder of the repository `folder` sits in, the common one a linked worktree
-/// shares with every worktree of its repository. Fails as [`GitRunner::run`] does, with exit 128
-/// when `folder` is in no repository, and with `PathText` for a path this system cannot name.
+/// shares with every worktree of its repository, held to `timeout` (the runner's bound when
+/// `None`). Fails as [`GitRunner::run`] does, with exit 128 when `folder` is in no repository, and
+/// with `PathText` for a path this system cannot name.
 pub(crate) async fn read_git_common_folder(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
+    timeout: Option<Duration>,
 ) -> Result<PathBuf, GitError> {
     let output = git
         .run(
             place,
-            GitCall::read(in_folder(
+            GitCall::read(background_read(
                 folder,
                 &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-            )),
+            ))
+            .with_timeout(timeout),
         )
         .await?;
     path_from_program_output(strip_line_end(output.stdout)).map_err(GitError::PathText)
@@ -504,15 +621,18 @@ pub(crate) fn test_git_runner() -> GitRunner {
         sidekicks_platforms::Spawner::new(tokio::runtime::Handle::current())
             .expect("the spawner thread starts"),
         Some(executable),
+        environment.into(),
         GitLimits::DAEMON,
     )
 }
 
-/// `line` without the one line end git prints after a single answer.
+/// `line` without the one line end git prints after a single answer: the `\n`, and the `\r`
+/// before it only where the running system ends lines with `\r\n`, since elsewhere a name may
+/// end with a `\r` git prints as it stands.
 pub(crate) fn strip_line_end(mut line: Vec<u8>) -> Vec<u8> {
     if line.last() == Some(&b'\n') {
         line.pop();
-        if line.last() == Some(&b'\r') {
+        if PathRules::NATIVE.has_carriage_return_line_ends() && line.last() == Some(&b'\r') {
             line.pop();
         }
     }
@@ -558,308 +678,4 @@ fn git_environment(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::ffi::OsString;
-    use std::path::{Path, PathBuf};
-    use std::time::{Duration, Instant};
-
-    use super::{
-        GitCall, GitError, GitLimits, GitRunner, git_environment, in_folder, strip_line_end,
-        test_git_runner,
-    };
-    use crate::file::atomic_write::write_file_atomically;
-
-    // The person's git with `limits`.
-    fn test_runner(limits: GitLimits) -> GitRunner {
-        GitRunner {
-            limits,
-            ..test_git_runner()
-        }
-    }
-
-    // A new repository in a temporary folder, with one commit of the empty tree: the temporary
-    // folder, the repository's folder, the empty tree's id and the commit's.
-    async fn repository_with_a_commit(
-        git: &GitRunner,
-    ) -> (tempfile::TempDir, PathBuf, String, String) {
-        let root = tempfile::tempdir().expect("the temporary folder is made");
-        let repository = root.path().join("repository");
-        git.run(
-            None,
-            GitCall::write([OsString::from("init"), repository.clone().into()]),
-        )
-        .await
-        .expect("the repository is made");
-        let tree = git
-            .run(None, GitCall::read(in_folder(&repository, &["write-tree"])))
-            .await
-            .expect("the empty tree is written");
-        let tree = String::from_utf8(strip_line_end(tree.stdout)).expect("an id is ASCII");
-        let commit = git
-            .run(
-                None,
-                committing(&repository, &tree).with_input(b"first\n".to_vec()),
-            )
-            .await
-            .expect("the commit is written");
-        let commit = String::from_utf8(strip_line_end(commit.stdout)).expect("an id is ASCII");
-        (root, repository, tree, commit)
-    }
-
-    // `commit-tree` of `tree` with a fixed identity and no signing, whatever the person's config.
-    fn committing(repository: &Path, tree: &str) -> GitCall {
-        let mut arguments = vec![OsString::from("-c"), "commit.gpgSign=false".into()];
-        arguments.extend(in_folder(repository, &["commit-tree", tree, "-F", "-"]));
-        GitCall::write(arguments)
-            .with_environment("GIT_AUTHOR_NAME", "Test")
-            .with_environment("GIT_AUTHOR_EMAIL", "test@example.invalid")
-            .with_environment("GIT_COMMITTER_NAME", "Test")
-            .with_environment("GIT_COMMITTER_EMAIL", "test@example.invalid")
-    }
-
-    // An `update-ref` of a new branch through a `reference-transaction` hook whose body is
-    // `hook`, from a hooks folder the call names over the person's config.
-    async fn update_ref_through_hook(
-        git: &GitRunner,
-        root: &Path,
-        repository: &Path,
-        commit: &str,
-        hook: &str,
-    ) -> Result<(), GitError> {
-        let hooks = root.join("hooks");
-        tokio::fs::create_dir_all(&hooks)
-            .await
-            .expect("the hooks folder is made");
-        write_file_atomically(
-            &hooks.join("reference-transaction"),
-            format!("#!/bin/sh\n{hook}\n"),
-            0o755,
-        )
-        .await
-        .expect("the hook is written");
-        let mut arguments = vec![
-            OsString::from("-c"),
-            OsString::from(format!("core.hooksPath={}", hooks.display())),
-        ];
-        arguments.extend(in_folder(
-            repository,
-            &["update-ref", "refs/heads/hooked", commit],
-        ));
-        git.run(None, GitCall::write(arguments)).await.map(drop)
-    }
-
-    // Fails when a redirecting variable spelled in another case survives, when the locale is not
-    // pinned, or when the pinned value overrides the call's own.
-    #[test]
-    fn git_environment_strips_redirects_and_lets_the_call_set_last() {
-        let variables = [
-            ("Git_Dir", "/elsewhere/.git"),
-            ("GIT_SHALLOW_FILE", "/elsewhere/shallow"),
-            ("GIT_INDEX_FILE", "/elsewhere/index"),
-            ("LANG", "fr_FR.UTF-8"),
-            ("HOME", "/home/person"),
-        ]
-        .map(|(name, value)| (OsString::from(name), OsString::from(value)));
-        let overrides = vec![(
-            OsString::from("GIT_INDEX_FILE"),
-            OsString::from("/scratch/index"),
-        )];
-
-        let mut command = tokio::process::Command::new("git");
-        command
-            .env_clear()
-            .envs(git_environment(variables, overrides));
-        let environment: Vec<(String, Option<String>)> = command
-            .as_std()
-            .get_envs()
-            .map(|(name, value)| {
-                let text = |text: &std::ffi::OsStr| text.to_string_lossy().into_owned();
-                (text(name), value.map(text))
-            })
-            .collect();
-
-        let value_of = |wanted: &str| {
-            environment
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
-                .and_then(|(_, value)| value.clone())
-        };
-        assert_eq!(value_of("GIT_DIR"), None);
-        assert_eq!(value_of("GIT_SHALLOW_FILE"), None);
-        assert_eq!(
-            value_of("GIT_INDEX_FILE").as_deref(),
-            Some("/scratch/index")
-        );
-        assert_eq!(value_of("LANG").as_deref(), Some("C"));
-        assert_eq!(value_of("LC_ALL").as_deref(), Some("C"));
-        assert_eq!(value_of("GIT_TERMINAL_PROMPT").as_deref(), Some("0"));
-        assert_eq!(value_of("HOME").as_deref(), Some("/home/person"));
-    }
-
-    // Fails when a call given no input leaves git's standard input open, where `-F -` waits until
-    // the timeout.
-    #[tokio::test]
-    async fn commit_tree_given_no_input_returns() {
-        let git = test_runner(GitLimits {
-            timeout: Duration::from_secs(30),
-            output_bytes: 1024,
-        });
-        let (_root, repository, tree, _commit) = repository_with_a_commit(&git).await;
-
-        let commit = git.run(None, committing(&repository, &tree)).await;
-
-        assert!(commit.expect("the commit is written").stdout.len() > tree.len());
-    }
-
-    // Fails when output past the bound is cut and returned rather than failing the call.
-    #[tokio::test]
-    async fn output_past_the_bound_fails_the_call() {
-        let git = test_runner(GitLimits {
-            timeout: Duration::from_secs(30),
-            output_bytes: 4,
-        });
-
-        let version = git.run(None, GitCall::read(["version"])).await;
-
-        assert!(matches!(
-            version,
-            Err(GitError::OutputTooLarge { bound: 4 })
-        ));
-    }
-
-    // Fails when a read runs a hook or the file-watch helper program the repository's own config
-    // names, a live index read among them, or when a write does not run the repository's hooks.
-    #[tokio::test]
-    async fn a_read_runs_no_hook_or_file_watch_helper_and_a_write_runs_the_hooks() {
-        let git = test_git_runner();
-        let (root, repository, _tree, commit) = repository_with_a_commit(&git).await;
-        let ran = |name: &str| root.path().join(name);
-        tokio::fs::write(repository.join("tracked.txt"), "tracked\n")
-            .await
-            .expect("the file is written");
-        git.run(
-            None,
-            GitCall::write(in_folder(&repository, &["add", "tracked.txt"])),
-        )
-        .await
-        .expect("the file is staged");
-        let hooks = root.path().join("hooks");
-        let helper = root.path().join("file-watch-helper");
-        tokio::fs::create_dir_all(&hooks)
-            .await
-            .expect("the hooks folder is made");
-        // The helper fails, so git reads the tree itself.
-        for (script, marker, end) in [
-            (hooks.join("post-index-change"), "index-hook-ran", ""),
-            (hooks.join("reference-transaction"), "ref-hook-ran", ""),
-            (helper.clone(), "helper-ran", "exit 1"),
-        ] {
-            let body = format!("#!/bin/sh\ntouch '{}'\n{end}\n", ran(marker).display());
-            write_file_atomically(&script, body, 0o755)
-                .await
-                .expect("the script is written");
-        }
-        for (name, value) in [("core.hooksPath", &hooks), ("core.fsmonitor", &helper)] {
-            let mut arguments = in_folder(&repository, &["config", name]);
-            arguments.push(value.into());
-            git.run(None, GitCall::write(arguments))
-                .await
-                .expect("the repository's config is written");
-        }
-
-        for read in [
-            GitCall::read(in_folder(&repository, &["status", "--porcelain"])),
-            GitCall::live_index_read(&repository, &["status", "--porcelain"]),
-            GitCall::read(in_folder(&repository, &["read-tree", &commit])),
-        ] {
-            git.run(None, read).await.expect("the read runs");
-        }
-        let ran_after_reads = [ran("index-hook-ran").exists(), ran("helper-ran").exists()];
-        git.run(
-            None,
-            GitCall::write(in_folder(
-                &repository,
-                &["update-ref", "refs/heads/hooked", &commit],
-            )),
-        )
-        .await
-        .expect("the ref is written");
-
-        assert_eq!(ran_after_reads, [false, false]);
-        assert!(
-            ran("ref-hook-ran").exists(),
-            "the write ran the repository's hook"
-        );
-    }
-
-    // Fails when the timeout ends git alone, which leaves its sleeping hook to finish its work.
-    #[tokio::test]
-    async fn a_timeout_ends_the_hook_git_started() {
-        let git = test_runner(GitLimits {
-            timeout: Duration::from_secs(30),
-            output_bytes: 1024,
-        });
-        let (root, repository, _tree, commit) = repository_with_a_commit(&git).await;
-        let started = root.path().join("started");
-        let finished = root.path().join("finished");
-        let impatient = GitRunner {
-            limits: GitLimits {
-                timeout: Duration::from_millis(1_500),
-                output_bytes: 1024,
-            },
-            ..git
-        };
-
-        let update = update_ref_through_hook(
-            &impatient,
-            root.path(),
-            &repository,
-            &commit,
-            &format!(
-                "touch '{}'\nsleep 3\ntouch '{}'",
-                started.display(),
-                finished.display()
-            ),
-        )
-        .await;
-        tokio::time::sleep(Duration::from_secs(4)).await;
-
-        assert!(matches!(update, Err(GitError::TimedOut { .. })));
-        assert!(started.exists(), "the hook ran");
-        assert!(!finished.exists(), "the hook outlived the timeout");
-    }
-
-    // Fails when the output read waits for the end of git's output, which a process a hook left
-    // behind holds open long after git's exit.
-    #[tokio::test]
-    async fn the_call_returns_at_git_exit_while_a_hook_child_holds_its_output() {
-        let git = test_runner(GitLimits {
-            timeout: Duration::from_secs(60),
-            output_bytes: 1024,
-        });
-        let (root, repository, _tree, commit) = repository_with_a_commit(&git).await;
-        let sleeper_pid_file = root.path().join("sleeper.pid");
-        let started_at = Instant::now();
-
-        let update = update_ref_through_hook(
-            &git,
-            root.path(),
-            &repository,
-            &commit,
-            &format!("sleep 30 &\necho $! > '{}'", sleeper_pid_file.display()),
-        )
-        .await;
-        let elapsed = started_at.elapsed();
-        // The sleeper is the test's own child's child, ended here so it outlives nothing.
-        let sleeper_pid =
-            std::fs::read_to_string(&sleeper_pid_file).expect("the hook wrote its pid");
-        let ended = std::process::Command::new("kill")
-            .arg(sleeper_pid.trim())
-            .status()
-            .expect("kill runs");
-
-        update.expect("the update succeeds");
-        assert!(elapsed < Duration::from_secs(10));
-        assert!(ended.success(), "the sleeper was still running");
-    }
-}
+mod tests;
