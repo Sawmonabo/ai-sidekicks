@@ -395,7 +395,9 @@ static SELECT_QUEUE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+/// The queued messages that target one run, bound to its id at the one `?`, in queue order; a
+/// write that must find none uses it as its guard.
+pub(crate) static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {COLUMNS} FROM queue_items
   WHERE target_run_id = ? AND state = '{}'

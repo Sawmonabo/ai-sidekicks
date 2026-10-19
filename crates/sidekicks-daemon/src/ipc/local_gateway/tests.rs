@@ -44,6 +44,7 @@ use crate::ipc::registry::{
 };
 use crate::ipc::stream::feed::SendGate;
 use crate::ipc::stream::subscriptions::Subscriptions;
+use crate::recovery::database_file::damage::DatabaseDamageWatch;
 
 mod call_cap;
 mod close;
@@ -233,7 +234,7 @@ fn harness() -> Harness {
             .boxed()
         });
     let negotiator = ProtocolNegotiator::new(SESSION_TOKEN.to_owned(), admit_caller);
-    let subscriptions = Subscriptions::new();
+    let subscriptions = Subscriptions::new(Arc::new(DatabaseDamageWatch::new()));
     let admitted = Arc::new(Mutex::new(Vec::new()));
     let mut builder = MethodRegistryBuilder::new();
     negotiator

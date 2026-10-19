@@ -14,7 +14,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
-use crate::database::statement::{StatementBindings, StatementResult, WriteStatement};
+use crate::database::statement::{
+    StatementBindings, StatementResult, WriteStatement, named_bindings,
+};
 use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
     WriteJobFailure, WriteJobOutcome,
@@ -430,11 +432,7 @@ fn run_statement(
         StatementBindings::None => run_bound(&mut prepared, ()),
         StatementBindings::Positional(values) => run_bound(&mut prepared, params_from_iter(values)),
         StatementBindings::Named(values) => {
-            let named: Vec<(&str, &Value)> = values
-                .iter()
-                .map(|(name, value)| (name.as_ref(), value))
-                .collect();
-            run_bound(&mut prepared, named.as_slice())
+            run_bound(&mut prepared, named_bindings(values).as_slice())
         }
     }
 }

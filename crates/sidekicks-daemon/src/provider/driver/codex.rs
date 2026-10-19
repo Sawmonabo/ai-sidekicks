@@ -103,4 +103,6 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     ],
     // Codex's own limit on a skill's name.
     skill_name_max_length: Some(64),
+    // Codex publishes no turn cap.
+    bounds_turn_steps: false,
 };

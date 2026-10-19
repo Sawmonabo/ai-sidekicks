@@ -18,7 +18,8 @@ use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::uuid_v7::mint_uuid_v7;
 
 /// The daemon schema's `session_events` and `projection_cursors` tables, as the full schema
-/// declares them, without the indexes and triggers no row write here needs.
+/// declares them, with the two turn indexes a turn write's guard reads and without the indexes
+/// and triggers no row write here needs.
 const EVENT_TABLES_SQL: &str = "
 CREATE TABLE session_events (
   id                TEXT PRIMARY KEY,
@@ -37,8 +38,15 @@ CREATE TABLE session_events (
                     CHECK(version GLOB '[0-9]*.[0-9]*'),
   run_id            TEXT,
   run_version       INTEGER,
+  turn_number       INTEGER,
   UNIQUE (session_id, sequence)
 ) STRICT;
+
+CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number)
+    WHERE category = 'runLifecycle'
+    AND type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed');
+CREATE UNIQUE INDEX idx_session_events_turn_start_once ON session_events(run_id, turn_number)
+    WHERE category = 'runLifecycle' AND type = 'agent.turn.started';
 
 CREATE TABLE projection_cursors (
   id              TEXT PRIMARY KEY,

@@ -3,6 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::methods::agent_entry;
@@ -18,8 +19,11 @@ use crate::wire::{Never, True, literal};
 
 /// How a child run was reached: a provider's own subagent, a run another agent asked for through
 /// the bridge, or a workflow step. Internal to the agent index; the screen never shows it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ChildRunProvenance {
     /// A provider's own subagent.
     ProviderSubagent,

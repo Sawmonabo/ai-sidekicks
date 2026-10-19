@@ -28,12 +28,15 @@ use crate::ipc::registry::{
     TransportId,
 };
 use crate::ipc::stream::feed::SendGate;
+use crate::recovery::database_file::damage::DatabaseDamageWatch;
 
 /// The daemon's open subscriptions, by id and by connection, shared by the cancel call, the
 /// gateway's connection close and each open subscription.
-#[derive(Default)]
 pub(crate) struct Subscriptions {
     table: Mutex<SubscriptionTable>,
+    /// The watch a feed's failure is told to, so damage a subscription's read meets reaches the
+    /// repair.
+    damage: Arc<DatabaseDamageWatch>,
 }
 
 /// The open subscriptions by id, and each connection's ids, so a close touches only its own.
@@ -69,9 +72,13 @@ impl SubscriptionTable {
 }
 
 impl Subscriptions {
-    /// An empty table, shared by everything that opens, cancels or closes a subscription.
-    pub(crate) fn new() -> Arc<Self> {
-        Arc::new(Self::default())
+    /// An empty table, shared by everything that opens, cancels or closes a subscription, telling
+    /// `damage` of each feed's failure.
+    pub(crate) fn new(damage: Arc<DatabaseDamageWatch>) -> Arc<Self> {
+        Arc::new(Self {
+            table: Mutex::default(),
+            damage,
+        })
     }
 
     /// Registers `$/subscription/cancel`: a read, answered `{canceled: true}` only from the
@@ -283,11 +290,14 @@ impl Subscription {
             Some(Ok(None)) => SubscriptionEndParams::Completed {
                 subscription_id: self.id,
             },
-            Some(Err(error)) => SubscriptionEndParams::Refused {
-                subscription_id: self.id,
-                // Mapped even when no frame goes out, so a fault is still logged once.
-                error: json_rpc_error_of(CallFailure::Dispatch(error)),
-            },
+            Some(Err(error)) => {
+                self.subscriptions.damage.report_dispatch_failure(&error);
+                SubscriptionEndParams::Refused {
+                    subscription_id: self.id,
+                    // Mapped even when no frame goes out, so a fault is still logged once.
+                    error: json_rpc_error_of(CallFailure::Dispatch(error)),
+                }
+            }
         };
         self.subscriptions
             .mark_ended(&self.id)
@@ -338,7 +348,7 @@ mod tests {
     /// A table and a frozen registry serving its cancel call and `test.subscribe`, whose feed's
     /// one emission breaks its rule.
     fn served() -> (Arc<Subscriptions>, MethodRegistry) {
-        let subscriptions = Subscriptions::new();
+        let subscriptions = Subscriptions::new(Arc::new(DatabaseDamageWatch::new()));
         let mut builder = MethodRegistryBuilder::new();
         subscriptions
             .register_cancel(&mut builder)
@@ -484,6 +494,47 @@ mod tests {
             Some("request.resultInvalid")
         );
         assert!(subscription.next_frame(&gate).await.is_none());
+    }
+
+    // Killed by dropping the report where the read's failure is mapped: the repair then never
+    // hears of damage only a subscription met.
+    #[tokio::test]
+    async fn a_damaged_read_ends_the_subscription_and_reaches_the_damage_watch() {
+        /// A feed whose read meets a damaged database file.
+        struct DamagedRead;
+
+        impl EncodedFeed for DamagedRead {
+            fn next<'a>(
+                &'a mut self,
+                _gate: &'a dyn SendGate,
+            ) -> BoxFuture<'a, Result<Option<EncodedValue>, DispatchError>> {
+                let damaged = rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+                    None,
+                );
+                futures::future::ready(Err(DispatchError::Internal(Box::new(damaged)))).boxed()
+            }
+        }
+
+        let gate = CreditGate::with_credit(1);
+        let damage = Arc::new(DatabaseDamageWatch::new());
+        let subscriptions = Subscriptions::new(Arc::clone(&damage));
+        let mut subscription = subscriptions
+            .open(
+                TransportId(1),
+                METHOD,
+                subscription_id(1),
+                Box::new(DamagedRead),
+            )
+            .expect("the connection is under its limit");
+
+        assert!(matches!(
+            subscription.next_frame(&gate).await,
+            Some(SubscriptionFrame::End(
+                SubscriptionEndParams::Refused { .. }
+            ))
+        ));
+        assert!(damage.is_found(), "the damage reached the watch");
     }
 
     #[tokio::test]

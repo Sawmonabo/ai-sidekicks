@@ -30,6 +30,9 @@ pub(crate) enum RunRefusal {
         expected_run_version: u64,
         /// The run's current version, as the store holds it.
         run_version: i64,
+        /// The guard that found the version moved inside the write, when one did.
+        #[source]
+        source: Option<Box<dyn Error + Send + Sync>>,
     },
     /// A move the run's current state does not allow (`agent.run.invalidTransition`).
     #[error(
@@ -62,6 +65,9 @@ pub(crate) enum RunRefusal {
         from_state: RunState,
         /// The terminal state the move asked for.
         to_state: RunStateChangeState,
+        /// The guard that found the end inside the write, when one did.
+        #[source]
+        source: Option<Box<dyn Error + Send + Sync>>,
     },
     /// A turn the daemon or the provider would start on a session whose next turn is held for
     /// another run: the continue of its interrupted lead run with the messages waiting for it, or
@@ -71,6 +77,9 @@ pub(crate) enum RunRefusal {
     SessionTurnHeld {
         /// The session whose turn is held.
         session_id: SessionId,
+        /// The guard that found the turn held.
+        #[source]
+        source: Box<dyn Error + Send + Sync>,
     },
 }
 
@@ -87,6 +96,7 @@ pub(crate) fn ended_run_refusal(
             run_id,
             from_state: ended_state,
             to_state,
+            source: None,
         }
     } else {
         RunRefusal::InvalidTransition {
@@ -110,33 +120,40 @@ impl From<RunRefusal> for DomainError {
                 run_id,
                 expected_run_version,
                 run_version,
-            } => DomainError::new(message, RefusalCode::AgentRunVersionStale).with_detail(json!({
-                "runId": run_id,
-                "expectedRunVersion": expected_run_version,
-                "runVersion": run_version,
-            })),
+                source,
+            } => with_source(
+                DomainError::new(message, RefusalCode::AgentRunVersionStale).with_detail(json!({
+                    "runId": run_id,
+                    "expectedRunVersion": expected_run_version,
+                    "runVersion": run_version,
+                })),
+                source,
+            ),
             RunRefusal::InvalidTransition {
                 run_id,
                 from_state,
                 to_state,
                 source,
-            } => {
-                let refused = transition_refusal(message, &run_id, from_state, to_state);
-                match source {
-                    Some(source) => refused.with_source(source),
-                    None => refused,
-                }
-            }
+            } => with_source(
+                transition_refusal(message, &run_id, from_state, to_state),
+                source,
+            ),
             RunRefusal::AlreadyEnded {
                 run_id,
                 from_state,
                 to_state,
-            } => transition_refusal(message, &run_id, from_state, to_state),
-            RunRefusal::SessionTurnHeld { session_id } => {
-                DomainError::new(message, RefusalCode::ProviderUnavailable).with_detail(json!({
-                    "sessionId": session_id,
-                    "reason": "sessionTurnInFlight",
-                }))
+                source,
+            } => with_source(
+                transition_refusal(message, &run_id, from_state, to_state),
+                source,
+            ),
+            RunRefusal::SessionTurnHeld { session_id, source } => {
+                DomainError::new(message, RefusalCode::ProviderUnavailable)
+                    .with_detail(json!({
+                        "sessionId": session_id,
+                        "reason": "sessionTurnInFlight",
+                    }))
+                    .with_source(source)
             }
         }
     }
@@ -155,4 +172,12 @@ fn transition_refusal(
         "fromState": <&'static str>::from(from_state),
         "toState": <&'static str>::from(RunState::from(to_state)),
     }))
+}
+
+// `refused` carrying the failure under it, where one is.
+fn with_source(refused: DomainError, source: Option<Box<dyn Error + Send + Sync>>) -> DomainError {
+    match source {
+        Some(source) => refused.with_source(source),
+        None => refused,
+    }
 }

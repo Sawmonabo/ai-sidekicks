@@ -12,6 +12,7 @@ pub mod command_receipts;
 pub mod crash_window;
 pub mod daemon;
 pub mod database;
+pub(crate) mod error_description;
 pub mod events;
 pub mod file;
 pub mod git;
@@ -25,6 +26,8 @@ pub mod missing_entry;
 pub mod observability;
 pub mod operating_system;
 pub mod orchestration;
+#[cfg(test)]
+pub(crate) mod pause_point;
 pub mod policy;
 pub mod process_exit;
 pub mod processor_bound;

@@ -1,6 +1,8 @@
-//! Recovery: the start's checks, damaged history, projection rebuilds and the database file's
-//! repair.
+//! Recovery: the start's checks, damaged history, the gate that holds writes to state the daemon
+//! cannot yet trust, projection rebuilds and the database file's repair.
 
 pub mod database_file;
+pub(crate) mod projection_rebuild;
 pub(crate) mod session_write_refusal;
 pub(crate) mod status;
+pub(crate) mod write_gate;

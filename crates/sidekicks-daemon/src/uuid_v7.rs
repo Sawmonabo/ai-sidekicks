@@ -2,8 +2,8 @@
 
 use uuid::Uuid;
 
-/// A new version 7 UUID from the process-wide context, so ids minted in one process strictly increase,
-/// within one millisecond too; its text form is lowercase.
+/// A new version 7 UUID from the process-wide context, so ids minted in one process strictly
+/// increase, within one millisecond too; its text form is lowercase.
 #[expect(
     clippy::disallowed_methods,
     reason = "this is the one place stored row and event ids are minted"

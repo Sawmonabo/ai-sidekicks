@@ -14,7 +14,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::contract::{PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
-use crate::provider::driver::{DriverServices, ProviderRegistration};
+use crate::provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
 
 /// The refusal for a call naming a provider no registered driver answers; its detail carries only
 /// the id, so nothing internal leaks.
@@ -39,10 +39,12 @@ pub(crate) fn provider_capability_unsupported(
     .with_detail(json!({ "providerId": provider.as_str(), "flag": flag }))
 }
 
-/// A driver, its provider and the capability snapshot recorded for it.
+/// A driver, its provider's fixed facts and the capability snapshot recorded for it.
 struct RegisteredDriver {
     /// The provider the driver answers.
     provider: ProviderId,
+    /// The provider's fixed facts.
+    descriptor: &'static ProviderDescriptor,
     /// The live driver.
     driver: Arc<dyn ProviderDriver>,
     /// The capabilities its last read reported, `None` until the provider check records one; the
@@ -67,6 +69,7 @@ impl ProviderRegistry {
                 .map(|registration| RegisteredDriver {
                     provider: ProviderId::new(registration.descriptor.id.to_owned())
                         .expect("a table id matches the provider id pattern"),
+                    descriptor: registration.descriptor,
                     driver: (registration.build)(services),
                     capabilities: RwLock::new(None),
                 })
@@ -104,6 +107,15 @@ impl ProviderRegistry {
     ) -> Result<Arc<dyn ProviderDriver>, DomainError> {
         self.entry(provider)
             .map(|registered| Arc::clone(&registered.driver))
+    }
+
+    /// The fixed facts `provider`'s driver declares, refused `provider.notFound` when no driver
+    /// answers it.
+    pub(crate) fn descriptor(
+        &self,
+        provider: &ProviderId,
+    ) -> Result<&'static ProviderDescriptor, DomainError> {
+        self.entry(provider).map(|registered| registered.descriptor)
     }
 
     /// Passes when `provider`'s recorded snapshot declares `flag`. Refuses with

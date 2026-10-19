@@ -52,8 +52,6 @@ use crate::artifacts::ingest::limits::{
 use crate::artifacts::manifest_write::{
     PublishedManifest, check_artifact_owner, manifest_created_at, write_published_manifest,
 };
-#[cfg(test)]
-use crate::artifacts::pause_point::PausePoint;
 use crate::artifacts::payload_store::{ContentHash, PayloadStore};
 use crate::artifacts::refusals::{
     ArtifactError, artifact_too_large_past_declared, ingest_start_idempotency_conflict,
@@ -67,6 +65,8 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry as _;
+#[cfg(test)]
+use crate::pause_point::PausePoint;
 use crate::settle_all::{SettleFailures, settle_all};
 use crate::uuid_v7::mint_uuid_v7;
 
@@ -392,8 +392,8 @@ impl ArtifactIngestService {
     /// stream that is unknown or past its lifetime, or whose saved result no longer names the
     /// digest it committed, with `session.notFound` once its session is gone and
     /// `agent.run.notFound` for a run that is not the session's, and as
-    /// [`ArtifactError::StreamWriteDropped`] after a write dropped mid-chunk; every failure ends the
-    /// stream.
+    /// [`ArtifactError::StreamWriteDropped`] after a write dropped mid-chunk; every failure ends
+    /// the stream.
     pub(crate) async fn complete(
         &self,
         request: ArtifactIngestCompleteRequest,

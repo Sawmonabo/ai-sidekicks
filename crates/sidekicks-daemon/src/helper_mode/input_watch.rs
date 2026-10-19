@@ -8,6 +8,8 @@ use std::process::ExitCode;
 use std::sync::mpsc;
 use std::thread;
 
+use crate::error_description::describe_error;
+
 // What ended the mode first: its work, or the end of standard input.
 enum ModeEnd<Failure> {
     Work(Result<(), Failure>),
@@ -50,14 +52,7 @@ where
 // Writes `failure` and its causes to standard error, whose tail the daemon keeps, and answers the
 // failed exit; when the write fails, the exit code alone tells the daemon.
 fn exit_with_failure(failure: &(dyn Error + 'static)) -> ExitCode {
-    let mut standard_error = io::stderr().lock();
-    let mut written = write!(standard_error, "{failure}");
-    let mut cause = failure.source();
-    while let Some(source) = cause {
-        written = written.and_then(|()| write!(standard_error, ": {source}"));
-        cause = source.source();
-    }
-    match written.and_then(|()| writeln!(standard_error)) {
+    match writeln!(io::stderr().lock(), "{}", describe_error(failure)) {
         Ok(()) | Err(_) => ExitCode::FAILURE,
     }
 }
