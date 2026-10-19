@@ -331,9 +331,12 @@ impl RunEngine {
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
     /// once, while the daemon wires its services and before any run can reach a limit. Fails with
     /// the handle when one was handed already.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start, which hands the engine the interventions service"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start, which hands the engine the interventions service"
+        )
     )]
     pub(crate) fn set_limit_interrupter(
         &self,
