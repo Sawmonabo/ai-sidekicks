@@ -447,7 +447,8 @@ CREATE TABLE interventions (
         .await;
         let seeded = stored_events(&database, &run_id);
 
-        // A stop cut turn 1 for an interrupt accepted before the run's end at version 3.
+        // The cut is planted directly to exercise the remap: no stop cuts a turn started at 5 for
+        // an interrupt accepted at 2, before the run's end at 3.
         lock(&engine.live).cut_turns.insert(
             run_id,
             CutTurn {
