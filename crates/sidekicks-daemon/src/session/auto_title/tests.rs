@@ -11,6 +11,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionRenameRequest;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::Spawner;
 use tokio::runtime::Handle;
@@ -471,6 +472,57 @@ async fn auto_title_leaves_the_provider_on_the_later_of_two_close_renames() {
             .last()
             .map(String::as_str),
         Some("Second")
+    );
+}
+
+// Killed by a completion refused while another pass of its session ran being dropped: the
+// session's lead completion lands during a subagent completion's pass, which names nothing.
+#[tokio::test]
+async fn auto_title_names_a_session_whose_lead_completion_landed_during_another_pass() {
+    fn build(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
+        let mut driver = MockProviderDriver::new();
+        driver
+            .expect_name_session()
+            .times(1)
+            .returning(|_| async { Ok(Some("Fix the login bug".to_owned())) }.boxed());
+        driver
+            .expect_tell_session_name()
+            .returning(|_, _| async { Ok(()) }.boxed());
+        Arc::new(driver)
+    }
+    let harness = harness(build).await;
+    let session_id = test_session_id();
+    // The subagent's completion is the first event, the lead's the second.
+    insert_completed_session(&harness.database, session_id, "the login page throws");
+    let subagent_completion = SafeInt::new(1).expect("a sequence");
+    let lead_completion = SafeInt::new(2).expect("a sequence");
+
+    let (generation, cancel) = harness
+        .auto_title
+        .register_pass(session_id)
+        .expect("the subagent completion's pass is the first");
+    harness
+        .auto_title
+        .spawn_pass(session_id, Some(lead_completion), &Handle::current());
+    tokio::time::timeout(
+        WAIT,
+        harness.auto_title.name_and_release(
+            session_id,
+            Some(subagent_completion),
+            generation,
+            &cancel,
+        ),
+    )
+    .await
+    .expect("the pass and its rerun end");
+
+    assert_eq!(
+        stored_renames(&harness.database, session_id),
+        [(Value::from("Fix the login bug"), Value::from("auto"))]
+    );
+    assert!(
+        harness.auto_title.register_pass(session_id).is_some(),
+        "the pass is forgotten once it ran again"
     );
 }
 

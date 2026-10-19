@@ -110,6 +110,8 @@ struct NamingInput {
 struct PendingPass {
     generation: u64,
     cancel: CancellationToken,
+    /// A completion's pass was refused while this one ran, so it names the session once more.
+    is_rerun_wanted: bool,
 }
 
 /// Every pending pass by session; a session has at most one.
@@ -240,12 +242,31 @@ impl SessionAutoTitle {
         self.passes.spawn_on(
             async move {
                 auto_title
-                    .name_session(session_id, completed_at, &cancel)
+                    .name_and_release(session_id, completed_at, generation, &cancel)
                     .await;
-                auto_title.release_pass(session_id, generation);
             },
             runtime,
         );
+    }
+
+    // Runs the registered pass `generation` after the completion at `completed_at`, then once
+    // more with no completion while a completion's pass was refused during the last run, and
+    // forgets it.
+    async fn name_and_release(
+        &self,
+        session_id: SessionId,
+        completed_at: Option<SafeInt<0>>,
+        generation: u64,
+        cancel: &CancellationToken,
+    ) {
+        let mut completed_at = completed_at;
+        loop {
+            self.name_session(session_id, completed_at, cancel).await;
+            if !self.release_pass(session_id, generation, cancel) {
+                return;
+            }
+            completed_at = None;
+        }
     }
 
     // Names each session that completed an exchange while unfollowed, one at a time, so a backlog
@@ -275,8 +296,8 @@ impl SessionAutoTitle {
             let Some((generation, cancel)) = self.register_pass(session_id) else {
                 continue;
             };
-            self.name_session(session_id, None, &cancel).await;
-            self.release_pass(session_id, generation);
+            self.name_and_release(session_id, None, generation, &cancel)
+                .await;
         }
     }
 
@@ -385,10 +406,11 @@ impl SessionAutoTitle {
     }
 
     // Marks a pass of `session_id` as under way, with a token cancelled by a rename or the stop;
-    // `None` when one already is.
+    // `None` when one already is, which then runs once more after its run.
     fn register_pass(&self, session_id: SessionId) -> Option<(u64, CancellationToken)> {
         let mut pending = self.lock_pending();
-        if pending.by_session.contains_key(&session_id) {
+        if let Some(pass) = pending.by_session.get_mut(&session_id) {
+            pass.is_rerun_wanted = true;
             return None;
         }
         let generation = pending.next_generation;
@@ -399,21 +421,34 @@ impl SessionAutoTitle {
             PendingPass {
                 generation,
                 cancel: cancel.clone(),
+                is_rerun_wanted: false,
             },
         );
         Some((generation, cancel))
     }
 
-    // Forgets the pass `generation` of `session_id` once it ended, never a later one.
-    fn release_pass(&self, session_id: SessionId, generation: u64) {
+    // Forgets the pass `generation` of `session_id` once it ended, never a later one; `true`,
+    // keeping it, when a pass was refused while it ran and it was not cancelled, so it runs again.
+    fn release_pass(
+        &self,
+        session_id: SessionId,
+        generation: u64,
+        cancel: &CancellationToken,
+    ) -> bool {
         let mut pending = self.lock_pending();
-        if pending
+        let Some(pass) = pending
             .by_session
-            .get(&session_id)
-            .is_some_and(|pass| pass.generation == generation)
-        {
-            pending.by_session.remove(&session_id);
+            .get_mut(&session_id)
+            .filter(|pass| pass.generation == generation)
+        else {
+            return false;
+        };
+        if pass.is_rerun_wanted && !cancel.is_cancelled() {
+            pass.is_rerun_wanted = false;
+            return true;
         }
+        pending.by_session.remove(&session_id);
+        false
     }
 
     // A rename landed: the session's pass under way ends and writes nothing.
