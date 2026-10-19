@@ -1,5 +1,6 @@
 //! What a failed file call on Windows means, read from its system error code: out of open files, a
-//! busy entry, a volume with no hard links, a rename a held file stops, a link that loops.
+//! busy entry, a volume with no hard links, a rename a held file stops, a link that loops, a name
+//! the file system cannot hold.
 
 use std::io::{self, ErrorKind};
 
@@ -21,6 +22,15 @@ pub fn is_out_of_open_files(error: &io::Error) -> bool {
 /// them (`ERROR_CANT_RESOLVE_FILENAME`), which std reads as a kind that is not yet stable.
 pub fn is_link_loop(error: &io::Error) -> bool {
     win32_code(error) == Some(ERROR_CANT_RESOLVE_FILENAME)
+}
+
+/// Whether `error` says the system refused a name whose characters it cannot map
+/// (`ERROR_NO_UNICODE_TRANSLATION`).
+#[cfg(any(test, feature = "test-support"))]
+pub fn is_illegal_byte_sequence(error: &io::Error) -> bool {
+    use windows_sys::Win32::Foundation::ERROR_NO_UNICODE_TRANSLATION;
+
+    win32_code(error) == Some(ERROR_NO_UNICODE_TRANSLATION)
 }
 
 /// Whether `error` says the entry is busy: `ERROR_BUSY`, or a sharing, lock or pipe-busy refusal,

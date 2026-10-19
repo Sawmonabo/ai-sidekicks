@@ -111,7 +111,8 @@ signal-hook.workspace = true
 [features]
 # Helpers other crates' tests use: the per-platform programs a test runs in a terminal, the
 # process's footprint and the `uptime` line the search index's measurements read, a file whose
-# removal the system refuses, and a credential store whose calls wait until the test releases them.
+# removal the system refuses, a credential store whose calls wait until the test releases them, and
+# the system's refusal of a name its file system cannot hold.
 test-support = []
 
 [lints]
