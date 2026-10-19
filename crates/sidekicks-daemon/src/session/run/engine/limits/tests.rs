@@ -477,3 +477,87 @@ async fn a_spend_stop_waits_on_the_spend_limits_pending_interrupt(
 
     assert_eq!(interventions.calls.load(Ordering::SeqCst), expected_calls);
 }
+
+// Killed by a turn cut twice keeping the later cut whatever its rank, which ends it `stepLimit`
+// once the step stop follows the token stop (`token_then_step_provider_end_first`), and by the step
+// limit's own end writing its own cause on a turn the token limit cut too
+// (`step_then_token_run_end_first`).
+#[rstest]
+#[case::step_then_token_provider_end_first(false, true)]
+#[case::step_then_token_run_end_first(false, false)]
+#[case::token_then_step_provider_end_first(true, true)]
+#[tokio::test]
+async fn a_turn_two_limits_cut_ends_with_the_higher_ranked_limit(
+    #[case] is_token_first: bool,
+    #[case] is_provider_end_first: bool,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let _interventions = hand_limit_interrupter(&engine, 0);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    let stop_at_token = || async {
+        engine
+            .stop_at_token_limit(run_id, token_limit())
+            .await
+            .expect("the token limit's interrupt is accepted");
+    };
+    if is_token_first {
+        stop_at_token().await;
+    }
+    engine
+        .stop_at_limit(run_id, step_stop(1))
+        .await
+        .expect("the step limit's interrupt is accepted");
+    if !is_token_first {
+        stop_at_token().await;
+    }
+
+    let origin = if is_provider_end_first {
+        let turn_ended = engine
+            .record_turn_end(
+                run_id,
+                ProviderTurnEnd {
+                    turn_number: turn(1),
+                    outcome: TurnOutcome::Interrupted(None),
+                },
+            )
+            .await
+            .expect("the provider's end of the cut turn is written");
+        assert!(turn_ended.written);
+        "provider"
+    } else {
+        let ended = engine
+            .end_run_for_interrupt(
+                run_id,
+                1,
+                Some(RunLimit::StepLimit),
+                RunStateChangeCompanions::default(),
+            )
+            .await
+            .expect("the step limit's end ends the run");
+        assert!(ended);
+        "daemon"
+    };
+
+    let turn_end = stored_events(&database, &run_id)
+        .into_iter()
+        .find(|(event_type, _, _)| event_type == "agent.turn.interrupted");
+    assert_eq!(
+        turn_end,
+        Some((
+            "agent.turn.interrupted".to_owned(),
+            Some("tokenLimit".to_owned()),
+            Some(origin.to_owned())
+        ))
+    );
+}

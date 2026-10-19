@@ -405,8 +405,9 @@ impl RunEngine {
         }
     }
 
-    // How `turn_number` of `run_id` ends: interrupted with the limit of a stop that cut it, else
-    // `outcome`.
+    /// How `turn_number` of `run_id` ends: interrupted with the highest-ranked limit whose stop cut
+    /// it, else `outcome`. A turn's cause is its cut's, so the live path writes the cause a restart
+    /// reads from the same log.
     fn cut_outcome(
         &self,
         run_id: &RunId,

@@ -1,7 +1,8 @@
 //! How a run ends outside its provider's own report: for an interrupt accepted earlier, when the
 //! provider process under it exits on its own, and when a restart left it live and recovery could
-//! not resume it. Each run's end carries the end of its open turn in the same write; a process's
-//! exit and a restart's settle end every older open turn on its own first, oldest first.
+//! not resume it; and how a restart ends the open turns of a run that had already ended. Each run's
+//! end carries the end of its open turn in the same write; a process's exit and a restart's settle
+//! end every older open turn on its own first, oldest first.
 
 use std::borrow::Cow;
 use std::iter;
@@ -16,6 +17,7 @@ use sidekicks_contracts::run::events::{TurnEndCause, TurnEndOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::ReadLength;
@@ -28,9 +30,10 @@ use crate::session::run::engine::{RunEngine, RunEngineError, settled};
 use crate::session::run::read::{LiveRun, RunRead, RunStateReader};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::restart::{
-    RestartFacts, RestartSettlement, RestartTurnEnd, applied_pending_interrupts_of,
+    RestartFacts, RestartSettlement, RestartTurnEnd, TurnCut, applied_pending_interrupts_of,
     decide_restart_settlement, limit_turn_cause, no_pending_interrupt_statement,
-    no_waiting_item_statement, read_restart_facts,
+    no_waiting_item_statement, outranking_limit, read_restart_facts, read_run_stops,
+    read_turn_cuts, stopping_limit,
 };
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
@@ -72,12 +75,12 @@ impl RunEngine {
     /// `true`: `interrupted` for a person's interrupt, and the end the limit gives its run for the
     /// daemon's own at `limit`, with the end of the newest turn the limit cut by a stop that read
     /// the run at or before that version, else of the newest open turn started at or before it,
-    /// `agent.turn.interrupted` with the limit as its cause, in the same write, so the provider's
-    /// later end of that turn is dropped. Returns `false` with no change of the run written when
-    /// the run has ended since that version, even if it was continued after, which is what the
-    /// interrupt asked for; the caller then records the verdict alone. On a run that reads ended,
-    /// that turn still takes the limit's end, written on its own. Fails as
-    /// [`RunEngine::transition`] does.
+    /// `agent.turn.interrupted` with the limit as its cause, or a higher-ranked limit that cut that
+    /// turn too, in the same write, so the provider's later end of that turn is dropped. Returns
+    /// `false` with no change of the run written when the run has ended since that version, even
+    /// if it was continued after, which is what the interrupt asked for; the caller then records
+    /// the verdict alone. On a run that reads ended, that turn still takes the limit's end, written
+    /// on its own. Fails as [`RunEngine::transition`] does.
     #[cfg_attr(
         not(test),
         expect(
@@ -117,10 +120,18 @@ impl RunEngine {
                             .await?
                     }
                 };
-                let turn_end = turn_number.map(|turn_number| TurnEnd {
-                    turn_number,
-                    origin: TurnEndOrigin::Daemon,
-                    outcome: TurnOutcome::Interrupted(Some(limit_turn_cause(limit))),
+                // The end cuts the turn with its limit, so a turn another limit cut too takes the
+                // higher-ranked of the two.
+                let turn_end = turn_number.map(|turn_number| {
+                    let cut_limit = lock(&self.live)
+                        .cut_turns
+                        .get(&(run_id, turn_number))
+                        .map_or(limit, |cut| outranking_limit(cut.limit, limit));
+                    TurnEnd {
+                        turn_number,
+                        origin: TurnEndOrigin::Daemon,
+                        outcome: TurnOutcome::Interrupted(Some(limit_turn_cause(cut_limit))),
+                    }
                 });
                 self.change_with_turn_end(
                     RunStateChange::new(run_id, limit_run_end(limit)),
@@ -145,13 +156,17 @@ impl RunEngine {
     }
 
     /// Ends the turns a provider process left when it ended on its own: the run, and each live run
-    /// the provider dispatched beneath it as its own subagent, each in its own write, ends `failed`
-    /// with `process_exit`, every open turn of it `agent.turn.failed` with the process's exit as
-    /// its cause, or interrupted with the limit of a stop that cut it. Every run is ended before
-    /// the failures return, together.
-    #[expect(
-        dead_code,
-        reason = "the provider's event delivery, when a provider process exits"
+    /// the provider dispatched beneath it as its own subagent, each in its own write, ends with
+    /// the limit of a stop it still owes or has pending, else `failed` with `process_exit`. A
+    /// turn's cause is its cut's, the same the restart writes from the log: a cut turn ends
+    /// interrupted with its limit, every other open turn `agent.turn.failed` with the process's
+    /// exit. Every run is ended before the failures return, together.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the provider's event delivery, when a provider process exits"
+        )
     )]
     pub(crate) async fn end_turn_on_process_exit(
         &self,
@@ -176,44 +191,64 @@ impl RunEngine {
         )
     }
 
-    // One run's end when its provider process exited, with its newest open turn's end in the same
-    // write and every older one's before it.
+    /// One run's end when its provider process exited, with its newest open turn's end in the
+    /// same write and every older one's before it. A limit's stop the run still owes or has
+    /// pending settles it as that stop would, as a restart does: the limit's `interrupted`, or
+    /// `stopped` at the token limit, every pending interrupt moved to `applied` in that write;
+    /// with none, it fails with the exit. A turn's cause is its cut's, the same the restart writes
+    /// from the log: a cut turn ends interrupted with its limit, every other `agent.turn.failed`
+    /// with the process's exit. Fails as the reads fail and as [`RunEngine::transition`] does.
     async fn fail_on_process_exit(
         &self,
         run_id: RunId,
         process_exit: &ProcessExit,
     ) -> Result<(), RunEngineError> {
         let run = self.require_run(run_id).await?;
+        let (pending_interrupts, owed_limit) = self
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(read_run_stops(reader, &run_id)?)
+            })
+            .await?;
         let open_turns = self.read_open_turns(run_id).await?;
-        let failed = RunStateChange {
-            failure_category: Some(RunFailureCategory::ProviderFailure),
-            ..RunStateChange::new(
-                run_id,
-                RunStateEntry::Failed {
-                    intended_close: None,
-                    failure_cause: None,
-                    provider_failure_detail: None,
-                    process_exit: Some(process_exit.clone()),
+        let (change, companions) = match stopping_limit(&pending_interrupts, owed_limit) {
+            Some(limit) => (
+                RunStateChange::new(run_id, limit_run_end(limit)),
+                applied_pending_interrupts_of(run_id, run.session_id, &pending_interrupts)?,
+            ),
+            None => (
+                RunStateChange {
+                    failure_category: Some(RunFailureCategory::ProviderFailure),
+                    ..RunStateChange::new(
+                        run_id,
+                        RunStateEntry::Failed {
+                            intended_close: None,
+                            failure_cause: None,
+                            provider_failure_detail: None,
+                            process_exit: Some(process_exit.clone()),
+                        },
+                    )
                 },
-            )
+                RunStateChangeCompanions::default(),
+            ),
         };
         let turn_end = self
             .end_open_turns(run_id, &run, &open_turns, |_turn_number| {
                 TurnOutcome::Failed(Some(TurnEndCause::ProcessExit))
             })
             .await?;
-        self.change_with_turn_end(failed, RunStateChangeCompanions::default(), &run, turn_end)
+        self.change_with_turn_end(change, companions, &run, turn_end)
             .await
             .map(drop)
     }
 
     /// Settles one run a restart left live that recovery could not resume, without calling any
     /// driver, as [`decide_restart_settlement`] decides: its end and its newest open turn's end in
-    /// one write, every older open turn ended on its own before it, the turns a limit cut with the
-    /// limit's cause and every other with `daemonRestart`, every pending interrupt moved to
-    /// `applied` in that write, guarded on no other interrupt having appeared since; a `failed` end
-    /// carries `failure_detail`. A run the decision leaves is returned as it is. Fails as
-    /// [`RunEngine::transition`] does.
+    /// one write, every older open turn ended on its own before it, each turn the log shows a limit
+    /// cut with that limit's cause and every other with `daemonRestart`, every pending interrupt
+    /// moved to `applied` in that write, guarded on no other interrupt having appeared since; a
+    /// `failed` end carries `failure_detail`. A run the decision leaves is returned as it is. Fails
+    /// as [`RunEngine::transition`] does.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's recovery pass at start")
@@ -279,7 +314,8 @@ impl RunEngine {
         };
         // Every pending interrupt the settle read is applied by this end, and one that arrived
         // since refuses it.
-        let mut companions = applied_pending_interrupts_of(run, &facts.pending_interrupts)?;
+        let mut companions =
+            applied_pending_interrupts_of(run_id, run.run.session_id, &facts.pending_interrupts)?;
         companions
             .statements
             .push(no_pending_interrupt_statement(&run_id));
@@ -290,30 +326,10 @@ impl RunEngine {
                 .push(no_waiting_item_statement(&run_id));
         }
         let turn_end = match decision.open_turn_end {
-            Some(turn_end) => {
-                let (ended_as, cause): (fn(Option<TurnEndCause>) -> TurnOutcome, _) = match turn_end
-                {
-                    RestartTurnEnd::Interrupted { cause } => (TurnOutcome::Interrupted, cause),
-                    RestartTurnEnd::Failed { cause } => (TurnOutcome::Failed, cause),
-                };
+            Some(uncut_end) => {
                 let open_turns = self.read_open_turns(run_id).await?;
-                // The turns the limit cut that are still open take the cause, and where none is,
-                // the newest open turn, which the limit's interrupt would cut.
-                let mut cause_turns: Vec<_> = decision
-                    .cut_turns
-                    .iter()
-                    .copied()
-                    .filter(|turn_number| open_turns.contains(turn_number))
-                    .collect();
-                if cause_turns.is_empty() {
-                    cause_turns.extend(open_turns.last().copied());
-                }
                 self.end_open_turns(run_id, &run.run, &open_turns, |turn_number| {
-                    ended_as(Some(if cause_turns.contains(&turn_number) {
-                        cause
-                    } else {
-                        TurnEndCause::DaemonRestart
-                    }))
+                    restart_turn_outcome(&decision.turn_cuts, turn_number, uncut_end)
                 })
                 .await?
             }
@@ -329,6 +345,74 @@ impl RunEngine {
                 ..
             })) if is_queued => Ok(run.run.clone()),
             settled => settled,
+        }
+    }
+
+    /// Ends, after a restart, every open turn of each run that had already ended, oldest first,
+    /// each written on its own as the daemon's report: `agent.turn.interrupted` with the limit the
+    /// log shows cut it, else `daemonRestart`, the run's row left as it is. A provider's end of
+    /// such a turn that arrives after is a duplicate and is dropped. Every run is tried before the
+    /// failures return, together; one fails as the reads and the turn ends' writes fail.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's recovery pass at start")
+    )]
+    pub(crate) async fn end_open_turns_of_ended_runs(&self) -> Result<(), RunEngineError> {
+        let run_ids = self
+            .pool
+            .read(ReadLength::Short, |reader| {
+                Ok::<_, RunEngineError>(
+                    RunStateReader::new(reader).list_ended_runs_with_open_turns()?,
+                )
+            })
+            .await?;
+        let mut outcomes = Vec::with_capacity(run_ids.len());
+        for run_id in run_ids {
+            outcomes.push(self.end_open_turns_of_ended_run(run_id).await);
+        }
+        settled(
+            outcomes,
+            "ending the open turns of runs that had ended before the restart",
+        )
+    }
+
+    // The open turns of the ended `run_id`, each ended on its own after a restart.
+    async fn end_open_turns_of_ended_run(&self, run_id: RunId) -> Result<(), RunEngineError> {
+        let run = self.require_run(run_id).await?;
+        let turn_cuts = self
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(read_turn_cuts(reader, &run_id)?)
+            })
+            .await?;
+        let open_turns = self.read_open_turns(run_id).await?;
+        let newest_turn_end = self
+            .end_open_turns(run_id, &run, &open_turns, |turn_number| {
+                restart_turn_outcome(&turn_cuts, turn_number, RestartTurnEnd::Interrupted)
+            })
+            .await?;
+        if let Some(turn_end) = newest_turn_end {
+            self.record_turn_end_alone(run_id, &run, turn_end).await?;
+        }
+        Ok(())
+    }
+}
+
+// How a restart ends `turn_number`: interrupted with the limit of its cut in `turn_cuts`, else as
+// `uncut_end` with `daemonRestart`.
+fn restart_turn_outcome(
+    turn_cuts: &[TurnCut],
+    turn_number: SafeInt<1>,
+    uncut_end: RestartTurnEnd,
+) -> TurnOutcome {
+    match turn_cuts.iter().find(|cut| cut.turn_number == turn_number) {
+        Some(cut) => TurnOutcome::Interrupted(Some(limit_turn_cause(cut.limit))),
+        None => {
+            let cause = Some(TurnEndCause::DaemonRestart);
+            match uncut_end {
+                RestartTurnEnd::Interrupted => TurnOutcome::Interrupted(cause),
+                RestartTurnEnd::Failed => TurnOutcome::Failed(cause),
+            }
         }
     }
 }

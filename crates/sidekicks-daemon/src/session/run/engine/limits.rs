@@ -30,6 +30,7 @@ use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, refused
 use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
+use crate::session::run::restart::outranking_limit;
 use crate::session::run::state_change::RunStateEntry;
 use crate::session::run::transitions::is_transition_allowed;
 
@@ -195,10 +196,11 @@ impl RunEngine {
     /// nothing written; a run the limit's end may not leave its state from is refused with
     /// nothing written. While a limit's own interrupt of the run is still pending, no stop at that
     /// limit sends another: a step stop keeps its reached event, its cut and its turn's reach, so
-    /// the turn ends with the limit. Fails with [`RunEngineError::LimitInterrupterGone`], nothing
-    /// written, when the engine holds no live interventions service, with
-    /// [`RunEngineError::LimitInterrupt`] when the service fails and as the pending read fails, the
-    /// reached event, the cut and the memory kept for the stop's retry either way.
+    /// the turn ends with the limit. A turn another limit cut keeps whichever cut ranks higher.
+    /// Fails with [`RunEngineError::LimitInterrupterGone`], nothing written, when the engine holds
+    /// no live interventions service, with [`RunEngineError::LimitInterrupt`] when the service
+    /// fails and as the pending read fails, the reached event, the cut and the memory kept for the
+    /// stop's retry either way.
     pub(super) async fn stop_at_limit(
         &self,
         run_id: RunId,
@@ -253,9 +255,14 @@ impl RunEngine {
             // the limit with it.
             let is_memory_own = !matches!(stop, LimitStop::Interrupt { .. })
                 && live.reached_limits.insert((run_id, limit));
+            // A turn cut by two limits keeps the higher-ranked one, whichever came first.
             let cut = cut_turn.map(|turn_number| {
                 let key = (run_id, turn_number);
-                (key, live.cut_turns.insert(key, own_cut))
+                let earlier = live.cut_turns.get(&key).copied();
+                if earlier.is_none_or(|earlier| outranking_limit(earlier.limit, limit) == limit) {
+                    live.cut_turns.insert(key, own_cut);
+                }
+                (key, earlier)
             });
             (stop, own_cut, cut, is_memory_own)
         };

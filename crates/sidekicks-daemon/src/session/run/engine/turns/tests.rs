@@ -296,82 +296,10 @@ async fn a_step_stop_refused_on_the_runs_state_is_tried_again_at_the_next_step()
     );
 }
 
-// Killed by a cut turn's end forgetting the step limit's interrupt its stop could not hand: no
-// later step comes, so the run would go on past its step limit with nothing to send it again.
-#[tokio::test]
-async fn a_cut_turns_end_hands_the_step_interrupt_its_stop_could_not() {
-    let database = TestDatabase::new();
-    let log = open_log(&database, None).await;
-    let home = tempfile::tempdir().expect("the test makes a home folder");
-    let session_id = test_session_id();
-    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
-    let engine = test_engine(&database, log.service, home.path());
-    let interventions = hand_limit_interrupter(&engine, 1);
-    append(
-        &engine,
-        session_id,
-        &turn_started_at(session_id, run_id, 1, 1),
-    )
-    .await;
-    arm_step_count(&engine, run_id, 1, 1);
-
-    let refused = engine.count_step(run_id).await;
-    assert!(
-        matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
-        "the stop answers {refused:?}"
-    );
-    let turn_ended = engine
-        .record_turn_end(run_id, provider_end(1))
-        .await
-        .expect("the provider's end of the cut turn is written");
-    assert!(turn_ended.written);
-    assert!(turn_ended.resend_failure.is_none());
-    assert_eq!(interventions.calls.load(Ordering::SeqCst), 2);
-    // The interventions service ends the run with the limit it accepted at version 1.
-    let ended = engine
-        .end_run_for_interrupt(
-            run_id,
-            1,
-            Some(RunLimit::StepLimit),
-            RunStateChangeCompanions::default(),
-        )
-        .await
-        .expect("the run ends at its limit");
-
-    assert!(ended);
-    assert_eq!(
-        stored_events(&database, &run_id),
-        [
-            ("agent.turn.started".to_owned(), None, None),
-            ("agent.run.stepLimit.reached".to_owned(), None, None),
-            (
-                "agent.turn.interrupted".to_owned(),
-                Some("stepLimit".to_owned()),
-                Some("provider".to_owned())
-            ),
-            ("agent.run.interrupted".to_owned(), None, None),
-        ]
-    );
-    let trigger: Option<String> = database
-        .reader()
-        .query_row(
-            "SELECT json_extract(payload, '$.trigger') FROM session_events
-              WHERE run_id = ?1 AND type = 'agent.run.interrupted'",
-            [run_id.text().as_str()],
-            |row| row.get(0),
-        )
-        .expect("the test reads the run's end");
-    assert_eq!(trigger.as_deref(), Some("stepLimit"));
-    assert_eq!(
-        stored_run_state(&database, &run_id),
-        ("interrupted".to_owned(), 2)
-    );
-}
-
-// Killed by a turn's end, or the next turn's start, forgetting the step limit's interrupt its
-// stop could not hand, and by a retry that waits for the cut turn's own count: the next step and
-// the next turn end then hand nothing, and the run goes on past its step limit.
+// Killed by a cut turn's end, or the next turn's start, forgetting the step limit's interrupt its
+// stop could not hand, by that end writing turn 1 without the limit's cause, and by a retry that
+// waits for the cut turn's own count: the next step and the next turn end then hand nothing, and
+// the run goes on past its step limit.
 #[tokio::test]
 async fn a_failed_resend_at_a_cut_turns_end_is_tried_at_the_next_step_and_turn_end() {
     let database = TestDatabase::new();

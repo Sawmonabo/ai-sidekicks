@@ -1,10 +1,13 @@
-//! Reads a run's current state and version from its `runs` row, the runs not yet ended, the live
-//! provider subagents beneath one run, and the provider a run runs on, from its runtime binding or
-//! the binding of the parent whose provider process it runs in.
+//! Reads a run's current state and version from its `runs` row, the runs not yet ended, the ended
+//! runs that hold a turn with no end, the live provider subagents beneath one run, and the provider
+//! a run runs on, from its runtime binding or the binding of the parent whose provider process it
+//! runs in.
 
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
+use sidekicks_contracts::event::envelope::EventCategory;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
@@ -14,6 +17,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
+use crate::session::run::engine::turns::TURN_END_TYPES_SQL;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// A run as it stands now. `version` counts every progression of the run, state changes and
@@ -87,6 +91,28 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Every ended run that holds a started turn with no end, read through the turn starts' own run
+// columns.
+static SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL: LazyLock<String> = LazyLock::new(|| {
+    let category = EventCategory::RunLifecycle.as_str();
+    format!(
+        "SELECT DISTINCT runs.run_id
+  FROM runs JOIN session_events AS started ON started.run_id = runs.run_id
+  WHERE runs.state IN ({terminal_states})
+    AND started.category = '{category}'
+    AND started.type = '{started}'
+    AND NOT EXISTS (
+      SELECT 1 FROM session_events AS ended
+       WHERE ended.category = '{category}'
+         AND ended.type IN ({turn_ends})
+         AND ended.run_id = started.run_id
+         AND ended.turn_number = started.turn_number)",
+        terminal_states = *RUN_TERMINAL_STATES_SQL,
+        started = SessionEventType::AgentTurnStarted.as_str(),
+        turn_ends = *TURN_END_TYPES_SQL,
+    )
+});
+
 /// Reads runs on the daemon's read-only connection, which sees each write once it has committed.
 /// A stored value that does not read as its type fails the read with
 /// `rusqlite::Error::FromSqlConversionFailure`, keeping why.
@@ -132,6 +158,14 @@ impl<'connection> RunStateReader<'connection> {
                     reached_by: optional_text_column(row, 5, closed_word)?,
                 })
             })?
+            .collect()
+    }
+
+    /// Every run that has ended while a turn of it holds no end, as a restart finds it.
+    pub(crate) fn list_ended_runs_with_open_turns(&self) -> rusqlite::Result<Vec<RunId>> {
+        self.reader
+            .prepare_cached(&SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL)?
+            .query_map([], |row| text_column(row, 0, |text| RunId::new(&text)))?
             .collect()
     }
 
