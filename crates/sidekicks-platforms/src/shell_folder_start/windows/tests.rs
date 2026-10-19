@@ -370,6 +370,15 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     &[],
     None
 )]
+#[case::windows_powershell_with_its_console_file_missing_its_value(
+    "powershell.exe",
+    &["-p"],
+    r"C:\wt",
+    &["-p"],
+    r"C:\wt",
+    &[],
+    None
+)]
 #[case::windows_powershell_with_its_version_then_its_console_file(
     "powershell.exe",
     &["-Version", "2.0", "-PSConsoleFile", "my.psc1", "-NoExit", "-Command", "Get-Date"],
