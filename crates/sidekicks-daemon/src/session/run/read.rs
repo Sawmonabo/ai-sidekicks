@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
@@ -17,6 +18,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
+use crate::provider::runtime_binding::store::StoredBindingIdInvalid;
 use crate::session::run::engine::turns::TURN_END_TYPES_SQL;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
@@ -50,7 +52,7 @@ const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WH
 
 // Walks up from the run through each provider subagent to the parent whose process it runs in, and
 // takes the nearest run with a binding; a run's bindings all name the provider its first spawn
-// bound, so that run's newest one answers.
+// bound, so that run's newest one answers, with its id.
 const SELECT_RUN_PROVIDER_SQL: &str = "WITH RECURSIVE lineage(run_id, depth) AS (
     SELECT @run_id, 0
     UNION ALL
@@ -58,7 +60,7 @@ const SELECT_RUN_PROVIDER_SQL: &str = "WITH RECURSIVE lineage(run_id, depth) AS 
       FROM runs JOIN lineage ON runs.run_id = lineage.run_id
       WHERE runs.reached_by = 'providerSubagent'
   )
-  SELECT runtime_bindings.provider_name
+  SELECT runtime_bindings.id, runtime_bindings.provider_name
   FROM lineage JOIN runtime_bindings ON runtime_bindings.run_id = lineage.run_id
   ORDER BY lineage.depth, runtime_bindings.created_at DESC, runtime_bindings.id DESC
   LIMIT 1";
@@ -204,18 +206,32 @@ where
     .await
 }
 
-/// The provider `run_id` runs on, read on `reader`: the one its newest runtime binding names, or,
-/// for a provider subagent, the nearest parent's whose provider process it runs in; `None` when
-/// none of them has a binding. Fails when SQLite refuses the read or the stored name is no
-/// provider id.
+/// The runtime binding a run runs under and the provider it names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunProvider {
+    /// The binding.
+    pub(crate) binding_id: RuntimeBindingId,
+    /// The provider the binding runs on.
+    pub(crate) provider: ProviderId,
+}
+
+/// The provider `run_id` runs on, read on `reader`, with the binding that names it: its own newest
+/// runtime binding, or, for a provider subagent, the nearest parent's whose provider process it
+/// runs in; `None` when none of them has a binding. Fails when SQLite refuses the read or a stored
+/// id or name does not read as its type.
 pub(crate) fn read_run_provider(
     reader: &Connection,
     run_id: &RunId,
-) -> rusqlite::Result<Option<ProviderId>> {
+) -> rusqlite::Result<Option<RunProvider>> {
     reader
         .prepare_cached(SELECT_RUN_PROVIDER_SQL)?
         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
-            text_column(row, 0, closed_word::<ProviderId>)
+            Ok(RunProvider {
+                binding_id: text_column(row, 0, |text| {
+                    RuntimeBindingId::new(text).ok_or(StoredBindingIdInvalid)
+                })?,
+                provider: text_column(row, 1, closed_word::<ProviderId>)?,
+            })
         })
         .optional()
 }
@@ -280,7 +296,9 @@ mod tests {
         let bridge_run = new_run(Some(&lead), Some("bridgeRun"));
 
         assert_eq!(
-            read_run_provider(&connection, &nested_subagent).expect("the read runs"),
+            read_run_provider(&connection, &nested_subagent)
+                .expect("the read runs")
+                .map(|bound| bound.provider),
             Some(test_provider())
         );
         assert_eq!(

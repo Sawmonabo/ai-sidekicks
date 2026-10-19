@@ -23,6 +23,7 @@ mod claude;
 mod codex;
 pub(crate) mod contract;
 pub(crate) mod diagnostics;
+pub(crate) mod error_causes;
 pub(crate) mod mcp_server_status;
 pub(crate) mod message_handing;
 pub(crate) mod plan_record;

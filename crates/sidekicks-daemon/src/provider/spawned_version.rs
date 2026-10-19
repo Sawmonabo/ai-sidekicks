@@ -15,8 +15,9 @@ use sidekicks_platforms::{
 
 use crate::provider::command_search::ProviderCommandSearch;
 use crate::provider::driver::contract::{
-    DriverCliVersionReport, DriverError, ExecutableUnresolvable, SpawnedVersionBindingCarriers,
+    DriverCliVersionReport, DriverError, SpawnedVersionBindingCarriers,
 };
+use crate::provider::driver::error_causes::ExecutableUnresolvable;
 use crate::provider::output_validation::{check_cli_version_report, is_canonical_semver};
 use crate::provider::spawn_environment::place_folder_first_on_search_path;
 

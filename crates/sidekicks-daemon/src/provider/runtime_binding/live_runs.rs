@@ -34,25 +34,6 @@ pub(crate) enum RunBindingResolution {
     },
 }
 
-/// The provider `run_id`'s live binding runs on, read on `reader`; `None` for a run the daemon has
-/// no row for, one that has ended, or one with no binding. Fails as the reads do.
-#[expect(
-    dead_code,
-    reason = "a run-addressed handler finds the driver it acts through with it"
-)]
-pub(crate) fn resolve_driver_for_run(
-    reader: &Connection,
-    run_id: &RunId,
-) -> rusqlite::Result<Option<ProviderId>> {
-    let Some(run) = RunStateReader::new(reader).read_run(run_id)? else {
-        return Ok(None);
-    };
-    if run.state.is_terminal() {
-        return Ok(None);
-    }
-    Ok(newest_binding(reader, run_id)?.map(|binding| binding.provider_name))
-}
-
 /// `run_id`'s live binding, read on `reader`, answering a run of another session as an unknown
 /// one. Fails as the reads do.
 #[expect(

@@ -600,10 +600,6 @@ impl QueueDelivery {
     /// out and no answer came): no later continue reads them until
     /// [`QueueDelivery::settle_kept_continue`] or the provider's record of one says what became
     /// of them, so none is sent twice.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the run control service's resume")
-    )]
     pub(crate) fn keep_continued(&self, run_id: RunId) {
         for handed in self.lock_state().handed.values_mut() {
             if handed.run_id == run_id
@@ -793,6 +789,10 @@ impl ContinuedMessages for QueueDelivery {
                 || !matches!(handed.route, HandRoute::Continue { is_kept: false })
         });
         Box::pin(async { Ok(()) })
+    }
+
+    fn keep(&self, run_id: RunId) {
+        self.keep_continued(run_id);
     }
 }
 

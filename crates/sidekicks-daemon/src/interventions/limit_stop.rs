@@ -20,10 +20,10 @@ use tracing::Instrument as _;
 
 use crate::bounded_wait::wait_within;
 use crate::interventions::interrupt_queue::InterruptCause;
+use crate::interventions::service::errors::DispatchError;
 use crate::interventions::service::reached_state::{ReachedState, draft};
 use crate::interventions::service::{
-    DispatchError, InterventionService, InterventionTarget, RunEndOfVerdict, Verdict,
-    mint_intervention_id,
+    InterventionService, InterventionTarget, RunEndOfVerdict, Verdict, mint_intervention_id,
 };
 use crate::interventions::store::{
     InterventionTransition, RequestedIntervention, insert_requested_intervention_statement,

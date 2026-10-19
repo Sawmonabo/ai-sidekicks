@@ -1,8 +1,9 @@
 //! A person's answer to a choice the provider holds a run on: the retry-or-edit choice on a
 //! refused turn and the switch-or-credits choice on a turn whose model needs usage credits. The
-//! first answer settles the choice; the answer goes to the provider before anything is written,
-//! and the settlement row and the run's move commit in one write, guarded so a second settlement
-//! of the same request is refused whole.
+//! first answer settles the choice; the run's driver is found only once the run is found waiting
+//! on the choice, the answer goes to the provider before anything is written, and the settlement
+//! row and the run's move commit in one write, guarded so a second settlement of the same request
+//! is refused whole.
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::{AgentRunControlResponse, RunFailureCategory};
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
@@ -28,23 +30,26 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::{StatementBindings, WriteStatement, named_bindings, text_binding};
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
+use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_run_driver};
+use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::contract::{DriverError, ProviderDriver};
+use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::pause::run_control_response;
-use crate::session::run::read::{RunRead, RunStateReader, read_run_through};
+use crate::session::run::read::{RunRead, RunStateReader, read_run_provider, read_run_through};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
 };
 
-/// The statements [`ProviderChoiceResolver`] prepares on a read connection: the newest request of
-/// a choice and a settlement since it.
+/// The statements [`ProviderChoiceResolver`] prepares on a read connection: the run, the provider
+/// it runs on, the newest request of a choice and a settlement since it.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-pub(crate) const PROVIDER_CHOICE_STATEMENT_CAPACITY: usize = 2;
+pub(crate) const PROVIDER_CHOICE_STATEMENT_CAPACITY: usize = 4;
 
 // The settlement guard is the one companion of a settlement's move, terminal or not.
 const SETTLEMENT_GUARD_COMPANION_INDEX: usize = 0;
@@ -68,13 +73,9 @@ const SELECT_SETTLEMENT_SINCE_SQL: &str = "SELECT 1 FROM session_events
 
 /// Who answered a choice: the device of the connection the answer arrived on.
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the provider choice answer handlers")
-)]
 pub(crate) struct ProviderChoiceAnswerOrigin {
-    /// The answering device, where the connection names one.
-    pub(crate) device_id: Option<DeviceId>,
+    /// The answering device.
+    pub(crate) device_id: DeviceId,
 }
 
 /// Why an answer to a provider's choice did not settle it; a refusal wrote nothing.
@@ -83,6 +84,10 @@ pub(crate) enum ProviderChoiceError {
     /// The run is unknown, or waits on no such choice because it was settled or never asked.
     #[error(transparent)]
     Refused(#[from] RunRefusal),
+    /// The run's driver was not found: no registered driver answers its provider, or the live run
+    /// has no binding.
+    #[error(transparent)]
+    NoDriver(#[from] LiveRunDriverError),
     /// The driver did not take the answer; nothing was written.
     #[error("the provider driver did not take the answer to the run's choice")]
     Driver(#[source] DriverError),
@@ -127,6 +132,23 @@ impl From<RunEngineError> for ProviderChoiceError {
     }
 }
 
+impl From<ProviderChoiceError> for HandlerError {
+    /// A refusal answers by its code, the driver's failure as a driver error answers, and a
+    /// provider no driver answers `provider.notFound`; the rest are faults in the daemon.
+    fn from(error: ProviderChoiceError) -> Self {
+        match error {
+            ProviderChoiceError::Refused(refusal) => Self::Refused(refusal.into()),
+            ProviderChoiceError::NoDriver(lookup) => lookup.into(),
+            ProviderChoiceError::Driver(driver) => driver.into(),
+            fault @ (ProviderChoiceError::Change(_)
+            | ProviderChoiceError::Draft(_)
+            | ProviderChoiceError::MalformedRequest(_)
+            | ProviderChoiceError::Read(_)
+            | ProviderChoiceError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
+}
+
 // The kinds of choice a provider holds a run on, each with the events that ask and settle it.
 #[derive(Clone, Copy)]
 enum ChoiceDialog {
@@ -156,38 +178,49 @@ struct PendingChoice {
     payload: String,
 }
 
+// A run waiting on a choice, the choice, and the provider the run runs on.
+struct WaitingRun {
+    run: RunRead,
+    pending: PendingChoice,
+    bound: Option<ProviderId>,
+}
+
 /// Answers the choices a provider holds runs on. Answers on one run take turns, so of two answers
 /// to one choice the second meets a settled one and is refused with `agent.run.invalidTransition`.
 pub(crate) struct ProviderChoiceResolver {
     pool: Arc<DatabaseReadPool>,
     engine: Arc<RunEngine>,
+    providers: Arc<ProviderRegistry>,
     run_lock: KeyedLock<RunId>,
 }
 
 impl ProviderChoiceResolver {
-    /// A resolver reading runs and their log through `pool` and moving them through `engine`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the provider choice answer handlers")
-    )]
-    pub(crate) fn new(pool: Arc<DatabaseReadPool>, engine: Arc<RunEngine>) -> Self {
+    /// A resolver reading runs and their log through `pool`, moving them through `engine` and
+    /// reaching each run's provider through its driver in `providers`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
+    pub(crate) fn new(
+        pool: Arc<DatabaseReadPool>,
+        engine: Arc<RunEngine>,
+        providers: Arc<ProviderRegistry>,
+    ) -> Self {
         Self {
             pool,
             engine,
+            providers,
             run_lock: KeyedLock::new(),
         }
     }
 
     /// Answers the retry-or-edit choice the run waits on and settles it: `retryFallback` returns
     /// the run to `running`, `editPrompt` ends it `failed` with the provider's refusal. Fails with
-    /// [`RunRefusal::InvalidTransition`], nothing sent or written, when the run waits on no such
-    /// choice because it was settled or never asked.
+    /// [`RunRefusal::NotFound`] for an unknown run and [`RunRefusal::InvalidTransition`] when the
+    /// run waits on no such choice because it was settled or never asked, then with
+    /// [`ProviderChoiceError::NoDriver`], each with nothing sent or written.
     #[expect(dead_code, reason = "the provider choice answer handlers")]
     pub(crate) async fn resolve_refusal_choice(
         &self,
         request: &AgentRunRefusalChoiceResolveRequest,
         origin: ProviderChoiceAnswerOrigin,
-        driver: &dyn ProviderDriver,
     ) -> Result<AgentRunControlResponse, ProviderChoiceError> {
         let run_id = request.run_id;
         let choice = request.choice;
@@ -196,9 +229,14 @@ impl ProviderChoiceResolver {
             RunRefusalChoice::RetryFallback => RunStateChangeState::Running,
             RunRefusalChoice::EditPrompt => RunStateChangeState::Failed,
         };
-        let (run, pending) = self
+        let WaitingRun {
+            run,
+            pending,
+            bound,
+        } = self
             .read_pending_choice(run_id, ChoiceDialog::Refusal, new_state)
             .await?;
+        let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
         // The stored request is read before the answer goes out, so a log that does not read sends
         // nothing.
         let change = match choice {
@@ -231,7 +269,7 @@ impl ProviderChoiceResolver {
             }
         };
         self.answer(
-            driver,
+            driver.as_ref(),
             run_id,
             &run,
             ProviderChoiceAnswer::Refusal { choice },
@@ -243,7 +281,7 @@ impl ProviderChoiceResolver {
                 session_id: run.session_id,
                 run_id,
                 choice: RunRefusalChoiceSettlement::Answered(choice),
-                device_id: origin.device_id,
+                device_id: Some(origin.device_id),
             });
         self.settle(
             change,
@@ -256,9 +294,8 @@ impl ProviderChoiceResolver {
     }
 
     /// Answers the switch-or-credits choice the run waits on and settles it; either answer returns
-    /// the run to `running`, where a limit it owes is handed again on its own. Fails with
-    /// [`RunRefusal::InvalidTransition`], nothing sent or written, when the run waits on no such
-    /// choice.
+    /// the run to `running`, where a limit it owes is handed again on its own. Refused as
+    /// [`ProviderChoiceResolver::resolve_refusal_choice`] is, nothing sent or written.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the provider choice answer handlers")
@@ -267,17 +304,21 @@ impl ProviderChoiceResolver {
         &self,
         request: &AgentRunUsageCreditsChoiceResolveRequest,
         origin: ProviderChoiceAnswerOrigin,
-        driver: &dyn ProviderDriver,
     ) -> Result<AgentRunControlResponse, ProviderChoiceError> {
         let run_id = request.run_id;
         let choice = request.choice;
         let _run_hold = self.run_lock.acquire(run_id).await;
         let new_state = RunStateChangeState::Running;
-        let (run, pending) = self
+        let WaitingRun {
+            run,
+            pending,
+            bound,
+        } = self
             .read_pending_choice(run_id, ChoiceDialog::UsageCredits, new_state)
             .await?;
+        let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
         self.answer(
-            driver,
+            driver.as_ref(),
             run_id,
             &run,
             ProviderChoiceAnswer::UsageCredits { choice },
@@ -298,7 +339,7 @@ impl ProviderChoiceResolver {
                 session_id: run.session_id,
                 run_id,
                 choice: RunUsageCreditsChoiceSettlement::Answered(choice),
-                device_id: origin.device_id,
+                device_id: Some(origin.device_id),
             },
         );
         self.settle(
@@ -311,13 +352,14 @@ impl ProviderChoiceResolver {
         .await
     }
 
-    // The run and the request it waits on, or the refusal of an answer that settles nothing.
+    // The run, the request it waits on and its provider, or the refusal of an answer that settles
+    // nothing.
     async fn read_pending_choice(
         &self,
         run_id: RunId,
         dialog: ChoiceDialog,
         new_state: RunStateChangeState,
-    ) -> Result<(RunRead, PendingChoice), ProviderChoiceError> {
+    ) -> Result<WaitingRun, ProviderChoiceError> {
         self.pool
             .read(
                 ReadLength::Short,
@@ -330,7 +372,12 @@ impl ProviderChoiceResolver {
                             latest_request(reader, run.session_id, run_id, dialog)?
                         && !is_settled_since(reader, run.session_id, run_id, dialog, &pending)?
                     {
-                        return Ok((run, pending));
+                        let bound = read_run_provider(reader, &run_id)?.map(|bound| bound.provider);
+                        return Ok(WaitingRun {
+                            run,
+                            pending,
+                            bound,
+                        });
                     }
                     Err(RunRefusal::InvalidTransition {
                         run_id,

@@ -1,7 +1,8 @@
 //! How a run reaches its provider: a send's run and a turn the daemon or its provider starts on a
 //! session pass `starting`, every setup gate and the driver's start before `running`; a provider's
 //! own subagent is queued beneath its parent and runs at once; an interrupted run is continued on
-//! its next turn, through the gates and the driver again or on the turn its provider started.
+//! its next turn, through the gates and the driver again or on the turn its provider started; a
+//! paused run is resumed, written `running` only once its driver took the resume.
 
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,10 +34,10 @@ use crate::provider::driver::contract::bound_failure_detail;
 use crate::queue::store::take_over_interrupted_statement;
 use crate::session::run::agent::RunAgentReader;
 use crate::session::run::daemon_turn::queue_daemon_turn_run;
-use crate::session::run::engine::live::{
-    ContinuingGuard, ContinuingRun, StartingGuard, StartingRun, lock,
+use crate::session::run::engine::live::{ContinuingGuard, StartingGuard, StartingRun, lock};
+use crate::session::run::engine::{
+    LiveAppend, RunEngine, RunEngineError, RunResumeError, with_cleanup_failures,
 };
-use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, with_cleanup_failures};
 use crate::session::run::projection::insert_queued_run_statement;
 use crate::session::run::read::{RunRead, RunStateReader};
 use crate::session::run::refusals::RunRefusal;
@@ -386,24 +387,10 @@ impl RunEngine {
             queue_item,
         } = request;
         let run = self.require_run(run_id).await?;
-        let entry = {
-            let mut live = lock(&self.live);
-            if run.state != RunState::Interrupted || live.continuing.contains_key(&run_id) {
-                return Err(RunRefusal::InvalidTransition {
-                    run_id,
-                    from_state: run.state,
-                    to_state: RunStateChangeState::Running,
-                    source: None,
-                }
-                .into());
-            }
-            let entry = Arc::new(ContinuingRun {
-                is_turn_started: AtomicBool::new(false),
-                settled: SetOnce::new(),
-            });
-            live.continuing.insert(run_id, Arc::clone(&entry));
-            entry
-        };
+        let entry = (run.state == RunState::Interrupted)
+            .then(|| lock(&self.live).insert_continuing(run_id, false))
+            .flatten()
+            .ok_or_else(|| continue_refusal(run_id, &run))?;
         let _settles_on_exit = ContinuingGuard {
             live: &self.live,
             run_id,
@@ -465,24 +452,62 @@ impl RunEngine {
         }
     }
 
+    /// Resumes the paused or pausing run `run_id` through `resume`, the driver's resume, built
+    /// unstarted by the caller: the run is registered as being continued first, so what its
+    /// provider reports meanwhile waits, and only once `resume` answers `Ok` is `running` written,
+    /// with `companions` in the same write. A failed `resume` writes nothing and comes back whole
+    /// as [`RunResumeError::Driver`]. Fails with [`RunResumeError::Held`] carrying
+    /// [`RunRefusal::InvalidTransition`], `resume` never run, while another continue or a resume
+    /// holds the run, and with [`RunResumeError::Change`] as the write refuses or fails once the
+    /// driver took the resume.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the run control handlers"))]
+    pub(crate) async fn resume_run<DriverFailure>(
+        &self,
+        run_id: RunId,
+        companions: RunStateChangeCompanions,
+        resume: impl Future<Output = Result<(), DriverFailure>>,
+    ) -> Result<RunRead, RunResumeError<DriverFailure>> {
+        let Some(entry) = lock(&self.live).insert_continuing(run_id, false) else {
+            let run = self
+                .require_run(run_id)
+                .await
+                .map_err(RunResumeError::Held)?;
+            return Err(RunResumeError::Held(continue_refusal(run_id, &run)));
+        };
+        let _settles_on_exit = ContinuingGuard {
+            live: &self.live,
+            run_id,
+            entry: Arc::clone(&entry),
+        };
+        resume.await.map_err(RunResumeError::Driver)?;
+        entry.is_turn_started.store(true, Ordering::Release);
+        self.change(
+            RunStateChange::new(
+                run_id,
+                RunStateEntry::Running {
+                    execution_posture: None,
+                },
+            ),
+            companions,
+        )
+        .await
+        .map_err(RunResumeError::Change)
+    }
+
     /// Continues the interrupted run `run_id` on the turn its provider started itself with
     /// messages it kept from the run's interrupted turn, and returns the run as `running` left it;
-    /// `None` with nothing written when the run no longer reads interrupted. Whatever the provider
-    /// reports on the run after this call waits for its write. Fails as [`RunEngine::transition`]
-    /// does.
+    /// `None` with nothing written when the run no longer reads interrupted, or while another
+    /// continue or a resume holds it. Whatever the provider reports on the run after this call
+    /// waits for its write. Fails as [`RunEngine::transition`] does.
     #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn continue_run_with_kept_messages(
         &self,
         run_id: RunId,
     ) -> Result<Option<RunRead>, RunEngineError> {
         // Taken before any await, so a marker the provider sends next waits for the run to run.
-        let entry = Arc::new(ContinuingRun {
-            is_turn_started: AtomicBool::new(true),
-            settled: SetOnce::new(),
-        });
-        lock(&self.live)
-            .continuing
-            .insert(run_id, Arc::clone(&entry));
+        let Some(entry) = lock(&self.live).insert_continuing(run_id, true) else {
+            return Ok(None);
+        };
         let _settles_on_exit = ContinuingGuard {
             live: &self.live,
             run_id,
@@ -639,6 +664,18 @@ fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
         code,
         message: bound_failure_detail(&failure_words(setup_error), SETUP_FAILURE_FALLBACK.clone()),
     }
+}
+
+// The refusal of a continue or a resume of `run`, which reads no state it moves from or is held
+// by another continue or resume already.
+fn continue_refusal(run_id: RunId, run: &RunRead) -> RunEngineError {
+    RunRefusal::InvalidTransition {
+        run_id,
+        from_state: run.state,
+        to_state: RunStateChangeState::Running,
+        source: None,
+    }
+    .into()
 }
 
 #[cfg(test)]

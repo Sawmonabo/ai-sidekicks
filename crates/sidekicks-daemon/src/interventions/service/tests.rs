@@ -21,9 +21,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tempfile::TempDir;
 
+use super::errors::InterventionError;
 use super::{
-    INTERVENTION_SERVICE_STATEMENT_CAPACITY, InterventionError, InterventionService,
-    InterventionServiceDeps,
+    INTERVENTION_SERVICE_STATEMENT_CAPACITY, InterventionService, InterventionServiceDeps,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};

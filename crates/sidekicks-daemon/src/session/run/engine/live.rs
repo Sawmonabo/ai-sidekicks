@@ -44,10 +44,11 @@ impl StartingRun {
     }
 }
 
-/// An interrupted run being continued, until its `running` write landed or its continue failed.
+/// A run being continued, an interrupted run on its next turn or a paused run by its resume, until
+/// its `running` write landed or its continue failed.
 pub(super) struct ContinuingRun {
-    /// Whether its next turn has started: once the driver started it, or at once when the provider
-    /// started it.
+    /// Whether its next turn has started: once the driver started it or took the resume, or at
+    /// once when the provider started it.
     pub(super) is_turn_started: AtomicBool,
     /// Set once the continue has settled.
     pub(super) settled: SetOnce<()>,
@@ -82,7 +83,8 @@ pub(super) struct LimitCut {
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.
     pub(super) starting: HashMap<RunId, Arc<StartingRun>>,
-    /// The interrupted runs being continued.
+    /// The runs being continued: an interrupted run on its next turn, or a paused run by its
+    /// resume.
     pub(super) continuing: HashMap<RunId, Arc<ContinuingRun>>,
     /// The newest terminal write in flight of each run.
     pub(super) ending: HashMap<RunId, Arc<EndingWrite>>,
@@ -125,6 +127,25 @@ impl LiveRuns {
         {
             map.remove(run_id);
         }
+    }
+
+    /// Registers `run_id` as being continued, its next turn started already as `is_turn_started`
+    /// says, and answers its entry; `None`, nothing changed, while another continue or a resume
+    /// holds the run.
+    pub(super) fn insert_continuing(
+        &mut self,
+        run_id: RunId,
+        is_turn_started: bool,
+    ) -> Option<Arc<ContinuingRun>> {
+        if self.continuing.contains_key(&run_id) {
+            return None;
+        }
+        let entry = Arc::new(ContinuingRun {
+            is_turn_started: AtomicBool::new(is_turn_started),
+            settled: SetOnce::new(),
+        });
+        self.continuing.insert(run_id, Arc::clone(&entry));
+        Some(entry)
     }
 
     /// A new stop's cut at `limit`, with an identity no other stop's cut has.

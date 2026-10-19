@@ -7,7 +7,6 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -37,7 +36,6 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::{ProviderToolMetadata, SessionCallbackTool};
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -49,6 +47,7 @@ use crate::ipc::registry::HandlerError;
 use crate::provider::capability::probe::CapabilityProbeError;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
+use crate::provider::driver::error_causes::{ExecutableUnresolvable, RequestUnanswered};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
@@ -75,14 +74,22 @@ pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
 /// one is cut, and dropping it loses only words, never the probe's status.
 const PROVIDER_AUTH_DETAIL_MAX_LEN: usize = 512;
 
-/// Why a driver operation did not answer: a refusal a client reads by its code, a steer whose turn
-/// ended before it was sent (the message waits for the next turn), a provider command that names
-/// no runnable build, or a failure inside the driver, keeping its cause.
+/// Why a driver operation did not answer: a refusal a client reads by its code, a request the
+/// provider got with no answer back, a steer whose turn ended before it was sent (the message
+/// waits for the next turn), a provider command that names no runnable build, or a failure inside
+/// the driver, keeping its cause.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DriverError {
     /// A refusal a client reads by its code.
     #[error(transparent)]
     Refused(#[from] DomainError),
+    /// The request went out and no answer came, so the provider may still act on it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the drivers' request deadlines and lost links")
+    )]
+    #[error(transparent)]
+    Unanswered(RequestUnanswered),
     /// The turn a steer was handed for ended before it was sent.
     #[error(transparent)]
     SteerTurnEnded(#[from] SteerTurnEndedError),
@@ -97,28 +104,15 @@ pub(crate) enum DriverError {
     Internal(#[source] Box<dyn Error + Send + Sync>),
 }
 
-/// The configured provider command names no runnable build, or one whose real path cannot be
-/// read. It carries the command as the person configured it, never a path they did not type.
-#[derive(Debug, thiserror::Error)]
-#[error("the provider command {requested_command:?} names no runnable build")]
-pub(crate) struct ExecutableUnresolvable {
-    /// The provider.
-    pub(crate) provider: ProviderId,
-    /// The command as configured: a bare name or a path.
-    pub(crate) requested_command: String,
-    /// Why it resolves to no build: none was found, or its real path could not be read.
-    #[source]
-    pub(crate) cause: io::Error,
-}
-
 impl From<DriverError> for HandlerError {
-    /// A driver's refusal answers the call by its code; a failed capability probe and a command
-    /// that names no runnable build answer `provider.unavailable`, the latter naming the command
-    /// as configured; a steer whose turn ended, reaching a handler, is a fault in the daemon, as is
-    /// the driver's own failure.
+    /// A driver's refusal, and a request that got no answer, answer the call by the refusal's
+    /// code; a failed capability probe and a command that names no runnable build answer
+    /// `provider.unavailable`, the latter naming the command as configured; a steer whose turn
+    /// ended, reaching a handler, is a fault in the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
-            DriverError::Refused(refusal) => Self::Refused(refusal),
+            DriverError::Refused(refusal)
+            | DriverError::Unanswered(RequestUnanswered { refusal }) => Self::Refused(refusal),
             DriverError::CapabilityProbe(probe) => Self::Refused(
                 DomainError::new(
                     "The provider's capabilities could not be read",

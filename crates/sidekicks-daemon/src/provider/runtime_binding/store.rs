@@ -287,7 +287,7 @@ pub(crate) struct StoredBindingUnreadable {
 /// A stored binding id that is no valid binding id.
 #[derive(Debug, thiserror::Error)]
 #[error("a stored runtime binding id is not a valid binding id")]
-struct StoredBindingIdInvalid;
+pub(crate) struct StoredBindingIdInvalid;
 
 /// Why the stored spawn record does not read.
 #[derive(Debug, thiserror::Error)]

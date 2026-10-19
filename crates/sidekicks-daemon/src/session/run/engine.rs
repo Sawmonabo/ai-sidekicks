@@ -1,10 +1,10 @@
 //! The run engine: every run state change goes through it, each checked against the table and
 //! written with the run's row, and each terminal followed by the terminal hooks of the setup gates.
 //! It also starts the runs of the turns the daemon starts on a session itself and of a provider's
-//! own subagents, continues an interrupted run on its next turn, numbers and ends each turn, counts
-//! a turn's steps against its step bound, stops a run at a limit, records the markers a provider
-//! reports on a live run, and tells a session when a run's provider does not run it at the fast
-//! output level it carried.
+//! own subagents, continues an interrupted run on its next turn, resumes a paused run once its
+//! driver took the resume, numbers and ends each turn, counts a turn's steps against its step
+//! bound, stops a run at a limit, records the markers a provider reports on a live run, and tells
+//! a session when a run's provider does not run it at the fast output level it carried.
 
 mod limits;
 mod live;
@@ -233,6 +233,22 @@ pub(crate) enum RunEngineError {
     /// A step failed and so did the cleanup after it, every failure kept, the step's own first.
     #[error(transparent)]
     Several(Box<SettleFailures<RunEngineError>>),
+}
+
+/// Why a resume of a paused run did not move it to `running`; only [`RunResumeError::Change`]
+/// comes after the driver took the resume.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum RunResumeError<DriverFailure> {
+    /// Another continue or a resume holds the run, refused from its state; the driver was never
+    /// asked.
+    #[error(transparent)]
+    Held(RunEngineError),
+    /// The driver's resume failed; nothing was written.
+    #[error("the provider's driver did not take the resume")]
+    Driver(#[source] DriverFailure),
+    /// The driver took the resume, and the move to `running` was refused or failed.
+    #[error("the provider took the run's resume, and its move to running was not written")]
+    Change(#[source] RunEngineError),
 }
 
 impl From<RunRefusal> for RunEngineError {
