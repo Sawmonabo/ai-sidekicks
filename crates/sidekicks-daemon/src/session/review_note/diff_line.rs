@@ -335,15 +335,8 @@ impl NotedLineReader {
                 stdout,
                 stderr,
             }) if stdout.is_empty() && !stderr.is_empty() => {
-                match tokio::fs::symlink_metadata(contained_path).await {
-                    Err(error) if is_gone(&error) => Ok(None),
-                    Ok(_) | Err(_) => Err(GitError::Exited {
-                        code: Some(DIFFERENCE_EXIT_CODE),
-                        stdout,
-                        stderr,
-                    }
-                    .into()),
-                }
+                let restat = tokio::fs::symlink_metadata(contained_path).await;
+                lines_of_refused_diff(stdout, stderr, restat)
             }
             Err(GitError::Exited {
                 code: Some(DIFFERENCE_EXIT_CODE),
@@ -426,6 +419,24 @@ impl NotedLineReader {
     }
 }
 
+// The answer to a diff that exited 1 printing nothing and naming a failure: no lines when the
+// file's re-stat after it finds the file gone, else git's failure.
+fn lines_of_refused_diff(
+    stdout: Vec<u8>,
+    stderr: String,
+    restat: io::Result<std::fs::Metadata>,
+) -> Result<Option<Vec<String>>, NotedLineError> {
+    match restat {
+        Err(error) if is_gone(&error) => Ok(None),
+        Ok(_) | Err(_) => Err(GitError::Exited {
+            code: Some(DIFFERENCE_EXIT_CODE),
+            stdout,
+            stderr,
+        }
+        .into()),
+    }
+}
+
 // The lines of a diff against nothing, which are every line of the file, in order, each decoded
 // lossily since a note quotes text; a file git calls binary has none.
 fn added_lines_of(patch_text: &[u8]) -> Result<Vec<String>, NotedLineError> {
@@ -471,8 +482,8 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::NonEmptyText;
 
-    use super::{NoteLocation, NotedLineReader};
-    use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+    use super::{NoteLocation, NotedLineError, NotedLineReader, lines_of_refused_diff};
+    use crate::git::process::{GitCall, GitError, GitRunner, in_folder, test_git_runner};
 
     // Runs `arguments` in `repository`; a read, so no hook of the person's runs in the test.
     async fn git_in(git: &GitRunner, repository: &Path, arguments: &[&str]) {
@@ -483,6 +494,40 @@ mod tests {
 
     fn file_path(path: &str) -> FilesystemPath {
         FilesystemPath::new(path.to_owned()).expect("the path is a filesystem path")
+    }
+
+    // Fails when a diff git could not read is answered as a present empty file, or when a file
+    // still there after it hides git's failure.
+    #[rstest::rstest]
+    #[case::gone(true)]
+    #[case::present(false)]
+    fn diff_line_reads_a_refused_diff_by_the_files_re_stat(#[case] is_file_gone: bool) {
+        let folder = tempfile::tempdir().expect("the temporary folder is made");
+        let restat = if is_file_gone {
+            std::fs::symlink_metadata(folder.path().join("gone.txt"))
+        } else {
+            std::fs::symlink_metadata(folder.path())
+        };
+        let stderr = String::from("error: Could not access 'gone.txt'\n");
+        let answer = lines_of_refused_diff(Vec::new(), stderr.clone(), restat);
+        if is_file_gone {
+            assert!(
+                matches!(answer, Ok(None)),
+                "a gone file has no lines: {answer:?}"
+            );
+        } else {
+            assert!(
+                matches!(
+                    &answer,
+                    Err(NotedLineError::Git(GitError::Exited {
+                        code: Some(1),
+                        stdout,
+                        stderr: answered,
+                    })) if stdout.is_empty() && *answered == stderr
+                ),
+                "a file still there keeps git's failure: {answer:?}"
+            );
+        }
     }
 
     // Fails when either side reads a file the note's path or earlier path leads to outside the
