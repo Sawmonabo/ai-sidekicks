@@ -21,11 +21,16 @@ Seven areas keep their tables in files of their own, beside this one:
 ```sql
 PRAGMA journal_mode = WAL;      -- concurrent readers during writes
 PRAGMA synchronous = FULL;      -- set explicitly, for durability (see Spec-013 §Pragmas)
+PRAGMA checkpoint_fullfsync = ON; -- on macOS a checkpoint syncs with the drive's full flush (F_FULLFSYNC), so a power cut cannot damage the file; no effect elsewhere
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so a deleted session leaves no readable freed page
 PRAGMA cache_size = -2000;      -- on every connection, read-only ones included: SQLite's own 2,000 KiB page cache
+PRAGMA trusted_schema = OFF;    -- on every connection: the schema calls only SQLite's own built-in functions
+PRAGMA optimize = 0x10002;      -- on the writer, once at open after the schema step; the daily PRAGMA optimize is a scheduler job
 ```
+
+The transaction that creates the schema writes its fingerprint, the first 31 bits of the BLAKE3 hash of the schema's text, into `PRAGMA user_version`, and every open of a file that already holds the schema compares the two and refuses a file another build made, never migrating it.
 
 ---
 

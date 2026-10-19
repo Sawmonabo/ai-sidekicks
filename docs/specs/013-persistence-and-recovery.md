@@ -146,7 +146,7 @@ The per-session append lock orders a session's writes and nothing more: a write 
 
 V1 pins **`rusqlite` 0.40.2** exact, with its `bundled` feature, as the local SQLite driver. The bundled build compiles SQLite **3.53.2** from `libsqlite3-sys` 0.38.2, the newest bundled release, into the service, so no system SQLite and no separate library is loaded. `libsqlite3-sys`, at `rusqlite`'s version, is also a direct dependency of the daemon, because the `database shell` mode's vendored `shell.c` must be the same SQLite release (the daemon's `build.rs` checks its `SQLITE_SOURCE_ID`), so the driver and the vendored shell move together in one change. The bundled build sets neither `SQLITE_DEFAULT_SYNCHRONOUS` nor `SQLITE_DEFAULT_WAL_SYNCHRONOUS`, so both default to FULL.
 
-**Upgrade policy.** The pin is exact, so nothing is auto-applied; any move off `rusqlite` 0.40.2 — patch, minor, or major — must be explicitly re-evaluated against the pragma overrides in §Pragmas and the backup's atomicity contract in §Backup Policy before the pin moves. Since V1's durability posture depends on `synchronous = FULL` and on the backup's fsync behavior, a bump that changed either behavior would be invisible without this gate. **§Pragmas, read back at every open:** after the statements the service reads back exactly `journal_mode = wal`, `synchronous = 2`, `foreign_keys = 1`, `busy_timeout = 5000`, which also catches a `LIBSQLITE3_FLAGS` override that changed a compiled default. **§Backup Policy, held by a test:** a write made through the writer while a backup is in flight lands, and the copy passes `PRAGMA integrity_check`. The backup API's documentation does not say whether the destination or its parent directory is fsynced, so the four-step publish sequence and the single-runner lock below stand.
+**Upgrade policy.** The pin is exact, so nothing is auto-applied; any move off `rusqlite` 0.40.2 — patch, minor, or major — must be explicitly re-evaluated against the pragma overrides in §Pragmas and the backup's atomicity contract in §Backup Policy before the pin moves. Since V1's durability posture depends on `synchronous = FULL` and on the backup's fsync behavior, a bump that changed either behavior would be invisible without this gate. **§Pragmas, read back at every open:** after the statements the service reads back exactly `journal_mode = wal`, `synchronous = 2`, `checkpoint_fullfsync = 1`, `foreign_keys = 1`, `busy_timeout = 5000`, `secure_delete = 1`, which also catches a `LIBSQLITE3_FLAGS` override that changed a compiled default. **§Backup Policy, held by a test:** a write made through the writer while a backup is in flight lands, and the copy passes `PRAGMA integrity_check`. The backup API's documentation does not say whether the destination or its parent directory is fsynced, so the four-step publish sequence and the single-runner lock below stand.
 
 ### Pragmas
 
@@ -155,11 +155,17 @@ The writer thread sets the following pragmas on first connection:
 ```sql
 PRAGMA journal_mode = WAL;      -- concurrent readers during writes
 PRAGMA synchronous = FULL;      -- set and read back for chain-of-custody durability
+PRAGMA checkpoint_fullfsync = ON; -- on macOS a checkpoint syncs with the drive's full
+                                  -- flush (F_FULLFSYNC); no effect elsewhere
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so a deleted
                                 -- session leaves no readable freed page
+PRAGMA trusted_schema = OFF;    -- on every connection; the schema calls only built-ins
+PRAGMA optimize = 0x10002;      -- once at open, after the schema step
 ```
+
+The transaction that creates the schema writes its fingerprint, the first 31 bits of the BLAKE3 hash of the schema's text, into `PRAGMA user_version`; an open of a file holding another fingerprint is refused, never migrated.
 
 The `synchronous = FULL` setting is load-bearing. The bundled build already defaults to FULL, but a `LIBSQLITE3_FLAGS` override at build time could change that default, so the service sets it and reads it back at open. NORMAL trades durability for WAL throughput, a trade-off that is unacceptable for `session_events` because it is the canonical record a rebuild reads from: an acknowledged write that is lost is a session fact gone for good.
 
