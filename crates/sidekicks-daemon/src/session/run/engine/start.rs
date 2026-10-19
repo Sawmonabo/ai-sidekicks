@@ -460,7 +460,6 @@ impl RunEngine {
     /// [`RunRefusal::InvalidTransition`], `resume` never run, while another continue or a resume
     /// holds the run, and with [`RunResumeError::Change`] as the write refuses or fails once the
     /// driver took the resume.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run control handlers"))]
     pub(crate) async fn resume_run<DriverFailure>(
         &self,
         run_id: RunId,

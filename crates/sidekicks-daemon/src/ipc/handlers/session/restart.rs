@@ -182,7 +182,11 @@ mod tests {
             .into_iter()
             .collect();
         let registry = ProviderRegistry::register_from(&table, &services);
-        if let Some(provider) = registry.providers().next().cloned() {
+        if let Some(provider) = registry
+            .drivers()
+            .next()
+            .map(|(provider, _)| provider.clone())
+        {
             let capabilities = DriverCapabilities {
                 flags: DriverCapabilityFlags::from_fn(|flag| {
                     has_resume && flag == DriverCapabilityFlag::Resume

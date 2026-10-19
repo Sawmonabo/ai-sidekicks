@@ -14,10 +14,13 @@ use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::capabilities::{ProviderMode, ProviderModel};
 use crate::provider::driver::commands::ProviderCommandListResponse;
 use crate::provider::driver::compaction::AgentRunContextCompactResponse;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::Never;
+use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The longest short identifier or label: a model's and a mode's id and name, and the words
@@ -43,17 +46,84 @@ pub struct ProviderModelListRequest {
     pub session_id: SessionId,
 }
 
-/// One provider's models in the `provider.model.list` reply.
+/// Why one provider's catalog could not be read: the refusal its read answered with, and the
+/// provider's own words where it gave any.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderModelReport {
-    /// The provider.
-    pub provider_name: ProviderId,
-    /// Its models.
-    pub models: Vec<ProviderModel>,
+pub struct ProviderModelListFailure {
+    /// The refusal's code, as a JSON-RPC error's `data.type` carries it.
+    pub code: String,
+    /// What the provider said, where it said anything.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
-/// The reply of `provider.model.list`: one group per provider.
+/// Declares one arm of a provider's outcome in the `provider.model.list` reply, the provider it
+/// names written once.
+macro_rules! provider_model_report_arm {
+    ($(#[doc = $doc:literal])+ $name:ident { $($arm_member:tt)* }) => {
+        $(#[doc = $doc])+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[schemars(inline)]
+        pub struct $name {
+            /// The provider.
+            pub provider_name: ProviderId,
+            $($arm_member)*
+        }
+    };
+}
+
+provider_model_report_arm! {
+    /// A provider whose catalog was read: its models.
+    ProviderModelsListed {
+        /// Its models.
+        pub models: Vec<ProviderModel>,
+        /// Only a failed read carries a failure.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub failure: Option<Never>,
+    }
+}
+
+provider_model_report_arm! {
+    /// A provider whose catalog could not be read: why, never an empty catalog.
+    ProviderModelsFailed {
+        /// Why the read failed.
+        pub failure: ProviderModelListFailure,
+        /// Only a read catalog carries models.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub models: Option<Never>,
+    }
+}
+
+/// One installed provider's outcome in the `provider.model.list` reply: its models, or the failure
+/// its catalog's read answered, so one provider's outage never hides another's models.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ProviderModelReport {
+    /// The catalog was read.
+    Listed(ProviderModelsListed),
+    /// The catalog's read failed.
+    Failed(ProviderModelsFailed),
+}
+
+/// The reply of `provider.model.list`: one outcome per installed provider, the session's own
+/// provider first, then the provider table's order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -120,7 +190,7 @@ methods! {
             mutating: false,
             params: EmptyPayload,
             result: ProviderModeListResponse,
-            refusals: [],
+            refusals: [ProviderUnavailable, ProviderTimeout],
         },
         /// Compacts one run's provider-side context.
         AgentRunContextCompact = mutation "agent.run.context.compact" {
@@ -130,6 +200,7 @@ methods! {
             refusals: [
                 SessionNotFound,
                 AgentRunNotFound,
+                ProviderNotFound,
                 ProviderUnavailable,
                 ProviderCapabilityUnsupported,
                 ProviderTimeout,
@@ -143,6 +214,7 @@ methods! {
             refusals: [
                 SessionNotFound,
                 AgentNotFound,
+                ProviderNotFound,
                 ProviderUnavailable,
                 ProviderCapabilityUnsupported,
                 ProviderTimeout,
@@ -159,6 +231,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           grouped by provider.",
     definitions: &[
         Definition::read::<ProviderModelListRequest>(),
+        Definition::read::<ProviderModelListFailure>(),
+        Definition::read::<ProviderModelsListed>(),
+        Definition::read::<ProviderModelsFailed>(),
         Definition::read::<ProviderModelReport>(),
         Definition::read::<ProviderModelListResponse>(),
         Definition::read::<ProviderModeReport>(),

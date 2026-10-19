@@ -216,7 +216,6 @@ impl ProviderChoiceResolver {
     /// [`RunRefusal::NotFound`] for an unknown run and [`RunRefusal::InvalidTransition`] when the
     /// run waits on no such choice because it was settled or never asked, then with
     /// [`ProviderChoiceError::NoDriver`], each with nothing sent or written.
-    #[expect(dead_code, reason = "the provider choice answer handlers")]
     pub(crate) async fn resolve_refusal_choice(
         &self,
         request: &AgentRunRefusalChoiceResolveRequest,
@@ -296,10 +295,6 @@ impl ProviderChoiceResolver {
     /// Answers the switch-or-credits choice the run waits on and settles it; either answer returns
     /// the run to `running`, where a limit it owes is handed again on its own. Refused as
     /// [`ProviderChoiceResolver::resolve_refusal_choice`] is, nothing sent or written.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the provider choice answer handlers")
-    )]
     pub(crate) async fn resolve_usage_credits_choice(
         &self,
         request: &AgentRunUsageCreditsChoiceResolveRequest,

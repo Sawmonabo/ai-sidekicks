@@ -27,7 +27,9 @@ use sidekicks_contracts::provider::declaration::{
 use sidekicks_contracts::provider::driver::capabilities::{
     ExecutionPosture, ProviderMode, ProviderModel,
 };
-use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::commands::{
+    ProviderCommandBinding, ProviderCommandBindingGroup,
+};
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
@@ -282,8 +284,12 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// Closes one session.
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
-    /// The provider's models.
-    fn list_models(&self) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>>;
+    /// The provider's models for a session's model control, read against the account the params
+    /// name, or the provider's default account where they name none.
+    fn list_models(
+        &self,
+        params: ListModelsParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>>;
 
     /// The provider's modes.
     fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>>;
@@ -306,12 +312,12 @@ pub(crate) trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<AgentRunContextCompactResponse, DriverError>>;
 
     /// A live read of the provider's own commands and skills for the bound session (gated on
-    /// `providerCommands`), held with the session and never stored; every entry carries the
-    /// driver and account it was read under.
+    /// `providerCommands`), held with the session and never stored: one group carrying the
+    /// params' run and binding, every entry stamped with that binding.
     fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
-    ) -> BoxFuture<'_, Result<ProviderCommandListResponse, DriverError>>;
+    ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>>;
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
     /// `None` with no live binding or no declaration yet, which means unread, never off. A read of
@@ -778,13 +784,28 @@ pub(crate) struct CompactContextParams {
     pub(crate) binding_id: RuntimeBindingId,
 }
 
-/// Params of `list_provider_commands` (gated on `providerCommands`); addresses one binding.
+/// Params of `list_provider_commands` (gated on `providerCommands`); addresses one binding, with
+/// the driver and account the daemon resolved it to and its one live run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ListProviderCommandsParams {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The binding.
     pub(crate) binding_id: RuntimeBindingId,
+    /// The driver and account the binding runs on, which the group and each entry carry.
+    pub(crate) binding: ProviderCommandBinding,
+    /// The one live run on the binding; `None` when several are live.
+    pub(crate) run_id: Option<RunId>,
+}
+
+/// Params of `list_models`: the session whose model control reads the catalog, and the account
+/// to read it against, `None` for the provider's default account.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ListModelsParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The account: the session's own bound account for its own provider.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
 
 /// The provider-native subagent policy (gated on `subagents`). Provider subagents run inside the

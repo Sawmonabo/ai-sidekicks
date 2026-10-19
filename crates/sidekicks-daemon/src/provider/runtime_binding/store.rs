@@ -333,13 +333,6 @@ pub(crate) enum RuntimeBindingStoreError {
 }
 
 /// The binding `id`, or `None`. Fails on a database error or a stored row that does not read.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "a run's binding record reads a relaunched leg's predecessor through it"
-    )
-)]
 pub(crate) fn read_binding(
     reader: &Connection,
     id: &RuntimeBindingId,

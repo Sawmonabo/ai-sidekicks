@@ -208,7 +208,6 @@ impl RunPauseControl {
     /// running, then with [`RunPauseError::NoDriver`]. A pause the driver refuses returns the run
     /// to `running`, and one whose answer never came leaves it `pausing`, each failing with
     /// [`RunPauseError::Driver`].
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run control handlers"))]
     pub(crate) async fn pause(
         &self,
         request: &AgentRunPauseRequest,
@@ -255,7 +254,6 @@ impl RunPauseControl {
     /// answer never came, which keeps the messages for the provider's own record to settle. A
     /// move refused once the driver took the resume (a process exit ended or interrupted the run
     /// meanwhile) gives the messages back and refuses from where the run went.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run control handlers"))]
     pub(crate) async fn resume(
         &self,
         request: &AgentRunResumeRequest,

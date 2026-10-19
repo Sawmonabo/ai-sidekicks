@@ -75,7 +75,9 @@ interface ProviderDriver {
   setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult>;
   clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult>;
   closeSession(params: CloseSessionParams): Promise<void>;
-  listModels(): Promise<ProviderModel[]>;
+  // The provider's catalog for a session's model control, read against the account the params
+  // name, or the provider's default account where they name none.
+  listModels(params: ListModelsParams): Promise<ProviderModel[]>;
   listModes(): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
   probeAuth(): Promise<DriverAuthProbeResult>;
@@ -113,8 +115,10 @@ interface ProviderDriver {
   // capability adds no table and no column. Every entry carries the (providerName,
   // providerAccountId) it was read under, and that binding is a ROUTING INVARIANT: an entry is
   // offerable only to agents of that same binding, and the one entry V1 dispatches is dispatchable
-  // only through them.
-  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResponse>;
+  // only through them. The driver answers ONE group, carrying the run and binding the params
+  // name, every entry stamped with that binding; the daemon joins the groups of an agent's
+  // bindings into the reply.
+  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandBindingGroup>;
   // The output-speed state the provider last declared for the session's live binding, verbatim
   // (Spec-004 §The output-speed axis), for a driver declaring `outputSpeed`. A synchronous read
   // of state the driver already holds; `undefined` with no live binding or no declaration yet,
@@ -213,6 +217,35 @@ type AgentRunContextCompactResponse =
 interface ListProviderCommandsParams {
   sessionId: SessionId;
   bindingId: string;
+  // The driver and account the daemon resolved the binding to, which the group and each entry
+  // carry as read; the driver re-checks none of it.
+  binding: ProviderCommandBinding;
+  // The one live run of the agent on the binding; null when several are live.
+  runId: RunId | null;
+}
+
+// The DRIVER-FACING params of `listModels`. The daemon names the session's own bound account for
+// the session's own provider and none for every other provider, which reads its default account.
+interface ListModelsParams {
+  sessionId: SessionId;
+  providerAccountId: ProviderAccountId | null;
+}
+
+// `provider.model.list {sessionId}` answers one outcome per installed provider, the session's own
+// provider first and then the provider table's order; a provider whose command is not installed
+// has no entry. Each entry is its catalog or the failure its read answered, so one provider's
+// outage never hides another's models and a failure never reads as an empty catalog.
+type ProviderModelReport =
+  | { providerName: ProviderId; models: ProviderModel[] }
+  | {
+      providerName: ProviderId;
+      // `code` is the refusal the read answered (`provider.timeout`, `provider.unavailable`, ...);
+      // `providerFailureDetail` is the provider's own words, where it gave any.
+      failure: { code: string; providerFailureDetail?: string };
+    };
+
+interface ProviderModelListResponse {
+  providers: ProviderModelReport[];
 }
 
 // One enumerated provider command, skill or tool-server prompt. `binding` is not decoration: it is

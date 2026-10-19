@@ -10,13 +10,11 @@
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::envelope::EventEnvelope;
-use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
@@ -34,10 +32,7 @@ use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::sql_list::sql_list_of;
-use crate::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
-};
+use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 use crate::events::content::read::StoredEventContentRow;
 use crate::events::session::read::{
     DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
@@ -49,6 +44,7 @@ use crate::session::console_state::read_session_max_steps_per_turn;
 use crate::session::not_found::session_not_found;
 use crate::session::projector::{SessionRebuildError, rebuild_session};
 use crate::session::records::DaemonSessionRecord;
+use crate::session::run::read::{SessionLiveRunRow, read_session_live_runs};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 use crate::session::tags::NotATag;
 use crate::transcript::body::read_stored_event_row;
@@ -185,47 +181,6 @@ const SELECT_ROW_SQL: &str = "SELECT state, shape, name, muted_at, pending_worki
 
 const SELECT_TAGS_SQL: &str =
     "SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_folded";
-
-// A run's agent is on its `agent.run.queued` row, by id or inside the agent it brought in. Its
-// newest touch is its newest readable `runLifecycle` event. Both read the run-and-type index on the
-// event log; the unary `+` drops the run id column's affinity, which would keep the index from
-// serving.
-static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
-    let run_queued = SessionEventType::AgentRunQueued.as_str();
-    let lifecycle_types = sql_list_of(
-        RUN_LIFECYCLE_EVENT_TYPES
-            .iter()
-            .copied()
-            .map(SessionEventType::as_str),
-    );
-    let terminal_states = &*RUN_TERMINAL_STATES_SQL;
-    let readable_queued = readable_event_sql("queued");
-    let readable_lifecycle = readable_event_sql("lifecycle");
-    format!(
-        "SELECT run_id, parent_run_id, is_apart, state, run_version,
-    (SELECT COALESCE(json_extract(queued.payload, '$.agentId'),
-                     json_extract(queued.payload, '$.resolvedAgent.agentId'))
-       FROM session_events AS queued
-      WHERE queued.session_id = runs.session_id
-        AND queued.type = '{run_queued}'
-        AND queued.run_id = +runs.run_id
-        AND {readable_queued}) AS agent_id,
-    (SELECT touched.occurred_at
-       FROM session_events AS touched
-      WHERE touched.session_id = runs.session_id
-        AND touched.sequence = (
-          SELECT MAX(lifecycle.sequence)
-            FROM session_events AS lifecycle
-           WHERE lifecycle.session_id = runs.session_id
-             AND lifecycle.type IN ({lifecycle_types})
-             AND lifecycle.run_id = +runs.run_id
-             AND {readable_lifecycle})) AS touched_at
-  FROM runs
-  WHERE session_id = @session_id
-    AND state NOT IN ({terminal_states})
-  ORDER BY rowid"
-    )
-});
 
 // The sequences of the session's standing events. A live run's newest measured window and newest
 // compaction read the run-and-type index; the shells' lease changes, the events that brought an
@@ -540,16 +495,7 @@ fn read_live_runs(
     read_bound: i64,
     head: Option<i64>,
 ) -> Result<Vec<SessionLiveRun>, SessionServiceError> {
-    let run_rows = reader
-        .prepare_cached(&SELECT_LIVE_RUNS_SQL)?
-        .query_map(
-            named_params! {
-                "@session_id": session_id.text().as_str(),
-                "@read_bound": read_bound,
-            },
-            LiveRunRow::from_row,
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let run_rows = read_session_live_runs(reader, session_id, read_bound)?;
     let run_ids: Vec<RunId> = run_rows.iter().map(|run_row| run_row.run_id).collect();
     let head_sequence = FoldedThroughSequence::new(head.unwrap_or(START_OF_LOG_POSITION))
         .expect("the head is a safe sequence below the read bound");
@@ -567,7 +513,7 @@ fn read_live_runs(
 }
 
 fn live_run_of(
-    row: LiveRunRow,
+    row: SessionLiveRunRow,
     session_id: &SessionId,
     facts: TranscriptRunFacts,
 ) -> Result<SessionLiveRun, SessionServiceError> {
@@ -664,32 +610,6 @@ impl SessionRow {
             updated_at: text_column(row, 6, WireInstant::try_from)?,
             // The column holds the place's wire JSON.
             place: optional_text_column(row, 7, |text| serde_json::from_str::<Place>(&text))?,
-        })
-    }
-}
-
-/// The `runs` columns a live run is answered from, with its agent and newest touch from its
-/// events; both are `None` when its `agent.run.queued` is past the read bound or skipped.
-struct LiveRunRow {
-    run_id: RunId,
-    parent_run_id: Option<RunId>,
-    is_apart: bool,
-    state: RunState,
-    run_version: SafeInt<0>,
-    agent_id: Option<AgentId>,
-    touched_at: Option<WireInstant>,
-}
-
-impl LiveRunRow {
-    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            run_id: text_column(row, 0, |text| RunId::new(&text))?,
-            parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
-            is_apart: row.get(2)?,
-            state: text_column(row, 3, closed_word)?,
-            run_version: safe_int_column(row, 4)?,
-            agent_id: optional_text_column(row, 5, |text| AgentId::new(&text))?,
-            touched_at: optional_text_column(row, 6, WireInstant::try_from)?,
         })
     }
 }

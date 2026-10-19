@@ -212,10 +212,6 @@ impl InterventionService {
     /// reused key answers the saved result and dispatches nothing. Refuses `agent.run.notFound`
     /// for an unknown run and `agent.intervention.idempotencyConflict` for a reused key whose
     /// request differs; a dispatch that throws answers `failed` with its reason.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the agent.run.intervene handler")
-    )]
     pub(crate) async fn apply_intervention(
         &self,
         request: AgentRunInterveneRequest,
