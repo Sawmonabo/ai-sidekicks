@@ -504,7 +504,7 @@ mod tests {
             .await
             .expect("the provider's late end is read");
         assert!(
-            !late_end,
+            !late_end.written,
             "the provider's late end of the cut turn is dropped"
         );
         assert_eq!(

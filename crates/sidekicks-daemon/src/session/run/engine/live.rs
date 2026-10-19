@@ -96,8 +96,12 @@ pub(super) struct LiveRuns {
     /// Each run's limits whose reached event is being written or landed while their interrupt is
     /// not yet handed to the interventions service, so a stop retried at that limit sends the
     /// interrupt alone; one leaves when its interrupt is handed, its write is refused or its run
-    /// ends, the step limit's also with its turn.
+    /// ends. The step limit's outlives the turn that reached it, so a later step or turn end of
+    /// the run hands its interrupt again.
     pub(super) reached_limits: HashSet<(RunId, RunLimit)>,
+    /// Each run whose step stop, or the step limit's interrupt handed again, is in flight, so
+    /// one goes at a time.
+    pub(super) step_stops: HashSet<RunId>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
 }
@@ -181,6 +185,21 @@ impl LiveRuns {
                 self.starting.remove(run_id);
             }
         }
+    }
+}
+
+/// Holds a run's step stop in flight until the stop settles on any exit path, its future dropped
+/// included.
+pub(super) struct StepStopGuard<'engine> {
+    /// The engine's live runs.
+    pub(super) live: &'engine Mutex<LiveRuns>,
+    /// The run being stopped.
+    pub(super) run_id: RunId,
+}
+
+impl Drop for StepStopGuard<'_> {
+    fn drop(&mut self) {
+        lock(self.live).step_stops.remove(&self.run_id);
     }
 }
 

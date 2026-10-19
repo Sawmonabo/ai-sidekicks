@@ -73,6 +73,8 @@ pub(super) enum LimitStop {
     Step {
         /// The bound reached.
         count: SafeInt<1>,
+        /// The turn that reached it.
+        turn_number: SafeInt<1>,
     },
     /// The interrupt alone: the spend limit, which has no run-level reached event since the
     /// interrupt the interventions service records is the stop's record, and the retry of any
@@ -101,7 +103,7 @@ impl LimitStop {
     fn reached_event(self, run: &RunRead, run_id: RunId) -> Option<SessionEvent> {
         let session_id = run.session_id;
         match self {
-            Self::Step { count } => Some(SessionEvent::AgentRunStepLimitReached(
+            Self::Step { count, .. } => Some(SessionEvent::AgentRunStepLimitReached(
                 AgentRunStepLimitReachedPayload {
                     session_id,
                     run_id,
@@ -180,39 +182,51 @@ impl RunEngine {
             .await
     }
 
-    /// The daemon's own stop of a live run at a limit: the turn it cuts and the limit it reaches
-    /// are remembered before the limit's reached event is written while the run is live (a token
-    /// limit's once per run, none for the spend limit or a stop retried at a limit whose reached
-    /// event landed), then the interrupt goes to the interventions service. The stop waits out a
-    /// continue of the run; a run that has ended, or that holds a limit's interrupt still pending,
-    /// is left with the cuts as they were, and one the limit's end may not leave its state from
-    /// is refused with nothing written. Fails with [`RunEngineError::LimitInterrupterGone`],
-    /// nothing written, when the engine holds no live interventions service, and with
-    /// [`RunEngineError::LimitInterrupt`] when the service fails, the reached event, the cut and
-    /// the memory kept for the stop's retry.
+    /// The daemon's own stop of a live run at a limit: the turn it cuts (a step stop's own turn,
+    /// else the newest open turn) and the limit it reaches are remembered before the limit's
+    /// reached event is written while the run is live (a token limit's once per run, none for the
+    /// spend limit or a stop retried at a limit whose reached event landed), then the interrupt
+    /// goes to the interventions service. The stop waits out a continue of the run. A run that has
+    /// ended, a step stop whose turn ended before its cut went in, and a token stop whose
+    /// once-per-run guard refused while the token limit's own interrupt is still pending are left
+    /// with the cuts as they were and nothing written; a run the limit's end may not leave its
+    /// state from is refused with nothing written. Fails with
+    /// [`RunEngineError::LimitInterrupterGone`], nothing written, when the engine holds no live
+    /// interventions service, and with [`RunEngineError::LimitInterrupt`] when the service fails,
+    /// the reached event, the cut and the memory kept for the stop's retry.
     pub(super) async fn stop_at_limit(
         &self,
         run_id: RunId,
         stop: LimitStop,
     ) -> Result<(), RunEngineError> {
-        let limit_interrupter = self.live_limit_interrupter(run_id)?;
+        self.live_limit_interrupter(run_id)?;
         let limit = stop.limit();
         self.wait_while_continuing(&run_id).await;
         let run = self.require_run(run_id).await?;
-        let open_turn = self.read_open_turn(run_id, None).await?;
+        let cut_turn = match stop {
+            LimitStop::Step { turn_number, .. } => Some(turn_number),
+            LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
+                self.read_open_turn(run_id, None).await?
+            }
+        };
         let (stop, own_cut, cut, is_memory_own) = {
             let mut live = lock(&self.live);
             let own_cut = live.new_cut(limit, run.version);
-            let stop = if live.reached_limits.contains(&(run_id, limit)) {
-                LimitStop::Interrupt { limit }
-            } else {
-                stop
+            // A token limit's reached event lands once per run; a step limit's once per turn,
+            // which the turn's own count decides.
+            let stop = match stop {
+                LimitStop::Token { .. } if live.reached_limits.contains(&(run_id, limit)) => {
+                    LimitStop::Interrupt { limit }
+                }
+                LimitStop::Step { .. } | LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
+                    stop
+                }
             };
             // In before the write, so a run that ends while its reached event is written forgets
             // the limit with it.
             let is_memory_own = !matches!(stop, LimitStop::Interrupt { .. })
                 && live.reached_limits.insert((run_id, limit));
-            let cut = open_turn.map(|turn_number| {
+            let cut = cut_turn.map(|turn_number| {
                 let key = (run_id, turn_number);
                 (key, live.cut_turns.insert(key, own_cut))
             });
@@ -220,12 +234,19 @@ impl RunEngine {
         };
         let reached = match cut {
             Some(((_, turn_number), _)) => match self.read_open_turns(run_id).await {
-                Ok(open_turns) => {
-                    if !open_turns.contains(&turn_number) {
-                        // The turn ended before its cut went in, so it keeps none.
-                        lock(&self.live).restore_cut((run_id, turn_number), own_cut, None);
-                    }
+                Ok(open_turns) if open_turns.contains(&turn_number) => {
                     self.reach_limit(run_id, stop).await
+                }
+                Ok(_) => {
+                    // The turn ended before its cut went in, so it keeps none, and a step stop,
+                    // whose bound was that turn's, reached nothing.
+                    lock(&self.live).restore_cut((run_id, turn_number), own_cut, None);
+                    match stop {
+                        LimitStop::Step { .. } => Ok(LimitReach::TurnEnded),
+                        LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
+                            self.reach_limit(run_id, stop).await
+                        }
+                    }
                 }
                 Err(error) => Err(error),
             },
@@ -244,7 +265,20 @@ impl RunEngine {
             }
             return reached.map(drop);
         }
-        limit_interrupter
+        if let LimitStop::Step { turn_number, .. } = stop {
+            self.mark_step_limit_reached(&run_id, turn_number);
+        }
+        self.hand_limit_interrupt(run_id, limit).await
+    }
+
+    // Hands the interventions service the interrupt of `run_id` at `limit` and, once it is handed,
+    // forgets the limit. Fails as the service is gone or fails, the limit kept for the retry.
+    async fn hand_limit_interrupt(
+        &self,
+        run_id: RunId,
+        limit: RunLimit,
+    ) -> Result<(), RunEngineError> {
+        self.live_limit_interrupter(run_id)?
             .interrupt_for_limit(run_id, limit)
             .await
             .map_err(|source| RunEngineError::LimitInterrupt { run_id, source })?;
@@ -252,9 +286,9 @@ impl RunEngine {
         Ok(())
     }
 
-    /// The interventions service the engine was handed, while it runs. Fails with
-    /// [`RunEngineError::LimitInterrupterGone`] when none was handed or it has shut down.
-    pub(super) fn live_limit_interrupter(
+    // The interventions service the engine was handed, while it runs. Fails with
+    // `LimitInterrupterGone` when none was handed or it has shut down.
+    fn live_limit_interrupter(
         &self,
         run_id: RunId,
     ) -> Result<Arc<dyn LimitInterrupter>, RunEngineError> {
@@ -343,6 +377,8 @@ enum LimitReach {
     Live,
     // The run has ended, so nothing is stopped.
     Ended,
+    // A step stop's turn ended before its cut went in, so its bound was never reached.
+    TurnEnded,
     // The limit's own interrupt of the run is still pending, and it ends the run.
     InterruptPending,
 }
@@ -414,9 +450,10 @@ mod tests {
     use crate::session::run::state_change::RunStateChangeCompanions;
     use crate::uuid_v7::mint_uuid_v7;
 
-    fn step_stop() -> LimitStop {
+    fn step_stop(turn_number: u64) -> LimitStop {
         LimitStop::Step {
             count: SafeInt::new(40).expect("40 is a step bound"),
+            turn_number: turn(turn_number),
         }
     }
 
@@ -464,7 +501,7 @@ mod tests {
         .await;
 
         engine
-            .stop_at_limit(run_id, step_stop())
+            .stop_at_limit(run_id, step_stop(1))
             .await
             .expect("the limit's interrupt is accepted");
         // A person's interrupt, accepted while the limit's is pending, ends the run first.
@@ -489,7 +526,7 @@ mod tests {
             .await
             .expect("the provider's end of the cut turn is written");
 
-        assert!(turn_ended);
+        assert!(turn_ended.written);
         assert_eq!(
             stored_events(&database, &run_id),
             events(&[
@@ -531,7 +568,7 @@ mod tests {
         // Turn 1 is cut, a person's interrupt ends the run before the provider ends the turn, and
         // a continue runs turn 2, which is cut too.
         engine
-            .stop_at_limit(run_id, step_stop())
+            .stop_at_limit(run_id, step_stop(1))
             .await
             .expect("the limit's interrupt is accepted");
         interrupt_and_continue(&engine, run_id, 1).await;
@@ -542,7 +579,7 @@ mod tests {
         )
         .await;
         engine
-            .stop_at_limit(run_id, step_stop())
+            .stop_at_limit(run_id, step_stop(2))
             .await
             .expect("the limit's interrupt is accepted");
         let turn_ended = engine
@@ -556,7 +593,7 @@ mod tests {
             .await
             .expect("the provider's late end of turn 1 is written");
 
-        assert!(turn_ended);
+        assert!(turn_ended.written);
         assert_eq!(
             stored_events(&database, &run_id),
             events(&[

@@ -23,7 +23,7 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::run_at_version_statement;
 use crate::session::run::engine::limits::LimitStop;
-use crate::session::run::engine::live::lock;
+use crate::session::run::engine::live::{StepStopGuard, lock};
 use crate::session::run::engine::{
     LIVE_APPEND_VERSION_GUARD_INDEX, RunEngine, RunEngineError, refused_statement_index,
     safe_run_version, with_cleanup_failures,
@@ -122,12 +122,25 @@ pub(crate) struct ProviderTurnEnd {
     pub(crate) outcome: TurnOutcome,
 }
 
-/// The steps of a run's open turn, counted on a run whose provider does not bound them.
+/// The steps of a run's open turn, counted on a run whose provider does not bound them, and
+/// whether the turn's step limit reached event has landed.
 pub(super) struct StepCount {
     turn_number: SafeInt<1>,
     bound: SafeInt<1>,
     steps: u64,
-    is_stopping: bool,
+    is_reached: bool,
+}
+
+/// A provider's report the engine wrote, with the failure of the step limit's interrupt it then
+/// handed again, which the caller logs and goes on from: the next step, turn end or restart hands
+/// that interrupt once more.
+#[derive(Debug)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
+pub(crate) struct ProviderReportWritten<Written> {
+    /// What the report wrote.
+    pub(crate) written: Written,
+    /// Why the step limit's interrupt handed again failed, where it did.
+    pub(crate) resend_failure: Option<RunEngineError>,
 }
 
 /// A turn's end as the log records it: the turn, who reported the end, and how it ended.
@@ -267,7 +280,7 @@ impl RunEngine {
                         turn_number,
                         bound,
                         steps: 0,
-                        is_stopping: false,
+                        is_reached: false,
                     },
                 );
             }
@@ -275,88 +288,111 @@ impl RunEngine {
                 live.step_counts.remove(&run_id);
             }
         }
-        // The step limit's reached event lands once per turn, so a new turn's stop writes its own.
-        live.reached_limits.remove(&(run_id, RunLimit::StepLimit));
         Ok(Some(turn_number))
     }
 
     /// Counts one step of the open turn on `run_id`, which the driver's delivery reports for a run
-    /// whose provider does not bound a turn's steps; the step that reaches the turn's bound stops
-    /// the run at the step limit. A run with no count armed is left as it is. Fails as the stop
-    /// fails; a failed stop is tried again at the next step or at the turn's end, the interrupt
-    /// alone once the turn's reached event has landed.
+    /// whose provider does not bound a turn's steps: the step that reaches the turn's bound writes
+    /// the turn's step limit reached event and stops the run at the step limit, and while that
+    /// stop's interrupt is not yet handed, a later step of any turn hands it again. A run with no
+    /// count armed, or whose step stop is in flight, is left as it is. Fails as the stop fails; a
+    /// failed stop is tried again at the next step or turn end, the interrupt alone once the
+    /// turn's reached event has landed.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(&self, run_id: RunId) -> Result<(), RunEngineError> {
-        let (turn_number, stop) = {
+        let stop = {
             let mut live = lock(&self.live);
             let Some(count) = live.step_counts.get_mut(&run_id) else {
                 return Ok(());
             };
-            if count.is_stopping {
-                return Ok(());
-            }
             count.steps += 1;
-            if count.steps < count.bound.get() {
+            let reaching_turn = (count.steps >= count.bound.get() && !count.is_reached)
+                .then_some((count.bound, count.turn_number));
+            let stop = match reaching_turn {
+                Some((bound, turn_number)) => LimitStop::Step {
+                    count: bound,
+                    turn_number,
+                },
+                None if live.reached_limits.contains(&(run_id, RunLimit::StepLimit)) => {
+                    LimitStop::Interrupt {
+                        limit: RunLimit::StepLimit,
+                    }
+                }
+                None => return Ok(()),
+            };
+            if !live.step_stops.insert(run_id) {
                 return Ok(());
             }
-            count.is_stopping = true;
-            (count.turn_number, LimitStop::Step { count: count.bound })
+            stop
         };
-        let stopped = self.stop_at_limit(run_id, stop).await;
-        if stopped.is_err()
-            && let Some(count) = lock(&self.live)
-                .step_counts
-                .get_mut(&run_id)
-                .filter(|count| count.turn_number == turn_number)
-        {
-            count.is_stopping = false;
-        }
-        stopped
+        let _in_flight = StepStopGuard {
+            live: &self.live,
+            run_id,
+        };
+        self.stop_at_limit(run_id, stop).await
     }
 
     /// Writes the end its provider reported for a turn of `run_id` that changes no run: a turn
-    /// that ended beside a live run, or a late end after the run ended. Returns whether it was
-    /// written; a duplicate of an end the turn holds is dropped. The end of a turn a step stop cut
-    /// whose interrupt failed hands that interrupt over again. Fails with `RunRefusal::NotFound`
-    /// for an unknown run, with the append's failure and as that interrupt fails.
+    /// that ended beside a live run, or a late end after the run ended. What it wrote is whether
+    /// the end was written; a duplicate of an end the turn holds is dropped. A step limit's
+    /// interrupt a stop of the run could not hand is handed again once the end is written, its
+    /// failure returned beside it. Fails with `RunRefusal::NotFound` for an unknown run and with
+    /// the append's failure.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_turn_end(
         &self,
         run_id: RunId,
         turn_end: ProviderTurnEnd,
-    ) -> Result<bool, RunEngineError> {
+    ) -> Result<ProviderReportWritten<bool>, RunEngineError> {
         let run = self.require_run(run_id).await?;
-        let is_interrupt_owed = self.is_step_interrupt_owed(&run_id, turn_end.turn_number);
         let turn_end = self.provider_turn_end(&run_id, turn_end);
         let is_written = self.record_turn_end_alone(run_id, &run, turn_end).await?;
-        if is_interrupt_owed {
-            self.hand_owed_step_interrupt(run_id).await?;
-        }
-        Ok(is_written)
+        Ok(ProviderReportWritten {
+            written: is_written,
+            resend_failure: self.hand_owed_step_interrupt(run_id).await.err(),
+        })
     }
 
-    /// Whether the step limit's interrupt of `run_id` is owed once `turn_number` ends: its stop
-    /// wrote that turn's reached event, its interrupt failed, and no stop is in flight.
-    pub(super) fn is_step_interrupt_owed(&self, run_id: &RunId, turn_number: SafeInt<1>) -> bool {
-        let live = lock(&self.live);
-        live.reached_limits
-            .contains(&(*run_id, RunLimit::StepLimit))
-            && live
-                .step_counts
-                .get(run_id)
-                .is_some_and(|count| count.turn_number == turn_number && !count.is_stopping)
-    }
-
-    /// Hands the interventions service the step limit's interrupt that a cut turn's end left owed,
-    /// so the run rests at the step limit. Fails as the interrupt fails.
+    /// Hands the interventions service again the step limit's interrupt of `run_id` that a stop
+    /// wrote the reached event of and could not hand, while no step stop of the run is in flight:
+    /// the run's newest open turn is cut with the limit, and the run rests at the step limit. A
+    /// run that owes no such interrupt is left as it is. Fails as the stop at the limit fails, the
+    /// interrupt still owed.
     pub(super) async fn hand_owed_step_interrupt(
         &self,
         run_id: RunId,
     ) -> Result<(), RunEngineError> {
-        self.live_limit_interrupter(run_id)?
-            .interrupt_for_limit(run_id, RunLimit::StepLimit)
-            .await
-            .map_err(|source| RunEngineError::LimitInterrupt { run_id, source })
+        {
+            let mut live = lock(&self.live);
+            if !live.reached_limits.contains(&(run_id, RunLimit::StepLimit))
+                || !live.step_stops.insert(run_id)
+            {
+                return Ok(());
+            }
+        }
+        let _in_flight = StepStopGuard {
+            live: &self.live,
+            run_id,
+        };
+        self.stop_at_limit(
+            run_id,
+            LimitStop::Interrupt {
+                limit: RunLimit::StepLimit,
+            },
+        )
+        .await
+    }
+
+    /// Marks the count of `turn_number` on `run_id` as having its step limit reached event
+    /// landed, so its later steps hand the interrupt alone.
+    pub(super) fn mark_step_limit_reached(&self, run_id: &RunId, turn_number: SafeInt<1>) {
+        if let Some(count) = lock(&self.live)
+            .step_counts
+            .get_mut(run_id)
+            .filter(|count| count.turn_number == turn_number)
+        {
+            count.is_reached = true;
+        }
     }
 
     /// The end the log records for a turn end its provider reported: as reported, or interrupted
@@ -590,7 +626,8 @@ impl RunEngine {
         Ok(newest.map_or(FIRST_TURN_NUMBER, |newest| stored_turn_number(newest + 1)))
     }
 
-    // What the engine held for a turn whose end is written or dropped.
+    // What the engine held for a turn whose end is written or dropped. A step limit's interrupt
+    // its stop could not hand stays owed by the run.
     fn forget_turn(&self, run_id: &RunId, turn_number: SafeInt<1>) {
         self.forget_cut_turn(run_id, turn_number);
         let mut live = lock(&self.live);
@@ -600,7 +637,6 @@ impl RunEngine {
             .is_some_and(|count| count.turn_number == turn_number)
         {
             live.step_counts.remove(run_id);
-            live.reached_limits.remove(&(*run_id, RunLimit::StepLimit));
         }
     }
 

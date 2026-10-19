@@ -716,7 +716,7 @@ mod tests {
         started.expect("the start writes its run running");
         let reported = reported.expect("the report is written after the start's running write");
         assert_eq!(
-            reported.state,
+            reported.written.state,
             sidekicks_contracts::run::state::RunState::WaitingForApproval
         );
         let types: Vec<String> = database

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
@@ -12,19 +13,41 @@ use crate::database::writer::test_file::{TestDatabase, test_envelope, test_sessi
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 use crate::events::log_service::tests::open_log;
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
-use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    append, hand_limit_interrupter, insert_running_run, stored_events, stored_run_state,
+    append, events, hand_limit_interrupter, insert_running_run, stored_events, stored_run_state,
     test_engine, turn_started_at,
 };
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
+use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::RunStateChangeCompanions;
 use crate::uuid_v7::mint_uuid_v7;
 
 fn turn(number: u64) -> SafeInt<1> {
     SafeInt::new(number).expect("the test's turn numbers count from 1")
+}
+
+// Arms the step count of turn `turn_number` on `run_id` at `bound`, as the turn's start does on a
+// run whose provider does not bound its steps.
+fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u64) {
+    lock(&engine.live).step_counts.insert(
+        run_id,
+        StepCount {
+            turn_number: turn(turn_number),
+            bound: turn(bound),
+            steps: 0,
+            is_reached: false,
+        },
+    );
+}
+
+// The provider's end of turn `turn_number`, interrupted with no cause of its own.
+fn provider_end(turn_number: u64) -> ProviderTurnEnd {
+    ProviderTurnEnd {
+        turn_number: turn(turn_number),
+        outcome: TurnOutcome::Interrupted(None),
+    }
 }
 
 // Killed by the append not writing an event's turn number, which lets every guard pass on a
@@ -110,15 +133,7 @@ async fn a_limit_stop_with_no_interventions_service_writes_nothing_and_is_tried_
         "the spend stop answers {spend_stop:?}"
     );
 
-    lock(&engine.live).step_counts.insert(
-        run_id,
-        StepCount {
-            turn_number: turn(1),
-            bound: turn(1),
-            steps: 0,
-            is_stopping: false,
-        },
-    );
+    arm_step_count(&engine, run_id, 1, 1);
     for step in 1..=2 {
         let counted = engine.count_step(run_id).await;
         assert!(
@@ -147,15 +162,7 @@ async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event()
         &turn_started_at(session_id, run_id, 1, 1),
     )
     .await;
-    lock(&engine.live).step_counts.insert(
-        run_id,
-        StepCount {
-            turn_number: turn(1),
-            bound: turn(1),
-            steps: 0,
-            is_stopping: false,
-        },
-    );
+    arm_step_count(&engine, run_id, 1, 1);
 
     let refused = engine.count_step(run_id).await;
     assert!(
@@ -216,15 +223,7 @@ async fn a_step_stop_refused_on_the_runs_state_is_tried_again_at_the_next_step()
         &turn_started_at(session_id, run_id, 1, 1),
     )
     .await;
-    lock(&engine.live).step_counts.insert(
-        run_id,
-        StepCount {
-            turn_number: turn(1),
-            bound: turn(1),
-            steps: 0,
-            is_stopping: false,
-        },
-    );
+    arm_step_count(&engine, run_id, 1, 1);
     let set_state = |state: &str| {
         database
             .reader()
@@ -281,15 +280,7 @@ async fn a_cut_turns_end_hands_the_step_interrupt_its_stop_could_not() {
         &turn_started_at(session_id, run_id, 1, 1),
     )
     .await;
-    lock(&engine.live).step_counts.insert(
-        run_id,
-        StepCount {
-            turn_number: turn(1),
-            bound: turn(1),
-            steps: 0,
-            is_stopping: false,
-        },
-    );
+    arm_step_count(&engine, run_id, 1, 1);
 
     let refused = engine.count_step(run_id).await;
     assert!(
@@ -297,16 +288,11 @@ async fn a_cut_turns_end_hands_the_step_interrupt_its_stop_could_not() {
         "the stop answers {refused:?}"
     );
     let turn_ended = engine
-        .record_turn_end(
-            run_id,
-            ProviderTurnEnd {
-                turn_number: turn(1),
-                outcome: TurnOutcome::Interrupted(None),
-            },
-        )
+        .record_turn_end(run_id, provider_end(1))
         .await
-        .expect("the provider's end of the cut turn is written and the interrupt handed");
-    assert!(turn_ended);
+        .expect("the provider's end of the cut turn is written");
+    assert!(turn_ended.written);
+    assert!(turn_ended.resend_failure.is_none());
     assert_eq!(interventions.calls.load(Ordering::SeqCst), 2);
     // The interventions service ends the run with the limit it accepted at version 1.
     let ended = engine
@@ -346,5 +332,262 @@ async fn a_cut_turns_end_hands_the_step_interrupt_its_stop_could_not() {
     assert_eq!(
         stored_run_state(&database, &run_id),
         ("interrupted".to_owned(), 2)
+    );
+}
+
+// Killed by a turn's end, or the next turn's start, forgetting the step limit's interrupt its
+// stop could not hand, and by a retry that waits for the cut turn's own count: the next step and
+// the next turn end then hand nothing, and the run goes on past its step limit.
+#[tokio::test]
+async fn a_failed_resend_at_a_cut_turns_end_is_tried_at_the_next_step_and_turn_end() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 3);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    arm_step_count(&engine, run_id, 1, 1);
+
+    let refused = engine.count_step(run_id).await;
+    assert!(
+        matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
+        "the stop answers {refused:?}"
+    );
+    let turn_one_ended = engine
+        .record_turn_end(run_id, provider_end(1))
+        .await
+        .expect("the provider's end of the cut turn is written");
+    assert!(turn_one_ended.written);
+    assert!(
+        matches!(
+            turn_one_ended.resend_failure,
+            Some(RunEngineError::LimitInterrupt { .. })
+        ),
+        "the resend answers {:?}",
+        turn_one_ended.resend_failure
+    );
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 2, 1),
+    )
+    .await;
+    arm_step_count(&engine, run_id, 2, 5);
+    let step_retried = engine.count_step(run_id).await;
+    assert!(
+        matches!(step_retried, Err(RunEngineError::LimitInterrupt { .. })),
+        "the next step's retry answers {step_retried:?}"
+    );
+    let turn_two_ended = engine
+        .record_turn_end(run_id, provider_end(2))
+        .await
+        .expect("the provider's end of turn 2 is written");
+
+    assert!(turn_two_ended.written);
+    assert!(turn_two_ended.resend_failure.is_none());
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), 4);
+    assert!(lock(&engine.live).reached_limits.is_empty());
+    assert_eq!(
+        stored_events(&database, &run_id),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+            (
+                "agent.turn.interrupted",
+                Some("stepLimit"),
+                Some("provider")
+            ),
+            ("agent.turn.started", None, None),
+            (
+                "agent.turn.interrupted",
+                Some("stepLimit"),
+                Some("provider")
+            ),
+        ])
+    );
+}
+
+// Killed by a step stop deciding from the run's owed interrupt rather than its own turn's count:
+// turn 2 reaching its own bound then writes no reached event of its own.
+#[tokio::test]
+async fn a_later_turn_reaching_its_bound_writes_its_own_reached_event_and_one_hand_clears_both() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 2);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    arm_step_count(&engine, run_id, 1, 1);
+    let refused = engine.count_step(run_id).await;
+    assert!(
+        matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
+        "the stop answers {refused:?}"
+    );
+    let turn_one_ended = engine
+        .record_turn_end(run_id, provider_end(1))
+        .await
+        .expect("the provider's end of the cut turn is written");
+    assert!(turn_one_ended.resend_failure.is_some());
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 2, 1),
+    )
+    .await;
+    arm_step_count(&engine, run_id, 2, 1);
+
+    engine
+        .count_step(run_id)
+        .await
+        .expect("turn 2's stop hands the interrupt");
+
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), 3);
+    assert!(lock(&engine.live).reached_limits.is_empty());
+    assert_eq!(
+        stored_events(&database, &run_id),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+            (
+                "agent.turn.interrupted",
+                Some("stepLimit"),
+                Some("provider")
+            ),
+            ("agent.turn.started", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+        ])
+    );
+}
+
+// Killed by the step interrupt handed again at a turn's end going straight to the interventions
+// service: the open turn it cuts then holds no cut, and ends with the limit only when the run's
+// end lands before its provider's frame.
+#[rstest]
+#[case::run_end_first(true)]
+#[case::provider_end_first(false)]
+#[tokio::test]
+async fn a_step_interrupt_handed_again_cuts_the_open_turn_whichever_end_lands_first(
+    #[case] is_run_end_first: bool,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 1);
+    // Turn 1 reached its bound and its interrupt failed; turn 2 started before turn 1's end,
+    // which hands the interrupt again.
+    for turn_number in 1..=2 {
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, turn_number, 1),
+        )
+        .await;
+    }
+    arm_step_count(&engine, run_id, 1, 1);
+    let refused = engine.count_step(run_id).await;
+    assert!(
+        matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
+        "the stop answers {refused:?}"
+    );
+    let turn_one_ended = engine
+        .record_turn_end(run_id, provider_end(1))
+        .await
+        .expect("the provider's end of the cut turn is written");
+    assert!(turn_one_ended.resend_failure.is_none());
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), 2);
+
+    // The interventions service ends the run with the limit it accepted at version 1.
+    let end_run = || {
+        engine.end_run_for_interrupt(
+            run_id,
+            1,
+            Some(RunLimit::StepLimit),
+            RunStateChangeCompanions::default(),
+        )
+    };
+    if is_run_end_first {
+        assert!(end_run().await.expect("the run ends at its limit"));
+    }
+    engine
+        .record_turn_end(run_id, provider_end(2))
+        .await
+        .expect("the provider's end of turn 2 is read");
+    if !is_run_end_first {
+        assert!(end_run().await.expect("the run ends at its limit"));
+    }
+
+    let turn_two_cause: Option<String> = database
+        .reader()
+        .query_row(
+            "SELECT json_extract(payload, '$.cause') FROM session_events
+              WHERE run_id = ?1 AND type = 'agent.turn.interrupted' AND turn_number = 2",
+            [run_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("turn 2 holds one end");
+    assert_eq!(turn_two_cause.as_deref(), Some("stepLimit"));
+}
+
+// Killed by a step stop writing its reached event and sending its interrupt for a turn that
+// ended before its cut went in: the run would rest at a step limit no running turn reached.
+#[tokio::test]
+async fn a_step_stop_whose_turn_has_ended_writes_nothing() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 0);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    engine
+        .record_turn_end(run_id, provider_end(1))
+        .await
+        .expect("the provider's end of turn 1 is written");
+    // The step was counted against turn 1 while its end was being written.
+    arm_step_count(&engine, run_id, 1, 1);
+
+    engine
+        .count_step(run_id)
+        .await
+        .expect("a step stop of a turn that has ended is left");
+
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), 0);
+    let live = lock(&engine.live);
+    assert!(live.reached_limits.is_empty());
+    assert!(live.cut_turns.is_empty());
+    drop(live);
+    assert_eq!(
+        stored_events(&database, &run_id),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.turn.interrupted", None, Some("provider")),
+        ])
     );
 }

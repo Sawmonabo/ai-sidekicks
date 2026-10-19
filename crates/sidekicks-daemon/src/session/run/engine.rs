@@ -51,7 +51,7 @@ use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
     ContinuingRun, EndingGuard, EndingWrite, LiveRuns, StartingRun, lock,
 };
-use crate::session::run::engine::turns::ProviderTurnEnd;
+use crate::session::run::engine::turns::{ProviderReportWritten, ProviderTurnEnd};
 use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::read::{RunRead, read_run_provider, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
@@ -427,14 +427,15 @@ impl RunEngine {
     /// waits on its own run's change. A change for a run being continued waits for its continue
     /// the same way, but a terminal before its next turn started belongs to the turn that ended it
     /// and is refused at once. A send's re-open of an ended run is the daemon's, never a
-    /// provider's. A live run's end of a turn a step stop cut whose interrupt failed hands that
-    /// interrupt over again, failing as it fails.
+    /// provider's. Once a turn's end is written with the change, a step limit's interrupt a stop
+    /// of the run could not hand is handed again, its failure returned beside the run as the
+    /// change left it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         &self,
         change: RunStateChange,
         turn_end: Option<ProviderTurnEnd>,
-    ) -> Result<RunRead, RunEngineError> {
+    ) -> Result<ProviderReportWritten<RunRead>, RunEngineError> {
         let run_id = change.run_id;
         let to_state = change.entry.state();
         let settling = lock(&self.live)
@@ -454,48 +455,52 @@ impl RunEngine {
                     .await?
                     .filter(|run| run.state.is_terminal())
             {
-                return self.refuse_ended(run_id, change, &ended, turn_end).await;
+                return Err(self.refuse_ended(run_id, change, &ended, turn_end).await);
             }
             continuing.settled.wait().await;
         }
         let run = self.require_run(run_id).await?;
         if run.state.is_terminal() {
-            return self.refuse_ended(run_id, change, &run, turn_end).await;
+            return Err(self.refuse_ended(run_id, change, &run, turn_end).await);
         }
-        let is_interrupt_owed =
-            turn_end.is_some_and(|end| self.is_step_interrupt_owed(&run_id, end.turn_number));
+        let is_turn_ended = turn_end.is_some();
         let turn_end = turn_end.map(|end| self.provider_turn_end(&run_id, end));
         let changed = self
             .change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
             .await?;
-        if is_interrupt_owed && !changed.state.is_terminal() {
-            self.hand_owed_step_interrupt(run_id).await?;
-        }
-        Ok(changed)
+        let resend_failure = if is_turn_ended {
+            self.hand_owed_step_interrupt(run_id).await.err()
+        } else {
+            None
+        };
+        Ok(ProviderReportWritten {
+            written: changed,
+            resend_failure,
+        })
     }
 
-    // A provider's change of a run that has ended is refused; the turn end it reported still ends
-    // its turn, written once on its own.
+    // The refusal of a provider's change of a run that has ended; the turn end it reported still
+    // ends its turn, written once on its own.
     async fn refuse_ended(
         &self,
         run_id: RunId,
         change: RunStateChange,
         ended: &RunRead,
         turn_end: Option<ProviderTurnEnd>,
-    ) -> Result<RunRead, RunEngineError> {
+    ) -> RunEngineError {
         let refusal =
             RunEngineError::from(ended_run_refusal(run_id, change.entry.state(), ended.state));
         let Some(turn_end) = turn_end else {
-            return Err(refusal);
+            return refusal;
         };
         let turn_end = self.provider_turn_end(&run_id, turn_end);
         match self.record_turn_end_alone(run_id, ended, turn_end).await {
-            Ok(_) => Err(refusal),
-            Err(error) => Err(with_cleanup_failures(
+            Ok(_) => refusal,
+            Err(error) => with_cleanup_failures(
                 refusal,
                 [Err(error)],
                 "refusing a provider's change of an ended run and writing its turn's end",
-            )),
+            ),
         }
     }
 
