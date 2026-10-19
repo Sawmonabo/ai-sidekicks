@@ -25,7 +25,7 @@ pub struct DaemonRunFolder {
     pub token_path: PathBuf,
 }
 
-/// Why the run folder is not one only this account can reach.
+/// Why the run folder is not private to this account.
 #[derive(Debug, thiserror::Error)]
 pub enum RunFolderRefused {
     /// The folder could not be read, `NotFound` among the reasons.
@@ -37,8 +37,11 @@ pub enum RunFolderRefused {
         #[source]
         source: io::Error,
     },
-    /// The path names a link, a file or a folder another account owns.
-    #[error("the run folder {} is not a folder this account owns", folder.display())]
+    /// The path names a link, a file, or a folder owned by an account that may not hold it.
+    #[error(
+        "the run folder {} is a link, a file or a folder owned by an account that may not hold it",
+        folder.display()
+    )]
     NotOwnFolder {
         /// The folder checked.
         folder: PathBuf,
