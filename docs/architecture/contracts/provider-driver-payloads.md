@@ -224,10 +224,11 @@ interface ListProviderCommandsParams {
   runId: RunId | null;
 }
 
-// The DRIVER-FACING params of `listModels`. The daemon names the session's own bound account for
-// the session's own provider and none for every other provider, which reads its default account.
+// The DRIVER-FACING params of `listModels`. The daemon names the session and its own bound account
+// for the session's own provider, and neither for every other provider, which reads its default
+// account.
 interface ListModelsParams {
-  sessionId: SessionId;
+  sessionId: SessionId | null;
   providerAccountId: ProviderAccountId | null;
 }
 
