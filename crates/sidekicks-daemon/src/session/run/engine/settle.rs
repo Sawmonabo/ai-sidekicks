@@ -4,7 +4,8 @@
 //! end carries the end of its open turn in the same write; a process's exit and a restart's settle
 //! end every older open turn on its own first, oldest first. A turn a limit cut ends with that
 //! limit, read from the engine's own cut first, then from the limit's intervention row, the cut's
-//! one mark in the log, so both give a turn one cause but where its end races its stop's row.
+//! one mark in the log, so the live path and a restart give a turn one cause, except where the
+//! turn's end races its stop's row.
 
 use std::borrow::Cow;
 use std::iter;
