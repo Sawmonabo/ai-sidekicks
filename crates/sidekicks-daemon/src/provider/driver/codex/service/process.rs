@@ -186,15 +186,14 @@ async fn own_managed_child(
                 biased;
                 status = child.wait() => break status.map(|status| (status, asked_end)),
                 changed = ends.changed(), if is_handle_held => {
-                    let end = match changed {
-                        Ok(()) => match *ends.borrow_and_update() {
-                            Some(end) => end,
-                            None => continue,
-                        },
-                        Err(_) => {
-                            is_handle_held = false;
-                            ChildEnd::Kill
-                        }
+                    let end = if changed.is_ok() {
+                        let Some(end) = *ends.borrow_and_update() else {
+                            continue;
+                        };
+                        end
+                    } else {
+                        is_handle_held = false;
+                        ChildEnd::Kill
                     };
                     // A stop asked after a kill changes nothing.
                     if matches!(asked_end, Some(ChildEnd::Kill)) {
