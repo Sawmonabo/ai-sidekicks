@@ -191,6 +191,10 @@ pub(crate) enum DispatchError {
     /// The retry's refusal gave a reason that is no machine-readable cause.
     #[error("the retry's refusal gave a reason that cannot be recorded")]
     RejectionReason(#[source] TextError),
+    /// A token or spend limit's run ended and was continued before the dispatch, so the continued
+    /// run's own stop cuts it.
+    #[error("the run ended and was continued before the dispatch")]
+    RunContinued,
 }
 
 impl From<RunEngineError> for DispatchError {
@@ -788,7 +792,7 @@ impl InterventionService {
 
 /// What an interrupt's verdict ends its run with.
 pub(super) struct RunEndOfVerdict {
-    /// The run version the interrupt was accepted at, or the continued run's own.
+    /// The run version the interrupt was accepted at.
     pub(super) accepted_run_version: i64,
     /// Whose interrupt it is.
     pub(super) cause: InterruptCause,
@@ -813,8 +817,9 @@ fn failure_text_of(error: &DispatchError) -> String {
         DispatchError::Refused(refusal) | DispatchError::Driver(DriverError::Refused(refusal)) => {
             refusal.code.as_str().to_owned()
         }
-        DispatchError::Driver(_) | DispatchError::Engine(_) | DispatchError::RejectionReason(_) => {
-            describe_error(error)
-        }
+        DispatchError::Driver(_)
+        | DispatchError::Engine(_)
+        | DispatchError::RejectionReason(_)
+        | DispatchError::RunContinued => describe_error(error),
     }
 }
