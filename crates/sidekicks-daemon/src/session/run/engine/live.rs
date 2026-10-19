@@ -61,6 +61,15 @@ pub(super) struct EndingWrite {
     pub(super) landed: SetOnce<()>,
 }
 
+/// A limit stop's cut of a turn: the limit, and the run version the stop read before it wrote.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct LimitCut {
+    /// The limit that cut the turn.
+    pub(super) limit: RunLimit,
+    /// The run version the stop read.
+    pub(super) run_version: i64,
+}
+
 /// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
 /// its write or its turn ends, on every exit path. The cuts are bounded by one cut per open cut
 /// turn, each leaving when its own turn's end is written, so it can outlive its run's end until
@@ -79,12 +88,13 @@ pub(super) struct LiveRuns {
     pub(super) carried_output_speeds: HashMap<RunId, ProviderToken>,
     /// The open turn's steps on a run whose provider does not bound them.
     pub(super) step_counts: HashMap<RunId, StepCount>,
-    /// Each turn a limit stop cut, by run and turn number, with the limit that cut it, from before
-    /// its reached event is written until that turn's end is written.
-    pub(super) cut_turns: HashMap<(RunId, SafeInt<1>), RunLimit>,
-    /// Each run's limits whose reached event landed while their interrupt is not yet handed to the
-    /// interventions service, so a stop retried at that limit sends the interrupt alone; one
-    /// leaves when its interrupt is handed or its run ends, the step limit's also with its turn.
+    /// Each turn a limit stop cut, by run and turn number, from before its reached event is
+    /// written until that turn's end is written.
+    pub(super) cut_turns: HashMap<(RunId, SafeInt<1>), LimitCut>,
+    /// Each run's limits whose reached event is being written or landed while their interrupt is
+    /// not yet handed to the interventions service, so a stop retried at that limit sends the
+    /// interrupt alone; one leaves when its interrupt is handed, its write is refused or its run
+    /// ends, the step limit's also with its turn.
     pub(super) reached_limits: HashSet<(RunId, RunLimit)>,
 }
 
@@ -105,13 +115,43 @@ impl LiveRuns {
         }
     }
 
-    /// The newest turn of `run_id` that `limit` cut whose end is not yet written.
-    pub(super) fn newest_cut_turn(&self, run_id: &RunId, limit: RunLimit) -> Option<SafeInt<1>> {
+    /// The newest turn of `run_id` that `limit` cut, by a stop that read the run at or before
+    /// `run_version`, whose end is not yet written.
+    pub(super) fn newest_cut_turn(
+        &self,
+        run_id: &RunId,
+        limit: RunLimit,
+        run_version: i64,
+    ) -> Option<SafeInt<1>> {
         self.cut_turns
             .iter()
-            .filter(|((cut_run_id, _), cut_by)| cut_run_id == run_id && **cut_by == limit)
+            .filter(|((cut_run_id, _), cut)| {
+                cut_run_id == run_id && cut.limit == limit && cut.run_version <= run_version
+            })
             .map(|((_, turn_number), _)| *turn_number)
             .max()
+    }
+
+    /// Puts `earlier` back as the cut of `turn_number` on `run_id` only while the key still holds
+    /// `own`, so a stop that cut nothing never undoes a later stop's cut or one its turn's end
+    /// removed.
+    pub(super) fn restore_cut(
+        &mut self,
+        key: (RunId, SafeInt<1>),
+        own: LimitCut,
+        earlier: Option<LimitCut>,
+    ) {
+        if self.cut_turns.get(&key) != Some(&own) {
+            return;
+        }
+        match earlier {
+            Some(earlier) => {
+                self.cut_turns.insert(key, earlier);
+            }
+            None => {
+                self.cut_turns.remove(&key);
+            }
+        }
     }
 
     /// Marks a run that ended while no driver has it: an entry still settling learns it ended; a

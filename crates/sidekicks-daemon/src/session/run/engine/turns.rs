@@ -104,26 +104,12 @@ static SELECT_TURN_END_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The run's newest started turn that holds no end, started at or before `@started_by` where one is
 // bound.
-static SELECT_OPEN_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
-    let category = EventCategory::RunLifecycle.as_str();
-    format!(
-        "SELECT started.turn_number FROM session_events AS started
-  WHERE started.category = '{category}'
-    AND started.type = '{}'
-    AND started.run_id = @run_id
-    AND (@started_by IS NULL OR started.run_version <= @started_by)
-    AND NOT EXISTS (
-      SELECT 1 FROM session_events AS ended
-       WHERE ended.category = '{category}'
-         AND ended.type IN ({})
-         AND ended.run_id = started.run_id
-         AND ended.turn_number = started.turn_number)
-  ORDER BY started.turn_number DESC
-  LIMIT 1",
-        SessionEventType::AgentTurnStarted.as_str(),
-        *TURN_END_TYPES_SQL
-    )
-});
+static SELECT_OPEN_TURN_SQL: LazyLock<String> =
+    LazyLock::new(|| open_turns_sql("ORDER BY started.turn_number DESC\n  LIMIT 1"));
+
+// Every started turn of the run that holds no end, oldest first.
+static SELECT_OPEN_TURNS_SQL: LazyLock<String> =
+    LazyLock::new(|| open_turns_sql("ORDER BY started.turn_number"));
 
 /// A turn's end its provider's end frame reported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -350,18 +336,24 @@ impl RunEngine {
             turn_number,
             outcome,
         } = turn_end;
-        let cut_by = lock(&self.live)
-            .cut_turns
-            .get(&(*run_id, turn_number))
-            .copied();
-        let outcome = match cut_by {
-            Some(limit) => TurnOutcome::Interrupted(Some(limit_turn_cause(limit))),
-            None => outcome,
-        };
         TurnEnd {
             turn_number,
             origin: TurnEndOrigin::Provider,
-            outcome,
+            outcome: self.cut_outcome(run_id, turn_number, outcome),
+        }
+    }
+
+    // How `turn_number` of `run_id` ends: interrupted with the limit of a stop that cut it, else
+    // `outcome`.
+    fn cut_outcome(
+        &self,
+        run_id: &RunId,
+        turn_number: SafeInt<1>,
+        outcome: TurnOutcome,
+    ) -> TurnOutcome {
+        match lock(&self.live).cut_turns.get(&(*run_id, turn_number)) {
+            Some(cut) => TurnOutcome::Interrupted(Some(limit_turn_cause(cut.limit))),
+            None => outcome,
         }
     }
 
@@ -485,6 +477,32 @@ impl RunEngine {
         Ok(open_turn.map(stored_turn_number))
     }
 
+    /// The numbers of every turn of `run_id` that holds no end, oldest first. Fails when the read
+    /// fails.
+    pub(super) async fn read_open_turns(
+        &self,
+        run_id: RunId,
+    ) -> Result<Vec<SafeInt<1>>, RunEngineError> {
+        let open_turns: Vec<i64> = self
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(
+                    reader
+                        .prepare_cached(&SELECT_OPEN_TURNS_SQL)?
+                        .query_map(
+                            named_params! {
+                                "@run_id": run_id.text().as_str(),
+                                "@started_by": None::<i64>,
+                            },
+                            |row| row.get(0),
+                        )?
+                        .collect::<Result<_, _>>()?,
+                )
+            })
+            .await?;
+        Ok(open_turns.into_iter().map(stored_turn_number).collect())
+    }
+
     // The number the run's next turn start takes: its newest start's plus one, or 1.
     async fn read_next_turn_number(&self, run_id: RunId) -> Result<SafeInt<1>, RunEngineError> {
         let newest: Option<i64> = self
@@ -521,6 +539,28 @@ impl RunEngine {
     pub(super) fn forget_cut_turn(&self, run_id: &RunId, turn_number: SafeInt<1>) {
         lock(&self.live).cut_turns.remove(&(*run_id, turn_number));
     }
+}
+
+// The run's started turns that hold no end, started at or before `@started_by` where one is bound,
+// ordered and bounded by `tail`.
+fn open_turns_sql(tail: &str) -> String {
+    let category = EventCategory::RunLifecycle.as_str();
+    format!(
+        "SELECT started.turn_number FROM session_events AS started
+  WHERE started.category = '{category}'
+    AND started.type = '{}'
+    AND started.run_id = @run_id
+    AND (@started_by IS NULL OR started.run_version <= @started_by)
+    AND NOT EXISTS (
+      SELECT 1 FROM session_events AS ended
+       WHERE ended.category = '{category}'
+         AND ended.type IN ({})
+         AND ended.run_id = started.run_id
+         AND ended.turn_number = started.turn_number)
+  {tail}",
+        SessionEventType::AgentTurnStarted.as_str(),
+        *TURN_END_TYPES_SQL
+    )
 }
 
 // A turn number the log stored, which the engine wrote from a turn number.

@@ -106,12 +106,26 @@ pub(super) fn hand_limit_interrupter(
     interrupter
 }
 
-/// Makes the runs table and writes `run_id` of `session_id` running at version 1.
+/// The interventions table with the columns the engine's reads and a settle's guard read.
+pub(super) const INTERVENTIONS_TABLE_SQL: &str = "
+CREATE TABLE interventions (
+  id             TEXT PRIMARY KEY,
+  target_run_id  TEXT NOT NULL,
+  type           TEXT NOT NULL,
+  state          TEXT NOT NULL DEFAULT 'requested',
+  payload        TEXT NOT NULL DEFAULT '{}',
+  device_id      TEXT
+) STRICT;
+";
+
+/// Makes the runs and interventions tables and writes `run_id` of `session_id` running at
+/// version 1.
 pub(super) fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
     let connection = database.reader();
     connection
         .execute_batch(RUNS_TABLE_SQL)
-        .expect("the test makes the runs table");
+        .and_then(|()| connection.execute_batch(INTERVENTIONS_TABLE_SQL))
+        .expect("the test makes the runs and interventions tables");
     connection
         .execute(
             "INSERT INTO runs (run_id, session_id, state, run_version)
