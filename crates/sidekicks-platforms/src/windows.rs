@@ -23,6 +23,7 @@ pub(crate) mod machine_name;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod measurement;
 pub(crate) mod memory;
+pub(crate) mod null_device;
 pub(crate) mod pinned_process;
 pub(crate) mod private_folder;
 pub(crate) mod process_user;

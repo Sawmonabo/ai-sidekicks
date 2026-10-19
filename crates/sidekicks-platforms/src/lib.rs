@@ -199,6 +199,8 @@ pub use posix::file_system::{
 #[cfg(unix)]
 pub use posix::login_shell::login_shell;
 #[cfg(unix)]
+pub use posix::null_device::NULL_DEVICE_PATH;
+#[cfg(unix)]
 pub use posix::private_folder::create_private_folder;
 #[cfg(unix)]
 pub use posix::real_path::real_path;
@@ -312,6 +314,8 @@ pub use windows::measurement::{process_footprint, uptime_line};
 pub use windows::memory::{
     available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
 };
+#[cfg(target_os = "windows")]
+pub use windows::null_device::NULL_DEVICE_PATH;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
