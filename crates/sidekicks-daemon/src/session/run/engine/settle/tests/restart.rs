@@ -4,8 +4,8 @@ use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::events::{
-    AgentInterventionRequestedPayload, AgentInterventionRequestedState, AgentTurnCompletedPayload,
-    DaemonInterventionActor, InterventionActor,
+    AgentInterventionRequestedPayload, AgentInterventionRequestedState, DaemonInterventionActor,
+    InterventionActor,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionId, InterventionType};
@@ -20,8 +20,8 @@ use crate::events::log_service::tests::open_log;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::tests::{
     INTERVENTIONS_TABLE_SQL, append, continue_request, events, hand_limit_interrupter,
-    insert_running_run, run_version, started_turn, stored_events, stored_run_state, test_engine,
-    token_limit, turn, turn_started_at,
+    insert_running_run, started_turn, stored_events, stored_run_state, test_engine, token_limit,
+    turn_completed_at, turn_started_at,
 };
 use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::read::{LiveRun, RunRead};
@@ -394,12 +394,7 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
                 "agent.turn.started",
             ),
             Logged::TurnCompleted(turn_number) => (
-                SessionEvent::AgentTurnCompleted(AgentTurnCompletedPayload {
-                    session_id,
-                    run_id,
-                    run_version: run_version(1),
-                    turn_number: turn(turn_number),
-                }),
+                turn_completed_at(session_id, run_id, turn_number, 1),
                 "agent.turn.completed",
             ),
             Logged::StepReached => (

@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use rstest::rstest;
-use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::run::events::AgentTurnCompletedPayload;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use tokio::sync::oneshot;
@@ -14,8 +12,8 @@ use crate::pause_point::ArmedPause;
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, run_version,
-    stored_events, test_engine, token_limit, turn, turn_started_at,
+    SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, stored_events,
+    test_engine, token_limit, turn, turn_completed_at, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::uuid_v7::mint_uuid_v7;
@@ -228,12 +226,7 @@ async fn a_stop_whose_turn_ends_as_its_cut_goes_in_names_no_turn() {
         append(
             &engine,
             session_id,
-            &SessionEvent::AgentTurnCompleted(AgentTurnCompletedPayload {
-                session_id,
-                run_id,
-                run_version: run_version(1),
-                turn_number: turn(1),
-            }),
+            &turn_completed_at(session_id, run_id, 1, 1),
         )
         .await;
         release.send(()).expect("the stop waits at its cut");

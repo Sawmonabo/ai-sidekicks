@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
-use sidekicks_contracts::run::events::AgentTurnStartedPayload;
+use sidekicks_contracts::run::events::{AgentTurnCompletedPayload, AgentTurnStartedPayload};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{LimitInterruptRecord, RunLimit};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -303,6 +303,21 @@ pub(super) fn turn_started_at(
         run_version: run_version(version),
         turn_number: turn(turn_number),
         position: None,
+    })
+}
+
+/// The completion of turn `turn_number` of `run_id` at run version `version`.
+pub(super) fn turn_completed_at(
+    session_id: SessionId,
+    run_id: RunId,
+    turn_number: u64,
+    version: u64,
+) -> SessionEvent {
+    SessionEvent::AgentTurnCompleted(AgentTurnCompletedPayload {
+        session_id,
+        run_id,
+        run_version: run_version(version),
+        turn_number: turn(turn_number),
     })
 }
 
