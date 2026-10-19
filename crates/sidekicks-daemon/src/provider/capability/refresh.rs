@@ -3,8 +3,8 @@
 //! trigger (a provider command-path change, the person's `Check again`, a provider process start,
 //! a stale model catalog), never on a timer.
 //!
-//! The passes run on one task the refresher owns, started with it and ended at the daemon's stop,
-//! never inside a caller's future, so a caller that stops waiting (a canceled request, a closed
+//! The passes run on one task the refresher starts, ended by its handle's stop or drop, never
+//! inside a caller's future, so a caller that stops waiting (a canceled request, a closed
 //! connection) loses no pass. A trigger that arrives while a pass runs asks for one more, any
 //! number of triggers during one pass ask for that one pass, and each caller returns once a pass
 //! that started after its ask has finished. Each driver's read and declare share one deadline,
@@ -19,6 +19,8 @@ use futures::future::join_all;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
 use tokio::sync::{Notify, watch};
+use tokio::task::{JoinError, JoinHandle};
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::error_description::describe_error;
 use crate::provider::driver::capabilities::writer::{
@@ -42,11 +44,20 @@ pub(crate) struct CapabilityRefresher {
     finished: watch::Receiver<u64>,
 }
 
+/// The refresher's pass task, from [`CapabilityRefresher::start`] until
+/// [`CapabilityRefreshing::stop`]; dropping it ends the task too, unawaited.
+pub(crate) struct CapabilityRefreshing {
+    /// Ends the task, dropping a pass under way, when stopped or dropped.
+    stop: DropGuard,
+    /// The task that runs the passes.
+    task: JoinHandle<()>,
+}
+
 /// What the refresher's callers and its pass task share.
 struct RefreshAsks {
-    /// Which passes started, which one the newest ask needs, and whether the daemon stopped.
+    /// Which passes started and which one the newest ask needs.
     state: Mutex<RefreshAskState>,
-    /// Wakes the task for a pass asked for or for the stop.
+    /// Wakes the task for a pass asked for.
     is_asked: Notify,
 }
 
@@ -57,8 +68,6 @@ struct RefreshAskState {
     started: u64,
     /// The pass the newest ask needs, the first to start after it.
     requested: u64,
-    /// Set once the daemon stops; no pass starts after it.
-    is_shut_down: bool,
 }
 
 /// The drivers a pass reads and where it declares and records each reading.
@@ -81,8 +90,9 @@ enum CapabilityRefreshFailure {
 }
 
 impl CapabilityRefresher {
-    /// A refresher over the registered drivers, declaring through `writer`, whose pass task starts
-    /// on the current tokio runtime; no pass runs until one is asked for.
+    /// A refresher over the registered drivers, declaring through `writer`, and its pass task,
+    /// spawned on the current tokio runtime, so it must run inside one; no pass runs until one is
+    /// asked for.
     #[cfg_attr(
         not(test),
         expect(
@@ -90,27 +100,36 @@ impl CapabilityRefresher {
             reason = "the daemon's start builds the one refresher every trigger asks"
         )
     )]
-    pub(crate) fn new(
+    pub(crate) fn start(
         providers: Arc<ProviderRegistry>,
         writer: Arc<DriverCapabilitiesWriter>,
-    ) -> Self {
+    ) -> (Self, CapabilityRefreshing) {
         let asks = Arc::new(RefreshAsks {
             state: Mutex::new(RefreshAskState::default()),
             is_asked: Notify::new(),
         });
         let (finished_sender, finished) = watch::channel(0);
-        tokio::spawn(run_passes(
+        let stop = CancellationToken::new();
+        let task = tokio::spawn(run_passes(
             Arc::clone(&asks),
             DriverReads { providers, writer },
             finished_sender,
+            stop.clone(),
         ));
-        Self { asks, finished }
+        (
+            Self { asks, finished },
+            CapabilityRefreshing {
+                stop: stop.drop_guard(),
+                task,
+            },
+        )
     }
 
     /// Asks for a pass that reads every driver once, all at once, and returns once a pass started
     /// after the ask has finished: each read landed, failed or missed its deadline, a failure
     /// reported as a diagnostic, never returned. Asked while a pass runs, it waits for the one
-    /// pass after it. Returns `false`, with no pass, once the daemon has stopped.
+    /// pass after it. Returns `false` when the task, ended by its handle's stop or drop, ended
+    /// before that pass finished.
     #[cfg_attr(
         not(test),
         expect(
@@ -122,54 +141,66 @@ impl CapabilityRefresher {
     pub(crate) async fn refresh_now(&self) -> bool {
         let needed = {
             let mut state = self.asks.lock_state();
-            if state.is_shut_down {
-                return false;
-            }
             state.requested = state.started + 1;
             state.requested
         };
         self.asks.is_asked.notify_one();
         let mut finished = self.finished.clone();
-        // Fails only when the task ended at the stop before the pass ran.
+        // Fails only when the task ended, its count's sender with it, before the pass finished.
         finished.wait_for(|count| *count >= needed).await.is_ok()
     }
+}
 
-    /// Stops the refresher: no pass starts after it, a pass running ends after its reads, and then
-    /// the task ends and every caller still waiting returns.
-    #[expect(dead_code, reason = "the daemon's stop ends the refresh through it")]
-    pub(crate) fn shutdown(&self) {
-        self.asks.lock_state().is_shut_down = true;
-        self.asks.is_asked.notify_one();
+impl CapabilityRefreshing {
+    /// Ends the pass task, dropping a pass under way, which cancels its reads, and settles once
+    /// the task has ended; every caller still waiting then returns `false`. Fails only when the
+    /// task itself ended abnormally.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's stop ends the refresh through it")
+    )]
+    pub(crate) async fn stop(self) -> Result<(), JoinError> {
+        let Self { stop, task } = self;
+        drop(stop);
+        task.await
     }
 }
 
 impl RefreshAsks {
     fn lock_state(&self) -> std::sync::MutexGuard<'_, RefreshAskState> {
-        // Two counts and a flag hold no invariant a panicking holder could break.
+        // Two counts hold no invariant a panicking holder could break.
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-// The refresher's task: one pass for each ask the last pass started before, until the stop.
-async fn run_passes(asks: Arc<RefreshAsks>, reads: DriverReads, finished: watch::Sender<u64>) {
+// The refresher's task: one pass for each ask the last pass started before, until `stop`, which
+// drops the pass or wait under way.
+async fn run_passes(
+    asks: Arc<RefreshAsks>,
+    reads: DriverReads,
+    finished: watch::Sender<u64>,
+    stop: CancellationToken,
+) {
     loop {
         let pass = {
             let mut state = asks.lock_state();
-            if state.is_shut_down {
-                return;
-            }
             (state.requested > state.started).then(|| {
                 state.started += 1;
                 state.started
             })
         };
-        match pass {
-            Some(pass) => {
-                reads.read_every_driver().await;
-                finished.send_replace(pass);
+        let step = async {
+            match pass {
+                Some(pass) => {
+                    reads.read_every_driver().await;
+                    finished.send_replace(pass);
+                }
+                // An ask made before this wait stored its wake, so none is missed.
+                None => asks.is_asked.notified().await,
             }
-            // An ask made before this wait stored its wake, so none is missed.
-            None => asks.is_asked.notified().await,
+        };
+        if stop.run_until_cancelled(step).await.is_none() {
+            return;
         }
     }
 }
@@ -319,10 +350,12 @@ mod tests {
     }
 
     // Fails when a pass runs inside the caller that asked for it, so dropping that caller ends
-    // the pass and the trigger marked meanwhile; when a trigger during a pass is not marked; or
-    // when the caller of that trigger returns before the pass after it has finished.
+    // the pass and the trigger marked meanwhile; when a trigger during a pass is not marked; when
+    // the caller of that trigger returns before the pass after it has finished; or when the stop
+    // waits for a pass under way, or leaves the task or a waiting caller behind. One test, since
+    // the driver's gates are statics a second test would share.
     #[tokio::test]
-    async fn a_dropped_caller_loses_no_trigger_and_a_queued_caller_waits_for_its_pass() {
+    async fn a_dropped_caller_loses_no_trigger_a_queued_caller_waits_and_the_stop_ends_the_pass() {
         let services = DriverServices {
             spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
             data_folder: PathBuf::from("data"),
@@ -332,10 +365,11 @@ mod tests {
             build: gated_driver,
         }];
         let database = TestDatabase::new();
-        let refresher = Arc::new(CapabilityRefresher::new(
+        let (refresher, refreshing) = CapabilityRefresher::start(
             Arc::new(ProviderRegistry::register_from(&table, &services)),
             Arc::new(test_capabilities_writer(&database).await),
-        ));
+        );
+        let refresher = Arc::new(refresher);
 
         let first_caller = tokio::spawn({
             let refresher = Arc::clone(&refresher);
@@ -365,5 +399,25 @@ mod tests {
             .await
             .expect("the second caller returns after its pass");
         assert!(has_passed);
+
+        // A stop during a pass whose read is never released.
+        let stopped_caller = tokio::spawn({
+            let refresher = Arc::clone(&refresher);
+            async move { refresher.refresh_now().await }
+        });
+        read_started().await;
+        tokio::time::timeout(STEP_BOUND, refreshing.stop())
+            .await
+            .expect("the stop drops the pass under way")
+            .expect("the task ends");
+        let has_stopped_caller_passed = tokio::time::timeout(STEP_BOUND, stopped_caller)
+            .await
+            .expect("the waiting caller returns at the stop")
+            .expect("the caller's task ends");
+        assert!(!has_stopped_caller_passed);
+        assert!(
+            !refresher.refresh_now().await,
+            "no pass runs after the stop"
+        );
     }
 }
