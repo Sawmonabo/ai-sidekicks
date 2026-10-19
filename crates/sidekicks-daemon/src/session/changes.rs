@@ -206,6 +206,12 @@ impl SessionChanges {
         &self.lock
     }
 
+    /// The lock each push of a session's name takes, so a test can hold the pushes back.
+    #[cfg(test)]
+    pub(crate) fn name_push_lock(&self) -> &Arc<KeyedLock<SessionId>> {
+        &self.name_push_lock
+    }
+
     /// The person's rename: `None` clears the name, which the session's self-naming then names
     /// again and tells its providers, and a rename to the name the session holds appends nothing.
     /// It answers once the name is written; the session's name as it then reads is told to each
@@ -253,9 +259,9 @@ impl SessionChanges {
     /// Names the session only while it is unnamed and takes changes, deciding that inside the
     /// write, so a name written in the meantime always wins; the name is trimmed of whitespace and
     /// cut to the name bound, and one left empty writes nothing. Returns whether it named the
-    /// session, once each provider that ran the session was told the name, a failed telling
-    /// logged. Fails with [`SessionChangeError::Name`] for a name holding a NUL, else as `rename`
-    /// does but never refused for the session's state.
+    /// session, once each provider that ran the session was told the session's name as it then
+    /// reads, a failed telling logged. Fails with [`SessionChangeError::Name`] for a name holding
+    /// a NUL, else as `rename` does but never refused for the session's state.
     #[cfg_attr(
         not(test),
         expect(

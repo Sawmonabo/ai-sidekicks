@@ -39,9 +39,6 @@ use crate::uuid_v7::mint_uuid_v7;
 /// Bounds every wait a test expects to end, so one that never does fails the test.
 const WAIT: Duration = Duration::from_secs(10);
 
-/// How long a test gives a second name push that must wait for the first to overtake it anyway.
-const SECOND_PUSH_WAIT: Duration = Duration::from_millis(500);
-
 /// The session's stored renames, oldest first: each name and who gave it.
 const STORED_RENAMES_SQL: &str = "SELECT payload FROM session_events
   WHERE session_id = ?1 AND type = ?2 ORDER BY sequence";
@@ -397,39 +394,17 @@ async fn auto_title_names_a_cleared_session_again_and_tells_the_provider() {
     );
 }
 
-// Killed by each push carrying the name its rename captured, unordered: the second rename's push
-// then ends before the held first one, which leaves the provider on the older name.
+// Killed by a push carrying the name its rename captured, and by pushes that take no lock: either
+// way the first rename's push tells the provider the older name.
 #[tokio::test]
 async fn auto_title_leaves_the_provider_on_the_later_of_two_close_renames() {
-    static FIRST_PUSH_STARTED: Notify = Notify::const_new();
-    static FIRST_PUSH_RELEASED: Notify = Notify::const_new();
-    static SECOND_PUSH_STARTED: Notify = Notify::const_new();
     static TOLD_NAMES: Mutex<Vec<String>> = Mutex::new(Vec::new());
     fn build(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
         let mut driver = MockProviderDriver::new();
-        let mut sequence = Sequence::new();
-        driver
-            .expect_tell_session_name()
-            .times(1)
-            .in_sequence(&mut sequence)
-            .returning(|_, name| {
-                async move {
-                    FIRST_PUSH_STARTED.notify_one();
-                    FIRST_PUSH_RELEASED.notified().await;
-                    TOLD_NAMES.lock().expect("the names lock").push(name);
-                    Ok(())
-                }
-                .boxed()
-            });
-        driver
-            .expect_tell_session_name()
-            .times(1)
-            .in_sequence(&mut sequence)
-            .returning(|_, name| {
-                SECOND_PUSH_STARTED.notify_one();
-                TOLD_NAMES.lock().expect("the names lock").push(name);
-                async { Ok(()) }.boxed()
-            });
+        driver.expect_tell_session_name().returning(|_, name| {
+            TOLD_NAMES.lock().expect("the names lock").push(name);
+            async { Ok(()) }.boxed()
+        });
         Arc::new(driver)
     }
     let harness = harness(build).await;
@@ -440,38 +415,23 @@ async fn auto_title_leaves_the_provider_on_the_later_of_two_close_renames() {
         name: Some(FreeFormText::new(name.to_owned()).expect("a name")),
     };
 
-    harness
-        .changes
-        .rename(rename_to("First"))
-        .await
-        .expect("the first rename is kept");
-    tokio::time::timeout(WAIT, FIRST_PUSH_STARTED.notified())
-        .await
-        .expect("the first name's push reaches the provider");
-    harness
-        .changes
-        .rename(rename_to("Second"))
-        .await
-        .expect("the second rename is kept");
-    // An unordered second push reaches the provider while the first is held; an ordered one
-    // waits for it, so this wait runs out.
-    let is_second_push_ahead =
-        tokio::time::timeout(SECOND_PUSH_WAIT, SECOND_PUSH_STARTED.notified())
+    // Both renames land while their pushes wait for the lock.
+    let held_pushes = harness.changes.name_push_lock().acquire(session_id).await;
+    for name in ["First", "Second"] {
+        harness
+            .changes
+            .rename(rename_to(name))
             .await
-            .is_ok();
-    FIRST_PUSH_RELEASED.notify_one();
+            .expect("the rename is kept");
+    }
+    drop(held_pushes);
     tokio::time::timeout(WAIT, harness.changes.stop())
         .await
         .expect("both pushes end");
 
-    assert!(!is_second_push_ahead, "the second push waits for the first");
     assert_eq!(
-        TOLD_NAMES
-            .lock()
-            .expect("the names lock")
-            .last()
-            .map(String::as_str),
-        Some("Second")
+        *TOLD_NAMES.lock().expect("the names lock"),
+        ["Second", "Second"]
     );
 }
 
