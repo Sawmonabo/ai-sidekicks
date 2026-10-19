@@ -329,10 +329,10 @@ mod tests {
 
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::intervention::RunLimit;
-    use sidekicks_contracts::wire::integer::SafeInt;
     use tokio::sync::SetOnce;
 
     use super::{EndingGuard, EndingWrite, LiveRuns, lock};
+    use crate::session::run::engine::tests::turn;
     use crate::uuid_v7::mint_uuid_v7;
 
     // How long the live lock is held after the guard begins to drop, long enough for a guard that
@@ -385,7 +385,7 @@ mod tests {
     fn a_withdrawn_cut_leaves_the_other_cut_of_its_turn() {
         let mut live = LiveRuns::default();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let key = (run_id, SafeInt::new(1).expect("1 is a turn number"));
+        let key = (run_id, turn(1));
         let earlier = live.new_cut(RunLimit::TokenLimit);
         let later = live.new_cut(RunLimit::TokenLimit);
         live.cut_turns
