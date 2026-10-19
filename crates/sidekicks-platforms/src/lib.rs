@@ -199,7 +199,7 @@ pub use posix::error_codes::{
     is_resource_busy,
 };
 #[cfg(unix)]
-pub use posix::file_facts::file_facts;
+pub use posix::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
@@ -309,7 +309,7 @@ pub use windows::error_codes::{
     is_resource_busy,
 };
 #[cfg(target_os = "windows")]
-pub use windows::file_facts::file_facts;
+pub use windows::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,

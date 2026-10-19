@@ -1,10 +1,12 @@
 //! A file's facts on Windows, read from one handle opened through any link, which asks only to
-//! read attributes, so it leaves SQLite's locks on the file alone.
+//! read attributes, so it leaves SQLite's locks on the file alone, and when an entry last changed
+//! by any write.
 
-use std::fs::OpenOptions;
+use std::fs::{Metadata, OpenOptions};
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::Path;
+use std::time::SystemTime;
 
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_ID_INFO, FILE_READ_ATTRIBUTES,
@@ -42,6 +44,17 @@ pub fn file_facts(path: &Path) -> io::Result<FileFacts> {
         modified: nanoseconds(times.LastWriteTime),
         changed: nanoseconds(times.ChangeTime),
     })
+}
+
+/// When the entry `metadata` was read from last changed: the newer of its last write time and its
+/// creation time, which a copy or a move from another volume sets to now while keeping the write
+/// time it carried. Fails with the error reading the write time gives.
+pub fn entry_changed_at(metadata: &Metadata) -> io::Result<SystemTime> {
+    let modified = metadata.modified()?;
+    // A volume that keeps no creation time leaves the write time alone to tell it.
+    Ok(metadata
+        .created()
+        .map_or(modified, |created| created.max(modified)))
 }
 
 // A `FILETIME`'s 100-nanosecond intervals since 1601 as nanoseconds since the Unix epoch.
