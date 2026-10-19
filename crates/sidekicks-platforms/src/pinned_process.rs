@@ -130,7 +130,7 @@ mod tests {
                     "{}-another",
                     record.boot.as_deref().unwrap_or("boot")
                 )),
-                ..record.clone()
+                ..record
             },
         ];
         let re_pinned_others = others

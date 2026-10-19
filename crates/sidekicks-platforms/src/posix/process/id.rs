@@ -21,6 +21,7 @@ pub(crate) fn system_process_id(id: u32) -> io::Result<NonZeroI32> {
 #[cfg(test)]
 mod tests {
     use std::io::ErrorKind;
+    use std::num::NonZeroI32;
 
     use rstest::rstest;
 
@@ -34,7 +35,7 @@ mod tests {
     #[case::a_process(1, Some(1))]
     fn process_id_refuses_what_names_no_process(#[case] id: u32, #[case] expected: Option<i32>) {
         let read = system_process_id(id)
-            .map(|pid| pid.get())
+            .map(NonZeroI32::get)
             .map_err(|error| error.kind());
 
         assert_eq!(read, expected.ok_or(ErrorKind::InvalidInput));
