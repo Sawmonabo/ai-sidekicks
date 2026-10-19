@@ -134,6 +134,7 @@ pub(super) struct StepCount {
 /// handed again, which the caller logs and goes on from: the next step, turn end or restart hands
 /// that interrupt once more.
 #[derive(Debug)]
+#[must_use = "a failed resend is logged"]
 #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
 pub(crate) struct ProviderReportWritten<Written> {
     /// What the report wrote.

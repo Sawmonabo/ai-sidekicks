@@ -528,10 +528,11 @@ async fn a_step_interrupt_handed_again_cuts_the_open_turn_whichever_end_lands_fi
     if is_run_end_first {
         assert!(end_run().await.expect("the run ends at its limit"));
     }
-    engine
+    let turn_two_ended = engine
         .record_turn_end(run_id, provider_end(2))
         .await
         .expect("the provider's end of turn 2 is read");
+    assert_eq!(turn_two_ended.written, !is_run_end_first);
     if !is_run_end_first {
         assert!(end_run().await.expect("the run ends at its limit"));
     }
@@ -566,10 +567,11 @@ async fn a_step_stop_whose_turn_has_ended_writes_nothing() {
         &turn_started_at(session_id, run_id, 1, 1),
     )
     .await;
-    engine
+    let turn_one_ended = engine
         .record_turn_end(run_id, provider_end(1))
         .await
         .expect("the provider's end of turn 1 is written");
+    assert!(turn_one_ended.written);
     // The step was counted against turn 1 while its end was being written.
     arm_step_count(&engine, run_id, 1, 1);
 
