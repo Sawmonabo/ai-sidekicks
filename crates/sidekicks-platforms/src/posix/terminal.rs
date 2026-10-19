@@ -73,16 +73,11 @@ pub const DOES_CONSOLE_COUNT_WAITING_INPUT: bool = false;
 /// route on macOS or Linux, and a job an interactive shell moved into a group of its own is
 /// outside it. Fails with `InvalidInput` for a pid of 0 or past `i32::MAX`, and with the system's
 /// error when the kill is refused; a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
-pub fn end_process_tree(
-    _spawner: &Spawner,
-    pid: u32,
-) -> impl Future<Output = io::Result<ProcessTreeEnd>> + Send {
+pub async fn end_process_tree(_spawner: &Spawner, pid: u32) -> io::Result<ProcessTreeEnd> {
     // A group whose kill macOS refuses is listed, which waits, so the kill leaves the runtime.
-    async move {
-        tokio::task::spawn_blocking(move || signal_process_group(pid, TerminalSignal::Kill))
-            .await
-            .map_err(io::Error::other)?
-    }
+    tokio::task::spawn_blocking(move || signal_process_group(pid, TerminalSignal::Kill))
+        .await
+        .map_err(io::Error::other)?
 }
 
 /// Runs the console helper, which only Windows has: always fails with `Unsupported`.
