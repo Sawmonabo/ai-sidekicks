@@ -321,9 +321,9 @@ pub(crate) fn compose_shell_folder_start(
             strip_trailing_separators(folder).to_owned(),
         ]),
         // It has no folder switch, so a `Set-Location` moves it: in front of the user's own
-        // command, which runs dot-sourced as a script block, or as a start command after their
-        // arguments; any argument not known to leave room for it starts the shell in the folder
-        // with the user's arguments, as every terminal starts it.
+        // command, which `Invoke-Expression` runs, or as a start command after their arguments;
+        // any argument not known to leave room for it starts the shell in the folder with the
+        // user's arguments, as every terminal starts it.
         "powershell" => match windows_powershell_folder_arguments(arguments, folder) {
             Some(arguments) => start(arguments, system_folder.to_path_buf()),
             None => in_folder(),
@@ -414,8 +414,8 @@ fn is_resolved_without_folder(script: &str) -> bool {
 // Windows PowerShell's arguments that move it to `folder`, `None` where an argument leaves no room:
 // every user argument before its command must be a switch it takes the folder start beside, with
 // its value, `-Version` and `-PSConsoleFile` only at the front. A command given as text, after
-// `-Command` or as a bare word, becomes one argument, the `Set-Location` in front of the text
-// dot-sourced as a script block; with no command the `Set-Location` follows the arguments as its
+// `-Command` or as a bare word, becomes one argument, the `Set-Location` in front of an
+// `Invoke-Expression` of the text; with no command the `Set-Location` follows the arguments as its
 // start command.
 fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Option<Vec<String>> {
     let set_location = format!(
@@ -423,13 +423,14 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
         quote_powershell_literal(folder)
     );
     // Windows PowerShell joins every argument from the command's first value on into one command,
-    // with one space between; the joined text is dot-sourced as a script block on lines of its
-    // own, so it may open with what only a script's start takes and end in a comment.
+    // with one space between. `Invoke-Expression` parses the joined text as a script of its own,
+    // so it may open with `using` or a param block, and runs it in the session's scope; the text
+    // is a quoted literal, so nothing in it can end the statement around it.
     let put_before_command = |first: usize| {
         let mut started = arguments[..first].to_vec();
         started.push(format!(
-            "{set_location}; . {{\n{}\n}}",
-            arguments[first..].join(" ")
+            "{set_location}; Invoke-Expression {}",
+            quote_powershell_literal(&arguments[first..].join(" "))
         ));
         started
     };
