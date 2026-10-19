@@ -68,8 +68,7 @@ impl CodexProcessLaunch {
     }
 }
 
-/// A service's exit, read once from the task that waits on it; it can arrive before a `stop`
-/// under way returns, since one exit wakes both.
+/// A service's exit, read once from the task that waits on it.
 struct ServiceExit(Option<oneshot::Receiver<io::Result<ProcessExit>>>);
 
 impl ServiceExit {
@@ -276,8 +275,9 @@ impl LastingCodexService {
 
     /// How a service this daemon started ended: its code or signal and the tail of its log's
     /// current start, or `None` for one a former daemon started, whose end reads as its
-    /// connection's end and its log's tail. Fails when the wait or the log's read failed, or when
-    /// the exit was already read.
+    /// connection's end and its log's tail. The exit arrives once the process ends, which can be
+    /// while a `stop` is still under way, since one exit wakes both. Fails when the wait or the
+    /// log's read failed, or when the exit was already read.
     pub(crate) async fn exited(&mut self) -> Option<io::Result<ProcessExit>> {
         Some(self.exit.as_mut()?.read().await)
     }
