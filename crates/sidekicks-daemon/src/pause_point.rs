@@ -1,5 +1,5 @@
-//! A point inside a critical section where a test holds calls, so another call meets the section
-//! while a held one is inside it, whatever the scheduler does.
+//! A point where a test holds one call, so a second call meets the state the first left there,
+//! inside a lock or outside any, whatever the scheduler does.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, PoisonError};
