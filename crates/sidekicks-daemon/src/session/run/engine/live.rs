@@ -13,6 +13,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::{SetOnce, SetOnceError};
 
 use crate::session::run::engine::turns::StepCount;
+use crate::session::run::restart::outranking_limit;
 
 /// A run no driver has yet, from `starting` until the driver has it or the run ends. It is
 /// claimable while its setup gates run and after a start that left it live without a driver, and
@@ -72,9 +73,10 @@ pub(super) struct LimitCut {
 }
 
 /// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
-/// its write or its turn ends, on every exit path. The cuts are bounded by one cut per open cut
-/// turn, each leaving when its own turn's end is written, so it can outlive its run's end until
-/// then; a provider process's exit and a restart's settle end every open turn of the run.
+/// its write or its turn ends, on every exit path. A turn's cuts are bounded by the stops in
+/// flight or landed with a row, each leaving when its stop withdraws it or its turn's end is
+/// written, so they can outlive their run's end until then; a provider process's exit and a
+/// restart's settle end every open turn of the run.
 #[derive(Default)]
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.
@@ -88,10 +90,10 @@ pub(super) struct LiveRuns {
     pub(super) carried_output_speeds: HashMap<RunId, ProviderToken>,
     /// The open turn's steps on a run whose provider does not bound them.
     pub(super) step_counts: HashMap<RunId, StepCount>,
-    /// Each turn a limit stop cut, by run and turn number, from before its reached event is
-    /// written until that turn's end is written, or until the stop rolls it back for want of a
-    /// pending row naming the turn.
-    pub(super) cut_turns: HashMap<(RunId, SafeInt<1>), LimitCut>,
+    /// Every cut of each turn, by run and turn number, one per stop that cut it, from before its
+    /// reached event is written until that turn's end is written, or until its stop withdraws it
+    /// for want of a pending row naming the turn; a turn's list is never empty.
+    pub(super) cut_turns: HashMap<(RunId, SafeInt<1>), Vec<LimitCut>>,
     /// Each run's limits whose reached event is being written or landed while their interrupt is
     /// not yet handed to the interventions service, so a stop retried at that limit sends the
     /// interrupt alone; one leaves when its interrupt is handed, its write is refused or its run
@@ -130,30 +132,25 @@ impl LiveRuns {
         }
     }
 
-    /// Puts `earlier` back as the cut of `turn_number` on `run_id` only while the key still holds
-    /// the cut of the stop `own` made, so a stop that cut nothing never undoes a later stop's cut,
-    /// even one at the same limit and version, or one its turn's end removed.
-    pub(super) fn restore_cut(
-        &mut self,
-        key: (RunId, SafeInt<1>),
-        own: LimitCut,
-        earlier: Option<LimitCut>,
-    ) {
-        if self
-            .cut_turns
-            .get(&key)
-            .is_none_or(|current| current.stop_id != own.stop_id)
-        {
-            return;
-        }
-        match earlier {
-            Some(earlier) => {
-                self.cut_turns.insert(key, earlier);
-            }
-            None => {
+    /// Withdraws the cut the stop `stop_id` made of the turn `key` names, wherever it sits among
+    /// that turn's cuts, and forgets the turn once it holds none.
+    pub(super) fn withdraw_cut(&mut self, key: (RunId, SafeInt<1>), stop_id: u64) {
+        if let Some(cuts) = self.cut_turns.get_mut(&key) {
+            cuts.retain(|cut| cut.stop_id != stop_id);
+            if cuts.is_empty() {
                 self.cut_turns.remove(&key);
             }
         }
+    }
+
+    /// The limit the turn `key` names ends with: the highest-ranked of its cuts, or `None` when
+    /// no stop holds a cut of it.
+    pub(super) fn current_limit(&self, key: &(RunId, SafeInt<1>)) -> Option<RunLimit> {
+        self.cut_turns
+            .get(key)?
+            .iter()
+            .map(|cut| cut.limit)
+            .reduce(outranking_limit)
     }
 
     /// Marks a run that ended while no driver has it: an entry still settling learns it ended; a
@@ -347,21 +344,24 @@ mod tests {
         assert!(lock(&live).ending.is_empty());
     }
 
-    // Killed by the restore comparing cuts by their limit: two stops at one limit make cuts alike
-    // in it, so the earlier stop's refusal would remove the later live stop's cut, and its turn's
-    // end would carry no cause.
+    // Killed by the withdrawal matching cuts by their limit, which removes the later token cut
+    // with the earlier one, by one that takes the turn's newest cut off whoever made it, and by
+    // one that forgets the whole turn: each leaves the turn's end with no cause, though the later
+    // stop's row names it.
     #[test]
-    fn a_refused_stop_restores_only_its_own_cut() {
+    fn a_withdrawn_cut_leaves_the_other_cut_of_its_turn() {
         let mut live = LiveRuns::default();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let key = (run_id, SafeInt::new(1).expect("1 is a turn number"));
         let earlier = live.new_cut(RunLimit::TokenLimit);
         let later = live.new_cut(RunLimit::TokenLimit);
-        live.cut_turns.insert(key, earlier);
-        live.cut_turns.insert(key, later);
+        live.cut_turns
+            .entry(key)
+            .or_default()
+            .extend([earlier, later]);
 
-        live.restore_cut(key, earlier, None);
+        live.withdraw_cut(key, earlier.stop_id);
 
-        assert_eq!(live.cut_turns.get(&key), Some(&later));
+        assert_eq!(live.cut_turns.get(&key), Some(&vec![later]));
     }
 }

@@ -561,9 +561,9 @@ async fn a_turn_reaching_its_bound_while_a_resend_is_in_flight_writes_its_reache
 // the run is pending (`requested`, `accepted`), or by a resend that finds it pending once a hand
 // in flight let go of the run sending one (`accepted_after_a_hand_in_flight`): either sends the
 // run a second interrupt; by the pending check counting a failed interrupt (`failed`); by the stop
-// keeping its cut, which ends turn 2 with a limit no row names, or putting back its turn's reach,
-// which writes its reached event again; and by the stop keeping the limit owed, which reads the
-// pending row at every step.
+// keeping its cut, the step stop left to the hand in flight among them, which ends turn 2 with a
+// limit no row names, or putting back its turn's reach, which writes its reached event again; and
+// by the stop keeping the limit owed, which reads the pending row at every step.
 #[rstest]
 #[case::requested("requested", false, 1)]
 #[case::accepted("accepted", false, 1)]
@@ -604,8 +604,9 @@ async fn a_turn_reaching_its_bound_while_the_step_interrupt_is_pending_sends_non
             .execute(
                 "INSERT INTO interventions (id, target_run_id, type, state, payload,
                    expected_run_version, client_idempotency_key, created_at)
-                 VALUES ('interrupt', ?1, 'interrupt', ?2, json_object('limit', 'stepLimit'), 1,
-                   'interrupt', '2026-01-01T00:00:00.000Z')",
+                 VALUES ('interrupt', ?1, 'interrupt', ?2,
+                   json_object('limit', 'stepLimit', 'turnNumber', 1), 1, 'interrupt',
+                   '2026-01-01T00:00:00.000Z')",
                 [run_id.text().as_str(), state],
             )
             .expect("the test records the run's interrupt");
@@ -638,11 +639,9 @@ async fn a_turn_reaching_its_bound_while_the_step_interrupt_is_pending_sends_non
     assert_eq!(interventions.calls.load(Ordering::SeqCst), expected_calls);
     let live = lock(&engine.live);
     assert!(live.reached_limits.is_empty());
-    // Turn 2's stop keeps its cut once its own interrupt is handed, or left to the hand in
-    // flight, which cuts the newest open turn; one that finds the interrupt pending puts it back.
     assert_eq!(
         live.cut_turns.contains_key(&(run_id, turn(2))),
-        expected_calls == 2 || is_hand_in_flight
+        expected_calls == 2
     );
     drop(live);
     assert_eq!(

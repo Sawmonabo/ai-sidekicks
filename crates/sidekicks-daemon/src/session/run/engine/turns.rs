@@ -329,11 +329,10 @@ impl RunEngine {
         self.stop_at_limit(run_id, stop).await
     }
 
-    /// Writes the end its provider reported for a turn of `run_id` that changes no run: a turn
-    /// that ended beside a live run, or a late end after the run ended, whose cut the log's rows
-    /// give where the engine holds none. What it wrote is whether the end was written; a duplicate
-    /// of an end the turn holds is dropped. A step limit's interrupt a stop of the run could not
-    /// hand is handed again once the end is written, its failure returned beside it. Fails with
+    /// Writes the end its provider reported for a turn of `run_id` that changes no run (one beside
+    /// a live run, or a late end on an ended run, whose cut the log's rows give where the engine
+    /// holds none), answering whether it was written, a duplicate dropped, then hands again a step
+    /// limit's interrupt a stop could not hand, that failure returned beside. Fails with
     /// `RunRefusal::NotFound` for an unknown run and with the read's or the append's failure.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_turn_end(
@@ -456,8 +455,8 @@ impl RunEngine {
             .await
     }
 
-    // How `turn_number` of `run_id` ends: interrupted with the limit of the engine's cut of it,
-    // which holds the higher-ranked of two, else of its cut in `turn_cuts`, else `outcome`.
+    // How `turn_number` of `run_id` ends: interrupted with the higher-ranked limit of the engine's
+    // cuts of it, else of its cut in `turn_cuts`, else `outcome`.
     fn cut_outcome(
         &self,
         run_id: &RunId,
@@ -465,10 +464,7 @@ impl RunEngine {
         turn_cuts: &[TurnCut],
         outcome: TurnOutcome,
     ) -> TurnOutcome {
-        let held_limit = lock(&self.live)
-            .cut_turns
-            .get(&(*run_id, turn_number))
-            .map(|cut| cut.limit);
+        let held_limit = lock(&self.live).current_limit(&(*run_id, turn_number));
         let cut_limit = held_limit.or_else(|| {
             turn_cuts
                 .iter()
@@ -677,8 +673,7 @@ impl RunEngine {
         }
     }
 
-    /// Forgets the cut of `turn_number` on `run_id`, once its end is written or the stop did not
-    /// cut it.
+    /// Forgets every cut of `turn_number` on `run_id`, once its end is written.
     pub(super) fn forget_cut_turn(&self, run_id: &RunId, turn_number: SafeInt<1>) {
         lock(&self.live).cut_turns.remove(&(*run_id, turn_number));
     }

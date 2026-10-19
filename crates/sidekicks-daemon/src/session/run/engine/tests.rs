@@ -1,6 +1,7 @@
 //! What the engine's tests share: an engine over a test database with a stand-in interventions
 //! service, the runs and events they seed, and reads of what a run stored.
 
+use std::collections::VecDeque;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -16,7 +17,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::events::AgentTurnStartedPayload;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::intervention::{LimitInterruptRecord, RunLimit};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
@@ -78,19 +79,44 @@ pub(super) fn test_engine(
 
 /// A stand-in interventions service that refuses the first limit interrupts it is handed, as many
 /// as it was told, each leaving no pending row unless a test says otherwise, and accepts the rest,
-/// leaving the run's end to the test. Once a test hands it the database, every interrupt it
-/// accepts, or refuses with its row pending, records its row `accepted` with the turn it names.
+/// leaving the run's end to the test; a hand the test holds waits for the test's answer instead.
+/// Once a test hands it the database, every interrupt it accepts, or refuses with its row pending,
+/// records its row `accepted` with the turn it names.
 pub(super) struct TestLimitInterrupter {
     refusals_left: AtomicUsize,
     is_refused_row_pending: AtomicBool,
     row_database: OnceLock<PathBuf>,
+    held_hands: Mutex<VecDeque<(oneshot::Sender<()>, oneshot::Receiver<bool>)>>,
     /// How many interrupts it was handed.
     pub(super) calls: AtomicUsize,
     /// The turn each interrupt it was handed names, in order.
     pub(super) cut_turns: Mutex<Vec<Option<SafeInt<1>>>>,
 }
 
+/// A hand the stand-in holds until the test answers it.
+pub(super) struct HeldHand {
+    /// Answers once the hand has reached the stand-in.
+    pub(super) handed: oneshot::Receiver<()>,
+    /// Takes whether the stand-in refuses the hand, leaving no row, or accepts it.
+    pub(super) is_refused: oneshot::Sender<bool>,
+}
+
 impl TestLimitInterrupter {
+    /// Holds the next `COUNT` hands, in the order they reach the stand-in, each until the test
+    /// answers it.
+    pub(super) fn hold_hands<const COUNT: usize>(&self) -> [HeldHand; COUNT] {
+        let mut held_hands = self
+            .held_hands
+            .lock()
+            .expect("the stand-in's held hands are not poisoned");
+        std::array::from_fn(|_| {
+            let (reached, handed) = oneshot::channel();
+            let (is_refused, answer) = oneshot::channel();
+            held_hands.push_back((reached, answer));
+            HeldHand { handed, is_refused }
+        })
+    }
+
     /// Has every later refusal leave its row pending.
     pub(super) fn refuse_with_row_pending(&self) {
         self.is_refused_row_pending.store(true, Ordering::SeqCst);
@@ -110,19 +136,19 @@ impl TestLimitInterrupter {
             return;
         };
         let id = mint_uuid_v7().to_string();
+        let record = serde_json::to_string(&LimitInterruptRecord {
+            limit,
+            turn_number: cut_turn,
+        })
+        .expect("a limit's record serializes");
         Connection::open(path)
             .and_then(|connection| {
                 connection.execute(
                     "INSERT INTO interventions (id, target_run_id, type, state, payload,
                        expected_run_version, client_idempotency_key, created_at)
-                     VALUES (?1, ?2, 'interrupt', 'accepted', json_object('limit', ?3,
-                       'turnNumber', ?4), 1, ?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                    params![
-                        id,
-                        run_id.text().as_str(),
-                        <&'static str>::from(limit),
-                        cut_turn.map(i64::from),
-                    ],
+                     VALUES (?1, ?2, 'interrupt', 'accepted', ?3, 1, ?1,
+                       strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    params![id, run_id.text().as_str(), record],
                 )
             })
             .expect("the stand-in records the limit's interrupt");
@@ -141,17 +167,32 @@ impl LimitInterrupter for TestLimitInterrupter {
             .lock()
             .expect("the stand-in's turns are not poisoned")
             .push(cut_turn);
-        let is_refused = self
-            .refusals_left
-            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
-                left.checked_sub(1)
-            })
-            .is_ok();
-        let is_row_pending = self.is_refused_row_pending.load(Ordering::SeqCst);
-        if !is_refused || is_row_pending {
-            self.record_row(run_id, limit, cut_turn);
-        }
+        let held = self
+            .held_hands
+            .lock()
+            .expect("the stand-in's held hands are not poisoned")
+            .pop_front();
         async move {
+            let (is_refused, is_row_pending) = match held {
+                Some((reached, answer)) => {
+                    reached
+                        .send(())
+                        .expect("the test waits for the hand it holds");
+                    let is_refused = answer.await.expect("the test answers the hand it holds");
+                    (is_refused, false)
+                }
+                None => (
+                    self.refusals_left
+                        .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                            left.checked_sub(1)
+                        })
+                        .is_ok(),
+                    self.is_refused_row_pending.load(Ordering::SeqCst),
+                ),
+            };
+            if !is_refused || is_row_pending {
+                self.record_row(run_id, limit, cut_turn);
+            }
             let source = "the test's interventions service refuses the interrupt".into();
             match (is_refused, is_row_pending) {
                 (false, _) => Ok(()),
@@ -173,6 +214,7 @@ pub(super) fn hand_limit_interrupter(
         refusals_left: AtomicUsize::new(refusals),
         is_refused_row_pending: AtomicBool::new(false),
         row_database: OnceLock::new(),
+        held_hands: Mutex::new(VecDeque::new()),
         calls: AtomicUsize::new(0),
         cut_turns: Mutex::new(Vec::new()),
     });
@@ -262,18 +304,18 @@ pub(super) fn run_version(version: u64) -> SafeInt<0> {
     SafeInt::new(version).expect("the test's run versions are safe integers")
 }
 
-/// The start of turn `turn` of `run_id` at run version `version`.
+/// The start of turn `turn_number` of `run_id` at run version `version`.
 pub(super) fn turn_started_at(
     session_id: SessionId,
     run_id: RunId,
-    turn: u64,
+    turn_number: u64,
     version: u64,
 ) -> SessionEvent {
     SessionEvent::AgentTurnStarted(AgentTurnStartedPayload {
         session_id,
         run_id,
         run_version: run_version(version),
-        turn_number: SafeInt::new(turn).expect("the test's turn numbers count from 1"),
+        turn_number: turn(turn_number),
         position: None,
     })
 }

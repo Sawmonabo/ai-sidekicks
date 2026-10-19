@@ -30,7 +30,6 @@ use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, refused
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
-use crate::session::run::restart::outranking_limit;
 use crate::session::run::state_change::RunStateEntry;
 use crate::session::run::transitions::is_transition_allowed;
 
@@ -185,11 +184,11 @@ impl RunEngine {
     }
 
     /// The daemon's own stop of a live run at a limit: it cuts a turn (a step stop's own, else the
-    /// newest open turn, a turn two limits cut keeping the higher-ranked), writes the limit's
+    /// newest open turn, its cut held beside any other stop's of that turn), writes the limit's
     /// reached event where it has one, and hands the interrupt naming that turn to the
     /// interventions service unless the limit's interrupt of the run is pending or another step
-    /// hand is in flight, a stop that stops nothing or whose hand leaves no pending row rolling its
-    /// cut back, since that row is the cut's one mark. Fails with
+    /// hand is in flight, a stop that stops nothing or whose hand leaves no pending row withdrawing
+    /// its cut, since that row is the cut's one mark. Fails with
     /// [`RunEngineError::LimitInterrupterGone`] when no live interventions service is held, else
     /// with [`RunEngineError::LimitInterrupt`] or the read or write that failed, the reached event
     /// and the limit kept for the stop's retry.
@@ -246,29 +245,27 @@ impl RunEngine {
             // the limit with it.
             let is_memory_own = !matches!(stop, LimitStop::Interrupt { .. })
                 && live.reached_limits.insert((run_id, limit));
-            // A turn cut by two limits keeps the higher-ranked one, whichever came first.
+            // Each stop's cut goes in beside any other of the turn, which ends with the
+            // higher-ranked of them.
             let cut = cut_turn.map(|turn_number| {
                 let key = (run_id, turn_number);
-                let earlier = live.cut_turns.get(&key).copied();
-                if earlier.is_none_or(|earlier| outranking_limit(earlier.limit, limit) == limit) {
-                    live.cut_turns.insert(key, own_cut);
-                }
-                (key, earlier)
+                live.cut_turns.entry(key).or_default().push(own_cut);
+                key
             });
             (stop, own_cut, cut, is_memory_own)
         };
         let mut reached = match cut {
-            Some((key, earlier)) => match self.read_open_turns(run_id).await {
+            Some(key) => match self.read_open_turns(run_id).await {
                 Ok(open_turns) if open_turns.contains(&key.1) => {
                     self.reach_limit(run_id, stop).await
                 }
-                // The turn ended before its cut went in, so it keeps the cut it had: a step stop,
-                // whose bound was that turn's, reached nothing and leaves that to the cleanup; any
-                // other stop still goes, its cut put back first, so its row names no turn.
+                // The turn ended before its cut went in: a step stop, whose bound was that turn's,
+                // reached nothing and leaves its cut to the cleanup; any other stop still goes, its
+                // cut withdrawn first, so its row names no turn.
                 Ok(_) => match stop {
                     LimitStop::Step { .. } => Ok(LimitReach::TurnEnded),
                     LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
-                        lock(&self.live).restore_cut(key, own_cut, earlier);
+                        lock(&self.live).withdraw_cut(key, own_cut.stop_id);
                         cut = None;
                         self.reach_limit(run_id, stop).await
                     }
@@ -288,25 +285,25 @@ impl RunEngine {
                 Err(error) => {
                     // No row names the cut, so it goes; what the stop wrote and took stays for
                     // its retry, as after a failed hand.
-                    self.restore_own_cut(cut, own_cut);
+                    self.withdraw_own_cut(cut, own_cut);
                     return Err(error);
                 }
             }
         }
         if !matches!(reached, Ok(LimitReach::Live)) {
-            // A stop that stops nothing puts back what it took: the cut it made, where no turn's
-            // end or later stop changed it since, its turn's reach and the memory it added; a run
-            // that reads ended, or whose limit's interrupt is pending, forgets the limit whichever
-            // stop added it. A step stop whose reached event landed beside that pending interrupt
-            // keeps its turn's reach, so no later step writes that event again, and its turn ends
-            // as its provider ends it.
+            // A stop that stops nothing gives back what it took: its cut, wherever it sits among
+            // the turn's, its turn's reach and the memory it added; a run that reads ended, or
+            // whose limit's interrupt is pending, forgets the limit whichever stop added it. A step
+            // stop whose reached event landed beside that pending interrupt keeps its turn's
+            // reach, so no later step writes that event again, and its turn ends as its provider
+            // ends it.
             let is_step_reach_kept = matches!(
                 (stop, &reached),
                 (LimitStop::Step { .. }, Ok(LimitReach::InterruptPending))
             );
             let mut live = lock(&self.live);
-            if let Some((key, earlier)) = cut {
-                live.restore_cut(key, own_cut, earlier);
+            if let Some(key) = cut {
+                live.withdraw_cut(key, own_cut.stop_id);
             }
             if let LimitStop::Step { turn_number, .. } = stop {
                 set_step_limit_reached(&mut live, &run_id, turn_number, is_step_reach_kept);
@@ -325,22 +322,18 @@ impl RunEngine {
         let reached_turn = match stop {
             LimitStop::Interrupt {
                 limit: RunLimit::StepLimit,
-            } => cut.map(|((_, turn_number), _)| turn_number),
+            } => cut.map(|(_, turn_number)| turn_number),
             LimitStop::Step { .. } | LimitStop::Interrupt { .. } | LimitStop::Token { .. } => None,
         };
-        let row_turn = cut.map(|((_, turn_number), _)| turn_number);
+        let row_turn = cut.map(|(_, turn_number)| turn_number);
         match self
             .hand_limit_interrupt(run_id, limit, reached_turn, row_turn)
             .await
         {
             Ok(true) => {}
-            Ok(false) => {
-                // The step limit's interrupt another hand has in flight stops the run, so this
-                // resend cut nothing.
-                if let LimitStop::Interrupt { .. } = stop {
-                    self.restore_own_cut(cut, own_cut);
-                }
-            }
+            // The step limit's interrupt another hand has in flight stops the run and its row
+            // names that hand's turn, so a stop of any kind left to it cut nothing.
+            Ok(false) => self.withdraw_own_cut(cut, own_cut),
             Err(error) => {
                 // A hand that left its row pending keeps the cut that row names; any other
                 // failure leaves no row, so the cut goes, the reached event and the limit kept
@@ -352,7 +345,7 @@ impl RunEngine {
                         ..
                     }
                 ) {
-                    self.restore_own_cut(cut, own_cut);
+                    self.withdraw_own_cut(cut, own_cut);
                 }
                 return Err(error);
             }
@@ -360,11 +353,10 @@ impl RunEngine {
         Ok(())
     }
 
-    // Puts back the cut `cut` replaced with the stop's own, `own`, unless a turn's end or a later
-    // stop changed it since.
-    fn restore_own_cut(&self, cut: Option<LiveCut>, own: LimitCut) {
-        if let Some((key, earlier)) = cut {
-            lock(&self.live).restore_cut(key, own, earlier);
+    // Withdraws the stop's own cut, `own`, of the turn `cut` names, if it cut one.
+    fn withdraw_own_cut(&self, cut: Option<(RunId, SafeInt<1>)>, own: LimitCut) {
+        if let Some(key) = cut {
+            lock(&self.live).withdraw_cut(key, own.stop_id);
         }
     }
 
@@ -496,9 +488,6 @@ impl RunEngine {
         }
     }
 }
-
-// A stop's cut as it went in: the run and turn it keys, and the cut it replaced there.
-type LiveCut = ((RunId, SafeInt<1>), Option<LimitCut>);
 
 // What a limit stop found when it reached its limit.
 enum LimitReach {
