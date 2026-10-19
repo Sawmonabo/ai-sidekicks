@@ -530,7 +530,8 @@ intervention_event_payloads! {
     /// The `agent.intervention.failed` payload, with why, in the words its reply and its stored row
     /// carry.
     pub struct AgentInterventionFailedPayload: AgentInterventionFailedState {
-        /// The thrown error's code, else its message, or why it never completed.
+        /// The thrown error's code, else its message, or why it never completed or was never
+        /// sent.
         pub failure_reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     }
 }
