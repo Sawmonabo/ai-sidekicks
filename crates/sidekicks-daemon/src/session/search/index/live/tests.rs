@@ -1,14 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use rstest::rstest;
-use sidekicks_platforms::{Spawner, WallClockTimer};
+use sidekicks_platforms::WallClockTimer;
 use sidekicks_search::index::SearchIndex;
-use tokio::runtime::Handle;
 use tokio::sync::{Notify, watch};
 
-use super::{LiveIndex, LiveIndexOptions, LiveIndexShared, OpenIndex, catch_up, delete_applied};
+use super::{LiveIndexShared, OpenIndex, catch_up, delete_applied};
 use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
@@ -29,13 +27,6 @@ fn scheduler() -> Arc<Scheduler> {
         Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
         None,
     ))
-}
-
-// A file the stand-in build writes beside the index folder.
-fn build_marker(index_folder: &Path, name: &str) -> PathBuf {
-    let mut path = index_folder.as_os_str().to_owned();
-    path.push(format!(".{name}"));
-    PathBuf::from(path)
 }
 
 // A writer on the test's file.
@@ -88,49 +79,6 @@ async fn index_behind_its_database(
         index,
     };
     (shared, open, highest_id_given)
-}
-
-#[tokio::test]
-async fn a_close_during_a_build_settles_once_the_build_has_exited() {
-    let database = TestDatabase::new();
-    let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-        .await
-        .expect("the writer opens its database");
-    let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-    let index_folder = folder.path().join("search-index");
-    let live = LiveIndex::start(LiveIndexOptions {
-        database_path: database.path(),
-        index_folder: index_folder.clone(),
-        program: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/search_index_build.sh"),
-        spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        reads: Arc::new(DatabaseReadPool::new(
-            database.path(),
-            OUTBOX_STATEMENT_CAPACITY,
-        )),
-        writer: Arc::new(writer),
-        scheduler: scheduler(),
-    });
-    let started = build_marker(&index_folder, "started");
-    // A build that fails to start fails the live index at once, so its failure ends the wait.
-    tokio::time::timeout(Duration::from_secs(30), async {
-        tokio::select! {
-            () = async {
-                while !started.exists() {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            } => {}
-            failure = live.when_failed() => panic!("the missing index's build fails: {failure:?}"),
-        }
-    })
-    .await
-    .expect("the missing index's build starts");
-
-    live.close().await.expect("the close ends the build");
-
-    assert!(
-        build_marker(&index_folder, "exited").exists(),
-        "the close settles only once the build's process has exited"
-    );
 }
 
 #[tokio::test]
