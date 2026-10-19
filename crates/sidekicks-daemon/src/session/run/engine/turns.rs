@@ -122,7 +122,8 @@ pub(crate) struct ProviderTurnEnd {
 }
 
 /// The steps of a run's open turn, counted on a run whose provider does not bound them, and
-/// whether the turn's step limit reached event has landed.
+/// whether the turn has reached its step limit: its reached event being written or landed, or
+/// the limit's interrupt handed on it.
 pub(super) struct StepCount {
     turn_number: SafeInt<1>,
     bound: SafeInt<1>,
@@ -308,6 +309,11 @@ impl RunEngine {
             count.steps += 1;
             let reaching_turn = (count.steps >= count.bound.get() && !count.is_reached)
                 .then_some((count.bound, count.turn_number));
+            // Marked as the reach is decided, so a step delivered beside this one reaches no stop
+            // of its own; the stop clears it where its reached event does not land.
+            if reaching_turn.is_some() {
+                count.is_reached = true;
+            }
             match reaching_turn {
                 Some((bound, turn_number)) => LimitStop::Step {
                     count: bound,
@@ -615,19 +621,22 @@ impl RunEngine {
     }
 }
 
-/// Marks the count of `turn_number` on `run_id` in `live` as having reached its step limit, its
-/// reached event landed or the limit's interrupt handed on it, so it reaches no stop of its own.
-pub(super) fn mark_step_limit_reached(
+/// Sets whether the count of `turn_number` on `run_id` in `live` has reached its step limit: set
+/// once the limit's interrupt is handed on it, so it reaches no stop of its own, and cleared where
+/// its own reach wrote nothing, so a later step reaches it again. A count since armed for another
+/// turn is left as it is.
+pub(super) fn set_step_limit_reached(
     live: &mut LiveRuns,
     run_id: &RunId,
     turn_number: SafeInt<1>,
+    is_reached: bool,
 ) {
     if let Some(count) = live
         .step_counts
         .get_mut(run_id)
         .filter(|count| count.turn_number == turn_number)
     {
-        count.is_reached = true;
+        count.is_reached = is_reached;
     }
 }
 

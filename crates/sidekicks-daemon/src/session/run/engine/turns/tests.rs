@@ -205,6 +205,40 @@ async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event()
     );
 }
 
+// Killed by the count marking its turn reached only once the reached event lands: two steps of
+// one turn delivered at once then both write that turn's reached event.
+#[tokio::test]
+async fn two_steps_delivered_at_once_write_one_reached_event() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 0);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    arm_step_count(&engine, run_id, 1, 1);
+
+    let (first, second) = tokio::join!(engine.count_step(run_id), engine.count_step(run_id));
+    first.expect("the first step is counted");
+    second.expect("the second step is counted");
+
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        stored_events(&database, &run_id),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+        ])
+    );
+}
+
 // Killed by a step stop refused on the run's state leaving the count stopping: the step that tries
 // again once the run can be stopped then sends no interrupt.
 #[tokio::test]

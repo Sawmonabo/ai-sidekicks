@@ -25,7 +25,7 @@ use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::events::session::appender::SessionEventDraft;
 use crate::session::run::engine::live::{StepInterruptGuard, lock};
-use crate::session::run::engine::turns::mark_step_limit_reached;
+use crate::session::run::engine::turns::set_step_limit_reached;
 use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, refused_statement_index};
 use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::read::RunRead;
@@ -211,14 +211,27 @@ impl RunEngine {
         {
             return Ok(());
         }
-        self.live_limit_interrupter(run_id)?;
         let limit = stop.limit();
-        self.wait_while_continuing(&run_id).await;
-        let run = self.require_run(run_id).await?;
-        let cut_turn = match stop {
-            LimitStop::Step { turn_number, .. } => Some(turn_number),
-            LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
-                self.read_open_turn(run_id, None).await?
+        let read = async {
+            self.live_limit_interrupter(run_id)?;
+            self.wait_while_continuing(&run_id).await;
+            let run = self.require_run(run_id).await?;
+            let cut_turn = match stop {
+                LimitStop::Step { turn_number, .. } => Some(turn_number),
+                LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
+                    self.read_open_turn(run_id, None).await?
+                }
+            };
+            Ok::<_, RunEngineError>((run, cut_turn))
+        };
+        let (run, cut_turn) = match read.await {
+            Ok(read) => read,
+            Err(error) => {
+                // A step stop that wrote nothing leaves its turn's count to reach the bound again.
+                if let LimitStop::Step { turn_number, .. } = stop {
+                    set_step_limit_reached(&mut lock(&self.live), &run_id, turn_number, false);
+                }
+                return Err(error);
             }
         };
         let (stop, own_cut, cut, is_memory_own) = {
@@ -265,28 +278,27 @@ impl RunEngine {
         };
         if !matches!(reached, Ok(LimitReach::Live)) {
             // A stop that stops nothing puts back what it took: the cut it made, where no turn's
-            // end or later stop changed it since, and the memory it added; a run that reads ended
-            // forgets the limit whichever stop added it.
+            // end or later stop changed it since, its turn's reach and the memory it added; a run
+            // that reads ended forgets the limit whichever stop added it.
             let mut live = lock(&self.live);
             if let Some((key, earlier)) = cut {
                 live.restore_cut(key, own_cut, earlier);
+            }
+            if let LimitStop::Step { turn_number, .. } = stop {
+                set_step_limit_reached(&mut live, &run_id, turn_number, false);
             }
             if matches!(reached, Ok(LimitReach::Ended)) || is_memory_own {
                 live.reached_limits.remove(&(run_id, limit));
             }
             return reached.map(drop);
         }
-        // A turn that reached the step limit, or that the step limit's interrupt alone cuts once
-        // it is handed, reaches no stop of its own after.
+        // A turn the step limit's interrupt alone cuts once it is handed reaches no stop of its
+        // own after, as a turn whose step reached the bound does.
         let handed_turn = match stop {
-            LimitStop::Step { turn_number, .. } => {
-                mark_step_limit_reached(&mut lock(&self.live), &run_id, turn_number);
-                None
-            }
             LimitStop::Interrupt {
                 limit: RunLimit::StepLimit,
             } => cut.map(|((_, turn_number), _)| turn_number),
-            LimitStop::Interrupt { .. } | LimitStop::Token { .. } => None,
+            LimitStop::Step { .. } | LimitStop::Interrupt { .. } | LimitStop::Token { .. } => None,
         };
         let is_handed = self
             .hand_limit_interrupt(run_id, limit, handed_turn)
@@ -332,7 +344,7 @@ impl RunEngine {
         let mut live = lock(&self.live);
         live.reached_limits.remove(&(run_id, limit));
         if let Some(turn_number) = cut_turn {
-            mark_step_limit_reached(&mut live, &run_id, turn_number);
+            set_step_limit_reached(&mut live, &run_id, turn_number, true);
         }
         Ok(true)
     }
