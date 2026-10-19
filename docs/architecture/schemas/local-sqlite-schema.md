@@ -72,6 +72,8 @@ CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WH
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version) WHERE category = 'runLifecycle' AND type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped');
 -- Every started turn gets exactly one end (Spec-005 §Run Lifecycle).
 CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number) WHERE category = 'runLifecycle' AND type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed');
+-- A turn number starts once in its run.
+CREATE UNIQUE INDEX idx_session_events_turn_start_once ON session_events(run_id, turn_number) WHERE category = 'runLifecycle' AND type = 'agent.turn.started';
 
 -- Projection-level terminal-key CHECK (Spec-005 at-most-once terminal emission; assigned to the Plan-004
 -- schema work). A CHECK sees only the row being written, never the row an UPDATE replaces, so the guard is a
@@ -81,24 +83,25 @@ WHEN NEW.category = 'runLifecycle'
   AND NEW.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL)
 BEGIN
-  SELECT RAISE(ABORT, 'terminal runLifecycle requires a non-null run_id and run_version');
+  SELECT RAISE(ABORT, 'a terminal run row requires a run_id and a run_version');
 END;
 CREATE TRIGGER trg_run_terminal_key_update BEFORE UPDATE OF run_id, run_version, category, type ON session_events
 WHEN OLD.category = 'runLifecycle'
   AND OLD.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL OR NEW.run_id IS NOT OLD.run_id OR NEW.run_version IS NOT OLD.run_version OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
-  SELECT RAISE(ABORT, 'terminal runLifecycle row must preserve run_id + run_version + category + type');
+  SELECT RAISE(ABORT, 'a terminal run row keeps its run_id, run_version, category and type');
 END;
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
 WHEN NOT (OLD.category = 'runLifecycle' AND OLD.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped'))
   AND NEW.category = 'runLifecycle'
   AND NEW.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
 BEGIN
-  SELECT RAISE(ABORT, 'session_events rows cannot be promoted to terminal runLifecycle by UPDATE — terminal rows are INSERT-only');
+  SELECT RAISE(ABORT, 'a row cannot become a terminal run row by UPDATE; terminal rows are insert-only');
 END;
 
--- A turn end's NULL run_id or turn_number would pass idx_session_events_turn_end_once, so the insert is refused.
+-- The same trio guards idx_session_events_turn_end_once on (run_id, turn_number): a turn end's NULL run_id or turn_number
+-- would pass the index, so the insert is refused, a committed turn end keeps its key, and no row becomes a turn end by UPDATE.
 CREATE TRIGGER trg_turn_end_key_insert BEFORE INSERT ON session_events
 WHEN NEW.category = 'runLifecycle'
   AND NEW.type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed')
@@ -106,11 +109,34 @@ WHEN NEW.category = 'runLifecycle'
 BEGIN
   SELECT RAISE(ABORT, 'a turn end row requires a run_id and a turn_number');
 END;
+CREATE TRIGGER trg_turn_end_key_update BEFORE UPDATE OF run_id, turn_number, category, type ON session_events
+WHEN OLD.category = 'runLifecycle'
+  AND OLD.type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed')
+  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL OR NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
+BEGIN
+  SELECT RAISE(ABORT, 'a turn end row keeps its run_id, turn_number, category and type');
+END;
+CREATE TRIGGER trg_turn_end_key_promote BEFORE UPDATE OF category, type ON session_events
+WHEN NOT (OLD.category = 'runLifecycle' AND OLD.type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed'))
+  AND NEW.category = 'runLifecycle'
+  AND NEW.type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed')
+BEGIN
+  SELECT RAISE(ABORT, 'a row cannot become a turn end row by UPDATE; turn end rows are insert-only');
+END;
+
+-- A turn start's NULL run_id or turn_number would pass idx_session_events_turn_start_once, so the insert is refused.
+CREATE TRIGGER trg_turn_start_key_insert BEFORE INSERT ON session_events
+WHEN NEW.category = 'runLifecycle'
+  AND NEW.type = 'agent.turn.started'
+  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'a turn start row requires a run_id and a turn_number');
+END;
 ```
 
 **Terminal-exactly-once backstop.** The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-004): a duplicate terminal `runLifecycle` row for the same `(run_id, run_version)` epoch fails loud with a `UNIQUE` violation; rows with a NULL `run_id` or `run_version` bypass it (SQLite NULL-distinctness), so the Plan-002 terminal emitter enforces the non-null-key precondition this index backstops. The run keys are real columns the append writes from the typed event, so the index, the triggers and the run reads (`idx_session_events_run`) read columns and no write parses its payload for them, and `STRICT` typing holds `run_id` to text and `run_version` to an integer, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle). The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'runLifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint) and [STRICT tables](https://www.sqlite.org/stricttables.html). Beside it the schema carries the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `runLifecycle` writes whose `run_id` or `run_version` is NULL. The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF run_id, run_version, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — an UPDATE rewriting `(R,7)` to another non-null pair would otherwise free the index entry for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape). The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-004 schema work).
 
-**Turn-end once backstop.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A row with a NULL `run_id` or `turn_number` would pass the index, as a NULL run key would pass the terminal one, so `trg_turn_end_key_insert` refuses a turn-end insert missing either. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle)).
+**Turn-end once backstop.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A row with a NULL `run_id` or `turn_number` would pass the index, as a NULL run key would pass the terminal one, so the turn-end trio guards it as the terminal trio guards its index: `trg_turn_end_key_insert` refuses a turn-end insert missing either, `trg_turn_end_key_update` refuses an update that clears, rewrites or de-scopes a committed turn end's key, and `trg_turn_end_key_promote` refuses re-typing any other row into a turn end, so turn ends are insert-only. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle)). `idx_session_events_turn_start_once` holds a turn number to one start: the run engine numbers each `agent.turn.started` its run's newest start plus one, read inside the write, and a start that raced another to the same number is refused and numbered again. `trg_turn_start_key_insert` refuses a turn-start insert missing its `run_id` or `turn_number`, which would pass that index too.
 
 **Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the agent message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with zstd at level 3 before it is written, and the encoding is recorded in the payload as `contentEncoding`, so every reader decodes it through the daemon's one codec (`crates/sidekicks-daemon/src/events/content/codec.rs`); a smaller body is stored as its UTF-8 bytes.
 
@@ -142,14 +168,14 @@ CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_o
 
 ## Session Directory (Plan-001)
 
-The daemon keeps one row per session it hosts in `sessions`, the directory that `session.subscribe` and `session.read` answer from. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) owns the row, and the `CREATE TABLE sessions` block below declares every column. Other services read these of them:
+The daemon keeps one row per session it hosts in `sessions`, the directory that `session.subscribe` and `session.read` answer from. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) owns the row, and the `CREATE TABLE sessions` block below declares every column. The columns other services read:
 
-- `shape TEXT NOT NULL CHECK (shape IN ('chat', 'project'))` — whether the session is a chat, bound to its own managed workspace, or a session in an attached project. It is set when the session is created and changes only when a chat is converted to a project. The sessions list groups by it, and it reaches clients as `shape` on `session.read` and `session.subscribe`.
-- `place TEXT` — where the session runs, the place's wire JSON (`"windows"` or `{"distro":"Ubuntu"}`) on a Windows computer, NULL on macOS and Linux, as `projects.place` and `repo_mounts.place` are stored ([Workspace and Git Tables](local-sqlite-workspace-and-git-tables.md)). Written from `session.created` and never changed, so a rebuild restores it from that event; it reaches clients as `place` on `session.read`, on `session.create`'s answer and on `session.created`.
-- `muted_at TEXT` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.subscribe`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
-- `group_id TEXT REFERENCES session_groups(id)` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
-- `pending_working_folder TEXT` — the folder a `session.workingFolder.update` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
-- `permission_level TEXT NOT NULL DEFAULT 'yolo' CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it. `session.create` writes the level the provider's own settings give for the session's project ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)); the column's `yolo` is that read's answer when they set none. `session.permissionLevel.update` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
+- `shape` — whether the session is a chat, bound to its own managed workspace, or a session in an attached project. It is set when the session is created and changes only when a chat is converted to a project. The sessions list groups by it, and it reaches clients as `shape` on `session.read` and `session.subscribe`.
+- `place` — where the session runs, the place's wire JSON (`"windows"` or `{"distro":"Ubuntu"}`) on a Windows computer, NULL on macOS and Linux, as `projects.place` and `repo_mounts.place` are stored ([Workspace and Git Tables](local-sqlite-workspace-and-git-tables.md)). Written from `session.created` and never changed, so a rebuild restores it from that event; it reaches clients as `place` on `session.read`, on `session.create`'s answer and on `session.created`.
+- `muted_at` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.subscribe`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
+- `group_id` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
+- `pending_working_folder` — the folder a `session.workingFolder.update` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
+- `permission_level` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it. `session.create` writes the level the provider's own settings give for the session's project ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)); the column's `yolo` is that read's answer when they set none. `session.permissionLevel.update` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
 
 A session's groups, links and tags are the three layers of [Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags): one place in the list, any number of relationships, any number of categories. All three are row-canonical daemon state written by the session service and the session tools, not rebuilt from the event log, and removed with their session.
 
@@ -430,7 +456,7 @@ CREATE TABLE interventions (
   failure_reason         TEXT,                       -- what a failed dispatch threw (a daemon error's code, else its message), so a retry's saved reply carries the same failureReason; NULL in every other state
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
-  UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as agent.intervention.idempotencyConflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
+  UNIQUE(target_run_id, client_idempotency_key)      -- identical retry returns the saved result; key reuse with a differing payload rejects as agent.intervention.idempotencyConflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 ) STRICT;
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
@@ -557,7 +583,7 @@ CREATE TABLE driver_capabilities (
                     -- The capability_flag CHECK lists every flag the capability union declares. Every provider_name holds one
                     -- row per flag, supported=0 where the driver does not declare it (undeclared = unsupported,
                     -- I-003-2), because the hydrator's exact-cardinality guard refuses a cache whose row count
-                    -- differs from the union's. This CHECK lists every flag in the union.
+                    -- differs from the union's.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (provider_name, capability_flag)
 ) STRICT;
@@ -930,11 +956,147 @@ CREATE TABLE session_search_outbox (
   operation  TEXT NOT NULL CHECK (operation IN ('row', 'owner', 'members'))
 ) STRICT;
 
+-- A settled message or tool call, as it is appended.
+CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
+WHEN NEW.type IN ('user.message.sent', 'agent.message.sent', 'agent.toolCall.invoked')
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (NEW.rowid * 4 + 0), 'event', session.rowid, 'row'
+    FROM sessions AS session WHERE session.id = NEW.session_id;
+END;
+
+-- A damaged session continued from its last good point skips a range of its log that no read takes
+-- again, so each settled row in it is read again, and found gone.
+CREATE TRIGGER trg_session_search_events_skipped AFTER INSERT ON session_events
+WHEN NEW.type = 'session.damagedEvents.skipped'
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (skipped.rowid * 4 + 0), 'event', session.rowid, 'row'
+    FROM session_events AS skipped
+    JOIN sessions AS session ON session.id = skipped.session_id
+   WHERE skipped.session_id = NEW.session_id
+     AND skipped.type IN ('user.message.sent', 'agent.message.sent', 'agent.toolCall.invoked')
+     AND skipped.sequence BETWEEN json_extract(NEW.payload, '$.fromSequence')
+                              AND json_extract(NEW.payload, '$.toSequence');
+END;
+
+CREATE TRIGGER trg_session_search_session_insert AFTER INSERT ON sessions
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (NEW.rowid * 4 + 1), 'title', NEW.rowid, 'row'
+   WHERE NEW.name IS NOT NULL;
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (session_group.rowid * 4 + 2), 'group', session_group.rowid, 'members'
+    FROM session_groups AS session_group WHERE session_group.id = NEW.group_id;
+END;
+
+CREATE TRIGGER trg_session_search_title_update AFTER UPDATE OF name ON sessions
+WHEN OLD.name IS NOT NEW.name
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  VALUES ((NEW.rowid * 4 + 1), 'title', NEW.rowid, 'row');
+END;
+
+-- A session moving between groups changes which sessions each group's name counts toward.
+CREATE TRIGGER trg_session_search_group_move AFTER UPDATE OF group_id ON sessions
+WHEN OLD.group_id IS NOT NEW.group_id
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (session_group.rowid * 4 + 2), 'group', session_group.rowid, 'members'
+    FROM session_groups AS session_group WHERE session_group.id = OLD.group_id;
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (session_group.rowid * 4 + 2), 'group', session_group.rowid, 'members'
+    FROM session_groups AS session_group WHERE session_group.id = NEW.group_id;
+END;
+
+-- A purge: the group the session sat in loses it, then the session and every row it owns leave.
+CREATE TRIGGER trg_session_search_session_delete AFTER DELETE ON sessions
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (session_group.rowid * 4 + 2), 'group', session_group.rowid, 'members'
+    FROM session_groups AS session_group WHERE session_group.id = OLD.group_id;
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  VALUES ((OLD.rowid * 4 + 1), 'title', OLD.rowid, 'owner');
+END;
+
+CREATE TRIGGER trg_session_search_group_insert AFTER INSERT ON session_groups
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  VALUES ((NEW.rowid * 4 + 2), 'group', NEW.rowid, 'row');
+END;
+CREATE TRIGGER trg_session_search_group_rename AFTER UPDATE OF name ON session_groups
+WHEN OLD.name IS NOT NEW.name
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  VALUES ((NEW.rowid * 4 + 2), 'group', NEW.rowid, 'row');
+END;
+CREATE TRIGGER trg_session_search_group_delete AFTER DELETE ON session_groups
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  VALUES ((OLD.rowid * 4 + 2), 'group', OLD.rowid, 'owner');
+END;
+
+CREATE TRIGGER trg_session_search_tag_insert AFTER INSERT ON session_tags
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (NEW.rowid * 4 + 3), 'tag', session.rowid, 'row'
+    FROM sessions AS session WHERE session.id = NEW.session_id;
+END;
+CREATE TRIGGER trg_session_search_tag_update AFTER UPDATE OF tag ON session_tags
+WHEN OLD.tag IS NOT NEW.tag
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (NEW.rowid * 4 + 3), 'tag', session.rowid, 'row'
+    FROM sessions AS session WHERE session.id = NEW.session_id;
+END;
+CREATE TRIGGER trg_session_search_tag_delete AFTER DELETE ON session_tags
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (OLD.rowid * 4 + 3), 'tag', session.rowid, 'row'
+    FROM sessions AS session WHERE session.id = OLD.session_id;
+END;
+
+-- A tag row carries its session's last activity, which orders a search by tag alone, so each move
+-- of that activity has the session's tag rows read again.
+CREATE TRIGGER trg_session_search_activity_move AFTER UPDATE OF last_activity_at ON sessions
+WHEN OLD.last_activity_at IS NOT NEW.last_activity_at
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT (tag.rowid * 4 + 3), 'tag', NEW.rowid, 'row'
+    FROM session_tags AS tag WHERE tag.session_id = NEW.id;
+END;
+
 CREATE TABLE session_search_rowid_floors (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   kind           TEXT NOT NULL,                  -- the index rows the table's rows source
   highest_rowid  INTEGER NOT NULL                -- the table's highest rowid after the delete; 0 when empty
 ) STRICT;
+
+-- Each delete that lowers an indexed source table's highest rowid logs the new highest.
+CREATE TRIGGER trg_session_search_event_floor AFTER DELETE ON session_events
+WHEN OLD.rowid > coalesce((SELECT max(rowid) FROM session_events), 0)
+BEGIN
+  INSERT INTO session_search_rowid_floors (kind, highest_rowid)
+  VALUES ('event', coalesce((SELECT max(rowid) FROM session_events), 0));
+END;
+CREATE TRIGGER trg_session_search_title_floor AFTER DELETE ON sessions
+WHEN OLD.rowid > coalesce((SELECT max(rowid) FROM sessions), 0)
+BEGIN
+  INSERT INTO session_search_rowid_floors (kind, highest_rowid)
+  VALUES ('title', coalesce((SELECT max(rowid) FROM sessions), 0));
+END;
+CREATE TRIGGER trg_session_search_group_floor AFTER DELETE ON session_groups
+WHEN OLD.rowid > coalesce((SELECT max(rowid) FROM session_groups), 0)
+BEGIN
+  INSERT INTO session_search_rowid_floors (kind, highest_rowid)
+  VALUES ('group', coalesce((SELECT max(rowid) FROM session_groups), 0));
+END;
+CREATE TRIGGER trg_session_search_tag_floor AFTER DELETE ON session_tags
+WHEN OLD.rowid > coalesce((SELECT max(rowid) FROM session_tags), 0)
+BEGIN
+  INSERT INTO session_search_rowid_floors (kind, highest_rowid)
+  VALUES ('tag', coalesce((SELECT max(rowid) FROM session_tags), 0));
+END;
 
 -- A search by tag and words reads each tagged session's rowid and last activity from here alone.
 CREATE INDEX idx_sessions_activity ON sessions(id, last_activity_at);
