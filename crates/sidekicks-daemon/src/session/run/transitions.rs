@@ -36,10 +36,6 @@ pub(crate) static RUN_TERMINAL_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new
 });
 
 /// The states from which a run may move to `to`, in the states' declared order.
-#[expect(
-    dead_code,
-    reason = "the interventions service, for the states an interrupt applies from"
-)]
 pub(crate) fn states_that_may_enter(to: RunStateChangeState) -> Vec<RunState> {
     RunState::VARIANTS
         .iter()

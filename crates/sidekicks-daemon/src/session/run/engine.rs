@@ -11,7 +11,7 @@ mod live;
 mod settle;
 mod start;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub(crate) mod turns;
 
 use std::error::Error;
@@ -373,7 +373,6 @@ impl RunEngine {
     /// be written. A run being continued answers once its continue settles, `Driver` while it runs
     /// and `Ended` once it ended. Any other run is the driver's to stop. Fails when the run's read
     /// fails.
-    #[expect(dead_code, reason = "the interventions service")]
     pub(crate) async fn route_interrupt(
         &self,
         run_id: RunId,

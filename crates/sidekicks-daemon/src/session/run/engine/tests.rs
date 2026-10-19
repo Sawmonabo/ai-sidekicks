@@ -55,7 +55,7 @@ pub(super) const DRIVER_HOLD: Duration = Duration::from_millis(200);
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
 /// interventions service and its posture files under `home`; a test makes the tables its runs
 /// need.
-pub(super) fn test_engine(
+pub(crate) fn test_engine(
     database: &TestDatabase,
     event_log: Arc<EventLogService>,
     home: &Path,
@@ -197,7 +197,7 @@ pub(super) fn hand_limit_interrupter(
 }
 
 /// Writes `run_id` of `session_id` running at version 1.
-pub(super) fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
+pub(crate) fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
     let connection = database.reader();
     connection
         .execute(
@@ -334,7 +334,7 @@ pub(super) fn token_limit() -> TokensPerRun {
 }
 
 /// The run's stored state and version.
-pub(super) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64) {
+pub(crate) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64) {
     database
         .reader()
         .query_row(

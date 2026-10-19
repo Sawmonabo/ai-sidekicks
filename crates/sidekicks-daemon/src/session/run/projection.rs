@@ -191,10 +191,6 @@ pub(crate) fn swap_run_state_statement(swap: &RunStateSwap) -> WriteStatement {
 /// change, as a dispatched intervention's verdict does, and leaves an ended run's as it is. It
 /// holds no stale comparand, because no earlier read decides it; it refuses the write only when the
 /// run is not under `session_id`.
-#[expect(
-    dead_code,
-    reason = "the interventions service, which advances a run it applies an intervention to"
-)]
 pub(crate) fn advance_run_version_statement(
     session_id: &SessionId,
     run_id: &RunId,
