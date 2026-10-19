@@ -177,9 +177,10 @@ pub enum DatabaseFileRepairError {
 }
 
 /// Finishes a replacement a crash cut short, then answers the damage a run recorded for this start
-/// to repair, `None` when none was or the file is gone, whose record it removes. Fails when the
-/// record cannot be read or removed, or the ready fresh file cannot be put in place, which the next
-/// start finishes.
+/// to repair, `None` when none was or the file is gone, whose record it removes with the files a
+/// repair cut short left beside it. Fails when the record cannot be read or removed, or the ready
+/// fresh file cannot be put in place, which the next start finishes; fails with
+/// [`DatabaseFileRepairError::Leftover`] when a file a repair left beside a gone file stays.
 pub async fn prepare_database_file_repair(
     options: &DatabaseFileRepairOptions<'_>,
 ) -> Result<Option<String>, DatabaseFileRepairError> {
@@ -202,6 +203,9 @@ pub async fn prepare_database_file_repair(
         .await
         .map_err(DatabaseFileRepairError::File)?
     {
+        // No repair runs, so the files one cut short left go here, before the record, which a
+        // start that cannot remove them keeps to try again.
+        require_all_removed(remove_repair_files(database_path).await)?;
         remove_database_damage(database_path)
             .await
             .map_err(DatabaseFileRepairError::Damage)?;
