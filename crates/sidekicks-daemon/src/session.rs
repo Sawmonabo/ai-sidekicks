@@ -2,6 +2,7 @@
 //! groups, tags, drafts, staged files, inbox addresses, directory and working folder.
 
 pub(crate) mod addresses;
+pub(crate) mod changes;
 pub(crate) mod console_state;
 pub(crate) mod directory;
 pub(crate) mod draft_store;

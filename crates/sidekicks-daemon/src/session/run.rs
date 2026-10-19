@@ -5,6 +5,7 @@
 pub(crate) mod agent;
 pub(crate) mod daemon_turn;
 pub(crate) mod engine;
+pub(crate) mod epochs;
 pub(crate) mod ids;
 pub(crate) mod limit_interrupter;
 pub(crate) mod pause;
