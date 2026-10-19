@@ -233,8 +233,8 @@ impl RunEngine {
             async move {
                 let stopped = engine.run_limit_stop(run_id, stop).await;
                 // A caller gone has closed its receiver, so the send hands the result back and the
-                // task logs it. Only a panic after the caller dropped goes unlogged, which only a
-                // test meets: the daemon's panic hook aborts.
+                // task logs an error; only a panic after the caller dropped is left to the panic
+                // hook.
                 if let Err(Err(error)) = sender.send(stopped) {
                     log_unread_limit_stop_failure(run_id, limit, error);
                 }
