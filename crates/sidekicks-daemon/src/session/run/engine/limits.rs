@@ -193,13 +193,12 @@ impl RunEngine {
     /// ended before its cut went in, and a token stop whose once-per-run guard refused while the
     /// token limit's own interrupt is still pending are left with the cuts as they were and
     /// nothing written; a run the limit's end may not leave its state from is refused with
-    /// nothing written. While the step or spend limit's own interrupt of the run is still pending,
-    /// no stop at that limit sends another: a step stop keeps its reached event, its cut and its
-    /// turn's reach, so the turn ends with the limit. Fails with
-    /// [`RunEngineError::LimitInterrupterGone`], nothing written, when the engine holds no live
-    /// interventions service, with [`RunEngineError::LimitInterrupt`] when the service fails and
-    /// as the pending read fails, the reached event, the cut and the memory kept for the stop's
-    /// retry either way.
+    /// nothing written. While a limit's own interrupt of the run is still pending, no stop at that
+    /// limit sends another: a step stop keeps its reached event, its cut and its turn's reach, so
+    /// the turn ends with the limit. Fails with [`RunEngineError::LimitInterrupterGone`], nothing
+    /// written, when the engine holds no live interventions service, with
+    /// [`RunEngineError::LimitInterrupt`] when the service fails and as the pending read fails, the
+    /// reached event, the cut and the memory kept for the stop's retry either way.
     pub(super) async fn stop_at_limit(
         &self,
         run_id: RunId,
@@ -279,17 +278,11 @@ impl RunEngine {
             },
             None => self.reach_limit(run_id, stop).await,
         };
-        // The step or spend limit's own interrupt still pending ends the run, so this stop sends
-        // none; a failed read keeps what the stop wrote and took for its retry, as a failed hand
-        // does.
+        // The limit's own interrupt still pending ends the run, so this stop sends none; a failed
+        // read keeps what the stop wrote and took for its retry, as a failed hand does. A token
+        // stop whose reached event the once-per-run guard refused has read it already.
         if matches!(reached, Ok(LimitReach::Live))
-            && matches!(
-                stop,
-                LimitStop::Step { .. }
-                    | LimitStop::Interrupt {
-                        limit: RunLimit::StepLimit | RunLimit::SpendLimit,
-                    }
-            )
+            && matches!(stop, LimitStop::Step { .. } | LimitStop::Interrupt { .. })
             && self.has_pending_limit_interrupt(run_id, limit).await?
         {
             reached = Ok(LimitReach::InterruptPending);

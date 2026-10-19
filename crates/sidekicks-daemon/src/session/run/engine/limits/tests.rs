@@ -382,18 +382,23 @@ async fn a_spend_stop_retried_during_a_continue_interrupts_the_continued_run() {
     assert_eq!(interventions.calls.load(Ordering::SeqCst), 2);
 }
 
-// Killed by the pending check counting any interrupt, any limit's, or one whose outcome is in:
-// a second token interrupt then goes while the first is pending, or none goes once the only
-// interrupt left is another limit's or a failed one.
+// Killed by the pending check counting any interrupt, any limit's, a person's, or one whose
+// outcome is in: a second token interrupt then goes while the first is pending, or none goes once
+// the only interrupt left is another limit's, a person's or a failed one; and by the retry a failed
+// hand leaves skipping the check (`token_limit_requested_after_a_failed_hand`), which sends a
+// second token interrupt while the first is still pending.
 #[rstest]
-#[case::token_limit_requested("tokenLimit", "requested", 1)]
-#[case::token_limit_accepted("tokenLimit", "accepted", 1)]
-#[case::token_limit_failed("tokenLimit", "failed", 2)]
-#[case::step_limit_accepted("stepLimit", "accepted", 2)]
+#[case::token_limit_requested(r#"{"limit":"tokenLimit"}"#, "requested", 0, 1)]
+#[case::token_limit_accepted(r#"{"limit":"tokenLimit"}"#, "accepted", 0, 1)]
+#[case::token_limit_failed(r#"{"limit":"tokenLimit"}"#, "failed", 0, 2)]
+#[case::step_limit_accepted(r#"{"limit":"stepLimit"}"#, "accepted", 0, 2)]
+#[case::person_accepted(r#"{"pending":"nextTurn"}"#, "accepted", 0, 2)]
+#[case::token_limit_requested_after_a_failed_hand(r#"{"limit":"tokenLimit"}"#, "requested", 1, 1)]
 #[tokio::test]
 async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_interrupt(
-    #[case] limit: &str,
+    #[case] record: &str,
     #[case] state: &str,
+    #[case] refusals: usize,
     #[case] expected_calls: usize,
 ) {
     let database = TestDatabase::new();
@@ -403,25 +408,28 @@ async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_inter
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_running_run(&database, session_id, run_id);
     let engine = test_engine(&database, log.service, home.path());
-    let interventions = hand_limit_interrupter(&engine, 0);
+    let interventions = hand_limit_interrupter(&engine, refusals);
     append(
         &engine,
         session_id,
         &turn_started_at(session_id, run_id, 1, 1),
     )
     .await;
-    engine
-        .stop_at_token_limit(run_id, token_limit())
-        .await
-        .expect("the limit's interrupt is accepted");
+    // The first hand is accepted, or refused with its row recorded, so the limit stays owed.
+    let first = engine.stop_at_token_limit(run_id, token_limit()).await;
+    assert_eq!(
+        first.is_ok(),
+        refusals == 0,
+        "the first stop answers {first:?}"
+    );
     database
         .reader()
         .execute(
             "INSERT INTO interventions (id, target_run_id, type, state, payload,
                expected_run_version, client_idempotency_key, created_at)
-             VALUES ('interrupt', ?1, 'interrupt', ?2, json_object('limit', ?3), 1, 'interrupt',
+             VALUES ('interrupt', ?1, 'interrupt', ?2, ?3, 1, 'interrupt',
                '2026-01-01T00:00:00.000Z')",
-            [run_id.text().as_str(), state, limit],
+            [run_id.text().as_str(), state, record],
         )
         .expect("the test records the run's interrupt");
 
