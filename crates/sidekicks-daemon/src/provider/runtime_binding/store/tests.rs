@@ -13,9 +13,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{
-    CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBinding,
-    RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig, RuntimeBindingStore,
-    read_binding,
+    CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, ResumeHandleChange,
+    RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
+    RuntimeBindingStore, read_binding,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
@@ -136,7 +136,7 @@ async fn an_update_records_the_left_conversation_in_its_own_write() {
         .update(
             &binding.id,
             RuntimeBindingPatch {
-                resume_handle: Some(Some("conversation-2".to_owned())),
+                resume_handle: ResumeHandleChange::Set("conversation-2".to_owned()),
                 ..RuntimeBindingPatch::default()
             },
             vec![left],
