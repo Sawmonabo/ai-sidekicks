@@ -84,16 +84,20 @@ async fn a_shell_starts_in_its_launch_s_folder_with_exactly_its_environment() {
     );
     assert!(text.contains("LAUNCH_CHECK=a=b c"), "{text:?}");
     assert!(
-        !text.contains("SIDEKICKS_SHELL_START_CONFIRMATION"),
+        !text.contains(sidekicks_platforms::SHELL_START_CONFIRMATION),
         "{text:?}"
     );
     assert_eq!(exit.exit_code, 0, "{text:?}");
 }
 
 // A shell outlives a quiet spell longer than tokio's blocking threads live, since the thread that
-// started it, whose end Linux tells the shell as its parent's death, is the spawner's own.
+// started it, whose end Linux tells the shell as its parent's death, is the spawner's own; only a
+// system where that thread's end reaches the shell runs it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_shell_is_alive_after_the_spawner_has_idled_past_a_blocking_thread_s_life() {
+    if !sidekicks_platforms::DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD {
+        return;
+    }
     let terminals = terminals();
     let mut spawned = terminals
         .spawn(

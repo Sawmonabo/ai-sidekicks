@@ -395,10 +395,10 @@ where
     }
 }
 
-/// The loop's watch, released as it drops with its hold on the shell dropped after it: in
-/// place once the program was reaped, otherwise on a thread of its own, since the release waits
-/// for the program; so a loop the runtime drops midway still ends its program without blocking a
-/// worker.
+/// The loop's watch, released as it drops with its hold on the shell dropped after it, always on
+/// a thread of its own: the release may wait for the program, and the hold's drop ends the shell's
+/// own containment, which blocks; so no drop blocks a worker, a loop the runtime drops midway
+/// included.
 struct HeldWatch {
     watch: Option<TerminalWatch>,
     hold: Option<ShellHold>,
@@ -417,11 +417,7 @@ impl Drop for HeldWatch {
             watch.release(|| control.mark_exited());
             drop(hold);
         };
-        if self.control.has_child_exited() {
-            release();
-        } else {
-            release_off_runtime(&self.name, Box::new(release));
-        }
+        release_off_runtime(&self.name, Box::new(release));
     }
 }
 

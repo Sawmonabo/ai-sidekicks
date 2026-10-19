@@ -95,7 +95,7 @@ pub(crate) fn request(program: TestProgram) -> SpawnRequest {
 #[ignore = "run only as the shell mode's stand-in, in a test shell's terminal"]
 fn the_shell_mode_stand_in_starts_the_launched_shell() {
     let error = sidekicks_platforms::run_shell_start_stand_in();
-    Err::<(), _>(error).expect("the stand-in starts the launched shell");
+    panic!("the stand-in did not start the launched shell: {error:?}");
 }
 
 /// Reads the output through the exit, answering the text and the exit; fails the test when the
