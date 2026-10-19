@@ -8,6 +8,7 @@ pub(crate) mod last_error;
 pub(crate) mod project;
 pub(crate) mod projector;
 pub(crate) mod repo;
+pub(crate) mod row_guards;
 pub(crate) mod schema;
 #[cfg(test)]
 pub(crate) mod test_rows;
