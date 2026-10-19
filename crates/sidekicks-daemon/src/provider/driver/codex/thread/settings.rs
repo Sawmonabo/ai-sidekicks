@@ -4,7 +4,8 @@
 //! its helper limit and its helpers' role files. A resume and a fork send them all again, so a
 //! conversation never falls back to what Codex persisted. Also the `turn/start` and
 //! `thread/settings/update` params, whose members carry absent, `null` and a value as three
-//! meanings.
+//! meanings, and the item-injection method a loaded conversation takes changed instructions
+//! through.
 
 use std::path::PathBuf;
 
@@ -204,9 +205,12 @@ pub(crate) struct CodexServiceTierChange(pub(crate) Option<String>);
 /// The `turn/start` params the daemon sends: the turn's input and the overrides it carries from
 /// that turn on. `service_tier` keeps its three meanings: absent keeps the thread's tier, `null`
 /// returns it to standard, a value sets it.
-#[expect(
-    dead_code,
-    reason = "the Codex run start and side questions send a turn with these"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex run start and side questions send a turn with these"
+    )
 )]
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -285,6 +289,15 @@ pub(crate) struct CodexThreadSettingsUpdateParams {
     )]
     pub(crate) service_tier: Option<Option<String>>,
 }
+
+/// Codex's item-injection method: appends items to a loaded thread's model-visible history, one
+/// way a conversation takes changed instructions from its next turn. Codex takes any JSON as an
+/// item, so one it does not recognize is dropped while the request still succeeds.
+#[expect(
+    dead_code,
+    reason = "the Codex leg that hands a loaded conversation changed instructions sends it"
+)]
+pub(crate) const CODEX_THREAD_INJECT_ITEMS_METHOD: &str = "thread/inject_items";
 
 impl From<CodexApprovalPolicy> for AskForApproval {
     fn from(policy: CodexApprovalPolicy) -> Self {
@@ -466,8 +479,9 @@ mod tests {
 
     use super::{
         CodexServiceTierChange, CodexThreadSettings, CodexThreadSettingsUpdateParams,
-        ThreadForkParams, ThreadResumeParams, ThreadStartParams, compose_codex_thread_fork_params,
-        compose_codex_thread_resume_params, compose_codex_thread_start_params,
+        CodexTurnStartParams, ThreadForkParams, ThreadResumeParams, ThreadStartParams,
+        compose_codex_thread_fork_params, compose_codex_thread_resume_params,
+        compose_codex_thread_start_params,
     };
     use crate::provider::driver::codex::permission_level::CodexProfileFolders;
     use crate::provider::driver::contract::SubagentPolicy;
@@ -532,6 +546,7 @@ mod tests {
         Resume,
         Fork,
         SettingsUpdate,
+        TurnStart,
     }
 
     // `request`'s params with `service_tier` set, as their serialized `serviceTier` member.
@@ -566,6 +581,17 @@ mod tests {
                 approvals_reviewer: None,
                 service_tier,
             }),
+            TierRequest::TurnStart => serde_json::to_value(CodexTurnStartParams {
+                thread_id: "thread".to_owned(),
+                input: Vec::new(),
+                approvals_reviewer: None,
+                collaboration_mode: None,
+                model: None,
+                client_user_message_id: None,
+                output_schema: None,
+                service_tier,
+                service_tier_for_turn: None,
+            }),
         };
         params
             .expect("the params serialize")
@@ -579,7 +605,8 @@ mod tests {
             TierRequest::Start,
             TierRequest::Resume,
             TierRequest::Fork,
-            TierRequest::SettingsUpdate
+            TierRequest::SettingsUpdate,
+            TierRequest::TurnStart
         )]
         request: TierRequest,
     ) {

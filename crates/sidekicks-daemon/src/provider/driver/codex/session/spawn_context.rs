@@ -1,5 +1,4 @@
-//! Where a Codex session's conversation runs, which the daemon resolves at every start and resume,
-//! and the item-injection method through which a loaded conversation takes changed instructions.
+//! Where a Codex session's conversation runs, which the daemon resolves at every start and resume.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -11,15 +10,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
 use crate::provider::spawn_environment::{ReservedEnvironmentNames, SessionEnvironment};
-
-/// Codex's item-injection method: appends items to a loaded thread's model-visible history, one
-/// way a conversation takes changed instructions from its next turn. Codex takes any JSON as an
-/// item, so one it does not recognize is dropped while the request still succeeds.
-#[expect(
-    dead_code,
-    reason = "the Codex leg that hands a loaded conversation changed instructions sends it"
-)]
-pub(crate) const CODEX_THREAD_INJECT_ITEMS_METHOD: &str = "thread/inject_items";
 
 /// Where one session's conversation runs, resolved by the daemon at every start and resume.
 #[expect(
