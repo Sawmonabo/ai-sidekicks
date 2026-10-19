@@ -4,11 +4,10 @@
 //! and inherits no handle but the standard ones it is given.
 
 use std::collections::BTreeMap;
-use std::ffi::{OsStr, c_void};
+use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
 use std::marker::PhantomData;
-use std::mem;
 use std::os::windows::io::{
     AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
 };
@@ -16,10 +15,9 @@ use std::os::windows::process::ExitStatusExt as _;
 use std::process::ExitStatus;
 use std::sync::Arc;
 
-use tokio::sync::Notify;
 use windows_sys::Win32::Foundation::{
     DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ALREADY_EXISTS, FALSE, GetLastError, HANDLE,
-    INVALID_HANDLE_VALUE, LocalFree, SetLastError, TRUE,
+    LocalFree, SetLastError, TRUE,
 };
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
@@ -31,16 +29,16 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
-    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, INFINITE,
-    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcessToken,
-    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION,
-    RegisterWaitForSingleObject, STARTF_USESTDHANDLES, STARTUPINFOEXW, UnregisterWaitEx,
-    UpdateProcThreadAttribute, WT_EXECUTEONLYONCE,
+    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, InitializeProcThreadAttributeList,
+    LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcessToken, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+    PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOEXW,
+    UpdateProcThreadAttribute,
 };
 
 use crate::lasting_child::{LastingChild, LastingCommand};
 use crate::path::rules::PathRules;
 use crate::path::rules::windows::command_line::compose_command_line;
+use crate::windows::handle_wait::HandleWait;
 use crate::windows::pinned_process::{
     PinnedProcess, current_process, is_process_in_job, read_exit_code,
 };
@@ -448,83 +446,12 @@ fn compose_environment_block(environment: &[(String, String)]) -> io::Result<Vec
     Ok(block)
 }
 
-// Waits for `process` to exit on the system's wait thread, then reads its exit code.
+// Waits for `process` to exit on the system's thread pool, then reads its exit code.
 async fn wait_for_exit(process: Arc<OwnedHandle>) -> io::Result<ExitStatus> {
-    let exited = Arc::new(Notify::new());
-    let registration = ExitRegistration::register(Arc::clone(&process), Arc::clone(&exited))?;
-    exited.notified().await;
-    drop(registration);
+    let exit_wait = HandleWait::new(Arc::clone(&process))?;
+    exit_wait.notified().await;
+    drop(exit_wait);
     Ok(ExitStatus::from_raw(read_exit_code(process.as_handle())?))
-}
-
-/// A one-shot wait the system's thread pool runs on a process handle, which notifies once the
-/// process exits; unregistered on drop, before its share of the handle it waits on lets the handle
-/// close.
-struct ExitRegistration {
-    wait: HANDLE,
-    exited: *const Notify,
-    process: Arc<OwnedHandle>,
-}
-
-// SAFETY: the wait handle and the notification are used only through calls the system allows
-// from any thread, and `Notify` is `Sync`.
-unsafe impl Send for ExitRegistration {}
-
-impl ExitRegistration {
-    // Registers the wait on `process`, whose share the registration holds until the wait is
-    // removed.
-    fn register(process: Arc<OwnedHandle>, exited: Arc<Notify>) -> io::Result<Self> {
-        let exited = Arc::into_raw(exited);
-        let mut wait: HANDLE = std::ptr::null_mut();
-        // SAFETY: the handle is open, the callback reads the context as the `Notify` it is, and
-        // the context lives until `Drop` has unregistered the wait.
-        if unsafe {
-            RegisterWaitForSingleObject(
-                &raw mut wait,
-                process.as_raw_handle(),
-                Some(notify_exit),
-                exited.cast(),
-                INFINITE,
-                WT_EXECUTEONLYONCE,
-            )
-        } == FALSE
-        {
-            let error = io::Error::last_os_error();
-            // SAFETY: the pointer came from `Arc::into_raw` and the failed registration holds none.
-            drop(unsafe { Arc::from_raw(exited) });
-            return Err(error);
-        }
-        Ok(Self {
-            wait,
-            exited,
-            process,
-        })
-    }
-}
-
-impl Drop for ExitRegistration {
-    fn drop(&mut self) {
-        // SAFETY: the wait is registered; `INVALID_HANDLE_VALUE` makes the call wait for a running
-        // callback to return, so the notification is freed only after its last use. After a
-        // failure the wait may still call back, so the notification it reads and the process
-        // handle it waits on are kept for the process's life.
-        if unsafe { UnregisterWaitEx(self.wait, INVALID_HANDLE_VALUE) } == FALSE {
-            tracing::warn!(
-                error = &io::Error::last_os_error() as &(dyn std::error::Error + 'static),
-                "a lasting child's exit wait could not be unregistered"
-            );
-            mem::forget(Arc::clone(&self.process));
-            return;
-        }
-        // SAFETY: the pointer came from `Arc::into_raw`, and no callback runs any more.
-        drop(unsafe { Arc::from_raw(self.exited) });
-    }
-}
-
-// The wait's callback: notifies the waiting task that the process exited.
-unsafe extern "system" fn notify_exit(context: *mut c_void, _timed_out: bool) {
-    // SAFETY: the context is the registration's `Notify`, alive until the wait is unregistered.
-    unsafe { (*context.cast::<Notify>()).notify_one() };
 }
 
 #[cfg(test)]

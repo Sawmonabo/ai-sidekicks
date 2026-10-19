@@ -13,6 +13,7 @@ pub(crate) mod executable_file;
 pub(crate) mod file_facts;
 pub(crate) mod file_information;
 pub(crate) mod file_system;
+pub(crate) mod handle_wait;
 pub(crate) mod known_folder;
 pub(crate) mod lasting_child;
 pub(crate) mod login_shell;
