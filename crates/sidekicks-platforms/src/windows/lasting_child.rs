@@ -389,9 +389,9 @@ impl Drop for AttributeList {
     }
 }
 
-// The NUL-ended command line from the program's UTF-16 units, the program quoted and each argument
-// as a C program reads it back; fails with `InvalidInput` for a program path holding a quote, or
-// an argument holding a NUL.
+// The NUL-ended command line from the program's UTF-16 units, checked for a NUL and not yet
+// NUL-ended, the program quoted and each argument as a C program reads it back; fails with
+// `InvalidInput` for a program path holding a quote, or an argument holding a NUL.
 fn compose_checked_command_line(program: &[u16], arguments: &[String]) -> io::Result<Vec<u16>> {
     if program.contains(&u16::from(b'"')) {
         return Err(io::Error::new(
