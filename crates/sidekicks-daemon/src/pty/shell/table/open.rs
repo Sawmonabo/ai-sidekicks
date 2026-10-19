@@ -7,8 +7,10 @@ use std::sync::Arc;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{TerminalId, TerminalOpenRequest, TerminalOpenResponse};
 use sidekicks_platforms::PathRules;
+use sidekicks_terminal::TerminalError;
 use tokio::sync::watch;
 
+use crate::error_description::describe_error;
 use crate::ipc::registry::HandlerError;
 use crate::provider::spawn_environment::SessionEnvironment;
 use crate::pty::shell::integration::injection::{
@@ -16,21 +18,27 @@ use crate::pty::shell::integration::injection::{
 };
 use crate::pty::shell::output::stream::ShellOutputEnd;
 use crate::pty::shell::record::ShellRecord;
-use crate::pty::shell::start::{ShellStartInput, check_working_folder, prepare_shell_start};
+use crate::pty::shell::refusals::backend_unavailable;
+use crate::pty::shell::start::{ShellStartInput, check_working_folder, plan_shell_start};
+use crate::pty::shell::table::end::{close_terminal, let_shell_go};
 use crate::pty::shell::table::output::drain_output;
 use crate::pty::shell::table::{ShellTable, TableShared, log_failure};
 use crate::session::not_found::session_not_found;
 use crate::uuid_v7::mint_uuid_v7;
 
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the shell table and the terminal methods call it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start builds the shell table and the terminal methods call it"
+    )
 )]
 impl ShellTable {
     /// Starts a shell for the session, or answers the shell a retry with the same key already
     /// started, waiting for an open of that key under way. Refuses a chat session
     /// `terminal.chatUnsupported`, a session whose working folder is not in place
-    /// `session.workingFolder.missing`, and one being deleted `session.notFound`. A login shell
+    /// `session.workingFolder.missing`, one being deleted `session.notFound`, and any while the
+    /// daemon's terminals drain at its stop `terminal.backendUnavailable`. A login shell
     /// the system will not start gives way to the platform's default shell inside the `shell`
     /// mode, and a shell whose terminal fails to start keeps its record as `didNotStart` with the
     /// daemon's words for why. Fails as a fault when the start cannot be prepared.
@@ -38,7 +46,7 @@ impl ShellTable {
         &self,
         request: TerminalOpenRequest,
     ) -> Result<TerminalOpenResponse, HandlerError> {
-        let session_id = request.session_id.clone();
+        let session_id = request.session_id;
         let key = request.client_idempotency_key.clone();
         let opening = loop {
             let mut waiting = {
@@ -53,13 +61,12 @@ impl ShellTable {
                         terminal_id: shell.terminal_id.clone(),
                     });
                 }
-                match session.opening.get(&key) {
-                    Some(waiting) => waiting.clone(),
-                    None => {
-                        let (opening, waiting) = watch::channel(());
-                        session.opening.insert(key.clone(), waiting);
-                        break opening;
-                    }
+                if let Some(waiting) = session.opening.get(&key) {
+                    waiting.clone()
+                } else {
+                    let (opening, waiting) = watch::channel(());
+                    session.opening.insert(key.clone(), waiting);
+                    break opening;
                 }
             };
             // The open under way never sends; its sender drops once it settles.
@@ -85,9 +92,9 @@ impl TableShared {
     ) -> Result<TerminalOpenResponse, HandlerError> {
         let session_id = &request.session_id;
         self.refuse_if_closing(session_id)?;
-        let working_folder = (self.deps.read_working_folder)(session_id.clone()).await?;
+        let working_folder = (self.deps.read_working_folder)(*session_id).await?;
         let folder = check_working_folder(session_id, working_folder).await?;
-        let settings = (self.deps.read_shell_settings)(session_id.clone()).await?;
+        let settings = (self.deps.read_shell_settings)(*session_id).await?;
         let spawn_nonce = self
             .deps
             .orphan_guard
@@ -96,7 +103,7 @@ impl TableShared {
             .map_err(|error| HandlerError::Internal(Box::new(error)))?;
         let prepared = async {
             let mark_nonce = mint_mark_nonce(&self.deps.startup_folders).await?;
-            let start = prepare_shell_start(ShellStartInput {
+            let start = plan_shell_start(ShellStartInput {
                 environment: SessionEnvironment {
                     base: &self.deps.base_environment,
                     every_project_rows: &settings.every_project_rows,
@@ -135,7 +142,7 @@ impl TableShared {
             let mut sessions = self.lock_sessions();
             let list = self.session_of(&mut sessions, session_id).list.clone();
             ShellRecord::new(
-                session_id.clone(),
+                *session_id,
                 terminal_id.clone(),
                 request.client_idempotency_key.clone(),
                 start.program_name,
@@ -161,7 +168,7 @@ impl TableShared {
                     mark_nonce,
                     spawn_nonce.clone(),
                 );
-                tokio::spawn(drain_output(
+                self.deps.runtime.spawn(drain_output(
                     Arc::downgrade(self),
                     Arc::clone(&record),
                     spawned.output,
@@ -171,9 +178,13 @@ impl TableShared {
                 }
             }
             Err(error) => {
-                record.record_did_not_start(describe_error(&error));
                 discard_unread_nonce(&mark_nonce).await;
                 self.deps.orphan_guard.retire(&spawn_nonce).await;
+                // The terminals drain as the daemon stops, so no shell can start at all.
+                if matches!(error, TerminalError::Draining) {
+                    return Err(backend_unavailable(&describe_error(&error)).into());
+                }
+                record.record_did_not_start(describe_error(&error));
             }
         }
         let is_closing = {
@@ -220,16 +231,11 @@ impl TableShared {
         record.record_did_not_start(describe_error(&error));
         let (handle, mark_nonce, spawn_nonce) =
             record.record_end(ShellOutputEnd::DidNotStart, false);
-        if let Some(handle) = handle
-            && let Err(error) = self.deps.terminals.close(handle).await
+        let closing = close_terminal(&self.deps.terminals, handle);
+        if let Err(error) =
+            let_shell_go(&self.deps.orphan_guard, closing, mark_nonce, spawn_nonce).await
         {
             log_failure(record, "could not close its unrecorded child", &error);
-        }
-        if let Some(mark_nonce) = mark_nonce {
-            discard_unread_nonce(&mark_nonce).await;
-        }
-        if let Some(spawn_nonce) = spawn_nonce {
-            self.deps.orphan_guard.retire(&spawn_nonce).await;
         }
     }
 }
@@ -242,16 +248,4 @@ pub(super) async fn discard_unread_nonce(mark_nonce: &ShellMarkNonce) {
             "a shell's nonce file could not be removed"
         );
     }
-}
-
-/// The daemon's words for an error and each of its causes, joined.
-pub(super) fn describe_error(error: &(dyn Error + 'static)) -> String {
-    let mut words = error.to_string();
-    let mut cause = error.source();
-    while let Some(next) = cause {
-        words.push_str(": ");
-        words.push_str(&next.to_string());
-        cause = next.source();
-    }
-    words
 }

@@ -341,7 +341,7 @@ fn channels(color: &HexColor) -> [u8; 3] {
 /// `title` cut after its last whole grapheme within the wire's bound in code points, so an emoji
 /// or an accented letter is never split; cut at the bound itself only when its first grapheme
 /// alone is longer.
-fn cut_title(title: &str) -> &str {
+pub(crate) fn cut_title(title: &str) -> &str {
     let mut code_points = 0;
     let mut end = 0;
     for grapheme in title.graphemes(true) {

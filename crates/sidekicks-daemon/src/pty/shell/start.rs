@@ -55,17 +55,18 @@ pub(crate) struct ShellStartInput<'a> {
     pub(crate) shell_mode: CommandLine,
 }
 
-/// One open's terminal start and the shell's name until it sets its own title.
-pub(crate) struct ShellStart {
+/// The plan of one open's terminal start: the terminal's spawn request with both launches, and the
+/// started program's name, the shell's title until it sets its own.
+pub(crate) struct ShellStartPlan {
     /// Both launches, for the terminal to start.
     pub(crate) request: SpawnRequest,
     /// The base name of the login shell, or of the default shell where the account names none.
     pub(crate) program_name: String,
 }
 
-/// Why a shell's start could not be prepared.
+/// Why a shell's start could not be planned.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ShellStartError {
+pub(crate) enum ShellStartPlanError {
     /// The account's login shell could not be read.
     #[error("the account's login shell could not be read")]
     LoginShell(#[source] io::Error),
@@ -107,17 +108,17 @@ pub(crate) async fn check_working_folder(
     }
 }
 
-/// Prepares one pane's shell start: the login shell, read now, with the platform's default shell
+/// Plans one pane's shell start: the login shell, read now, with the platform's default shell
 /// as the launch the `shell` mode falls back to, each carrying its marks script. Fails when the
 /// login shell cannot be read or a script written.
-pub(crate) async fn prepare_shell_start(
+pub(crate) async fn plan_shell_start(
     input: ShellStartInput<'_>,
-) -> Result<ShellStart, ShellStartError> {
+) -> Result<ShellStartPlan, ShellStartPlanError> {
     let fallback_path = default_shell().to_string_lossy().into_owned();
     let login_shell = tokio::task::spawn_blocking(login_shell)
         .await
-        .map_err(ShellStartError::Interrupted)?
-        .map_err(ShellStartError::LoginShell)?
+        .map_err(ShellStartPlanError::Interrupted)?
+        .map_err(ShellStartPlanError::LoginShell)?
         .map(|path| path.to_string_lossy().into_owned())
         .filter(|path| !path.is_empty());
     let shell_path = login_shell.unwrap_or_else(|| fallback_path.clone());
@@ -127,7 +128,7 @@ pub(crate) async fn prepare_shell_start(
     );
     let shell = shell_command(&input, &shell_path).await?;
     let fallback = shell_command(&input, &fallback_path).await?;
-    Ok(ShellStart {
+    Ok(ShellStartPlan {
         request: SpawnRequest {
             shell,
             fallback,

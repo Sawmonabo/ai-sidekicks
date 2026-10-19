@@ -15,6 +15,8 @@
 mod end;
 mod open;
 mod output;
+#[cfg(test)]
+mod tests;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -26,14 +28,15 @@ use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::control::TerminalFlowControlUpdateRequest;
 use sidekicks_contracts::terminal::{
-    SHELL_TITLE_MAX_LEN, TerminalAppearanceReportRequest, TerminalColors, TerminalId,
-    TerminalListEntry, TerminalListUpdate, TerminalReorderRequest, TerminalResizeRequest,
+    TerminalAppearanceReportRequest, TerminalColors, TerminalId, TerminalListEntry,
+    TerminalListUpdate, TerminalReorderRequest, TerminalResizeRequest,
 };
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_terminal::{CommandLine, Terminals};
+use tokio::runtime::Handle;
 use tokio::sync::watch;
 
 use crate::ipc::domain_error::DomainError;
@@ -47,7 +50,7 @@ use crate::pty::control_lease::{
 use crate::pty::orphan::guard::OrphanGuard;
 use crate::pty::shell::integration::injection::ShellStartupFolders;
 use crate::pty::shell::list::ShellListFollowers;
-use crate::pty::shell::output::screen::ShellScreenAppearance;
+use crate::pty::shell::output::screen::{ShellScreenAppearance, cut_title};
 use crate::pty::shell::record::{ShellRecord, ShellRecordDeps};
 use crate::pty::shell::refusals::terminal_not_found;
 use crate::pty::shell::resize::{ShellResizeError, ShellSize};
@@ -101,6 +104,9 @@ pub(crate) struct ShellTableDeps {
     pub(crate) shell_mode: CommandLine,
     /// The registry of terminal children a crash could leave behind.
     pub(crate) orphan_guard: Arc<OrphanGuard>,
+    /// The daemon's runtime, which every task a shell starts runs on, so work started from a drop
+    /// after the runtime stopped is dropped rather than panicking.
+    pub(crate) runtime: Handle,
 }
 
 /// One session's shells, in tab order, and who follows its list.
@@ -139,6 +145,7 @@ impl ShellTable {
             terminal_version: deps.terminal_version.clone(),
             append_control_change: Arc::clone(&deps.append_control_change),
             console_colors: Arc::new(Mutex::new(None)),
+            runtime: deps.runtime.clone(),
         });
         Self {
             shared: Arc::new(TableShared {
@@ -156,7 +163,7 @@ impl ShellTable {
         session_id: SessionId,
         outlet: LatestValueOutlet<TerminalListUpdate>,
     ) -> Result<impl FnOnce() + Send + use<>, HandlerError> {
-        (self.shared.deps.read_working_folder)(session_id.clone()).await?;
+        (self.shared.deps.read_working_folder)(session_id).await?;
         let (list, id) = {
             let mut sessions = self.shared.lock_sessions();
             let list = self
@@ -176,24 +183,42 @@ impl ShellTable {
     }
 
     /// Puts the named shells first in the given order; any it does not name keep theirs after.
-    /// Refuses a shell the session does not have `terminal.notFound`.
-    pub(crate) fn reorder(&self, request: &TerminalReorderRequest) -> Result<(), DomainError> {
+    /// Refuses a session this daemon does not hold `session.notFound` and a shell the session
+    /// does not have `terminal.notFound`, changing nothing.
+    pub(crate) async fn reorder(
+        &self,
+        request: &TerminalReorderRequest,
+    ) -> Result<(), HandlerError> {
         let named: Vec<TerminalId> = request.terminal_ids.as_slice().to_vec();
-        let mut sessions = self.shared.lock_sessions();
-        let Some(session) = sessions.get_mut(&request.session_id) else {
-            return Err(terminal_not_found(&named[0]));
+        let missing = {
+            let mut sessions = self.shared.lock_sessions();
+            match sessions.get_mut(&request.session_id) {
+                None => Some(named[0].clone()),
+                Some(session) => {
+                    let missing = named
+                        .iter()
+                        .find(|id| !session.shells.contains_key(*id))
+                        .cloned();
+                    if missing.is_none() {
+                        let unnamed: Vec<TerminalId> = session
+                            .order
+                            .iter()
+                            .filter(|id| !named.contains(id))
+                            .cloned()
+                            .collect();
+                        session.order = named.into_iter().chain(unnamed).collect();
+                        session.list.mark_changed();
+                    }
+                    missing
+                }
+            }
         };
-        if let Some(missing) = named.iter().find(|id| !session.shells.contains_key(*id)) {
-            return Err(terminal_not_found(missing));
+        if let Some(missing) = missing {
+            return Err(self
+                .shared
+                .refuse_missing_shell(&request.session_id, &missing)
+                .await);
         }
-        let unnamed: Vec<TerminalId> = session
-            .order
-            .iter()
-            .filter(|id| !named.contains(id))
-            .cloned()
-            .collect();
-        session.order = named.into_iter().chain(unnamed).collect();
-        session.list.mark_changed();
         Ok(())
     }
 
@@ -247,16 +272,19 @@ impl ShellTable {
         Ok(Arc::clone(&shell.lease))
     }
 
-    /// The lookup `terminal.write` finds each write's shell input through.
+    /// The lookup `terminal.write` finds each write's shell input through, refusing a write
+    /// naming no shell as [`Self::reorder`] does.
     pub(crate) fn input_lookup(&self) -> ShellInputLookup {
         let table = Arc::downgrade(&self.shared);
         Arc::new(move |session_id, terminal_id| {
-            let table = table
-                .upgrade()
-                .ok_or_else(|| terminal_not_found(terminal_id))?;
-            Ok(Arc::clone(
-                &table.find_shell(session_id, terminal_id)?.input,
-            ))
+            let Some(table) = table.upgrade() else {
+                let refusal = HandlerError::from(terminal_not_found(terminal_id));
+                return Err(futures::future::ready(refusal).boxed());
+            };
+            match table.held_shell(session_id, terminal_id) {
+                Some(shell) => Ok(Arc::clone(&shell.input)),
+                None => Err(table.refuse_missing_shell(session_id, terminal_id)),
+            }
         })
     }
 
@@ -342,7 +370,7 @@ impl ShellTable {
     /// left; a release that cannot be appended goes to the service log.
     pub(crate) fn release_connection(&self, transport_id: TransportId) {
         for shell in self.shared.every_shell() {
-            tokio::spawn(async move {
+            self.shared.deps.runtime.spawn(async move {
                 if let Err(error) = shell.lease.release_connection(transport_id).await {
                     log_failure(&shell, "could not release its hold at a disconnect", &error);
                 }
@@ -371,15 +399,15 @@ impl TableShared {
         sessions: &'s mut HashMap<SessionId, SessionShells>,
         session_id: &SessionId,
     ) -> &'s mut SessionShells {
-        sessions.entry(session_id.clone()).or_insert_with(|| {
+        sessions.entry(*session_id).or_insert_with(|| {
             let table = Arc::downgrade(self);
-            let session = session_id.clone();
+            let session = *session_id;
             SessionShells {
                 order: Vec::new(),
                 shells: HashMap::new(),
                 opening: HashMap::new(),
                 list: ShellListFollowers::new(Arc::new(move || {
-                    read_list(table.clone(), session.clone()).boxed()
+                    read_list(table.clone(), session).boxed()
                 })),
                 close_holds: 0,
             }
@@ -405,11 +433,37 @@ impl TableShared {
         session_id: &SessionId,
         terminal_id: &TerminalId,
     ) -> Result<Arc<ShellRecord>, DomainError> {
+        self.held_shell(session_id, terminal_id)
+            .ok_or_else(|| terminal_not_found(terminal_id))
+    }
+
+    fn held_shell(
+        &self,
+        session_id: &SessionId,
+        terminal_id: &TerminalId,
+    ) -> Option<Arc<ShellRecord>> {
         self.lock_sessions()
             .get(session_id)
             .and_then(|session| session.shells.get(terminal_id))
             .cloned()
-            .ok_or_else(|| terminal_not_found(terminal_id))
+    }
+
+    /// The refusal of a request naming `terminal_id`, which the table does not hold:
+    /// `session.notFound` when the session's read refuses the session, else `terminal.notFound`.
+    fn refuse_missing_shell(
+        &self,
+        session_id: &SessionId,
+        terminal_id: &TerminalId,
+    ) -> BoxFuture<'static, HandlerError> {
+        let session_read = (self.deps.read_working_folder)(*session_id);
+        let refusal = terminal_not_found(terminal_id);
+        async move {
+            match session_read.await {
+                Ok(_) => refusal.into(),
+                Err(error) => error,
+            }
+        }
+        .boxed()
     }
 
     fn every_shell(&self) -> Vec<Arc<ShellRecord>> {
@@ -454,7 +508,7 @@ async fn read_list(table: Weak<TableShared>, session_id: SessionId) -> TerminalL
             .listener
             .title()
             .and_then(BoundedText::new)
-            .or_else(|| BoundedText::new(cut_title(&shell.program_name)))
+            .or_else(|| BoundedText::new(cut_title(&shell.program_name).to_owned()))
             .expect("a shell's program has a name");
         terminals.push(TerminalListEntry {
             terminal_id: shell.terminal_id.clone(),
@@ -468,11 +522,6 @@ async fn read_list(table: Weak<TableShared>, session_id: SessionId) -> TerminalL
         session_id,
         terminals: UniqueList::new(terminals).expect("a session's shells each appear once"),
     }
-}
-
-// A program name cut to the wire's title bound.
-fn cut_title(name: &str) -> String {
-    name.chars().take(SHELL_TITLE_MAX_LEN).collect()
 }
 
 /// Writes a failure no caller waits on to the service log.

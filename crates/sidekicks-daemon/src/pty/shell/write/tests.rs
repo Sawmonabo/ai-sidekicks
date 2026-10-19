@@ -100,7 +100,7 @@ const SHELL_MODE_STAND_IN: &str =
 #[ignore = "run only as the shell mode's stand-in, in a test shell's terminal"]
 fn the_shell_mode_stand_in_starts_the_launched_shell() {
     let error = sidekicks_platforms::run_shell_start_stand_in();
-    Err::<(), _>(error).expect("the stand-in starts the launched shell");
+    panic!("the stand-in did not start the launched shell: {error:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -152,6 +152,7 @@ async fn writes_from_two_connections_and_the_screen_s_answers_reach_the_program_
             }),
             is_bracketed_paste_requested: Box::new(|| false),
         },
+        Handle::current(),
     );
 
     let paste: Vec<String> = (b'a'..=b'd')

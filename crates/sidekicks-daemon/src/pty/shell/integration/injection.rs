@@ -18,8 +18,8 @@ use sidekicks_contracts::machine::settings::{
     SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
 };
 use sidekicks_platforms::{
-    BashStartInput, LOGIN_SHELL_ARGUMENTS, PathRules, XDG_DEFAULT_DATA_FOLDERS, create_new_file,
-    create_private_folder, remove_tree, start_bash,
+    BashStartInput, LOGIN_SHELL_ARGUMENTS, PathRules, RUN_FOLDER_FILE_MODE,
+    XDG_DEFAULT_DATA_FOLDERS, create_new_file, create_private_folder, remove_tree, start_bash,
 };
 use tokio::task::JoinError;
 
@@ -27,9 +27,6 @@ use crate::file::atomic_write::{AtomicWriteError, write_file_atomically_if_chang
 use crate::provider::spawn_environment::remove_environment_names;
 use crate::pty::shell::integration::zsh_startup::prepare_zsh_startup_folder;
 use crate::random_hex::random_hex;
-
-/// The mode every startup file is written with: readable and writable by this account alone.
-pub(crate) const PRIVATE_SCRIPT_MODE: u32 = 0o600;
 
 /// bash's script, in the startup folder.
 const BASH_SCRIPT_FILE_NAME: &str = "startup.bash";
@@ -64,8 +61,9 @@ pub(crate) enum ShellStartupError {
     /// The nonce file could not be written.
     #[error("the shell's nonce file could not be written")]
     NonceFile(#[source] io::Error),
-    /// The blocking task that wrote the nonce file ended before it finished.
-    #[error("the write of the shell's nonce file ended before it finished")]
+    /// The blocking task that made a startup folder or wrote the nonce file ended before it
+    /// finished.
+    #[error("a shell startup folder's or nonce file's write ended before it finished")]
     Interrupted(#[source] JoinError),
 }
 
@@ -131,7 +129,7 @@ pub(crate) async fn mint_mark_nonce(
     let file_path = nonce_file.clone();
     tokio::task::spawn_blocking(move || {
         use std::io::Write as _;
-        create_new_file(&file_path, PRIVATE_SCRIPT_MODE)?.write_all(contents.as_bytes())
+        create_new_file(&file_path, RUN_FOLDER_FILE_MODE)?.write_all(contents.as_bytes())
     })
     .await
     .map_err(ShellStartupError::Interrupted)?
@@ -252,10 +250,21 @@ pub(crate) async fn prepare_shell_launch(
 // Writes one script, its folder made private first, unless it already holds the app's contents.
 async fn write_script(script_path: &Path, contents: &'static str) -> Result<(), ShellStartupError> {
     if let Some(folder) = script_path.parent() {
-        create_private_folder(folder).map_err(ShellStartupError::Folder)?;
+        create_startup_folder(folder).await?;
     }
-    write_file_atomically_if_changed(script_path, contents.as_bytes(), PRIVATE_SCRIPT_MODE).await?;
+    write_file_atomically_if_changed(script_path, contents.as_bytes(), RUN_FOLDER_FILE_MODE)
+        .await?;
     Ok(())
+}
+
+/// Makes `folder` and any missing folder above it private to this account, off the runtime's
+/// workers. Fails with [`ShellStartupError::Folder`] when a folder cannot be made.
+pub(crate) async fn create_startup_folder(folder: &Path) -> Result<(), ShellStartupError> {
+    let folder = folder.to_path_buf();
+    tokio::task::spawn_blocking(move || create_private_folder(&folder))
+        .await
+        .map_err(ShellStartupError::Interrupted)?
+        .map_err(ShellStartupError::Folder)
 }
 
 // `environment` with each pair replacing every pair its name names under the system's matching.

@@ -170,7 +170,7 @@ impl ShellOutputStream {
                     let data = window.slice(*sent..piece_end);
                     let cursor = *end_offset - byte_count(window.len() - piece_end);
                     let change = TerminalOutputChange::ScrollbackContinuation {
-                        session_id: self.source.session_id().clone(),
+                        session_id: *self.source.session_id(),
                         terminal_id: self.source.terminal_id().clone(),
                         data: attached(data),
                         cursor: offset(cursor),
@@ -214,7 +214,7 @@ impl ShellOutputStream {
                         if let ShellOutputEnd::Exited { exit_code, .. } = end {
                             self.place = StreamPlace::Finished;
                             let exited = TerminalOutputChange::Exited {
-                                session_id: self.source.session_id().clone(),
+                                session_id: *self.source.session_id(),
                                 terminal_id: self.source.terminal_id().clone(),
                                 exit_code,
                                 cursor: offset(cursor),
@@ -230,7 +230,7 @@ impl ShellOutputStream {
                     }
                     let next_cursor = cursor + byte_count(output.len());
                     let mut changes = vec![TerminalOutputChange::Output {
-                        session_id: self.source.session_id().clone(),
+                        session_id: *self.source.session_id(),
                         terminal_id: self.source.terminal_id().clone(),
                         data: attached(Bytes::from(output)),
                         cursor: offset(next_cursor),
@@ -270,7 +270,7 @@ impl ShellOutputStream {
         let piece_end = window.len().min(MAX_ONE_ATTACHMENT_BYTES);
         let cursor = output_offset - byte_count(window.len() - piece_end);
         let mut changes = vec![TerminalOutputChange::Scrollback {
-            session_id: self.source.session_id().clone(),
+            session_id: *self.source.session_id(),
             terminal_id: self.source.terminal_id().clone(),
             data: attached(window.slice(..piece_end)),
             columns: SafeInt::new(u64::from(size.columns)).expect("a shell has a column"),
@@ -309,7 +309,7 @@ impl ShellOutputStream {
                 cursor: exit_cursor,
             } if exit_cursor == cursor => {
                 changes.push(TerminalOutputChange::Exited {
-                    session_id: self.source.session_id().clone(),
+                    session_id: *self.source.session_id(),
                     terminal_id: self.source.terminal_id().clone(),
                     exit_code,
                     cursor: offset(cursor),

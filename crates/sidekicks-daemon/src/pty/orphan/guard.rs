@@ -9,7 +9,7 @@ use std::path::Path;
 use sidekicks_platforms::{pin_child_process, process_identity};
 
 use crate::pty::orphan::registry::{OrphanRegistry, OrphanRegistryError};
-use crate::pty::orphan::sweep::{OrphanSweepError, OrphanSweepResult, sweep_orphans};
+use crate::pty::orphan::sweep::{OrphanSweepInterrupted, OrphanSweepResult, sweep_orphans};
 use crate::random_hex::random_hex;
 
 // The random bytes in a nonce, so no other process carries it by chance.
@@ -21,9 +21,9 @@ pub(crate) enum OrphanGuardError {
     /// The registry could not be read or written.
     #[error(transparent)]
     Registry(#[from] OrphanRegistryError),
-    /// The sweep of a previous run's children failed.
+    /// The sweep of a previous run's children ended before it finished.
     #[error(transparent)]
-    Sweep(#[from] OrphanSweepError),
+    Sweep(#[from] OrphanSweepInterrupted),
     /// The boot or a started child could not be read.
     #[error("the daemon's boot or a started terminal child could not be read")]
     Process(#[source] io::Error),
@@ -78,11 +78,14 @@ impl OrphanGuard {
 }
 
 /// Sweeps what a previous run left in `data_folder`'s registry, empties it, logs what the sweep
-/// did and answers a guard over it. Fails when this boot cannot be read, a kill fails or the
-/// registry cannot be read or written.
-#[expect(
-    dead_code,
-    reason = "the daemon's start opens the guard before any shell starts"
+/// did and answers a guard over it. Fails when this boot cannot be read, the sweep's task ends
+/// early or the registry cannot be read or written.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start opens the guard before any shell starts"
+    )
 )]
 pub(crate) async fn open_orphan_guard(data_folder: &Path) -> Result<OrphanGuard, OrphanGuardError> {
     let boot_id = process_identity(std::process::id())

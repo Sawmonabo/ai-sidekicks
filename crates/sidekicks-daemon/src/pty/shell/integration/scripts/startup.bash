@@ -136,7 +136,11 @@ else
   builtin eval "__sidekicks_trap_words=( $(builtin trap -p DEBUG) )"
   __sidekicks_person_debug_trap=${__sidekicks_trap_words[2]-}
   builtin unset __sidekicks_trap_words
-  builtin trap '__sidekicks_debug_hook "$_"; builtin eval "$__sidekicks_person_debug_trap"; __sidekicks_restore_status "$?" "$__sidekicks_last_argument"' DEBUG
+  __sidekicks_debug_trap='__sidekicks_debug_hook "$_"; '
+  __sidekicks_debug_trap+='builtin eval "$__sidekicks_person_debug_trap"; '
+  __sidekicks_debug_trap+='__sidekicks_restore_status "$?" "$__sidekicks_last_argument"'
+  builtin trap "$__sidekicks_debug_trap" DEBUG
+  builtin unset __sidekicks_debug_trap
 
   # bash 5.1 runs each entry of an array PROMPT_COMMAND; older bash runs only its first, a string.
   if ((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1))); then

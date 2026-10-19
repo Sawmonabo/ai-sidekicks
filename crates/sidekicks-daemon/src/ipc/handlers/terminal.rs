@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{TerminalId, TerminalWrite, TerminalWriteRequest};
 
-use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
@@ -16,12 +16,23 @@ use crate::pty::control_lease::{ShellConnection, ShellLeaseCaller};
 use crate::pty::shell::paste::ShellPastePart;
 use crate::pty::shell::write::{AdmittedShellWrite, ShellInput, ShellWriteInput};
 
-/// Finds the input of a session's shell; refuses an unknown session with `session.notFound` and a
-/// shell the session does not have with `terminal.notFound`.
-pub(crate) type ShellInputLookup =
-    Arc<dyn Fn(&SessionId, &TerminalId) -> Result<Arc<ShellInput>, DomainError> + Send + Sync>;
+/// Finds the input of a session's shell at once, or answers the refusal of a write naming no shell,
+/// which may wait on a read: `session.notFound` for a session this daemon does not hold and
+/// `terminal.notFound` for a shell the session does not have.
+pub(crate) type ShellInputLookup = Arc<
+    dyn Fn(&SessionId, &TerminalId) -> Result<Arc<ShellInput>, BoxFuture<'static, HandlerError>>
+        + Send
+        + Sync,
+>;
 
-/// Registers `terminal.write`, finding each write's shell through `lookup`.
+/// A write's step before any wait: admitted on its shell, or refused once its refusal is read.
+enum WriteStep {
+    Admitted(AdmittedShellWrite),
+    Refused(BoxFuture<'static, HandlerError>),
+}
+
+/// Registers `terminal.write`, finding each write's shell through `lookup`; a write naming no shell
+/// is answered its refusal without holding the writes after it.
 #[cfg_attr(
     not(test),
     expect(
@@ -37,7 +48,10 @@ pub(crate) fn register_terminal_write(
         move |context: &HandlerContext, request: &TerminalWriteRequest| {
             admit_write(&lookup, context, request)
         },
-        |admitted: AdmittedShellWrite| admitted.answered().boxed(),
+        |step: WriteStep| match step {
+            WriteStep::Admitted(admitted) => admitted.answered().boxed(),
+            WriteStep::Refused(refusal) => async move { Err(refusal.await) }.boxed(),
+        },
     )
 }
 
@@ -46,7 +60,7 @@ fn admit_write(
     lookup: &ShellInputLookup,
     context: &HandlerContext,
     request: &TerminalWriteRequest,
-) -> Result<AdmittedShellWrite, HandlerError> {
+) -> Result<WriteStep, HandlerError> {
     let (session_id, terminal_id, output_subscription_id, input) = match request {
         TerminalWriteRequest::Keys {
             session_id,
@@ -85,8 +99,10 @@ fn admit_write(
         },
         output_subscription_id,
     };
-    let shell = lookup(session_id, terminal_id)?;
-    Ok(shell.admit_write(caller, input)?)
+    match lookup(session_id, terminal_id) {
+        Ok(shell) => Ok(WriteStep::Admitted(shell.admit_write(caller, input)?)),
+        Err(refusal) => Ok(WriteStep::Refused(refusal)),
+    }
 }
 
 #[cfg(test)]
@@ -134,6 +150,7 @@ mod tests {
                 queue_answer: Box::new(|_answer| {}),
                 is_bracketed_paste_requested: Box::new(|| false),
             },
+            tokio::runtime::Handle::current(),
         );
         (input, lease)
     }
@@ -187,7 +204,7 @@ mod tests {
             Arc::new(move |_session, terminal_id| match terminal_id.as_str() {
                 "terminal-1" => Ok(Arc::clone(&full)),
                 "terminal-2" => Ok(Arc::clone(&free)),
-                _ => Err(terminal_not_found(terminal_id)),
+                _ => Err(futures::future::ready(terminal_not_found(terminal_id).into()).boxed()),
             });
         let mut builder = MethodRegistryBuilder::new();
         register_terminal_write(&mut builder, lookup).expect("terminal.write registers");

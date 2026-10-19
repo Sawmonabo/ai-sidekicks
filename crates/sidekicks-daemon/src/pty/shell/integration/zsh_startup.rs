@@ -8,10 +8,10 @@
 
 use std::path::{Path, PathBuf};
 
-use sidekicks_platforms::create_private_folder;
+use sidekicks_platforms::RUN_FOLDER_FILE_MODE;
 
 use crate::file::atomic_write::write_file_atomically_if_changed;
-use crate::pty::shell::integration::injection::{PRIVATE_SCRIPT_MODE, ShellStartupError};
+use crate::pty::shell::integration::injection::{ShellStartupError, create_startup_folder};
 
 /// The folder's name in the shell startup folder.
 const ZSH_FOLDER_NAME: &str = "zsh";
@@ -30,12 +30,12 @@ pub(crate) async fn prepare_zsh_startup_folder(
     startup_folder: &Path,
 ) -> Result<PathBuf, ShellStartupError> {
     let folder = startup_folder.join(ZSH_FOLDER_NAME);
-    create_private_folder(&folder).map_err(ShellStartupError::Folder)?;
+    create_startup_folder(&folder).await?;
     for (file_name, contents) in ZSH_STARTUP_FILES {
         write_file_atomically_if_changed(
             &folder.join(file_name),
             contents.as_bytes(),
-            PRIVATE_SCRIPT_MODE,
+            RUN_FOLDER_FILE_MODE,
         )
         .await?;
     }

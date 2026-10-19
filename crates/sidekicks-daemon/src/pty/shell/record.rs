@@ -22,6 +22,7 @@ use sidekicks_terminal::{
     OutputFilter, ScrollbackRead, TerminalAnswers, TerminalError, TerminalHandle, TerminalScreen,
     TerminalWriteError, Terminals,
 };
+use tokio::runtime::Handle;
 use tokio::sync::watch;
 
 use crate::ipc::registry::TransportId;
@@ -57,6 +58,8 @@ pub(crate) struct ShellRecordDeps {
     /// The console theme's terminal colors the desktop last reported, for a shell whose holder
     /// reported none.
     pub(crate) console_colors: Arc<Mutex<Option<Arc<TerminalColors>>>>,
+    /// The daemon's runtime, which a record's work started from a drop runs on.
+    pub(crate) runtime: Handle,
 }
 
 /// Whether a shell reports its marks, and whether a device typed into it since its last prompt
@@ -159,7 +162,7 @@ impl ShellRecord {
     ) -> Arc<Self> {
         Arc::new_cyclic(|record: &Weak<Self>| {
             let lease = Arc::new(ShellControlLease::new(
-                session_id.clone(),
+                session_id,
                 terminal_id.clone(),
                 deps.machine_device_id.clone(),
                 broadcast_change(record.clone(), Arc::clone(&deps.append_control_change)),
@@ -169,6 +172,7 @@ impl ShellRecord {
                 terminal_id.clone(),
                 Arc::clone(&lease),
                 input_hooks(record.clone()),
+                deps.runtime.clone(),
             );
             let listener =
                 ShellScreenListener::new(screen_hooks(record, &deps), INITIAL_SHELL_SIZE);
@@ -203,11 +207,9 @@ impl ShellRecord {
     }
 
     /// The listener the terminal's screen copy reports to, keeping `answers` for the program's
-    /// answers; the terminal's spawn calls it once.
+    /// answers; the terminal's spawn calls it once, through the one-shot closure it takes.
     pub(crate) fn listen(&self, answers: TerminalAnswers) -> ShellScreenListener {
-        if self.answers.set(answers).is_err() {
-            unreachable!("a shell's terminal starts once");
-        }
+        self.answers.get_or_init(|| answers);
         self.listener.clone()
     }
 
@@ -439,7 +441,7 @@ impl ShellOutputSource for ShellRecord {
         }
         let lease = Arc::clone(&self.lease);
         let terminal_id = self.terminal_id.clone();
-        tokio::spawn(async move {
+        self.deps.runtime.spawn(async move {
             if let Err(error) = lease.release_subscriptions(&[subscription_id]).await {
                 tracing::warn!(
                     terminal = terminal_id.as_str(),

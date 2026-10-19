@@ -16,6 +16,7 @@ use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::method_descriptor::NullPayload;
 use sidekicks_contracts::terminal::{TERMINAL_WRITES_WAITING_LIMIT, TerminalId};
 use sidekicks_terminal::TerminalWriteError;
+use tokio::runtime::Handle;
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{HandlerError, TransportId};
@@ -60,14 +61,18 @@ pub(crate) struct ShellInput {
     pastes: Mutex<ShellPastes>,
     /// How many writes each connection has waiting for the terminal's write queue.
     waiting_writes: Mutex<HashMap<TransportId, usize>>,
+    /// The daemon's runtime, which a paste's close started from a drop runs on.
+    runtime: Handle,
 }
 
 impl ShellInput {
-    /// The input of the shell `terminal_id`, admitted under `lease` and handed on through `hooks`.
+    /// The input of the shell `terminal_id`, admitted under `lease` and handed on through `hooks`,
+    /// its unawaited work running on `runtime`.
     pub(crate) fn new(
         terminal_id: TerminalId,
         lease: Arc<ShellControlLease>,
         hooks: ShellInputHooks,
+        runtime: Handle,
     ) -> Arc<Self> {
         Arc::new(Self {
             terminal_id,
@@ -75,6 +80,7 @@ impl ShellInput {
             hooks,
             pastes: Mutex::new(ShellPastes::default()),
             waiting_writes: Mutex::new(HashMap::new()),
+            runtime,
         })
     }
 
@@ -140,7 +146,7 @@ impl ShellInput {
             (self.hooks.queue_answer)(answer);
         }
         let terminal_id = self.terminal_id.clone();
-        tokio::spawn(async move {
+        self.runtime.spawn(async move {
             if let Err(error) = taken.await {
                 tracing::warn!(
                     terminal = terminal_id.as_str(),

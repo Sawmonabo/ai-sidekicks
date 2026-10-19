@@ -1,18 +1,23 @@
-//! The start's sweep over what a previous run of the daemon left in the orphan registry: every
-//! child still running from that run is killed with its group and everything under it, and every
-//! other entry is discarded. A kill needs proof the process is the child or its own: the recorded
-//! process, pinned by its boot, id and start, or the child's nonce in its environment, which a
-//! descendant that left the child's tree still carries, read again once the process is pinned. A
-//! pinned process is signaled through its pin, so the sweep never kills a stranger.
+//! The start's sweep over what a previous run of the daemon left: first the shells' own holds the
+//! system keeps (Linux's `shell-*` cgroups), then the orphan registry, where every child still
+//! running from that run is killed with its group and everything under it, and every other entry
+//! is discarded. A kill needs proof the process is the child or its own: the recorded process,
+//! pinned by its boot, id and start, or the child's nonce in its environment, which a descendant
+//! that left the child's tree, and each survivor of the child's group, still carries, read again
+//! once the process is pinned. A pinned process is signaled through its pin, so the sweep never
+//! kills a stranger. A process that cannot be read, pinned or killed is logged and skipped, so one
+//! process exiting mid-read never fails the start.
 
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::time::Duration;
 
-use sidekicks_platforms::{PinnedProcess, pin_running_process};
+use sidekicks_platforms::{PinnedProcess, end_leftover_shell_containments, pin_running_process};
 use tokio::task::JoinError;
 
-use crate::pty::orphan::nonce_search::{find_processes_carrying_nonces, read_carried_nonce};
+use crate::pty::orphan::nonce_search::{
+    carried_nonce_entry, find_processes_carrying_nonces, read_carried_nonce,
+};
 use crate::pty::orphan::registry::OrphanRegistryLeftover;
 
 /// What the sweep did, counted in registry entries.
@@ -44,31 +49,25 @@ impl OrphanSweepResult {
     }
 }
 
-/// Why the sweep could not finish.
+/// The sweep's blocking task ended before it finished.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum OrphanSweepError {
-    /// A process could not be read, pinned or killed.
-    #[error("a terminal child a previous run left could not be read or killed")]
-    Process(#[source] io::Error),
-    /// The sweep's blocking task ended before it finished.
-    #[error("the orphan sweep ended before it finished")]
-    Interrupted(#[source] JoinError),
-}
+#[error("the orphan sweep ended before it finished")]
+pub(crate) struct OrphanSweepInterrupted(#[source] JoinError);
 
-/// Kills each child a previous run left running in the boot `boot_id` and discards every other
-/// entry. Fails when a process could not be read or killed, so the start fails rather than skip a
-/// child.
+/// Ends the shells' holds a previous run left, kills each child it left running in the boot
+/// `boot_id` and discards every other entry. A process that cannot be read or killed is logged and
+/// skipped; fails only when the sweep's task ends early.
 pub(crate) async fn sweep_orphans(
     leftover: OrphanRegistryLeftover,
     boot_id: String,
-) -> Result<OrphanSweepResult, OrphanSweepError> {
+) -> Result<OrphanSweepResult, OrphanSweepInterrupted> {
     tokio::task::spawn_blocking(move || sweep(leftover, &boot_id))
         .await
-        .map_err(OrphanSweepError::Interrupted)?
-        .map_err(OrphanSweepError::Process)
+        .map_err(OrphanSweepInterrupted)
 }
 
-fn sweep(leftover: OrphanRegistryLeftover, boot_id: &str) -> io::Result<OrphanSweepResult> {
+fn sweep(leftover: OrphanRegistryLeftover, boot_id: &str) -> OrphanSweepResult {
+    end_leftover_shell_containments();
     let total = leftover.entries.len();
     // A reboot ended every process of the earlier boot, and a process now holding a recorded id is
     // a stranger, so only this boot's entries are looked at.
@@ -78,42 +77,62 @@ fn sweep(leftover: OrphanRegistryLeftover, boot_id: &str) -> io::Result<OrphanSw
         .filter(|entry| entry.boot_id == boot_id)
         .collect();
     let nonces: HashSet<&str> = entries.iter().map(|entry| entry.nonce.as_str()).collect();
-    let carriers: HashMap<u32, String> = find_processes_carrying_nonces(&nonces)?;
+    let carriers: HashMap<u32, String> = find_processes_carrying_nonces(&nonces);
     let mut killed = 0;
     for entry in &entries {
         let mut is_killed = false;
         if let Some(record) = &entry.child {
-            is_killed = match record.pin()? {
-                Some(child) => kill(&child)?,
+            let ended = match record.pin() {
+                Ok(Some(child)) => kill(&child),
                 // What the child started may still run in the group it led.
-                None => record.end_survivors()?,
+                Ok(None) => record.end_survivors(&carried_nonce_entry(&entry.nonce)),
+                Err(error) => Err(error),
             };
+            is_killed = ended.unwrap_or_else(|error| skip(record.id(), &error));
         }
         for (process_id, nonce) in &carriers {
             if *nonce != entry.nonce {
                 continue;
             }
-            // Pinned first, so the nonce read next is the pinned process's own.
-            let Some(carrier) = pin_running_process(*process_id)? else {
-                continue;
-            };
-            if read_carried_nonce(*process_id)?.as_deref() == Some(entry.nonce.as_str()) {
-                is_killed |= kill(&carrier)?;
-            }
+            let ended = kill_carrier(*process_id, &entry.nonce);
+            is_killed |= ended.unwrap_or_else(|error| skip(*process_id, &error));
         }
         killed += usize::from(is_killed);
     }
-    Ok(OrphanSweepResult {
+    OrphanSweepResult {
         killed,
         discarded: total - killed,
         unreadable_cause: leftover.unreadable_cause,
-    })
+    }
+}
+
+// Kills process `process_id` when, once pinned, its environment still carries `nonce`, so the
+// nonce read is the pinned process's own; `true` once it is killed.
+fn kill_carrier(process_id: u32, nonce: &str) -> io::Result<bool> {
+    let Some(carrier) = pin_running_process(process_id)? else {
+        return Ok(false);
+    };
+    if read_carried_nonce(process_id)?.as_deref() == Some(nonce) {
+        return kill(&carrier);
+    }
+    Ok(false)
 }
 
 // Kills the process with its group and what it started at once; `true` once it is killed.
 fn kill(process: &PinnedProcess) -> io::Result<bool> {
     process.stop(Duration::ZERO)?;
     Ok(true)
+}
+
+// Logs that process `process_id` could not be read or killed and is skipped; answers that nothing
+// was killed.
+fn skip(process_id: u32, error: &io::Error) -> bool {
+    tracing::warn!(
+        process_id,
+        error = error as &(dyn std::error::Error + 'static),
+        "A terminal child a previous run left could not be read or killed, so it was skipped."
+    );
+    false
 }
 
 #[cfg(test)]

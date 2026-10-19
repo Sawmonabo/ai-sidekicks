@@ -7,11 +7,13 @@ use std::sync::{Arc, Weak};
 use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::terminal::TerminalOutputSubscribeRequest;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_terminal::{TerminalEvent, TerminalExit, TerminalOutput};
 
 use crate::ipc::registry::{HandlerError, TransportId};
 use crate::pty::shell::output::stream::{ShellOutputEnd, ShellOutputSource, ShellOutputStream};
 use crate::pty::shell::record::ShellRecord;
+use crate::pty::shell::table::end::{close_terminal, let_shell_go};
 use crate::pty::shell::table::open::discard_unread_nonce;
 use crate::pty::shell::table::{ShellTable, TableShared, log_failure};
 
@@ -43,7 +45,7 @@ impl ShellTable {
             subscription_id,
             transport_id,
             progress,
-            request.after_offset.map(|offset| offset.get()),
+            request.after_offset.map(SafeInt::get),
         ))
     }
 }
@@ -87,15 +89,10 @@ impl TableShared {
         };
         let (handle, mark_nonce, spawn_nonce) = record.record_end(end, false);
         self.release_streams(record);
-        if let Some(mark_nonce) = mark_nonce {
-            discard_unread_nonce(&mark_nonce).await;
-        }
-        if let Some(spawn_nonce) = spawn_nonce {
-            self.deps.orphan_guard.retire(&spawn_nonce).await;
-        }
         self.refresh_list(&record.session_id);
-        if let Some(handle) = handle
-            && let Err(error) = self.deps.terminals.close(handle).await
+        let closing = close_terminal(&self.deps.terminals, handle);
+        if let Err(error) =
+            let_shell_go(&self.deps.orphan_guard, closing, mark_nonce, spawn_nonce).await
         {
             log_failure(record, "could not let its exited terminal go", &error);
         }
@@ -113,7 +110,7 @@ impl TableShared {
             return;
         }
         let record = Arc::clone(record);
-        tokio::spawn(async move {
+        self.deps.runtime.spawn(async move {
             if let Err(error) = record.lease.release_subscriptions(&subscriptions).await {
                 log_failure(
                     &record,
