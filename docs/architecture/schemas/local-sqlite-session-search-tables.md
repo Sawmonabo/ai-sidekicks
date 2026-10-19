@@ -1,4 +1,4 @@
-# Session Search Index Tables
+# Session Search Index Tables (ADR-041)
 
 The session search index's tables of the daemon's one SQLite schema: the outbox that feeds the full-text index from every write that changes searchable text, the log of lowered highest rowids a held search reads its rows against, and the triggers that write them. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 

@@ -9,7 +9,7 @@ The database is one schema, created whole when the daemon first opens it. There 
 Nine areas keep their tables in files of their own, beside this one:
 
 - [Session Tables (Plan-001)](local-sqlite-session-tables.md)
-- [Session Search Index Tables](local-sqlite-session-search-tables.md)
+- [Session Search Index Tables (ADR-041)](local-sqlite-session-search-tables.md)
 - [Workspace and Git Tables (Plan-006, Plan-007, Plan-008)](local-sqlite-workspace-and-git-tables.md)
 - [Orchestration Tables (Plan-013)](local-sqlite-orchestration-tables.md)
 - [Workflow Tables (Plan-014)](local-sqlite-workflow-tables.md)
