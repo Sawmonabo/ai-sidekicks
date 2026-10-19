@@ -33,8 +33,7 @@ use sidekicks_contracts::provider::driver::length_limits::{
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::driver::tools::{ProviderToolMetadata, SessionCallbackTool};
-use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -47,7 +46,6 @@ use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapability
 use crate::provider::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid,
 };
-use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{

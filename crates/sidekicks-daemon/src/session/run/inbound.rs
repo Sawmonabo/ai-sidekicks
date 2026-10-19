@@ -298,7 +298,7 @@ enum Attributed {
     Run {
         binding: EpochBinding,
         attribution: DeliveryAttribution,
-        work: RunWork,
+        work: Box<RunWork>,
     },
 }
 
@@ -433,7 +433,7 @@ impl RunInboundDispatch {
                     binding,
                     attribution,
                     work,
-                } => self.run(&binding, attribution, work).await,
+                } => self.run(&binding, attribution, *work).await,
             }
         }
     }
@@ -552,7 +552,7 @@ impl RunInboundDispatch {
             Absorbable::Run(work) => Attributed::Run {
                 binding: epoch_binding,
                 attribution,
-                work,
+                work: Box::new(work),
             },
         })
     }

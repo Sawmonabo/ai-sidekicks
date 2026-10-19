@@ -148,9 +148,7 @@ async fn bind_repairing_socket(
     let caller_check = CallerCheck::new(
         Arc::clone(&deps.caller_process_reader),
         Arc::new(Default::default),
-        Arc::new(ProviderServiceProcesses::new(Arc::clone(
-            &deps.caller_process_reader,
-        ))),
+        Arc::new(ProviderServiceProcesses::default()),
     );
     let negotiator = ProtocolNegotiator::new(session_token.clone(), caller_check.admission_check());
     let mut builder = MethodRegistryBuilder::new();
