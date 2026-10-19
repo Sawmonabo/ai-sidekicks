@@ -95,6 +95,12 @@ mod tests {
             child.wait().expect("the stand-in is reaped");
         }
         assert!(is_listening, "the stand-in never listened for Ctrl-C");
+        // Still running, so the listener waits for the Ctrl-C rather than answering at once.
+        let early_end = child.try_wait().expect("the stand-in's state reads");
+        assert!(
+            early_end.is_none(),
+            "the stand-in ended before the Ctrl-C: {early_end:?}"
+        );
         let child_id = i32::try_from(child.id()).expect("a process id fits a pid");
 
         kill(Pid::from_raw(child_id), Signal::SIGINT).expect("the signal is sent");
