@@ -94,9 +94,6 @@ pub(crate) struct ProviderDescriptor {
     pub(crate) mcp_config_members: &'static [McpDeclaredConfigMember],
     /// The most characters it takes in a skill's name, where it sets a limit of its own.
     pub(crate) skill_name_max_length: Option<u64>,
-    /// Whether the provider ends a turn at `Max steps per turn` itself; where it does not, the run
-    /// engine counts the turn's steps and interrupts it at the bound.
-    pub(crate) bounds_turn_steps: bool,
 }
 
 impl ProviderDescriptor {

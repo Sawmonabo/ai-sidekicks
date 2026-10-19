@@ -267,6 +267,7 @@ pub(crate) fn applied() -> ApplyInterventionResponse {
         status: InterventionResultStatus::Applied,
         fallback_action: None,
         delivered_run_id: None,
+        cancelled: Vec::new(),
     }
 }
 

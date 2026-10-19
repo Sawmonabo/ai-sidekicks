@@ -213,7 +213,9 @@ impl InterventionService {
             Err(error) => return Err(self.fail_limit_hand(target, error.into()).await),
         };
         let verdict = match dispatch {
-            LimitDispatch::NothingToCut => Verdict::Applied,
+            LimitDispatch::NothingToCut => Verdict::Applied {
+                cancelled: Vec::new(),
+            },
             LimitDispatch::LeftToContinuedRun => {
                 return Err(self
                     .fail_limit_hand(target, DispatchError::RunContinued)
@@ -276,14 +278,16 @@ impl InterventionService {
         run_version: i64,
     ) -> Result<Verdict, DispatchError> {
         match self.engine.route_interrupt(run_id).await? {
-            InterruptRoute::Claimed | InterruptRoute::Ended => Ok(Verdict::Applied),
+            InterruptRoute::Claimed | InterruptRoute::Ended => Ok(Verdict::Applied {
+                cancelled: Vec::new(),
+            }),
             InterruptRoute::Driver => {
                 self.interrupt_through_driver(
                     run_id,
                     safe_run_version(run_version),
                     mint_client_key(),
                     InterruptPayload {
-                        pending: InterruptPendingChoice::NextTurn,
+                        pending: InterruptPendingChoice::KeepWaiting,
                         reason: None,
                     },
                 )

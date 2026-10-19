@@ -31,6 +31,7 @@ use sidekicks_contracts::run::intervention::{
     AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionId, InterventionState,
     InterventionType,
 };
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -143,12 +144,21 @@ pub(super) struct InterventionTarget {
     pub(super) actor: InterventionActor,
 }
 
-/// What carrying out an intervention did.
+/// What carrying out an intervention did, with the waiting messages an interrupt took back from
+/// the provider, which none of it runs.
 pub(super) enum Verdict {
     /// Carried out as asked.
-    Applied,
+    Applied {
+        /// The messages taken back.
+        cancelled: Vec<QueueItemId>,
+    },
     /// Carried out through the fallback the driver names, where it named one.
-    Degraded(Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>),
+    Degraded {
+        /// The fallback taken.
+        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
+        /// The messages taken back.
+        cancelled: Vec<QueueItemId>,
+    },
 }
 
 // An outcome that applies nothing.
@@ -210,7 +220,6 @@ impl From<RunEngineError> for DispatchError {
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
             | RunEngineError::LimitInterrupt { .. }
-            | RunEngineError::ProviderUnknown { .. }
             | RunEngineError::DaemonTurn { .. }
             | RunEngineError::Agent { .. }
             | RunEngineError::Draft { .. }
@@ -509,7 +518,9 @@ impl InterventionService {
                     .map_err(DispatchError::Driver)?;
                 match retried {
                     FasterModelRetryOutcome::Applied {} => {
-                        Ok(DispatchOutcome::Carried(Verdict::Applied))
+                        Ok(DispatchOutcome::Carried(Verdict::Applied {
+                            cancelled: Vec::new(),
+                        }))
                     }
                     FasterModelRetryOutcome::Rejected { rejection_reason } => {
                         let reason =
@@ -524,7 +535,9 @@ impl InterventionService {
                 let (run_id, expected_run_version, key) = interrupt_keys(interrupt);
                 // A stop never reaches a driver that does not have the run.
                 match self.engine.route_interrupt(run_id).await? {
-                    InterruptRoute::Claimed => Ok(DispatchOutcome::Carried(Verdict::Applied)),
+                    InterruptRoute::Claimed => Ok(DispatchOutcome::Carried(Verdict::Applied {
+                        cancelled: Vec::new(),
+                    })),
                     InterruptRoute::Ended => Ok(DispatchOutcome::Unapplied(Resolution::Expired)),
                     InterruptRoute::Driver => self
                         .interrupt_through_driver(
@@ -563,9 +576,13 @@ impl InterventionService {
             })
             .await
             .map_err(DispatchError::Driver)?;
+        let cancelled = answered.cancelled;
         Ok(match answered.status {
-            InterventionResultStatus::Applied => Verdict::Applied,
-            InterventionResultStatus::Degraded => Verdict::Degraded(answered.fallback_action),
+            InterventionResultStatus::Applied => Verdict::Applied { cancelled },
+            InterventionResultStatus::Degraded => Verdict::Degraded {
+                fallback_action: answered.fallback_action,
+                cancelled,
+            },
         })
     }
 
@@ -583,27 +600,32 @@ impl InterventionService {
     }
 
     /// Records an applied or degraded verdict from `accepted`: an interrupt's in the write that
-    /// ends its run through the run queue as `end` says, and alone where the run ended since; a
-    /// retry's with the run's version advanced. Answers the state reached. Fails as the run
-    /// queue or the write fails.
+    /// ends its run through the run queue as `end` says, handing it the messages the provider gave
+    /// back, and alone where the run ended since; a retry's with the run's version advanced.
+    /// Answers the state reached. Fails as the run queue or the write fails.
     pub(super) async fn record_verdict(
         &self,
         target: &InterventionTarget,
         verdict: Verdict,
         end: Option<RunEndOfVerdict>,
     ) -> Result<ReachedState, InterventionError> {
-        let (transition, state, is_degraded) = match verdict {
-            Verdict::Degraded(fallback_action) => (
+        let (transition, state, is_degraded, cancelled) = match verdict {
+            Verdict::Degraded {
+                fallback_action,
+                cancelled,
+            } => (
                 InterventionTransition::Degrade { fallback_action },
                 ReachedState::Degraded,
                 true,
+                cancelled,
             ),
-            Verdict::Applied => (
+            Verdict::Applied { cancelled } => (
                 InterventionTransition::Apply {
                     from: UnresolvedInterventionState::Accepted,
                 },
                 ReachedState::Applied,
                 false,
+                cancelled,
             ),
         };
         let row_move = move_intervention_statement(&target.intervention_id, &transition);
@@ -619,6 +641,7 @@ impl InterventionService {
                     accepted_run_version,
                     cause,
                     is_degraded,
+                    cancelled,
                     verdict: RunStateChangeCompanions {
                         statements: vec![row_move.clone()],
                         preceding_events: vec![event.clone()],

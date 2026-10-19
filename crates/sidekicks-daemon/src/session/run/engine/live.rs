@@ -89,7 +89,7 @@ pub(super) struct LiveRuns {
     /// The fast output level each started run carried, until its settled state is reported or it
     /// ends.
     pub(super) carried_output_speeds: HashMap<RunId, ProviderToken>,
-    /// The open turn's steps on a run whose provider does not bound them.
+    /// The open turn's steps, counted against its step bound.
     pub(super) step_counts: HashMap<RunId, StepCount>,
     /// Every cut of each turn, by run and turn number, one per stop that cut it, from before its
     /// reached event is written until that turn's end is written, or until its stop withdraws it

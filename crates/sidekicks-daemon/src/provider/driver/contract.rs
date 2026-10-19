@@ -221,6 +221,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
         params: WithdrawQueuedMessageParams,
     ) -> BoxFuture<'_, Result<WithdrawQueuedMessageResult, DriverError>>;
 
+    /// How the provider takes the messages the run queue hands a running turn: a fixed fact of
+    /// the driver, which the queue reads instead of naming the provider.
+    fn message_handing(&self) -> MessageHanding;
+
     /// Answers a choice the provider holds the run on; a provider that never asks one answers
     /// `NotPending`.
     fn answer_provider_choice(
@@ -403,6 +407,39 @@ impl Drop for ProviderCommandsSubscription {
             end();
         }
     }
+}
+
+/// How a provider takes a message sent while its run's turn runs; each fact drives one path of
+/// the run queue on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "each driver's answer to how its provider takes a message"
+    )
+)]
+pub(crate) struct MessageHanding {
+    /// When the queue hands a waiting message to the running turn.
+    pub(crate) hands_at: HandMoment,
+    /// Whether a handed message the provider has not read can be withdrawn ahead of a change.
+    pub(crate) can_withdraw: bool,
+    /// Whether the provider's process keeps a handed message past its run's end, for a turn it
+    /// starts with it.
+    pub(crate) kept_by_process: bool,
+}
+
+/// When the run queue hands a waiting message to a running turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    dead_code,
+    reason = "each driver's answer to how its provider takes a message"
+)]
+pub(crate) enum HandMoment {
+    /// At once, the provider holding it to its own next step.
+    AtOnce,
+    /// At the turn's next tool boundary, the daemon holding it until then.
+    AtToolBoundary,
 }
 
 /// What the daemon hands a driver to open a session: its config, its spawn-bound legs and the

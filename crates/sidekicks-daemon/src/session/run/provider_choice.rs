@@ -116,7 +116,6 @@ impl From<RunEngineError> for ProviderChoiceError {
             | RunEngineError::LimitInterrupterGone { .. }
             | RunEngineError::LimitInterrupt { .. }
             | RunEngineError::Provider(_)
-            | RunEngineError::ProviderUnknown { .. }
             | RunEngineError::DaemonTurn(_)
             | RunEngineError::Agent(_)
             | RunEngineError::Draft(_)

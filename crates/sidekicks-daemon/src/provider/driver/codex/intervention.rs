@@ -124,6 +124,7 @@ impl CodexInterventionDispatcher {
             status,
             fallback_action: None,
             delivered_run_id: None,
+            cancelled: Vec::new(),
         })
     }
 }
