@@ -219,6 +219,7 @@ impl RunEngine {
         }
         let engine = Arc::clone(self);
         let limit = stop.limit();
+        let span = tracing::Span::current();
         // The task sends the stop's result to this future's receiver, whose guard logs an error
         // its caller's drop leaves unread.
         let (sender, receiver) = oneshot::channel::<Result<(), RunEngineError>>();
@@ -226,6 +227,7 @@ impl RunEngine {
             receiver,
             run_id,
             limit,
+            span: span.clone(),
         };
         let stopping = tokio::spawn(
             async move {
@@ -237,7 +239,7 @@ impl RunEngine {
                     log_unread_limit_stop_failure(run_id, limit, error);
                 }
             }
-            .in_current_span(),
+            .instrument(span),
         );
         match (&mut answer.receiver).await {
             Ok(stopped) => stopped,
@@ -547,18 +549,21 @@ impl RunEngine {
 }
 
 // The receiving end of a limit stop's result, held by the stop's caller: dropped before it reads
-// the result, it logs an error the task sent before its close went in.
+// the result, it logs an error the task sent before its close went in, the log line carrying the
+// stop's span as the task's does.
 struct LimitStopAnswer {
     receiver: oneshot::Receiver<Result<(), RunEngineError>>,
     run_id: RunId,
     limit: RunLimit,
+    span: tracing::Span,
 }
 
 impl Drop for LimitStopAnswer {
     fn drop(&mut self) {
         self.receiver.close();
         if let Ok(Err(error)) = self.receiver.try_recv() {
-            log_unread_limit_stop_failure(self.run_id, self.limit, error);
+            self.span
+                .in_scope(|| log_unread_limit_stop_failure(self.run_id, self.limit, error));
         }
     }
 }
