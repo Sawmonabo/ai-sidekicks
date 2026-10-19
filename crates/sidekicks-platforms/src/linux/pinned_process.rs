@@ -70,11 +70,11 @@ impl PinnedProcess {
     }
 
     /// Stops the process: `SIGTERM` through its descriptor, so no process given its id meanwhile is
-    /// signaled, then `SIGKILL` to it and its whole process group once `grace` passes without its
-    /// exit; the rest of the group is killed on its own exit too, unless its id has since passed
-    /// to another process, which happens only once the group has ended. Blocking, so it runs in
-    /// `spawn_blocking`. Answers the end that took effect, [`ChildEnd::Stop`] for a process
-    /// already gone; fails with `TimedOut` when it outlives the kill's bound, else with the
+    /// signaled, then once `grace` passes without its exit `SIGKILL` to it and its whole process
+    /// group, and the rest of the group is killed on the process's own exit too, unless its id has
+    /// passed to another process, which happens only once the group has ended. Blocking, so it
+    /// runs in `spawn_blocking`; answers the end that took effect, [`ChildEnd::Stop`] for a process
+    /// already gone, and fails with `TimedOut` when it outlives the kill's bound, else with the
     /// system's error.
     pub fn stop(&self, grace: Duration) -> io::Result<ChildEnd> {
         stop_pinned_process(

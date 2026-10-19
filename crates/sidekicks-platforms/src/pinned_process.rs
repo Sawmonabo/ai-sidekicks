@@ -18,11 +18,11 @@ use crate::windows::pinned_process::{end_recorded_survivors, pin_recorded};
 pub(crate) const KILL_WAIT_BOUND: Duration = Duration::from_secs(10);
 
 /// What a later process re-pins a process from, kept as JSON: its id and the system's marks of
-/// that process's start, which no later process given the same id carries. On macOS its unique id
-/// and start time and the boot's UUID; on Linux its start in clock ticks since boot and the boot's
-/// id; on Windows its creation time and the name of the job it runs in, a creation time naming one
-/// instant across boots. The process's exit never ends the group it leads or the job it runs in,
-/// so what it started is ended by its stop, or through the record once it is gone.
+/// that process's start, which no later process given the same id carries (on macOS its unique id,
+/// start time and boot UUID; on Linux its start in clock ticks since boot and the boot's id; on
+/// Windows its creation time, one instant across boots, and its job's name). The process's exit
+/// never ends the group it leads or the job it runs in, so what it started is ended by its stop,
+/// or through the record once it is gone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProcessRecord {
@@ -59,9 +59,9 @@ impl ProcessRecord {
     }
 
     /// Ends what the record's process started that outlived it, for a record [`Self::pin`]
-    /// answered `None` for; `true` when something was ended. On Windows the job the record names;
-    /// on macOS and Linux, on the boot it was recorded in, the group the process led, only while
-    /// no process holds its id and every member is in its session and started no earlier than it.
+    /// answered `None` for: on Windows what is left in the job the record names, on macOS and
+    /// Linux the group the process led, on its boot, while no process holds its id and every
+    /// member is in its session and started no earlier than it; `true` when something was ended.
     /// Fails with the system's error, on macOS with `Unsupported` where the system has no
     /// id-checked process read, and on Windows with `InvalidData` for a job name no lasting child
     /// is given.

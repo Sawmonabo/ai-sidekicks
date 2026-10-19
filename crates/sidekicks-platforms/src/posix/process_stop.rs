@@ -11,11 +11,11 @@ use crate::child_command::ChildEnd;
 use crate::pinned_process::KILL_WAIT_BOUND;
 
 /// Stops a pinned process that leads its own group: `send` delivers a signal to it while it runs,
-/// a `SIGKILL` also to the rest of its group, and answers `false` when the process has already
-/// ended, and `wait_for_end` waits up to a bound for its exit event and answers whether it came.
-/// Answers [`ChildEnd::Stop`] when the process ended before the kill, a process already gone
-/// included, and [`ChildEnd::Kill`] when the kill ended it. Fails with `TimedOut` when it still
-/// runs [`KILL_WAIT_BOUND`] after the kill, and with the error `send` or `wait_for_end` answers.
+/// a `SIGKILL` also to the rest of its group, answering `false` once it has ended, and
+/// `wait_for_end` waits up to a bound for its exit event and answers whether it came. Answers
+/// [`ChildEnd::Stop`] when the process ended before the kill, a process already gone included,
+/// and [`ChildEnd::Kill`] when the kill ended it; fails with `TimedOut` when it still runs
+/// [`KILL_WAIT_BOUND`] after the kill, else with the error `send` or `wait_for_end` answers.
 pub(crate) fn stop_pinned_process(
     grace: Duration,
     mut send: impl FnMut(Signal) -> io::Result<bool>,
