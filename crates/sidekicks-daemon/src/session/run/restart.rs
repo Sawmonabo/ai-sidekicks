@@ -278,10 +278,11 @@ const PENDING_LIMIT_ORDER: [RunLimit; 3] = [
 /// Decides how `run` settles, or `None` for a run left as it is. A queued run is left while a
 /// message waits to start it and fails otherwise, since nothing else will. An owed token limit
 /// stops the run whatever else is pending, its end being final; else a person's pending
-/// interrupt settles it as theirs; else a pending limit interrupt by its limit, the spend limit's
-/// over the step limit's; else an owed step limit interrupts the run with it. A limit's cause
-/// goes to the turns its reached events reached. A child held in a pause the restart orphaned
-/// reads interrupted and continues from its own box; any other run fails.
+/// interrupt settles it as theirs; else a pending limit interrupt by its limit, the token limit's
+/// first, then the spend limit's over the step limit's; else an owed step limit interrupts the
+/// run with it. A limit's cause goes to the turns its reached events reached. A child held in a
+/// pause the restart orphaned reads interrupted and continues from its own box; any other run
+/// fails.
 pub(crate) fn decide_restart_settlement(
     run: &LiveRun,
     facts: &RestartFacts,
