@@ -2,12 +2,20 @@
 //! commit durable, and its schema created once on a file that has none.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
-use rusqlite::{Connection, Transaction, TransactionBehavior};
+use rusqlite::{Connection, ErrorCode, Transaction, TransactionBehavior};
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::setup::{apply_connection_pragmas, prepare_or_close};
 use crate::database::schema::{DAEMON_SCHEMA_FINGERPRINT, DAEMON_SCHEMA_SQL, SESSION_EVENTS_TABLE};
+
+// How long an open waits for another connection's lock, as the busy wait and as the switch to
+// WAL's own retries.
+const BUSY_WAIT: Duration = Duration::from_secs(5);
+
+// How long the switch to WAL waits between its retries.
+const WAL_SWITCH_RETRY_WAIT: Duration = Duration::from_millis(10);
 
 // Whether the file holds the schema; it is created whole, so its event log stands for every table.
 const HAS_SCHEMA_SQL: &str =
@@ -66,13 +74,44 @@ pub(crate) fn open_database(
 // nothing readable. Each is read back, since SQLite keeps its mode when it cannot take one and a
 // build flag can change a default.
 fn apply_writer_pragmas(connection: &Connection) -> Result<(), DatabaseOpenError> {
-    connection.pragma_update(None, "busy_timeout", 5000)?;
-    connection.pragma_update(None, "journal_mode", "WAL")?;
+    set_writer_pragmas(connection)?;
+    read_writer_pragmas_back(connection)
+}
+
+// The switch to WAL upgrades the read transaction it opens into a write one, and SQLite never
+// runs the busy handler on that upgrade, so two daemons opening one fresh file race it and the
+// loser is told busy at once; it tries again until the busy wait is spent.
+fn switch_to_wal(connection: &Connection) -> Result<(), DatabaseOpenError> {
+    let started = Instant::now();
+    loop {
+        match connection.pragma_update(None, "journal_mode", "WAL") {
+            Ok(()) => return Ok(()),
+            Err(rusqlite::Error::SqliteFailure(failure, _))
+                if failure.code == ErrorCode::DatabaseBusy && started.elapsed() < BUSY_WAIT =>
+            {
+                std::thread::sleep(WAL_SWITCH_RETRY_WAIT);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn set_writer_pragmas(connection: &Connection) -> Result<(), DatabaseOpenError> {
+    connection.pragma_update(
+        None,
+        "busy_timeout",
+        i64::try_from(BUSY_WAIT.as_millis()).expect("the busy wait fits SQLite's integer"),
+    )?;
+    switch_to_wal(connection)?;
     connection.pragma_update(None, "synchronous", "FULL")?;
     connection.pragma_update(None, "checkpoint_fullfsync", "ON")?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
     connection.pragma_update(None, "secure_delete", "ON")?;
     apply_connection_pragmas(connection)?;
+    Ok(())
+}
+
+fn read_writer_pragmas_back(connection: &Connection) -> Result<(), DatabaseOpenError> {
     let journal_mode: String =
         connection.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
     if journal_mode != "wal" {
@@ -81,7 +120,10 @@ fn apply_writer_pragmas(connection: &Connection) -> Result<(), DatabaseOpenError
         });
     }
     for (pragma, expected) in [
-        ("busy_timeout", 5000),
+        (
+            "busy_timeout",
+            i64::try_from(BUSY_WAIT.as_millis()).expect("the busy wait fits SQLite's integer"),
+        ),
         ("synchronous", 2),
         ("checkpoint_fullfsync", 1),
         ("foreign_keys", 1),
