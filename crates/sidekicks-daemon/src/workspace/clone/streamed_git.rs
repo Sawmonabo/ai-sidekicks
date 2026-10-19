@@ -10,7 +10,6 @@ use std::io;
 use std::process::ExitStatus;
 use std::time::Duration;
 
-use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::{
     ChildEnd, ChildExit, ChildTree, ChildTreeOutputError, read_child_exit, read_stderr_left_at_exit,
@@ -20,16 +19,12 @@ use tokio::process::ChildStderr;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::git::process::{GitCall, GitError, GitRunner};
+use crate::git::process::{GitCall, GitError, GitRunner, SHUTDOWN_STOP_GRACE};
 use crate::utf8_stream::Utf8StreamDecoder;
 
 /// How long git has to end after a person's cancel before it and its helpers are ended: long
 /// enough for git to remove what it was writing, short enough that a cancel is felt.
 pub(crate) const CANCEL_STOP_GRACE: Duration = Duration::from_secs(5);
-
-/// How long git has to end at the service's stop: the window the stop gives its terminals.
-pub(crate) const SHUTDOWN_STOP_GRACE: Duration =
-    Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS);
 
 // The most one read of git's standard error takes.
 const STDERR_READ_CHUNK: usize = 8 * 1024;
@@ -221,7 +216,7 @@ mod tests {
         let temporary = tempfile::tempdir().expect("the temporary folder is made");
         let repository = temporary.path().join("repository");
         let hooks = temporary.path().join("hooks");
-        let sleeper_pid_file = temporary.path().join("sleeper.pid");
+        let stop_file = temporary.path().join("stop");
         git.run(
             None,
             GitCall::read([OsStr::new("init"), repository.as_os_str()]),
@@ -233,9 +228,13 @@ mod tests {
             .expect("the hooks folder is made");
         write_file_atomically(
             &hooks.join("post-checkout"),
+            // The waiter holds the hook's standard error until the test makes the stop file, or
+            // its temporary folder is gone after a failed assertion.
             format!(
-                "#!/bin/sh\necho held >&2\nsleep 30 &\necho $! > '{}'\n",
-                sleeper_pid_file.display()
+                "#!/bin/sh\necho held >&2\n(while [ ! -e '{}' ] && [ -d '{}' ]; do sleep 0.1; \
+                 done) &\n",
+                stop_file.display(),
+                hooks.display()
             ),
             0o755,
         )
@@ -264,18 +263,12 @@ mod tests {
         )
         .await;
         let elapsed = started_at.elapsed();
-        // The sleeper is the test's own child's child, ended here so it outlives nothing.
-        let sleeper_pid =
-            std::fs::read_to_string(&sleeper_pid_file).expect("the hook wrote its pid");
-        let ended = std::process::Command::new("kill")
-            .arg(sleeper_pid.trim())
-            .status()
-            .expect("kill runs");
+        // The waiter sees the stop file and ends, so it outlives nothing.
+        std::fs::write(&stop_file, "").expect("the stop file is made");
 
         let exit = ran.expect("the run is followed to its end");
         assert!(exit.has_succeeded);
         assert_eq!(stderr, "held\n");
         assert!(elapsed < Duration::from_secs(10), "{elapsed:?}");
-        assert!(ended.success(), "the sleeper was still running");
     }
 }

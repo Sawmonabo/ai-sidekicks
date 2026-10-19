@@ -12,6 +12,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_contracts::place::{DistroName, Place};
 use sidekicks_platforms::{
     ChildTree, ChildTreeOutputError, NULL_DEVICE_PATH, PathRules, Spawner, find_executables,
@@ -28,6 +29,10 @@ pub(crate) const GIT_OUTPUT_MAX_BYTES: usize = 64 * 1024 * 1024;
 /// How long one git call may run: `worktree add` writes a whole checkout and a snapshot's staging
 /// walks the whole worktree, so a shorter bound would end healthy work on a large repository.
 pub(crate) const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// How long git has to end at the service's stop: the window the stop gives its terminals.
+pub(crate) const SHUTDOWN_STOP_GRACE: Duration =
+    Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS);
 
 /// The variables git reads as this repository's own (`git rev-parse --local-env-vars`), and three
 /// more that move where it looks for one; an inherited one would point a call at another
@@ -347,15 +352,25 @@ impl GitRunner {
         }
     }
 
-    /// Waits for the end of every tree a failed call left, taking no more; once a call fails
-    /// after this, its tree is ended by its drop alone.
+    /// Waits up to [`SHUTDOWN_STOP_GRACE`] for the end of every tree a failed call left, since a
+    /// git the kernel holds may never be reaped, and logs how many are still ending past it. A call
+    /// failing after this still ends its tree on a task of its own, which nothing waits for.
     #[expect(
         dead_code,
         reason = "the daemon's stop waits for the git trees a failed call left ending"
     )]
     pub(crate) async fn wait_for_tree_ends(&self) {
         self.tree_ends.close();
-        self.tree_ends.wait().await;
+        if tokio::time::timeout(SHUTDOWN_STOP_GRACE, self.tree_ends.wait())
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                trees = self.tree_ends.len(),
+                grace = ?SHUTDOWN_STOP_GRACE,
+                "git trees of failed calls were still ending when the stop's grace ran out"
+            );
+        }
     }
 
     /// Runs `call` for a project at `place`: `None` on macOS and Linux, Windows itself there. git
