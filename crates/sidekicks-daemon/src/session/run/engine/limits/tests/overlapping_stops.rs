@@ -316,7 +316,10 @@ async fn a_stop_its_caller_drops_mid_hand_keeps_the_cut_its_row_names(#[case] is
     // The asserts below hold on either runtime flavor once this wait ends: the cut has been held
     // since the stop put it in and keeping it leaves it there, the row is written before the hand
     // returns, and no step hand is in flight once the step stop's hand has returned, while a
-    // spend stop's hand never enters that set.
+    // spend stop's hand never enters that set. The step case's one reached event follows: the
+    // turn's reach was marked when its step was counted and a hand that keeps its cut leaves it
+    // marked, and the hand forgets the limit before it leaves the in-flight set, so the next step
+    // hands nothing again.
     tokio::time::timeout(SETTLE_WAIT, async {
         while limit_rows(&database, &run_id).is_empty()
             || (is_step && !lock(&engine.live).step_interrupts_in_flight.is_empty())
@@ -325,7 +328,7 @@ async fn a_stop_its_caller_drops_mid_hand_keeps_the_cut_its_row_names(#[case] is
         }
     })
     .await
-    .expect("the stop's hand records its row and returns");
+    .expect("the stop's hand records its row, and a step hand returns");
 
     assert_eq!(
         limit_rows(&database, &run_id),
