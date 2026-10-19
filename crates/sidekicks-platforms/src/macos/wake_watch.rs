@@ -103,9 +103,9 @@ impl Drop for WakeWatch {
         // SAFETY: the notifier is the registration's own and is deregistered once.
         unsafe { IODeregisterForSystemPower(&raw mut self.notifier) };
         IOServiceClose(self.context.root_domain.load(Ordering::Acquire));
-        // SAFETY: the port is the registration's own, destroyed once, after the notifier that fed it.
+        // SAFETY: the port is the registration's own and is destroyed once, after its notifier.
         unsafe { IONotificationPort::destroy(self.notification_port) };
-        // A message already queued runs before this returns, so none reads the context once it goes.
+        // A message already queued runs before this returns, so none reads the context once gone.
         self.queue.exec_sync(|| {});
     }
 }

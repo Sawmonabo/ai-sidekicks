@@ -1,6 +1,6 @@
-//! The wall clock's timer on Windows: a waitable timer set to an absolute due time, which the system
-//! moves with any change to its clock, so it fires at its instant across sleep and clock changes. A
-//! wait registered on the thread pool's wait thread tells its firing.
+//! The wall clock's timer on Windows: a waitable timer set to an absolute due time, which the
+//! system moves with any change to its clock, so it fires at its instant across sleep and clock
+//! changes. A wait registered on the thread pool's wait thread tells its firing.
 
 use std::ffi::c_void;
 use std::io;

@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "the running daemon's stand-in, which the test starts as its own responsible process"]
+    #[ignore = "the daemon's stand-in, which the test starts as its own responsible process"]
     fn an_own_root_instance_of_this_program_keeps_what_it_starts_under_it() {
         let own_id = std::process::id();
         assert_eq!(
@@ -532,9 +532,10 @@ mod tests {
             Some(own_id),
             "the stand-in started as its own responsible process"
         );
-        let child = this_test_program(
-            "macos::responsibility::tests::the_start_under_an_own_root_instance_of_this_program_stays_under_it",
-        )
+        let child = this_test_program(concat!(
+            "macos::responsibility::tests::",
+            "the_start_under_an_own_root_instance_of_this_program_stays_under_it",
+        ))
         .output()
         .expect("the child runs");
         assert!(
@@ -553,9 +554,10 @@ mod tests {
             read_own_root_step(std::process::id(), false).expect("the step reads"),
             OwnRootStep::ReRun
         );
-        let (has_passed, output) = run_test_as_own_root(
-            "macos::responsibility::tests::an_own_root_instance_of_this_program_keeps_what_it_starts_under_it",
-        );
+        let (has_passed, output) = run_test_as_own_root(concat!(
+            "macos::responsibility::tests::",
+            "an_own_root_instance_of_this_program_keeps_what_it_starts_under_it",
+        ));
         assert!(has_passed && output.contains(INSTANCE_CHECKED), "{output}");
     }
 
