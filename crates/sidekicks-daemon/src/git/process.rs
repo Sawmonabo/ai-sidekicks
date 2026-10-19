@@ -136,11 +136,14 @@ impl GitError {
     }
 }
 
-/// What a git call that exited 0 printed on its standard output.
+/// What a git call that exited 0 printed: its standard output, and the warnings it may still
+/// have printed on its standard error.
 #[derive(Debug)]
 pub(crate) struct GitOutput {
     /// Its standard output, bytes as printed, since a `-z` listing's paths are bytes.
     pub(crate) stdout: Vec<u8>,
+    /// Its standard error, read as UTF-8 with any other byte replaced.
+    pub(crate) stderr: String,
 }
 
 /// Whether a call runs the repository's hooks.
@@ -417,6 +420,7 @@ impl GitRunner {
                 if output.status.success() {
                     return Ok(GitOutput {
                         stdout: output.stdout,
+                        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
                     });
                 }
                 return Err(GitError::Exited {
@@ -506,6 +510,55 @@ pub(crate) fn test_git_runner() -> GitRunner {
         Some(executable),
         GitLimits::DAEMON,
     )
+}
+
+/// Writes a symbolic link at `link` in `folder`, pointing at `target`, through git's checkout
+/// of a link from a new scratch repository at `scratch`'s index, so no system call is named.
+#[cfg(test)]
+pub(crate) async fn write_link(
+    git: &GitRunner,
+    scratch: &Path,
+    folder: &Path,
+    link: &str,
+    target: &str,
+) {
+    git.run(
+        None,
+        GitCall::read([OsString::from("init"), scratch.to_path_buf().into()]),
+    )
+    .await
+    .expect("the scratch repository is made");
+    let target = git
+        .run(
+            None,
+            GitCall::read(in_folder(scratch, &["hash-object", "-w", "--stdin"]))
+                .with_input(target.as_bytes().to_vec()),
+        )
+        .await
+        .expect("the link's target is written");
+    let target = String::from_utf8(strip_line_end(target.stdout)).expect("an id is ASCII");
+    let cache_entry = format!("120000,{target},{link}");
+    git.run(
+        None,
+        GitCall::read(in_folder(
+            scratch,
+            &["update-index", "--add", "--cacheinfo", &cache_entry],
+        )),
+    )
+    .await
+    .expect("the link is staged");
+    let mut checkout = vec![
+        OsString::from("-c"),
+        "core.symlinks=true".into(),
+        "--git-dir".into(),
+        scratch.join(".git").into(),
+        "--work-tree".into(),
+        folder.to_path_buf().into(),
+    ];
+    checkout.extend(in_folder(folder, &["checkout-index", "-f", "--", link]));
+    git.run(None, GitCall::read(checkout))
+        .await
+        .expect("the link is written");
 }
 
 /// `line` without the one line end git prints after a single answer.

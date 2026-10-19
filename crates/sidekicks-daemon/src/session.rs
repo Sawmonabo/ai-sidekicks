@@ -3,6 +3,7 @@
 
 pub(crate) mod addresses;
 pub(crate) mod changes;
+pub(crate) mod changes;
 pub(crate) mod console_state;
 pub(crate) mod directory;
 pub(crate) mod draft_store;
@@ -13,6 +14,7 @@ pub(crate) mod permission_level;
 pub(crate) mod projector;
 pub(crate) mod records;
 pub(crate) mod related;
+pub(crate) mod review_note;
 pub(crate) mod run;
 pub(crate) mod search;
 pub(crate) mod service;

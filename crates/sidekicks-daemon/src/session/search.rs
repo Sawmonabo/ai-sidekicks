@@ -2,6 +2,7 @@
 //! the search reads.
 
 pub(crate) mod cursor;
+pub(crate) mod files;
 pub(crate) mod hits;
 pub(crate) mod index;
 pub(crate) mod marked_line;
