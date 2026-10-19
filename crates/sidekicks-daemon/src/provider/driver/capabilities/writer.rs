@@ -495,22 +495,35 @@ fn refresh_cli_version_statement(
     }
 }
 
+/// A writer over `database`, opening its database writer, for tests that declare a reading.
+#[cfg(test)]
+pub(crate) async fn test_capabilities_writer(
+    database: &crate::database::writer::test_file::TestDatabase,
+) -> DriverCapabilitiesWriter {
+    let writer = DatabaseWriter::open(
+        database.opener(),
+        crate::database::writer::DatabaseWriterOptions::default(),
+    )
+    .await
+    .expect("the writer opens its database");
+    let reads = DatabaseReadPool::new(
+        database.path(),
+        DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY,
+    );
+    DriverCapabilitiesWriter::new(Arc::new(reads), Arc::new(writer))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use rusqlite::Connection;
     use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::{
-        CapabilitySnapshotChange, DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY,
-        DriverCapabilitiesWriter, DriverCapabilitiesWriterError,
+        CapabilitySnapshotChange, DriverCapabilitiesWriterError, test_capabilities_writer,
     };
-    use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::TestDatabase;
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::provider::driver::PROVIDERS;
     use crate::provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
@@ -518,17 +531,6 @@ mod tests {
     use crate::provider::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
 
     const SENTINEL: &str = "2000-01-01T00:00:00.000Z";
-
-    async fn open_writer(database: &TestDatabase) -> DriverCapabilitiesWriter {
-        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens its database");
-        let reads = DatabaseReadPool::new(
-            database.path(),
-            DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY,
-        );
-        DriverCapabilitiesWriter::new(Arc::new(reads), Arc::new(writer))
-    }
 
     fn provider() -> ProviderId {
         ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
@@ -572,7 +574,7 @@ mod tests {
     #[tokio::test]
     async fn a_same_reading_writes_no_capability_row_and_a_new_build_rewrites_only_its_version() {
         let database = TestDatabase::new();
-        let writer = open_writer(&database).await;
+        let writer = test_capabilities_writer(&database).await;
         let provider = provider();
         let first = writer
             .declare(&provider, &reading("2.0.0"))
@@ -605,7 +607,7 @@ mod tests {
         assert!(new_build.is_cli_version_refreshed);
 
         let refreshed = refreshed_at_of_capability_rows(&connection);
-        assert!(!refreshed.is_empty());
+        assert_ne!(refreshed, [] as [String; 0]);
         assert!(refreshed.iter().all(|at| at == SENTINEL));
         let stored_version: String = connection
             .query_row(
@@ -620,7 +622,7 @@ mod tests {
     #[tokio::test]
     async fn a_stored_flag_set_missing_a_flag_fails_the_rebuild() {
         let database = TestDatabase::new();
-        let writer = open_writer(&database).await;
+        let writer = test_capabilities_writer(&database).await;
         let provider = provider();
         writer
             .declare(&provider, &reading("2.0.0"))
