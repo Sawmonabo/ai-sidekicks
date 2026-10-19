@@ -150,26 +150,9 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
         .as_deref()
         .map(|name| open_recorded_job(record, name))
         .transpose()?;
-    let mut process = match open_process(record.id) {
-        Ok(process) => process,
-        // No process has the id, or it names a process of another user or a higher integrity,
-        // which a lasting child this user started never is.
-        Err(error)
-            if matches!(
-                win32_code(&error),
-                Some(ERROR_INVALID_PARAMETER | ERROR_ACCESS_DENIED)
-            ) =>
-        {
-            return Ok(None);
-        }
-        Err(error) => return Err(error),
-    };
-    let Some(read) = process.record()? else {
+    let Some(mut process) = open_recorded_process(record)? else {
         return Ok(None);
     };
-    if !(read.id == record.id && read.start == record.start) {
-        return Ok(None);
-    }
     let Some(name) = &record.job else {
         return Ok(Some(process));
     };
@@ -192,17 +175,43 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 }
 
 /// Ends what is left of the tree `record` names once its process has ended: every process still
-/// in the job a lasting child ran in; `false` when the record names no job, no job has its name
-/// or the job holds no process. Fails with `InvalidData` for a job name no lasting child is given, else with the
-/// system's error.
+/// in the job a lasting child ran in; `false` when the record names no job, its process still
+/// runs, which its stop ends, or no running process is left in a job of its name. Fails with `InvalidData` for a job
+/// name no lasting child is given, else with the system's error.
 pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
     let Some(name) = &record.job else {
         return Ok(false);
     };
+    if open_recorded_process(record)?.is_some() {
+        return Ok(false);
+    }
     let Some(job) = open_recorded_job(record, name)? else {
         return Ok(false);
     };
     end_job_processes(&job)
+}
+
+// The process `record` names, held open while it runs with the recorded id and creation time;
+// `None` once it has ended or its id names another process.
+fn open_recorded_process(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
+    let process = match open_process(record.id) {
+        Ok(process) => process,
+        // No process has the id, or it names a process of another user or a higher integrity,
+        // which a lasting child this user started never is.
+        Err(error)
+            if matches!(
+                win32_code(&error),
+                Some(ERROR_INVALID_PARAMETER | ERROR_ACCESS_DENIED)
+            ) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    Ok(process
+        .record()?
+        .filter(|read| read.id == record.id && read.start == record.start)
+        .map(|_| process))
 }
 
 // The job `record` names `name`, opened with the rights to ask what it holds and to end it; `None`
