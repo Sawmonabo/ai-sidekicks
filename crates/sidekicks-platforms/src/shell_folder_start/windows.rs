@@ -391,9 +391,9 @@ fn is_resolved_without_folder(script: &str) -> bool {
 
 // Windows PowerShell's arguments that move it to `folder`, `None` where an argument leaves no room:
 // every user argument before its command must be a switch it takes the folder start beside, with
-// its value, `-Version` only first. A command given as text, after `-Command` or as a bare word, gets the `Set-Location`
-// in front of its first value, unless the command must open the script; with no command the
-// `Set-Location` follows the arguments as its start command.
+// its value, `-Version` only first. A command given as text, after `-Command` or as a bare word,
+// gets the `Set-Location` in front of its first value, unless the command must open the script;
+// with no command the `Set-Location` follows the arguments as its start command.
 fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Option<Vec<String>> {
     let set_location = format!(
         "Set-Location -LiteralPath {}",
@@ -472,7 +472,7 @@ fn is_windows_powershell_version_switch(argument: &str) -> bool {
 
 // Whether `command` opens with what PowerShell takes only at a script's start, so no statement can
 // go in front of it: a comment (which `#requires` is), `using`, a param block, or a named block,
-// each keyword compared without case and bounded as PowerShell's tokenizer ends it.
+// each keyword compared without case and followed by whitespace or its own opening bracket.
 fn must_open_the_script(command: &str) -> bool {
     let command = command.trim_start();
     command.starts_with('#')
