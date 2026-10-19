@@ -4,9 +4,9 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 
 use super::{
-    PERSON_INTERRUPT_ID, interrupt_state, limit_record, record_interrupt, step_limit_reached,
-    token_limit_reached,
+    interrupt_state, limit_record, record_interrupt, step_limit_reached, token_limit_reached,
 };
+use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::session::run::engine::tests::{
@@ -269,7 +269,9 @@ async fn a_process_exit_refused_by_an_interrupt_asked_for_since_its_read_reads_a
         "accepted",
         false,
     );
-    // A person asks for an interrupt once turn 1's end, written before the run's, lands.
+    // A person asks for an interrupt once turn 1's end, written before the run's, lands; its id,
+    // minted after the step row's, sorts after it where the two share a millisecond.
+    let person_row = mint_uuid_v7().to_string();
     database
         .reader()
         .execute_batch(&format!(
@@ -278,9 +280,9 @@ async fn a_process_exit_refused_by_an_interrupt_asked_for_since_its_read_reads_a
              BEGIN
                INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
                  expected_run_version, client_idempotency_key, created_at)
-               VALUES ('{PERSON_INTERRUPT_ID}', NEW.run_id, 'interrupt', 'requested',
-                 '{{\"pending\":\"nextTurn\"}}', 'phone', 1, '{PERSON_INTERRUPT_ID}',
-                 '2026-01-01T00:00:00.000Z');
+               VALUES ('{person_row}', NEW.run_id, 'interrupt', 'requested',
+                 '{{\"pending\":\"nextTurn\"}}', 'phone', 1, '{person_row}',
+                 {DATABASE_NOW_SQL});
              END;"
         ))
         .expect("the test makes the person's interrupt follow turn 1's end");
@@ -308,7 +310,7 @@ async fn a_process_exit_refused_by_an_interrupt_asked_for_since_its_read_reads_a
         stored_run_state(&database, &run_id),
         ("interrupted".to_owned(), 2)
     );
-    for row in [step_row.as_str(), PERSON_INTERRUPT_ID] {
+    for row in [step_row.as_str(), person_row.as_str()] {
         assert_eq!(interrupt_state(&database, row), "applied");
     }
 }

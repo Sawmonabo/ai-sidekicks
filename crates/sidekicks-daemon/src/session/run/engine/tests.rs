@@ -26,6 +26,7 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::SessionEventDraft;
@@ -123,10 +124,11 @@ impl TestLimitInterrupter {
         Connection::open(path)
             .and_then(|connection| {
                 connection.execute(
-                    "INSERT INTO interventions (id, target_run_id, type, state, payload,
-                       expected_run_version, client_idempotency_key, created_at)
-                     VALUES (?1, ?2, 'interrupt', 'accepted', ?3, 1, ?1,
-                       strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    &format!(
+                        "INSERT INTO interventions (id, target_run_id, type, state, payload,
+                           expected_run_version, client_idempotency_key, created_at)
+                         VALUES (?1, ?2, 'interrupt', 'accepted', ?3, 1, ?1, {DATABASE_NOW_SQL})"
+                    ),
                     params![id, run_id.text().as_str(), record],
                 )
             })

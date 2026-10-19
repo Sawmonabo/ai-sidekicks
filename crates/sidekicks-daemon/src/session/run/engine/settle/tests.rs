@@ -14,6 +14,7 @@ use sidekicks_contracts::session::controls::events::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
+use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::session::run::engine::live::lock;
@@ -50,10 +51,11 @@ fn record_interrupt(
     database
         .reader()
         .execute(
-            "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
-               expected_run_version, client_idempotency_key, created_at)
-             VALUES (?1, ?2, 'interrupt', ?3, ?4, ?5, 1, ?1,
-               strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            &format!(
+                "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
+                   expected_run_version, client_idempotency_key, created_at)
+                 VALUES (?1, ?2, 'interrupt', ?3, ?4, ?5, 1, ?1, {DATABASE_NOW_SQL})"
+            ),
             params![
                 id,
                 run_id.text().as_str(),
