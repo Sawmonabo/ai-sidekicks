@@ -32,4 +32,5 @@ pub(crate) mod socket_path;
 pub(crate) mod terminal;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
+pub(crate) mod wide_text;
 pub(crate) mod xdg_data_folders;

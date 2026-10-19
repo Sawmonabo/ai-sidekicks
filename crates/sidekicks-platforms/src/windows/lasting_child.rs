@@ -7,7 +7,6 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, c_void};
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
-use std::os::windows::ffi::OsStrExt as _;
 use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
 use std::os::windows::process::ExitStatusExt as _;
 use std::process::ExitStatus;
@@ -41,6 +40,7 @@ use crate::lasting_child::{LastingChild, LastingCommand};
 use crate::path::rules::PathRules;
 use crate::path::rules::windows::command_line::compose_command_line;
 use crate::windows::pinned_process::{KILLED_EXIT_CODE, PinnedProcess};
+use crate::windows::wide_text::{refuse_nul, wide_text};
 
 // The start of every lasting child's job name; random bytes follow it.
 const JOB_NAME_PREFIX: &str = "ai-sidekicks-lasting-";
@@ -389,23 +389,6 @@ impl Drop for AttributeList {
     }
 }
 
-// Fails with `InvalidInput` for text holding NUL, which ends a string here.
-fn refuse_nul(text: &OsStr) -> io::Result<()> {
-    if text.as_encoded_bytes().contains(&0) {
-        return Err(io::Error::new(
-            ErrorKind::InvalidInput,
-            "a start's text holds a NUL",
-        ));
-    }
-    Ok(())
-}
-
-// `text` as UTF-16; fails with `InvalidInput` for text holding NUL.
-fn wide_text(text: &OsStr) -> io::Result<Vec<u16>> {
-    refuse_nul(text)?;
-    Ok(text.encode_wide().collect())
-}
-
 // The NUL-ended command line from the program's UTF-16 units, the program quoted and each argument
 // as a C program reads it back; fails with `InvalidInput` for a program path holding a quote, or
 // an argument holding a NUL.
@@ -529,7 +512,28 @@ unsafe extern "system" fn notify_exit(context: *mut c_void, _timed_out: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::compose_environment_block;
+    use std::ffi::OsStr;
+    use std::io::ErrorKind;
+
+    use super::{compose_checked_command_line, compose_environment_block};
+    use crate::windows::wide_text::wide_text;
+
+    // Fails when the program's text or an argument passes with a NUL, which cuts the child's
+    // command line short there, so it starts with fewer arguments and no error.
+    #[test]
+    fn a_lasting_child_start_refuses_text_holding_a_nul() {
+        let text = wide_text(OsStr::new("a\0b")).map(|_| ());
+        let command_line = compose_checked_command_line(&[], &["a\0b".to_owned()]).map(|_| ());
+
+        assert_eq!(
+            text.map_err(|error| error.kind()),
+            Err(ErrorKind::InvalidInput)
+        );
+        assert_eq!(
+            command_line.map_err(|error| error.kind()),
+            Err(ErrorKind::InvalidInput)
+        );
+    }
 
     // Fails when the block keeps both spellings, which lets the child read the first value, where
     // every other start reads the last.

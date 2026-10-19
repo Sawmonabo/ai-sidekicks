@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Foundation::ERROR_INVALID_HANDLE;
 
+use crate::windows::wide_text::wide_text;
+
 // The verbatim prefix of a share's path, and of any other path.
 const VERBATIM_SHARE_PREFIX: &str = r"\\?\UNC\";
 const VERBATIM_PREFIX: &str = r"\\?\";
@@ -62,13 +64,7 @@ fn strip_verbatim_prefix(resolved: &[u16]) -> io::Result<Vec<u16>> {
 /// `InvalidInput` for a NUL in the path or a share's path naming no share, and with the system's
 /// error when a relative path cannot be made absolute.
 pub(crate) fn verbatim_path(path: &Path) -> io::Result<Vec<u16>> {
-    let units: Vec<u16> = path.as_os_str().encode_wide().collect();
-    if units.contains(&0) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "the path holds a NUL",
-        ));
-    }
+    let units = wide_text(path.as_os_str())?;
     if let Some(verbatim) = absolute_verbatim(&units) {
         return Ok(verbatim);
     }
