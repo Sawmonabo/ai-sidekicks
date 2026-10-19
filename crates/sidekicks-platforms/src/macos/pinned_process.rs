@@ -303,17 +303,21 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
     }
     let mut has_members = false;
     for member_id in list_group_process_ids(record.id)? {
-        let member = libc::pid_t::try_from(member_id)
+        // A member that ends between the list and its reads is no survivor, and its session is
+        // read between two reads of its unique id, so it is that process's.
+        let Some(member) = pinned(member_id)? else {
+            continue;
+        };
+        let raw_member = libc::pid_t::try_from(member_id)
             .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
-        // A member that ends between the list and its reads is no survivor.
-        let session = match getsid(Some(Pid::from_raw(member))) {
+        let session = match getsid(Some(Pid::from_raw(raw_member))) {
             Ok(session) => session,
             Err(Errno::ESRCH) => continue,
             Err(errno) => return Err(io::Error::from(errno)),
         };
-        let Some(member) = pinned(member_id)? else {
+        if !is_running(&member)? {
             continue;
-        };
+        }
         if u32::try_from(session.as_raw()).ok() != Some(record.id)
             || member.unique_id <= record.start
         {
