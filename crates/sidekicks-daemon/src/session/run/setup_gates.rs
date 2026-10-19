@@ -18,6 +18,10 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// The run a setup gate checks. Its workspace is the session's own live one: the one the send
 /// that started it named, else the session's newest.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "the workspace and queue setup gates, which read the run's session, item and workspace"
+)]
 pub(crate) struct RunSetupContext {
     /// The run.
     pub(crate) run_id: RunId,
@@ -33,6 +37,10 @@ pub(crate) struct RunSetupContext {
 
 /// How a run ended, handed to every terminal hook as the cause of what it releases.
 #[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "the terminal hooks that release what a run's setup gates took in its session"
+)]
 pub(crate) struct RunTerminalContext {
     /// The run.
     pub(crate) run_id: RunId,
