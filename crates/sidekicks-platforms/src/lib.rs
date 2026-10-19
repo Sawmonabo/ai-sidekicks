@@ -36,7 +36,9 @@
               `GetLocaleInfoEx`, macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a \
               process's user read from its token (`OpenProcess`, `OpenProcessToken`, \
               `GetTokenInformation`, `EqualSid`, `ConvertSidToStringSidW`), the named pipe's \
-              server read (`GetNamedPipeServerProcessId`), the run folder's owner and access \
+              server read (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read \
+              (`WSAIoctl` of `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive \
+              it (`IoSafe`), the run folder's owner and access \
               list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`) and a Windows child's output \
               read at its exit (`CancelIoEx`, `PeekNamedPipe`) are C interfaces too"
 )]
@@ -105,8 +107,11 @@ pub use footprint::ProcessFootprint;
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::SHELL_FOLDER_PROBES;
+// The daemon's own socket on macOS and Linux is AF_UNIX too, so one peer read serves both.
 #[cfg(target_os = "linux")]
-pub use linux::caller_process::{read_parent_process, read_peer_process};
+pub use linux::caller_process::{
+    read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
+};
 #[cfg(target_os = "linux")]
 pub use linux::memory::{
     available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
@@ -133,7 +138,10 @@ pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "macos")]
-pub use macos::caller_process::{read_parent_process, read_peer_process, read_responsible_process};
+pub use macos::caller_process::{
+    read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
+    read_responsible_process,
+};
 #[cfg(target_os = "macos")]
 pub use macos::code_signature::DesktopClientRequirement;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
@@ -213,8 +221,11 @@ pub use posix::shell_folder_start::shell_folder_start;
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+// The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
 #[cfg(unix)]
-pub use posix::socket::connection::connect_socket;
+pub use posix::socket::connection::{
+    UnixDomainStream, connect_unix_domain_socket, connect_unix_domain_socket as connect_socket,
+};
 #[cfg(unix)]
 pub use posix::socket::listener::bind_socket_listener;
 #[cfg(unix)]
@@ -274,7 +285,9 @@ pub use windows::allocator::{
 #[cfg(target_os = "windows")]
 pub use windows::askpass::askpass_listener;
 #[cfg(target_os = "windows")]
-pub use windows::caller_process::{read_parent_process, read_peer_process};
+pub use windows::caller_process::{
+    read_parent_process, read_peer_process, unix_domain_peer_process,
+};
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
     CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
@@ -343,6 +356,8 @@ pub use windows::socket::connection::connect_socket;
 pub use windows::socket::listener::bind_socket_listener;
 #[cfg(target_os = "windows")]
 pub use windows::socket::path::check_socket_path;
+#[cfg(target_os = "windows")]
+pub use windows::socket::unix_domain::{UnixDomainStream, connect_unix_domain_socket};
 #[cfg(target_os = "windows")]
 pub use windows::system_locale::{system_hour_cycle, system_locale};
 #[cfg(target_os = "windows")]
