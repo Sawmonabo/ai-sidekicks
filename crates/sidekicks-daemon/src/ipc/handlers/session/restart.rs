@@ -20,8 +20,9 @@ use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
-use crate::provider::driver::contract::{DriverResumeResult, ResumeSessionParams};
+use crate::provider::driver::contract::DriverResumeResult;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::driver::session_control::ResumeSessionParams;
 use crate::session::not_found::session_not_found;
 
 /// The provider a session ran on, and its last binding rebuilt as the params of a resume.
@@ -125,9 +126,10 @@ mod tests {
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
     use crate::provider::driver::contract::{
-        DriverResumeResult, MockProviderDriver, ProviderDriver, ResumeSessionParams,
+        DriverResumeResult, MockProviderDriver, ProviderDriver,
     };
     use crate::provider::driver::registry::ProviderRegistry;
+    use crate::provider::driver::session_control::ResumeSessionParams;
     use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 
     const SESSION: &str = "0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30";
