@@ -16,20 +16,30 @@ use sidekicks_contracts::wire::integer::SafeInt;
 ///
 /// [`RunEngine::end_run_for_interrupt`]: super::engine::RunEngine::end_run_for_interrupt
 pub(crate) trait LimitInterrupter: Send + Sync {
-    /// Interrupts `run_id` because it reached `limit`, its row naming `cut_turn`, the turn the
-    /// stop cut, and answers within its own bound, since the stop's task runs until it answers. A
-    /// step hand in flight meanwhile stands for every step stop of the run: a resend, and a later
+    /// Interrupts `run_id` because it reached `limit`, its row naming the turn of `cut`, the stop's
+    /// cut, and answers within its own bound, since the stop's task runs until it answers. A step
+    /// hand in flight meanwhile stands for every step stop of the run: a resend, and a later
     /// turn's reach, whose cut is withdrawn, are left to it; a spend or token hand stands for no
     /// other stop. A row this returns `Ok` for ends `applied` or `degraded`; a failure, a hand it
-    /// cannot finish among them, says whether the row is still `requested` or `accepted`
-    /// ([`LimitInterruptFailure::RowPending`]) or none is left ([`LimitInterruptFailure::NoRow`]),
-    /// since that row alone marks the cut.
+    /// cannot finish among them, says whether the row is pending, or the hand is still running
+    /// past the bound and records its own outcome ([`LimitInterruptFailure::RowPending`]), or
+    /// none is left ([`LimitInterruptFailure::NoRow`]), since that row alone marks the cut.
     fn interrupt_for_limit(
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut_turn: Option<SafeInt<1>>,
+        cut: Option<StopCut>,
     ) -> BoxFuture<'_, Result<(), LimitInterruptFailure>>;
+}
+
+/// A limit stop's cut of one turn as its hand carries it: the turn its row names, and the stop's
+/// own identity, by which a hand that fails late withdraws that stop's cut and no other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StopCut {
+    /// The turn the stop cut.
+    pub(crate) turn_number: SafeInt<1>,
+    /// The stop that made the cut.
+    pub(crate) stop_id: u64,
 }
 
 /// Why the interventions service did not carry out a limit's interrupt, by what it left of the
@@ -43,8 +53,8 @@ pub(crate) enum LimitInterruptFailure {
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
-    /// The interrupt failed while its row stays `requested` or `accepted`, its move to an outcome
-    /// refused or not tried, so the row still marks the stop's cut.
+    /// The interrupt failed while the row is pending, or the hand is still running past the bound
+    /// and records its own outcome, so the stop's cut stays for the row that marks it.
     #[error("the limit's interrupt failed and its row is still pending")]
     RowPending {
         /// The service's failure.

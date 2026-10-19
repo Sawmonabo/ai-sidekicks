@@ -16,6 +16,7 @@ use crate::session::run::engine::tests::{
     test_engine, token_limit, turn, turn_completed_at, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
+use crate::session::run::limit_interrupter::StopCut;
 use crate::uuid_v7::mint_uuid_v7;
 
 // A limit stop of `run_id` the test runs beside others: once `goes_first` reports that the stop
@@ -350,4 +351,44 @@ async fn a_stop_its_caller_drops_mid_hand_keeps_the_cut_its_row_names(#[case] is
             .count();
         assert_eq!(reached_events, 1);
     }
+}
+
+// Two hands of the token limit cut one turn and the first fails past its bound. Killed by its late
+// failure withdrawing the cuts of its limit rather than its own, which takes the second hand's
+// cut too while that hand's row names the turn.
+#[tokio::test]
+async fn a_late_failed_hand_withdraws_its_own_cut_and_leaves_another_of_its_limit() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, test_session_id(), run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let key = (run_id, turn(3));
+    let (late, standing) = {
+        let mut live = lock(&engine.live);
+        let late = live.new_cut(RunLimit::TokenLimit);
+        let standing = live.new_cut(RunLimit::TokenLimit);
+        live.cut_turns.insert(key, vec![late, standing]);
+        (late, standing)
+    };
+
+    engine
+        .forget_late_limit_hand(
+            run_id,
+            RunLimit::TokenLimit,
+            Some(StopCut {
+                turn_number: turn(3),
+                stop_id: late.stop_id,
+            }),
+        )
+        .await
+        .expect("the run reads");
+
+    let live = lock(&engine.live);
+    assert_eq!(live.cut_turns.get(&key), Some(&vec![standing]));
+    assert!(
+        live.reached_limits
+            .contains(&(run_id, RunLimit::TokenLimit))
+    );
 }

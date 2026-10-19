@@ -16,6 +16,7 @@ use sidekicks_contracts::run::intervention::{
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::oneshot;
+use tracing::Instrument as _;
 
 use crate::bounded_wait::wait_within;
 use crate::interventions::interrupt_queue::InterruptCause;
@@ -29,8 +30,8 @@ use crate::interventions::store::{
     move_intervention_statement, no_pending_limit_interrupt_statement,
 };
 use crate::provider::driver::run_control::{InterruptPayload, InterruptPendingChoice};
-use crate::session::run::engine::InterruptRoute;
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::engine::{InterruptRoute, RunEngineError};
+use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter, StopCut};
 use crate::session::run::read::safe_run_version;
 use crate::session::run::state_change::refused_statement_index;
 use crate::uuid_v7::mint_uuid_v7;
@@ -71,22 +72,24 @@ impl LimitInterrupter for InterventionService {
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut_turn: Option<SafeInt<1>>,
+        cut: Option<StopCut>,
     ) -> BoxFuture<'_, Result<(), LimitInterruptFailure>> {
         let service = self.clone();
         Box::pin(async move {
             let (answer_sender, mut answer) = oneshot::channel();
-            let hand = tokio::spawn(async move {
-                // The hold lasts until the outcome is recorded, a late one included.
-                let _hold = service.interrupt_lock.acquire(run_id).await;
-                let handed = service.hand_limit_interrupt(run_id, limit, cut_turn).await;
-                // A failed send is an answer past the bound, which the stop no longer awaits.
-                if let Err(late) = answer_sender.send(handed) {
-                    service
-                        .record_late_hand(run_id, limit, cut_turn, late)
-                        .await;
+            let hand = tokio::spawn(
+                async move {
+                    // The hold lasts until the outcome is recorded, a late one included.
+                    let _hold = service.interrupt_lock.acquire(run_id).await;
+                    let cut_turn = cut.map(|cut| cut.turn_number);
+                    let handed = service.hand_limit_interrupt(run_id, limit, cut_turn).await;
+                    // A failed send is an answer past the bound, which the stop no longer awaits.
+                    if let Err(late) = answer_sender.send(handed) {
+                        service.record_late_hand(run_id, limit, cut, late).await;
+                    }
                 }
-            });
+                .instrument(tracing::Span::current()),
+            );
             if let Some(received) = wait_within(Pin::new(&mut answer), LIMIT_HAND_BOUND, None).await
             {
                 return match received {
@@ -270,14 +273,14 @@ impl InterventionService {
         }
     }
 
-    // A hand that answers past its bound: one that left no row pending withdraws the cut the stop
-    // kept and owes the limit again; one that applied has ended the run, and one still pending
+    // A hand that answers past its bound: one that left no row pending withdraws the stop's own
+    // cut and owes the limit again; one that applied has ended the run, and one still pending
     // keeps its cut.
     async fn record_late_hand(
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut_turn: Option<SafeInt<1>>,
+        cut: Option<StopCut>,
         late: Result<(), LimitInterruptFailure>,
     ) {
         let Err(failure) = late else {
@@ -290,10 +293,7 @@ impl InterventionService {
             "a limit's interrupt failed past its bound"
         );
         if let LimitInterruptFailure::NoRow { .. } = failure
-            && let Err(error) = self
-                .engine
-                .forget_late_limit_hand(run_id, limit, cut_turn)
-                .await
+            && let Err(error) = self.engine.forget_late_limit_hand(run_id, limit, cut).await
         {
             tracing::warn!(
                 run_id = %run_id,

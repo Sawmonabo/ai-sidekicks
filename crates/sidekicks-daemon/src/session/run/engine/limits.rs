@@ -32,7 +32,7 @@ use crate::session::run::engine::turns::set_step_limit_reached;
 use crate::session::run::engine::{
     LiveAppend, RunEngine, RunEngineError, refused_statement_index, settled,
 };
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter, StopCut};
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::RunStateEntry;
@@ -371,9 +371,12 @@ impl RunEngine {
             } => cut.map(|(_, turn_number)| turn_number),
             LimitStop::Step { .. } | LimitStop::Interrupt { .. } | LimitStop::Token { .. } => None,
         };
-        let row_turn = cut.map(|(_, turn_number)| turn_number);
+        let row_cut = cut.map(|(_, turn_number)| StopCut {
+            turn_number,
+            stop_id: own_cut.stop_id,
+        });
         match self
-            .hand_limit_interrupt(run_id, limit, reached_turn, row_turn)
+            .hand_limit_interrupt(run_id, limit, reached_turn, row_cut)
             .await
         {
             Ok(true) => cut_guard.keep(),
@@ -399,8 +402,8 @@ impl RunEngine {
         Ok(())
     }
 
-    // Hands the interventions service the interrupt of `run_id` at `limit`, its row naming
-    // `row_turn`, and, once it is handed, forgets the limit and marks `reached_turn`'s count
+    // Hands the interventions service the interrupt of `run_id` at `limit`, its row naming the turn
+    // of `row_cut`, and, once it is handed, forgets the limit and marks `reached_turn`'s count
     // reached; answers whether it went. The step limit's goes one hand at a time, so one that
     // finds another in flight is left to it. Fails as the service is gone or fails, the limit
     // kept for the retry.
@@ -409,7 +412,7 @@ impl RunEngine {
         run_id: RunId,
         limit: RunLimit,
         reached_turn: Option<SafeInt<1>>,
-        row_turn: Option<SafeInt<1>>,
+        row_cut: Option<StopCut>,
     ) -> Result<bool, RunEngineError> {
         let interrupter = self.live_limit_interrupter(run_id)?;
         let _in_flight = match limit {
@@ -425,7 +428,7 @@ impl RunEngine {
             RunLimit::SpendLimit | RunLimit::TokenLimit => None,
         };
         interrupter
-            .interrupt_for_limit(run_id, limit, row_turn)
+            .interrupt_for_limit(run_id, limit, row_cut)
             .await
             .map_err(|source| RunEngineError::LimitInterrupt { run_id, source })?;
         let mut live = lock(&self.live);
@@ -437,29 +440,33 @@ impl RunEngine {
     }
 
     /// Forgets what the engine kept for the interrupt of `run_id` at `limit` whose hand answered
-    /// with its row pending and then failed late, leaving no row pending: the cut of `cut_turn`
-    /// is withdrawn, as a hand that failed in time withdraws it, and the limit is owed
+    /// with its row pending and then failed late, leaving no row pending: the stop's own `cut` is
+    /// withdrawn, as a hand that failed in time withdraws it, and a step or token limit is owed
     /// again on a live run, so its next step, usage report or return from a wait hands the
-    /// interrupt again. Fails as the run's read fails.
+    /// interrupt again; the spend limit is never owed, the budget accountant's next call sending
+    /// it. Fails as the run's read fails, the cut withdrawn and the limit left owed.
     pub(crate) async fn forget_late_limit_hand(
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut_turn: Option<SafeInt<1>>,
+        cut: Option<StopCut>,
     ) -> Result<(), RunEngineError> {
-        let is_live = !self.require_run(run_id).await?.state.is_terminal();
-        let mut live = lock(&self.live);
-        if let Some(turn_number) = cut_turn {
-            let key = (run_id, turn_number);
-            if let Some(cuts) = live.cut_turns.get_mut(&key) {
-                cuts.retain(|cut| cut.limit != limit);
-                if cuts.is_empty() {
-                    live.cut_turns.remove(&key);
-                }
+        // Owed under the lock before the run is read, so a run that ends meanwhile forgets the
+        // limit with the rest of what it held.
+        let is_owed = {
+            let mut live = lock(&self.live);
+            if let Some(cut) = cut {
+                live.withdraw_cut((run_id, cut.turn_number), cut.stop_id);
             }
-        }
-        if is_live {
-            live.reached_limits.insert((run_id, limit));
+            match limit {
+                RunLimit::StepLimit | RunLimit::TokenLimit => {
+                    live.reached_limits.insert((run_id, limit))
+                }
+                RunLimit::SpendLimit => false,
+            }
+        };
+        if is_owed && self.require_run(run_id).await?.state.is_terminal() {
+            lock(&self.live).reached_limits.remove(&(run_id, limit));
         }
         Ok(())
     }

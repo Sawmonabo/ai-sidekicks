@@ -40,7 +40,7 @@ use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter, StopCut};
 use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
 use crate::uuid_v7::mint_uuid_v7;
 
@@ -141,8 +141,9 @@ impl LimitInterrupter for TestLimitInterrupter {
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut_turn: Option<SafeInt<1>>,
+        cut: Option<StopCut>,
     ) -> BoxFuture<'_, Result<(), LimitInterruptFailure>> {
+        let cut_turn = cut.map(|cut| cut.turn_number);
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.cut_turns
             .lock()
