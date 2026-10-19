@@ -96,7 +96,7 @@ const fn powershell_switch(
 /// that PowerShell's reading. A switch missing here is one pwsh reads with no operand, or one it
 /// does not know, which it reads as a script path and then fails to start on; beside a switch
 /// missing here, Windows PowerShell's folder start is refused.
-const POWERSHELL_SWITCHES: [PowerShellSwitch; 34] = [
+const POWERSHELL_SWITCHES: [PowerShellSwitch; 33] = [
     powershell_switch(
         "nologo",
         "nol",
@@ -145,8 +145,8 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 34] = [
         SwitchOperand::Nothing,
         AllowingPowerShells::PwshOnly,
     ),
-    // pwsh reads it with no operand and stops reading; Windows PowerShell reads its own `-Version`
-    // only as its first argument, apart from this table.
+    // pwsh reads it with no operand and stops reading; Windows PowerShell's native entry reads its
+    // own `-Version` only at the line's front, apart from this table.
     powershell_switch(
         "version",
         "v",
@@ -225,13 +225,6 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 34] = [
     powershell_switch(
         "configurationname",
         "config",
-        SwitchOperand::One,
-        AllowingPowerShells::Both,
-    ),
-    // Only Windows PowerShell has it; no open parser shows it taking less than its whole name.
-    powershell_switch(
-        "psconsolefile",
-        "psconsolefile",
         SwitchOperand::One,
         AllowingPowerShells::Both,
     ),
@@ -420,9 +413,10 @@ fn is_resolved_without_folder(script: &str) -> bool {
 
 // Windows PowerShell's arguments that move it to `folder`, `None` where an argument leaves no room:
 // every user argument before its command must be a switch it takes the folder start beside, with
-// its value, `-Version` only first. A command given as text, after `-Command` or as a bare word,
-// becomes one argument, the `Set-Location` in front of the text dot-sourced as a script block;
-// with no command the `Set-Location` follows the arguments as its start command.
+// its value, `-Version` and `-PSConsoleFile` only at the front. A command given as text, after
+// `-Command` or as a bare word, becomes one argument, the `Set-Location` in front of the text
+// dot-sourced as a script block; with no command the `Set-Location` follows the arguments as its
+// start command.
 fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Option<Vec<String>> {
     let set_location = format!(
         "Set-Location -LiteralPath {}",
@@ -439,14 +433,7 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
         ));
         started
     };
-    let mut index = 0;
-    if arguments
-        .first()
-        .is_some_and(|argument| is_windows_powershell_version_switch(argument))
-    {
-        arguments.get(1)?;
-        index = 2;
-    }
+    let mut index = windows_powershell_native_front_end(arguments)?;
     while let Some(argument) = arguments.get(index) {
         let Some(key) = powershell_switch_key(argument) else {
             // A bare word begins the command; an empty argument is refused.
@@ -487,18 +474,37 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
     )
 }
 
-// Whether `argument` is Windows PowerShell's `-Version`, which its native entry reads only as the
-// first argument: one dash, then a prefix of the name from `v`, compared without case.
-fn is_windows_powershell_version_switch(argument: &str) -> bool {
+// Where the switches Windows PowerShell's native entry reads at the line's front end, `None` when
+// one of them lacks its value: `-Version <n>` at the first argument, then `-PSConsoleFile <file>`
+// at the next; or `-PSConsoleFile <file>` at the first. The entry also reads `-ServerMode` and
+// `-RuntimeVersion` there, which the managed table does not take, so beside them the folder start
+// is refused.
+fn windows_powershell_native_front_end(arguments: &[String]) -> Option<usize> {
+    let mut index = 0;
+    for name in ["version", "psconsolefile"] {
+        if arguments
+            .get(index)
+            .is_some_and(|argument| is_native_switch(argument, name))
+        {
+            arguments.get(index + 1)?;
+            index += 2;
+        }
+    }
+    Some(index)
+}
+
+// Whether `argument` names the switch `name` as Windows PowerShell's native entry reads it: one
+// dash, then a prefix of the name from its first letter, compared without case.
+fn is_native_switch(argument: &str, name: &str) -> bool {
     let mut characters = argument.chars();
-    let name = match characters.next() {
+    let rest = match characters.next() {
         Some(first) if POWERSHELL_DASHES.contains(&first) => characters.as_str(),
         _ => return false,
     };
-    !name.is_empty()
-        && "version"
-            .get(..name.len())
-            .is_some_and(|start| start.eq_ignore_ascii_case(name))
+    !rest.is_empty()
+        && name
+            .get(..rest.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(rest))
 }
 
 // The name an argument gives after its switch character (`/`, a dash, or a dash doubled), trimmed

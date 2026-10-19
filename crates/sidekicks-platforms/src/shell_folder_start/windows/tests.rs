@@ -14,16 +14,18 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 // standard input's `-` drops pwsh's folder switch, as a user command would; a folder quote other
 // than `'` is left single, which ends the string and runs the rest of the name; Windows PowerShell
 // gets its folder statement beside an argument not known to leave it free, a switch only pwsh has
-// (`-cwa` among them), a switch missing its value or a `-Version` after another switch, or loses it
-// beside its `-Version` first, its `-i` or its own format or quiet switches; the statement goes
-// anywhere but in front of the command text, or in front of standard input's `-`; the text is not
-// every value from the command's first on, joined by one space into one argument, or is not
-// dot-sourced as a script block on lines of its own, which a text opening with `using`, a param
-// block, named blocks or a comment line, or ending in a comment, needs; a bare word is not read as
-// the command; cmd started on a share starts in the Windows folder, and a share path with `&` or
-// `%` left bare runs a command; a horizontal bar is not read as a dash; a drive root is quoted
-// without its `\`; MSYS bash without its variable opens in the home folder, and WSL's launcher
-// given it goes through the MSYS arm; or `--cd` is added over the user's own `~`.
+// (`-cwa` among them), a switch missing its value, a `-Version` or `-PSConsoleFile` past the native
+// entry's front or after a switch character other than one dash, a lone dash, or loses it beside
+// its `-Version` first, its `-PSConsoleFile` first or after that `-Version`, its `-i` or its own
+// format or quiet switches; the statement goes anywhere but in front of the command text, or in
+// front of standard input's `-`; the text is not every value from the command's first on, joined by
+// one space into one argument, or is not dot-sourced as a script block on lines of its own, which a
+// text opening with `using`, a param block, named blocks or a comment line, or ending in a comment,
+// needs; a bare word is not read as the command; cmd started on a share starts in the Windows
+// folder, and a share path with `&` or `%` left bare runs a command; a horizontal bar is not read
+// as a dash; a drive root is quoted without its `\`; MSYS bash without its variable opens in the
+// home folder, and WSL's launcher given it goes through the MSYS arm; or `--cd` is added over the
+// user's own `~`.
 #[rstest]
 #[case::pwsh_with_a_trailing_separator(
     r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -289,6 +291,111 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     &["-NoLogo", "-Version", "5.1"],
     r"C:\wt",
     &["-NoLogo", "-Version", "5.1"],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_console_file_first(
+    "powershell.exe",
+    &["-PSConsoleFile", "my.psc1"],
+    r"C:\wt",
+    &[
+        "-PSConsoleFile",
+        "my.psc1",
+        "-NoLogo",
+        "-NoExit",
+        "-Command",
+        r"Set-Location -LiteralPath 'C:\wt'",
+    ],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_console_file_by_its_shortest_name(
+    "powershell.exe",
+    &["-p", "my.psc1"],
+    r"C:\wt",
+    &["-p", "my.psc1", "-NoLogo", "-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\wt'"],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_version_then_its_console_file(
+    "powershell.exe",
+    &["-Version", "2.0", "-PSConsoleFile", "my.psc1", "-NoExit", "-Command", "Get-Date"],
+    r"C:\wt",
+    &[
+        "-Version",
+        "2.0",
+        "-PSConsoleFile",
+        "my.psc1",
+        "-NoExit",
+        "-Command",
+        "Set-Location -LiteralPath 'C:\\wt'; . {\nGet-Date\n}",
+    ],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_console_file_then_its_version(
+    "powershell.exe",
+    &["-PSConsoleFile", "my.psc1", "-Version", "2.0"],
+    r"C:\wt",
+    &["-PSConsoleFile", "my.psc1", "-Version", "2.0"],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_console_file_after_another_switch(
+    "powershell.exe",
+    &["-NoLogo", "-PSConsoleFile", "x"],
+    r"C:\wt",
+    &["-NoLogo", "-PSConsoleFile", "x"],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_console_file_after_a_slash(
+    "powershell.exe",
+    &["/p", "x"],
+    r"C:\wt",
+    &["/p", "x"],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_console_file_after_two_dashes(
+    "powershell.exe",
+    &["--PSConsoleFile", "x"],
+    r"C:\wt",
+    &["--PSConsoleFile", "x"],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_lone_dash_first(
+    "powershell.exe",
+    &["-", "2.0"],
+    r"C:\wt",
+    &["-", "2.0"],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_version_after_a_slash(
+    "powershell.exe",
+    &["/v", "2.0"],
+    r"C:\wt",
+    &["/v", "2.0"],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_version_after_two_dashes(
+    "powershell.exe",
+    &["--version", "2.0"],
+    r"C:\wt",
+    &["--version", "2.0"],
     r"C:\wt",
     &[],
     None
