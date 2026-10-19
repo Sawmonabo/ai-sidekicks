@@ -37,7 +37,8 @@ pub(crate) enum RemovalRiskReadError {
 /// are counted file by file, each untracked file on its own; ignored entries are counted as the
 /// ignore rules match them, a wholly ignored folder once, so the read stays bounded on a tree with
 /// a large ignored folder. Both reads take no optional lock, so they never rewrite the tree's index
-/// under a run working there, and run one after another. Fails with the first git read's failure.
+/// under a run working there, and run one after another; the status read keeps git's built-in
+/// file-watch daemon where the repository turns it on. Fails with the first git read's failure.
 #[expect(
     dead_code,
     reason = "worktree removal reads what it would lose through it"
@@ -144,7 +145,8 @@ async fn read_status_entries(
                     "--ignored=matching",
                     "--untracked-files=all",
                 ],
-            )),
+            ))
+            .keeping_built_in_file_watch(folder),
         )
         .await?;
     let listing = String::from_utf8_lossy(&status.stdout);

@@ -1,7 +1,7 @@
 //! The one runner for git: the absolute `git` found along the person's search path, argv only and
 //! no shell, an environment cleared of the variables that redirect which repository git reads, a
 //! bound on its output and on its time, and an end that reaches every process it started. A read
-//! runs no hook and starts no file-watch daemon; a write keeps the repository's hooks.
+//! runs no hook and no file-watch helper program; a write keeps the repository's hooks.
 
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use sidekicks_contracts::place::{DistroName, Place};
 use sidekicks_platforms::{
-    ChildTreeOutputError, Spawner, find_executables, path_from_program_output, start_child_tree,
+    ChildTreeOutputError, NULL_DEVICE_PATH, Spawner, find_executables, path_from_program_output,
+    start_child_tree,
 };
 use tokio::process::Command;
 
@@ -54,8 +55,12 @@ const STRIPPED_GIT_ENVIRONMENT_NAMES: [&str; 18] = [
 const PINNED_GIT_ENVIRONMENT: [(&str, &str); 3] =
     [("LC_ALL", "C"), ("LANG", "C"), ("GIT_TERMINAL_PROMPT", "0")];
 
-/// Put before a read's own arguments: no hook runs and no file-watch daemon starts for it.
-const READ_ARGUMENTS: [&str; 4] = ["-c", "core.hooksPath=", "-c", "core.fsmonitor=false"];
+/// The setting that turns git's file watch off for one call, so neither its built-in daemon nor a
+/// helper program the repository names starts for it.
+const FILE_WATCH_OFF_SETTING: &str = "core.fsmonitor=false";
+
+/// The exit code of `git config --get` for a setting that is not set.
+const CONFIG_UNSET_EXIT_CODE: i32 = 1;
 
 /// Why a git call did not answer.
 #[derive(Debug, thiserror::Error)]
@@ -76,7 +81,7 @@ pub(crate) enum GitError {
     #[error("git could not be started")]
     Start(#[source] io::Error),
     /// git ran past its time and its whole tree was ended.
-    #[error("git did not finish within {} s", timeout.as_secs())]
+    #[error("git did not finish within {timeout:?}")]
     TimedOut {
         /// The bound it passed.
         timeout: Duration,
@@ -131,41 +136,66 @@ pub(crate) struct GitOutput {
     pub(crate) stdout: Vec<u8>,
 }
 
-/// Whether a call only reads the repository, so no hook or file-watch daemon starts for it, or
-/// writes a ref or an object and keeps the repository's hooks.
+/// Whether a call runs the repository's hooks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum GitAccess {
-    /// Reads, or writes only a scratch index or loose objects no ref names yet.
-    Read,
-    /// Writes a commit or a ref, the repository's hooks running as for the person.
-    Write,
+enum GitHooks {
+    /// No hook runs: `core.hooksPath` names the system's null device. A read runs so, and may
+    /// still write a scratch index, loose objects no ref names, worktree records, the ref locks
+    /// of a transaction it prepares and aborts, or a worktree's index.
+    Off,
+    /// The repository's hooks run as they do for the person: a write of a commit or a ref.
+    Repository,
+}
+
+/// What a call does with the repository's file watch (`core.fsmonitor`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum GitFileWatch {
+    /// Off for the call, so no file-watch daemon or helper program starts.
+    Off,
+    /// git's built-in file-watch daemon kept where the repository in `folder` turns it on, since
+    /// a read of the live index walks the whole tree without it, and a helper program the
+    /// repository names turned off; read from the repository once for the call.
+    BuiltInKept {
+        /// The folder the call runs in.
+        folder: PathBuf,
+    },
+    /// As the repository sets it.
+    Repository,
 }
 
 /// One git call: its whole argument list, `-C <folder>` included, and what it adds to git's
 /// environment and gives git on its standard input.
 #[derive(Debug)]
 pub(crate) struct GitCall {
-    access: GitAccess,
+    hooks: GitHooks,
+    file_watch: GitFileWatch,
     arguments: Vec<OsString>,
     environment: Vec<(OsString, OsString)>,
     input: Option<Vec<u8>>,
 }
 
 impl GitCall {
-    /// A call that only reads, run with `arguments`; the caller passes `--no-optional-locks` where
-    /// a background read could take the person's index lock.
+    /// A read, run with `arguments`: no hook runs and the file watch is off, though the call may
+    /// still write a scratch index, worktree records or ref locks. The caller passes
+    /// `--no-optional-locks` where a background read could take the person's index lock.
     pub(crate) fn read(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
-        Self::new(GitAccess::Read, arguments)
+        Self::new(GitHooks::Off, GitFileWatch::Off, arguments)
     }
 
-    /// A call that writes a commit or a ref, run with `arguments`.
+    /// A call that writes a commit or a ref, run with `arguments`, the repository's hooks and file
+    /// watch as it sets them.
     pub(crate) fn write(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
-        Self::new(GitAccess::Write, arguments)
+        Self::new(GitHooks::Repository, GitFileWatch::Repository, arguments)
     }
 
-    fn new(access: GitAccess, arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
+    fn new(
+        hooks: GitHooks,
+        file_watch: GitFileWatch,
+        arguments: impl IntoIterator<Item = impl Into<OsString>>,
+    ) -> Self {
         Self {
-            access,
+            hooks,
+            file_watch,
             arguments: arguments.into_iter().map(Into::into).collect(),
             environment: Vec::new(),
             input: None,
@@ -187,6 +217,16 @@ impl GitCall {
     /// given none has no standard input, so `commit-tree -F -` reads an empty message.
     pub(crate) fn with_input(mut self, input: Vec<u8>) -> Self {
         self.input = Some(input);
+        self
+    }
+
+    /// The read with git's built-in file-watch daemon kept where the repository in `folder`, the
+    /// folder the call runs in, turns it on, and only a helper program it names turned off: for a
+    /// read of the live index, which walks the whole tree without the daemon.
+    pub(crate) fn keeping_built_in_file_watch(mut self, folder: &Path) -> Self {
+        self.file_watch = GitFileWatch::BuiltInKept {
+            folder: folder.to_path_buf(),
+        };
         self
     }
 }
@@ -247,7 +287,8 @@ impl GitRunner {
     /// or an output stream passes its bound; the output read ends at git's own exit. Fails with
     /// `WslPlace` for a project in a WSL 2 distribution, `NotFound` when no git was found, `Start`
     /// when it cannot start, `TimedOut`, `OutputTooLarge`, `Read`, and `Exited` with what git
-    /// printed when it exits with a failure.
+    /// printed when it exits with a failure; a call keeping the built-in file watch fails so too
+    /// when the read of the repository's setting does.
     pub(crate) async fn run(
         &self,
         place: Option<&Place>,
@@ -260,15 +301,59 @@ impl GitRunner {
         }
         let executable = self.executable.as_deref().ok_or(GitError::NotFound)?;
         let GitCall {
-            access,
+            hooks,
+            file_watch,
             arguments,
             environment,
             input,
         } = call;
-        let mut command = Command::new(executable);
-        if access == GitAccess::Read {
-            command.args(READ_ARGUMENTS);
+        let is_file_watch_off = match file_watch {
+            GitFileWatch::Off => true,
+            GitFileWatch::Repository => false,
+            GitFileWatch::BuiltInKept { folder } => {
+                self.names_file_watch_program(executable, &folder).await?
+            }
+        };
+        let mut settings = call_settings(hooks, is_file_watch_off);
+        settings.extend(arguments);
+        self.run_git(executable, settings, environment, input).await
+    }
+
+    // Whether the repository in `folder` names a helper program as its file watch, read as git
+    // reads a boolean: `false` for the built-in daemon, a watch turned off and none set.
+    async fn names_file_watch_program(
+        &self,
+        executable: &Path,
+        folder: &Path,
+    ) -> Result<bool, GitError> {
+        // The file watch is left as set, since a setting on this call is what it would read.
+        let mut arguments = call_settings(GitHooks::Off, false);
+        arguments.extend(in_folder(
+            folder,
+            &["config", "--type=bool-or-str", "--get", "core.fsmonitor"],
+        ));
+        match self.run_git(executable, arguments, Vec::new(), None).await {
+            Ok(output) => {
+                let value = strip_line_end(output.stdout);
+                Ok(value != b"true" && value != b"false")
+            }
+            Err(GitError::Exited {
+                code: Some(CONFIG_UNSET_EXIT_CODE),
+                ..
+            }) => Ok(false),
+            Err(failure) => Err(failure),
         }
+    }
+
+    // Starts the git at `executable` with `arguments` and holds it to the runner's bounds.
+    async fn run_git(
+        &self,
+        executable: &Path,
+        arguments: Vec<OsString>,
+        environment: Vec<(OsString, OsString)>,
+        input: Option<Vec<u8>>,
+    ) -> Result<GitOutput, GitError> {
+        let mut command = Command::new(executable);
         command
             .args(arguments)
             .env_clear()
@@ -389,6 +474,21 @@ pub(crate) fn strip_line_end(mut line: Vec<u8>) -> Vec<u8> {
         }
     }
     line
+}
+
+// The `-c` settings put before a call's own arguments: hooks from the null device when `hooks` is
+// off, and the file watch off when `is_file_watch_off`.
+fn call_settings(hooks: GitHooks, is_file_watch_off: bool) -> Vec<OsString> {
+    let mut settings = Vec::new();
+    if hooks == GitHooks::Off {
+        settings.push(OsString::from("-c"));
+        settings.push(OsString::from(format!("core.hooksPath={NULL_DEVICE_PATH}")));
+    }
+    if is_file_watch_off {
+        settings.push(OsString::from("-c"));
+        settings.push(OsString::from(FILE_WATCH_OFF_SETTING));
+    }
+    settings
 }
 
 // `variables` without the stripped names, compared case-blind since Windows keeps an inherited
@@ -630,12 +730,28 @@ mod tests {
             output_bytes: 1024,
         });
         let (root, repository, _tree, commit) = repository_with_a_commit(&git).await;
+        let sleeper_pid_file = root.path().join("sleeper.pid");
         let started_at = Instant::now();
 
-        let update =
-            update_ref_through_hook(&git, root.path(), &repository, &commit, "sleep 30 &").await;
+        let update = update_ref_through_hook(
+            &git,
+            root.path(),
+            &repository,
+            &commit,
+            &format!("sleep 30 &\necho $! > '{}'", sleeper_pid_file.display()),
+        )
+        .await;
+        let elapsed = started_at.elapsed();
+        // The sleeper is the test's own child's child, ended here so it outlives nothing.
+        let sleeper_pid =
+            std::fs::read_to_string(&sleeper_pid_file).expect("the hook wrote its pid");
+        let ended = std::process::Command::new("kill")
+            .arg(sleeper_pid.trim())
+            .status()
+            .expect("kill runs");
 
         update.expect("the update succeeds");
-        assert!(started_at.elapsed() < Duration::from_secs(10));
+        assert!(elapsed < Duration::from_secs(10));
+        assert!(ended.success(), "the sleeper was still running");
     }
 }
