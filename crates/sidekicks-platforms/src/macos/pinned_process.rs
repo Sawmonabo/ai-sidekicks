@@ -432,7 +432,8 @@ pub fn this_process() -> PinnedProcess {
         .expect("this process runs")
 }
 
-/// Process `id`, pinned as it runs now; `None` when no process has the id.
+/// Process `id`, pinned as it runs now; `None` for an id of 0 or past `i32::MAX`, or when no
+/// process has the id.
 pub(crate) fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
     Ok(
         read_unique_identifiers(id, COMPARE_NOTHING, 0)?.map(|identifiers| PinnedProcess {

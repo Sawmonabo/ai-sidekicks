@@ -4,8 +4,8 @@ use std::io::{self, ErrorKind};
 use std::num::NonZeroI32;
 
 /// Process `id` as the system's signed process id. Fails with `InvalidInput` for 0, which the
-/// calls read as the caller's own process or group, and for an id past `i32::MAX`, which no
-/// process has.
+/// calls read as the caller's own process or group, or on macOS as the kernel, and for an id past
+/// `i32::MAX`, which no process has.
 pub(crate) fn system_process_id(id: u32) -> io::Result<NonZeroI32> {
     i32::try_from(id)
         .ok()
@@ -13,7 +13,7 @@ pub(crate) fn system_process_id(id: u32) -> io::Result<NonZeroI32> {
         .ok_or_else(|| {
             io::Error::new(
                 ErrorKind::InvalidInput,
-                format!("no process has the id {id}"),
+                format!("the id {id} names no process this daemon reads"),
             )
         })
 }

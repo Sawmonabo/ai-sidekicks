@@ -113,8 +113,9 @@ fn look_up(name: &std::ffi::CStr) -> Option<*mut libc::c_void> {
     (!symbol.is_null()).then_some(symbol)
 }
 
-/// The unique id of the process responsible for process `id`; `None` once no process has the id.
-/// Fails with the system's error, and with `Unsupported` on a macOS without the call.
+/// The unique id of the process responsible for process `id`; `None` for an id of 0 or past
+/// `i32::MAX`, or once no process has the id. Fails with the system's error, and with
+/// `Unsupported` on a macOS without the call.
 pub(crate) fn read_responsible_unique_id(id: u32) -> io::Result<Option<u64>> {
     let calls = responsibility_calls()?;
     let Ok(pid) = system_process_id(id) else {
@@ -129,8 +130,9 @@ pub(crate) fn read_responsible_unique_id(id: u32) -> io::Result<Option<u64>> {
     failure_reading(id)
 }
 
-/// The id of the process responsible for process `id`; `None` once no process has the id. Fails
-/// with the system's error, and with `Unsupported` on a macOS without the call.
+/// The id of the process responsible for process `id`; `None` for an id of 0 or past `i32::MAX`,
+/// or once no process has the id. Fails with the system's error, and with `Unsupported` on a
+/// macOS without the call.
 pub(crate) fn read_responsible_id(id: u32) -> io::Result<Option<u32>> {
     let calls = responsibility_calls()?;
     let Ok(pid) = system_process_id(id) else {
