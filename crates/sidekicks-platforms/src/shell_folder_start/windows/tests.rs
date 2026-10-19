@@ -8,22 +8,22 @@ use crate::shell_folder_start::ShellFolderStart;
 const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 
 // Fails when PowerShell starts in the worktree, which it holds for its life; a trailing `\` is
-// kept, which breaks pwsh's quoted switch; a switch's value is read as pwsh's script, or a
-// relative script given by a prefix, another switch character or a bare path starts in the
-// system folder; a complete script path or standard input's `-` drops pwsh's folder switch, as
-// a user command would; a folder quote other than `'` is left single, which ends the string and
-// runs the rest of the name; Windows PowerShell gets its folder statement beside an argument not
-// known to leave it free, a switch only pwsh has (`-cwa` among them), a switch missing its value
-// or a `-Version` after another switch, or loses it beside its `-Version` first or its own format
-// or quiet switches; the statement goes anywhere but in front of the command text, or in front of
-// standard input's `-`; the text is not every value from the command's first on, joined by one
-// space into one argument, or is not dot-sourced as a script block on lines of its own, which a
-// text opening with `using`, a param block, named blocks or a comment line, or ending in a
-// comment, needs; a bare word is not read as the command; cmd started on a share starts in the
-// Windows folder, and a share path with `&` or `%` left bare runs a command; a horizontal bar is
-// not read as a dash; a drive root is quoted without its `\`; MSYS bash without its variable opens
-// in the home folder, and WSL's launcher given it goes through the MSYS arm; or `--cd` is added
-// over the user's own `~`.
+// kept, which breaks pwsh's quoted switch; a switch's value is read as pwsh's script, or a relative
+// script given by a prefix, another switch character or a bare path starts in the system folder;
+// pwsh's `-i` or `-in` is read as Windows PowerShell's `-InputFormat`; a complete script path or
+// standard input's `-` drops pwsh's folder switch, as a user command would; a folder quote other
+// than `'` is left single, which ends the string and runs the rest of the name; Windows PowerShell
+// gets its folder statement beside an argument not known to leave it free, a switch only pwsh has
+// (`-cwa` among them), a switch missing its value or a `-Version` after another switch, or loses it
+// beside its `-Version` first, its `-i` or its own format or quiet switches; the statement goes
+// anywhere but in front of the command text, or in front of standard input's `-`; the text is not
+// every value from the command's first on, joined by one space into one argument, or is not
+// dot-sourced as a script block on lines of its own, which a text opening with `using`, a param
+// block, named blocks or a comment line, or ending in a comment, needs; a bare word is not read as
+// the command; cmd started on a share starts in the Windows folder, and a share path with `&` or
+// `%` left bare runs a command; a horizontal bar is not read as a dash; a drive root is quoted
+// without its `\`; MSYS bash without its variable opens in the home folder, and WSL's launcher
+// given it goes through the MSYS arm; or `--cd` is added over the user's own `~`.
 #[rstest]
 #[case::pwsh_with_a_trailing_separator(
     r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -92,6 +92,24 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     r"C:\wt",
     &["-NoLogo", "-WorkingDirectory", r"C:\wt", "-nop", "-f", "-"],
     SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::pwsh_interactive_by_its_shortest_name(
+    "pwsh",
+    &["-i", "-Command", "Get-Date"],
+    r"C:\wt",
+    &["-NoLogo", "-WorkingDirectory", r"C:\wt", "-i", "-Command", "Get-Date"],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::pwsh_interactive_before_the_user_s_bare_script(
+    "pwsh",
+    &["-in", "start.ps1"],
+    r"C:\wt",
+    &["-in", "start.ps1"],
+    r"C:\wt",
     &[],
     None
 )]
@@ -244,6 +262,15 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
         "-Command",
         r"Set-Location -LiteralPath 'C:\wt'",
     ],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_input_format_by_its_shortest_name(
+    "powershell",
+    &["-i", "Text"],
+    r"C:\wt",
+    &["-i", "Text", "-NoLogo", "-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\wt'"],
     SYSTEM_FOLDER,
     &[],
     None

@@ -44,16 +44,38 @@ enum AllowingPowerShells {
     PwshOnly,
 }
 
-/// A switch PowerShell reads at start: its name, the shortest prefix of it PowerShell takes, what
-/// follows it, and which PowerShell takes its folder start beside it. pwsh takes it beside every
-/// switch but a script's, which its operand decides.
+/// Which PowerShell reads a command line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PowerShell {
+    /// PowerShell 7, `pwsh.exe`.
+    Pwsh,
+    /// Windows PowerShell 5.1, `powershell.exe`.
+    WindowsPowerShell,
+}
+
+/// A switch PowerShell reads at start: its name, the shortest prefix of it each PowerShell takes
+/// (`None` where that PowerShell has no such switch), what follows it, and which PowerShell takes
+/// its folder start beside it. pwsh takes it beside every switch but a script's, which its operand
+/// decides.
 struct PowerShellSwitch {
     name: &'static str,
-    shortest: &'static str,
+    pwsh_shortest: Option<&'static str>,
+    windows_powershell_shortest: Option<&'static str>,
     operand: SwitchOperand,
     allowed_by: AllowingPowerShells,
 }
 
+impl PowerShellSwitch {
+    // The shortest prefix `powershell` takes, `None` where it has no such switch.
+    fn shortest(&self, powershell: PowerShell) -> Option<&'static str> {
+        match powershell {
+            PowerShell::Pwsh => self.pwsh_shortest,
+            PowerShell::WindowsPowerShell => self.windows_powershell_shortest,
+        }
+    }
+}
+
+// A switch both PowerShells take from the same shortest prefix.
 const fn powershell_switch(
     name: &'static str,
     shortest: &'static str,
@@ -62,18 +84,19 @@ const fn powershell_switch(
 ) -> PowerShellSwitch {
     PowerShellSwitch {
         name,
-        shortest,
+        pwsh_shortest: Some(shortest),
+        windows_powershell_shortest: Some(shortest),
         operand,
         allowed_by,
     }
 }
 
-/// The switches whose operand or effect decides the folder start, each at its shortest spelling
-/// PowerShell takes. No spelling names two different switches, so the first match is PowerShell's
-/// reading. A switch missing here is one pwsh reads with no operand, or one it does not know, which
-/// it reads as a script path and then fails to start on; beside a switch missing here, Windows
-/// PowerShell's folder start is refused.
-const POWERSHELL_SWITCHES: [PowerShellSwitch; 33] = [
+/// The switches whose operand or effect decides the folder start, each at the shortest spelling
+/// each PowerShell takes. No spelling names two switches of one PowerShell, so the first match is
+/// that PowerShell's reading. A switch missing here is one pwsh reads with no operand, or one it
+/// does not know, which it reads as a script path and then fails to start on; beside a switch
+/// missing here, Windows PowerShell's folder start is refused.
+const POWERSHELL_SWITCHES: [PowerShellSwitch; 34] = [
     powershell_switch(
         "nologo",
         "nol",
@@ -230,12 +253,21 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 33] = [
         SwitchOperand::One,
         AllowingPowerShells::PwshOnly,
     ),
-    powershell_switch(
-        "inputformat",
-        "i",
-        SwitchOperand::One,
-        AllowingPowerShells::Both,
-    ),
+    // pwsh reads `-i` and `-in` as `-Interactive`, Windows PowerShell as `-InputFormat`.
+    PowerShellSwitch {
+        name: "interactive",
+        pwsh_shortest: Some("i"),
+        windows_powershell_shortest: None,
+        operand: SwitchOperand::Nothing,
+        allowed_by: AllowingPowerShells::PwshOnly,
+    },
+    PowerShellSwitch {
+        name: "inputformat",
+        pwsh_shortest: Some("inp"),
+        windows_powershell_shortest: Some("i"),
+        operand: SwitchOperand::One,
+        allowed_by: AllowingPowerShells::Both,
+    },
     powershell_switch("if", "if", SwitchOperand::One, AllowingPowerShells::Both),
     powershell_switch(
         "outputformat",
@@ -364,7 +396,7 @@ fn can_pwsh_take_folder_switch(arguments: &[String]) -> bool {
         let Some(key) = powershell_switch_key(argument) else {
             return is_resolved_without_folder(argument);
         };
-        match find_powershell_switch(key).map(|switch| switch.operand) {
+        match find_powershell_switch(key, PowerShell::Pwsh).map(|switch| switch.operand) {
             Some(SwitchOperand::Script) => {
                 return arguments
                     .next()
@@ -423,7 +455,7 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
             }
             return Some(put_before_command(index));
         };
-        let switch = find_powershell_switch(key)?;
+        let switch = find_powershell_switch(key, PowerShell::WindowsPowerShell)?;
         if switch.allowed_by != AllowingPowerShells::Both {
             return None;
         }
@@ -484,12 +516,14 @@ fn powershell_switch_key(argument: &str) -> Option<&str> {
     }
 }
 
-// The switch `key` names: a prefix of its name, no shorter than its shortest spelling, compared
-// without case.
-fn find_powershell_switch(key: &str) -> Option<&'static PowerShellSwitch> {
+// The switch `key` names to `powershell`: a prefix of its name, no shorter than the shortest
+// spelling that PowerShell takes, compared without case.
+fn find_powershell_switch(key: &str, powershell: PowerShell) -> Option<&'static PowerShellSwitch> {
     let length = key.chars().count();
     POWERSHELL_SWITCHES.iter().find(|switch| {
-        (switch.shortest.len()..=switch.name.len()).contains(&length)
+        switch
+            .shortest(powershell)
+            .is_some_and(|shortest| (shortest.len()..=switch.name.len()).contains(&length))
             && key
                 .chars()
                 .zip(switch.name.chars())
