@@ -235,6 +235,13 @@ mod tests {
         check_private_run_folder(&folder).expect("a private folder is admitted");
         let junction_refusal =
             check_private_run_folder(&junction).expect_err("a junction is refused");
+        // SYSTEM (`S-1-5-18`) and the Administrators (`S-1-5-32-544`) may hold the folder too.
+        change_access_list(
+            &folder,
+            &["/grant", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"],
+        );
+        check_private_run_folder(&folder)
+            .expect("a folder SYSTEM and the Administrators may reach is admitted");
         // Everyone (`S-1-1-0`) may read the folder.
         change_access_list(&folder, &["/grant", "*S-1-1-0:(R)"]);
         let open_refusal =
