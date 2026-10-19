@@ -73,9 +73,9 @@ impl RunEngine {
     /// with the limit as its cause, in the same write, so the provider's later end of that turn is
     /// dropped. Returns `false` with no change of the run written when the run has ended since
     /// that version, even if it was continued after, which is what the interrupt asked for; the
-    /// caller then records the verdict alone. On a run that reads ended, the limit's turn end is
-    /// written on its own for the newest open turn started at or before that version, if any, so a
-    /// turn of a run continued since never takes it. Fails as [`RunEngine::transition`] does.
+    /// caller then records the verdict alone. On a run that reads ended, the turn the limit cut,
+    /// else the newest open turn started at or before that version, still takes the limit's end,
+    /// written on its own. Fails as [`RunEngine::transition`] does.
     #[cfg_attr(
         not(test),
         expect(
