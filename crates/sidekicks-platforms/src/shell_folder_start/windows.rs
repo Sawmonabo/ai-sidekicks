@@ -284,10 +284,12 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 33] = [
     ),
 ];
 
-/// How `program` with `arguments` starts in `folder`: `system_folder` is the folder the `shell`
-/// mode spawns in, and PowerShell, `wsl.exe` and `cmd.exe` on a share (which it refuses as its
-/// start folder) start there too and are told the folder by their own means; every other shell
-/// starts in `folder`, and so does one whose own means would pass Windows' command line.
+/// How `program` with `arguments` starts in `folder`, `system_folder` being the folder the `shell`
+/// mode spawns in: Windows locks a process's current folder while it runs, and PowerShell never
+/// moves its process folder on `Set-Location`, so it, `wsl.exe` and `cmd.exe` on a share (which it
+/// refuses as its start folder) start in the system folder and are told the folder by their own
+/// means, while every other shell starts in `folder` and its lock moves with its own `cd`. A shell
+/// whose own means would pass Windows' command line starts in `folder` too.
 pub(crate) fn compose_shell_folder_start(
     program: &str,
     arguments: &[String],
