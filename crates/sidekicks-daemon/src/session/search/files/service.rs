@@ -1,9 +1,10 @@
 //! `session.file.search`, the `@` search: the session's working folder listed, ranked by the
 //! product's one fuzzy scorer with an entry's own name before its path, and cut to a fixed count.
 //! A row whose real location is not strictly inside the working folder is dropped, so no answer
-//! follows a link out of it or back to the folder itself. The `@` box searches once a burst of
-//! typing pauses, so each search reads the folder once, and searches that arrive while a read of
-//! their folder is under way share it.
+//! follows a link out of it or back to the folder itself. A folder is listed once, on a task of its
+//! own that runs to its end whether or not a search still waits, and every search shares that
+//! listing until the folder is reported changed; ranking and the real locations run off the
+//! runtime.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -26,11 +27,13 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{is_link_loop, real_path};
 use sidekicks_search::ranking::score_subsequence;
 use tokio::task::JoinError;
+use tokio_util::task::TaskTracker;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::git::process::{GitError, GitRunner};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
+use crate::missing_entry::is_gone;
 use crate::session::search::files::listing::{
     ListingError, WorkingFolderListing, list_working_folder,
 };
@@ -59,8 +62,60 @@ struct FolderCandidates {
     dropped_file_count: usize,
 }
 
-/// One working folder's listing under way, which the searches arriving meanwhile share.
-type SharedListing = Shared<BoxFuture<'static, Result<Arc<FolderCandidates>, Arc<ListingError>>>>;
+/// One working folder's listing, under way or done, which every search of the folder shares.
+type SharedListing = Shared<BoxFuture<'static, Result<Arc<FolderCandidates>, ListingFailure>>>;
+
+/// Why a shared listing gave no rows: the listing failed, or its task ended before it answered.
+#[derive(Clone, Debug)]
+enum ListingFailure {
+    Listing(Arc<ListingError>),
+    Task(Arc<JoinError>),
+}
+
+/// A working folder's listing and the count that tells it from a later listing of the folder.
+struct KeptListing {
+    generation: u64,
+    listing: SharedListing,
+}
+
+/// Every working folder's kept listing.
+#[derive(Default)]
+struct KeptListings {
+    next_generation: u64,
+    by_folder: HashMap<PathBuf, KeptListing>,
+}
+
+/// Takes a listing out of the map when its task ends without one, a panic or a stop among the
+/// ways, unless a later listing of the folder replaced it.
+struct UnsettledListing {
+    listings: Arc<Mutex<KeptListings>>,
+    folder: PathBuf,
+    generation: u64,
+    is_listed: bool,
+}
+
+impl UnsettledListing {
+    // The listing is done, so the map keeps it.
+    fn keep(&mut self) {
+        self.is_listed = true;
+    }
+}
+
+impl Drop for UnsettledListing {
+    fn drop(&mut self) {
+        if self.is_listed {
+            return;
+        }
+        let mut listings = lock_listings(&self.listings);
+        if listings
+            .by_folder
+            .get(&self.folder)
+            .is_some_and(|kept| kept.generation == self.generation)
+        {
+            listings.by_folder.remove(&self.folder);
+        }
+    }
+}
 
 /// Why a file search was refused or failed.
 #[derive(Debug, thiserror::Error)]
@@ -81,11 +136,14 @@ pub(crate) enum FileSearchError {
     /// The working folder could not be listed.
     #[error("the session's working folder could not be listed")]
     Listing(#[source] Arc<ListingError>),
+    /// The task that listed the working folder ended before it answered.
+    #[error("the listing of the session's working folder did not finish")]
+    ListingTask(#[source] Arc<JoinError>),
     /// A path's real location could not be read for a reason other than its being gone.
     #[error("a listed path's real location could not be read")]
     Resolve(#[source] io::Error),
-    /// The blocking task that read real locations did not finish.
-    #[error("the read of the listed paths' real locations did not finish")]
+    /// The blocking task that ranked the rows and read their real locations did not finish.
+    #[error("the ranking of the listed paths did not finish")]
     ResolveTask(#[source] JoinError),
 }
 
@@ -107,6 +165,7 @@ impl From<FileSearchError> for HandlerError {
             | FileSearchError::Pool(_)
             | FileSearchError::Git(_)
             | FileSearchError::Listing(_)
+            | FileSearchError::ListingTask(_)
             | FileSearchError::Resolve(_)
             | FileSearchError::ResolveTask(_)) => Self::Internal(Box::new(fault)),
         }
@@ -117,9 +176,11 @@ impl From<FileSearchError> for HandlerError {
 pub(crate) struct FileSearchService {
     pool: Arc<DatabaseReadPool>,
     git: GitRunner,
-    /// Each working folder's listing under way; a listing takes itself out once it settles, so
-    /// the next search sees the folder as it is then.
-    listings: Arc<Mutex<HashMap<PathBuf, SharedListing>>>,
+    /// Each working folder's listing, kept until the folder is reported changed; one that ends
+    /// without a listing takes itself out, so the next search lists the folder again.
+    listings: Arc<Mutex<KeptListings>>,
+    /// Every listing's task, so the stop waits for each.
+    listing_tasks: TaskTracker,
 }
 
 impl FileSearchService {
@@ -133,8 +194,35 @@ impl FileSearchService {
         Self {
             pool,
             git,
-            listings: Arc::new(Mutex::new(HashMap::new())),
+            listings: Arc::new(Mutex::new(KeptListings::default())),
+            listing_tasks: TaskTracker::new(),
         }
+    }
+
+    /// Drops the kept listing of the working folder `root`, as the session stores the folder, so
+    /// the next search of it lists it again; a listing under way is no longer shared.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the working-folder watch reports each change to a session's folder through it"
+        )
+    )]
+    pub(crate) fn invalidate(&self, root: &Path) {
+        lock_listings(&self.listings).by_folder.remove(root);
+    }
+
+    /// Settles once every listing under way has ended.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's stop waits for the file search's listings"
+        )
+    )]
+    pub(crate) async fn stop(&self) {
+        self.listing_tasks.close();
+        self.listing_tasks.wait().await;
     }
 
     /// The best matching files and folders, each path relative to the working folder, at most
@@ -184,7 +272,10 @@ impl FileSearchService {
         let candidates = self
             .listing_of(working_folder.place, folder.clone())
             .await
-            .map_err(FileSearchError::Listing)?;
+            .map_err(|failure| match failure {
+                ListingFailure::Listing(error) => FileSearchError::Listing(error),
+                ListingFailure::Task(error) => FileSearchError::ListingTask(error),
+            })?;
         if candidates.dropped_file_count > 0 {
             tracing::warn!(
                 session_id = session_id.text().as_str(),
@@ -192,9 +283,10 @@ impl FileSearchService {
                 "the file search left out files whose names no row can carry"
             );
         }
-        let ranked = ranked_entries(&candidates.entries, request.query.as_str());
         let searched_file_count = candidates.searched_file_count;
+        let query = request.query;
         let entries = tokio::task::spawn_blocking(move || {
+            let ranked = ranked_entries(&candidates.entries, query.as_str());
             contained_entries(&candidates.entries, &ranked, &folder, &root)
         })
         .await
@@ -209,34 +301,50 @@ impl FileSearchService {
         })
     }
 
-    // The folder's listing: the one under way when there is one, else a new one, which takes
-    // itself out of the map once it settles.
+    // The folder's kept listing when there is one, else a new one on a task of its own, which
+    // runs to its end whether or not a search still waits.
     fn listing_of(&self, place: Option<Place>, folder: PathBuf) -> SharedListing {
         let mut listings = lock_listings(&self.listings);
-        if let Some(under_way) = listings.get(&folder) {
-            return under_way.clone();
+        if let Some(kept) = listings.by_folder.get(&folder) {
+            return kept.listing.clone();
         }
+        let generation = listings.next_generation;
+        listings.next_generation += 1;
         let git = self.git.clone();
-        let settled_listings = Arc::clone(&self.listings);
-        let key = folder.clone();
-        let listing = async move {
-            let listed = list_working_folder(&git, place.as_ref(), &folder)
+        let mut unsettled = UnsettledListing {
+            listings: Arc::clone(&self.listings),
+            folder: folder.clone(),
+            generation,
+            is_listed: false,
+        };
+        let task = self.listing_tasks.spawn(async move {
+            let listed = list_working_folder(&git, place.as_ref(), &unsettled.folder)
                 .await
                 .map(|listing| Arc::new(candidates_of(listing)))
-                .map_err(Arc::new);
-            lock_listings(&settled_listings).remove(&folder);
+                .map_err(|error| ListingFailure::Listing(Arc::new(error)));
+            if listed.is_ok() {
+                unsettled.keep();
+            }
             listed
+        });
+        let listing = async move {
+            task.await
+                .unwrap_or_else(|error| Err(ListingFailure::Task(Arc::new(error))))
         }
         .boxed()
         .shared();
-        listings.insert(key, listing.clone());
+        listings.by_folder.insert(
+            folder,
+            KeptListing {
+                generation,
+                listing: listing.clone(),
+            },
+        );
         listing
     }
 }
 
-fn lock_listings(
-    listings: &Mutex<HashMap<PathBuf, SharedListing>>,
-) -> MutexGuard<'_, HashMap<PathBuf, SharedListing>> {
+fn lock_listings(listings: &Mutex<KeptListings>) -> MutexGuard<'_, KeptListings> {
     // The map holds no invariant a panicking holder could break.
     listings.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -249,12 +357,6 @@ fn working_folder_missing(session_id: &SessionId) -> DomainError {
         RefusalCode::SessionWorkingFolderMissing,
     )
     .with_detail(json!({ "sessionId": session_id }))
-}
-
-// Whether a path's real location failed because the path, or a folder on its way, is gone.
-fn is_gone(error: &io::Error) -> bool {
-    let kind = error.kind();
-    kind == io::ErrorKind::NotFound || kind == io::ErrorKind::NotADirectory
 }
 
 // The listing's entries as rows, a path the row's type refuses left out and, for a file,
@@ -377,6 +479,7 @@ fn contained_entries(
 mod tests {
     use std::path::Path;
     use std::sync::Arc;
+    use std::time::Duration;
 
     use rstest::rstest;
     use serde_json::json;
@@ -386,6 +489,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::{
         SessionFileSearchEntry, SessionFileSearchEntryKind, SessionFileSearchRequest,
+        SessionFileSearchResponse,
     };
 
     use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService};
@@ -395,6 +499,9 @@ mod tests {
     use crate::git::process::{GitRunner, test_git_runner, write_link};
     use crate::session::directory::test_rows::insert_session_row;
     use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+
+    /// Bounds a wait the test expects to end, so one that never does fails the test.
+    const WAIT: Duration = Duration::from_secs(10);
 
     /// A session whose working folder is `folder`, and the search over it; the writer is kept so
     /// the database stays open.
@@ -500,5 +607,46 @@ mod tests {
             panic!("a folder that is gone is refused, not searched or failed: {refused:?}");
         };
         assert_eq!(refusal.code, RefusalCode::SessionWorkingFolderMissing);
+    }
+
+    // The answer's paths, in its order.
+    fn paths_of(response: &SessionFileSearchResponse) -> Vec<&str> {
+        response
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect()
+    }
+
+    // Killed by a listing that runs only while a search waits on it, so a dropped search leaves it
+    // parked, and by a kept listing a reported change leaves in place.
+    #[tokio::test]
+    async fn file_search_lists_to_the_end_with_no_search_waiting_and_again_after_a_change() {
+        let root = tempfile::tempdir().expect("the temporary folder is made");
+        let folder = root.path().join("folder");
+        std::fs::create_dir(&folder).expect("the working folder is made");
+        std::fs::write(folder.join("a.txt"), "a\n").expect("a file is written");
+        let harness = harness(test_git_runner(), &folder).await;
+
+        // A search dropped once its listing began.
+        drop(harness.service.listing_of(None, folder.clone()));
+        tokio::time::timeout(WAIT, harness.service.stop())
+            .await
+            .expect("the listing ends with no search waiting on it");
+        std::fs::write(folder.join("b.txt"), "b\n").expect("a file is written");
+        let kept = harness
+            .service
+            .search(everything(harness.session_id))
+            .await
+            .expect("the folder is searched");
+        harness.service.invalidate(&folder);
+        let fresh = harness
+            .service
+            .search(everything(harness.session_id))
+            .await
+            .expect("the folder is searched");
+
+        assert_eq!(paths_of(&kept), ["a.txt"]);
+        assert_eq!(paths_of(&fresh), ["a.txt", "b.txt"]);
     }
 }
