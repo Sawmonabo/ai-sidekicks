@@ -8,12 +8,12 @@ use crate::shell_folder_start::ShellFolderStart;
 use crate::shell_folder_start::windows::compose_shell_folder_start;
 use crate::windows::known_folder::system_folder;
 
-/// How `program` with `arguments` starts in `folder`: the `shell` mode is spawned in the system
-/// folder (its usual path where that read fails, logged; `_stable_folder` is unused here), where
-/// PowerShell, `wsl.exe` and `cmd.exe` on a share start too, told the folder by their own means,
-/// and every other shell starts in `folder`; never fails. A folder start is taken only where the
-/// shell's own command line, its program, arguments and raw tail, fits 32,767 UTF-16 units with
-/// its NUL; past that bound the shell starts in `folder` with its arguments unchanged.
+/// How `program` with `arguments` starts in `folder`, never failing: the `shell` mode is spawned
+/// in the system folder (its usual path, logged, where that read fails), and `_stable_folder`, the
+/// macOS and Linux spawn folder, is unused here. PowerShell, `wsl.exe` and `cmd.exe` on a share
+/// start in the system folder too and are told the folder by their own means, and every other
+/// shell starts in `folder`, as does one whose own command line, its program, arguments and raw
+/// tail, would pass 32,767 UTF-16 units with its NUL, its arguments unchanged.
 pub fn shell_folder_start(
     program: &str,
     arguments: &[String],
