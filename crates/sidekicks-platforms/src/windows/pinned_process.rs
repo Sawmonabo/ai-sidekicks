@@ -182,10 +182,13 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
     let Some(name) = &record.job else {
         return Ok(false);
     };
+    // Opened before the process is read, so a name of another shape is refused whether or not
+    // the process runs.
+    let job = open_recorded_job(record, name)?;
     if open_recorded_process(record)?.is_some() {
         return Ok(false);
     }
-    let Some(job) = open_recorded_job(record, name)? else {
+    let Some(job) = job else {
         return Ok(false);
     };
     end_job_processes(&job)
