@@ -415,23 +415,30 @@ fn is_resolved_without_folder(script: &str) -> bool {
 // every user argument before its command must be a switch it takes the folder start beside, with
 // its value, `-Version` and `-PSConsoleFile` only at the front. A command given as text, after
 // `-Command` or as a bare word, becomes one argument, the `Set-Location` in front of an
-// `Invoke-Expression` of the text; with no command the `Set-Location` follows the arguments as its
-// start command.
+// `Invoke-Expression` of the text, or the `Set-Location` alone where the text is blank; with no
+// command the `Set-Location` follows the arguments as its start command. Both cmdlets are named
+// with their modules, so a profile's alias or function of the same name cannot take the call.
 fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Option<Vec<String>> {
     let set_location = format!(
-        "Set-Location -LiteralPath {}",
+        "Microsoft.PowerShell.Management\\Set-Location -LiteralPath {}",
         quote_powershell_literal(folder)
     );
     // Windows PowerShell joins every argument from the command's first value on into one command,
     // with one space between. `Invoke-Expression` parses the joined text as a script of its own,
     // so it may open with `using` or a param block, and runs it in the session's scope; the text
-    // is a quoted literal, so nothing in it can end the statement around it.
+    // is a quoted literal, so nothing in it can end the statement around it. It refuses an empty
+    // text, where a plain `-Command` runs nothing, so a blank text is left out.
     let put_before_command = |first: usize| {
         let mut started = arguments[..first].to_vec();
-        started.push(format!(
-            "{set_location}; Invoke-Expression {}",
-            quote_powershell_literal(&arguments[first..].join(" "))
-        ));
+        let text = arguments[first..].join(" ");
+        started.push(if text.trim().is_empty() {
+            set_location.clone()
+        } else {
+            format!(
+                "{set_location}; Microsoft.PowerShell.Utility\\Invoke-Expression {}",
+                quote_powershell_literal(&text)
+            )
+        });
         started
     };
     let mut index = windows_powershell_native_front_end(arguments)?;
