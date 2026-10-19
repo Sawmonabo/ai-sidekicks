@@ -5,18 +5,7 @@
 use std::path::PathBuf;
 
 #[cfg(windows)]
-use windows_sys::Win32::UI::Shell::{FOLDERID_ProgramData, FOLDERID_ProgramFiles};
-#[cfg(windows)]
-use windows_sys::core::GUID;
-
-#[cfg(windows)]
-use crate::windows::known_folder::known_folder;
-
-// Where the two Windows folders usually are, used when the system cannot report them.
-#[cfg(windows)]
-const PROGRAM_FILES_USUAL_PATH: &str = r"C:\Program Files";
-#[cfg(windows)]
-const PROGRAM_DATA_USUAL_PATH: &str = r"C:\ProgramData";
+use crate::windows::known_folder::{program_data_folder, program_files_folder};
 
 /// A computer-wide folder on macOS a program keeps its administrator-managed settings under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,12 +74,8 @@ impl SystemFolders {
         let (base_path, components) = {
             let folder = self.windows?;
             let base_path = match folder.base {
-                WindowsSystemFolder::ProgramFiles => {
-                    read_known_folder(&FOLDERID_ProgramFiles, PROGRAM_FILES_USUAL_PATH)
-                }
-                WindowsSystemFolder::ProgramData => {
-                    read_known_folder(&FOLDERID_ProgramData, PROGRAM_DATA_USUAL_PATH)
-                }
+                WindowsSystemFolder::ProgramFiles => program_files_folder(),
+                WindowsSystemFolder::ProgramData => program_data_folder(),
             };
             (base_path, folder.components)
         };
@@ -108,19 +93,6 @@ impl SystemFolders {
                 .fold(base_path, |path, component| path.join(component)),
         )
     }
-}
-
-/// The known folder `folder`, or `usual_path` when the system cannot report it, which is logged.
-#[cfg(windows)]
-pub(crate) fn read_known_folder(folder: &GUID, usual_path: &str) -> PathBuf {
-    known_folder(folder).unwrap_or_else(|error| {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            usual_path,
-            "a computer-wide folder could not be read; its usual path is used"
-        );
-        PathBuf::from(usual_path)
-    })
 }
 
 /// One value per operating system, for a fact that differs between them.
