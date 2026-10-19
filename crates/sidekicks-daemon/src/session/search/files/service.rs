@@ -82,6 +82,9 @@ struct KeptListing {
 #[derive(Default)]
 struct KeptListings {
     next_generation: u64,
+    /// The generation the latest invalidation came before: a listing of an earlier one, not yet
+    /// kept, may predate the change, so it is not kept.
+    invalidated_before: u64,
     by_folder: HashMap<PathBuf, KeptListing>,
 }
 
@@ -213,7 +216,9 @@ impl FileSearchService {
         )
     )]
     pub(crate) fn invalidate(&self, root: &Path) {
-        lock_listings(&self.listings).by_folder.remove(root);
+        let mut listings = lock_listings(&self.listings);
+        listings.by_folder.remove(root);
+        listings.invalidated_before = listings.next_generation;
     }
 
     /// Settles once every listing under way has ended.
@@ -306,14 +311,19 @@ impl FileSearchService {
     }
 
     // The folder's kept listing when there is one, else a new one on a task of its own, which
-    // runs to its end whether or not a search still waits.
+    // runs to its end whether or not a search still waits. The map is unlocked while the task is
+    // spawned: a runtime shutting down drops the task's future on this thread, and its guard locks
+    // the map.
     fn listing_of(&self, place: Option<Place>, folder: PathBuf) -> SharedListing {
-        let mut listings = lock_listings(&self.listings);
-        if let Some(kept) = listings.by_folder.get(&folder) {
-            return kept.listing.clone();
-        }
-        let generation = listings.next_generation;
-        listings.next_generation += 1;
+        let generation = {
+            let mut listings = lock_listings(&self.listings);
+            if let Some(kept) = listings.by_folder.get(&folder) {
+                return kept.listing.clone();
+            }
+            let generation = listings.next_generation;
+            listings.next_generation += 1;
+            generation
+        };
         let git = self.git.clone();
         let mut unsettled = UnsettledListing {
             listings: Arc::clone(&self.listings),
@@ -337,14 +347,22 @@ impl FileSearchService {
         }
         .boxed()
         .shared();
-        listings.by_folder.insert(
-            folder,
-            KeptListing {
+        // A listing a change was reported during answers this search alone. A search that listed
+        // the folder meanwhile is shared; this listing runs to its end, and its guard, finding
+        // another generation, takes nothing out.
+        let mut listings = lock_listings(&self.listings);
+        if generation < listings.invalidated_before {
+            return listing;
+        }
+        listings
+            .by_folder
+            .entry(folder)
+            .or_insert(KeptListing {
                 generation,
-                listing: listing.clone(),
-            },
-        );
-        listing
+                listing,
+            })
+            .listing
+            .clone()
     }
 }
 
