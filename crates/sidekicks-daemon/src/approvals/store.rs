@@ -203,6 +203,13 @@ static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // A rebuild's write of an ask: a row a workflow gate's answer names outlives the rebuild's clear,
 // since no rebuild writes the gate's rows, and is written over with what the log says.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the approvals projection with the rebuild"
+    )
+)]
 static REWRITE_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{}
@@ -230,6 +237,27 @@ const INSERT_RESOLUTION_SQL: &str = "INSERT INTO approval_resolutions
      resolved_at)
   VALUES (@request_id, @device_id, @client_resolution_id, @decision, @effective_scope,
           @edited_action, @resolved_at)";
+
+// A rebuild's write of an answer: the answer of an ask a workflow gate names outlives the
+// rebuild's clear with its ask, and is written over with what the log says, its rule cleared until
+// the log's own rule event writes it again.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the approvals projection with the rebuild"
+    )
+)]
+static REWRITE_RESOLUTION_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{INSERT_RESOLUTION_SQL}
+  ON CONFLICT (request_id) DO UPDATE SET
+    device_id = excluded.device_id, client_resolution_id = excluded.client_resolution_id,
+    decision = excluded.decision, effective_scope = excluded.effective_scope,
+    remembered_scope_kind = NULL, remembered_scope_pattern = NULL,
+    edited_action = excluded.edited_action, resolved_at = excluded.resolved_at"
+    )
+});
 
 // Refused, by changing no row, once the correction was carried out.
 const INSERT_CORRECTION_USE_SQL: &str = "INSERT INTO approval_correction_uses
@@ -346,6 +374,13 @@ pub(crate) fn insert_request_statement(request: &InsertedApprovalRequest) -> Wri
 
 /// The statement a rebuild records an ask with: the live one's row, written over a row the
 /// rebuild kept because a workflow gate's answer names it.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the approvals projection with the rebuild"
+    )
+)]
 pub(crate) fn rewrite_request_statement(request: &InsertedApprovalRequest) -> WriteStatement {
     request_statement(&REWRITE_REQUEST_SQL, request)
 }
@@ -372,8 +407,39 @@ pub(crate) fn settle_pending_statement(
 pub(crate) fn insert_resolution_statement(
     resolution: &InsertedApprovalResolution,
 ) -> WriteStatement {
+    resolution_statement(INSERT_RESOLUTION_SQL, resolution)
+}
+
+/// The statement a rebuild records an answer with: the live one's row, written over the answer
+/// the rebuild kept with its ask because a workflow gate's answer names it.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the approvals projection with the rebuild"
+    )
+)]
+pub(crate) fn rewrite_resolution_statement(
+    resolution: &InsertedApprovalResolution,
+) -> WriteStatement {
+    resolution_statement(REWRITE_RESOLUTION_SQL.as_str(), resolution)
+}
+
+// The insert and the rebuild's rewrite bind the same values.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "an answer's live write, and the daemon's start, which registers the approvals \
+                  projection with the rebuild"
+    )
+)]
+fn resolution_statement(
+    sql: &'static str,
+    resolution: &InsertedApprovalResolution,
+) -> WriteStatement {
     WriteStatement {
-        sql: Cow::Borrowed(INSERT_RESOLUTION_SQL),
+        sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(vec![
             text_binding(
                 "@request_id",
@@ -433,6 +499,14 @@ pub(crate) fn remembered_scope_statement(
 }
 
 // The insert and the rebuild's rewrite bind the same values.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "an ask's live write, and the daemon's start, which registers the approvals \
+                  projection with the rebuild"
+    )
+)]
 fn request_statement(
     sql: &'static LazyLock<String>,
     request: &InsertedApprovalRequest,

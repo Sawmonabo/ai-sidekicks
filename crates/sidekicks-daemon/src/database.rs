@@ -3,7 +3,7 @@
 
 pub(crate) mod checkpoint;
 pub(crate) mod connection;
-pub(crate) mod schema;
+pub mod schema;
 pub(crate) mod sql_list;
 pub(crate) mod statement;
 pub(crate) mod stored_column;

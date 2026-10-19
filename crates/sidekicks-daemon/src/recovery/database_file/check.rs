@@ -18,8 +18,8 @@ use crate::recovery::database_file::READ_BUSY_TIMEOUT;
 // The check runs one statement, uncached.
 const CHECK_STATEMENT_CAPACITY: usize = 0;
 
-// What `quick_check` answers for a sound file, as its one row.
-const SOUND_ROW: &str = "ok";
+/// What `quick_check` and `integrity_check` answer for a sound file, as their one row.
+pub(crate) const SOUND_ROW: &str = "ok";
 
 /// What the check found.
 #[derive(Clone, Debug, PartialEq, Eq)]

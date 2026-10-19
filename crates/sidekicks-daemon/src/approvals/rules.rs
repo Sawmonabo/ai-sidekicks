@@ -55,6 +55,7 @@ use crate::events::session::appender::{
     SessionEventLinkage,
 };
 use crate::events::session::pending::PendingSessions;
+use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::ipc::domain_error::DomainError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -135,8 +136,9 @@ const RULE_SELECT_LIST_SQL: &str = "remembered.session_id,
        json_extract(request.resource_descriptor, '$.action') AS action,
        request.category, request.scope, remembered.occurred_at AS granted_at";
 
-// A rule whose ask's row still stands; a rule made on a card no provider relayed names no action
-// and is not one the providers keep.
+// A rule whose ask's row still stands and whose event lies outside every range its session skipped
+// as damaged; a rule made on a card no provider relayed names no action and is not one the
+// providers keep.
 static RULE_SOURCE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "FROM session_events AS remembered
@@ -144,8 +146,10 @@ static RULE_SOURCE_SQL: LazyLock<String> = LazyLock::new(|| {
     ON request.id = json_extract(remembered.payload, '$.approvalRequestId')
   WHERE remembered.type = '{}'
     AND json_valid(remembered.payload)
-    AND json_extract(request.resource_descriptor, '$.action.kind') IS NOT NULL",
-        SessionEventType::ApprovalRuleRemembered.as_str()
+    AND json_extract(request.resource_descriptor, '$.action.kind') IS NOT NULL
+    AND {}",
+        SessionEventType::ApprovalRuleRemembered.as_str(),
+        outside_skipped_ranges_sql("remembered")
     )
 });
 
@@ -820,3 +824,6 @@ fn rule_row_of(row: &Row<'_>) -> rusqlite::Result<RuleRow> {
         granted_at: text_column(row, 6, WireInstant::try_from)?,
     })
 }
+
+#[cfg(test)]
+mod tests;

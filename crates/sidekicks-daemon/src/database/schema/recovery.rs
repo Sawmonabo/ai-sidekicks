@@ -2,20 +2,23 @@
 //! written in the same write as each event the session appends, and the saved checkpoints, a cache
 //! the log can always rebuild.
 
+use serde::Deserialize;
 use strum::{IntoStaticStr, VariantArray};
 
 use crate::database::sql_list::sql_list_of_every;
 
-/// Where a session's projection cursor stands, as the `projection_cursors.state` column holds it:
-/// current at its last sequence, being rebuilt, or left stale by a rebuild that stopped short.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
+/// Where a session's projection cursor stands, as the `projection_cursors.state` column holds it by
+/// its camelCase name: current at its last sequence, being rebuilt, or left stale by a rebuild that
+/// stopped short or a repair that replaced the file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, VariantArray, IntoStaticStr)]
+#[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum ProjectionCursorState {
     /// The projections reflect every event up to the cursor's sequence.
     Current,
     /// A rebuild has cleared the projections and is folding the log back in.
     Rebuilding,
-    /// A rebuild stopped short, so the next restart lists the session again.
+    /// The rows are not trusted until a rebuild lands, so the next restart lists the session.
     Stale,
 }
 

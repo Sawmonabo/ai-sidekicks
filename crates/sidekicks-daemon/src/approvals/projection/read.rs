@@ -9,10 +9,8 @@ use sidekicks_contracts::approval::{
     ApprovalDecision, ApprovalListRequest, ApprovalListResponse, ApprovalProjectionRow,
     ApprovalRequestId, ApprovalState, ApprovedDecision, RejectedDecision,
 };
-use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace};
 
-use crate::approvals::request_create::ApprovalResourceDescriptor;
 use crate::approvals::store::{
     ApprovalRequestFilter, ApprovalRequestReader, StoredApprovalRequest, StoredApprovalResolution,
 };
@@ -79,7 +77,7 @@ fn projection_row_of(
         .and_then(|prompt| reason_of(prompt.as_str()));
     let subject = NonEmptyText::new(resource_descriptor.subject.as_str().to_owned())
         .expect("a descriptor's subject is non-blank text");
-    let resource_descriptor = descriptor_record_of(&resource_descriptor);
+    let resource_descriptor = resource_descriptor.to_record();
     let row = match (state, resolution) {
         (ApprovalState::Pending, None) => ApprovalProjectionRow::Pending {
             id,
@@ -188,13 +186,6 @@ fn projection_row_of(
         }
     };
     Ok(row)
-}
-
-fn descriptor_record_of(descriptor: &ApprovalResourceDescriptor) -> JsonRecord {
-    let members = serde_json::to_value(descriptor)
-        .expect("a descriptor of text, flags and string-keyed members always serializes");
-    serde_json::from_value(members)
-        .expect("a descriptor serializes to an object with no member __proto__")
 }
 
 // The provider's own line with its escape sequences and control characters taken out, so it

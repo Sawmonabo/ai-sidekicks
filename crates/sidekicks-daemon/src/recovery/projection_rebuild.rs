@@ -1,9 +1,9 @@
 //! Rebuilds a session's projections from its event log. A projection is a set of rows each event
 //! writes in its own write; a rebuild deletes the session's rows and marks its cursor `rebuilding`
 //! in one write, folds the log from its first event through each projection's own statements a
-//! page at a time, each page in its own write, and marks the cursor `current` at the session's head
-//! in the last page's write. Rows seen while the cursor is not `current` are not trusted, and a
-//! second rebuild writes the same rows.
+//! page at a time, each page in its own write, and in the last page's write settles what each
+//! projection's fold leaves and marks the cursor `current` at the session's head. Rows seen while
+//! the cursor is not `current` are not trusted, and a second rebuild writes the same rows.
 //!
 //! Only the event types a projection reads are read, so a type this build does not know stays a
 //! stub in the log and is never converted. An event that fails to read as its envelope or its
@@ -19,7 +19,6 @@ use std::sync::{Arc, LazyLock};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, ErrorCode, OptionalExtension as _, named_params};
-use serde::Deserialize;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventEnvelope};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
@@ -29,6 +28,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::schema::recovery::ProjectionCursorState;
 use crate::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
 };
@@ -53,34 +53,13 @@ pub(crate) const REBUILD_PAGE_SIZE: u32 = 1_000;
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const PROJECTION_REBUILD_STATEMENT_CAPACITY: usize = 3;
 
-/// Where a session's projection cursor stands: current at its last sequence, being rebuilt, or
-/// left stale by a rebuild that failed or stopped before damaged events. Stored by its camelCase
-/// name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, strum::IntoStaticStr)]
-#[serde(rename_all = "camelCase")]
-#[strum(serialize_all = "camelCase")]
-pub(crate) enum ProjectionCursorState {
-    /// The rows reflect every event up to the cursor's last sequence.
-    Current,
-    /// A rebuild is replacing the rows.
-    Rebuilding,
-    /// The rows are not trusted until a rebuild lands.
-    Stale,
-}
-
-impl ProjectionCursorState {
-    fn as_str(self) -> &'static str {
-        self.into()
-    }
-}
-
 // Every session with events has a cursor, written with each event, and a current one is at its
 // newest sequence, so the sessions to rebuild are those whose cursor is not current.
 static SELECT_SESSIONS_TO_REBUILD_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT session_id FROM projection_cursors
   WHERE state <> '{}' AND session_id <> ?",
-        ProjectionCursorState::Current.as_str()
+        <&str>::from(ProjectionCursorState::Current)
     )
 });
 
@@ -93,7 +72,7 @@ const SELECT_HEAD_SEQUENCE_SQL: &str = "SELECT MAX(sequence) FROM session_events
 
 // Goes with the clear, so the cursor reflects no event until a page lands.
 static MARK_REBUILDING_SQL: LazyLock<String> = LazyLock::new(|| {
-    let rebuilding = ProjectionCursorState::Rebuilding.as_str();
+    let rebuilding = <&str>::from(ProjectionCursorState::Rebuilding);
     format!(
         "INSERT INTO projection_cursors
     (id, session_id, last_sequence, state, updated_at)
@@ -120,7 +99,7 @@ static MARK_STALE_SQL: LazyLock<String> = LazyLock::new(|| {
         "UPDATE projection_cursors
   SET state = '{}', updated_at = {DATABASE_NOW_SQL}
   WHERE session_id = @session_id",
-        ProjectionCursorState::Stale.as_str()
+        <&str>::from(ProjectionCursorState::Stale)
     )
 });
 
@@ -134,6 +113,12 @@ pub(crate) trait SessionProjection: Send + Sync {
 
     /// The statements that delete the session's rows.
     fn clear_statements(&self, session_id: &SessionId) -> Vec<WriteStatement>;
+
+    /// The statements that settle the session's rows once the fold has read its last event, run
+    /// in the last page's write; none for a projection whose fold leaves nothing to settle.
+    fn closing_statements(&self, _session_id: &SessionId) -> Vec<WriteStatement> {
+        Vec::new()
+    }
 
     /// A fresh fold for one rebuild of `session_id`.
     fn fold(&self, session_id: &SessionId) -> Box<dyn SessionProjectionFold>;
@@ -531,6 +516,13 @@ impl ProjectionRebuildService {
             events_read += events.len();
             // The page's envelopes are done with once its statements are built.
             drop(events);
+            if !has_more {
+                statements.extend(
+                    self.projections
+                        .iter()
+                        .flat_map(|rebuilt| rebuilt.projection.closing_statements(&session_id)),
+                );
+            }
             let (last_sequence, state) = if has_more {
                 (next_sequence, ProjectionCursorState::Rebuilding)
             } else if range.before_sequence.is_none() {
@@ -704,7 +696,7 @@ fn advance_cursor_statement(
                 Cow::Borrowed("@last_sequence"),
                 Value::Integer(last_sequence),
             ),
-            text_binding("@state", state.as_str()),
+            text_binding("@state", <&str>::from(state)),
         ],
     )
 }

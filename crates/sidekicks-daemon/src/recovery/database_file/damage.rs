@@ -108,7 +108,7 @@ impl DatabaseDamageWatch {
 
 /// Records the damage beside the database file, durably, so the next start repairs the file.
 /// Fails with the crash-safe write's failure.
-#[expect(dead_code, reason = "the daemon's start")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) async fn record_database_damage(
     database_path: &Path,
     damage: &str,
@@ -123,7 +123,6 @@ pub(crate) async fn record_database_damage(
 
 /// The damage a run recorded for the next start to repair, `None` when none was. Fails with the
 /// file system's error.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) async fn read_database_damage(database_path: &Path) -> io::Result<Option<String>> {
     tokio::fs::read_to_string(damage_record_path(database_path))
         .await
@@ -132,7 +131,6 @@ pub(crate) async fn read_database_damage(database_path: &Path) -> io::Result<Opt
 
 /// Removes the damage record once the file it named is replaced or gone; a missing record is
 /// already removed. Fails with the file system's error.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) async fn remove_database_damage(database_path: &Path) -> io::Result<()> {
     tokio::fs::remove_file(damage_record_path(database_path))
         .await
