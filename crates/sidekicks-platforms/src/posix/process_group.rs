@@ -1,7 +1,8 @@
 //! A signal to a whole process group on macOS and Linux, which tells a group that has ended from a
 //! refused send, and on macOS repeats a kill until no member is left.
 
-use std::io::{self, ErrorKind};
+use std::io;
+#[cfg(any(target_os = "macos", test))]
 use std::time::{Duration, Instant};
 
 use nix::errno::Errno;
@@ -20,17 +21,19 @@ use crate::posix::process_id::system_process_id;
 const LISTING_GAP: Duration = Duration::from_millis(10);
 
 /// How long a macOS group kill repeats while members are left, before it fails.
+#[cfg(target_os = "macos")]
 const GROUP_KILL_BOUND: Duration = Duration::from_secs(1);
 
 /// Sends `signal` to every member of the group process `id` leads, a `SIGKILL` on macOS again
 /// until no member is left; `false` when the group had already ended. Fails with `InvalidInput`
-/// for an id of 0 or past `i32::MAX`, with `TimedOut` naming the members a kill leaves past
-/// [`GROUP_KILL_BOUND`], else with the system's error.
+/// for an id of 0 or past `i32::MAX`, with `TimedOut` naming the members a macOS kill leaves past
+/// its bound, else with the system's error.
 pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
     let group = Pid::from_raw(system_process_id(id)?.get());
     // macOS's kill reaches only the members fully made as it lists them, so a child forked
     // meanwhile outlives it; Linux's reaches every member, a fork under way included.
     let is_repeated = cfg!(target_os = "macos") && signal == Signal::SIGKILL;
+    #[cfg(target_os = "macos")]
     let give_up_at = Instant::now() + GROUP_KILL_BOUND;
     let mut is_signaled = false;
     loop {
@@ -53,13 +56,14 @@ pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
         if !is_repeated {
             return Ok(true);
         }
+        #[cfg(target_os = "macos")]
         if Instant::now() >= give_up_at {
             let members = live_group_members(id)?;
             if members.is_empty() {
                 return Ok(is_signaled);
             }
             return Err(io::Error::new(
-                ErrorKind::TimedOut,
+                io::ErrorKind::TimedOut,
                 format!("process group {id} keeps members {members:?} after its kill"),
             ));
         }
