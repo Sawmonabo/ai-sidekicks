@@ -16,14 +16,6 @@ use crate::session::not_found::session_not_found;
 use crate::session::run::read::read_run_provider;
 use crate::session::run::refusals::RunRefusal;
 
-/// A driver as a handler found it, with the provider it answers.
-pub(crate) struct ResolvedDriver {
-    /// The provider the run or session is bound to.
-    pub(crate) provider: ProviderId,
-    /// That provider's driver.
-    pub(crate) driver: Arc<dyn ProviderDriver>,
-}
-
 /// The driver of the provider `bound` names, which the caller read once from the run's live
 /// binding (`None` for a run unknown or not live). Refused `agent.run.notFound` for `None`, then
 /// `provider.notFound` for a provider no driver answers.
@@ -31,9 +23,9 @@ pub(crate) fn resolve_run_driver(
     providers: &ProviderRegistry,
     run_id: RunId,
     bound: Option<ProviderId>,
-) -> Result<ResolvedDriver, DomainError> {
+) -> Result<Arc<dyn ProviderDriver>, DomainError> {
     let provider = bound.ok_or(RunRefusal::NotFound { run_id })?;
-    resolved(providers, provider)
+    providers.lookup(&provider)
 }
 
 /// The driver of the provider `run_id` runs on, its binding read through `pool`. Refused as
@@ -51,7 +43,7 @@ where
             Ok(read_run_provider(reader, &run_id)?)
         })
         .await?;
-    Ok(resolve_run_driver(providers, run_id, bound)?.driver)
+    Ok(resolve_run_driver(providers, run_id, bound)?)
 }
 
 /// The driver of the provider `bound` names, which the caller read once from the session's
@@ -62,15 +54,7 @@ pub(crate) fn resolve_session_driver(
     providers: &ProviderRegistry,
     session_id: &SessionId,
     bound: Option<ProviderId>,
-) -> Result<ResolvedDriver, DomainError> {
+) -> Result<Arc<dyn ProviderDriver>, DomainError> {
     let provider = bound.ok_or_else(|| session_not_found(session_id))?;
-    resolved(providers, provider)
-}
-
-fn resolved(
-    providers: &ProviderRegistry,
-    provider: ProviderId,
-) -> Result<ResolvedDriver, DomainError> {
-    let driver = providers.lookup(&provider)?;
-    Ok(ResolvedDriver { provider, driver })
+    providers.lookup(&provider)
 }
