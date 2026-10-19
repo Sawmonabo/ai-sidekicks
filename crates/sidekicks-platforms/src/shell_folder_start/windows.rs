@@ -250,12 +250,6 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 32] = [
     ),
 ];
 
-/// How `program` with `arguments` starts in `folder`: the `shell` mode is spawned in the system
-/// folder, where Windows Terminal keeps itself; PowerShell, `wsl.exe` and `cmd.exe` on a share
-/// (which it refuses as its start folder) start there too and are told the folder by their own
-/// switch, and every other shell starts in `folder`. `_stable_folder` is the macOS and Linux spawn
-/// folder, which Windows does not use. Reads the system folder, its usual path where that read
-/// fails (logged); never fails.
 /// How `program` with `arguments` starts in `folder`: `system_folder` is the folder the `shell`
 /// mode spawns in, and PowerShell, `wsl.exe` and `cmd.exe` on a share (which it refuses as its
 /// start folder) start there too and are told the folder by their own means; every other shell
@@ -293,9 +287,10 @@ pub(crate) fn compose_shell_folder_start(
             "-WorkingDirectory".to_owned(),
             strip_trailing_separators(folder).to_owned(),
         ]),
-        // It has no folder switch, so a `Set-Location` moves it: in front of the user's own command,
-        // or as a start command after their arguments; any argument not known to leave room for it
-        // starts the shell in the folder with the user's arguments, as every terminal starts it.
+        // It has no folder switch, so a `Set-Location` moves it: in front of the user's own
+        // command, or as a start command after their arguments; any argument not known to leave
+        // room for it starts the shell in the folder with the user's arguments, as every terminal
+        // starts it.
         "powershell" => match windows_powershell_folder_arguments(arguments, folder) {
             Some(arguments) => start(arguments, system_folder.to_path_buf()),
             None => in_folder(),

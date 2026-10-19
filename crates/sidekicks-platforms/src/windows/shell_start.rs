@@ -43,9 +43,9 @@ pub fn prepare_shell_start(_daemon_pid: u32, _folder: &Path) -> Result<(), Shell
 /// them as given, and its environment, waits for it and ends this process with the program's exit
 /// code, returning only when the handler routine cannot be registered or the program cannot be
 /// started or waited for. This process keeps the folder it was spawned in, so it never holds the
-/// shell's. It ends through
-/// `std::process::exit`, since `ExitCode` holds only a `u8` and setting a raw 32-bit code on it is
-/// not stable; the exit hands the code to `ExitProcess` as the same 32 bits.
+/// shell's. It ends through `std::process::exit`, since `ExitCode` holds only a `u8` and setting a
+/// raw 32-bit code on it is not stable; the exit hands the code to `ExitProcess` as the same 32
+/// bits.
 #[expect(
     clippy::exit,
     reason = "the shell's 32-bit exit code passes on only through process::exit, since ExitCode \
