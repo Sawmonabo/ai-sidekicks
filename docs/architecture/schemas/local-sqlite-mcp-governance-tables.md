@@ -21,7 +21,7 @@ CREATE TABLE mcp_server_bindings (
   -- binding-ref structural validity, mirroring the schema-level discriminated union (defense in depth):
   -- user and managed scope have no scope_ref ('' sentinel); project/local/plugin/connector REQUIRE one
   CHECK((scope IN ('user', 'managed')) = (scope_ref = ''))
-);
+) STRICT;
 ```
 
 ```sql
@@ -52,7 +52,7 @@ CREATE TABLE mcp_tool_overrides (
   FOREIGN KEY (provider, scope, scope_ref, server_name)
     REFERENCES mcp_server_bindings(provider, scope, scope_ref, server_name)
     ON DELETE CASCADE  -- overrides never outlive their binding row
-);
+) STRICT;
 ```
 
 The FK targets the binding table because first observation of any binding upserts its row ([Spec-024 § Unified Inventory](../../specs/024-mcp-server-configuration-and-governance.md#unified-inventory)) — that row is each binding's durable governance anchor, so overrides cascade to it rather than to any provider-config mirror (there is none). Identity is the scope-qualified binding `(provider, scope, scope_ref, server_name)`: same-named servers in two scopes are distinct configurations with independent overrides, so collapsing them would bleed one scope's overrides into the other. Lookups ride the composite primary keys: the inventory merge and the Spec-004 tool-metadata resolution both read by binding prefix, so no secondary indexes are warranted.
@@ -67,7 +67,7 @@ CREATE TABLE mcp_mutation_receipts (
   response_json           TEXT,                       -- the acknowledged response, returned verbatim as the saved result on any retry with the same key, whatever the second request carries — no provider call or store write (Spec-024 §Authorization); NULL while 'pending' (recorded at finalization). One representation exception: the mcp.server.signIn row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-022 I-022-1) — so its saved result is an acknowledgment with no URL (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
   created_at              TEXT NOT NULL,              -- RFC 3339 UTC; 'committed' rows older than 24 h are pruned opportunistically on later mutation writes ('pending' intents resolve at startup reconciliation, never silently pruned)
   CHECK((status = 'committed') = (response_json IS NOT NULL))
-);
+) STRICT;
 ```
 
 Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making the acknowledgment and the saved result atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then returns the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. Receipts carry no config values.
@@ -90,7 +90,7 @@ CREATE TABLE mcp_project_server_switches (
   FOREIGN KEY (provider, scope, scope_ref, server_name)
     REFERENCES mcp_server_bindings(provider, scope, scope_ref, server_name)
     ON DELETE CASCADE  -- a switch never outlives its binding row
-);
+) STRICT;
 ```
 
 ```sql
@@ -104,5 +104,5 @@ CREATE TABLE mcp_server_admitted_clients (
   server_name           TEXT NOT NULL,
   admitted_oauth_client TEXT NOT NULL,  -- 'daemon', or the open id of the provider whose own client the server admits
   PRIMARY KEY (provider, server_name)
-);
+) STRICT;
 ```

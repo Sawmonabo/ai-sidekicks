@@ -40,7 +40,7 @@ CREATE TABLE agent_definitions (
   source_path            TEXT NOT NULL,  -- the file the definition lives in; on an orphaned row, the last path the file was known at
   orphaned               INTEGER NOT NULL DEFAULT 0  -- 1 while the file is renamed or deleted outside the app and the row is neither reattached nor discarded
                          CHECK(orphaned IN (0, 1)),
-  hooks                  TEXT,  -- JSON in the form an agent file's `hooks` key holds ({ <Event>: [{ matcher?, hooks: [<handler>] }] }); NULL = none. The agent's own value on every origin
+  hooks                  TEXT   -- JSON in the form an agent file's `hooks` key holds ({ <Event>: [{ matcher?, hooks: [<handler>] }] }); NULL = none. The agent's own value on every origin
                          CHECK(hooks IS NULL OR (json_valid(hooks) AND json_type(hooks) = 'object')),
   memory_scope           TEXT  -- where the agent's own memory lives; NULL = none. The agent's own value on every origin
                          CHECK(memory_scope IS NULL OR memory_scope IN ('user', 'project', 'local')),
@@ -61,7 +61,7 @@ CREATE TABLE agent_definitions (
   updated_at             TEXT NOT NULL,
   CHECK((origin = 'plugin') = (plugin_name <> '')),
   CHECK((scope = 'global') = (scope_ref = ''))
-);
+) STRICT;
 
 -- Case-insensitive name uniqueness (I-024-7), per origin and scope: two definitions differing only in
 -- letter case are one handle to a human reading a picker, and a service-layer-only check races under

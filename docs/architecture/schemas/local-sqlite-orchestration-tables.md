@@ -15,7 +15,7 @@ CREATE TABLE run_links (
   created_at        TEXT NOT NULL,
   PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot agent.run.queued linkage D-013-3)
   CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
-);
+) STRICT;
 
 CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (agent.childRunLink.list; the session's agent tree)
 CREATE INDEX idx_run_links_session ON run_links(session_id);
@@ -103,7 +103,7 @@ CREATE TABLE agents (
                                                         -- agent on its previous binding) and by supersession
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
-);
+) STRICT;
 
 CREATE INDEX idx_agents_session ON agents(session_id);
 
@@ -116,7 +116,7 @@ CREATE TABLE session_budgets (
   -- Each limit is NULL (no limit) or an integer the wire's limit verbs also check (D-013-5)
   CHECK (spend_limit_usd_micros IS NULL OR spend_limit_usd_micros >= 0),
   CHECK (tokens_per_run IS NULL OR tokens_per_run >= 1)
-);
+) STRICT;
 
 -- The daemon's own agent tree: one row per agent a provider starts inside a run (a Claude Code task,
 -- a Codex child thread), written by the daemon alone when the agent starts and when it finishes and
@@ -136,7 +136,7 @@ CREATE TABLE agent_tree_nodes (
   started_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (run_id, provider_name, subagent_id)   -- one row per agent: a second start for the same agent is refused
-);
+) STRICT;
 
 -- Two sessions trading messages. [Spec-014 §State And Data Implications](../../specs/014-multi-agent-orchestration.md#state-and-data-implications)
 -- declares both of the tables below durable, session-scoped daemon state, because a daemon restart
@@ -156,7 +156,7 @@ CREATE TABLE session_exchanges (
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (session_id, peer_session_id),
   CHECK (session_id < peer_session_id)  -- the canonical ordering that makes the pair one row. An interrupt taken on either session reads this row to reach the other, so the pair is what is stored and the direction of the last message is not
-);
+) STRICT;
 
 -- Every message addressed to a PAUSED session, in arrival order. The daemon holds them while the
 -- session is paused and delivers them one at a time in this order when it continues; a row is deleted
@@ -169,7 +169,7 @@ CREATE TABLE session_paused_message_queue (
   arrived_at         TEXT NOT NULL,
   PRIMARY KEY (target_session_id, arrival_sequence),
   UNIQUE (target_session_id, source_event_id)  -- one hold per send, so a re-delivery attempt after a restart queues nothing twice
-);
+) STRICT;
 ```
 
 A run's token limit (`tokenLimit`, input and output together for one run) is `Unlimited` by default; the session's `Tokens per run` value is resolved onto each run at admission as a per-run `OrchestrationRunConfig` value and persisted durably as the `agent.run.queued` payload's `effectiveRunConfig` (Plan-013 D-013-5; api-payload `RunStateChangeEvent`), and enforcement rebuilds from that event field, never by re-merging session values that may have changed mid-run. The service ends a run `stopped` with `trigger: tokenLimit` at the first usage report past its limit, so one request can overshoot slightly, and the agent's next message starts a new run with a fresh count. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt from `usageTelemetry` + `agent.run.*` events (D-013-5). `provider_account_usage_turns` (in [Provider Account Tables (Plan-023)](local-sqlite-provider-account-tables.md)) is not a second accountant: it projects the same `usageTelemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-025 §State And Data Implications).
