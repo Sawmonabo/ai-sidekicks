@@ -384,17 +384,34 @@ fn is_resolved_without_folder(script: &str) -> bool {
 }
 
 // Windows PowerShell's arguments that move it to `folder`, `None` where an argument leaves no room:
-// every user argument must be a switch it takes the folder start beside, with its value; a user
-// command given as text gets the `Set-Location` in front of it, and otherwise the `Set-Location`
-// follows the arguments as its start command.
+// every user argument before its command must be a switch it takes the folder start beside, with
+// its value. A command given as text, after `-Command` or as a bare word, gets the `Set-Location`
+// in front of its first value, unless the command must open the script; with no command the
+// `Set-Location` follows the arguments as its start command.
 fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Option<Vec<String>> {
     let set_location = format!(
         "Set-Location -LiteralPath {}",
         quote_powershell_literal(folder)
     );
+    // Windows PowerShell joins every argument from the command's first value on into one command.
+    let put_before_command = |first: usize| {
+        if must_open_the_script(&arguments[first..].join(" ")) {
+            return None;
+        }
+        let mut started = arguments.to_vec();
+        started[first] = format!("{set_location}; {}", arguments[first]);
+        Some(started)
+    };
     let mut index = 0;
     while let Some(argument) = arguments.get(index) {
-        let switch = powershell_switch_key(argument).and_then(find_powershell_switch)?;
+        let Some(key) = powershell_switch_key(argument) else {
+            // A bare word begins the command; an empty argument is refused.
+            if argument.trim().is_empty() {
+                return None;
+            }
+            return put_before_command(index);
+        };
+        let switch = find_powershell_switch(key)?;
         if switch.allowed_by != AllowingPowerShells::Both {
             return None;
         }
@@ -406,10 +423,8 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
             }
             // `-` reads the commands from standard input, which no text can go in front of.
             SwitchOperand::Command => {
-                let command = arguments.get(index + 1).filter(|command| *command != "-")?;
-                let mut started = arguments.to_vec();
-                started[index + 1] = format!("{set_location}; {command}");
-                return Some(started);
+                arguments.get(index + 1).filter(|command| *command != "-")?;
+                return put_before_command(index + 1);
             }
             SwitchOperand::Script => return None,
         }
@@ -426,6 +441,18 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
             ])
             .collect(),
     )
+}
+
+// Whether `command` opens with what PowerShell takes only at a script's start (`using`, `param`,
+// an attribute's `[`, or a comment, which `#requires` is), compared without case, so no statement
+// can go in front of it.
+fn must_open_the_script(command: &str) -> bool {
+    let command = command.trim_start();
+    ["using", "param", "[", "#", "<#"].iter().any(|opener| {
+        command
+            .get(..opener.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(opener))
+    })
 }
 
 // The name an argument gives after its switch character (`/`, a dash, or a dash doubled), trimmed
@@ -612,6 +639,60 @@ mod tests {
              &{Import-Module \"C:\\VS\\DevShell.dll\"; Enter-VsDevShell 1a2b}",
         ],
         SYSTEM_FOLDER,
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_bare_command(
+        "powershell.exe",
+        &["-nop", "Get-Date"],
+        r"C:\wt",
+        &["-nop", r"Set-Location -LiteralPath 'C:\wt'; Get-Date"],
+        SYSTEM_FOLDER,
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_command_opening_with_using(
+        "powershell.exe",
+        &["-NoExit", "-Command", "USING namespace System.Text; [StringBuilder]::new()"],
+        r"C:\wt",
+        &["-NoExit", "-Command", "USING namespace System.Text; [StringBuilder]::new()"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_command_opening_with_param(
+        "powershell.exe",
+        &["-Command", "  Param($x) $x"],
+        r"C:\wt",
+        &["-Command", "  Param($x) $x"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_command_opening_with_an_attribute(
+        "powershell.exe",
+        &["-Command", "[CmdletBinding()] param()"],
+        r"C:\wt",
+        &["-Command", "[CmdletBinding()] param()"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_command_opening_with_a_comment(
+        "powershell.exe",
+        &["-Command", "#Requires -Version 5.1", "Get-Date"],
+        r"C:\wt",
+        &["-Command", "#Requires -Version 5.1", "Get-Date"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_command_opening_with_a_block_comment(
+        "powershell.exe",
+        &["-Command", "<# a note #> Get-Date"],
+        r"C:\wt",
+        &["-Command", "<# a note #> Get-Date"],
+        r"C:\wt",
         &[],
         None
     )]
