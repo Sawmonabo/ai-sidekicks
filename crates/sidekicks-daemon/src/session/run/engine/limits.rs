@@ -207,25 +207,30 @@ impl RunEngine {
             return Ok(());
         }
         let limit = stop.limit();
+        // The turn the stop cuts, if any; `None` once the run reads ended, which stops nothing and
+        // cuts no turn.
         let read = async {
             self.live_limit_interrupter(run_id)?;
             self.wait_while_continuing(&run_id).await;
-            self.require_run(run_id).await?;
-            Ok::<_, RunEngineError>(match stop {
+            let run = self.require_run(run_id).await?;
+            if run.state.is_terminal() {
+                return Ok(None);
+            }
+            Ok::<_, RunEngineError>(Some(match stop {
                 LimitStop::Step { turn_number, .. } => Some(turn_number),
                 LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
                     self.read_open_turn(run_id).await?
                 }
-            })
+            }))
         };
         let cut_turn = match read.await {
-            Ok(read) => read,
-            Err(error) => {
+            Ok(Some(cut_turn)) => cut_turn,
+            stopped_nothing => {
                 // A step stop that wrote nothing leaves its turn's count to reach the bound again.
                 if let LimitStop::Step { turn_number, .. } = stop {
                     set_step_limit_reached(&mut lock(&self.live), &run_id, turn_number, false);
                 }
-                return Err(error);
+                return stopped_nothing.map(drop);
             }
         };
         let (stop, own_cut, cut, is_memory_own) = {

@@ -397,10 +397,11 @@ impl RunEngine {
             turn_number,
             outcome,
         } = turn_end;
+        let held_limit = lock(&self.live).current_limit(&(*run_id, turn_number));
         TurnEnd {
             turn_number,
             origin: TurnEndOrigin::Provider,
-            outcome: self.cut_outcome(run_id, turn_number, &[], outcome),
+            outcome: cut_outcome(held_limit, turn_number, &[], outcome),
         }
     }
 
@@ -414,10 +415,11 @@ impl RunEngine {
         turn_cuts: &[TurnCut],
         outcome: TurnOutcome,
     ) -> TurnEnd {
+        let held_limit = lock(&self.live).current_limit(&(*run_id, turn_number));
         TurnEnd {
             turn_number,
             origin: TurnEndOrigin::Daemon,
-            outcome: self.cut_outcome(run_id, turn_number, turn_cuts, outcome),
+            outcome: cut_outcome(held_limit, turn_number, turn_cuts, outcome),
         }
     }
 
@@ -431,15 +433,12 @@ impl RunEngine {
         turn_number: SafeInt<1>,
         outcome: TurnOutcome,
     ) -> Result<TurnOutcome, RunEngineError> {
-        let is_cut_held = lock(&self.live)
-            .cut_turns
-            .contains_key(&(run_id, turn_number));
-        let turn_cuts = if is_cut_held {
-            Vec::new()
-        } else {
-            self.read_run_turn_cuts(run_id).await?
+        let held_limit = lock(&self.live).current_limit(&(run_id, turn_number));
+        let turn_cuts = match held_limit {
+            Some(_) => Vec::new(),
+            None => self.read_run_turn_cuts(run_id).await?,
         };
-        Ok(self.cut_outcome(&run_id, turn_number, &turn_cuts, outcome))
+        Ok(cut_outcome(held_limit, turn_number, &turn_cuts, outcome))
     }
 
     /// Every open turn of `run_id` a limit's intervention row marks as cut, oldest first. Fails
@@ -453,28 +452,6 @@ impl RunEngine {
                 Ok::<_, RunEngineError>(read_turn_cuts(reader, &run_id)?)
             })
             .await
-    }
-
-    // How `turn_number` of `run_id` ends: interrupted with the higher-ranked limit of the engine's
-    // cuts of it, else of its cut in `turn_cuts`, else `outcome`.
-    fn cut_outcome(
-        &self,
-        run_id: &RunId,
-        turn_number: SafeInt<1>,
-        turn_cuts: &[TurnCut],
-        outcome: TurnOutcome,
-    ) -> TurnOutcome {
-        let held_limit = lock(&self.live).current_limit(&(*run_id, turn_number));
-        let cut_limit = held_limit.or_else(|| {
-            turn_cuts
-                .iter()
-                .find(|cut| cut.turn_number == turn_number)
-                .map(|cut| cut.limit)
-        });
-        match cut_limit {
-            Some(limit) => TurnOutcome::Interrupted(Some(limit_turn_cause(limit))),
-            None => outcome,
-        }
     }
 
     /// Ends every turn in `open_turns`, oldest first, as [`RunEngine::daemon_turn_end`] reports it
@@ -695,6 +672,26 @@ pub(super) fn set_step_limit_reached(
         .filter(|count| count.turn_number == turn_number)
     {
         count.is_reached = is_reached;
+    }
+}
+
+// How `turn_number` ends: interrupted with `held_limit`, the higher-ranked limit of the engine's
+// cuts of it, else with the limit of its cut in `turn_cuts`, else `outcome`.
+fn cut_outcome(
+    held_limit: Option<RunLimit>,
+    turn_number: SafeInt<1>,
+    turn_cuts: &[TurnCut],
+    outcome: TurnOutcome,
+) -> TurnOutcome {
+    let cut_limit = held_limit.or_else(|| {
+        turn_cuts
+            .iter()
+            .find(|cut| cut.turn_number == turn_number)
+            .map(|cut| cut.limit)
+    });
+    match cut_limit {
+        Some(limit) => TurnOutcome::Interrupted(Some(limit_turn_cause(limit))),
+        None => outcome,
     }
 }
 

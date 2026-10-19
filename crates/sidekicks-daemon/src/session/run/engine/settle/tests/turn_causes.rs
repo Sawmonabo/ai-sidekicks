@@ -14,7 +14,7 @@ use crate::events::log_service::EventLogService;
 use crate::events::log_service::tests::open_log;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{
-    TestLimitInterrupter, append, continue_request, events, hand_limit_interrupter,
+    SETTLE_WAIT, TestLimitInterrupter, append, continue_request, events, hand_limit_interrupter,
     insert_running_run, provider_end, started_turn, step_stop, stored_events, stored_run_state,
     test_engine, token_limit, turn, turn_started_at,
 };
@@ -368,7 +368,8 @@ async fn the_ended_runs_sweep_collects_its_failures_and_ends_no_turn_of_a_run_th
 
 // Killed by a late provider end on a run that reads ended resolving its turn's cause from the
 // engine's empty memory alone, as a live run's does, which after a restart ends the turn a step
-// limit's row names with no cause.
+// limit's row names with no cause; and by a token stop of the ended run cutting that turn, held
+// while the late end lands, which then ends it `tokenLimit`, a limit no row names.
 #[tokio::test]
 async fn a_late_turn_end_after_a_restart_takes_the_limit_its_row_names() {
     let database = TestDatabase::new();
@@ -400,6 +401,22 @@ async fn a_late_turn_end_after_a_restart_takes_the_limit_its_row_names() {
         )
         .expect("the test rests the run");
     let restarted = test_engine(&database, log.service, home.path());
+    let _interventions = hand_limit_interrupter(&restarted, 0);
+    // A usage report's token stop of the ended run, held at its cut should it make one.
+    let paused = restarted.cut_pause.arm();
+    let mut stopping = Box::pin(restarted.stop_at_token_limit(run_id, token_limit()));
+    let stop_settled = tokio::time::timeout(SETTLE_WAIT, async {
+        tokio::select! {
+            stopped = &mut stopping => stopped,
+            reached = paused.reached => {
+                reached.expect("the stop holds its cut");
+                Ok(())
+            }
+        }
+    })
+    .await
+    .expect("the stop ends or holds its cut");
+    stop_settled.expect("a stop of a run that reads ended is left");
 
     let late_end = restarted
         .record_turn_end(run_id, provider_end(1))
