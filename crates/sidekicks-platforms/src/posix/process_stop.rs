@@ -21,10 +21,14 @@ pub(crate) fn stop_pinned_process(
     mut send: impl FnMut(Signal) -> io::Result<bool>,
     mut wait_for_end: impl FnMut(Duration) -> io::Result<bool>,
 ) -> io::Result<ChildEnd> {
-    // A process that ends between the grace and the kill ended on the stop it was asked.
-    if !send(Signal::SIGTERM)? || wait_for_end(grace)? || !send(Signal::SIGKILL)? {
+    if !send(Signal::SIGTERM)? || wait_for_end(grace)? {
         // The process's exit ends nothing else of its group, so the kill goes to the rest.
         send(Signal::SIGKILL)?;
+        return Ok(ChildEnd::Stop);
+    }
+    // A process that ends between the grace and the kill ended on the stop it was asked; the kill
+    // that found it ended went to the rest of its group.
+    if !send(Signal::SIGKILL)? {
         return Ok(ChildEnd::Stop);
     }
     if wait_for_end(KILL_WAIT_BOUND)? {
