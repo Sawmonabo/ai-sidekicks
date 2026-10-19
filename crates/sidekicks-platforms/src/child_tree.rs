@@ -113,16 +113,8 @@ impl ChildTree {
         // What the child wrote before its exit is in the pipes now; read it without waiting for
         // an end of file a process it left behind can hold off.
         if !is_output_read_to_end {
-            #[cfg(unix)]
-            {
-                read_ready_output(stdout.as_ref(), &mut stdout_bytes, bound)?;
-                read_ready_output(stderr.as_ref(), &mut stderr_bytes, bound)?;
-            }
-            #[cfg(windows)]
-            {
-                read_output_left_at_exit(stdout.as_mut(), &mut stdout_bytes, bound).await?;
-                read_output_left_at_exit(stderr.as_mut(), &mut stderr_bytes, bound).await?;
-            }
+            read_left_at_exit(stdout.as_mut(), &mut stdout_bytes, bound).await?;
+            read_left_at_exit(stderr.as_mut(), &mut stderr_bytes, bound).await?;
         }
         Ok(ChildTreeOutput {
             status,
@@ -137,13 +129,21 @@ impl ChildTree {
         self.process().stderr().take()
     }
 
-    /// Asks the child's whole tree to stop: on macOS and Linux `SIGTERM` to its group, so each
-    /// process may clean up; on Windows, where no process can be asked
+    /// Asks the child's whole tree to stop: on macOS and Linux `SIGTERM` to its group, sent on a
+    /// blocking thread, so each process may clean up; on Windows, where no process can be asked
     /// ([`CAN_SIGNAL_A_STOP`](crate::CAN_SIGNAL_A_STOP) is false), the job's end at once. A tree
     /// already gone is no failure. Fails with the system's error.
-    pub fn ask_tree_to_stop(&mut self) -> io::Result<()> {
+    #[cfg_attr(
+        windows,
+        expect(
+            clippy::unused_async,
+            clippy::unused_async_trait_impl,
+            reason = "only the macOS and Linux ask awaits, its signal on a blocking thread"
+        )
+    )]
+    pub async fn ask_tree_to_stop(&mut self) -> io::Result<()> {
         #[cfg(unix)]
-        ask_child_tree_to_stop(self.process())?;
+        ask_child_tree_to_stop(self.process()).await?;
         #[cfg(windows)]
         end_child_tree_now(self.process())?;
         Ok(())
@@ -193,6 +193,50 @@ impl Drop for ChildTree {
             );
         }
     }
+}
+
+/// Reads into `into` what `stderr`, a child's standard error taken with
+/// [`take_stderr`](ChildTree::take_stderr), holds once the child has exited, without waiting for an
+/// end of file a process it left behind can hold off; a read of it dropped at the exit loses
+/// nothing. Fails with `TooLarge` once `into` passes `bound`, else with the read's error.
+pub async fn read_stderr_left_at_exit(
+    stderr: &mut ChildStderr,
+    into: &mut Vec<u8>,
+    bound: usize,
+) -> Result<(), ChildTreeOutputError> {
+    read_left_at_exit(Some(stderr), into, bound).await
+}
+
+/// A child's output pipe as each system's read at its exit takes it.
+#[cfg(unix)]
+trait ChildPipe: AsyncRead + std::os::fd::AsFd + Unpin {}
+#[cfg(unix)]
+impl<Pipe: AsyncRead + std::os::fd::AsFd + Unpin> ChildPipe for Pipe {}
+
+/// A child's output pipe as each system's read at its exit takes it.
+#[cfg(windows)]
+trait ChildPipe: AsyncRead + std::os::windows::io::AsRawHandle + Unpin {}
+#[cfg(windows)]
+impl<Pipe: AsyncRead + std::os::windows::io::AsRawHandle + Unpin> ChildPipe for Pipe {}
+
+// Reads what `stream` holds at its child's exit: what the pipe holds now on macOS and Linux, and on
+// Windows the read tokio left under way, canceled with its bytes kept, then what the pipe holds.
+#[cfg_attr(
+    unix,
+    expect(
+        clippy::unused_async,
+        reason = "only Windows' read awaits, its cancel of the read left under way"
+    )
+)]
+async fn read_left_at_exit(
+    stream: Option<&mut impl ChildPipe>,
+    into: &mut Vec<u8>,
+    bound: usize,
+) -> Result<(), ChildTreeOutputError> {
+    #[cfg(unix)]
+    return read_ready_output(stream.map(|stream| &*stream), into, bound);
+    #[cfg(windows)]
+    return read_output_left_at_exit(stream, into, bound).await;
 }
 
 // Writes `input` to the child and closes its standard input. A child that exits without reading

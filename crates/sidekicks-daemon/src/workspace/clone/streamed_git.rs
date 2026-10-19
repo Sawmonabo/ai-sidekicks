@@ -142,7 +142,7 @@ async fn wait_or_stop(
     };
     // Armed before the ask, so the end keeps to the grace however long the ask takes.
     let deadline = Instant::now() + grace;
-    if let Err(asked) = tree.ask_tree_to_stop() {
+    if let Err(asked) = tree.ask_tree_to_stop().await {
         // git may still be running, so it is ended at once rather than after the grace.
         return Err(match tree.end_tree().await {
             Ok(()) => StreamedGitError::Stop(asked),

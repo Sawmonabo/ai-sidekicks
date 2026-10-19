@@ -16,7 +16,8 @@
               check and end), a lasting child's start on Windows (`CreateProcessW` with its \
               attribute list, its job's creation and access list, the handles it inherits and \
               the wait for its exit), the user-namespace check's `unshare` and map writes, the \
-              boot id's `sysctl`, the Windows host-name, free-room and file-information calls, \
+              boot id's `sysctl`, the Windows host-name, free-room, volume-root \
+              (`GetVolumePathNameW`, `GetDriveTypeW`) and file-information calls, \
               the Windows replacing rename's `MoveFileExW`, the caller reads (Linux's peer \
               process descriptor and `pidfd_open`, macOS's audit token, checked process reads \
               and responsible-process reads), macOS's code-signature checks, the start as its \
@@ -92,7 +93,9 @@ pub use caller_process::{ParentProcess, ResponsibleProcess};
 #[cfg(not(target_os = "linux"))]
 pub use child_command::leave_daemon_scope;
 pub use child_command::{ChildEnd, ChildExit, read_child_exit};
-pub use child_tree::{ChildTree, ChildTreeOutput, ChildTreeOutputError, start_child_tree};
+pub use child_tree::{
+    ChildTree, ChildTreeOutput, ChildTreeOutputError, read_stderr_left_at_exit, start_child_tree,
+};
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
@@ -185,7 +188,8 @@ pub use posix::child_command::{
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(unix)]
 pub use posix::disk::{
-    flush_file, flush_folder, flush_open_file, read_exact_at, volume_free_bytes,
+    flush_file, flush_folder, flush_open_file, is_on_network_file_system, read_exact_at,
+    volume_free_bytes,
 };
 #[cfg(unix)]
 pub use posix::entry_identity::entry_identity;
@@ -196,13 +200,14 @@ pub use posix::error_codes::{
 };
 #[cfg(unix)]
 pub use posix::file_facts::file_facts;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::file_system::{
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
+    make_folder_link, make_folder_unreadable,
+};
 #[cfg(unix)]
 pub use posix::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
-};
-#[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::file_system::{
-    UnreadableFolder, UnremovableFile, is_superuser, make_folder_link, make_folder_unreadable,
 };
 #[cfg(unix)]
 pub use posix::login_shell::login_shell;
@@ -294,7 +299,7 @@ pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
     FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,
-    read_exact_at, volume_free_bytes, windows_drive_mounts,
+    is_on_network_file_system, read_exact_at, volume_free_bytes, windows_drive_mounts,
 };
 #[cfg(target_os = "windows")]
 pub use windows::entry_identity::entry_identity;
@@ -305,13 +310,14 @@ pub use windows::error_codes::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_facts::file_facts;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::file_system::{
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
+    make_folder_link, make_folder_unreadable,
+};
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
-};
-#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
-pub use windows::file_system::{
-    UnreadableFolder, UnremovableFile, is_superuser, make_folder_link, make_folder_unreadable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::lasting_child::spawn_lasting_child;

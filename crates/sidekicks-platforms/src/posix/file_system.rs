@@ -104,6 +104,11 @@ pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
+/// Whether a path inside a folder [`make_folder_unreadable`] made unreadable still opens, to name
+/// what is or is not there: a mode-000 folder lets no path through it.
+#[cfg(any(test, feature = "test-support"))]
+pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = false;
+
 /// A folder no one but root may read or list until this is dropped, when it gets its mode back.
 #[cfg(any(test, feature = "test-support"))]
 pub struct UnreadableFolder {

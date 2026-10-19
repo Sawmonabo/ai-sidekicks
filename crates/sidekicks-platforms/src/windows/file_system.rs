@@ -166,6 +166,12 @@ pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(any(test, feature = "test-support"))]
 const EVERYONE_READ_DENIAL: &str = "*S-1-1-0:(RD,R)";
 
+/// Whether a path inside a folder [`make_folder_unreadable`] made unreadable still opens, to name
+/// what is or is not there: every account holds the bypass-traverse right, so a deny of listing
+/// and reading stops no open through the folder.
+#[cfg(any(test, feature = "test-support"))]
+pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = true;
+
 /// A folder no one may read or list until this is dropped, when its deny entry is removed.
 #[cfg(any(test, feature = "test-support"))]
 pub struct UnreadableFolder {

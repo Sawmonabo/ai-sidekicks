@@ -1,6 +1,6 @@
-//! The disk on macOS and Linux: the free room on a folder's volume, a read at a file offset, and a
-//! written file (by path, or through a handle already open with `flush_open_file`) or a changed
-//! folder flushed so it survives a power loss.
+//! The disk on macOS and Linux: the free room on a folder's volume, whether that volume is a
+//! network file system, a read at a file offset, and a written file (by path, or through a handle
+//! already open with `flush_open_file`) or a changed folder flushed so it survives a power loss.
 
 use std::fs::File;
 use std::io;
@@ -14,6 +14,36 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
     available_blocks
         .checked_mul(block_bytes)
         .ok_or_else(|| io::Error::other("the volume's free room passes 64 bits"))
+}
+
+/// Whether `path` sits on a network file system (NFS, SMB, 9p, a FUSE mount on Linux; NFS, SMB,
+/// AFP, FTP, web folders on macOS), where a change another computer makes raises no file event.
+/// Reads the volume's type with `statfs`, which waits on a hung network mount. Fails with the
+/// system's error.
+#[cfg(target_os = "linux")]
+pub fn is_on_network_file_system(path: &Path) -> io::Result<bool> {
+    use nix::sys::statfs::{FUSE_SUPER_MAGIC, FsType, NFS_SUPER_MAGIC, SMB_SUPER_MAGIC, statfs};
+
+    // The kernel's numbers for CIFS, SMB2 and 9p, which nix does not name.
+    const UNNAMED_NETWORK_TYPES: [u32; 3] = [0xFF53_4D42, 0xFE53_4D42, 0x0102_1997];
+    let volume_type = statfs(path)?.filesystem_type();
+    Ok(
+        [NFS_SUPER_MAGIC, SMB_SUPER_MAGIC, FUSE_SUPER_MAGIC].contains(&volume_type)
+            || UNNAMED_NETWORK_TYPES
+                .iter()
+                .any(|network_type| volume_type == FsType((*network_type).into())),
+    )
+}
+
+/// Whether `path` sits on a network file system (NFS, SMB, 9p, a FUSE mount on Linux; NFS, SMB,
+/// AFP, FTP, web folders on macOS), where a change another computer makes raises no file event.
+/// Reads the volume's type name with `statfs`, which waits on a hung network mount. Fails with the
+/// system's error.
+#[cfg(target_os = "macos")]
+pub fn is_on_network_file_system(path: &Path) -> io::Result<bool> {
+    const NETWORK_TYPE_NAMES: [&str; 6] = ["nfs", "smbfs", "cifs", "afpfs", "webdav", "ftp"];
+    let volume = nix::sys::statfs::statfs(path)?;
+    Ok(NETWORK_TYPE_NAMES.contains(&volume.filesystem_type_name()))
 }
 
 /// Fills `buffer` from `file` at byte `offset`; each read names its own offset, so threads sharing
