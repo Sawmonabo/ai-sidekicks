@@ -56,12 +56,13 @@ pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
             return Ok(true);
         }
         if Instant::now() >= give_up_at {
+            let members = live_group_members(id)?;
+            if members.is_empty() {
+                return Ok(is_signaled);
+            }
             return Err(io::Error::new(
                 ErrorKind::TimedOut,
-                format!(
-                    "process group {id} keeps members {:?} after its kill",
-                    live_group_members(id)?
-                ),
+                format!("process group {id} keeps members {members:?} after its kill"),
             ));
         }
     }
