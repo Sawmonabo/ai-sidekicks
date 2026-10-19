@@ -11,21 +11,21 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 // kept, which breaks pwsh's quoted switch; a switch's value is read as pwsh's script, or a relative
 // script given by a prefix, another switch character or a bare path starts in the system folder;
 // pwsh's `-i` or `-in` is read as Windows PowerShell's `-InputFormat`; a complete script path or
-// standard input's `-` drops pwsh's folder switch, as a user command would; a folder quote other
-// than `'` is left single, which ends the string and runs the rest of the name; Windows PowerShell
-// gets its folder statement beside an argument not known to leave it free, a switch only pwsh has
-// (`-cwa` among them), a switch missing its value, a `-Version` or `-PSConsoleFile` past the native
-// entry's front or after a switch character other than one dash, a lone dash, or loses it beside
-// its `-Version` first, its `-PSConsoleFile` first or after that `-Version`, its `-i` or its own
-// format or quiet switches; the statement goes anywhere but in front of the command text, or in
-// front of standard input's `-`; the text is not every value from the command's first on, joined by
-// one space into one argument, or is not dot-sourced as a script block on lines of its own, which a
-// text opening with `using`, a param block, named blocks or a comment line, or ending in a comment,
-// needs; a bare word is not read as the command; cmd started on a share starts in the Windows
-// folder, and a share path with `&` or `%` left bare runs a command; a horizontal bar is not read
-// as a dash; a drive root is quoted without its `\`; MSYS bash without its variable opens in the
-// home folder, and WSL's launcher given it goes through the MSYS arm; or `--cd` is added over the
-// user's own `~`.
+// standard input's `-` drops pwsh's folder switch, as a user command or a switch pwsh does not know
+// would; a folder quote other than `'` is left single, which ends the string and runs the rest of
+// the name; Windows PowerShell gets its folder statement beside an argument not known to leave it
+// free (`-Foo` among them), a switch only pwsh has (`-cwa` among them), a switch missing its value,
+// a `-Version` or `-PSConsoleFile` past the native entry's front or after a switch character other
+// than one dash, a lone dash, or loses it beside its `-Version` first, its `-PSConsoleFile` first
+// or after that `-Version`, its `-i` or its own format or quiet switches; the statement goes
+// anywhere but in front of the command text, or in front of standard input's `-`; the text is not
+// every value from the command's first on, joined by one space into one argument, or is not
+// dot-sourced as a script block on lines of its own, which a text opening with `using`, a param
+// block, named blocks or a comment line, or ending in a comment, needs; a bare word is not read as
+// the command; cmd started on a share starts in the Windows folder, and a share path with `&` or
+// `%` left bare runs a command; a horizontal bar is not read as a dash; a drive root is quoted
+// without its `\`; MSYS bash without its variable opens in the home folder, and WSL's launcher
+// given it goes through the MSYS arm; or `--cd` is added over the user's own `~`.
 #[rstest]
 #[case::pwsh_with_a_trailing_separator(
     r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -111,6 +111,24 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     &["-in", "start.ps1"],
     r"C:\wt",
     &["-in", "start.ps1"],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::pwsh_with_a_switch_it_does_not_know(
+    "pwsh",
+    &["-Foo"],
+    r"C:\wt",
+    &["-NoLogo", "-WorkingDirectory", r"C:\wt", "-Foo"],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_switch_it_does_not_know(
+    "powershell.exe",
+    &["-Foo"],
+    r"C:\wt",
+    &["-Foo"],
     r"C:\wt",
     &[],
     None
