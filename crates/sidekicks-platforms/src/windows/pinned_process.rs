@@ -212,7 +212,7 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
 // The process `record` names, held open while it runs with the recorded id and creation time;
 // `None` once it has ended or its id names another process.
 fn open_recorded_process(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
-    let process = match pin_process(record.id) {
+    let process = match pin_child_process(record.id) {
         Ok(process) => process,
         // No process has the id, or it names a process of another user or a higher integrity,
         // which a lasting child this user started never is.
@@ -334,11 +334,20 @@ pub(crate) fn current_process() -> BorrowedHandle<'static> {
     unsafe { BorrowedHandle::borrow_raw(GetCurrentProcess()) }
 }
 
-/// The caller's own child `id`, held open; the caller's handle to the child keeps its id from
-/// passing to another process meanwhile. Fails with the system's error, `ERROR_INVALID_PARAMETER`
-/// when no process has the id.
+/// The caller's own child `id`, held open with the rights to read its times, wait on it and end
+/// it; the caller's handle to the child keeps its id from passing to another process meanwhile.
+/// Fails with the system's error, `ERROR_INVALID_PARAMETER` when no process has the id.
 pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
-    pin_process(id)
+    let process = open_process(
+        id,
+        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE | PROCESS_TERMINATE,
+    )?;
+    Ok(PinnedProcess {
+        id,
+        process: Some(Arc::new(process)),
+        job: None,
+        job_handle: None,
+    })
 }
 
 /// This process, held by its id.
@@ -362,20 +371,6 @@ pub(crate) fn open_process(id: u32, rights: PROCESS_ACCESS_RIGHTS) -> io::Result
     }
     // SAFETY: the handle was just opened and is owned by nothing else, so it closes on every path.
     Ok(unsafe { OwnedHandle::from_raw_handle(raw_process) })
-}
-
-// Process `id`, held open with the rights to read its times, wait on it and end it.
-fn pin_process(id: u32) -> io::Result<PinnedProcess> {
-    let process = open_process(
-        id,
-        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE | PROCESS_TERMINATE,
-    )?;
-    Ok(PinnedProcess {
-        id,
-        process: Some(Arc::new(process)),
-        job: None,
-        job_handle: None,
-    })
 }
 
 // The process's creation time, as one integer of 100-nanosecond intervals.

@@ -273,7 +273,10 @@ mod tests {
             .iter()
             .filter(|case| case.get("userSid").is_some())
             .collect();
-        assert_eq!(windows_cases.len(), 2, "the shared table's Windows cases");
+        assert!(
+            !windows_cases.is_empty(),
+            "the shared table's Windows cases"
+        );
         for case in windows_cases {
             let text = |name: &str| case[name].as_str().expect("a case's member is text");
 

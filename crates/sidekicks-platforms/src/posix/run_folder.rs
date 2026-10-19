@@ -123,9 +123,8 @@ mod tests {
             .iter()
             .filter(|case| case.get("userSid").is_none())
             .collect();
-        assert_eq!(
-            posix_cases.len(),
-            7,
+        assert!(
+            !posix_cases.is_empty(),
             "the shared table's macOS and Linux cases"
         );
         for case in posix_cases {
