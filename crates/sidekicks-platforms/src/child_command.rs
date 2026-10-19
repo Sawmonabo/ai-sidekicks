@@ -7,11 +7,7 @@ use std::io;
 use std::process::ExitStatus;
 
 #[cfg(unix)]
-pub use crate::posix::child_command::lasting_child_asked_end;
-#[cfg(unix)]
 use crate::posix::child_command::{exit_signal_name, exit_signal_number};
-#[cfg(windows)]
-pub use crate::windows::child_command::lasting_child_asked_end;
 #[cfg(windows)]
 use crate::windows::child_command::{exit_signal_name, exit_signal_number};
 

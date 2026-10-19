@@ -79,7 +79,7 @@ pub use caller_process::read_responsible_process;
 pub use caller_process::{ParentProcess, ResponsibleProcess};
 #[cfg(not(target_os = "linux"))]
 pub use child_command::leave_daemon_scope;
-pub use child_command::{ChildEnd, ChildExit, lasting_child_asked_end, read_child_exit};
+pub use child_command::{ChildEnd, ChildExit, read_child_exit};
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
@@ -162,8 +162,8 @@ pub use posix::allocator::{
 pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
 pub use posix::child_command::{
-    CAN_SIGNAL_A_STOP, ask_child_to_stop, prepare_child_command, spawn_lasting_child,
-    wrap_child_command,
+    CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
+    spawn_lasting_child, wrap_child_command,
 };
 #[cfg(unix)]
 pub use posix::disk::{
@@ -255,7 +255,8 @@ pub use windows::askpass::askpass_listener;
 pub use windows::caller_process::{read_parent_process, read_peer_process};
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
-    CAN_SIGNAL_A_STOP, ask_child_to_stop, prepare_child_command, wrap_child_command,
+    CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
+    wrap_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
