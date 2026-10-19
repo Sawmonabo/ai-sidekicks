@@ -31,7 +31,7 @@ use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::run_control::AnswerProviderChoiceResult;
-use crate::session::run::engine::tests::stored_run_state;
+use crate::session::run::engine::tests::{held_cut_limit, hold_cut, stored_run_state};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::provider_choice::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceResolver,
@@ -213,10 +213,10 @@ enum LateAnswer {
 }
 
 // A hand past its bound answers with its row pending and records its late outcome: a late
-// failure owes the limit again, so the run's return from a wait hands it once more and that
-// hand ends the run, and a late apply ends the run with the limit's cause itself. Killed by
-// answering past the bound with no row, dropping the late record, not re-arming, or a late
-// apply that leaves the run running.
+// failure withdraws the stop's own cut and owes the limit again, so the run's return from a wait
+// hands it once more and that hand ends the run, and a late apply ends the run with the limit's
+// cause itself. Killed by answering past the bound with no row, dropping the late record, not
+// handing the late failure its cut, not re-arming, or a late apply that leaves the run running.
 #[rstest]
 #[case::late_failure(LateAnswer::Throws)]
 #[case::late_apply(LateAnswer::Applies)]
@@ -256,10 +256,21 @@ async fn a_hand_past_its_bound_answers_pending_and_records_its_late_outcome(
         });
     let harness = harness(driver).await;
     hand_service_to_engine(&harness);
+    // Only a late failure leaves the run live with a turn to cut; a late apply's end reads none.
+    let turn = SafeInt::new(3).expect("3 is a turn number");
+    let cut = match late {
+        LateAnswer::Throws => Some(hold_cut(
+            &harness.engine,
+            harness.run_id,
+            turn,
+            RunLimit::TokenLimit,
+        )),
+        LateAnswer::Applies => None,
+    };
 
     let handed = harness
         .service
-        .interrupt_for_limit(harness.run_id, RunLimit::TokenLimit, None)
+        .interrupt_for_limit(harness.run_id, RunLimit::TokenLimit, cut)
         .await;
     assert!(
         matches!(handed, Err(LimitInterruptFailure::RowPending { .. })),
@@ -278,6 +289,7 @@ async fn a_hand_past_its_bound_answers_pending_and_records_its_late_outcome(
         return;
     }
     assert_eq!(harness.stored_rows()[0].0, "failed");
+    assert_eq!(held_cut_limit(&harness.engine, harness.run_id, turn), None);
 
     harness.set_run("waitingForApproval", 2);
     let written = harness
