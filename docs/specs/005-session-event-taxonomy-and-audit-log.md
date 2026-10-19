@@ -217,7 +217,7 @@ Payload shape: `{sessionId, interventionId, targetRunId, type: InterventionType,
 | `agent.intervention.rejected` | An intervention request has been rejected. |
 | `agent.intervention.degraded` | An intervention was applied but with degraded effect. |
 | `agent.intervention.expired` | An intervention request has expired without being applied. |
-| `agent.intervention.failed` | An intervention's dispatch threw or never completed, a daemon death among them, before the driver gave a verdict. |
+| `agent.intervention.failed` | An intervention's dispatch threw, never completed (a daemon death among them), or was never sent because the run ended and was continued before it, before the driver gave a verdict. |
 
 #### User Message Events
 

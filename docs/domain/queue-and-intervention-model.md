@@ -61,7 +61,7 @@ Intervention states:
 | `rejected` | Determined to be invalid or unauthorized. Authorization failure produces `rejected`. |
 | `degraded` | The intervention took partial or fallback effect, with the outcome detail naming what degraded: the driver could not deliver the type at all — neither through a provider verb of its own nor through the orchestration leg above it — and the orchestration layer fell back; neither Claude Code nor Codex reaches it. |
 | `expired` | No longer meaningful because the run moved before dispatch: a version guard mismatch at acceptance, or the run's start failing while an interrupt waited for it, produces `expired`, as does a restart that finds a faster-model retry unsent, and the driver is never called. The daemon's own interrupt at a limit never expires: when its run ended first, the run's end is already done and its row ends `applied`. |
-| `failed` | The dispatch threw or never completed, a daemon death among them, so the request never stays `accepted`; the row records what was thrown, or that the daemon restarted before the outcome, as its `failureReason`. |
+| `failed` | The dispatch threw, never completed (a daemon death among them), or was never sent because the run ended and was continued before it, so the request never stays `accepted`; the row records what was thrown, that the daemon restarted before the outcome, or that the run ended and was continued before the dispatch, as its `failureReason`. |
 
 ### Intervention State Transition Table
 
@@ -77,7 +77,7 @@ Intervention states:
 | `accepted` | `expired` | The run ended before dispatch | An interrupt waited for the run's start to settle, and a failed setup gate or a failed driver start ended the run meanwhile; the daemon's own interrupt at a limit moves to `applied` instead, since the run's end it asked for is done |
 | `accepted` | `rejected` | The daemon's own leg refused | The faster-model retry the daemon carries out itself refused after acceptance |
 | `accepted` | `applied` | A restart found the stop pending | The daemon went down before the stop's outcome, and the restart settles the run as the stop would have: `interrupted`, or `stopped` for the daemon's stop at the run's token limit, keeping the stop's reason |
-| `accepted` | `failed` | Dispatch threw or never completed | The driver or the leg above it threw instead of returning a verdict, or the daemon died before the outcome: a restart that finds a faster-model retry `accepted` ends it `failed` |
+| `accepted` | `failed` | Dispatch threw, never completed or was never sent | The driver or the leg above it threw instead of returning a verdict; the daemon died before the outcome, so a restart that finds a faster-model retry `accepted` ends it `failed`; or the daemon's own interrupt at its token or spend limit found its run ended and continued since its acceptance, so it is never sent and the continued run's own stop at that limit cuts it |
 
 An interrupt's `applied` or `degraded` record and the run's state change — `interrupted`, or `stopped` for the daemon's stop at the run's token limit — commit in one write, so no restart finds one without the other; a run that ended first keeps its end, and the record lands alone. A restart's own settling of a run with a pending stop moves that stop's record to `applied` in the same write, and the run's state change carries the reason the stop recorded.
 
@@ -148,7 +148,7 @@ The driver-result and intervention-lifecycle vocabularies are distinct and map n
 | `requested` / `accepted` | daemon (pre-dispatch) | Recording and validation states before any driver involvement |
 | `rejected` | daemon | Authorization failure or invalid target before dispatch — the driver is never invoked — or a refusal from the faster-model retry the daemon carries out itself |
 | `expired` | daemon (pre-dispatch) | `expectedRunVersion` guard mismatch at acceptance, an interrupt that waited for a run's start to settle while a failed setup gate or a failed driver start ended the run, or a faster-model retry a restart found unsent — the driver is never invoked |
-| `failed` | daemon (dispatch) | The dispatch threw or never completed, a daemon death among them, instead of returning a verdict; the row records the error's code, or its message when it has none, or the restart that lost the outcome |
+| `failed` | daemon (dispatch) | The dispatch threw, never completed (a daemon death among them), or was never sent because the run ended and was continued before it, instead of returning a verdict; the row records the error's code, or its message when it has none, the restart that lost the outcome, or that the run ended and was continued before the dispatch |
 | `applied` | driver → daemon; or daemon | Driver returned `status: 'applied'` — the intervention was delivered, whether by the driver's own provider verb or by the orchestration leg above it — or the daemon applied an interrupt of a run no driver has been handed: one still in its setup gates, or one whose failed start could not write its end |
 | `degraded` | driver → daemon; or daemon (post-driver) | Driver returned `status: 'degraded'` — the type could be delivered neither by a provider verb of the driver's own nor by the orchestration leg above it, so the orchestration layer fell back (`fallbackAction`), which neither Claude Code nor Codex reaches |
 
