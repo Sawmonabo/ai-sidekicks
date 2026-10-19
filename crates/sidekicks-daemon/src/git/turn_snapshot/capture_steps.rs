@@ -403,7 +403,7 @@ impl SnapshotCheckout<'_> {
 
     /// The arguments of a git call in the checkout: `-C <root>` and then `arguments`.
     pub(crate) fn in_checkout(&self, arguments: &[&str]) -> Vec<OsString> {
-        in_folder(&self.root, arguments)
+        in_folder(self.root, arguments)
     }
 }
 

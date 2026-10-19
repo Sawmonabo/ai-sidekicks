@@ -9,6 +9,7 @@
 //! - Captures of one checkout run one at a time, whichever session's run asks.
 
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -278,19 +279,23 @@ impl TurnSnapshotService {
         let captured = self
             .run_capture_steps(checkout, input, &snapshot_ref, &scratch_index)
             .await;
-        // Never outlives the capture; a failed removal is logged, never put in place of the
-        // capture's own outcome.
-        let removal_path = scratch_index.clone();
-        let removed = joined(tokio::task::spawn_blocking(move || remove_tree(&removal_path)).await);
-        if let Err(failure) = removed {
-            TurnSnapshotDiagnostic::ScratchIndexCleanupFailed {
-                run_id: input.run_id,
-                epoch: input.epoch,
-                turn_ordinal: input.turn_ordinal,
-                scratch_index_path: scratch_index,
-                detail: failure,
+        // Never outlives the capture, nor does the lock file a git ended mid-write leaves beside
+        // it; a failed removal is logged, never put in place of the capture's own outcome.
+        let mut lock_file = scratch_index.clone().into_os_string();
+        lock_file.push(".lock");
+        for removal_path in [scratch_index, PathBuf::from(lock_file)] {
+            let removing = removal_path.clone();
+            let removed = joined(tokio::task::spawn_blocking(move || remove_tree(&removing)).await);
+            if let Err(failure) = removed {
+                TurnSnapshotDiagnostic::ScratchIndexCleanupFailed {
+                    run_id: input.run_id,
+                    epoch: input.epoch,
+                    turn_ordinal: input.turn_ordinal,
+                    scratch_index_path: removal_path,
+                    detail: failure,
+                }
+                .warn();
             }
-            .warn();
         }
         match captured {
             Ok(outcome) => outcome,
@@ -570,16 +575,16 @@ impl TurnSnapshotService {
         // `--no-deref` deletes a symref planted under the prefix itself, never the branch it
         // names: the listing names the symref and its target's id, and without the flag the delete
         // would reach `refs/heads/<branch>` and report a clean prune (git 2.50.1).
-        let deletions: String = entries
-            .iter()
-            .map(|entry| {
-                format!(
-                    "delete {} {}\n",
-                    entry.snapshot_ref,
-                    entry.object_id.as_str()
-                )
-            })
-            .collect();
+        let mut deletions = String::new();
+        for entry in &entries {
+            writeln!(
+                deletions,
+                "delete {} {}",
+                entry.snapshot_ref,
+                entry.object_id.as_str()
+            )
+            .expect("writing to a string cannot fail");
+        }
         let delete_call = GitCall::write([
             git_dir_argument,
             "update-ref".into(),
