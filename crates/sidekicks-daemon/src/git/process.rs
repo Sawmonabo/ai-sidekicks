@@ -17,6 +17,7 @@ use sidekicks_platforms::{
     start_child_tree,
 };
 use tokio::process::Command;
+use tokio::sync::OnceCell;
 
 /// The most one stream of a git call may print, sized for the largest: a `-z` listing of a whole
 /// worktree's paths. Passing it fails the call; nothing is cut.
@@ -58,6 +59,12 @@ const PINNED_GIT_ENVIRONMENT: [(&str, &str); 3] =
 /// The setting that turns git's file watch off for one call, so neither its built-in daemon nor a
 /// helper program the repository names starts for it.
 const FILE_WATCH_OFF_SETTING: &str = "core.fsmonitor=false";
+
+/// The setting that keeps git's built-in file-watch daemon for one call, never a helper program.
+const BUILT_IN_FILE_WATCH_SETTING: &str = "core.fsmonitor=true";
+
+/// The line `git version --build-options` prints for a git built with its file-watch daemon.
+const BUILT_IN_FILE_WATCH_BUILD_LINE: &[u8] = b"feature: fsmonitor--daemon";
 
 /// The exit code of `git config --get` for a setting that is not set.
 const CONFIG_UNSET_EXIT_CODE: i32 = 1;
@@ -148,13 +155,13 @@ enum GitHooks {
 }
 
 /// What a call does with the repository's file watch (`core.fsmonitor`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum GitFileWatch {
     /// Off for the call, so no file-watch daemon or helper program starts.
     Off,
-    /// git's built-in file-watch daemon kept where the repository in `folder` turns it on, since
-    /// a read of the live index walks the whole tree without it, and a helper program the
-    /// repository names turned off; read from the repository once for the call.
+    /// git's built-in file-watch daemon kept where the repository in `folder` turns it on and the
+    /// git program has it, since a read of the live index walks the whole tree without it, and
+    /// off otherwise, a helper program the repository names included.
     BuiltInKept {
         /// The folder the call runs in.
         folder: PathBuf,
@@ -176,8 +183,8 @@ pub(crate) struct GitCall {
 
 impl GitCall {
     /// A read, run with `arguments`: no hook runs and the file watch is off, though the call may
-    /// still write a scratch index, worktree records or ref locks. The caller passes
-    /// `--no-optional-locks` where a background read could take the person's index lock.
+    /// still write a scratch index, worktree records or ref locks. A read in the background builds
+    /// its arguments with [`background_read`], so it never takes the person's index lock.
     pub(crate) fn read(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
         Self::new(GitHooks::Off, GitFileWatch::Off, arguments)
     }
@@ -220,14 +227,19 @@ impl GitCall {
         self
     }
 
-    /// The read with git's built-in file-watch daemon kept where the repository in `folder`, the
-    /// folder the call runs in, turns it on, and only a helper program it names turned off: for a
-    /// read of the live index, which walks the whole tree without the daemon.
-    pub(crate) fn keeping_built_in_file_watch(mut self, folder: &Path) -> Self {
-        self.file_watch = GitFileWatch::BuiltInKept {
-            folder: folder.to_path_buf(),
-        };
-        self
+    /// A read of the live index in `folder`, run with `arguments` there and no optional lock: no
+    /// hook runs, and git's built-in file-watch daemon is kept where the repository turns it on
+    /// and the git program has it, since the read walks the whole tree without it; any other file
+    /// watch, a helper program the repository names included, is off. It costs one more git call
+    /// for the repository's setting each time, and one for the program's build once a runner.
+    pub(crate) fn live_index_read(folder: &Path, arguments: &[&str]) -> Self {
+        Self::new(
+            GitHooks::Off,
+            GitFileWatch::BuiltInKept {
+                folder: folder.to_path_buf(),
+            },
+            background_read(folder, arguments),
+        )
     }
 }
 
@@ -256,12 +268,14 @@ impl GitLimits {
 }
 
 /// The daemon's git: the program found at start, started from the spawner's thread, each call
-/// held to the runner's bounds. Cloning it shares the program.
+/// held to the runner's bounds. Cloning it shares the program and what was read of its build.
 #[derive(Clone)]
 pub(crate) struct GitRunner {
     spawner: Spawner,
     executable: Option<Arc<Path>>,
     limits: GitLimits,
+    // Whether the program was built with its file-watch daemon, read once it is first needed.
+    has_built_in_file_watch: Arc<OnceCell<bool>>,
 }
 
 impl GitRunner {
@@ -279,6 +293,7 @@ impl GitRunner {
             spawner,
             executable: executable.map(Arc::from),
             limits,
+            has_built_in_file_watch: Arc::new(OnceCell::new()),
         }
     }
 
@@ -287,8 +302,8 @@ impl GitRunner {
     /// or an output stream passes its bound; the output read ends at git's own exit. Fails with
     /// `WslPlace` for a project in a WSL 2 distribution, `NotFound` when no git was found, `Start`
     /// when it cannot start, `TimedOut`, `OutputTooLarge`, `Read`, and `Exited` with what git
-    /// printed when it exits with a failure; a call keeping the built-in file watch fails so too
-    /// when the read of the repository's setting does.
+    /// printed when it exits with a failure; a live index read fails so too when the read of the
+    /// repository's setting or of the program's build does.
     pub(crate) async fn run(
         &self,
         place: Option<&Place>,
@@ -307,42 +322,62 @@ impl GitRunner {
             environment,
             input,
         } = call;
-        let is_file_watch_off = match file_watch {
-            GitFileWatch::Off => true,
-            GitFileWatch::Repository => false,
+        let file_watch_setting = match file_watch {
+            GitFileWatch::Off => Some(FILE_WATCH_OFF_SETTING),
+            GitFileWatch::Repository => None,
             GitFileWatch::BuiltInKept { folder } => {
-                self.names_file_watch_program(executable, &folder).await?
+                Some(self.live_index_file_watch(executable, &folder).await?)
             }
         };
-        let mut settings = call_settings(hooks, is_file_watch_off);
+        let mut settings = call_settings(hooks, file_watch_setting);
         settings.extend(arguments);
         self.run_git(executable, settings, environment, input).await
     }
 
-    // Whether the repository in `folder` names a helper program as its file watch, read as git
-    // reads a boolean: `false` for the built-in daemon, a watch turned off and none set.
-    async fn names_file_watch_program(
+    // The file-watch setting a live index read of the repository in `folder` runs with: the
+    // built-in daemon when the repository turns it on, read as git reads a boolean, and the
+    // program has it, else off. Set either way, so no helper program named after the read runs.
+    async fn live_index_file_watch(
         &self,
         executable: &Path,
         folder: &Path,
-    ) -> Result<bool, GitError> {
+    ) -> Result<&'static str, GitError> {
         // The file watch is left as set, since a setting on this call is what it would read.
-        let mut arguments = call_settings(GitHooks::Off, false);
+        let mut arguments = call_settings(GitHooks::Off, None);
         arguments.extend(in_folder(
             folder,
             &["config", "--type=bool-or-str", "--get", "core.fsmonitor"],
         ));
-        match self.run_git(executable, arguments, Vec::new(), None).await {
-            Ok(output) => {
-                let value = strip_line_end(output.stdout);
-                Ok(value != b"true" && value != b"false")
-            }
+        let is_built_in_on = match self.run_git(executable, arguments, Vec::new(), None).await {
+            Ok(output) => strip_line_end(output.stdout) == b"true",
             Err(GitError::Exited {
                 code: Some(CONFIG_UNSET_EXIT_CODE),
                 ..
-            }) => Ok(false),
-            Err(failure) => Err(failure),
+            }) => false,
+            Err(failure) => return Err(failure),
+        };
+        if is_built_in_on && self.has_built_in_file_watch(executable).await? {
+            return Ok(BUILT_IN_FILE_WATCH_SETTING);
         }
+        Ok(FILE_WATCH_OFF_SETTING)
+    }
+
+    // Whether the git at `executable` was built with its file-watch daemon, read from its build
+    // options once for the runner; a failed read is not kept.
+    async fn has_built_in_file_watch(&self, executable: &Path) -> Result<bool, GitError> {
+        self.has_built_in_file_watch
+            .get_or_try_init(|| async {
+                let arguments = vec![OsString::from("version"), OsString::from("--build-options")];
+                let output = self
+                    .run_git(executable, arguments, Vec::new(), None)
+                    .await?;
+                Ok(output
+                    .stdout
+                    .split(|byte| *byte == b'\n')
+                    .any(|line| line.trim_ascii() == BUILT_IN_FILE_WATCH_BUILD_LINE))
+            })
+            .await
+            .copied()
     }
 
     // Starts the git at `executable` with `arguments` and holds it to the runner's bounds.
@@ -442,6 +477,14 @@ pub(crate) async fn read_git_common_folder(
     path_from_program_output(strip_line_end(output.stdout)).map_err(GitError::PathText)
 }
 
+/// A git call's arguments that run `arguments` in `folder` with no optional lock, so a read in the
+/// background never rewrites the person's index.
+pub(crate) fn background_read(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
+    let mut call = vec![OsString::from("--no-optional-locks")];
+    call.extend(in_folder(folder, arguments));
+    call
+}
+
 /// A git call's arguments that run `arguments` in `folder`: `-C <folder>` and then them.
 pub(crate) fn in_folder(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
     [OsStr::new("-C"), folder.as_os_str()]
@@ -477,16 +520,16 @@ pub(crate) fn strip_line_end(mut line: Vec<u8>) -> Vec<u8> {
 }
 
 // The `-c` settings put before a call's own arguments: hooks from the null device when `hooks` is
-// off, and the file watch off when `is_file_watch_off`.
-fn call_settings(hooks: GitHooks, is_file_watch_off: bool) -> Vec<OsString> {
+// off, and `file_watch_setting` when there is one.
+fn call_settings(hooks: GitHooks, file_watch_setting: Option<&str>) -> Vec<OsString> {
     let mut settings = Vec::new();
     if hooks == GitHooks::Off {
         settings.push(OsString::from("-c"));
         settings.push(OsString::from(format!("core.hooksPath={NULL_DEVICE_PATH}")));
     }
-    if is_file_watch_off {
+    if let Some(file_watch_setting) = file_watch_setting {
         settings.push(OsString::from("-c"));
-        settings.push(OsString::from(FILE_WATCH_OFF_SETTING));
+        settings.push(OsString::from(file_watch_setting));
     }
     settings
 }
@@ -682,6 +725,71 @@ mod tests {
             version,
             Err(GitError::OutputTooLarge { bound: 4 })
         ));
+    }
+
+    // Fails when a read runs a hook or the file-watch helper program the repository's own config
+    // names, a live index read among them, or when a write does not run the repository's hooks.
+    #[tokio::test]
+    async fn a_read_runs_no_hook_or_file_watch_helper_and_a_write_runs_the_hooks() {
+        let git = test_git_runner();
+        let (root, repository, _tree, commit) = repository_with_a_commit(&git).await;
+        let ran = |name: &str| root.path().join(name);
+        tokio::fs::write(repository.join("tracked.txt"), "tracked\n")
+            .await
+            .expect("the file is written");
+        git.run(
+            None,
+            GitCall::write(in_folder(&repository, &["add", "tracked.txt"])),
+        )
+        .await
+        .expect("the file is staged");
+        let hooks = root.path().join("hooks");
+        let helper = root.path().join("file-watch-helper");
+        tokio::fs::create_dir_all(&hooks)
+            .await
+            .expect("the hooks folder is made");
+        // The helper fails, so git reads the tree itself.
+        for (script, marker, end) in [
+            (hooks.join("post-index-change"), "index-hook-ran", ""),
+            (hooks.join("reference-transaction"), "ref-hook-ran", ""),
+            (helper.clone(), "helper-ran", "exit 1"),
+        ] {
+            let body = format!("#!/bin/sh\ntouch '{}'\n{end}\n", ran(marker).display());
+            write_file_atomically(&script, body, 0o755)
+                .await
+                .expect("the script is written");
+        }
+        for (name, value) in [("core.hooksPath", &hooks), ("core.fsmonitor", &helper)] {
+            let mut arguments = in_folder(&repository, &["config", name]);
+            arguments.push(value.into());
+            git.run(None, GitCall::write(arguments))
+                .await
+                .expect("the repository's config is written");
+        }
+
+        for read in [
+            GitCall::read(in_folder(&repository, &["status", "--porcelain"])),
+            GitCall::live_index_read(&repository, &["status", "--porcelain"]),
+            GitCall::read(in_folder(&repository, &["read-tree", &commit])),
+        ] {
+            git.run(None, read).await.expect("the read runs");
+        }
+        let ran_after_reads = [ran("index-hook-ran").exists(), ran("helper-ran").exists()];
+        git.run(
+            None,
+            GitCall::write(in_folder(
+                &repository,
+                &["update-ref", "refs/heads/hooked", &commit],
+            )),
+        )
+        .await
+        .expect("the ref is written");
+
+        assert_eq!(ran_after_reads, [false, false]);
+        assert!(
+            ran("ref-hook-ran").exists(),
+            "the write ran the repository's hook"
+        );
     }
 
     // Fails when the timeout ends git alone, which leaves its sleeping hook to finish its work.

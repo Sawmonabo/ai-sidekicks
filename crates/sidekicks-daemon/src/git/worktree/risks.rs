@@ -1,7 +1,6 @@
 //! What removing a tree would lose, read from git in the tree: its uncommitted entries, its
 //! ignored entries (an `.env`, say), and the commits no remote-tracking branch reaches.
 
-use std::ffi::OsString;
 use std::num::ParseIntError;
 use std::path::Path;
 
@@ -11,7 +10,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::worktree::lifecycle::WorktreeRemovalRisks;
 
-use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
+use crate::git::process::{GitCall, GitError, GitRunner, background_read};
 
 // The status code porcelain v1 gives an ignored entry.
 const IGNORED_STATUS: &str = "!!";
@@ -119,13 +118,6 @@ pub(crate) fn has_something_to_lose(risks: &WorktreeRemovalRisks) -> bool {
         || risks.unpushed_commit_count.get() > 0
 }
 
-// `arguments` run in `folder` with no optional lock, so a read never rewrites the person's index.
-fn background_read(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
-    let mut call = vec![OsString::from("--no-optional-locks")];
-    call.extend(in_folder(folder, arguments));
-    call
-}
-
 // Each porcelain entry with its status code, a rename's or copy's source path joined to it after
 // a NUL. Only counted and hashed, never handed back to git, so a path is read as text.
 async fn read_status_entries(
@@ -136,7 +128,7 @@ async fn read_status_entries(
     let status = git
         .run(
             place,
-            GitCall::read(background_read(
+            GitCall::live_index_read(
                 folder,
                 &[
                     "status",
@@ -145,8 +137,7 @@ async fn read_status_entries(
                     "--ignored=matching",
                     "--untracked-files=all",
                 ],
-            ))
-            .keeping_built_in_file_watch(folder),
+            ),
         )
         .await?;
     let listing = String::from_utf8_lossy(&status.stdout);
