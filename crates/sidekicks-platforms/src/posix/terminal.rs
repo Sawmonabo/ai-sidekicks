@@ -24,9 +24,9 @@ use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
-use crate::posix::process_exit::wait_for_exit;
-use crate::posix::process_group::signal_group;
-use crate::posix::process_id::system_process_id;
+use crate::posix::process::exit::wait_for_exit;
+use crate::posix::process::group::signal_group;
+use crate::posix::process::id::system_process_id;
 #[cfg(any(test, feature = "test-support"))]
 use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;

@@ -71,7 +71,7 @@ mod tests {
     use crate::child_command::ChildEnd;
     use crate::pin_child_process;
     use crate::posix::child_command::prepare_lasting_child_command;
-    use crate::posix::process_group::read_group_output_to_end;
+    use crate::posix::process::group::read_group_output_to_end;
 
     // Fails when `SIGKILL` goes first, which ends the answering child by the kill and answers
     // `Kill`; when the `SIGKILL` is skipped, which leaves the trapping child running, so the stop

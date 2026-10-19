@@ -18,9 +18,9 @@ use polling::{PollMode, Poller};
 use crate::child_command::ChildEnd;
 use crate::macos::processes::{list_child_process_ids, list_group_process_ids};
 use crate::pinned_process::ProcessRecord;
-use crate::posix::process_group::signal_group;
-use crate::posix::process_id::system_process_id;
-use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
+use crate::posix::process::group::signal_group;
+use crate::posix::process::id::system_process_id;
+use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
 
 // The key a stop registers the process's exit filter under, the only source its poller watches.
 const EXIT_KEY: usize = 0;

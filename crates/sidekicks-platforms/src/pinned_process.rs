@@ -127,7 +127,7 @@ mod tests {
     fn pinned_process_record_ends_the_survivors_of_its_ended_process() {
         use std::time::Duration;
 
-        use crate::posix::process_group::read_group_output_to_end;
+        use crate::posix::process::group::read_group_output_to_end;
 
         let (mut child, mut output, record) = start_group_leader(true);
         let is_held_group_ended = ProcessRecord {
@@ -176,7 +176,7 @@ mod tests {
 
         use nix::sys::signal::Signal;
 
-        use crate::posix::process_group::{read_group_output_to_end, signal_group};
+        use crate::posix::process::group::{read_group_output_to_end, signal_group};
 
         let (mut child, mut output, record) = start_group_leader(false);
         drop(child.stdin.take());

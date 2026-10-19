@@ -14,9 +14,9 @@ use polling::{Event, Poller};
 use crate::child_command::ChildEnd;
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::pinned_process::ProcessRecord;
-use crate::posix::process_group::signal_group;
-use crate::posix::process_id::system_process_id;
-use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
+use crate::posix::process::group::signal_group;
+use crate::posix::process::id::system_process_id;
+use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
 
 // The stat file's fields holding the process's group and session.
 const GROUP_FIELD: usize = 5;

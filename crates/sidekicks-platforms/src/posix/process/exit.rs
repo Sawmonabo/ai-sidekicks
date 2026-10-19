@@ -56,7 +56,7 @@ fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
     use polling::PollMode;
     use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
 
-    use crate::posix::process_id::system_process_id;
+    use crate::posix::process::id::system_process_id;
 
     let raw_pid = system_process_id(pid)?;
     let poller = Poller::new()?;

@@ -13,7 +13,7 @@ use nix::unistd::Pid;
 use crate::macos::pinned_process::pinned;
 #[cfg(target_os = "macos")]
 use crate::macos::processes::list_group_process_ids;
-use crate::posix::process_id::system_process_id;
+use crate::posix::process::id::system_process_id;
 
 /// How long a group listing that found no live member waits before it lists again. It narrows the
 /// one case the first listing cannot see: a spawned child still being made whose parent died
@@ -131,7 +131,7 @@ fn read_to_end_within(
 
     use polling::{Event, Poller};
 
-    use crate::posix::process_stop::wait_for_event;
+    use crate::posix::process::stop::wait_for_event;
 
     let poller = Poller::new()?;
     // SAFETY: `output` outlives the poller, which this call drops.
