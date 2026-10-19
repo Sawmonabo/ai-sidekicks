@@ -11,7 +11,7 @@ use ::windows::Win32::System::Threading::PROCESS_CREATION_FLAGS;
 use process_wrap::tokio::{ChildWrapper, CommandWrap, CreationFlags, JobObject};
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio::process::Command;
-use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_OPERATION_ABORTED};
+use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED};
 use windows_sys::Win32::System::IO::CancelIoEx;
 use windows_sys::Win32::System::Pipes::PeekNamedPipe;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
@@ -19,9 +19,9 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use crate::child_tree::{ChildTreeOutputError, OUTPUT_READ_CHUNK, check_output_bound};
 use crate::windows::error_codes::win32_code;
 
-/// How long a canceled output read is awaited before the cancel is sent again, for a read whose
-/// blocking thread had not yet reached the system when the cancel came.
-const CANCELED_READ_WAIT: Duration = Duration::from_millis(20);
+/// How long an output read is awaited when a cancel found none under way, before the cancel is
+/// sent again, for a read whose blocking thread had not yet reached the system.
+const READ_START_WAIT: Duration = Duration::from_millis(20);
 
 /// How many times the cancel is sent before the read is left to its blocking thread.
 const CANCEL_ATTEMPTS: u32 = 5;
@@ -50,8 +50,9 @@ pub(crate) fn end_child_tree_now(process: &mut dyn ChildWrapper) -> io::Result<(
 /// process left in the job can hold off. tokio reads a child's pipe here as a blocking file on a
 /// blocking thread, so a read is under way at the exit and would hold that thread until such a
 /// process ends: it is canceled and its bytes kept, then the pipe is read as `PeekNamedPipe`
-/// reports it holds, exactly that many bytes each time, until it holds none. Fails with `TooLarge`
-/// once `into` passes `bound`, else with a read's or the peek's error.
+/// reports it holds, exactly that many bytes each time, until it holds none. A read no cancel
+/// reaches is left to its thread, logged, and what was read returned. Fails with `TooLarge` once
+/// `into` passes `bound`, else with the cancel's, a read's or the peek's error.
 pub(crate) async fn read_output_left_at_exit(
     stream: Option<&mut (impl AsyncRead + AsRawHandle + Unpin)>,
     into: &mut Vec<u8>,
@@ -60,7 +61,10 @@ pub(crate) async fn read_output_left_at_exit(
     let Some(stream) = stream else {
         return Ok(());
     };
-    collect_canceled_read(stream, into, bound).await?;
+    if !collect_canceled_read(stream, into, bound).await? {
+        // The read left under way waits on the pipe's handle, so no other call touches it.
+        return Ok(());
+    }
     loop {
         let held = bytes_held(stream).map_err(ChildTreeOutputError::Io)?;
         if held == 0 {
@@ -79,43 +83,67 @@ pub(crate) async fn read_output_left_at_exit(
     }
 }
 
-// Ends the read tokio left under way at the exit, keeping what it had read: canceled, then
-// awaited. A read the cancel missed, its thread not yet in the system call, is canceled again; one
-// that outlives every cancel is left to its thread and logged.
+// Ends the read tokio left under way at the exit, keeping what it had read, and answers whether
+// no read is under way on the pipe now. A read the cancel finds is awaited to its end; one it
+// misses, its thread not yet in the system call, is given a moment and canceled again; one that
+// outlives every cancel is left to its thread and logged.
 async fn collect_canceled_read(
     stream: &mut (impl AsyncRead + AsRawHandle + Unpin),
     into: &mut Vec<u8>,
     bound: usize,
-) -> Result<(), ChildTreeOutputError> {
+) -> Result<bool, ChildTreeOutputError> {
     for _ in 0..CANCEL_ATTEMPTS {
-        // SAFETY: the handle is the pipe end `stream` owns, open for the whole call, and a null
-        // overlapped pointer cancels every read under way on it. The end is opened overlapped, so
-        // the cancel reaches a read another thread waits on. With no read under way the call
-        // answers `ERROR_NOT_FOUND`, which needs nothing.
-        unsafe { CancelIoEx(stream.as_raw_handle(), ptr::null()) };
+        let is_read_canceled = cancel_reads(stream).map_err(ChildTreeOutputError::Io)?;
         // A read under way was sized to one chunk, so this much room takes all it read.
         into.reserve(OUTPUT_READ_CHUNK);
         let mut chunk = (&mut *stream)
             .take(u64::try_from(OUTPUT_READ_CHUNK).expect("a chunk's size fits in 64 bits"));
-        match tokio::time::timeout(CANCELED_READ_WAIT, chunk.read_buf(into)).await {
-            Ok(Ok(_count)) => return check_output_bound(into, bound),
-            Ok(Err(error)) if win32_code(&error) == Some(ERROR_OPERATION_ABORTED) => return Ok(()),
-            Ok(Err(error)) => return Err(ChildTreeOutputError::Io(error)),
-            Err(_elapsed) => {}
-        }
+        let chunk = chunk.read_buf(into);
+        let read = if is_read_canceled {
+            // The canceled read ends at once, with what it read or as aborted.
+            chunk.await
+        } else {
+            match tokio::time::timeout(READ_START_WAIT, chunk).await {
+                Ok(read) => read,
+                Err(_elapsed) => continue,
+            }
+        };
+        return match read {
+            Ok(_count) => check_output_bound(into, bound).map(|()| true),
+            Err(error) if win32_code(&error) == Some(ERROR_OPERATION_ABORTED) => Ok(true),
+            Err(error) => Err(ChildTreeOutputError::Io(error)),
+        };
     }
     tracing::warn!(
         "a process left in a child's job holds its output pipe, so a read of it keeps a blocking \
          thread until that process writes or ends"
     );
-    Ok(())
+    Ok(false)
+}
+
+// Cancels every read under way on the pipe end `stream` reads: `true` when one was found, which
+// then ends as aborted, `false` when none was under way. Fails with the system's error.
+fn cancel_reads(stream: &impl AsRawHandle) -> io::Result<bool> {
+    // SAFETY: the handle is the pipe end `stream` owns, open for the whole call, and a null
+    // overlapped pointer cancels every read under way on it. The end is opened overlapped, so the
+    // cancel reaches a read another thread waits on.
+    let is_canceled = unsafe { CancelIoEx(stream.as_raw_handle(), ptr::null()) };
+    if is_canceled != 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if win32_code(&error) == Some(ERROR_NOT_FOUND) {
+        return Ok(false);
+    }
+    Err(error)
 }
 
 // How many bytes the pipe `stream` reads holds now; 0 once it is empty and every writer closed it.
 fn bytes_held(stream: &impl AsRawHandle) -> io::Result<u32> {
     let mut held = 0;
-    // SAFETY: the handle is the pipe end `stream` owns, open for the whole call; no bytes are
-    // copied, so no buffer is passed, and `held` outlives the call.
+    // SAFETY: the handle is the pipe end `stream` owns, open for the whole call, and no read is
+    // under way on it, so no blocking read's wait on the handle can wake at this call's end; no
+    // bytes are copied, so no buffer is passed, and `held` outlives the call.
     let is_peeked = unsafe {
         PeekNamedPipe(
             stream.as_raw_handle(),
