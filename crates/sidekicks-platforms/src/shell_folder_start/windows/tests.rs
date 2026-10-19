@@ -22,12 +22,13 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 // anywhere but in front of the command text, or in front of standard input's `-`; the text is not
 // every value from the command's first on, joined by one space into one argument, or is not run by
 // `Invoke-Expression` after the `Set-Location`, both named with their modules, as a literal with
-// every single quote in it doubled; a blank text is handed to `Invoke-Expression`, which refuses
-// it; a bare word is not read as the command; cmd started on a share starts in the Windows folder,
-// and a share path with `&` or `%` left bare runs a command; a horizontal bar is not read as a
-// dash; a drive root is quoted without its `\`; MSYS bash without its variable opens in the home
-// folder, and WSL's launcher given it goes through the MSYS arm; or `--cd` is added over the user's
-// own `~`.
+// every single quote in it doubled; an empty text, which `Invoke-Expression` refuses, or a
+// whitespace text, which runs nothing, does not take the folder statement alone; an empty bare
+// word takes the folder statement; a bare word is not read as the command; cmd started on a share
+// starts in the Windows folder, and a share path with `&` or `%` left bare runs a command; a
+// horizontal bar is not read as a dash; a drive root is quoted without its `\`; MSYS bash without
+// its variable opens in the home folder, and WSL's launcher given it goes through the MSYS arm; or
+// `--cd` is added over the user's own `~`.
 #[rstest]
 #[case::pwsh_with_a_trailing_separator(
     r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -214,6 +215,15 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
          Microsoft.PowerShell.Utility\\Invoke-Expression 'Get-Date'",
     ],
     SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_an_empty_bare_word(
+    "powershell.exe",
+    &["-nop", ""],
+    r"C:\wt",
+    &["-nop", ""],
+    r"C:\wt",
     &[],
     None
 )]
@@ -594,38 +604,77 @@ fn a_windows_shell_is_told_its_folder_by_its_own_means(
     );
 }
 
-// Fails when a folder start whose wrapped text passes Windows' command line is still handed to
-// Windows PowerShell, which then cannot start, or when one that fills the line to its last unit is
-// refused; a text of quotes fits as given and passes the line only once they are doubled.
-#[test]
-fn windows_powershell_takes_its_folder_start_only_within_the_command_line() {
-    let start = |text: &str| {
-        compose_shell_folder_start(
-            "powershell.exe",
-            &["-Command".to_owned(), text.to_owned()],
-            r"C:\wt",
-            Path::new(SYSTEM_FOLDER),
+// The units of `start`'s line as the `shell` mode hands it to Windows: the program and arguments
+// as Windows quotes them, its NUL, and the raw tail after one space.
+fn start_units(start: &ShellFolderStart) -> usize {
+    compose_command_line(start.program.encode_utf16(), &start.arguments).len()
+        + start
+            .raw_command_tail
+            .as_ref()
+            .map_or(0, |tail| 1 + tail.encode_utf16().count())
+}
+
+// Fails when a folder start whose line passes Windows' bound is still taken, so the shell cannot
+// start, or when one that fills the line to its last unit is refused: for Windows PowerShell's
+// wrapped text, for cmd's raw tail on a share (its leading space or its whole length left out of
+// the count), and for pwsh's `-WorkingDirectory` and wsl's `--cd`. Past the bound each starts in
+// the worktree with its arguments unchanged.
+#[rstest]
+#[case::windows_powershell("powershell.exe", &["-Command"], r"C:\wt")]
+#[case::cmd_on_a_share("cmd.exe", &["/Q"], r"\\srv\share\x")]
+#[case::pwsh("pwsh.exe", &["-Command"], r"C:\wt")]
+#[case::wsl("wsl.exe", &["-e"], r"C:\wt")]
+fn a_shell_takes_its_folder_start_only_within_the_command_line(
+    #[case] program: &str,
+    #[case] leading_arguments: &[&str],
+    #[case] folder: &str,
+) {
+    let start = |filler_length: usize| {
+        let arguments: Vec<String> = leading_arguments
+            .iter()
+            .map(|&argument| argument.to_owned())
+            .chain(["a".repeat(filler_length)])
+            .collect();
+        (
+            compose_shell_folder_start(program, &arguments, folder, Path::new(SYSTEM_FOLDER)),
+            arguments,
         )
     };
-    let line_units = |program: &str, arguments: &[String]| {
-        compose_command_line(program.encode_utf16(), arguments).len()
-    };
-    let start_units = |folder_start: &ShellFolderStart| {
-        line_units(&folder_start.program, &folder_start.arguments)
-    };
-    let filler = "a".repeat(COMMAND_LINE_UNITS - start_units(&start("a")) + 1);
+    let filler_length = COMMAND_LINE_UNITS - start_units(&start(1).0) + 1;
 
-    let filling = start(&filler);
-    let overfilled_text = format!("{filler}a");
-    let overfilled = start(&overfilled_text);
-    let quotes = "'".repeat(COMMAND_LINE_UNITS / 2);
-    let quoted = start(&quotes);
+    let (filling, _) = start(filler_length);
+    let (overfilled, overfilled_arguments) = start(filler_length + 1);
 
     assert_eq!(start_units(&filling), COMMAND_LINE_UNITS);
     assert_eq!(filling.shell_folder, Path::new(SYSTEM_FOLDER));
-    for (kept, text) in [(&overfilled, &overfilled_text), (&quoted, &quotes)] {
-        assert_eq!(kept.arguments, ["-Command", text.as_str()]);
-        assert_eq!(kept.shell_folder, Path::new(r"C:\wt"));
-    }
-    assert!(line_units("powershell.exe", &quoted.arguments) <= COMMAND_LINE_UNITS);
+    assert_eq!(
+        overfilled,
+        ShellFolderStart {
+            program: program.to_owned(),
+            arguments: overfilled_arguments,
+            spawn_folder: SYSTEM_FOLDER.into(),
+            shell_folder: folder.into(),
+            added_environment: Vec::new(),
+            raw_command_tail: None,
+        }
+    );
+}
+
+// Fails when Windows PowerShell's text is measured as given, not with its single quotes doubled:
+// a text of quotes fits as given and passes the line only once they are doubled.
+#[test]
+fn windows_powershell_measures_its_text_with_its_quotes_doubled() {
+    let quotes = "'".repeat(COMMAND_LINE_UNITS / 2);
+    let arguments = ["-Command".to_owned(), quotes];
+
+    let quoted = compose_shell_folder_start(
+        "powershell.exe",
+        &arguments,
+        r"C:\wt",
+        Path::new(SYSTEM_FOLDER),
+    );
+
+    assert_eq!(quoted.arguments, arguments);
+    assert_eq!(quoted.shell_folder, Path::new(r"C:\wt"));
+    assert!(start_units(&quoted) <= COMMAND_LINE_UNITS);
 }

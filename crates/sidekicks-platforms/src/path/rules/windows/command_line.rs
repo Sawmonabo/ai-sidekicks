@@ -65,6 +65,7 @@ mod tests {
             ("", r#""""#),
             ("two words", r#""two words""#),
             (r#"say "hi""#, r#""say \"hi\"""#),
+            (r#"a\"b"#, r#"a\\\"b"#),
             (r"C:\folder\", r"C:\folder\"),
             (r"C:\my folder\", r#""C:\my folder\\""#),
         ] {
