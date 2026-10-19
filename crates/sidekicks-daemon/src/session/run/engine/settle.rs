@@ -28,7 +28,7 @@ use crate::session::run::engine::{RunEngine, RunEngineError, settled};
 use crate::session::run::read::{LiveRun, RunRead, RunStateReader};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::restart::{
-    RestartFacts, RestartSettlement, RestartTurnEnd, applied_pending_interrupt_of,
+    RestartFacts, RestartSettlement, RestartTurnEnd, applied_pending_interrupts_of,
     decide_restart_settlement, limit_turn_cause, no_pending_interrupt_statement,
     no_waiting_item_statement, read_restart_facts,
 };
@@ -210,8 +210,8 @@ impl RunEngine {
     /// Settles one run a restart left live that recovery could not resume, without calling any
     /// driver, as [`decide_restart_settlement`] decides: its end and its newest open turn's end in
     /// one write, every older open turn ended on its own before it, the turns a limit cut with the
-    /// limit's cause and every other with `daemonRestart`, a pending interrupt moved to `applied`
-    /// in that write, otherwise guarded on no interrupt having appeared since; a `failed` end
+    /// limit's cause and every other with `daemonRestart`, every pending interrupt moved to
+    /// `applied` in that write, guarded on no other interrupt having appeared since; a `failed` end
     /// carries `failure_detail`. A run the decision leaves is returned as it is. Fails as
     /// [`RunEngine::transition`] does.
     #[cfg_attr(
@@ -277,15 +277,12 @@ impl RunEngine {
                 )
             },
         };
-        let mut companions = match &facts.pending_interrupt {
-            // The person's pending interrupt stays theirs, and the daemon's own at a limit keeps
-            // its cause; either is applied by this end.
-            Some(pending_interrupt) => applied_pending_interrupt_of(run, pending_interrupt)?,
-            None => RunStateChangeCompanions {
-                statements: vec![no_pending_interrupt_statement(&run_id)],
-                ..RunStateChangeCompanions::default()
-            },
-        };
+        // Every pending interrupt the settle read is applied by this end, and one that arrived
+        // since refuses it.
+        let mut companions = applied_pending_interrupts_of(run, &facts.pending_interrupts)?;
+        companions
+            .statements
+            .push(no_pending_interrupt_statement(&run_id));
         let is_queued = run.run.state == RunState::Queued;
         if is_queued {
             companions

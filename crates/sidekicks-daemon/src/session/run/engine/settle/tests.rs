@@ -32,9 +32,11 @@ use crate::session::run::restart::{QUEUE_ITEMS_TABLE_SQL, RestartFacts};
 use crate::session::run::state_change::RunStateChangeCompanions;
 use crate::uuid_v7::mint_uuid_v7;
 
-// The test's interrupt rows: the daemon's own at the token limit, and a person's.
+// The test's interrupt rows: the daemon's own at the token limit and at the step limit, and a
+// person's.
 const LIMIT_INTERRUPT_ID: &str = "0199f3a0-0000-7000-8000-000000000001";
 const PERSON_INTERRUPT_ID: &str = "0199f3a0-0000-7000-8000-000000000002";
+const STEP_INTERRUPT_ID: &str = "0199f3a0-0000-7000-8000-000000000003";
 
 fn token_limit_reached(session_id: SessionId, run_id: RunId) -> SessionEvent {
     SessionEvent::AgentRunTokenLimitReached(AgentRunTokenLimitReachedPayload {
@@ -219,8 +221,9 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
 
 // Killed by the owed read joining the interventions, where the failed token interrupt and its
 // requested event read as discharging the limit; by the person's pending interrupt or the
-// newer step limit winning over the owed token limit; by ending only the newest open turn; and
-// by giving the limit's cause to the newest turn rather than the one its stop cut.
+// newer step limit winning over the owed token limit; by applying only one pending interrupt,
+// which leaves the other pending on an ended run; by ending only the newest open turn; and by
+// giving the limit's cause to the newest turn rather than the one its stop cut.
 #[tokio::test]
 async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     let database = TestDatabase::new();
@@ -232,7 +235,8 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     let engine = test_engine(&database, log.service, home.path());
     // Turn 1 was left open when turn 2 started; the token stop wrote its reached event on
     // turn 2 and its interrupt failed, a person's interrupt is still pending, a step stop
-    // reached its bound, and turn 3 started before the daemon went down.
+    // reached its bound and its interrupt is pending too, and turn 3 started before the daemon
+    // went down.
     for turn_number in 1..=2 {
         append(
             &engine,
@@ -255,11 +259,14 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
              VALUES (?1, ?2, 'interrupt', 'failed', '{\"limit\":\"tokenLimit\"}', NULL, 1, ?1,
                      '2026-01-01T00:00:00.000Z'),
                     (?3, ?2, 'interrupt', 'accepted', '{\"pending\":\"nextTurn\"}', 'phone',
-                     1, ?3, '2026-01-01T00:00:01.000Z')",
+                     1, ?3, '2026-01-01T00:00:01.000Z'),
+                    (?4, ?2, 'interrupt', 'requested', '{\"limit\":\"stepLimit\"}', NULL, 1,
+                     ?4, '2026-01-01T00:00:02.000Z')",
             params![
                 LIMIT_INTERRUPT_ID,
                 run_id.text().as_str(),
                 PERSON_INTERRUPT_ID,
+                STEP_INTERRUPT_ID,
             ],
         )
         .expect("the test records the run's interrupts");
@@ -316,14 +323,22 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
         stored_run_state(&database, &run_id),
         ("stopped".to_owned(), 2)
     );
-    let person_interrupt_state: String = connection
-        .query_row(
-            "SELECT state FROM interventions WHERE id = ?1",
-            [PERSON_INTERRUPT_ID],
-            |row| row.get(0),
-        )
-        .expect("the test reads the person's interrupt");
-    assert_eq!(person_interrupt_state, "applied");
+    let interrupt_states: Vec<(String, String)> = connection
+        .prepare("SELECT id, state FROM interventions ORDER BY id")
+        .expect("the test reads the run's interrupts")
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("the interrupts read")
+        .collect::<Result<_, _>>()
+        .expect("each interrupt reads");
+    assert_eq!(
+        interrupt_states,
+        [
+            (LIMIT_INTERRUPT_ID.to_owned(), "failed".to_owned()),
+            (PERSON_INTERRUPT_ID.to_owned(), "applied".to_owned()),
+            (STEP_INTERRUPT_ID.to_owned(), "applied".to_owned()),
+        ],
+        "every pending interrupt is applied by the run's end"
+    );
 }
 
 // One record of a run's log before a restart.
@@ -586,7 +601,7 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
         .settle_run_from_facts(
             &run,
             &RestartFacts {
-                pending_interrupt: None,
+                pending_interrupts: Vec::new(),
                 owed_limit: None,
                 has_queued_item: false,
             },
