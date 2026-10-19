@@ -225,7 +225,7 @@ fn open_recorded_job(record: &ProcessRecord, name: &str) -> io::Result<Option<Ow
         return Err(io::Error::new(
             ErrorKind::InvalidData,
             format!(
-                "a lasting child's record names no job: process record {}",
+                "a lasting child's record names a job no lasting child is given: process record {}",
                 record.id
             ),
         ));
