@@ -308,16 +308,22 @@ fn no_token_limit_reached_statement(run_id: &RunId) -> WriteStatement {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
+    use rstest::rstest;
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::intervention::RunLimit;
+    use sidekicks_contracts::session::cost::TokensPerRun;
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::LimitStop;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
+    use crate::session::run::engine::RunEngineError;
     use crate::session::run::engine::live::lock;
     use crate::session::run::engine::tests::{
-        append, hand_limit_interrupter, insert_running_run, stored_events, test_engine,
-        turn_started_at,
+        append, hand_limit_interrupter, insert_running_run, stored_events, stored_run_state,
+        test_engine, turn_started_at,
     };
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::state_change::RunStateChangeCompanions;
@@ -448,6 +454,89 @@ mod tests {
             cuts,
             [(run_id, turn(2))],
             "turn 2's cut waits for its own end"
+        );
+    }
+
+    // Killed by a retried token stop writing its reached event again, which the once-per-run
+    // guard refuses as a run not live so no interrupt goes, and by a retry sending no interrupt.
+    #[rstest]
+    #[case::token(
+        Some(500_000),
+        Some("agent.run.tokenLimit.reached"),
+        "tokenLimit",
+        "agent.run.stopped",
+        "stopped"
+    )]
+    #[case::spend(None, None, "spendLimit", "agent.run.interrupted", "interrupted")]
+    #[tokio::test]
+    async fn a_limit_stop_retried_after_a_failed_interrupt_sends_the_interrupt_alone(
+        // The token stop's limit; none for the spend stop.
+        #[case] token_limit: Option<u64>,
+        #[case] reached_event: Option<&str>,
+        #[case] turn_cause: &str,
+        #[case] run_end_event: &str,
+        #[case] run_end_state: &str,
+    ) {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let home = tempfile::tempdir().expect("the test makes a home folder");
+        let session_id = test_session_id();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        insert_running_run(&database, session_id, run_id);
+        let engine = test_engine(&database, log.service, home.path());
+        let interventions = hand_limit_interrupter(&engine, 1);
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 1, 1),
+        )
+        .await;
+        let limit = token_limit.map_or(RunLimit::SpendLimit, |_| RunLimit::TokenLimit);
+        let stop = async || match token_limit {
+            Some(tokens) => {
+                let tokens = SafeInt::new(tokens).expect("the test's limit is a safe integer");
+                engine
+                    .stop_at_token_limit(run_id, TokensPerRun(tokens))
+                    .await
+            }
+            None => engine.stop_at_spend_limit(run_id).await,
+        };
+
+        let refused = stop().await;
+        assert!(
+            matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
+            "the first stop answers {refused:?}"
+        );
+        stop()
+            .await
+            .expect("the retried stop's interrupt is accepted");
+        assert_eq!(interventions.calls.load(Ordering::SeqCst), 2);
+        // The interventions service ends the run with the limit it accepted at version 1.
+        let ended = engine
+            .end_run_for_interrupt(run_id, 1, Some(limit), RunStateChangeCompanions::default())
+            .await
+            .expect("the run ends at its limit");
+
+        assert!(ended);
+        let expected: Vec<_> = [("agent.turn.started", None, None)]
+            .into_iter()
+            .chain(reached_event.map(|reached| (reached, None, None)))
+            .chain([
+                ("agent.turn.interrupted", Some(turn_cause), Some("daemon")),
+                (run_end_event, None, None),
+            ])
+            .map(|(event_type, cause, origin)| {
+                (
+                    event_type.to_owned(),
+                    cause.map(str::to_owned),
+                    origin.map(str::to_owned),
+                )
+            })
+            .collect();
+        assert_eq!(stored_events(&database, &run_id), expected);
+        assert_eq!(
+            stored_run_state(&database, &run_id),
+            (run_end_state.to_owned(), 2)
         );
     }
 }
