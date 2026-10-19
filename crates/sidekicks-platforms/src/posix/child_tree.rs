@@ -1,6 +1,7 @@
 //! A child leading a tree of its own on macOS and Linux: the leader of a process group of its own,
 //! armed to end with the daemon, whose tree ends by a kill of that group.
 
+use std::error::Error;
 use std::io;
 use std::os::fd::AsFd;
 
@@ -11,7 +12,7 @@ use tokio::process::Command;
 
 use crate::child_tree::{ChildTreeOutputError, check_output_bound};
 use crate::posix::child_command::prepare_child_command;
-use crate::posix::process::group::signal_group;
+use crate::posix::process::group::{IS_GROUP_KILL_REPEATED, signal_group, signal_group_once};
 
 /// How much one read of what a child left in a pipe takes at most.
 const READY_OUTPUT_CHUNK: usize = 64 * 1024;
@@ -39,12 +40,38 @@ pub(crate) async fn end_child_tree(process: &mut dyn ChildWrapper) -> io::Result
     Ok(())
 }
 
-/// Kills every process in the child's group on this thread. Fails as `signal_group` does.
+/// Kills every process in the child's group from a drop without sleeping on an async worker: one
+/// kill on this thread, then, where a kill repeats until no member is left, the repeat on a
+/// blocking thread when a runtime is current, else on this thread. Fails as `signal_group` does;
+/// a repeat on a blocking thread logs its failure.
 pub(crate) fn end_child_tree_now(process: &mut dyn ChildWrapper) -> io::Result<()> {
-    if let Some(id) = process.id() {
-        signal_group(id, Signal::SIGKILL)?;
+    let Some(id) = process.id() else {
+        return Ok(());
+    };
+    if !IS_GROUP_KILL_REPEATED {
+        return signal_group(id, Signal::SIGKILL).map(drop);
     }
-    Ok(())
+    match signal_group_once(id, Signal::SIGKILL) {
+        Ok(false) => return Ok(()),
+        Ok(true) => {}
+        // A group whose members exited unreaped refuses the kill; the repeat tells it apart.
+        Err(error) if error.raw_os_error() == Some(Errno::EPERM as i32) => {}
+        Err(error) => return Err(error),
+    }
+    match tokio::runtime::Handle::try_current() {
+        Ok(runtime) => {
+            drop(runtime.spawn_blocking(move || {
+                if let Err(error) = signal_group(id, Signal::SIGKILL) {
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a dropped child's tree could not be ended"
+                    );
+                }
+            }));
+            Ok(())
+        }
+        Err(_no_runtime) => signal_group(id, Signal::SIGKILL).map(drop),
+    }
 }
 
 /// Reads what `stream`, a pipe tokio keeps non-blocking, holds now into `into`, without waiting

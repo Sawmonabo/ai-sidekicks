@@ -25,6 +25,11 @@ const LISTING_GAP: Duration = Duration::from_millis(10);
 #[cfg(target_os = "macos")]
 const GROUP_KILL_BOUND: Duration = Duration::from_secs(1);
 
+/// Whether a group's `SIGKILL` is sent again until no member is left, which can sleep between
+/// listings: on macOS, whose kill reaches only the members fully made as it lists them, so a child
+/// forked meanwhile outlives it; Linux's reaches every member, a fork under way included.
+pub(crate) const IS_GROUP_KILL_REPEATED: bool = cfg!(target_os = "macos");
+
 /// Sends `signal` to every member of the group process `id` leads, a `SIGKILL` on macOS again
 /// until no member is left; `false` when the group had already ended, its members all exited.
 /// Fails with `EPERM` when a refused send leaves members running, for a repeated kill only once
@@ -33,9 +38,7 @@ const GROUP_KILL_BOUND: Duration = Duration::from_secs(1);
 /// error.
 pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
     let group = Pid::from_raw(system_process_id(id)?.get());
-    // macOS's kill reaches only the members fully made as it lists them, so a child forked
-    // meanwhile outlives it; Linux's reaches every member, a fork under way included.
-    let is_repeated = cfg!(target_os = "macos") && signal == Signal::SIGKILL;
+    let is_repeated = IS_GROUP_KILL_REPEATED && signal == Signal::SIGKILL;
     #[cfg(target_os = "macos")]
     let give_up_at = Instant::now() + GROUP_KILL_BOUND;
     // The live members the last refused kill listed, kept across the kills that reach some.
@@ -82,6 +85,18 @@ pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
             }
             return Err(members_left_error(id, &members));
         }
+    }
+}
+
+/// Sends `signal` once to every member of the group process `id` leads, never listing or sleeping;
+/// `false` when the group had already ended. Fails with `InvalidInput` for an id of 0 or past
+/// `i32::MAX`, else with the system's error, `EPERM` among them.
+pub(crate) fn signal_group_once(id: u32, signal: Signal) -> io::Result<bool> {
+    let group = Pid::from_raw(system_process_id(id)?.get());
+    match killpg(group, signal) {
+        Ok(()) => Ok(true),
+        Err(Errno::ESRCH) => Ok(false),
+        Err(errno) => Err(io::Error::from(errno)),
     }
 }
 
