@@ -19,11 +19,12 @@ use crate::session::run::engine::turns::StepCount;
 /// flags are atomics because the start and every call routed around it share the entry, which
 /// stays theirs after it leaves the map.
 pub(super) struct StartingRun {
-    /// Whether an interrupt may claim the run at once.
+    /// Set from the entry's insert until the gates end, and again once a start leaves the run
+    /// live without a driver.
     pub(super) is_claimable: AtomicBool,
     /// Whether an interrupt claimed the run.
     pub(super) is_interrupted: AtomicBool,
-    /// Whether the run ended while no driver had it.
+    /// Set by the run's end while the entry is in the map.
     pub(super) has_ended: AtomicBool,
     /// Whether the driver has the run, once the start has settled and its `running` write landed.
     pub(super) settled: SetOnce<bool>,
@@ -59,9 +60,8 @@ pub(super) struct EndingWrite {
     pub(super) landed: SetOnce<()>,
 }
 
-/// What the engine holds per live run, under one lock never held across an await. Every map is
-/// bounded by the live runs: an entry leaves when its run, its start, its continue, its write or
-/// its turn ends, on every exit path.
+/// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
+/// its write or its turn ends, on every exit path.
 #[derive(Default)]
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.
