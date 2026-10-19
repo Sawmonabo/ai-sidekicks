@@ -44,6 +44,10 @@ use crate::workspace::row_guards::COMMON_DIR_METADATA_PATH;
 use crate::workspace::schema::MountOrigin;
 
 /// The statements the service's reads keep prepared on each read connection.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, sizing its read connections")
+)]
 pub(crate) const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 4;
 
 // An attached mount of a repository the machine has no active mount of in that place, compared by
@@ -252,6 +256,10 @@ struct ActiveMount {
 /// Owns the `repo_mounts` table's attach, read and detach. The detach also archives the mount's
 /// `workspaces` rows and a managed mount's deletion deletes them, because each must share one
 /// write with the mount row it follows.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the repository mount methods' handlers")
+)]
 pub(crate) struct RepoMountService {
     writer: Arc<DatabaseWriter>,
     reads: Arc<DatabaseReadPool>,
@@ -266,6 +274,10 @@ pub(crate) struct RepoMountService {
     pub(crate) running_read_pause: PausePoint,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the repository mount methods' handlers")
+)]
 impl RepoMountService {
     /// The mounts of `machine_id`'s daemon, written through `writer`, read through `reads`, roots
     /// resolved by `resolver` and a detach's archivals appended through `events`.
@@ -287,6 +299,44 @@ impl RepoMountService {
             #[cfg(test)]
             running_read_pause: PausePoint::default(),
         }
+    }
+
+    /// The mounts of a daemon over the test `database`, roots resolved by `resolver`.
+    #[cfg(test)]
+    pub(crate) async fn for_test(
+        database: &crate::database::writer::test_file::TestDatabase,
+        resolver: RepoRootResolver,
+    ) -> Arc<Self> {
+        use crate::database::writer::DatabaseWriterOptions;
+        use crate::events::log_service::{
+            EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+        };
+        use crate::events::session::followers::SessionEventFollowers;
+
+        let writer = Arc::new(
+            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+                .await
+                .expect("the writer opens the test database"),
+        );
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            EVENT_LOG_STATEMENT_CAPACITY + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY,
+        ));
+        let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
+            writer: Arc::clone(&writer),
+            pool: Arc::clone(&reads),
+            followers: Arc::new(SessionEventFollowers::default()),
+            projection_statements: None,
+            refuse_session_write: None,
+            read_damaged_from_sequence: None,
+        }));
+        Arc::new(Self::new(
+            writer,
+            reads,
+            Arc::new(WorkspaceEventEmitter::new(event_log)),
+            resolver,
+            MachineId::new("machine".to_owned()).expect("the id is short"),
+        ))
     }
 
     /// Resolves `request`'s path for attach and checks the machine has no active mount of its
@@ -564,7 +614,7 @@ impl RepoMountService {
 /// The statements that delete a chat's managed mount row with every workspace on it and the run
 /// and branch rows naming those workspaces, in foreign-key order; a session with none matches
 /// nothing. They go in one write, alone or inside the purge's.
-#[expect(dead_code, reason = "the session purge")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the session purge"))]
 pub(crate) fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStatement> {
     DELETE_MANAGED_MOUNT_SQL
         .iter()

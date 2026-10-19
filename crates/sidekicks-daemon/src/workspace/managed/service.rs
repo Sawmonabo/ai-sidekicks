@@ -1,11 +1,12 @@
 //! A chat's managed workspace: the git-initialized folder `<home>/.ai-sidekicks/workspaces/<session
 //! id>` the daemon makes at the chat's create and registers as the chat's managed mount, kept while
 //! the chat is archived, and deleted whole when the chat is purged or when its create stopped
-//! before the chat was born.
+//! before the chat was born. It holds the one watch over every chat's workspace and starts it
+//! again whenever a create finds the folder holding them gone, since the watch ends with it.
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
@@ -13,10 +14,15 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::remove_tree;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot::{self, error::TryRecvError};
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::file::real_location::resolve_real_path;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
+use crate::workspace::managed::write_watcher::{
+    ManagedWorkspaceWatchError, ManagedWorkspaceWrite, ManagedWorkspaceWriteWatcher,
+};
 use crate::workspace::repo::mount::service::{RepoMountService, RepoMountServiceError};
 
 const MANAGED_WORKSPACES_FOLDER_NAME: &str = "workspaces";
@@ -26,7 +32,7 @@ const GIT_INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The folder holding every chat's managed workspace under `home_folder`, one subfolder per
 /// session id.
-#[expect(dead_code, reason = "a chat's create and its purge")]
+#[cfg_attr(not(test), expect(dead_code, reason = "a chat's create and its purge"))]
 pub(crate) fn managed_workspaces_folder(home_folder: &Path) -> PathBuf {
     home_folder
         .join(DAEMON_DATA_FOLDER_NAME)
@@ -66,30 +72,63 @@ pub(crate) enum ManagedWorkspaceError {
     MadeAndNotRemoved(Box<CleanupFailures<ManagedWorkspaceError>>),
 }
 
-/// Makes and deletes chats' managed workspaces, each with its managed mount row.
-#[expect(dead_code, reason = "a chat's create and its purge")]
+/// Makes and deletes chats' managed workspaces, each with its managed mount row, and reports the
+/// writes chats make in them.
+#[cfg_attr(not(test), expect(dead_code, reason = "a chat's create and its purge"))]
 pub(crate) struct ManagedWorkspaceService {
     workspaces_folder: PathBuf,
     place: Option<Place>,
     repo_mounts: Arc<RepoMountService>,
     git: GitRunner,
+    writes: mpsc::Sender<ManagedWorkspaceWrite>,
+    write_watch: Mutex<WriteWatch>,
 }
 
-#[expect(dead_code, reason = "a chat's create and its purge")]
+// The watch over every chat's workspace, and the channel it answers on when it ends.
+struct WriteWatch {
+    _watcher: ManagedWorkspaceWriteWatcher,
+    failure: oneshot::Receiver<ManagedWorkspaceWatchError>,
+}
+
+impl WriteWatch {
+    fn start(workspaces_folder: PathBuf, writes: mpsc::Sender<ManagedWorkspaceWrite>) -> Self {
+        let (watcher, failure) = ManagedWorkspaceWriteWatcher::start(workspaces_folder, writes);
+        Self {
+            _watcher: watcher,
+            failure,
+        }
+    }
+
+    // Whether the watch has ended; its failure is logged where it ended.
+    fn has_ended(&mut self) -> bool {
+        match self.failure.try_recv() {
+            Err(TryRecvError::Empty) => false,
+            Ok(_) | Err(TryRecvError::Closed) => true,
+        }
+    }
+}
+
+#[cfg_attr(not(test), expect(dead_code, reason = "a chat's create and its purge"))]
 impl ManagedWorkspaceService {
     /// The workspaces under `home_folder`, which is in `place` (`None` on macOS and Linux), their
-    /// rows written through `repo_mounts` and each made a repository through `git`.
+    /// rows written through `repo_mounts`, each made a repository through `git`, and every write a
+    /// chat makes in one sent on `writes`; starts the watch that reports them.
     pub(crate) fn new(
         home_folder: &Path,
         place: Option<Place>,
         repo_mounts: Arc<RepoMountService>,
         git: GitRunner,
+        writes: mpsc::Sender<ManagedWorkspaceWrite>,
     ) -> Self {
+        let workspaces_folder = managed_workspaces_folder(home_folder);
+        let write_watch = WriteWatch::start(workspaces_folder.clone(), writes.clone());
         Self {
-            workspaces_folder: managed_workspaces_folder(home_folder),
+            workspaces_folder,
             place,
             repo_mounts,
             git,
+            writes,
+            write_watch: Mutex::new(write_watch),
         }
     }
 
@@ -101,9 +140,13 @@ impl ManagedWorkspaceService {
         &self,
         session_id: SessionId,
     ) -> Result<ManagedWorkspace, ManagedWorkspaceError> {
+        let had_folder = tokio::fs::try_exists(&self.workspaces_folder)
+            .await
+            .map_err(ManagedWorkspaceError::WorkspacesFolder)?;
         tokio::fs::create_dir_all(&self.workspaces_folder)
             .await
             .map_err(ManagedWorkspaceError::WorkspacesFolder)?;
+        self.keep_write_watch(had_folder);
         // Every mount root has its links resolved; the session id below it adds no link.
         let workspace_path = resolve_real_path(&self.workspaces_folder)
             .await
@@ -151,6 +194,19 @@ impl ManagedWorkspaceService {
         remove_folder(self.workspace_path_of(session_id)).await
     }
 
+    // Starts the watch again when the folder it watched was gone or it has ended, since a watch
+    // whose folder is removed ends and a folder made again is not watched by it.
+    fn keep_write_watch(&self, had_folder: bool) {
+        let mut write_watch = self
+            .write_watch
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if had_folder && !write_watch.has_ended() {
+            return;
+        }
+        *write_watch = WriteWatch::start(self.workspaces_folder.clone(), self.writes.clone());
+    }
+
     // Built from the session id under the daemon's own folder, never read from a row, so a removal
     // reaches nothing but a chat's workspace.
     fn workspace_path_of(&self, session_id: SessionId) -> PathBuf {
@@ -193,4 +249,76 @@ async fn remove_folder(path: PathBuf) -> Result<(), ManagedWorkspaceError> {
         .map_err(io::Error::other)
         .and_then(|removed| removed)
         .map_err(ManagedWorkspaceError::Removal)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::Duration;
+
+    use sidekicks_contracts::session::id::SessionId;
+    use tokio::sync::mpsc;
+    use tokio::time::{Instant, timeout};
+
+    use super::{ManagedWorkspaceService, managed_workspaces_folder};
+    use crate::database::writer::test_file::TestDatabase;
+    use crate::git::process::test_git_runner;
+    use crate::workspace::managed::write_watcher::ManagedWorkspaceWrite;
+    use crate::workspace::repo::mount::service::RepoMountService;
+    use crate::workspace::repo::root_resolver::RepoRootResolver;
+
+    const WAIT: Duration = Duration::from_secs(20);
+
+    // Makes the session's workspace and writes in it until the watch reports one, since the watch starts on
+    // its own task and a write before it is armed is not seen.
+    async fn wait_for_a_reported_write(
+        service: &ManagedWorkspaceService,
+        session_id: SessionId,
+        writes: &mut mpsc::Receiver<ManagedWorkspaceWrite>,
+    ) {
+        let workspace = service
+            .create(session_id)
+            .await
+            .expect("the workspace is made");
+        let deadline = Instant::now() + WAIT;
+        for attempt in 0_u32.. {
+            assert!(Instant::now() < deadline, "no write was reported in time");
+            fs::write(
+                workspace.path.join(format!("note-{attempt}.txt")),
+                "written",
+            )
+            .expect("a file is written");
+            // A write still told from an earlier session's workspace is passed over.
+            if let Ok(Some(write)) = timeout(Duration::from_millis(500), writes.recv()).await
+                && write.session_id == session_id
+            {
+                return;
+            }
+        }
+    }
+
+    // Catches a watch left dead once its folder is removed: a chat made after the removal must
+    // still have its writes reported.
+    #[tokio::test]
+    async fn a_create_after_the_workspaces_folder_is_removed_watches_it_again() {
+        let home = tempfile::tempdir().expect("a scratch home");
+        let database = TestDatabase::new();
+        let repo_mounts =
+            RepoMountService::for_test(&database, RepoRootResolver::new(test_git_runner())).await;
+        let (writes_sender, mut writes) = mpsc::channel(64);
+        let service = ManagedWorkspaceService::new(
+            home.path(),
+            None,
+            repo_mounts,
+            test_git_runner(),
+            writes_sender,
+        );
+
+        let first = SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e70").expect("a session id");
+        wait_for_a_reported_write(&service, first, &mut writes).await;
+        fs::remove_dir_all(managed_workspaces_folder(home.path()))
+            .expect("the workspaces folder is removed");
+        let second = SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e71").expect("a session id");
+        wait_for_a_reported_write(&service, second, &mut writes).await;
+    }
 }

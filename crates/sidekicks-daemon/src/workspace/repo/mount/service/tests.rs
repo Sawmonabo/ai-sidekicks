@@ -43,23 +43,7 @@ async fn open_service_resolving(
     database: &TestDatabase,
     resolver: RepoRootResolver,
 ) -> (Arc<RepoMountService>, Connection) {
-    let writer = Arc::new(
-        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens the test database"),
-    );
-    let reads = Arc::new(DatabaseReadPool::new(
-        database.path(),
-        EVENT_LOG_STATEMENT_CAPACITY + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY,
-    ));
-    let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
-        writer: Arc::clone(&writer),
-        pool: Arc::clone(&reads),
-        followers: Arc::new(SessionEventFollowers::default()),
-        projection_statements: None,
-        refuse_session_write: None,
-        read_damaged_from_sequence: None,
-    }));
+    let service = RepoMountService::for_test(database, resolver).await;
     let rows = database.reader();
     let bound_root = <&'static str>::from(ExecutionMode::BoundRoot);
     let workspace = format!(
@@ -73,14 +57,7 @@ async fn open_service_resolving(
     {
         rows.execute_batch(row).expect("a parent row is admitted");
     }
-    let service = RepoMountService::new(
-        writer,
-        reads,
-        Arc::new(WorkspaceEventEmitter::new(event_log)),
-        resolver,
-        MachineId::new("machine".to_owned()).expect("the id is short"),
-    );
-    (Arc::new(service), rows)
+    (service, rows)
 }
 
 fn detach_request() -> DetachRepoMount {
