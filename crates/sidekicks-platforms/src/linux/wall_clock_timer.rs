@@ -50,8 +50,11 @@ impl WallClockTimer {
             ClockId::CLOCK_REALTIME,
             TimerFlags::TFD_NONBLOCK | TimerFlags::TFD_CLOEXEC,
         )?;
+        // SAFETY: the descriptor is the timerfd the `AsyncFd` owns from here, open until the
+        // `AsyncFd` drops it, and `as_raw_fd` answers that one descriptor every time.
+        let timer = unsafe { AsyncFd::register(TimerDescriptor(timer)) }?;
         Ok(Self {
-            timer: AsyncFd::new(TimerDescriptor(timer))?,
+            timer,
             armed_expiry: Mutex::new(None),
         })
     }

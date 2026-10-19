@@ -1,9 +1,7 @@
 //! The path of a Windows known folder, as the system reports it for this account, and the system
 //! folder and the computer-wide program folders read through it.
 
-use std::ffi::OsString;
 use std::io;
-use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use windows_sys::Win32::System::Com::CoTaskMemFree;
@@ -12,6 +10,8 @@ use windows_sys::Win32::UI::Shell::{
     SHGetKnownFolderPath,
 };
 use windows_sys::core::{GUID, PWSTR};
+
+use crate::windows::wide_text::read_wide_string;
 
 // Where each folder read here usually is, used when the system cannot report it.
 const SYSTEM_FOLDER_USUAL_PATH: &str = r"C:\Windows\System32";
@@ -72,17 +72,4 @@ fn read_known_folder(folder: &GUID, usual_path: &str) -> PathBuf {
         );
         PathBuf::from(usual_path)
     })
-}
-
-// The NUL-terminated wide string at `text`, copied without its NUL.
-//
-// Safety: `text` points at a live NUL-terminated wide string.
-unsafe fn read_wide_string(text: PWSTR) -> OsString {
-    let mut length = 0;
-    // SAFETY: every unit up to and including the NUL lies inside the string.
-    while unsafe { *text.add(length) } != 0 {
-        length += 1;
-    }
-    // SAFETY: the `length` units before the NUL are the string's, initialized and live.
-    OsString::from_wide(unsafe { std::slice::from_raw_parts(text, length) })
 }

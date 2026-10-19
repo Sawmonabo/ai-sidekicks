@@ -4,7 +4,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::SocketAddr;
 use std::path::Path;
 
-use crate::socket_path::SocketPathRefused;
+use crate::socket::path::SocketPathRefused;
 
 // The longest path a socket address holds: `sun_path`'s bytes less the NUL that ends it. Neither
 // system pads the struct, so `sun_path` runs from its offset to the end: 104 bytes on macOS, 108 on
@@ -34,7 +34,7 @@ mod tests {
     use std::os::unix::net::UnixListener;
 
     use super::check_socket_path;
-    use crate::socket_path::SocketPathRefused;
+    use crate::socket::path::SocketPathRefused;
 
     // Written out rather than read from the struct, so a wrong measure of `sun_path` fails here.
     const EXPECTED_LIMIT: usize = if cfg!(target_os = "macos") { 103 } else { 107 };

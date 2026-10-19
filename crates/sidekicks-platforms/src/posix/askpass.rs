@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 
 use interprocess::local_socket::tokio::Listener;
 
-use crate::posix::socket_listener::bind_socket_listener;
-use crate::posix::socket_path::check_socket_path;
-use crate::socket_listener::ExistingSocket;
+use crate::posix::socket::listener::bind_socket_listener;
+use crate::posix::socket::path::check_socket_path;
+use crate::socket::listener::ExistingSocket;
 
 // The socket's name in the folder.
 const SOCKET_NAME: &str = "askpass.sock";

@@ -1,5 +1,6 @@
 //! The exit codes the command line returns, BSD `sysexits.h` codes plus the status a shell reports
-//! for a program a closed pipe ended, and the one mapping from a run's failure to its code.
+//! for a program a closed pipe ended, how a run ends, and the one mapping from a run's failure to
+//! its ending.
 
 use std::io;
 
@@ -64,6 +65,9 @@ impl From<ExitCode> for std::process::ExitCode {
 pub(crate) enum ProcessEnding {
     /// The process exits with the code.
     Exit(ExitCode),
+    /// The process ends the way a Ctrl-C ends it, so a script running the command stops too: the
+    /// command canceled what it waited on after the person pressed Ctrl-C.
+    CtrlC,
 }
 
 /// The daemon answered with an error number no exit code is assigned to.
@@ -74,16 +78,16 @@ pub(crate) struct UnmappedExitCodeError {
     pub(crate) code: i64,
 }
 
-/// The exit code for a failed run, from the first cause in its chain that names one: an argument
+/// How a failed run ends, from the first cause in its chain that names an ending: an argument
 /// refusal, a daemon that is not answering, a closed output pipe, the daemon's error by its number
-/// (a domain refusal by its category); any other failure is a software error. Fails with
-/// [`UnmappedExitCodeError`] for a daemon number with no exit code.
+/// (a domain refusal by its category), a call canceled after a Ctrl-C; any other failure is a
+/// software error. Fails with [`UnmappedExitCodeError`] for a daemon number with no exit code.
 pub(crate) fn exit_code_for_failure(
     failure: &anyhow::Error,
-) -> Result<ExitCode, UnmappedExitCodeError> {
+) -> Result<ProcessEnding, UnmappedExitCodeError> {
     for cause in failure.chain() {
         if cause.is::<clap::Error>() {
-            return Ok(ExitCode::Usage);
+            return Ok(ProcessEnding::Exit(ExitCode::Usage));
         }
         if let Some(client_error) = cause.downcast_ref::<ClientError>() {
             return exit_code_for_client_error(client_error);
@@ -92,41 +96,45 @@ pub(crate) fn exit_code_for_failure(
             .downcast_ref::<io::Error>()
             .is_some_and(|error| error.kind() == io::ErrorKind::BrokenPipe)
         {
-            return Ok(ExitCode::BrokenPipe);
+            return Ok(ProcessEnding::Exit(ExitCode::BrokenPipe));
         }
     }
-    Ok(ExitCode::Software)
+    Ok(ProcessEnding::Exit(ExitCode::Software))
 }
 
-fn exit_code_for_client_error(error: &ClientError) -> Result<ExitCode, UnmappedExitCodeError> {
+fn exit_code_for_client_error(error: &ClientError) -> Result<ProcessEnding, UnmappedExitCodeError> {
     let remote = match error {
-        ClientError::Unavailable { .. } => return Ok(ExitCode::Unavailable),
+        ClientError::Unavailable { .. } => return Ok(ProcessEnding::Exit(ExitCode::Unavailable)),
         ClientError::Remote(remote) => remote,
+        // The command cancels a call only after the person pressed Ctrl-C.
+        ClientError::Canceled => return Ok(ProcessEnding::CtrlC),
         ClientError::Reply { .. }
         | ClientError::Request { .. }
-        | ClientError::Canceled
         | ClientError::RunFolder(_)
-        | ClientError::Token { .. } => return Ok(ExitCode::Software),
+        | ClientError::Token { .. } => return Ok(ProcessEnding::Exit(ExitCode::Software)),
     };
     let code = JsonRpcErrorCode::from_code(remote.code)
         .ok_or(UnmappedExitCodeError { code: remote.code })?;
     Ok(match code {
-        JsonRpcErrorCode::ParseError => ExitCode::DataError,
+        JsonRpcErrorCode::ParseError => ProcessEnding::Exit(ExitCode::DataError),
         JsonRpcErrorCode::InvalidRequest
         | JsonRpcErrorCode::MethodNotFound
-        | JsonRpcErrorCode::InvalidParams => ExitCode::Usage,
-        // A cancel answer to a call the command line did not cancel is the daemon's fault.
-        JsonRpcErrorCode::InternalError | JsonRpcErrorCode::RequestCanceled => ExitCode::Software,
-        JsonRpcErrorCode::DomainRefusal => {
-            remote.data.as_ref().map_or(ExitCode::Software, |data| {
+        | JsonRpcErrorCode::InvalidParams => ProcessEnding::Exit(ExitCode::Usage),
+        JsonRpcErrorCode::InternalError => ProcessEnding::Exit(ExitCode::Software),
+        // The daemon answers a call canceled only after the command's own cancel, which follows
+        // the person's Ctrl-C.
+        JsonRpcErrorCode::RequestCanceled => ProcessEnding::CtrlC,
+        JsonRpcErrorCode::DomainRefusal => remote
+            .data
+            .as_ref()
+            .map_or(ProcessEnding::Exit(ExitCode::Software), |data| {
                 exit_code_for_category(&data.category)
-            })
-        }
+            }),
     })
 }
 
-fn exit_code_for_category(category: &RefusalCategory) -> ExitCode {
-    match category {
+fn exit_code_for_category(category: &RefusalCategory) -> ProcessEnding {
+    let code = match category {
         RefusalCategory::Known(KnownRefusalCategory::InvalidArgument) => ExitCode::DataError,
         RefusalCategory::Known(KnownRefusalCategory::NotFound) => ExitCode::NoInput,
         RefusalCategory::Known(KnownRefusalCategory::AlreadyExists) => ExitCode::CannotCreate,
@@ -142,11 +150,15 @@ fn exit_code_for_category(category: &RefusalCategory) -> ExitCode {
         RefusalCategory::Known(
             KnownRefusalCategory::Unavailable | KnownRefusalCategory::Unimplemented,
         ) => ExitCode::Unavailable,
-        // A canceled refusal of a call the command line did not cancel is the daemon's fault, and
-        // a category a newer daemon sends is read as an internal failure.
-        RefusalCategory::Known(KnownRefusalCategory::Internal | KnownRefusalCategory::Canceled)
-        | RefusalCategory::Unknown(_) => ExitCode::Software,
-    }
+        // The command calls no method that answers canceled unasked, so a canceled refusal
+        // follows its own cancel after the person's Ctrl-C.
+        RefusalCategory::Known(KnownRefusalCategory::Canceled) => return ProcessEnding::CtrlC,
+        // A category a newer daemon sends is read as an internal failure.
+        RefusalCategory::Known(KnownRefusalCategory::Internal) | RefusalCategory::Unknown(_) => {
+            ExitCode::Software
+        }
+    };
+    ProcessEnding::Exit(code)
 }
 
 #[cfg(test)]
@@ -163,7 +175,7 @@ mod tests {
         KnownRefusalCategory, RefusalCategory, RefusalCode,
     };
 
-    use super::{ExitCode, exit_code_for_failure};
+    use super::{ExitCode, ProcessEnding, exit_code_for_failure};
     use crate::program::Cli;
 
     fn remote(code: JsonRpcErrorCode, category: Option<RefusalCategory>) -> anyhow::Error {
@@ -185,132 +197,160 @@ mod tests {
     }
 
     #[rstest]
-    #[case::parse_error(remote(JsonRpcErrorCode::ParseError, None), ExitCode::DataError)]
-    #[case::invalid_request(remote(JsonRpcErrorCode::InvalidRequest, None), ExitCode::Usage)]
-    #[case::method_not_found(remote(JsonRpcErrorCode::MethodNotFound, None), ExitCode::Usage)]
-    #[case::invalid_params(remote(JsonRpcErrorCode::InvalidParams, None), ExitCode::Usage)]
-    #[case::internal_error(remote(JsonRpcErrorCode::InternalError, None), ExitCode::Software)]
-    #[case::request_canceled(remote(JsonRpcErrorCode::RequestCanceled, None), ExitCode::Software)]
-    #[case::refusal_without_data(remote(JsonRpcErrorCode::DomainRefusal, None), ExitCode::Software)]
+    #[case::parse_error(
+        remote(JsonRpcErrorCode::ParseError, None),
+        ProcessEnding::Exit(ExitCode::DataError)
+    )]
+    #[case::invalid_request(
+        remote(JsonRpcErrorCode::InvalidRequest, None),
+        ProcessEnding::Exit(ExitCode::Usage)
+    )]
+    #[case::method_not_found(
+        remote(JsonRpcErrorCode::MethodNotFound, None),
+        ProcessEnding::Exit(ExitCode::Usage)
+    )]
+    #[case::invalid_params(
+        remote(JsonRpcErrorCode::InvalidParams, None),
+        ProcessEnding::Exit(ExitCode::Usage)
+    )]
+    #[case::internal_error(
+        remote(JsonRpcErrorCode::InternalError, None),
+        ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::request_canceled(remote(JsonRpcErrorCode::RequestCanceled, None), ProcessEnding::CtrlC)]
+    #[case::refusal_without_data(
+        remote(JsonRpcErrorCode::DomainRefusal, None),
+        ProcessEnding::Exit(ExitCode::Software)
+    )]
     #[case::invalid_argument(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::InvalidArgument))
         ),
-        ExitCode::DataError
+        ProcessEnding::Exit(ExitCode::DataError)
     )]
     #[case::not_found(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::NotFound))
         ),
-        ExitCode::NoInput
+        ProcessEnding::Exit(ExitCode::NoInput)
     )]
     #[case::already_exists(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::AlreadyExists))
         ),
-        ExitCode::CannotCreate
+        ProcessEnding::Exit(ExitCode::CannotCreate)
     )]
     #[case::failed_precondition(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::FailedPrecondition))
         ),
-        ExitCode::Configuration
+        ProcessEnding::Exit(ExitCode::Configuration)
     )]
     #[case::permission_denied(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::PermissionDenied))
         ),
-        ExitCode::NoPermission
+        ProcessEnding::Exit(ExitCode::NoPermission)
     )]
     #[case::unauthenticated(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::Unauthenticated))
         ),
-        ExitCode::NoPermission
+        ProcessEnding::Exit(ExitCode::NoPermission)
     )]
     #[case::aborted(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::Aborted))
         ),
-        ExitCode::TemporaryFailure
+        ProcessEnding::Exit(ExitCode::TemporaryFailure)
     )]
     #[case::resource_exhausted(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::ResourceExhausted))
         ),
-        ExitCode::TemporaryFailure
+        ProcessEnding::Exit(ExitCode::TemporaryFailure)
     )]
     #[case::deadline_exceeded(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::DeadlineExceeded))
         ),
-        ExitCode::TemporaryFailure
+        ProcessEnding::Exit(ExitCode::TemporaryFailure)
     )]
     #[case::unavailable_repairing(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::Unavailable))
         ),
-        ExitCode::Unavailable
+        ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::unimplemented(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::Unimplemented))
         ),
-        ExitCode::Unavailable
+        ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::internal(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::Internal))
         ),
-        ExitCode::Software
+        ProcessEnding::Exit(ExitCode::Software)
     )]
     #[case::canceled(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(known(KnownRefusalCategory::Canceled))
         ),
-        ExitCode::Software
+        ProcessEnding::CtrlC
     )]
     #[case::unknown_category(
         remote(
             JsonRpcErrorCode::DomainRefusal,
             Some(RefusalCategory::Unknown("newerCategory".to_owned()))
         ),
-        ExitCode::Software
+        ProcessEnding::Exit(ExitCode::Software)
     )]
     #[case::usage(
         Cli::command().try_get_matches_from(["sidekicks", "unknown"]).expect_err("refused").into(),
-        ExitCode::Usage
+        ProcessEnding::Exit(ExitCode::Usage)
     )]
     #[case::not_answering(
         ClientError::Unavailable {
             reason: ConnectionUnavailableReason::NotListening,
             cause: LinkFault::PeerClosed,
         }.into(),
-        ExitCode::Unavailable
+        ProcessEnding::Exit(ExitCode::Unavailable)
     )]
-    #[case::link_down(ClientError::link_down(LinkFault::PeerClosed).into(), ExitCode::Unavailable)]
+    #[case::link_down(
+        ClientError::link_down(LinkFault::PeerClosed).into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
     #[case::broken_pipe(
         anyhow::Error::from(io::Error::from(io::ErrorKind::BrokenPipe)).context("writing"),
-        ExitCode::BrokenPipe
+        ProcessEnding::Exit(ExitCode::BrokenPipe)
     )]
-    #[case::other_io(io::Error::from(io::ErrorKind::PermissionDenied).into(), ExitCode::Software)]
-    #[case::anything_else(anyhow!("failed"), ExitCode::Software)]
-    fn a_failure_exits_with_its_code(#[case] failure: anyhow::Error, #[case] expected: ExitCode) {
+    #[case::canceled_before_it_was_sent(ClientError::Canceled.into(), ProcessEnding::CtrlC)]
+    #[case::other_io(
+        io::Error::from(io::ErrorKind::PermissionDenied).into(),
+        ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]
+    fn a_failure_ends_the_run_as_its_cause_names(
+        #[case] failure: anyhow::Error,
+        #[case] expected: ProcessEnding,
+    ) {
         assert_eq!(
-            exit_code_for_failure(&failure).expect("the code is mapped"),
+            exit_code_for_failure(&failure).expect("the ending is mapped"),
             expected
         );
     }

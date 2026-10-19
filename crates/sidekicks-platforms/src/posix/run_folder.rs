@@ -11,14 +11,12 @@ use std::path::{Path, PathBuf};
 
 use nix::unistd::getuid;
 
-use crate::run_folder::{DaemonRunFolder, RunFolderRefused};
+use crate::run_folder::{
+    DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SESSION_TOKEN_FILE_NAME,
+};
 
-// The run folder's name inside `XDG_RUNTIME_DIR`, and the start of its name, before the user id,
-// inside the temporary folder.
-const RUN_FOLDER_NAME: &str = "ai-sidekicks";
-
+// The local socket's file name in the run folder.
 const SOCKET_FILE_NAME: &str = "daemon.sock";
-const SESSION_TOKEN_FILE_NAME: &str = "daemon.token";
 
 // The temporary folder's variables, read in this order, and the folder where none is set.
 const TEMPORARY_FOLDER_VARIABLES: [&str; 3] = ["TMPDIR", "TMP", "TEMP"];
@@ -121,8 +119,15 @@ mod tests {
     #[test]
     fn resolves_every_case_of_the_shared_table() {
         let cases: Vec<Value> = serde_json::from_str(CASES).expect("the case table parses");
-        assert_eq!(cases.len(), 7, "the shared table's cases");
-        for case in cases {
+        let posix_cases: Vec<&Value> = cases
+            .iter()
+            .filter(|case| case.get("userSid").is_none())
+            .collect();
+        assert!(
+            !posix_cases.is_empty(),
+            "the shared table's macOS and Linux cases"
+        );
+        for case in posix_cases {
             let environment: HashMap<String, OsString> = case["environment"]
                 .as_object()
                 .expect("a case's environment is an object")

@@ -30,7 +30,14 @@
               `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
               exit event's registration), mimalloc's `mi_collect`, tree-sitter's \
               `set_allocator`, and the power notifications and wall-clock timers of macOS and \
-              Windows are C interfaces"
+              Windows are C interfaces, and tokio's watch of the Linux timer's and the terminal \
+              poller's descriptors trusts each to stay open while it watches, and the Windows \
+              Ctrl-C ending's `ExitProcess`, the user's locale reads (Windows' \
+              `GetLocaleInfoEx`, macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a \
+              process's user read from its token (`OpenProcess`, `OpenProcessToken`, \
+              `GetTokenInformation`, `EqualSid`, `ConvertSidToStringSidW`), the named pipe's \
+              server read (`GetNamedPipeServerProcessId`) and the run folder's owner and access \
+              list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`) are C interfaces too"
 )]
 
 mod atomic_replace;
@@ -60,10 +67,10 @@ mod run_folder;
 mod running_program;
 mod shell_folder_start;
 mod shell_start;
-mod socket_listener;
-mod socket_path;
+mod socket;
 mod spawner;
 mod system_folder;
+mod system_locale;
 mod terminal;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
@@ -166,6 +173,8 @@ pub use posix::child_command::{
     spawn_lasting_child, wrap_child_command,
 };
 #[cfg(unix)]
+pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, read_exact_at, volume_free_bytes,
 };
@@ -198,9 +207,13 @@ pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(unix)]
-pub use posix::socket_listener::bind_socket_listener;
+pub use posix::socket::connection::connect_socket;
 #[cfg(unix)]
-pub use posix::socket_path::check_socket_path;
+pub use posix::socket::listener::bind_socket_listener;
+#[cfg(unix)]
+pub use posix::socket::path::check_socket_path;
+#[cfg(unix)]
+pub use posix::system_locale::{system_hour_cycle, system_locale};
 #[cfg(unix)]
 pub use posix::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
@@ -228,13 +241,14 @@ pub use shell_folder_start::ShellFolderStart;
 #[cfg(not(target_os = "macos"))]
 pub use shell_start::ShellStartConfirmation;
 pub use shell_start::{ShellStart, ShellStartError};
-pub use socket_listener::ExistingSocket;
-pub use socket_path::SocketPathRefused;
+pub use socket::listener::ExistingSocket;
+pub use socket::path::SocketPathRefused;
 pub use spawner::Spawner;
 pub use system_folder::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
 };
+pub use system_locale::LocaleCategory;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
@@ -260,6 +274,8 @@ pub use windows::child_command::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
+#[cfg(target_os = "windows")]
+pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
     FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,
@@ -312,9 +328,13 @@ pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(target_os = "windows")]
-pub use windows::socket_listener::bind_socket_listener;
+pub use windows::socket::connection::connect_socket;
 #[cfg(target_os = "windows")]
-pub use windows::socket_path::check_socket_path;
+pub use windows::socket::listener::bind_socket_listener;
+#[cfg(target_os = "windows")]
+pub use windows::socket::path::check_socket_path;
+#[cfg(target_os = "windows")]
+pub use windows::system_locale::{system_hour_cycle, system_locale};
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
