@@ -1,5 +1,6 @@
 //! What a failed file call on macOS and Linux means, read from its system error code: out of open
-//! files, a busy entry, a volume with no hard links, a rename a held file stops.
+//! files, a busy entry, a volume with no hard links, a rename a held file stops, a link that
+//! loops.
 
 use std::io::{self, ErrorKind};
 
@@ -8,6 +9,12 @@ pub fn is_out_of_open_files(error: &io::Error) -> bool {
     error
         .raw_os_error()
         .is_some_and(|code| code == libc::EMFILE || code == libc::ENFILE)
+}
+
+/// Whether `error` says a path ran through more links than the system follows, a loop among
+/// them (`ELOOP`), which std reads as a kind that is not yet stable.
+pub fn is_link_loop(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(libc::ELOOP)
 }
 
 /// Whether `error` says the entry is busy (`EBUSY`).

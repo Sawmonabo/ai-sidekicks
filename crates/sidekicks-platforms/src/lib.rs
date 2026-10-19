@@ -187,7 +187,8 @@ pub use posix::disk::{
 pub use posix::entry_identity::entry_identity;
 #[cfg(unix)]
 pub use posix::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(unix)]
 pub use posix::file_facts::file_facts;
@@ -293,7 +294,8 @@ pub use windows::disk::{
 pub use windows::entry_identity::entry_identity;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_facts::file_facts;

@@ -6,6 +6,8 @@
 //! compiles on Windows and under `test`.
 
 use std::borrow::Cow;
+use std::ffi::OsStr;
+use std::path::Path;
 
 mod posix;
 pub(crate) mod windows;
@@ -90,12 +92,47 @@ impl PathRules {
         }
     }
 
-    /// Whether two names that differ only in case name one file, so comparisons lower-case them.
+    /// Whether two names that differ only in case name one file, so comparisons fold their case.
     pub fn has_case_insensitive_names(self) -> bool {
         match self {
             Self::Posix => false,
             Self::Windows => true,
         }
+    }
+
+    /// `path`'s components in the form two paths are compared in, one element each, a Windows
+    /// drive or share first, so a containment check never reaches across volumes: on macOS and
+    /// Linux each name byte for byte, since a lossy fold would make two names that are not UTF-8
+    /// one; on Windows each UTF-8 component folded as [`environment_name_key`] folds a name, and
+    /// one that is not UTF-8 as it stands. `path` is read by the running system's rules.
+    ///
+    /// [`environment_name_key`]: Self::environment_name_key
+    pub fn comparable_components(self, path: &Path) -> Vec<Cow<'_, OsStr>> {
+        path.components()
+            .map(|component| {
+                let name = component.as_os_str();
+                match (self, name.to_str()) {
+                    (Self::Windows, Some(text)) => match self.environment_name_key(text) {
+                        Cow::Borrowed(_) => Cow::Borrowed(name),
+                        Cow::Owned(folded) => Cow::Owned(folded.into()),
+                    },
+                    (Self::Windows, None) | (Self::Posix, _) => Cow::Borrowed(name),
+                }
+            })
+            .collect()
+    }
+
+    /// Whether `path` names a place strictly inside `folder`, read lexically with no link
+    /// followed and compared by [`comparable_components`], so a sibling that shares a prefix
+    /// (`/repo-old` beside `/repo`) and the folder itself are not inside it. Both paths come
+    /// folded, `.` and `..` resolved away, as [`resolve_path_against`] gives them.
+    ///
+    /// [`comparable_components`]: Self::comparable_components
+    /// [`resolve_path_against`]: crate::resolve_path_against
+    pub fn is_within(self, folder: &Path, path: &Path) -> bool {
+        let folder = self.comparable_components(folder);
+        let path = self.comparable_components(path);
+        path.len() > folder.len() && path.starts_with(&folder)
     }
 
     /// The key two environment names share exactly when the system reads them as one variable: the
@@ -194,9 +231,31 @@ fn fold_to_upper_case(character: char) -> char {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use rstest::rstest;
 
     use super::PathRules;
+
+    // Fails when containment compares text prefixes, admits the folder itself, or stops folding
+    // case on Windows.
+    #[rstest]
+    #[case::inside(PathRules::Posix, "/repo", "/repo/src/main.rs", true)]
+    #[case::the_folder_itself(PathRules::Posix, "/repo", "/repo", false)]
+    #[case::a_sibling_sharing_a_prefix(PathRules::Posix, "/repo", "/repo-old/main.rs", false)]
+    #[case::posix_keeps_case(PathRules::Posix, "/repo", "/Repo/main.rs", false)]
+    #[case::windows_folds_case(PathRules::Windows, "/repo", "/REPO/Main.rs", true)]
+    fn is_within_holds_only_a_path_strictly_inside_the_folder(
+        #[case] rules: PathRules,
+        #[case] folder: &str,
+        #[case] path: &str,
+        #[case] is_within: bool,
+    ) {
+        assert_eq!(
+            rules.is_within(Path::new(folder), Path::new(path)),
+            is_within
+        );
+    }
 
     // Fails when the `'` escape, the `%` escape or the `"` doubling is dropped.
     #[rstest]
