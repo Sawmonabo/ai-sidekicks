@@ -21,6 +21,9 @@ const POWERSHELL_DASHES: [char; 4] = ['-', '\u{2013}', '\u{2014}', '\u{2015}'];
 /// The characters PowerShell reads as a single quote, each doubled inside a single-quoted string.
 const POWERSHELL_SINGLE_QUOTES: [char; 5] = ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
 
+/// The characters PowerShell reads as a double quote.
+const POWERSHELL_DOUBLE_QUOTES: [char; 4] = ['"', '\u{201C}', '\u{201D}', '\u{201E}'];
+
 /// What follows a PowerShell switch on its command line.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SwitchOperand {
@@ -438,16 +441,72 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
     )
 }
 
-// Whether `command` opens with what PowerShell takes only at a script's start (`using`, `param`,
-// an attribute's `[`, or a comment, which `#requires` is), compared without case, so no statement
-// can go in front of it.
+// Whether `command` opens with what PowerShell takes only at a script's start, so no statement can
+// go in front of it: a comment (which `#requires` is), `using`, a param block, or a named block,
+// each keyword compared without case and bounded as PowerShell's tokenizer ends it.
 fn must_open_the_script(command: &str) -> bool {
     let command = command.trim_start();
-    ["using", "param", "[", "#", "<#"].iter().any(|opener| {
-        command
-            .get(..opener.len())
-            .is_some_and(|start| start.eq_ignore_ascii_case(opener))
-    })
+    command.starts_with('#')
+        || command.starts_with("<#")
+        || opens_with_keyword(command, "using", &[])
+        || opens_with_param_block(command)
+        || ["begin", "process", "end", "dynamicparam"]
+            .iter()
+            .any(|block| opens_with_keyword(command, block, &['{']))
+}
+
+// Whether `text` opens with a param block: any bracketed lists, an attribute's or a type literal's,
+// then `param`. Any other bracketed start, `[int]3` or `[Console]::WriteLine(…)`, is a statement.
+fn opens_with_param_block(mut text: &str) -> bool {
+    while text.starts_with('[') {
+        let Some(end) = bracketed_list_end(text) else {
+            return false;
+        };
+        text = text[end..].trim_start();
+    }
+    opens_with_keyword(text, "param", &['('])
+}
+
+// The byte index just past the `]` that closes the `[` opening `text`, counting nested brackets and
+// skipping quoted strings, a backtick escaping the next character in a double-quoted one; `None`
+// when it never closes.
+fn bracketed_list_end(text: &str) -> Option<usize> {
+    let mut depth = 0_usize;
+    let mut open_quotes: Option<&[char]> = None;
+    let mut is_escaped = false;
+    for (index, character) in text.char_indices() {
+        match open_quotes {
+            Some(_) if is_escaped => is_escaped = false,
+            Some(quotes) if quotes.contains(&character) => open_quotes = None,
+            Some(quotes) => is_escaped = character == '`' && quotes == POWERSHELL_DOUBLE_QUOTES,
+            None if POWERSHELL_SINGLE_QUOTES.contains(&character) => {
+                open_quotes = Some(&POWERSHELL_SINGLE_QUOTES);
+            }
+            None if POWERSHELL_DOUBLE_QUOTES.contains(&character) => {
+                open_quotes = Some(&POWERSHELL_DOUBLE_QUOTES);
+            }
+            None if character == '[' => depth += 1,
+            None if character == ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            None => {}
+        }
+    }
+    None
+}
+
+// Whether `text` opens with `keyword`, compared without case, followed by whitespace or one of
+// `bounds`.
+fn opens_with_keyword(text: &str, keyword: &str, bounds: &[char]) -> bool {
+    text.get(..keyword.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(keyword))
+        && text[keyword.len()..]
+            .chars()
+            .next()
+            .is_some_and(|next| next.is_whitespace() || bounds.contains(&next))
 }
 
 // The name an argument gives after its switch character (`/`, a dash, or a dash doubled), trimmed
