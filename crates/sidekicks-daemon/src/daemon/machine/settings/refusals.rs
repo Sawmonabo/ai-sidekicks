@@ -56,7 +56,8 @@ pub(crate) fn refuse_environment_rows(
 }
 
 /// Refuses with `project.branchPattern.refused` a pattern its check found `refused`, in the page's
-/// words, or git's own line for a name that clashes with a branch; `None` passes.
+/// words, or git's own line for a name that clashes with a branch, the details naming the project
+/// whose repository holds it; `None` passes.
 pub(crate) fn refuse_branch_pattern(
     refused: Option<ProjectBranchPatternRefusedDetails>,
 ) -> Result<(), DomainError> {
@@ -70,7 +71,7 @@ pub(crate) fn refuse_branch_pattern(
         ProjectBranchPatternRefusedDetails::NotABranchName {} => {
             "Git does not accept this as a branch name.".to_owned()
         }
-        ProjectBranchPatternRefusedDetails::ClashesWithBranch { git_message } => {
+        ProjectBranchPatternRefusedDetails::ClashesWithBranch { git_message, .. } => {
             git_message.as_str().to_owned()
         }
     };

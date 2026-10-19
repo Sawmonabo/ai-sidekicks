@@ -76,23 +76,6 @@ pub(crate) struct BranchPatternProject {
     pub(crate) has_own_pattern: bool,
 }
 
-/// Why a pattern cannot be saved: the refusal's details, and the project whose repository holds
-/// the clashing branch, `None` for a refusal git's branch-name rule made alone.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the machine settings and project pattern saves check a pattern through it"
-    )
-)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BranchPatternRefusal {
-    /// What the refusal carries on the wire.
-    pub(crate) details: ProjectBranchPatternRefusedDetails,
-    /// The project whose repository holds the branch it clashes with.
-    pub(crate) project_id: Option<ProjectId>,
-}
-
 /// Why the machine's `pattern` cannot be saved, or `None` when it can: git's branch-name rule over
 /// the filled name, then a clash with a branch in each of `projects` that keeps no pattern of its
 /// own, one git transaction per project in order, the first clash refused naming its project. The
@@ -110,7 +93,7 @@ pub(crate) async fn find_machine_branch_pattern_refusal(
     git: &GitRunner,
     pattern: &BranchNamePattern,
     projects: &[BranchPatternProject],
-) -> Result<Option<BranchPatternRefusal>, GitError> {
+) -> Result<Option<ProjectBranchPatternRefusedDetails>, GitError> {
     find_branch_pattern_refusal(
         git,
         pattern,
@@ -134,7 +117,7 @@ pub(crate) async fn find_project_branch_pattern_refusal(
     git: &GitRunner,
     pattern: &BranchNamePattern,
     project: &BranchPatternProject,
-) -> Result<Option<BranchPatternRefusal>, GitError> {
+) -> Result<Option<ProjectBranchPatternRefusedDetails>, GitError> {
     find_branch_pattern_refusal(git, pattern, std::iter::once(project)).await
 }
 
@@ -143,20 +126,19 @@ async fn find_branch_pattern_refusal<'a>(
     git: &GitRunner,
     pattern: &BranchNamePattern,
     projects: impl Iterator<Item = &'a BranchPatternProject>,
-) -> Result<Option<BranchPatternRefusal>, GitError> {
+) -> Result<Option<ProjectBranchPatternRefusedDetails>, GitError> {
     let branch_name = fill_branch_name_pattern(pattern.as_str(), SAMPLE_PATTERN_VALUES);
     if !is_branch_name(git, &branch_name).await? {
-        return Ok(Some(BranchPatternRefusal {
-            details: ProjectBranchPatternRefusedDetails::NotABranchName {},
-            project_id: None,
-        }));
+        return Ok(Some(ProjectBranchPatternRefusedDetails::NotABranchName {}));
     }
     for project in projects {
         if let Some(git_message) = find_branch_clash(git, project, &branch_name).await? {
-            return Ok(Some(BranchPatternRefusal {
-                details: ProjectBranchPatternRefusedDetails::ClashesWithBranch { git_message },
-                project_id: Some(project.id),
-            }));
+            return Ok(Some(
+                ProjectBranchPatternRefusedDetails::ClashesWithBranch {
+                    git_message,
+                    project_id: project.id,
+                },
+            ));
         }
     }
     Ok(None)
@@ -221,16 +203,15 @@ async fn find_branch_clash(
     }
     let reference = format!("refs/heads/{branch_name}");
     let transaction = format!("start\ncreate {reference} HEAD\nprepare\nabort\n");
-    let failure = match git
+    let Err(failure) = git
         .run(
             place,
             GitCall::read(in_folder(&project.folder, &["update-ref", "--stdin"]))
                 .with_input(transaction.into_bytes()),
         )
         .await
-    {
-        Ok(_) => return Ok(None),
-        Err(failure) => failure,
+    else {
+        return Ok(None);
     };
     // A failure that is no refused preparation is git's fault, never read as a clash.
     if let GitError::Exited {
@@ -414,15 +395,15 @@ mod tests {
         .expect("git runs")
         .expect("the pattern is refused");
 
-        assert_eq!(refusal.project_id, Some(project.id));
         assert_eq!(
-            refusal.details,
+            refusal,
             ProjectBranchPatternRefusedDetails::ClashesWithBranch {
                 git_message: NonEmptyText::new(
                     "'refs/heads/feature' exists; cannot create 'refs/heads/feature/title'"
                         .to_owned()
                 )
                 .expect("the line is not empty"),
+                project_id: project.id,
             }
         );
     }

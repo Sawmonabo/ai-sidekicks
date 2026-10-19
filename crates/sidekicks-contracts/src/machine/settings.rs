@@ -27,6 +27,7 @@ use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::PlacedPath;
+use crate::project::ProjectId;
 use crate::provider::declaration::{
     ProviderDeclarationId, ProviderPlaceSwitches, ProviderValueText,
 };
@@ -176,6 +177,8 @@ pub enum ProjectBranchPatternRefusedDetails {
         /// Git's own line for the clash, without git's `fatal: prepare: ` prefix and, on git's
         /// files backend, the `cannot lock ref '<name>': ` clause after it, which reftable omits.
         git_message: NonEmptyText,
+        /// The project whose repository holds the branch the name clashes with.
+        project_id: ProjectId,
     },
 }
 
