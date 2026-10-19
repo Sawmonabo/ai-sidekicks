@@ -72,7 +72,10 @@ pub(crate) enum ManagedWorkspaceWatchError {
 }
 
 /// The one watch over every chat's managed workspace; dropping it stops the watch and its task.
-#[expect(dead_code, reason = "the chat-versions record of a chat's writes")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the chat-versions record of a chat's writes")
+)]
 pub(crate) struct ManagedWorkspaceWriteWatcher {
     task: JoinHandle<()>,
 }
@@ -81,7 +84,10 @@ impl ManagedWorkspaceWriteWatcher {
     /// Makes `workspaces_folder` when absent, watches it, and sends each write on `writes`, waiting
     /// for room so a slow reader slows only this watch. The receiver answers with the reason, also
     /// logged, when the watch cannot start or fails; it never answers otherwise.
-    #[expect(dead_code, reason = "the chat-versions record of a chat's writes")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the chat-versions record of a chat's writes")
+    )]
     pub(crate) fn start(
         workspaces_folder: PathBuf,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
@@ -339,7 +345,7 @@ fn read_entry(path: &Path) -> io::Result<EntryReading> {
 mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     use notify::event::{DataChange, ModifyKind};
     use notify::{Event, EventHandler, EventKind, NullWatcher};
@@ -433,14 +439,24 @@ mod tests {
     }
 
     // Catches a lost feed left unread: a write whose notice was dropped from a full feed must
-    // still be reported by the rescan the loss causes.
+    // still be reported by the rescan the loss causes, and an entry unchanged since the feed was
+    // last whole must not be.
     #[tokio::test]
     async fn managed_write_watch_rescans_after_the_feed_overflows() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        let (watch, mut feed) = open_watch::<NullWatcher>(scratch.path().join("workspaces"))
+        let workspaces = scratch.path().join("workspaces");
+        let session = session_folder(&workspaces);
+        let unchanged = session.join("unchanged.txt");
+        fs::write(&unchanged, "written before the watch").expect("written");
+        fs::File::options()
+            .write(true)
+            .open(&unchanged)
+            .and_then(|file| file.set_modified(SystemTime::now() - Duration::from_secs(3_600)))
+            .expect("the file is aged");
+        let (watch, mut feed) = open_watch::<NullWatcher>(workspaces)
             .await
             .expect("the watch starts");
-        let session = session_folder(&watch.roots()[0]);
+        let session = watch.roots()[0].join(SESSION);
         fs::write(session.join("a.txt"), "written while the feed was full").expect("written");
 
         // Nothing reads the feed yet, so it fills with notices the filter drops and the notice
@@ -456,6 +472,12 @@ mod tests {
         assert_eq!(
             next_write(&mut writes).await,
             write("a.txt", ManagedWorkspaceWriteKind::File)
+        );
+        assert!(
+            timeout(Duration::from_millis(500), writes.recv())
+                .await
+                .is_err(),
+            "the unchanged file is not reported"
         );
         task.abort();
     }
