@@ -134,7 +134,8 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn interrupt_run(&self, params: InterruptRunRequest) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Delivers a steer or carries out an interrupt on a live run; `degraded` answers a kind the
-    /// driver cannot deliver at all.
+    /// driver cannot deliver at all. An interrupt that finds no turn in flight answers `Ok` with an
+    /// applied receipt, which the service records as applied and ends the run.
     fn apply_intervention(
         &self,
         params: ApplyInterventionParams,

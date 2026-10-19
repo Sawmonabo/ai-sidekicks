@@ -148,7 +148,7 @@ pub(crate) enum InterventionTransition {
     },
     /// `accepted` to `failed`: its dispatch threw or never completed, a daemon death among them.
     Fail {
-        /// The thrown error's code, else its message.
+        /// The thrown error's code, else its message, or why it never completed.
         reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
     /// To `applied`.
