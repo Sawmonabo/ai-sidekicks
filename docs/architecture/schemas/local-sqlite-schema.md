@@ -71,7 +71,7 @@ CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, 
 -- One run's events that name an actor, in log order, for the read that finds who acts for a run.
 CREATE INDEX idx_session_events_run_actor ON session_events(session_id, run_id, sequence) WHERE run_id IS NOT NULL AND actor IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
-CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version) WHERE category = 'runLifecycle' AND type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped');
+CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version) WHERE category = 'runLifecycle' AND type IN ('agent.run.completed', 'agent.run.interrupted', 'agent.run.stopped', 'agent.run.failed');
 -- Every started turn gets exactly one end (Spec-005 §Run Lifecycle).
 CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number) WHERE category = 'runLifecycle' AND type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed');
 -- A turn number starts once in its run.
@@ -82,22 +82,22 @@ CREATE UNIQUE INDEX idx_session_events_turn_start_once ON session_events(run_id,
 -- trigger trio: abort any terminal runLifecycle write whose run_id or run_version is NULL. The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index entry for a duplicate terminal. The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
 WHEN NEW.category = 'runLifecycle'
-  AND NEW.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
+  AND NEW.type IN ('agent.run.completed', 'agent.run.interrupted', 'agent.run.stopped', 'agent.run.failed')
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL)
 BEGIN
   SELECT RAISE(ABORT, 'a terminal run row requires a run_id and a run_version');
 END;
 CREATE TRIGGER trg_run_terminal_key_update BEFORE UPDATE OF run_id, run_version, category, type ON session_events
 WHEN OLD.category = 'runLifecycle'
-  AND OLD.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
+  AND OLD.type IN ('agent.run.completed', 'agent.run.interrupted', 'agent.run.stopped', 'agent.run.failed')
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL OR NEW.run_id IS NOT OLD.run_id OR NEW.run_version IS NOT OLD.run_version OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'a terminal run row keeps its run_id, run_version, category and type');
 END;
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
-WHEN NOT (OLD.category = 'runLifecycle' AND OLD.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped'))
+WHEN NOT (OLD.category = 'runLifecycle' AND OLD.type IN ('agent.run.completed', 'agent.run.interrupted', 'agent.run.stopped', 'agent.run.failed'))
   AND NEW.category = 'runLifecycle'
-  AND NEW.type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped')
+  AND NEW.type IN ('agent.run.completed', 'agent.run.interrupted', 'agent.run.stopped', 'agent.run.failed')
 BEGIN
   SELECT RAISE(ABORT, 'a row cannot become a terminal run row by UPDATE; terminal rows are insert-only');
 END;
