@@ -348,8 +348,8 @@ impl RunEngine {
     /// Hands the interventions service again the step limit's interrupt of `run_id` that a stop
     /// wrote the reached event of and could not hand: the run's newest open turn is cut with the
     /// limit, and the run rests at the step limit. A run that owes no such interrupt, or whose
-    /// interrupt another hand has in flight, is left as it is. Fails as the stop at the limit fails, the
-    /// interrupt still owed.
+    /// interrupt another hand has in flight, is left as it is. Fails as the stop at the limit
+    /// fails, the interrupt still owed.
     pub(super) async fn hand_owed_step_interrupt(
         &self,
         run_id: RunId,

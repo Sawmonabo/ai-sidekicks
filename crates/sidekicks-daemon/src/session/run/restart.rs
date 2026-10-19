@@ -280,8 +280,8 @@ const PENDING_LIMIT_ORDER: [RunLimit; 3] = [
 /// stops the run whatever else is pending, its end being final; else a person's pending
 /// interrupt settles it as theirs; else a pending limit interrupt by its limit, the spend limit's
 /// over the step limit's; else an owed step limit interrupts the run with it. A limit's cause
-/// goes to the turns its reached events reached. A child held in a pause the restart
-/// orphaned reads interrupted and continues from its own box; any other run fails.
+/// goes to the turns its reached events reached. A child held in a pause the restart orphaned
+/// reads interrupted and continues from its own box; any other run fails.
 pub(crate) fn decide_restart_settlement(
     run: &LiveRun,
     facts: &RestartFacts,
