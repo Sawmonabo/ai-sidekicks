@@ -83,10 +83,15 @@ mod tests {
             .spawn()
             .expect("the stand-in starts");
         let stdout = child.stdout.take().expect("the stand-in's output is piped");
+        // libtest may print the test's name on the marker's line.
         let is_listening = BufReader::new(stdout)
             .lines()
             .map_while(Result::ok)
-            .any(|line| line == LISTENING);
+            .any(|line| line.ends_with(LISTENING));
+        if !is_listening {
+            child.kill().expect("the stand-in is killed");
+            child.wait().expect("the stand-in is reaped");
+        }
         assert!(is_listening, "the stand-in never listened for Ctrl-C");
         let child_id = i32::try_from(child.id()).expect("a process id fits a pid");
 
