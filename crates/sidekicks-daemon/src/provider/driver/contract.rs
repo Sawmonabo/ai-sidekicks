@@ -45,7 +45,6 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::provider::capability::probe::CapabilityProbeError;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
-use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{

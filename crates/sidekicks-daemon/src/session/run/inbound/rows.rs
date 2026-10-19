@@ -158,23 +158,23 @@ unstamped_rows! {
 )]
 pub(crate) enum SessionScopedRow {
     /// `session.sideQuestion.answered`.
-    SessionSideQuestionAnswered(SessionSideQuestionAnsweredPayload),
+    SideQuestionAnswered(SessionSideQuestionAnsweredPayload),
     /// `session.advisor.changed`.
-    SessionAdvisorChanged(SessionAdvisorChangedPayload),
+    AdvisorChanged(SessionAdvisorChangedPayload),
     /// `session.outputStyle.changed`.
-    SessionOutputStyleChanged(SessionOutputStyleChangedPayload),
+    OutputStyleChanged(SessionOutputStyleChangedPayload),
 }
 
 impl SessionScopedRow {
     /// The row's session, its event and the statements its write commits with it.
     pub(super) fn into_event(self) -> (SessionId, SessionEvent, Vec<WriteStatement>) {
         match self {
-            Self::SessionSideQuestionAnswered(payload) => (
+            Self::SideQuestionAnswered(payload) => (
                 payload.session_id,
                 SessionEvent::SessionSideQuestionAnswered(payload),
                 Vec::new(),
             ),
-            Self::SessionAdvisorChanged(payload) => {
+            Self::AdvisorChanged(payload) => {
                 // The advisor's column is what every later launch reads, so it moves in the
                 // event's write.
                 let column = advisor_model_change_statement(
@@ -188,7 +188,7 @@ impl SessionScopedRow {
                     vec![column],
                 )
             }
-            Self::SessionOutputStyleChanged(payload) => (
+            Self::OutputStyleChanged(payload) => (
                 payload.session_id,
                 SessionEvent::SessionOutputStyleChanged(payload),
                 Vec::new(),

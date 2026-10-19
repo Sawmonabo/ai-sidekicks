@@ -433,14 +433,14 @@ fn ranked_entries(entries: &[SessionFileSearchEntry], query: &str) -> Vec<usize>
         let name = path.rsplit('/').next().unwrap_or(path);
         candidate_units.clear();
         candidate_units.extend(name.encode_utf16());
-        let (is_name_match, matched) = match score_subsequence(&candidate_units, &query_units) {
-            Some(matched) => (true, Some(matched)),
-            None => {
+        let (is_name_match, matched) =
+            if let Some(matched) = score_subsequence(&candidate_units, &query_units) {
+                (true, Some(matched))
+            } else {
                 candidate_units.clear();
                 candidate_units.extend(path.encode_utf16());
                 (false, score_subsequence(&candidate_units, &query_units))
-            }
-        };
+            };
         if let Some(matched) = matched {
             ranked.push(RankedEntry {
                 index,

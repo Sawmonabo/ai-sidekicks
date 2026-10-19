@@ -294,7 +294,7 @@ pub(crate) struct RunInboundDispatch {
 // A delivery attributed to its execution, with what is left to do for it.
 enum Attributed {
     Settled(InboundOutcome),
-    Append(PendingAppend),
+    Append(Box<PendingAppend>),
     Run {
         binding: EpochBinding,
         attribution: DeliveryAttribution,
@@ -723,12 +723,12 @@ fn appended(
     linkage: SessionEventLinkage,
     source: Option<EpochPosition>,
 ) -> Attributed {
-    Attributed::Append(PendingAppend {
+    Attributed::Append(Box::new(PendingAppend {
         session_id,
         event,
         linkage,
         source,
-    })
+    }))
 }
 
 // The linkage of a row whose prose, where it has one, is stored beside its payload.
