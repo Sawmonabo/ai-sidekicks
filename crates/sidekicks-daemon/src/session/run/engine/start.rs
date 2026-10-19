@@ -363,9 +363,12 @@ impl RunEngine {
     /// and is returned; a `running` write that fails once the driver started the turn does so
     /// after the turn is interrupted. Fails with [`RunRefusal::InvalidTransition`] for a run that
     /// does not read interrupted or is already being continued.
-    #[expect(
-        dead_code,
-        reason = "the queue's drain, which continues an interrupted run on its next message"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the queue's drain, which continues an interrupted run on its next message"
+        )
     )]
     pub(crate) async fn continue_run(
         &self,

@@ -207,7 +207,10 @@ impl RunEngine {
     /// write, a pending interrupt moved to `applied` in that write, otherwise guarded on no
     /// interrupt having appeared since; a `failed` end carries `failure_detail`. A run the decision
     /// leaves is returned as it is. Fails as [`RunEngine::transition`] does.
-    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's recovery pass at start")
+    )]
     pub(crate) async fn settle_run_after_restart(
         &self,
         run: &LiveRun,
