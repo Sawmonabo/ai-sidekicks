@@ -3,8 +3,9 @@
 //! nothing, fails or runs past its bound, the first words of the first message are the name. The
 //! name is written through the naming path only while the session is still unnamed, so a name the
 //! person typed, before or during, always wins, and a rename while the pass runs cancels it. A
-//! session whose first exchange completed while the daemon was not following it is named at the
-//! next start, one session at a time.
+//! session whose name the person clears is named again the same way, and the fresh name is told to
+//! its providers, since no provider takes an empty name. A session left unnamed while the daemon
+//! was not following it is named at the next start, one session at a time.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -12,6 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
+use serde_json::Value;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -33,9 +35,9 @@ use crate::session::run::read::read_run_provider;
 use crate::session::working_folder::{WorkingFolderReadError, read_working_folder};
 use crate::text_cut::cut_to_code_points;
 
-/// The statements the self-naming prepares on a read connection: an earlier completion, the name
-/// and first message, the first completed run, its reply, the unnamed sessions, the session's
-/// working folder and the run's provider.
+/// The statements the self-naming prepares on a read connection: the first completed lead run,
+/// the name and first message, the run's reply, the unnamed sessions, the session's working folder
+/// and the run's provider.
 #[cfg_attr(
     not(test),
     expect(
@@ -43,7 +45,7 @@ use crate::text_cut::cut_to_code_points;
         reason = "the daemon's start sizes the read connections' statement caches with it"
     )
 )]
-pub(crate) const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 7;
+pub(crate) const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
 
 /// A fallback name reads as a few words: whole words up to this many code points.
 const FALLBACK_NAME_MAX_CODE_POINTS: usize = 40;
@@ -51,33 +53,36 @@ const FALLBACK_NAME_MAX_CODE_POINTS: usize = 40;
 /// How long one naming pass may run before it counts as having returned nothing.
 const NAMING_PASS_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// The `session.renamed` payload member holding the new name, `null` when the person cleared it.
+const RENAMED_NAME_MEMBER: &str = "name";
+
 /// What joins one reply message to the next in the reply the pass reads.
 const REPLY_MESSAGE_SEPARATOR: &str = "\n\n";
 
-const EARLIER_COMPLETION_SQL: &str = "SELECT 1 FROM session_events
-  WHERE session_id = @sessionId AND type = @completedType AND sequence < @sequence
-  LIMIT 1";
+// A lead run's completion; a subagent's run reports to its parent, never to the person.
+const FIRST_COMPLETED_RUN_SQL: &str = "SELECT event.run_id, event.sequence
+  FROM session_events AS event JOIN runs AS run ON run.run_id = event.run_id
+  WHERE event.session_id = @sessionId AND event.type = @completedType
+    AND run.parent_run_id IS NULL
+  ORDER BY event.sequence LIMIT 1";
 
 const NAMING_SOURCE_SQL: &str = "SELECT name, first_message_preview FROM sessions
   WHERE id = @sessionId";
-
-const FIRST_COMPLETED_RUN_SQL: &str = "SELECT run_id FROM session_events
-  WHERE session_id = @sessionId AND type = @completedType AND run_id IS NOT NULL
-  ORDER BY sequence LIMIT 1";
 
 const RUN_REPLY_SQL: &str = "SELECT content_payload FROM session_events
   WHERE session_id = @sessionId AND type = @messageType AND run_id = @runId
     AND content_payload IS NOT NULL
   ORDER BY sequence";
 
-// A session never renamed whose exchange completed; one the person cleared has a rename and stays
-// unnamed. Oldest first, so a backlog is named in the order it was made.
+// An unnamed session whose lead run completed an exchange, a cleared one among them. Oldest
+// first: the daemon mints session ids as UUIDv7s, whose text sorts by the millisecond each session
+// was made, so a backlog is named in the order it was made.
 const UNNAMED_COMPLETED_SQL: &str = "SELECT session.id FROM sessions AS session
   WHERE session.name IS NULL AND session.first_message_preview IS NOT NULL
-    AND EXISTS (SELECT 1 FROM session_events
-                 WHERE session_id = session.id AND type = @completedType)
-    AND NOT EXISTS (SELECT 1 FROM session_events
-                     WHERE session_id = session.id AND type = @renamedType)
+    AND EXISTS (SELECT 1 FROM session_events AS event JOIN runs AS run
+                  ON run.run_id = event.run_id
+                 WHERE event.session_id = session.id AND event.type = @completedType
+                   AND run.parent_run_id IS NULL)
   ORDER BY session.id";
 
 /// Why the naming inputs did not read.
@@ -200,9 +205,18 @@ impl SessionAutoTitle {
             let session_id = event.envelope.session_id();
             let event_type = event.envelope.event_type();
             if event_type == SessionEventType::AgentRunCompleted {
-                auto_title.spawn_pass(session_id, event.sequence, &follower_runtime);
+                auto_title.spawn_pass(session_id, Some(event.sequence), &follower_runtime);
             } else if event_type == SessionEventType::SessionRenamed {
                 auto_title.cancel_pass(session_id);
+                // A cleared name is named again from the first exchange, as an unnamed session is.
+                let is_cleared = event
+                    .envelope
+                    .payload()
+                    .get(RENAMED_NAME_MEMBER)
+                    .is_some_and(Value::is_null);
+                if is_cleared {
+                    auto_title.spawn_pass(session_id, None, &follower_runtime);
+                }
             }
             Ok(())
         });
@@ -214,8 +228,14 @@ impl SessionAutoTitle {
         }
     }
 
-    // Starts the pass after `session_id`'s completion at `sequence`, unless one is under way.
-    fn spawn_pass(self: &Arc<Self>, session_id: SessionId, sequence: SafeInt<0>, runtime: &Handle) {
+    // Starts the pass after `session_id`'s completion at `completed_at`, or after its name was
+    // cleared with no completion, unless one is under way.
+    fn spawn_pass(
+        self: &Arc<Self>,
+        session_id: SessionId,
+        completed_at: Option<SafeInt<0>>,
+        runtime: &Handle,
+    ) {
         let Some((generation, cancel)) = self.register_pass(session_id) else {
             return;
         };
@@ -223,7 +243,7 @@ impl SessionAutoTitle {
         self.passes.spawn_on(
             async move {
                 auto_title
-                    .name_session(session_id, Some(sequence), &cancel)
+                    .name_session(session_id, completed_at, &cancel)
                     .await;
                 auto_title.release_pass(session_id, generation);
             },
@@ -440,9 +460,9 @@ pub(crate) fn first_words_of(message: &str) -> String {
     name
 }
 
-// What `session_id`'s naming reads, in one snapshot; `None` when the completion at
-// `completed_at` is not the session's first, or the session is gone, named or has no first
-// message.
+// What `session_id`'s naming reads, in one snapshot; `None` when no lead run completed, when the
+// completion at `completed_at` is not the first lead run's, or the session is gone, named or has
+// no first message.
 fn read_naming_input(
     reader: &Connection,
     session_id: &SessionId,
@@ -451,17 +471,26 @@ fn read_naming_input(
     let snapshot = reader.unchecked_transaction()?;
     let session = session_id.text();
     let completed_type = SessionEventType::AgentRunCompleted.as_str();
-    if let Some(sequence) = completed_at {
-        let is_later = snapshot
-            .prepare_cached(EARLIER_COMPLETION_SQL)?
-            .exists(named_params! {
+    let first_run = snapshot
+        .prepare_cached(FIRST_COMPLETED_RUN_SQL)?
+        .query_row(
+            named_params! {
                 "@sessionId": session.as_str(),
                 "@completedType": completed_type,
-                "@sequence": i64::from(sequence),
-            })?;
-        if is_later {
-            return Ok(None);
-        }
+            },
+            |row| {
+                Ok((
+                    text_column(row, 0, |text| RunId::new(&text))?,
+                    row.get::<_, i64>(1)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((run_id, first_sequence)) = first_run else {
+        return Ok(None);
+    };
+    if completed_at.is_some_and(|sequence| i64::from(sequence) != first_sequence) {
+        return Ok(None);
     }
     let source = snapshot
         .prepare_cached(NAMING_SOURCE_SQL)?
@@ -476,23 +505,8 @@ fn read_naming_input(
         return Ok(None);
     };
     let place = read_working_folder(&snapshot, session_id)?.place;
-    let first_run = snapshot
-        .prepare_cached(FIRST_COMPLETED_RUN_SQL)?
-        .query_row(
-            named_params! {
-                "@sessionId": session.as_str(),
-                "@completedType": completed_type,
-            },
-            |row| text_column(row, 0, |text| RunId::new(&text)),
-        )
-        .optional()?;
-    let (provider, first_reply) = match first_run {
-        Some(run_id) => (
-            read_run_provider(&snapshot, &run_id)?,
-            read_run_reply(&snapshot, session_id, &run_id)?,
-        ),
-        None => (None, String::new()),
-    };
+    let provider = read_run_provider(&snapshot, &run_id)?;
+    let first_reply = read_run_reply(&snapshot, session_id, &run_id)?;
     Ok(Some(NamingInput {
         first_message,
         place,
@@ -536,7 +550,6 @@ fn read_unnamed_completed(reader: &Connection) -> rusqlite::Result<Vec<SessionId
         .query_map(
             named_params! {
                 "@completedType": SessionEventType::AgentRunCompleted.as_str(),
-                "@renamedType": SessionEventType::SessionRenamed.as_str(),
             },
             |row| text_column(row, 0, |text| SessionId::new(&text)),
         )?
@@ -544,305 +557,4 @@ fn read_unnamed_completed(reader: &Connection) -> rusqlite::Result<Vec<SessionId
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use futures::FutureExt as _;
-    use mockall::Sequence;
-    use rstest::rstest;
-    use rusqlite::params;
-    use serde_json::Value;
-    use sidekicks_contracts::event::registry::SessionEventType;
-    use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::session::methods::SessionRenameRequest;
-    use sidekicks_contracts::wire::text::FreeFormText;
-    use sidekicks_platforms::Spawner;
-    use tokio::runtime::Handle;
-    use tokio::sync::Notify;
-
-    use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, first_words_of};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::events::log_service::tests::{TestLog, open_log};
-    use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
-    use crate::provider::driver::registry::ProviderRegistry;
-    use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
-    use crate::session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
-    use crate::session::directory::test_rows::insert_session_row;
-    use crate::uuid_v7::mint_uuid_v7;
-
-    /// Bounds every wait a test expects to end, so one that never does fails the test.
-    const WAIT: Duration = Duration::from_secs(10);
-
-    /// The session's stored renames, oldest first: each name and who gave it.
-    const STORED_RENAMES_SQL: &str = "SELECT payload FROM session_events
-      WHERE session_id = ?1 AND type = ?2 ORDER BY sequence";
-
-    /// The self-naming, the changes a test renames through, and the log they share.
-    struct Harness {
-        database: TestDatabase,
-        log: TestLog,
-        changes: Arc<SessionChanges>,
-        auto_title: Arc<SessionAutoTitle>,
-    }
-
-    /// The self-naming on a fresh database whose one provider's driver `build` makes.
-    async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harness {
-        let database = TestDatabase::new();
-        let log = open_log(&database, None).await;
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: PathBuf::from("data"),
-        };
-        let providers = Arc::new(ProviderRegistry::register_from(
-            &[ProviderRegistration {
-                descriptor: PROVIDERS[0],
-                build,
-            }],
-            &services,
-        ));
-        let changes = Arc::new(SessionChanges::new(
-            Arc::new(DatabaseReadPool::new(
-                database.path(),
-                SESSION_CHANGES_STATEMENT_CAPACITY,
-            )),
-            Arc::clone(&log.service),
-            Arc::clone(&providers),
-        ));
-        let auto_title = Arc::new(SessionAutoTitle::new(
-            Arc::new(DatabaseReadPool::new(
-                database.path(),
-                SESSION_AUTO_TITLE_STATEMENT_CAPACITY,
-            )),
-            Arc::clone(&changes),
-            providers,
-        ));
-        Harness {
-            database,
-            log,
-            changes,
-            auto_title,
-        }
-    }
-
-    /// Stores an unnamed session whose first message was `first_message` and whose first run,
-    /// bound to the table's first provider, completed while nothing followed the log.
-    fn insert_completed_session(
-        database: &TestDatabase,
-        session_id: SessionId,
-        first_message: &str,
-    ) {
-        let connection = database.reader();
-        let session = session_id.text();
-        insert_session_row(&connection, session.as_str(), None, None);
-        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let run = run_id.text();
-        let completed = SessionEventType::AgentRunCompleted;
-        connection
-            .execute(
-                "UPDATE sessions SET first_message_preview = ?2 WHERE id = ?1",
-                params![session.as_str(), first_message],
-            )
-            .expect("the test stores the first message");
-        connection
-            .execute(
-                "INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
-                   category, type, payload, run_id, run_version)
-                 VALUES (?1, ?2, 1, '2026-10-19T09:00:00.000Z', 0, ?3, ?4, '{}', ?5, 1)",
-                params![
-                    run.as_str(),
-                    session.as_str(),
-                    completed.category().as_str(),
-                    completed.as_str(),
-                    run.as_str()
-                ],
-            )
-            .expect("the test stores the completion");
-        connection
-            .execute(
-                "INSERT INTO runtime_bindings (id, run_id, provider_name, contract_version,
-                   cli_version_raw, created_at, updated_at)
-                 VALUES (?1, ?1, ?2, '1.0.0', '1.0.0', '', '')",
-                params![run.as_str(), PROVIDERS[0].id],
-            )
-            .expect("the test binds the run to its provider");
-    }
-
-    /// The session's stored renames, oldest first: each name and its origin.
-    fn stored_renames(database: &TestDatabase, session_id: SessionId) -> Vec<(Value, Value)> {
-        database
-            .reader()
-            .prepare(STORED_RENAMES_SQL)
-            .expect("the test reads the log")
-            .query_map(
-                params![
-                    session_id.text().as_str(),
-                    SessionEventType::SessionRenamed.as_str()
-                ],
-                |row| row.get::<_, String>(0),
-            )
-            .expect("the test reads the log")
-            .map(|payload| {
-                let payload: Value = serde_json::from_str(&payload.expect("a payload reads"))
-                    .expect("a stored payload is JSON");
-                (payload["name"].clone(), payload["origin"].clone())
-            })
-            .collect()
-    }
-
-    // Killed by the fallback not being written after a pass that returned nothing, and by the
-    // naming writing over a name the person gave while the pass ran.
-    #[tokio::test]
-    async fn auto_title_writes_the_first_words_after_an_empty_pass_and_never_over_a_rename() {
-        static PASS_STARTED: Notify = Notify::const_new();
-        static PASS_RELEASED: Notify = Notify::const_new();
-        fn build(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
-            let mut driver = MockProviderDriver::new();
-            let mut sequence = Sequence::new();
-            driver
-                .expect_name_session()
-                .times(1)
-                .in_sequence(&mut sequence)
-                .returning(|_| {
-                    async {
-                        PASS_STARTED.notify_one();
-                        PASS_RELEASED.notified().await;
-                        Ok(None)
-                    }
-                    .boxed()
-                });
-            driver
-                .expect_name_session()
-                .times(1)
-                .in_sequence(&mut sequence)
-                .returning(|_| async { Ok(None) }.boxed());
-            driver
-                .expect_tell_session_name()
-                .returning(|_, _| async { Ok(()) }.boxed());
-            Arc::new(driver)
-        }
-        let harness = harness(build).await;
-        // The start names the sessions in id order, so the first is renamed during its pass.
-        let mut session_ids = [test_session_id(), test_session_id()];
-        session_ids.sort_by_key(|session_id| session_id.text().as_str().to_owned());
-        let [renamed_first, unnamed] = session_ids;
-        insert_completed_session(&harness.database, renamed_first, "rename this one please");
-        insert_completed_session(
-            &harness.database,
-            unnamed,
-            "  tidy up\u{FEFF}the settings page spacing before lunch",
-        );
-        let mut unnamed_changes = harness.log.followers.change_count(&unnamed);
-
-        let titling = harness.auto_title.start(&harness.log.followers);
-        tokio::time::timeout(WAIT, PASS_STARTED.notified())
-            .await
-            .expect("the first session's pass starts");
-        harness
-            .database
-            .reader()
-            .execute(
-                "UPDATE sessions SET name = 'Mine' WHERE id = ?1",
-                [renamed_first.text().as_str()],
-            )
-            .expect("the person's name lands");
-        PASS_RELEASED.notify_one();
-        tokio::time::timeout(WAIT, unnamed_changes.changed())
-            .await
-            .expect("the second session is named in time")
-            .expect("the log is still followed");
-        titling.stop().await;
-
-        assert_eq!(stored_renames(&harness.database, renamed_first), []);
-        assert_eq!(
-            stored_renames(&harness.database, unnamed),
-            [(
-                Value::from("tidy up the settings page spacing before"),
-                Value::from("auto")
-            )]
-        );
-    }
-
-    // Killed by a rename that leaves the pass under way, and by a cancelled pass still writing.
-    #[tokio::test]
-    async fn auto_title_cancels_a_pending_pass_when_the_session_is_renamed() {
-        static PASS_STARTED: Notify = Notify::const_new();
-        static PASS_ENDED: Notify = Notify::const_new();
-        /// Raises `PASS_ENDED` when the pass's future ends or is dropped.
-        struct EndsPass;
-        impl Drop for EndsPass {
-            fn drop(&mut self) {
-                PASS_ENDED.notify_one();
-            }
-        }
-        fn build(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
-            let mut driver = MockProviderDriver::new();
-            driver.expect_name_session().times(1).returning(|params| {
-                async move {
-                    let _ends_pass = EndsPass;
-                    PASS_STARTED.notify_one();
-                    params.cancel.cancelled().await;
-                    Ok(Some("Late name".to_owned()))
-                }
-                .boxed()
-            });
-            driver
-                .expect_tell_session_name()
-                .returning(|_, _| async { Ok(()) }.boxed());
-            Arc::new(driver)
-        }
-        let harness = harness(build).await;
-        let session_id = test_session_id();
-        insert_completed_session(&harness.database, session_id, "fix the login bug");
-
-        let titling = harness.auto_title.start(&harness.log.followers);
-        tokio::time::timeout(WAIT, PASS_STARTED.notified())
-            .await
-            .expect("the pass starts");
-        harness
-            .changes
-            .rename(SessionRenameRequest {
-                session_id,
-                name: Some(FreeFormText::new("Mine".to_owned()).expect("a name")),
-            })
-            .await
-            .expect("the person's rename is kept");
-        tokio::time::timeout(WAIT, PASS_ENDED.notified())
-            .await
-            .expect("the rename ends the pass before the stop");
-        titling.stop().await;
-
-        assert_eq!(
-            stored_renames(&harness.database, session_id),
-            [(Value::from("Mine"), Value::from("user"))]
-        );
-    }
-
-    // Killed by splitting at Unicode whitespace instead of ECMAScript's, by counting bytes instead
-    // of code points, by passing the bound, and by dropping a first word longer than it.
-    #[rstest]
-    #[case::no_words(" \t\n", "")]
-    #[case::words_joined_by_one_space("  fix   the\tlogin\nbug  ", "fix the login bug")]
-    #[case::ecmascript_whitespace_splits("fix\u{FEFF}bug", "fix bug")]
-    #[case::whole_words_up_to_the_bound(
-        "tidy up the settings page spacing before lunch",
-        "tidy up the settings page spacing before"
-    )]
-    #[case::code_points_not_bytes(
-        "é é é é é é é é é é é é é é é é é é é é é",
-        "é é é é é é é é é é é é é é é é é é é é"
-    )]
-    #[case::a_long_first_word_is_cut(
-        "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz rest",
-        "abcdefghijklmnopqrstuvwxyzabcdefghijklmn"
-    )]
-    fn first_words_of_takes_whole_words_up_to_forty_code_points(
-        #[case] message: &str,
-        #[case] expected: &str,
-    ) {
-        assert_eq!(first_words_of(message), expected);
-    }
-}
+mod tests;

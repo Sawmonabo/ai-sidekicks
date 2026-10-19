@@ -4,7 +4,6 @@
 //! is decided again on what landed. A change that finds the session already as it asks appends
 //! nothing; a closed session, or one being purged, takes no change.
 
-use std::collections::HashSet;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -25,6 +24,7 @@ use sidekicks_contracts::session::methods::{
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError, is_ecmascript_whitespace};
+use tokio_util::task::TaskTracker;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::{
@@ -43,14 +43,13 @@ use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::CloseSessionParams;
-use crate::provider::runtime_binding::store::read_bindings_of_runs;
 use crate::session::not_found::session_not_found;
 use crate::session::run::ids::SESSION_RUN_IDS_SQL;
 use crate::session::run::state_change::refused_statement_index;
 use crate::text_cut::cut_to_code_points;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
-/// runs, and their bindings.
+/// runs, and the providers their bindings name.
 #[cfg_attr(
     not(test),
     expect(
@@ -67,6 +66,11 @@ const SELECT_FACTS_SQL: &str =
 const FACTS_UNCHANGED_SQL: &str = "SELECT 1 FROM sessions
   WHERE id = @sessionId AND state = @state AND name IS @name
     AND pinned_at IS @pinnedAt AND muted_at IS @mutedAt";
+
+// The provider each binding of the runs names, by run, then oldest first; only the name is read,
+// so a binding's other columns never stop a close or a name's push.
+const PROVIDERS_OF_RUNS_SQL: &str = "SELECT provider_name FROM runtime_bindings
+  WHERE run_id IN (SELECT value FROM json_each(?1)) ORDER BY run_id, created_at, id";
 
 // The guard is the first statement of each change's write.
 const FACTS_GUARD_INDEX: usize = 0;
@@ -142,6 +146,8 @@ pub(crate) struct SessionChanges {
     providers: Arc<ProviderRegistry>,
     /// The session-wide transition lock; see [`SessionChanges::transition_lock`].
     lock: Arc<KeyedLock<SessionId>>,
+    /// Every push of a person's new name to the session's providers, so the stop waits for each.
+    name_pushes: TaskTracker,
 }
 
 impl SessionChanges {
@@ -165,7 +171,22 @@ impl SessionChanges {
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
             providers,
             lock: Arc::new(KeyedLock::new()),
+            name_pushes: TaskTracker::new(),
         }
+    }
+
+    /// Settles once every push of a new name to the providers under way has ended; a rename after
+    /// it pushes nothing the stop waits for.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's stop waits for the session name pushes"
+        )
+    )]
+    pub(crate) async fn stop(&self) {
+        self.name_pushes.close();
+        self.name_pushes.wait().await;
     }
 
     /// The lock every session-wide transition holds for its whole run, keyed by session id:
@@ -180,10 +201,12 @@ impl SessionChanges {
         &self.lock
     }
 
-    /// The person's rename: `None` clears the name, and a rename to the name the session holds
-    /// appends nothing. A written name is told to each provider that ran the session, a failed
-    /// telling logged and never failing the rename. Refused as [`SessionChangeError::Refused`]
-    /// says; fails with the read or append that failed.
+    /// The person's rename: `None` clears the name, which the session's self-naming then names
+    /// again and tells its providers, and a rename to the name the session holds appends nothing.
+    /// It answers once the name is written; a written name is then told to each provider that
+    /// ran the session on a task of its own, a failed telling logged once and never failing the
+    /// rename. Refused as [`SessionChangeError::Refused`] says; fails with the read or
+    /// append that failed.
     #[cfg_attr(
         not(test),
         expect(
@@ -210,7 +233,13 @@ impl SessionChanges {
             })
             .await?;
         if is_written && let Some(name) = &name {
-            self.tell_providers_name(session_id, name).await;
+            // The person's answer waits on no provider: the name is pushed on a task of its own.
+            let pool = Arc::clone(&self.pool);
+            let providers = Arc::clone(&self.providers);
+            let name = name.clone();
+            self.name_pushes.spawn(async move {
+                tell_providers_name(&pool, &providers, session_id, &name).await;
+            });
         }
         Ok(SessionRenameResponse { session_id, name })
     }
@@ -218,9 +247,9 @@ impl SessionChanges {
     /// Names the session only while it is unnamed and takes changes, deciding that inside the
     /// write, so a name written in the meantime always wins; the name is trimmed of whitespace and
     /// cut to the name bound, and one left empty writes nothing. Returns whether it named the
-    /// session, and tells the providers the name as [`SessionChanges::rename`] does. Fails with
-    /// [`SessionChangeError::Name`] for a name holding a NUL, else as `rename` does but never
-    /// refused for the session's state.
+    /// session, once each provider that ran the session was told the name, a failed telling
+    /// logged. Fails with [`SessionChangeError::Name`] for a name holding a NUL, else as `rename`
+    /// does but never refused for the session's state.
     #[cfg_attr(
         not(test),
         expect(
@@ -258,7 +287,7 @@ impl SessionChanges {
             })
             .await?;
         if is_written {
-            self.tell_providers_name(session_id, &name).await;
+            tell_providers_name(&self.pool, &self.providers, session_id, &name).await;
         }
         Ok(is_written)
     }
@@ -354,8 +383,7 @@ impl SessionChanges {
         refuse_unchangeable_session(&session_id, facts.state)?;
         refuse_provisioning_session(&session_id, facts.state)?;
         // The legs end first, so a session never reads closed while its provider still runs it.
-        let drivers = self
-            .session_providers(session_id)
+        let drivers = session_providers(&self.pool, session_id)
             .await?
             .iter()
             .map(|provider| self.providers.lookup(provider))
@@ -503,54 +531,54 @@ impl SessionChanges {
             )
             .await
     }
+}
 
-    // The providers that ran one of the session's runs, each once, in the order first met.
-    async fn session_providers(
-        &self,
-        session_id: SessionId,
-    ) -> Result<Vec<ProviderId>, SessionChangeError> {
-        self.pool
-            .read(ReadLength::Long, move |reader| {
-                Ok::<_, SessionChangeError>(read_session_providers(reader, &session_id)?)
-            })
-            .await
-    }
+// The providers that ran one of the session's runs, each once, in the order first met.
+async fn session_providers(
+    pool: &DatabaseReadPool,
+    session_id: SessionId,
+) -> Result<Vec<ProviderId>, SessionChangeError> {
+    pool.read(ReadLength::Long, move |reader| {
+        Ok::<_, SessionChangeError>(read_session_providers(reader, &session_id)?)
+    })
+    .await
+}
 
-    // Tells each provider that ran the session its new name. The name is already written, so a
-    // provider that did not take it is logged and the rest are still told.
-    async fn tell_providers_name(
-        &self,
-        session_id: SessionId,
-        name: &FreeFormText<SESSION_NAME_MAX_LEN>,
-    ) {
-        let providers = match self.session_providers(session_id).await {
-            Ok(providers) => providers,
-            Err(error) => {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    session_id = session_id.text().as_str(),
-                    "the session's new name was told to no provider: its providers did not read"
-                );
-                return;
+// Tells each provider that ran the session its new name. The name is already written, so a
+// provider that did not take it is logged and the rest are still told.
+async fn tell_providers_name(
+    pool: &DatabaseReadPool,
+    providers: &ProviderRegistry,
+    session_id: SessionId,
+    name: &FreeFormText<SESSION_NAME_MAX_LEN>,
+) {
+    let session_providers = match session_providers(pool, session_id).await {
+        Ok(session_providers) => session_providers,
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                session_id = session_id.text().as_str(),
+                "the session's new name was told to no provider: its providers did not read"
+            );
+            return;
+        }
+    };
+    for provider in session_providers {
+        let told = match providers.lookup(&provider) {
+            Ok(driver) => {
+                driver
+                    .tell_session_name(session_id, name.as_str().to_owned())
+                    .await
             }
+            Err(refusal) => Err(DriverError::Refused(refusal)),
         };
-        for provider in providers {
-            let told = match self.providers.lookup(&provider) {
-                Ok(driver) => {
-                    driver
-                        .tell_session_name(session_id, name.as_str().to_owned())
-                        .await
-                }
-                Err(refusal) => Err(DriverError::Refused(refusal)),
-            };
-            if let Err(error) = told {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    session_id = session_id.text().as_str(),
-                    provider = provider.as_str(),
-                    "a provider was not told the session's new name"
-                );
-            }
+        if let Err(error) = told {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                session_id = session_id.text().as_str(),
+                provider = provider.as_str(),
+                "a provider was not told the session's new name"
+            );
         }
     }
 }
@@ -660,208 +688,25 @@ fn read_session_providers(
             |row| text_column(row, 0, |text| RunId::new(&text)),
         )?
         .collect::<rusqlite::Result<Vec<RunId>>>()?;
-    let mut listed = HashSet::new();
-    Ok(read_bindings_of_runs(&snapshot, &run_ids)?
-        .into_iter()
-        .map(|binding| binding.provider_name)
-        .filter(|provider| listed.insert(provider.clone()))
-        .collect())
+    let run_ids_json = serde_json::Value::from(
+        run_ids
+            .iter()
+            .map(|run_id| run_id.text().as_str().to_owned())
+            .collect::<Vec<_>>(),
+    )
+    .to_string();
+    let mut statement = snapshot.prepare_cached(PROVIDERS_OF_RUNS_SQL)?;
+    let mut providers: Vec<ProviderId> = Vec::new();
+    for provider in statement.query_map([run_ids_json], |row| {
+        text_column(row, 0, closed_word::<ProviderId>)
+    })? {
+        let provider = provider?;
+        if !providers.contains(&provider) {
+            providers.push(provider);
+        }
+    }
+    Ok(providers)
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-
-    use rstest::rstest;
-    use serde_json::{Value, json};
-    use sidekicks_contracts::event::registry::SessionEventType;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::session::methods::SessionRenameRequest;
-    use sidekicks_contracts::wire::text::FreeFormText;
-    use sidekicks_platforms::Spawner;
-    use tokio::runtime::Handle;
-
-    use super::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::events::log_service::{
-        EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
-    };
-    use crate::events::session::followers::SessionEventFollowers;
-    use crate::ipc::domain_error::DomainError;
-    use crate::provider::driver::DriverServices;
-    use crate::provider::driver::registry::ProviderRegistry;
-    use crate::session::directory::test_rows::insert_session_row;
-
-    /// Bounds a change the test expects to answer, so one that waits forever fails the test.
-    const CHANGE_WAIT: Duration = Duration::from_secs(10);
-
-    /// A person's rename landing between the change's read and its append.
-    const RACED_RENAME_SQL: &str = "UPDATE sessions SET name = 'Theirs' WHERE id = ?1";
-
-    /// The session's stored events, oldest first.
-    const STORED_EVENTS_SQL: &str =
-        "SELECT type, payload FROM session_events WHERE session_id = ?1 ORDER BY sequence";
-
-    /// A pin landing between the change's read and its append.
-    const RACED_PIN_SQL: &str =
-        "UPDATE sessions SET pinned_at = '2026-10-19T09:00:00.000Z' WHERE id = ?1";
-
-    /// The change a case makes.
-    #[derive(Clone, Copy, Debug)]
-    enum Change {
-        Rename(&'static str),
-        NameUnnamed(&'static str),
-        Pin,
-    }
-
-    // Killed by a change appending with no guard on the facts it read (a raced case stores an
-    // event decided on stale facts), by one failing instead of deciding again when its guard is
-    // refused, by the naming pass writing over a name, and by it never writing one.
-    #[rstest]
-    #[case::the_naming_pass_names_an_unnamed_session(
-        None,
-        None,
-        Change::NameUnnamed("  Fix the login bug\n"),
-        Some(true),
-        &[(Some("Fix the login bug"), None, "auto")],
-    )]
-    #[case::the_naming_pass_keeps_a_persons_name(
-        Some("Mine"),
-        None,
-        Change::NameUnnamed("Auto"),
-        Some(false),
-        &[],
-    )]
-    #[case::the_naming_pass_yields_to_a_rename_that_landed_first(
-        None,
-        Some(RACED_RENAME_SQL),
-        Change::NameUnnamed("Auto"),
-        Some(false),
-        &[],
-    )]
-    #[case::a_rename_is_decided_again_on_a_rename_that_landed_first(
-        None,
-        Some(RACED_RENAME_SQL),
-        Change::Rename("Mine"),
-        None,
-        &[(Some("Mine"), Some("Theirs"), "user")],
-    )]
-    #[case::a_pin_is_decided_again_on_a_pin_that_landed_first(
-        None,
-        Some(RACED_PIN_SQL),
-        Change::Pin,
-        None,
-        &[],
-    )]
-    #[tokio::test]
-    async fn a_change_is_decided_on_the_facts_that_landed(
-        #[case] stored_name: Option<&str>,
-        #[case] raced_write: Option<&'static str>,
-        #[case] change: Change,
-        #[case] expected_named: Option<bool>,
-        #[case] expected_renames: &[(Option<&str>, Option<&str>, &str)],
-    ) {
-        let database = TestDatabase::new();
-        // Opening the writer creates the file with the daemon's schema.
-        let writer = Arc::new(
-            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-                .await
-                .expect("the writer opens its database"),
-        );
-        let session_id = test_session_id();
-        insert_session_row(
-            &database.reader(),
-            session_id.text().as_str(),
-            stored_name,
-            None,
-        );
-        // The log's check runs after the change read its facts and before its write is queued,
-        // so the raced write lands between the two.
-        let raced = Mutex::new(raced_write.map(|sql| (database.reader(), sql)));
-        let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
-            writer,
-            pool: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                EVENT_LOG_STATEMENT_CAPACITY,
-            )),
-            followers: Arc::new(SessionEventFollowers::default()),
-            projection_statements: None,
-            refuse_session_write: Some(Box::new(
-                move |session_id: &SessionId, _event_type: &str| {
-                    let raced = raced.lock().expect("no raced write panicked").take();
-                    if let Some((connection, sql)) = raced {
-                        connection
-                            .execute(sql, [session_id.text().as_str()])
-                            .expect("the raced write lands");
-                    }
-                    Ok::<(), DomainError>(())
-                },
-            )),
-            read_damaged_from_sequence: None,
-        }));
-        // The session ran nothing, so no driver is told its name.
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: database.path(),
-        };
-        let changes = SessionChanges::new(
-            Arc::new(DatabaseReadPool::new(
-                database.path(),
-                SESSION_CHANGES_STATEMENT_CAPACITY,
-            )),
-            event_log,
-            Arc::new(ProviderRegistry::register_from(&[], &services)),
-        );
-
-        let named = tokio::time::timeout(CHANGE_WAIT, async {
-            match change {
-                Change::Rename(name) => changes
-                    .rename(SessionRenameRequest {
-                        session_id,
-                        name: Some(FreeFormText::new(name.to_owned()).expect("a name")),
-                    })
-                    .await
-                    .map(|_response| None),
-                Change::NameUnnamed(name) => changes.name_unnamed(session_id, name).await.map(Some),
-                Change::Pin => changes.pin(session_id).await.map(|()| None),
-            }
-        })
-        .await
-        .expect("the change answers in time")
-        .expect("the change is kept");
-
-        assert_eq!(named, expected_named);
-        let stored: Vec<(String, Value)> = database
-            .reader()
-            .prepare(STORED_EVENTS_SQL)
-            .expect("the test reads the log")
-            .query_map([session_id.text().as_str()], |row| {
-                let payload: String = row.get(1)?;
-                Ok((
-                    row.get(0)?,
-                    serde_json::from_str(&payload).expect("a stored payload is JSON"),
-                ))
-            })
-            .expect("the test reads the log")
-            .collect::<rusqlite::Result<_>>()
-            .expect("the test reads the log");
-        let expected: Vec<(String, Value)> = expected_renames
-            .iter()
-            .map(|(name, previous_name, origin)| {
-                let mut payload =
-                    json!({ "sessionId": session_id, "name": name, "origin": origin });
-                if let Some(previous_name) = previous_name {
-                    payload["previousName"] = json!(previous_name);
-                }
-                (
-                    SessionEventType::SessionRenamed.as_str().to_owned(),
-                    payload,
-                )
-            })
-            .collect();
-        assert_eq!(stored, expected);
-    }
-}
+mod tests;
