@@ -1,8 +1,9 @@
 //! Reads a run state change back from the session event that stored it, for the readers that
 //! follow the log as it commits.
 
-use sidekicks_contracts::event::envelope::EventEnvelope;
-use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
+use serde::de::DeserializeOwned;
+use serde_json::{Map, Value};
+use sidekicks_contracts::event::session::SessionEventReadError;
 use sidekicks_contracts::run::events::{
     AgentRunCompletedPayload, AgentRunFailedPayload, AgentRunInterruptedPayload,
     AgentRunPausedPayload, AgentRunPausingPayload, AgentRunRunningPayload, AgentRunStartingPayload,
@@ -45,10 +46,13 @@ pub(crate) enum StoredRunStateChange {
     Failed(AgentRunFailedPayload),
 }
 
-#[expect(
-    dead_code,
-    reason = "the queue's run lifecycle and the run binding cursors read each stored change's run \
-              and state"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the queue's run lifecycle and the run binding cursors read each stored change's \
+                  run and state"
+    )
 )]
 impl StoredRunStateChange {
     /// The run that changed state.
@@ -84,8 +88,10 @@ impl StoredRunStateChange {
     }
 }
 
-/// The run state change `event` stored, or `None` for an event of any other type. Fails when the
-/// payload does not read as its type's: the log is the daemon's own, so that is a broken write.
+/// The run state change an event of `event_type` stored with `payload`, or `None` for an event of
+/// any other type; it reads a stored envelope and a committed one alike, checking the payload's
+/// shape and its type's rules. Fails when the payload does not read as its type's: the log is the
+/// daemon's own, so that is a broken write.
 #[cfg_attr(
     not(test),
     expect(
@@ -95,169 +101,38 @@ impl StoredRunStateChange {
     )
 )]
 pub(crate) fn read_stored_run_state_change(
-    event: &EventEnvelope,
+    event_type: &str,
+    payload: &Map<String, Value>,
 ) -> Result<Option<StoredRunStateChange>, SessionEventReadError> {
     // Only a state change's type is read further, so no other event's payload is parsed.
-    let is_state_change = RunStateEventType::from_wire_name(event.event_type.as_str())
-        .is_some_and(|known| known != RunStateEventType::Queued);
-    if !is_state_change {
+    let Some(state_event_type) = RunStateEventType::from_wire_name(event_type) else {
         return Ok(None);
-    }
-    Ok(match SessionEvent::from_envelope(event)? {
-        SessionEvent::AgentRunStarting(payload) => Some(StoredRunStateChange::Starting(payload)),
-        SessionEvent::AgentRunRunning(payload) => Some(StoredRunStateChange::Running(payload)),
-        SessionEvent::AgentRunWaitingForApproval(payload) => {
-            Some(StoredRunStateChange::WaitingForApproval(payload))
+    };
+    Ok(Some(match state_event_type {
+        RunStateEventType::Queued => return Ok(None),
+        RunStateEventType::Starting => StoredRunStateChange::Starting(read_payload(payload)?),
+        RunStateEventType::Running => StoredRunStateChange::Running(read_payload(payload)?),
+        RunStateEventType::WaitingForApproval => {
+            StoredRunStateChange::WaitingForApproval(read_payload(payload)?)
         }
-        SessionEvent::AgentRunWaitingForInput(payload) => {
-            Some(StoredRunStateChange::WaitingForInput(payload))
+        RunStateEventType::WaitingForInput => {
+            StoredRunStateChange::WaitingForInput(read_payload(payload)?)
         }
-        SessionEvent::AgentRunPausing(payload) => Some(StoredRunStateChange::Pausing(payload)),
-        SessionEvent::AgentRunPaused(payload) => Some(StoredRunStateChange::Paused(payload)),
-        SessionEvent::AgentRunCompleted(payload) => Some(StoredRunStateChange::Completed(payload)),
-        SessionEvent::AgentRunInterrupted(payload) => {
-            Some(StoredRunStateChange::Interrupted(payload))
-        }
-        SessionEvent::AgentRunStopped(payload) => Some(StoredRunStateChange::Stopped(payload)),
-        SessionEvent::AgentRunFailed(payload) => Some(StoredRunStateChange::Failed(payload)),
-        // A state change's type reads as its own variant, so no other arm is reached.
-        SessionEvent::SessionCreated(_)
-        | SessionEvent::WorkspacePreparing(_)
-        | SessionEvent::WorkspacePrepared(_)
-        | SessionEvent::WorkspaceRootLost(_)
-        | SessionEvent::WorkspaceArchived(_)
-        | SessionEvent::WorktreeCreated(_)
-        | SessionEvent::WorktreeBound(_)
-        | SessionEvent::WorktreeDirtied(_)
-        | SessionEvent::WorktreeMerged(_)
-        | SessionEvent::WorktreeRetired(_)
-        | SessionEvent::SessionEventCompacted(_)
-        | SessionEvent::AgentMessageSent(_)
-        | SessionEvent::AgentThinkingUpdated(_)
-        | SessionEvent::AgentToolCallInvoked(_)
-        | SessionEvent::AgentToolCallCompleted(_)
-        | SessionEvent::AgentToolCallFailed(_)
-        | SessionEvent::AgentSubagentStarted(_)
-        | SessionEvent::AgentSubagentCompleted(_)
-        | SessionEvent::AgentRunProviderInitialized(_)
-        | SessionEvent::AgentTurnStarted(_)
-        | SessionEvent::AgentTurnCompleted(_)
-        | SessionEvent::AgentTurnInterrupted(_)
-        | SessionEvent::AgentTurnFailed(_)
-        | SessionEvent::AgentRunWorkerShuttingDown(_)
-        | SessionEvent::AgentRunRolledBack(_)
-        | SessionEvent::SessionProviderStatusReported(_)
-        | SessionEvent::ApprovalRejected(_)
-        | SessionEvent::ApprovalCanceled(_)
-        | SessionEvent::ApprovalRuleRemembered(_)
-        | SessionEvent::ApprovalRuleRevoked(_)
-        | SessionEvent::ApprovalReviewerFlagged(_)
-        | SessionEvent::PlanProposed(_)
-        | SessionEvent::PlanAccepted(_)
-        | SessionEvent::PlanHandedOff(_)
-        | SessionEvent::QuestionAsked(_)
-        | SessionEvent::UserMessageSent(_)
-        | SessionEvent::AgentQueueItemCreated(_)
-        | SessionEvent::AgentQueueItemAdmitted(_)
-        | SessionEvent::AgentQueueItemSuperseded(_)
-        | SessionEvent::AgentQueueItemCanceled(_)
-        | SessionEvent::AgentQueueItemNotDelivered(_)
-        | SessionEvent::McpServerSignInCompleted(_)
-        | SessionEvent::CloudTaskUpdated(_)
-        | SessionEvent::SessionRestoreCompleted(_)
-        | SessionEvent::SessionGoalCleared(_)
-        | SessionEvent::SessionNoticePosted(_)
-        | SessionEvent::SessionSideQuestionAnswered(_)
-        | SessionEvent::SessionSpendLimitReached(_)
-        | SessionEvent::GitSettled(_)
-        | SessionEvent::RelayPinRefused(_)
-        | SessionEvent::AgentCommandEnded(_)
-        | SessionEvent::UsageTokenCountRecorded(_)
-        | SessionEvent::UsageCostUpdated(_)
-        | SessionEvent::UsageContextWindowUpdated(_)
-        | SessionEvent::UsageRateLimitUpdated(_)
-        | SessionEvent::UsageApiRequestRetried(_)
-        | SessionEvent::AgentRunContextCompacted(_)
-        | SessionEvent::AgentTurnRerouted(_)
-        | SessionEvent::SessionActivated(_)
-        | SessionEvent::SessionArchived(_)
-        | SessionEvent::SessionReactivated(_)
-        | SessionEvent::SessionClosed(_)
-        | SessionEvent::SessionPinned(_)
-        | SessionEvent::SessionUnpinned(_)
-        | SessionEvent::SessionMuted(_)
-        | SessionEvent::SessionUnmuted(_)
-        | SessionEvent::SessionConverted(_)
-        | SessionEvent::SessionBranchChanged(_)
-        | SessionEvent::SessionSweptToCheckout(_)
-        | SessionEvent::AgentProviderBindingChanged(_)
-        | SessionEvent::AgentProviderBindingChangeFailed(_)
-        | SessionEvent::ApprovalRequested(_)
-        | SessionEvent::ApprovalApproved(_)
-        | SessionEvent::ApprovalReviewerDenied(_)
-        | SessionEvent::ApprovalDenialOverridden(_)
-        | SessionEvent::AgentRunQueued(_)
-        | SessionEvent::AgentRunStepLimitReached(_)
-        | SessionEvent::AgentRunTokenLimitReached(_)
-        | SessionEvent::AgentRunRecoveryResolved(_)
-        | SessionEvent::AgentRunRecoveryStepsAdded(_)
-        | SessionEvent::SessionAdvisorChanged(_)
-        | SessionEvent::SessionOutputStyleChanged(_)
-        | SessionEvent::RepoMountHealthChanged(_)
-        | SessionEvent::AgentRunRejected(_)
-        | SessionEvent::ArtifactPublished(_)
-        | SessionEvent::ArtifactSuperseded(_)
-        | SessionEvent::AgentRunRefusalChoiceRequested(_)
-        | SessionEvent::AgentRunRefusalChoiceResolved(_)
-        | SessionEvent::AgentRunUsageCreditsChoiceRequested(_)
-        | SessionEvent::AgentRunUsageCreditsChoiceResolved(_)
-        | SessionEvent::SessionGoalUpdated(_)
-        | SessionEvent::SessionRenamed(_)
-        | SessionEvent::TerminalControlChanged(_)
-        | SessionEvent::WorkflowRunStarted(_)
-        | SessionEvent::WorkflowRunResumed(_)
-        | SessionEvent::WorkflowRunCanceled(_)
-        | SessionEvent::WorkflowRunDeleted(_)
-        | SessionEvent::WorkflowResultsPosted(_)
-        | SessionEvent::WorkflowPhaseSuspended(_)
-        | SessionEvent::WorkflowPhaseFailed(_)
-        | SessionEvent::WorkflowPhaseWaitingOnPool(_)
-        | SessionEvent::WorkflowStepStarted(_)
-        | SessionEvent::WorkflowStepCompleted(_)
-        | SessionEvent::WorkflowStepFailed(_)
-        | SessionEvent::WorkflowStepCanceled(_)
-        | SessionEvent::WorkflowStepSkipped(_)
-        | SessionEvent::WorkflowGateResolved(_)
-        | SessionEvent::WorkflowVersionCreated(_)
-        | SessionEvent::WorkflowGateReached(_)
-        | SessionEvent::WorkflowRunFailed(_)
-        | SessionEvent::WorkflowRunCompleted(_)
-        | SessionEvent::WorkflowRunWaiting(_)
-        | SessionEvent::WorkflowScheduleArmed(_)
-        | SessionEvent::WorkflowScheduleFired(_)
-        | SessionEvent::WorkflowTriggerArmed(_)
-        | SessionEvent::WorkflowTriggerFired(_)
-        | SessionEvent::WorkflowPhaseAdmitted(_)
-        | SessionEvent::WorkflowPhaseStarted(_)
-        | SessionEvent::WorkflowPhaseProgressed(_)
-        | SessionEvent::WorkflowPhaseCanceling(_)
-        | SessionEvent::WorkflowPhaseRetried(_)
-        | SessionEvent::WorkflowPhaseResumed(_)
-        | SessionEvent::WorkflowPhaseCompleted(_)
-        | SessionEvent::WorkflowParallelJoinBranchesCanceled(_)
-        | SessionEvent::DaemonBackupCompleted(_)
-        | SessionEvent::DaemonBackupFailed(_)
-        | SessionEvent::DaemonBackupRestored(_)
-        | SessionEvent::DaemonRecoveryAttempted(_)
-        | SessionEvent::DaemonRecoverySucceeded(_)
-        | SessionEvent::DaemonRecoveryFailed(_)
-        | SessionEvent::SessionDamagedEventsSkipped(_)
-        | SessionEvent::AgentInterventionRequested(_)
-        | SessionEvent::AgentInterventionAccepted(_)
-        | SessionEvent::AgentInterventionApplied(_)
-        | SessionEvent::AgentInterventionRejected(_)
-        | SessionEvent::AgentInterventionDegraded(_)
-        | SessionEvent::AgentInterventionExpired(_)
-        | SessionEvent::AgentInterventionFailed(_) => None,
-    })
+        RunStateEventType::Pausing => StoredRunStateChange::Pausing(read_payload(payload)?),
+        RunStateEventType::Paused => StoredRunStateChange::Paused(read_payload(payload)?),
+        RunStateEventType::Completed => StoredRunStateChange::Completed(read_payload(payload)?),
+        RunStateEventType::Interrupted => StoredRunStateChange::Interrupted(read_payload(payload)?),
+        RunStateEventType::Stopped => StoredRunStateChange::Stopped(read_payload(payload)?),
+        RunStateEventType::Failed => StoredRunStateChange::Failed(read_payload(payload)?),
+    }))
+}
+
+// `payload` read as its type's payload and held to that type's checks.
+fn read_payload<Payload>(payload: &Map<String, Value>) -> Result<Payload, SessionEventReadError>
+where
+    Payload: DeserializeOwned + garde::Validate<Context = ()>,
+{
+    let read = Payload::deserialize(payload)?;
+    read.validate()?;
+    Ok(read)
 }

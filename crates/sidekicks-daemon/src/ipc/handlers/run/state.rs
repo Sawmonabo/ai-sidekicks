@@ -283,7 +283,8 @@ fn run_state_stream_event_of(
             parse_stored_rollback(&event.payload, &event.session_id, i64::from(event.sequence))?;
         return Ok(Some(RunStateStreamEvent::RolledBack(rollback)));
     }
-    let Some(change) = read_stored_run_state_change(event)? else {
+    let Some(change) = read_stored_run_state_change(event.event_type.as_str(), &event.payload)?
+    else {
         return Ok(None);
     };
     let timestamp = WireInstant::try_from(event.occurred_at.as_str().to_owned())?;
