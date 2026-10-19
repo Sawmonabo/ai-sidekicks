@@ -18,7 +18,8 @@ use sidekicks_contracts::transcript::run_facts::RunStateEventType;
     not(test),
     expect(
         dead_code,
-        reason = "the queue's run lifecycle and the run binding cursors, which read each stored change"
+        reason = "the run state reply, which reads each stored change for the run state stream \
+                  it sends"
     )
 )]
 pub(crate) enum StoredRunStateChange {
@@ -89,7 +90,8 @@ impl StoredRunStateChange {
     not(test),
     expect(
         dead_code,
-        reason = "the queue's run lifecycle and the run binding cursors, which read each stored change"
+        reason = "the run state reply, which reads each stored change for the run state stream \
+                  it sends"
     )
 )]
 pub(crate) fn read_stored_run_state_change(
