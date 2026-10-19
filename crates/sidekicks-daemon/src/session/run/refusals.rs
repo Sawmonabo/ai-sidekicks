@@ -8,8 +8,10 @@ use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::ipc::domain_error::DomainError;
+use crate::session::run::read::RunRead;
 
 /// Why the run engine refused a call or a move; nothing was written for any of them.
 #[derive(Debug, thiserror::Error)]
@@ -106,6 +108,24 @@ pub(crate) fn ended_run_refusal(
             source: None,
         }
     }
+}
+
+/// Refuses `run`, read as `run_id`, with [`RunRefusal::VersionStale`] unless it is at the version
+/// the caller read, `expected_run_version`: an older one, or one no honest caller can hold yet.
+pub(crate) fn require_expected_version(
+    run_id: RunId,
+    run: &RunRead,
+    expected_run_version: SafeInt<0>,
+) -> Result<(), RunRefusal> {
+    if run.version == i64::from(expected_run_version) {
+        return Ok(());
+    }
+    Err(RunRefusal::VersionStale {
+        run_id,
+        expected_run_version: expected_run_version.get(),
+        run_version: run.version,
+        source: None,
+    })
 }
 
 impl From<RunRefusal> for DomainError {

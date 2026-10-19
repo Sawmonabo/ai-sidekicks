@@ -32,7 +32,7 @@ use crate::session::run::engine::{RunEngine, RunEngineError, RunResumeError};
 use crate::session::run::read::{
     RunRead, RunStateReader, read_run_provider, read_run_through, safe_run_version,
 };
-use crate::session::run::refusals::RunRefusal;
+use crate::session::run::refusals::{RunRefusal, require_expected_version};
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
 };
@@ -42,9 +42,6 @@ mod tests;
 
 // The version guard is the one companion of a pause's or a resume's move.
 const VERSION_GUARD_COMPANION_INDEX: usize = 0;
-
-// The states a resume continues: a run still finishing its step, or one already held.
-const RESUMABLE_STATES: [RunState; 2] = [RunState::Pausing, RunState::Paused];
 
 /// A failure the waiting-message queue reports, kept whole.
 pub(crate) type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
@@ -214,9 +211,8 @@ impl RunPauseControl {
     ) -> Result<AgentRunControlResponse, RunPauseError> {
         let run_id = request.target_run_id;
         let _run_hold = self.run_lock.acquire(run_id).await;
-        let (run, bound) = self
-            .read_at_expected_version(run_id, request.expected_run_version)
-            .await?;
+        let (run, bound) = self.read_run(run_id).await?;
+        require_expected_version(run_id, &run, request.expected_run_version)?;
         if run.state != RunState::Running {
             return Err(RunRefusal::InvalidTransition {
                 run_id,
@@ -248,12 +244,14 @@ impl RunPauseControl {
     /// the messages waiting for it in send order, and moves the run to `running` once the driver
     /// took the resume; the interrupt of every limit the run owes is then handed again, the
     /// messages' mark of delivery failed or not, so none reaches the provider before it runs.
-    /// Refuses, nothing read, as a pause does for an unknown run, a stale version and a run in any
-    /// other state, then with [`RunPauseError::NoDriver`]. A resume the driver refuses moves
-    /// nothing, gives the messages back and fails with [`RunPauseError::Driver`], as does one whose
-    /// answer never came, which keeps the messages for the provider's own record to settle. A
-    /// move refused once the driver took the resume (a process exit ended or interrupted the run
-    /// meanwhile) gives the messages back and refuses from where the run went.
+    /// The run is held as being resumed before it is checked and its messages read, so a report
+    /// from its provider waits for the resume. Refuses, nothing read, as a pause does for an
+    /// unknown run, a stale version and a run in any other state, then with
+    /// [`RunPauseError::NoDriver`]. A resume the driver refuses moves nothing, gives the messages
+    /// back and fails with [`RunPauseError::Driver`], as does one whose answer never came, which
+    /// keeps the messages for the provider's own record to settle. A move refused once the driver
+    /// took the resume (a process exit ended or interrupted the run meanwhile) gives the messages
+    /// back and refuses from where the run went.
     pub(crate) async fn resume(
         &self,
         request: &AgentRunResumeRequest,
@@ -262,49 +260,45 @@ impl RunPauseControl {
         let run_id = request.target_run_id;
         let expected_run_version = request.expected_run_version;
         let _run_hold = self.run_lock.acquire(run_id).await;
-        let (run, bound) = self
-            .read_at_expected_version(run_id, expected_run_version)
-            .await?;
-        if !RESUMABLE_STATES.contains(&run.state) {
-            return Err(RunRefusal::InvalidTransition {
-                run_id,
-                from_state: run.state,
-                to_state: RunStateChangeState::Running,
-                source: None,
-            }
-            .into());
-        }
-        let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
-        let messages = continued
-            .read(run_id)
-            .await
-            .map_err(RunPauseError::WaitingMessagesUnread)?;
-        let params = ResumeRunParams {
-            session_id: run.session_id,
-            run_id,
-            messages,
-        };
+        let (run, bound) = self.read_run(run_id).await?;
+        let session_id = run.session_id;
         let resumed = self
             .engine
-            .resume_run(run_id, version_guard(run_id, expected_run_version), async {
-                driver.resume_run(params).await
-            })
+            .resume_run(
+                run_id,
+                expected_run_version,
+                version_guard(run_id, expected_run_version),
+                move |run| async move {
+                    let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
+                    let messages = continued
+                        .read(run_id)
+                        .await
+                        .map_err(RunPauseError::WaitingMessagesUnread)?;
+                    let params = ResumeRunParams {
+                        session_id: run.session_id,
+                        run_id,
+                        messages,
+                    };
+                    match driver.resume_run(params).await {
+                        Ok(()) => Ok(()),
+                        Err(unanswered @ DriverError::Unanswered(_)) => {
+                            // The provider may have taken the messages; its own record settles
+                            // them.
+                            continued.keep(run_id);
+                            Err(RunPauseError::Driver(unanswered))
+                        }
+                        Err(driver_error) => {
+                            let failure = RunPauseError::Driver(driver_error);
+                            Err(release(continued, run.session_id, run_id, failure).await)
+                        }
+                    }
+                },
+            )
             .await;
         let running = match resumed {
             Ok(running) => running,
-            Err(RunResumeError::Driver(unanswered @ DriverError::Unanswered(_))) => {
-                // The provider may have taken the messages; its own record settles them.
-                continued.keep(run_id);
-                return Err(RunPauseError::Driver(unanswered));
-            }
-            Err(RunResumeError::Driver(driver_error)) => {
-                let failure = RunPauseError::Driver(driver_error);
-                return Err(release(continued, run.session_id, run_id, failure).await);
-            }
-            Err(RunResumeError::Held(held)) => {
-                let failure = RunPauseError::from(held);
-                return Err(release(continued, run.session_id, run_id, failure).await);
-            }
+            Err(RunResumeError::Unstarted(refused)) => return Err(refused.into()),
+            Err(RunResumeError::Driver(failure)) => return Err(failure),
             Err(RunResumeError::Change(change)) => {
                 tracing::warn!(
                     run_id = %run_id,
@@ -314,21 +308,19 @@ impl RunPauseControl {
                 let failure = self
                     .refusal_of_move(run_id, expected_run_version, change)
                     .await;
-                return Err(release(continued, run.session_id, run_id, failure).await);
+                return Err(release(continued, session_id, run_id, failure).await);
             }
         };
-        let admitted = continued.admit(run.session_id, run_id).await;
+        let admitted = continued.admit(session_id, run_id).await;
         self.engine.hand_owed_limit_interrupts(run_id);
         admitted.map_err(RunPauseError::MessagesNotAdmitted)?;
         Ok(run_control_response(run_id, &running))
     }
 
-    // The run and the provider it runs on, in one read; any version mismatch is refused, an older
-    // version or one no honest caller can hold yet.
-    async fn read_at_expected_version(
+    // The run and the provider it runs on, in one read; an unknown run is refused.
+    async fn read_run(
         &self,
         run_id: RunId,
-        expected_run_version: SafeInt<0>,
     ) -> Result<(RunRead, Option<ProviderId>), RunPauseError> {
         let read = self
             .pool
@@ -343,19 +335,7 @@ impl RunPauseControl {
                 },
             )
             .await?;
-        let Some((run, bound)) = read else {
-            return Err(RunRefusal::NotFound { run_id }.into());
-        };
-        if run.version != i64::from(expected_run_version) {
-            return Err(RunRefusal::VersionStale {
-                run_id,
-                expected_run_version: expected_run_version.get(),
-                run_version: run.version,
-                source: None,
-            }
-            .into());
-        }
-        Ok((run, bound))
+        read.ok_or_else(|| RunRefusal::NotFound { run_id }.into())
     }
 
     // The guard sits in the move's own write, so a run that moved after the read is refused there

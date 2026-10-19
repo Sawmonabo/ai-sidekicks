@@ -239,10 +239,11 @@ pub(crate) enum RunEngineError {
 /// comes after the driver took the resume.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RunResumeError<DriverFailure> {
-    /// Another continue or a resume holds the run, refused from its state; the driver was never
-    /// asked.
+    /// The run was refused, or its read failed, before the driver was asked: another continue or
+    /// a resume holds it, its version is not the one the caller read, or its state is not one a
+    /// resume leaves.
     #[error(transparent)]
-    Held(RunEngineError),
+    Unstarted(RunEngineError),
     /// The driver's resume failed; nothing was written.
     #[error("the provider's driver did not take the resume")]
     Driver(#[source] DriverFailure),

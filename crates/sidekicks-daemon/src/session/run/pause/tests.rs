@@ -174,6 +174,8 @@ struct WaitingMessages {
     kept: Mutex<Vec<WaitingMessage>>,
     releases: AtomicUsize,
     admissions: AtomicUsize,
+    // A read the test holds: it signals when it starts, then waits for the test to let it go.
+    held_read: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
 }
 
 impl WaitingMessages {
@@ -195,7 +197,15 @@ impl ContinuedMessages for WaitingMessages {
         _run_id: RunId,
     ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
         let waiting = self.waiting.lock().expect("the messages read").clone();
-        async move { Ok(waiting) }.boxed()
+        let held = self.held_read.lock().expect("the held read reads").take();
+        async move {
+            if let Some((started, let_go)) = held {
+                started.send(()).expect("the test waits for the read");
+                let_go.await.expect("the test lets the read go");
+            }
+            Ok(waiting)
+        }
+        .boxed()
     }
 
     fn admit(
@@ -542,4 +552,46 @@ async fn a_pause_whose_answer_never_came_stays_pausing_for_the_providers_report(
     assert_eq!(after_pause, ("pausing".to_owned(), 2));
     assert!(is_report_applied);
     assert_eq!(fixture.run().0, "paused");
+}
+
+// A provider's report that lands while a resume reads the waiting messages waits for the resume,
+// which sends the messages once and moves the run to running; the driver is never asked and then
+// overruled. Killed by holding the run as being resumed only after the messages are read: the
+// report then moves the run, and the resume taken by the driver gives its messages back.
+#[tokio::test]
+async fn a_report_during_the_resumes_read_waits_and_the_resume_takes_the_run() {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_resume_run()
+        .times(1)
+        .returning(|_| async { Ok(()) }.boxed());
+    let fixture = Arc::new(fixture(driver, "pausing").await);
+    let (read_started, read_is_held) = oneshot::channel();
+    let (let_read_go, read_let_go) = oneshot::channel();
+    let messages = Arc::new(WaitingMessages {
+        held_read: Mutex::new(Some((read_started, read_let_go))),
+        ..WaitingMessages::holding(waiting_message())
+    });
+
+    let resuming = {
+        let fixture = Arc::clone(&fixture);
+        let messages = Arc::clone(&messages);
+        tokio::spawn(async move { fixture.resume(1, messages.as_ref()).await })
+    };
+    tokio::time::timeout(SETTLE_WAIT, read_is_held)
+        .await
+        .expect("the resume reads the waiting messages")
+        .expect("the read signals its start");
+    let mut report = fixture.report(RunStateEntry::Paused);
+    let is_report_held = tokio::time::timeout(HELD_WATCH, &mut report).await.is_err();
+    let_read_go.send(()).expect("the read waits to be let go");
+    let resumed = resuming.await.expect("the resume ends");
+    let is_report_applied = report.await.expect("the report ends");
+
+    assert!(is_report_held);
+    assert!(resumed.is_ok(), "{resumed:?}");
+    assert!(!is_report_applied);
+    assert_eq!(fixture.run(), ("running".to_owned(), 2));
+    assert_eq!(messages.admissions.load(Ordering::SeqCst), 1);
+    assert_eq!(messages.releases.load(Ordering::SeqCst), 0);
 }

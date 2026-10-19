@@ -40,13 +40,16 @@ use crate::session::run::engine::{
 };
 use crate::session::run::projection::insert_queued_run_statement;
 use crate::session::run::read::{RunRead, RunStateReader};
-use crate::session::run::refusals::RunRefusal;
+use crate::session::run::refusals::{RunRefusal, require_expected_version};
 use crate::session::run::setup_gates::{RunSetupContext, RunSetupGateError, RunTerminalContext};
 use crate::session::run::start_request::{
     DaemonTurnStartRequest, RunContinueRequest, RunStartRequest, RunTurnStart,
 };
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 use crate::uuid_v7::mint_uuid_v7;
+
+// The states a resume continues: a run still finishing its step, or one already held.
+const RESUMABLE_STATES: [RunState; 2] = [RunState::Pausing, RunState::Paused];
 
 // The failure a start records when the driver's words fit nothing.
 static DRIVER_START_FAILURE_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -452,33 +455,49 @@ impl RunEngine {
         }
     }
 
-    /// Resumes the paused or pausing run `run_id` through `resume`, the driver's resume, built
-    /// unstarted by the caller: the run is registered as being continued first, so what its
-    /// provider reports meanwhile waits, and only once `resume` answers `Ok` is `running` written,
-    /// with `companions` in the same write. A failed `resume` writes nothing and comes back whole
-    /// as [`RunResumeError::Driver`]. Fails with [`RunResumeError::Held`] carrying
-    /// [`RunRefusal::InvalidTransition`], `resume` never run, while another continue or a resume
-    /// holds the run, and with [`RunResumeError::Change`] as the write refuses or fails once the
-    /// driver took the resume.
-    pub(crate) async fn resume_run<DriverFailure>(
+    /// Resumes the paused or pausing run `run_id` through `resume`, the driver's resume, which the
+    /// caller builds from the run as read: the run is registered as being continued first, so what
+    /// its provider reports from then on waits, then read and refused unless it is still at
+    /// `expected_run_version` and pausing or paused, and only once `resume` answers `Ok` is
+    /// `running` written, with `companions` in the same write. Fails with
+    /// [`RunResumeError::Unstarted`], `resume` never run, for a run unknown, held by another
+    /// continue or a resume, at another version or in another state, refused as
+    /// [`RunRefusal::NotFound`], [`RunRefusal::InvalidTransition`] and
+    /// [`RunRefusal::VersionStale`]; a failed `resume` writes nothing and comes back whole as
+    /// [`RunResumeError::Driver`]; and [`RunResumeError::Change`] is the write refused or failed
+    /// once the driver took the resume.
+    pub(crate) async fn resume_run<DriverFailure, Resume>(
         &self,
         run_id: RunId,
+        expected_run_version: SafeInt<0>,
         companions: RunStateChangeCompanions,
-        resume: impl Future<Output = Result<(), DriverFailure>>,
-    ) -> Result<RunRead, RunResumeError<DriverFailure>> {
+        resume: impl FnOnce(RunRead) -> Resume,
+    ) -> Result<RunRead, RunResumeError<DriverFailure>>
+    where
+        Resume: Future<Output = Result<(), DriverFailure>>,
+    {
         let Some(entry) = lock(&self.live).insert_continuing(run_id, false) else {
             let run = self
                 .require_run(run_id)
                 .await
-                .map_err(RunResumeError::Held)?;
-            return Err(RunResumeError::Held(continue_refusal(run_id, &run)));
+                .map_err(RunResumeError::Unstarted)?;
+            return Err(RunResumeError::Unstarted(continue_refusal(run_id, &run)));
         };
         let _settles_on_exit = ContinuingGuard {
             live: &self.live,
             run_id,
             entry: Arc::clone(&entry),
         };
-        resume.await.map_err(RunResumeError::Driver)?;
+        let run = self
+            .require_run(run_id)
+            .await
+            .map_err(RunResumeError::Unstarted)?;
+        require_expected_version(run_id, &run, expected_run_version)
+            .map_err(|stale| RunResumeError::Unstarted(stale.into()))?;
+        if !RESUMABLE_STATES.contains(&run.state) {
+            return Err(RunResumeError::Unstarted(continue_refusal(run_id, &run)));
+        }
+        resume(run).await.map_err(RunResumeError::Driver)?;
         entry.is_turn_started.store(true, Ordering::Release);
         self.change(
             RunStateChange::new(
