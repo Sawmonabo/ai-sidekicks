@@ -1,19 +1,21 @@
 //! The stop of a pinned process on macOS and Linux: `SIGTERM`, a grace for the process to answer
-//! it, then `SIGKILL`, each sent and awaited through the system's own pin of that process, the
-//! kill reaching the rest of the process group the process leads.
+//! it, then `SIGKILL`, each sent and awaited through the system's own pin of that process, and
+//! the kill of the rest of the process group the process leads, which its exit never ends.
 
 use std::io::{self, ErrorKind};
 use std::time::{Duration, Instant};
 
-use nix::sys::signal::Signal;
+use nix::errno::Errno;
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
 use polling::{Events, Poller};
 
 use crate::child_command::ChildEnd;
 use crate::pinned_process::KILL_WAIT_BOUND;
 
-/// Stops a pinned process: `send` delivers a signal to it (`SIGKILL` to its whole group) and
-/// answers `false` when it has already ended, and `wait_for_end` waits up to a bound for its exit
-/// event and answers whether it came.
+/// Stops a pinned process that leads its own group: `send` delivers a signal to it while it runs,
+/// a `SIGKILL` also to the rest of its group, and answers `false` when the process has already
+/// ended, and `wait_for_end` waits up to a bound for its exit event and answers whether it came.
 /// Answers [`ChildEnd::Stop`] when the process ended before the kill, a process already gone
 /// included, and [`ChildEnd::Kill`] when the kill ended it. Fails with `TimedOut` when it still
 /// runs [`KILL_WAIT_BOUND`] after the kill, and with the error `send` or `wait_for_end` answers.
@@ -22,11 +24,10 @@ pub(crate) fn stop_pinned_process(
     mut send: impl FnMut(Signal) -> io::Result<bool>,
     mut wait_for_end: impl FnMut(Duration) -> io::Result<bool>,
 ) -> io::Result<ChildEnd> {
-    if !send(Signal::SIGTERM)? || wait_for_end(grace)? {
-        return Ok(ChildEnd::Stop);
-    }
     // A process that ends between the grace and the kill ended on the stop it was asked.
-    if !send(Signal::SIGKILL)? {
+    if !send(Signal::SIGTERM)? || wait_for_end(grace)? || !send(Signal::SIGKILL)? {
+        // The process's exit ends nothing else of its group, so the kill goes to the rest.
+        send(Signal::SIGKILL)?;
         return Ok(ChildEnd::Stop);
     }
     if wait_for_end(KILL_WAIT_BOUND)? {
@@ -36,6 +37,19 @@ pub(crate) fn stop_pinned_process(
         ErrorKind::TimedOut,
         "the process still runs after it was killed",
     ))
+}
+
+/// Sends `SIGKILL` to the group process `id` leads, which outlives its leader while any member
+/// runs and keeps the id from passing to another group meanwhile; `false` when the group has
+/// ended. Fails with `InvalidInput` for an id past `i32::MAX`, else with the system's error.
+pub(crate) fn kill_rest_of_group(id: u32) -> io::Result<bool> {
+    let group = libc::pid_t::try_from(id)
+        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
+    match killpg(Pid::from_raw(group), Signal::SIGKILL) {
+        Ok(()) => Ok(true),
+        Err(Errno::ESRCH) => Ok(false),
+        Err(errno) => Err(io::Error::from(errno)),
+    }
 }
 
 /// Waits up to `bound` for the one source `poller` watches to post its event; answers whether it
@@ -70,17 +84,22 @@ mod tests {
     use crate::pin_child_process;
     use crate::posix::child_command::prepare_lasting_child_command;
 
-    // Fails when `SIGKILL` goes first, which ends the sleeper by the kill and answers `Kill`; when
-    // the `SIGKILL` is skipped, which leaves the trapping child running, so the stop times out; or
-    // when it goes to the leader alone, which leaves the trapping child's own child running, which
-    // then prints.
+    // Fails when `SIGKILL` goes first, which ends the answering child by the kill and answers
+    // `Kill`; when the `SIGKILL` is skipped, which leaves the trapping child running, so the stop
+    // times out; or when it goes to the leader alone, or a child that answers the stop leaves the
+    // rest of its group alone, either of which leaves the child's own child running, which then
+    // prints.
     #[rstest]
     #[case::ignoring_the_stop(
         r#"trap "" TERM; (/bin/sleep 5; echo outlived) & echo ready; read never"#,
         ChildEnd::Kill,
         Signal::SIGKILL
     )]
-    #[case::answering_the_stop("echo ready; exec /bin/sleep 30", ChildEnd::Stop, Signal::SIGTERM)]
+    #[case::answering_the_stop(
+        "(/bin/sleep 5; echo outlived) & echo ready; read never",
+        ChildEnd::Stop,
+        Signal::SIGTERM
+    )]
     fn pinned_process_stop_kills_a_lasting_child_and_its_group_after_the_grace(
         #[case] script: &str,
         #[case] expected_end: ChildEnd,

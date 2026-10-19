@@ -11,15 +11,14 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use nix::errno::Errno;
-use nix::sys::signal::{Signal, killpg};
-use nix::unistd::Pid;
+use nix::sys::signal::Signal;
 use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
 use polling::{PollMode, Poller};
 
 use crate::child_command::ChildEnd;
 use crate::macos::processes::list_child_process_ids;
 use crate::pinned_process::ProcessRecord;
-use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
+use crate::posix::process_stop::{kill_rest_of_group, stop_pinned_process, wait_for_event};
 
 // The key a stop registers the process's exit filter under, the only source its poller watches.
 const EXIT_KEY: usize = 0;
@@ -159,7 +158,9 @@ impl PinnedProcess {
     /// Stops the process: `SIGTERM` to it, then once `grace` passes without its exit `SIGKILL` to
     /// it, to its whole process group and to every descendant listed before the kill, each signal
     /// naming its process by the id version read with it, so no process given its id meanwhile
-    /// is signaled; blocking, so it runs in `spawn_blocking`. Answers the end that took effect,
+    /// is signaled; the rest of the group is killed on its own exit too, unless its id has since
+    /// passed to another process, which happens only once the group has ended. Blocking, so it
+    /// runs in `spawn_blocking`. Answers the end that took effect,
     /// [`ChildEnd::Stop`] for a process already gone; fails with `TimedOut` when it outlives the
     /// kill's bound, else with the system's error.
     pub fn stop(&self, grace: Duration) -> io::Result<ChildEnd> {
@@ -175,15 +176,16 @@ impl PinnedProcess {
     // Sends `signal` to the process; `false` when it has ended. A `SIGKILL` first lists every
     // descendant, since a command a lasting child starts in a session of its own leaves its group,
     // then kills the process, the rest of its group and each descendant, in that order; the group
-    // and the descendants whatever the process answers, since either can outlive it. Fails with
-    // the first error a signal met, once every signal is sent.
+    // and the descendants whatever the process answers, since either can outlive it, the group
+    // unless the process's id has passed to another process. Fails with the first error a signal
+    // met, once every signal is sent.
     fn send_signal(&self, signal: Signal) -> io::Result<bool> {
         if signal != Signal::SIGKILL {
             return self.send_checked_signal(signal);
         }
         let descendants = list_descendants(self);
         let is_running = self.send_checked_signal(signal);
-        let group_end = kill_rest_of_group(self.id);
+        let group_end = self.kill_rest_of_own_group();
         let descendant_ends = descendants
             .iter()
             .map(|descendant| descendant.send_checked_signal(signal).map(|_| ()))
@@ -192,6 +194,16 @@ impl PinnedProcess {
         group_end?;
         descendant_ends?;
         Ok(is_running)
+    }
+
+    // Sends `SIGKILL` to the rest of the group the process leads by its id, unless another process
+    // holds that id, which it takes only once the group has ended; `false` when nothing was
+    // signaled.
+    fn kill_rest_of_own_group(&self) -> io::Result<bool> {
+        if pinned(self.id)?.is_some_and(|holder| holder.unique_id != self.unique_id) {
+            return Ok(false);
+        }
+        kill_rest_of_group(self.id)
     }
 
     // Sends `signal` to the process the id still names, by the id version read in the same check
@@ -251,17 +263,6 @@ fn skip_unreadable_process(id: u32, error: &io::Error) {
         process_id = id,
         "a process the stop lists could not be read, so it is not killed"
     );
-}
-
-// Sends `SIGKILL` to the group process `id` leads, which outlives its leader while any member runs
-// and keeps the id from passing to another process meanwhile; a group that has ended is gone.
-fn kill_rest_of_group(id: u32) -> io::Result<()> {
-    let group = libc::pid_t::try_from(id)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
-    match killpg(Pid::from_raw(group), Signal::SIGKILL) {
-        Ok(()) | Err(Errno::ESRCH) => Ok(()),
-        Err(errno) => Err(io::Error::from(errno)),
-    }
 }
 
 /// The process `record` names, pinned: the same boot, then the same unique id and start time;

@@ -8,15 +8,13 @@ use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::sync::Arc;
 use std::time::Duration;
 
-use nix::errno::Errno;
-use nix::sys::signal::{Signal, killpg};
-use nix::unistd::Pid;
+use nix::sys::signal::Signal;
 use polling::{Event, Poller};
 
 use crate::child_command::ChildEnd;
-use crate::linux::read_process_stat_field;
+use crate::linux::{read_process_file, read_process_stat_field};
 use crate::pinned_process::ProcessRecord;
-use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
+use crate::posix::process_stop::{kill_rest_of_group, stop_pinned_process, wait_for_event};
 
 // The stat file's field holding the process's start, in clock ticks since boot.
 const START_FIELD: usize = 22;
@@ -71,9 +69,11 @@ impl PinnedProcess {
 
     /// Stops the process: `SIGTERM` through its descriptor, so no process given its id meanwhile is
     /// signaled, then `SIGKILL` to it and its whole process group once `grace` passes without its
-    /// exit; blocking, so it runs in `spawn_blocking`. Answers the end that took effect,
-    /// [`ChildEnd::Stop`] for a process already gone; fails with `TimedOut` when it outlives the
-    /// kill's bound, else with the system's error.
+    /// exit; the rest of the group is killed on its own exit too, unless its id has since passed
+    /// to another process, which happens only once the group has ended. Blocking, so it runs in
+    /// `spawn_blocking`. Answers the end that took effect, [`ChildEnd::Stop`] for a process
+    /// already gone; fails with `TimedOut` when it outlives the kill's bound, else with the
+    /// system's error.
     pub fn stop(&self, grace: Duration) -> io::Result<ChildEnd> {
         stop_pinned_process(
             grace,
@@ -86,8 +86,9 @@ impl PinnedProcess {
     // nothing a lasting child started outlives it; `false` when nothing was left to signal. From
     // Linux 6.9 the descriptor's group signal reaches exactly the group, `ESRCH` meaning no member
     // is left; a kernel before 6.9 refuses the group flag with `EINVAL`, so the process is
-    // signaled alone and the rest of its group by its id. Fails with the first error a signal met,
-    // once both are sent.
+    // signaled alone and the rest of its group by its id, unless the process has been reaped and
+    // its id passed to another process, which happens only once the group has ended. Fails with
+    // the first error a signal met, once both are sent.
     fn send_signal(&self, signal: Signal) -> io::Result<bool> {
         if signal != Signal::SIGKILL {
             return self.send_through_descriptor(signal, 0);
@@ -95,13 +96,23 @@ impl PinnedProcess {
         match self.send_through_descriptor(signal, libc::PIDFD_SIGNAL_PROCESS_GROUP) {
             Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {
                 let is_running = self.send_through_descriptor(signal, 0);
-                let group_end = kill_rest_of_group(self.id);
+                let group_end = self.kill_rest_of_own_group();
                 let is_running = is_running?;
                 group_end?;
                 Ok(is_running)
             }
             sent => sent,
         }
+    }
+
+    // Sends `SIGKILL` to the rest of the group the process leads by its id, unless the process has
+    // been reaped and another process holds its id; `false` when nothing was signaled.
+    fn kill_rest_of_own_group(&self) -> io::Result<bool> {
+        let is_reaped = descriptor_process_id(self.descriptor.as_raw_fd())?.is_none();
+        if is_reaped && read_process_file(self.id, "stat")?.is_some() {
+            return Ok(false);
+        }
+        kill_rest_of_group(self.id)
     }
 
     // Sends `signal` through the descriptor with `flags`; `false` when the process has ended.
@@ -134,17 +145,6 @@ impl PinnedProcess {
         // SAFETY: the descriptor is held by `self`, which outlives the poller made in this call.
         unsafe { poller.add(&*self.descriptor, Event::readable(EXIT_KEY)) }?;
         wait_for_event(&poller, bound)
-    }
-}
-
-// Sends `SIGKILL` to the group process `id` leads, which outlives its leader while any member runs
-// and keeps the id from passing to another process meanwhile; a group that has ended is gone.
-fn kill_rest_of_group(id: u32) -> io::Result<()> {
-    let group = libc::pid_t::try_from(id)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
-    match killpg(Pid::from_raw(group), Signal::SIGKILL) {
-        Ok(()) | Err(Errno::ESRCH) => Ok(()),
-        Err(errno) => Err(io::Error::from(errno)),
     }
 }
 

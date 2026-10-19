@@ -65,16 +65,13 @@ impl PinnedProcess {
     }
 
     /// Ends the process, which the caller has already asked to stop by the program's own means:
-    /// waits up to `grace` for its exit, then kills it, with its whole job when it runs in one of
-    /// its own; blocking, so it runs in `spawn_blocking`. Answers the end that took effect; fails
-    /// with `TimedOut` when it outlives the kill's bound, else with the system's error.
+    /// waits up to `grace` for its exit, then kills it. A job of its own is ended whatever the
+    /// process did, its own exit included, since that exit ends nothing else in the job; blocking,
+    /// so it runs in `spawn_blocking`. Answers the end that took effect; fails with `TimedOut` when
+    /// it outlives the kill's bound, else with the system's error.
     pub fn stop(&self, grace: Duration) -> io::Result<ChildEnd> {
         if self.wait_for_exit(grace)? {
-            return Ok(ChildEnd::Stop);
-        }
-        // The creation time read through the open handle confirms the process still runs before
-        // its job is ended.
-        if self.record()?.is_none() {
+            self.terminate_job()?;
             return Ok(ChildEnd::Stop);
         }
         if !self.terminate_job()? {
