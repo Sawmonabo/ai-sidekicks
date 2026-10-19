@@ -41,7 +41,9 @@ use crate::session::run::projection::insert_queued_run_statement;
 use crate::session::run::read::{RunRead, RunStateReader};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::setup_gates::{RunSetupContext, RunSetupGateError, RunTerminalContext};
-use crate::session::run::start_request::{DaemonTurnStartRequest, RunStartRequest, RunTurnStart};
+use crate::session::run::start_request::{
+    DaemonTurnStartRequest, RunContinueRequest, RunStartRequest, RunTurnStart,
+};
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 use crate::uuid_v7::mint_uuid_v7;
 
@@ -83,12 +85,12 @@ impl RunEngine {
             turn:
                 RunTurnStart {
                     run_id,
-                    queue_item,
                     workspace_id,
                     execution_posture,
                     start_driver,
                     interrupt_driver,
                 },
+            queue_item,
             provider,
             output_speed,
             running_statements,
@@ -260,7 +262,6 @@ impl RunEngine {
         self.start_run(RunStartRequest {
             turn: RunTurnStart {
                 run_id,
-                queue_item: None,
                 workspace_id: None,
                 execution_posture,
                 start_driver: Box::new(move |_resolved_posture: ExecutionPosture| {
@@ -268,6 +269,7 @@ impl RunEngine {
                 }),
                 interrupt_driver: Box::new(move || interrupt_turn(run_id)),
             },
+            queue_item: None,
             provider,
             output_speed: None,
             running_statements,
@@ -353,29 +355,32 @@ impl RunEngine {
         Ok(Some(run_id))
     }
 
-    /// Continues the interrupted run `request.run_id` on its next turn: every setup gate again, as
-    /// at a start, the driver's start of the turn with the posture the posture gate resolved, then
-    /// `running` stamped with it; what the provider reports meanwhile waits for that write. A
-    /// gate's or the driver's failure leaves the run interrupted, every terminal hook releasing
-    /// what the gates took for the continue, and is returned; a `running` write that fails once
-    /// the driver started the turn does so after the turn is interrupted. Fails with
-    /// [`RunRefusal::InvalidTransition`] for a run that does not read interrupted or is already
-    /// being continued.
+    /// Continues the interrupted run `request.turn.run_id` on its next turn, admitted from
+    /// `request.queue_item`: every setup gate again, as at a start, the driver's start of the turn
+    /// with the posture the posture gate resolved, then `running` stamped with it; what the
+    /// provider reports meanwhile waits for that write. A gate's or the driver's failure leaves
+    /// the run interrupted, every terminal hook releasing what the gates took for the continue,
+    /// and is returned; a `running` write that fails once the driver started the turn does so
+    /// after the turn is interrupted. Fails with [`RunRefusal::InvalidTransition`] for a run that
+    /// does not read interrupted or is already being continued.
     #[expect(
         dead_code,
         reason = "the queue's drain, which continues an interrupted run on its next message"
     )]
     pub(crate) async fn continue_run(
         &self,
-        request: RunTurnStart,
+        request: RunContinueRequest,
     ) -> Result<RunRead, RunEngineError> {
-        let RunTurnStart {
-            run_id,
+        let RunContinueRequest {
+            turn:
+                RunTurnStart {
+                    run_id,
+                    workspace_id,
+                    execution_posture,
+                    start_driver,
+                    interrupt_driver,
+                },
             queue_item,
-            workspace_id,
-            execution_posture,
-            start_driver,
-            interrupt_driver,
         } = request;
         let run = self.require_run(run_id).await?;
         let entry = {
@@ -406,7 +411,7 @@ impl RunEngine {
                 .assert_run_ready(&RunSetupContext {
                     run_id,
                     session_id: run.session_id,
-                    queue_item,
+                    queue_item: Some(queue_item),
                     workspace_id,
                     execution_posture,
                 })
@@ -695,7 +700,6 @@ mod tests {
         let request = RunStartRequest {
             turn: RunTurnStart {
                 run_id,
-                queue_item: None,
                 workspace_id: None,
                 execution_posture: compose_execution_posture(
                     PermissionLevel::Readonly,
@@ -720,6 +724,7 @@ mod tests {
                     async { Ok::<(), Box<dyn Error + Send + Sync>>(()) }.boxed()
                 }),
             },
+            queue_item: None,
             provider: test_provider(),
             output_speed: None,
             running_statements: None,

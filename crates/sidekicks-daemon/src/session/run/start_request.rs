@@ -1,6 +1,7 @@
 //! What the run engine is handed to start a run: a send's run with its admitted item, or a turn
 //! the daemon or the provider starts on a session as the session's own run; and to continue an
-//! interrupted run on the next message its queue admits, which takes the same turn start.
+//! interrupted run on the next message its queue admits. A start and a continue share how the
+//! run's turn reaches the driver.
 
 use std::error::Error;
 
@@ -19,15 +20,11 @@ use crate::database::statement::WriteStatement;
 /// What a driver's start or interrupt settles to: done, or why it failed.
 type DriverStep = BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>;
 
-/// What a run's start and its continue both take: the run, the item the queue admitted for it, the
-/// workspace its send bound, the posture requested, and the driver's start and interrupt of the
-/// run's turn.
+/// What a run's start and its continue both take: the run, the workspace its send bound, the
+/// posture requested, and the driver's start and interrupt of the run's turn.
 pub(crate) struct RunTurnStart {
     /// The run.
     pub(crate) run_id: RunId,
-    /// The item that starts or continues the run; absent on a turn the daemon or its provider
-    /// starts on a session.
-    pub(crate) queue_item: Option<QueueItemSummary>,
     /// The workspace the send bound the run to; absent where none was named.
     pub(crate) workspace_id: Option<WorkspaceId>,
     /// The posture the run's turn was requested at; the posture gate checks it, and its resolved
@@ -41,12 +38,15 @@ pub(crate) struct RunTurnStart {
     pub(crate) interrupt_driver: Box<dyn Fn() -> DriverStep + Send + Sync>,
 }
 
-/// What the engine's `start_run` needs beside the run's turn start: the provider the run runs on,
-/// the output speed it starts at, and the statements its `running` write carries. A continue keeps
-/// the provider its run ran on and takes the turn start alone.
+/// What the engine's `start_run` needs beside the run's turn start: the item the queue admitted,
+/// the provider the run runs on, the output speed it starts at, and the statements its `running`
+/// write carries.
 pub(crate) struct RunStartRequest {
     /// The run and how its turn reaches the driver.
     pub(crate) turn: RunTurnStart,
+    /// The item that starts the run; absent on a turn the daemon or its provider starts on a
+    /// session.
+    pub(crate) queue_item: Option<QueueItemSummary>,
     /// The provider the run runs on; its settled output speed is read against this one's standard.
     pub(crate) provider: ProviderId,
     /// The output speed the run starts at, held until its provider reports the speed settled.
@@ -54,6 +54,16 @@ pub(crate) struct RunStartRequest {
     /// Builds the statements that go in the run's `running` write, when it is written; a send's
     /// run carries none.
     pub(crate) running_statements: Option<Box<dyn FnOnce() -> Vec<WriteStatement> + Send>>,
+}
+
+/// What the engine's `continue_run` needs: the run's turn start and the item the queue admitted
+/// to continue it, which a press of `Continue` with nothing waiting sends as the person's word. A
+/// continue keeps the provider its run ran on.
+pub(crate) struct RunContinueRequest {
+    /// The run and how its next turn reaches the driver.
+    pub(crate) turn: RunTurnStart,
+    /// The item that continues the run.
+    pub(crate) queue_item: QueueItemSummary,
 }
 
 /// What the engine's `start_daemon_turn` needs: the session whose own run the turn is, the
