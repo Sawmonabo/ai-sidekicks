@@ -18,12 +18,9 @@ use std::sync::Arc;
 
 use windows_sys::Win32::Foundation::{
     DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ALREADY_EXISTS, FALSE, GetLastError, HANDLE,
-    LocalFree, SetLastError, TRUE,
+    SetLastError, TRUE,
 };
-use windows_sys::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
-};
-use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
@@ -41,7 +38,7 @@ use crate::windows::null_device::NULL_DEVICE_PATH;
 use crate::windows::pinned_process::{
     PinnedProcess, current_process, is_process_in_job, read_exit_code,
 };
-use crate::windows::process_user::read_user_sid_text;
+use crate::windows::process_user::UserOnlyDescriptor;
 use crate::windows::wide_text::{refuse_nul, wide_text};
 
 // The start of every lasting child's job name; random bytes follow it.
@@ -191,7 +188,7 @@ fn create_named_job() -> io::Result<(OwnedHandle, String)> {
     let attributes = SECURITY_ATTRIBUTES {
         nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())
             .expect("the attributes' size fits a u32"),
-        lpSecurityDescriptor: descriptor.0,
+        lpSecurityDescriptor: descriptor.as_raw(),
         bInheritHandle: FALSE,
     };
     let mut wide_name = wide_text(OsStr::new(&name))?;
@@ -218,40 +215,6 @@ fn create_named_job() -> io::Result<(OwnedHandle, String)> {
         ));
     }
     Ok((job, name))
-}
-
-/// A security descriptor granting this user, and no one else, every right; freed on drop.
-struct UserOnlyDescriptor(PSECURITY_DESCRIPTOR);
-
-impl UserOnlyDescriptor {
-    // Reads this user's id from the process token and builds the descriptor from its SDDL.
-    fn new() -> io::Result<Self> {
-        let user = read_user_sid_text()?;
-        let mut sddl = wide_text(OsStr::new(&format!("D:P(A;;GA;;;{user})")))?;
-        sddl.push(0);
-        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
-        // SAFETY: the SDDL is a live NUL-ended UTF-16 string, and the call writes a descriptor
-        // it allocates, which `Drop` frees.
-        if unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                sddl.as_ptr(),
-                SDDL_REVISION_1,
-                &raw mut descriptor,
-                std::ptr::null_mut(),
-            )
-        } == FALSE
-        {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(Self(descriptor))
-    }
-}
-
-impl Drop for UserOnlyDescriptor {
-    fn drop(&mut self) {
-        // SAFETY: the descriptor came from the conversion, which allocated it with `LocalAlloc`.
-        unsafe { LocalFree(self.0) };
-    }
 }
 
 // A new handle to what `handle` opens, inheritable, so the attribute list can name it.

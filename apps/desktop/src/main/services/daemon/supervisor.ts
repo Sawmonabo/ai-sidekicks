@@ -117,15 +117,15 @@ export interface DaemonSupervisorOptions {
  * abort of `signal` closes the socket and rejects; a system with no run folder rejects.
  */
 export async function connectMainToDaemon(
-  operatingSystem: Pick<MainOperatingSystem, "resolveDaemonRunFolder">,
+  operatingSystem: Pick<MainOperatingSystem, "platform" | "resolveDaemonRunFolder">,
   observer: DaemonConnectionObserver,
   signal: AbortSignal,
 ): Promise<DaemonClientConnection> {
   return await connectToDaemon({
     runFolder: operatingSystem.resolveDaemonRunFolder({
+      platform: operatingSystem.platform,
       runtimeDirectory: process.env["XDG_RUNTIME_DIR"],
-      temporaryDirectory: os.tmpdir(),
-      userId: os.userInfo().uid,
+      homeDirectory: os.homedir(),
     }),
     maxQueuedValuesPerSubscription: MAIN_SUBSCRIPTION_QUEUE_LIMIT,
     observer,

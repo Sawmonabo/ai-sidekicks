@@ -507,18 +507,36 @@ async fn a_fresh_file_not_of_this_build_or_not_sound_is_refused(#[case] fault: F
             fresh
                 .set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, false)
                 .expect("the test may write the schema");
+            // Both pages are read before either is written, so the swap never reads a page it
+            // already moved and the two indexes never share one.
+            let root_page = |name: &str| -> i64 {
+                fresh
+                    .query_row(
+                        "SELECT rootpage FROM sqlite_schema WHERE name = ?1",
+                        [name],
+                        |row| row.get(0),
+                    )
+                    .expect("the index's page reads")
+            };
+            let event_index_page = root_page("idx_session_events_type");
+            let spare_page = root_page("spare");
             fresh
-                .execute_batch(
-                    "PRAGMA writable_schema = ON;
-                     UPDATE sqlite_schema SET rootpage = CASE name
-                       WHEN 'idx_session_events_type' THEN
-                         (SELECT rootpage FROM sqlite_schema WHERE name = 'spare')
-                       ELSE (SELECT rootpage FROM sqlite_schema
-                              WHERE name = 'idx_session_events_type') END
-                      WHERE name IN ('idx_session_events_type', 'spare');
-                     PRAGMA writable_schema = OFF;",
-                )
-                .expect("the indexes' pages are swapped");
+                .pragma_update(None, "writable_schema", true)
+                .expect("the schema is writable");
+            for (name, page) in [
+                ("idx_session_events_type", spare_page),
+                ("spare", event_index_page),
+            ] {
+                fresh
+                    .execute(
+                        "UPDATE sqlite_schema SET rootpage = ?2 WHERE name = ?1",
+                        (name, page),
+                    )
+                    .expect("the index's page is swapped");
+            }
+            fresh
+                .pragma_update(None, "writable_schema", false)
+                .expect("the schema is read-only again");
         }
     }
     drop(fresh);

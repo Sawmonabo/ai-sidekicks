@@ -32,6 +32,11 @@ use crate::windows::error_codes::win32_code;
 use crate::windows::lasting_child::is_lasting_job_name;
 use crate::windows::wide_text::wide_text;
 
+// The boot every record and identity names: Windows keeps no mark of a boot that a change of the
+// clock leaves alone, so no boot is told apart, and a process's creation time, one instant across
+// boots, alone tells a process from a later one given its id.
+const WINDOWS_BOOT: &str = "windows";
+
 /// The exit code a killed process, or every process of a killed job, is given:
 /// `STATUS_CONTROL_C_EXIT`, the code Windows gives a console program ended by a control event,
 /// which the daemon never sends a lasting child, so after the daemon's kill it marks that kill.
@@ -58,8 +63,8 @@ impl PinnedProcess {
         self.id
     }
 
-    /// The record a later process re-pins this one from: its id, its creation time and its job's
-    /// name; `None` once it has ended. Fails with the system's error.
+    /// The record a later process re-pins this one from: its id, its creation time, the one boot
+    /// Windows records and its job's name; `None` once it has ended. Fails with the system's error.
     pub fn record(&self) -> io::Result<Option<ProcessRecord>> {
         if self.wait_for_exit(Duration::ZERO)? {
             return Ok(None);
@@ -68,7 +73,7 @@ impl PinnedProcess {
             id: self.id,
             start: read_creation_time(self.handle())?,
             started_at: None,
-            boot: None,
+            boot: WINDOWS_BOOT.to_owned(),
             job: self.job.clone(),
         }))
     }
@@ -191,9 +196,13 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 
 /// Ends what is left of the tree `record` names once its process has ended: every process still
 /// in the job a lasting child ran in; `false` when the record names no job, its process still
-/// runs, which its stop ends, or no running process is left in a job of its name. Fails with
+/// runs, which its stop ends, or no running process is left in a job of its name. The job holds
+/// only the child's own tree, so no process in it is told apart by an environment entry. Fails with
 /// `InvalidData` for a job name no lasting child is given, else with the system's error.
-pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
+pub(crate) fn end_recorded_survivors(
+    record: &ProcessRecord,
+    _environment_entry: &str,
+) -> io::Result<bool> {
     let Some(name) = &record.job else {
         return Ok(false);
     };
@@ -350,6 +359,17 @@ pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
     })
 }
 
+/// Process `id` as it runs now, held open with the rights to read its times; `None` when no
+/// process has the id. Fails with the system's error, `ERROR_ACCESS_DENIED` for a process this
+/// user may not read.
+pub fn pin_running_process(id: u32) -> io::Result<Option<PinnedProcess>> {
+    match pin_child_process(id) {
+        Ok(process) => Ok(Some(process)),
+        Err(error) if win32_code(&error) == Some(ERROR_INVALID_PARAMETER) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// This process, held by its id.
 #[cfg(any(test, feature = "test-support"))]
 pub fn this_process() -> PinnedProcess {
@@ -504,7 +524,7 @@ mod tests {
             child.process.stop(Duration::ZERO).expect("the stop reads") == ChildEnd::Stop
         } else {
             child.record.pin().expect("the re-pin reads").is_none()
-                && child.record.end_survivors().expect("the survivors end")
+                && child.record.end_survivors("").expect("the survivors end")
         };
 
         assert!(ended);
@@ -543,7 +563,7 @@ mod tests {
         }
 
         let end = child.process.stop(Duration::ZERO).expect("the stop reads");
-        let is_ended = child.record.end_survivors().expect("the survivors read");
+        let is_ended = child.record.end_survivors("").expect("the survivors read");
         let read_end = child.process.read_end().expect("the exit code reads");
 
         assert_eq!(end, ChildEnd::Stop);

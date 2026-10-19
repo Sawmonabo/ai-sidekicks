@@ -31,6 +31,7 @@ pub(crate) mod pause_point;
 pub mod policy;
 pub mod process_exit;
 pub mod processor_bound;
+pub mod program;
 pub mod provider;
 pub mod pty;
 pub mod queue;

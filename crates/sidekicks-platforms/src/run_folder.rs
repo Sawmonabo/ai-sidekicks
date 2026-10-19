@@ -6,8 +6,8 @@
 use std::io;
 use std::path::PathBuf;
 
-/// The run folder's name, and the start of the names derived from it: the folder in the
-/// temporary folder on macOS and Linux, and the named pipe on Windows.
+/// The run folder's name, and the start of the names derived from it: the folder in the session's
+/// runtime folder on Linux, the application's folder on Windows, and its named pipe.
 pub(crate) const RUN_FOLDER_NAME: &str = "ai-sidekicks";
 
 /// The session token file's name in the run folder.

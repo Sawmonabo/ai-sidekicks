@@ -16,7 +16,7 @@ use std::sync::OnceLock;
 
 use crate::ResponsibleProcess;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
-use crate::macos::pinned_process::pinned;
+use crate::macos::pinned_process::pin_running_process;
 use crate::own_root::OwnRootError;
 use crate::posix::process::id::system_process_id;
 
@@ -311,7 +311,8 @@ fn read_own_root_step(id: u32, has_re_run: bool) -> io::Result<OwnRootStep> {
 /// program when the system names the same program path for both, each read while its process is
 /// pinned. Fails with the system's error.
 fn read_start_responsibility(id: u32) -> io::Result<StartResponsibility> {
-    let this_process = pinned(id)?.ok_or_else(|| io::Error::other("this process has no record"))?;
+    let this_process =
+        pin_running_process(id)?.ok_or_else(|| io::Error::other("this process has no record"))?;
     match read_responsible_process(&this_process)? {
         ResponsibleProcess::ThisProcess | ResponsibleProcess::Itself => {
             Ok(StartResponsibility::Itself)
@@ -401,8 +402,8 @@ fn read_thread_count() -> io::Result<i32> {
 
 /// Runs this test program's test `name` as its own responsible process, a child of this one, and
 /// answers whether it passed and what it wrote to its output.
-#[cfg(test)]
-pub(crate) fn run_test_as_own_root(name: &str) -> (bool, String) {
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn rerun_test_as_own_root(name: &str) -> (bool, String) {
     use std::io::Read as _;
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 
@@ -411,7 +412,7 @@ pub(crate) fn run_test_as_own_root(name: &str) -> (bool, String) {
     let c_string = |text: OsString| CString::new(text.into_vec()).expect("no NUL");
     let arguments = std::iter::once(program.clone().into_os_string())
         .chain(
-            crate::posix::this_test_arguments(name)
+            crate::test_program::this_test_arguments(name)
                 .into_iter()
                 .map(OsString::from),
         )
@@ -473,12 +474,12 @@ mod tests {
 
     use super::{
         OwnRootStart, OwnRootStep, StartResponsibility, is_own_marker, own_root_step,
-        read_own_root_step, read_responsible_id, run_test_as_own_root,
+        read_own_root_step, read_responsible_id, rerun_test_as_own_root,
     };
     use crate::ResponsibleProcess;
     use crate::macos::caller_process::read_responsible_process;
-    use crate::macos::pinned_process::pinned;
-    use crate::posix::this_test_program;
+    use crate::macos::pinned_process::pin_running_process;
+    use crate::test_program::this_test_program;
 
     /// What the stand-in started under an own-root instance of this program prints once it found
     /// it stays under that instance.
@@ -547,7 +548,7 @@ mod tests {
             read_own_root_step(std::process::id(), false).expect("the step reads"),
             OwnRootStep::ReRun
         );
-        let (has_passed, output) = run_test_as_own_root(concat!(
+        let (has_passed, output) = rerun_test_as_own_root(concat!(
             "macos::responsibility::tests::",
             "an_own_root_instance_of_this_program_keeps_what_it_starts_under_it",
         ));
@@ -605,7 +606,7 @@ mod tests {
             .expect("the pipe reads until the exec closes it");
 
         let child_id = u32::try_from(child).expect("a child's id is positive");
-        let process = pinned(child_id)
+        let process = pin_running_process(child_id)
             .expect("the child reads")
             .expect("the child runs");
         assert_eq!(
@@ -627,7 +628,7 @@ mod tests {
             .arg("30")
             .spawn()
             .expect("the plain child starts");
-        let plain_process = pinned(plain.id())
+        let plain_process = pin_running_process(plain.id())
             .expect("the plain child reads")
             .expect("the plain child runs");
         let own_responsible = read_responsible_id(std::process::id())

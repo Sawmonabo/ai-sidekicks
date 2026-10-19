@@ -26,6 +26,12 @@ pub fn create_new_file(path: &Path, _mode: u32) -> io::Result<File> {
     OpenOptions::new().write(true).create_new(true).open(path)
 }
 
+/// Whether the entry at `path` has the mode `mode`: always, since Windows keeps no mode and
+/// [`create_new_file`] takes none. Never fails.
+pub fn has_file_mode(_path: &Path, _mode: u32) -> io::Result<bool> {
+    Ok(true)
+}
+
 /// Renames `from` to `to` in one step, written through to disk before it returns: a file at `to` is
 /// replaced, and a folder at `to` is refused, empty or not. Fails with `InvalidInput` when a path
 /// holds a NUL, or with the system's error, a move across volumes among them.

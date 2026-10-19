@@ -1,15 +1,16 @@
-//! A shell's PTY: how it opens, the environment it hands the `shell` mode, and the confirmation of
-//! the shell's start that stays with it.
+//! A shell's PTY: how it opens through the daemon's `shell` mode, the launch frame the mode reads
+//! after the daemon confirms its start, and the hold on the shell that stays with the PTY.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::PathBuf;
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::{self, Pty};
-use sidekicks_platforms::ShellStartConfirmation;
+use sidekicks_platforms::{ShellContainment, ShellLaunch, ShellStart, ShellStartConfirmation};
+use tokio::runtime::Handle;
+use tokio::task::AbortHandle;
 
 /// A program and the arguments it starts with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,103 +21,156 @@ pub struct CommandLine {
     pub arguments: Vec<String>,
 }
 
-/// What one shell starts as.
+/// One shell the `shell` mode may start: its program, arguments, folder and environment.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SpawnRequest {
-    /// The shell's program.
+pub struct ShellCommand {
+    /// The shell's program: an absolute path, or a bare name looked up on the environment's `PATH`.
     pub program: String,
     /// The arguments the shell's program starts with.
     pub arguments: Vec<String>,
     /// Exactly the shell's environment, in order; a later entry with a name already given wins.
     /// A name is never empty and holds no `=`, and no name or value holds a NUL.
     pub environment: Vec<(String, String)>,
-    /// The folder the PTY spawns the `shell` mode in.
-    pub working_directory: PathBuf,
     /// The folder the `shell` mode starts the shell in.
-    pub shell_folder: PathBuf,
+    pub folder: PathBuf,
     /// Text the shell parses itself, which the `shell` mode writes after the shell's arguments
     /// exactly as given.
     pub raw_command_tail: Option<String>,
+}
+
+/// What one terminal starts as: the shell, and the shell the `shell` mode starts in its place when
+/// the first cannot be started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpawnRequest {
+    /// The shell the person's terminal runs.
+    pub shell: ShellCommand,
+    /// The platform's default shell, started when `shell` cannot be.
+    pub fallback: ShellCommand,
+    /// The folder the PTY spawns the `shell` mode in, one no person removes.
+    pub working_directory: PathBuf,
     /// The terminal's height in rows.
     pub rows: u16,
     /// The terminal's width in columns.
     pub columns: u16,
-    /// The daemon's `shell` mode with its arguments up to its own switches, which starts the
-    /// shell in `shell_folder` with exactly `environment`.
+    /// The daemon's `shell` mode with its arguments, which reads both launches from the daemon
+    /// once the daemon confirms it started the mode.
     pub shell_start: CommandLine,
 }
 
-/// The `shell` mode's switch whose value is the folder it starts the shell in.
-pub const SHELL_FOLDER_SWITCH: &str = "--folder";
+impl SpawnRequest {
+    /// The frame the `shell` mode reads: both launches, each environment with one entry per name.
+    /// Fails with `InvalidInput` for an environment entry the mode could not hand on, a folder that
+    /// is not text, or a launch past the frame's bound.
+    pub(crate) fn launch_frame(&self) -> io::Result<Vec<u8>> {
+        ShellLaunch {
+            shell: shell_start(&self.shell),
+            fallback: shell_start(&self.fallback),
+        }
+        .encode()
+    }
+}
 
-/// The `shell` mode's switch whose value is the text it writes after the shell's arguments
-/// exactly as given.
-pub const RAW_COMMAND_TAIL_SWITCH: &str = "--raw-tail";
+// `command` as the `shell` mode starts it, each name's last value kept in its first place.
+fn shell_start(command: &ShellCommand) -> ShellStart {
+    let mut environment: Vec<(String, String)> = Vec::with_capacity(command.environment.len());
+    let mut position_of_name: HashMap<&str, usize> = HashMap::new();
+    for (name, value) in &command.environment {
+        match position_of_name.entry(name.as_str()) {
+            Entry::Occupied(position) => environment[*position.get()].1.clone_from(value),
+            Entry::Vacant(position) => {
+                position.insert(environment.len());
+                environment.push((name.clone(), value.clone()));
+            }
+        }
+    }
+    ShellStart {
+        program: command.program.clone(),
+        arguments: command.arguments.clone(),
+        raw_command_tail: command.raw_command_tail.clone(),
+        folder: command.folder.clone(),
+        environment,
+    }
+}
 
-/// The end of the `shell` mode's own switches; the shell's program and its arguments follow it.
-pub const END_OF_SHELL_SWITCHES: &str = "--";
+/// The daemon's hold on one shell for its whole life: the end of its start's confirmation, which
+/// the `shell` mode reads only while it is open, the task writing its launch, and on Linux the
+/// cgroup the shell runs in, all released once the shell has ended.
+pub(crate) struct ShellHold {
+    /// The daemon's end of the confirmation that it started the shell's `shell` mode.
+    start_confirmation: ShellStartConfirmation,
+    /// The task writing the launch frame, ended if it still waits once the shell is released.
+    launch_write: Option<AbortHandle>,
+    /// The shell's own containment, which ends what is left of its tree as it drops.
+    _containment: ShellContainment,
+}
 
-/// A shell's open PTY and the daemon's end of its start's confirmation, which the `shell` mode
-/// reads only while that end is open, so the two are released together once the shell has ended.
+impl Drop for ShellHold {
+    fn drop(&mut self) {
+        if let Some(launch_write) = self.launch_write.take() {
+            launch_write.abort();
+        }
+    }
+}
+
+impl ShellHold {
+    /// Starts writing `frame` to the `shell` mode from a task on `runtime`, never on the spawner
+    /// thread, so a launch larger than the socket's buffer waits for the mode's read without
+    /// holding a thread. A failed write is logged; the mode then starts nothing.
+    pub(crate) fn write_launch(&mut self, runtime: &Handle, frame: Vec<u8>) -> io::Result<()> {
+        let _entered = runtime.enter();
+        let writer = self.start_confirmation.launch_writer()?;
+        let task = runtime.spawn(async move {
+            if let Err(error) = writer.write(&frame).await {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a shell's launch did not reach its shell mode"
+                );
+            }
+        });
+        self.launch_write = Some(task.abort_handle());
+        Ok(())
+    }
+}
+
+/// A shell's open PTY and the daemon's hold on it, released together once the shell has ended.
 pub(crate) struct OpenedPty {
     /// The shell's PTY.
     pub(crate) pty: Pty,
-    /// The daemon's end of the confirmation that it started the shell's `shell` mode.
-    pub(crate) start_confirmation: ShellStartConfirmation,
+    /// The confirmation, the launch's writer and the shell's containment.
+    pub(crate) hold: ShellHold,
 }
 
 impl OpenedPty {
     /// Ends the shell's program and releases the PTY, `mark_exited` running once the program has
-    /// exited, then closes the confirmation; blocking, so it runs off the runtime's workers.
+    /// exited, then drops the hold; blocking, so it runs off the runtime's workers.
     pub(crate) fn release(self, mark_exited: impl FnOnce()) {
         sidekicks_platforms::release_terminal(self.pty, mark_exited);
-        drop(self.start_confirmation);
+        drop(self.hold);
     }
 }
 
-/// Opens the shell's PTY and starts its program through the `shell` mode, its switches naming the
-/// shell's folder and any raw tail before the shell's program, confirming to the mode that the
-/// daemon started it; blocking, so it runs on the daemon's spawner thread, which starts no other
-/// child between the confirmation's opening and its writing. Fails with `InvalidInput` for an
-/// environment entry with an empty name, an `=` in its name or a NUL, or a shell folder that is not
-/// text, with `NotADirectory` when the mode's or the shell's folder is not a folder, and with the
+/// Opens the shell's PTY and starts the daemon's `shell` mode in it, in `working_directory`, then
+/// confirms to the mode that the daemon started it and moves it into its own containment, before
+/// any launch is written; blocking, so it runs on the daemon's spawner thread, which starts no
+/// other child between the confirmation's opening and its writing, inside `runtime`, which the
+/// confirmation's pipe registers with on Windows. Fails with `NotADirectory` when the mode's
+/// folder is not a folder, with `InvalidInput` when the system reports no process id, and with the
 /// system's error when the terminal cannot be opened, the program started or its start confirmed;
 /// a start not confirmed ends the program.
-pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<OpenedPty> {
-    check_environment(&request.environment)?;
-    for folder in [&request.working_directory, &request.shell_folder] {
-        if !folder.is_dir() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotADirectory,
-                format!("{} is not a folder", folder.display()),
-            ));
-        }
+pub(crate) fn open_pty(request: &SpawnRequest, runtime: &Handle) -> io::Result<OpenedPty> {
+    let _entered = runtime.enter();
+    if !request.working_directory.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            format!("{} is not a folder", request.working_directory.display()),
+        ));
     }
-    let shell_folder = request.shell_folder.to_str().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "the shell folder {} is not text",
-                request.shell_folder.display()
-            ),
-        )
-    })?;
-    let mut arguments = request.shell_start.arguments.clone();
-    arguments.extend([SHELL_FOLDER_SWITCH.to_owned(), shell_folder.to_owned()]);
-    if let Some(tail) = &request.raw_command_tail {
-        arguments.extend([RAW_COMMAND_TAIL_SWITCH.to_owned(), tail.clone()]);
-    }
-    arguments.push(END_OF_SHELL_SWITCHES.to_owned());
-    arguments.push(request.program.clone());
-    arguments.extend(request.arguments.iter().cloned());
     let mut start_confirmation = ShellStartConfirmation::new()?;
-    let mut environment = encode_shell_environment(&request.environment);
-    environment.extend(start_confirmation.environment_entry());
     let options = sidekicks_platforms::terminal_options(
         request.shell_start.program.clone(),
-        arguments,
+        request.shell_start.arguments.clone(),
         Some(request.working_directory.clone()),
-        environment,
+        start_confirmation.environment_entry().into_iter().collect(),
     );
     let window_size = WindowSize {
         num_lines: request.rows,
@@ -125,193 +179,32 @@ pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<OpenedPty> {
         cell_height: 0,
     };
     let pty = tty::new(&options, window_size, 0)?;
-    // A system that reports no process id confirms no start.
     let confirmed = sidekicks_platforms::child_process_id(&pty)
-        .map_or(Ok(()), |process_id| start_confirmation.confirm(process_id));
-    if let Err(error) = confirmed {
-        // Closed first, so the mode reads its end closed and refuses, and the release is quick.
-        drop(start_confirmation);
-        sidekicks_platforms::release_terminal(pty, || {});
-        return Err(error);
-    }
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the system reported no process id for the shell mode",
+            )
+        })
+        .and_then(|process_id| {
+            start_confirmation.confirm(process_id)?;
+            Ok(process_id)
+        });
+    let process_id = match confirmed {
+        Ok(process_id) => process_id,
+        Err(error) => {
+            // Closed first, so the mode reads its end closed and refuses, and the release is quick.
+            drop(start_confirmation);
+            sidekicks_platforms::release_terminal(pty, || {});
+            return Err(error);
+        }
+    };
     Ok(OpenedPty {
         pty,
-        start_confirmation,
+        hold: ShellHold {
+            start_confirmation,
+            launch_write: None,
+            _containment: ShellContainment::new(process_id),
+        },
     })
-}
-
-/// Refuses an environment the `shell` mode could not hand on as given: an empty name, an `=`
-/// in a name, or a NUL anywhere.
-fn check_environment(environment: &[(String, String)]) -> io::Result<()> {
-    for (index, (name, value)) in environment.iter().enumerate() {
-        if name.is_empty() || name.contains('=') || name.contains('\0') || value.contains('\0') {
-            // The value may hold a secret, so the error names only the entry.
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "shell environment entry {index} has an empty name, an `=` in its name or \
-                     a NUL"
-                ),
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// The variable that tells the `shell` mode how many environment entries it was handed.
-const SHELL_ENVIRONMENT_COUNT: &str = "SIDEKICKS_SHELL_ENVIRONMENT_COUNT";
-
-/// The start of every variable that carries one entry of a shell's environment to the
-/// `shell` mode; the entry's index in the environment follows it.
-const SHELL_ENVIRONMENT_PREFIX: &str = "SIDEKICKS_SHELL_ENVIRONMENT_";
-
-/// The name of the variable that carries entry `index` of a shell's environment.
-fn shell_environment_name(index: usize) -> String {
-    format!("{SHELL_ENVIRONMENT_PREFIX}{index}")
-}
-
-/// The variables that carry `environment` to the `shell` mode: the count, then one
-/// `NAME=VALUE` each, in order, a later entry's value replacing an earlier one's of the same name
-/// in its place.
-fn encode_shell_environment(environment: &[(String, String)]) -> HashMap<String, String> {
-    let mut resolved: Vec<(&str, &str)> = Vec::with_capacity(environment.len());
-    let mut position_of_name: HashMap<&str, usize> = HashMap::with_capacity(environment.len());
-    for (name, value) in environment {
-        match position_of_name.entry(name.as_str()) {
-            Entry::Occupied(position) => resolved[*position.get()].1 = value.as_str(),
-            Entry::Vacant(position) => {
-                position.insert(resolved.len());
-                resolved.push((name.as_str(), value.as_str()));
-            }
-        }
-    }
-    let count = resolved.len();
-    resolved
-        .into_iter()
-        .enumerate()
-        .map(|(index, (name, value))| (shell_environment_name(index), format!("{name}={value}")))
-        .chain([(SHELL_ENVIRONMENT_COUNT.to_owned(), count.to_string())])
-        .collect()
-}
-
-/// Why the environment the `shell` mode was handed could not be read.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum ShellEnvironmentError {
-    /// No variable says how many entries were handed over.
-    #[error("the shell environment's count is missing")]
-    CountMissing,
-    /// The count is not a decimal number.
-    #[error("the shell environment's count is not a number")]
-    CountInvalid,
-    /// An entry below the count has no variable.
-    #[error("shell environment entry {index} is missing")]
-    IndexMissing {
-        /// The entry's index.
-        index: usize,
-    },
-    /// An entry is not Unicode.
-    #[error("shell environment entry {index} is not Unicode")]
-    NotUnicode {
-        /// The entry's index.
-        index: usize,
-    },
-    /// An entry holds no `=` after its name.
-    #[error("shell environment entry {index} holds no `=` after its name")]
-    NoSeparator {
-        /// The entry's index.
-        index: usize,
-    },
-}
-
-/// Reads a shell's environment, in order, from the variables the daemon handed the `shell`
-/// mode, reading only the entries below the count it was handed, so any other variable, a stray
-/// inherited entry among them, is ignored. Fails when the count is missing or not a number, or an
-/// entry below it is missing, not Unicode or holds no `=`.
-pub fn shell_environment(
-    variables: impl IntoIterator<Item = (OsString, OsString)>,
-) -> Result<Vec<(String, String)>, ShellEnvironmentError> {
-    let variables: HashMap<OsString, OsString> = variables.into_iter().collect();
-    let count = variables
-        .get(OsStr::new(SHELL_ENVIRONMENT_COUNT))
-        .ok_or(ShellEnvironmentError::CountMissing)?
-        .to_str()
-        .and_then(|count| count.parse::<usize>().ok())
-        .ok_or(ShellEnvironmentError::CountInvalid)?;
-    (0..count)
-        .map(|index| {
-            let entry = variables
-                .get(OsStr::new(&shell_environment_name(index)))
-                .ok_or(ShellEnvironmentError::IndexMissing { index })?
-                .to_str()
-                // The value may hold a secret, so the error names only the entry.
-                .ok_or(ShellEnvironmentError::NotUnicode { index })?;
-            let (name, value) = entry
-                .split_once('=')
-                .ok_or(ShellEnvironmentError::NoSeparator { index })?;
-            Ok((name.to_owned(), value.to_owned()))
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-    use std::ffi::OsString;
-    use std::io;
-
-    use super::{
-        ShellEnvironmentError, check_environment, encode_shell_environment, shell_environment,
-        shell_environment_name,
-    };
-
-    #[test]
-    fn the_shell_mode_reads_back_exactly_the_environment_it_was_handed() {
-        let environment = [
-            ("PATH", "/bin"),
-            ("EQUATION", "a=b\nc"),
-            ("PATH", "/usr/bin"),
-            ("LANG", "en_US.UTF-8"),
-        ]
-        .map(|(name, value)| (name.to_owned(), value.to_owned()));
-        let encoded = encode_shell_environment(&environment);
-        let variables = |encoded: &HashMap<String, String>| {
-            encoded
-                .iter()
-                .map(|(name, value)| (OsString::from(name), OsString::from(value)))
-                // An unrelated variable and an entry past the count, as a parent's leftover.
-                .chain([
-                    (OsString::from("HOME"), OsString::from("/home/someone")),
-                    (
-                        OsString::from(shell_environment_name(3)),
-                        OsString::from("STRAY=1"),
-                    ),
-                ])
-                .collect::<Vec<_>>()
-        };
-
-        let decoded = shell_environment(variables(&encoded));
-        let expected = [
-            ("PATH", "/usr/bin"),
-            ("EQUATION", "a=b\nc"),
-            ("LANG", "en_US.UTF-8"),
-        ]
-        .map(|(name, value)| (name.to_owned(), value.to_owned()));
-        assert_eq!(decoded, Ok(expected.to_vec()));
-
-        let mut missing_one = encoded;
-        missing_one.remove(&shell_environment_name(1));
-        assert_eq!(
-            shell_environment(variables(&missing_one)),
-            Err(ShellEnvironmentError::IndexMissing { index: 1 })
-        );
-
-        // An entry the encoding could not carry as given is refused before any shell starts.
-        for (name, value) in [("", "x"), ("A=B", "x"), ("A\0", "x"), ("A", "x\0")] {
-            let refused = check_environment(&[(name.to_owned(), value.to_owned())]);
-            assert_eq!(
-                refused.map_err(|error| error.kind()),
-                Err(io::ErrorKind::InvalidInput)
-            );
-        }
-    }
 }

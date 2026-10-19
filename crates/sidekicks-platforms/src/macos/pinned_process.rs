@@ -16,7 +16,9 @@ use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
 use polling::{PollMode, Poller};
 
 use crate::child_command::ChildEnd;
-use crate::macos::processes::{list_child_process_ids, list_group_process_ids};
+use crate::macos::processes::{
+    list_child_process_ids, list_group_process_ids, read_process_environment,
+};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
@@ -152,7 +154,7 @@ impl PinnedProcess {
             id: self.id,
             start: self.unique_id,
             started_at: Some(started_at),
-            boot: Some(current_boot()?),
+            boot: current_boot()?,
             job: None,
         }))
     }
@@ -203,7 +205,7 @@ impl PinnedProcess {
     // holds that id, which it takes only once the group has ended; `false` when nothing was
     // signaled.
     fn kill_rest_of_own_group(&self) -> io::Result<bool> {
-        if pinned(self.id)?.is_some_and(|holder| holder.unique_id != self.unique_id) {
+        if pin_running_process(self.id)?.is_some_and(|holder| holder.unique_id != self.unique_id) {
             return Ok(false);
         }
         signal_group(self.id, Signal::SIGKILL)
@@ -245,7 +247,8 @@ fn list_descendants(process: &PinnedProcess) -> Vec<PinnedProcess> {
         });
         for child_id in child_ids {
             // A child read once its parent's id passed to another process is no descendant.
-            match pinned(child_id).and_then(|child| Ok((child, is_running(&parent)?))) {
+            match pin_running_process(child_id).and_then(|child| Ok((child, is_running(&parent)?)))
+            {
                 Ok((Some(child), true)) => descendants.push(child),
                 Ok(_) => {}
                 Err(error) => skip_unreadable_process(child_id, &error),
@@ -273,7 +276,7 @@ fn skip_unreadable_process(id: u32, error: &io::Error) {
 /// process. Fails with the system's error, and with `Unsupported` on a macOS without the checked
 /// read.
 pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
-    if record.boot.as_deref() != Some(current_boot()?.as_str()) {
+    if record.boot != current_boot()? {
         return Ok(None);
     }
     let Some(started_at) = read_start_time(record.id, record.start)? else {
@@ -289,46 +292,67 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 }
 
 /// Ends what is left of the group the process `record` names led, once that process has ended: on
-/// the boot it was recorded in, only while no process holds its id and every member of the group
-/// is in its session and started after it, its unique id above the recorded one; `false` when
-/// nothing was ended. Fails with the system's error, and with `Unsupported` on a macOS without the
-/// checked read.
-pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
-    if record.boot.as_deref() != Some(current_boot()?.as_str()) {
+/// the boot it was recorded in and while no process holds its id, each member of the group that is
+/// in its session, started after it, its unique id above the recorded one, and carries
+/// `environment_entry`, killed by its id version; `false` when nothing was ended. A member that
+/// cannot be read or killed is logged and left. Fails with the system's error when the boot or the
+/// group cannot be read, and with `Unsupported` on a macOS without the checked read.
+pub(crate) fn end_recorded_survivors(
+    record: &ProcessRecord,
+    environment_entry: &str,
+) -> io::Result<bool> {
+    if record.boot != current_boot()? {
         return Ok(false);
     }
     // A process holding the id is the recorded one, or a later one, which took the id only once
     // the group's last member had ended.
-    if pinned(record.id)?.is_some() {
+    if pin_running_process(record.id)?.is_some() {
         return Ok(false);
     }
-    let mut has_members = false;
+    let mut is_any_ended = false;
     for member_id in list_group_process_ids(record.id)? {
-        // A member that ends between the list and its reads is no survivor, and its session is
-        // read between two reads of its unique id, so it is that process's.
-        let Some(member) = pinned(member_id)? else {
-            continue;
-        };
-        let raw_member = system_process_id(member_id)?.get();
-        let session = match getsid(Some(Pid::from_raw(raw_member))) {
-            Ok(session) => session,
-            Err(Errno::ESRCH) => continue,
-            Err(errno) => return Err(io::Error::from(errno)),
-        };
-        if !is_running(&member)? {
-            continue;
+        match end_survivor(record, member_id, environment_entry) {
+            Ok(is_ended) => is_any_ended |= is_ended,
+            Err(error) => tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                process_id = member_id,
+                "a process left in an ended child's group could not be read or killed"
+            ),
         }
-        if u32::try_from(session.as_raw()).ok() != Some(record.id)
-            || member.unique_id <= record.start
-        {
-            return Ok(false);
-        }
-        has_members = true;
     }
-    if !has_members {
+    Ok(is_any_ended)
+}
+
+// Kills group member `member_id` when it is a survivor of `record`'s group carrying
+// `environment_entry`: pinned first, its session and environment read between reads of its unique
+// id, so both are the pinned process's own; `false` when it is no such survivor.
+fn end_survivor(
+    record: &ProcessRecord,
+    member_id: u32,
+    environment_entry: &str,
+) -> io::Result<bool> {
+    // A member that ends between the list and its reads is no survivor.
+    let Some(member) = pin_running_process(member_id)? else {
+        return Ok(false);
+    };
+    if member.unique_id <= record.start {
         return Ok(false);
     }
-    signal_group(record.id, Signal::SIGKILL)
+    let raw_member = system_process_id(member_id)?.get();
+    let session = match getsid(Some(Pid::from_raw(raw_member))) {
+        Ok(session) => session,
+        Err(Errno::ESRCH) => return Ok(false),
+        Err(errno) => return Err(io::Error::from(errno)),
+    };
+    let carries_entry = read_process_environment(member_id)?
+        .is_some_and(|environment| environment.iter().any(|entry| entry == environment_entry));
+    if !is_running(&member)?
+        || u32::try_from(session.as_raw()).ok() != Some(record.id)
+        || !carries_entry
+    {
+        return Ok(false);
+    }
+    member.send_checked_signal(Signal::SIGKILL)
 }
 
 // The start time of process `id` in microseconds since the epoch, read only while `unique_id`
@@ -382,7 +406,7 @@ fn current_boot() -> io::Result<String> {
 /// its id meanwhile. Fails with `ESRCH` when the system has no record of it, else with the
 /// system's error.
 pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
-    pinned(id)?.ok_or_else(|| io::Error::from(Errno::ESRCH))
+    pin_running_process(id)?.ok_or_else(|| io::Error::from(Errno::ESRCH))
 }
 
 /// A `kqueue` exit filter on one process, or nothing to watch when the process was already
@@ -429,14 +453,14 @@ pub(crate) fn is_running(process: &PinnedProcess) -> io::Result<bool> {
 /// This process, pinned.
 #[cfg(any(test, feature = "test-support"))]
 pub fn this_process() -> PinnedProcess {
-    pinned(std::process::id())
+    pin_running_process(std::process::id())
         .expect("this process reads its own record")
         .expect("this process runs")
 }
 
 /// Process `id`, pinned as it runs now; `None` for an id of 0 or past `i32::MAX`, or when no
 /// process has the id.
-pub(crate) fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
+pub fn pin_running_process(id: u32) -> io::Result<Option<PinnedProcess>> {
     Ok(
         read_unique_identifiers(id, COMPARE_NOTHING, 0)?.map(|identifiers| PinnedProcess {
             id,

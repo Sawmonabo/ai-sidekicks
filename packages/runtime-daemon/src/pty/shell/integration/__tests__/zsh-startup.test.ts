@@ -27,21 +27,21 @@ function appFile(fileName: string): string {
 }
 
 // An account's run folder as the daemon resolves it where no session runtime folder is set.
-function makeRunFolder(temporaryDirectory: string, userId: number): string {
+function makeRunFolder(homeDirectory: string): string {
   const { folderPath } = resolveDaemonRunFolder({
+    platform: "darwin",
     runtimeDirectory: undefined,
-    temporaryDirectory,
-    userId,
+    homeDirectory,
   });
-  mkdirSync(folderPath, { mode: 0o700 });
+  mkdirSync(folderPath, { recursive: true, mode: 0o700 });
   return folderPath;
 }
 
 describe.skipIf(process.platform === "win32")("prepareZshStartupFolder", () => {
   it("gives each account its own folder, closed to others, holding the app's files", async () => {
     scratch = mkdtempSync(path.join(tmpdir(), "zsh-startup-"));
-    const firstRunFolder = makeRunFolder(scratch, 1001);
-    const secondRunFolder = makeRunFolder(scratch, 1002);
+    const firstRunFolder = makeRunFolder(path.join(scratch, "first"));
+    const secondRunFolder = makeRunFolder(path.join(scratch, "second"));
     // A folder left open by an earlier start, holding a file an older app wrote.
     mkdirSync(path.join(firstRunFolder, "zsh"), { mode: 0o755 });
     writeFileSync(path.join(firstRunFolder, "zsh", ".zshrc"), "# an older app's file\n");

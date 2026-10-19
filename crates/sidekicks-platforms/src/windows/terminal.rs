@@ -37,8 +37,6 @@ use windows_sys::w;
 
 #[cfg(any(test, feature = "test-support"))]
 use crate::shell_folder_start::windows::quote_powershell_literal;
-#[cfg(any(test, feature = "test-support"))]
-use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
@@ -601,33 +599,6 @@ extern "system" fn ignore_console_control(_control_type: u32) -> BOOL {
     TRUE
 }
 
-/// The `shell` mode's stand-in tests open shells through: `cmd.exe`, which reads its own command
-/// line, runs the program after the mode's ` -- ` with the environment it was given, and ignores
-/// the rest of the line. It stays in the folder it was spawned in and passes on no raw tail, so a
-/// test spawns it in the shell's folder. Each word holds no space, so none is quoted, and the
-/// caret keeps the line's own ` -- ` out of the pattern that finds the mode's.
-#[cfg(any(test, feature = "test-support"))]
-pub fn pass_through_start() -> TestProgram {
-    TestProgram {
-        program: "cmd.exe".to_owned(),
-        arguments: [
-            "/d",
-            "/v:on",
-            "/c",
-            "set",
-            "rest=!CMDCMDLINE:*",
-            "-^-",
-            "=!",
-            "&",
-            "!rest!",
-            "&",
-            "rem",
-        ]
-        .map(str::to_owned)
-        .to_vec(),
-    }
-}
-
 /// A shell that prints `text` on a line of its own and exits with code 0.
 #[cfg(any(test, feature = "test-support"))]
 pub fn echo_program(text: &str) -> TestProgram {
@@ -739,13 +710,10 @@ pub fn key_stopped_printer() -> TestProgram {
     }
 }
 
-/// A shell that prints `unconfirmed` when its environment names no end of the daemon's
-/// confirmation of its start, which Windows never confirms, and otherwise `confirmed`.
+/// A shell that prints the folder it runs in, then its whole environment, one `NAME=value` a line.
 #[cfg(any(test, feature = "test-support"))]
-pub fn start_confirmation_reader() -> TestProgram {
-    shell_script(&format!(
-        "if defined {SHELL_START_CONFIRMATION} (echo confirmed) else (echo unconfirmed)"
-    ))
+pub fn launch_printer() -> TestProgram {
+    shell_script("cd & set")
 }
 
 #[cfg(any(test, feature = "test-support"))]

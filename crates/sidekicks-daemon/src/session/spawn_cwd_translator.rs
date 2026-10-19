@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::{ShellFolderStart, shell_folder_start};
-use sidekicks_terminal::SpawnRequest;
+use sidekicks_terminal::{ShellCommand, SpawnRequest};
 
 /// How the worktree path is carried to a start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,10 +39,11 @@ pub enum SpawnCwdError {
     },
 }
 
-/// `request`, whose `shell_folder` is the worktree, started per `strategy`, `stable_parent` the
-/// folder a start that is told its worktree another way spawns in; the program, arguments,
-/// environment, both folders and the raw tail are the start's answer, applied whole. Fails with
-/// [`SpawnCwdError`] on an empty `stable_parent` or a worktree path that is not UTF-8.
+/// `request`, whose shell's and fallback's folder is the worktree, each started per `strategy`,
+/// `stable_parent` the folder a start that is told its worktree another way spawns in; each
+/// launch's program, arguments, environment, folder and raw tail are its start's answer, applied
+/// whole, and the `shell` mode spawns where the shell's start says. Fails with [`SpawnCwdError`]
+/// on an empty `stable_parent` or a worktree path that is not UTF-8.
 pub fn translate_spawn_cwd(
     request: SpawnRequest,
     strategy: SpawnCwdStrategy,
@@ -51,22 +52,37 @@ pub fn translate_spawn_cwd(
     if stable_parent.as_os_str().is_empty() {
         return Err(SpawnCwdError::EmptyStableParent);
     }
-    let SpawnRequest {
+    let (shell, spawn_folder) = translate_command(request.shell, strategy, stable_parent)?;
+    let (fallback, _) = translate_command(request.fallback, strategy, stable_parent)?;
+    Ok(SpawnRequest {
+        shell,
+        fallback,
+        working_directory: spawn_folder,
+        ..request
+    })
+}
+
+// `command`, whose folder is the worktree, started per `strategy`, and the folder its start spawns
+// the `shell` mode in.
+fn translate_command(
+    command: ShellCommand,
+    strategy: SpawnCwdStrategy,
+    stable_parent: &Path,
+) -> Result<(ShellCommand, PathBuf), SpawnCwdError> {
+    let ShellCommand {
         program,
         arguments,
         mut environment,
-        shell_folder,
-        rows,
-        columns,
-        shell_start,
+        folder,
         ..
-    } = request;
-    let folder = shell_folder
-        .into_os_string()
-        .into_string()
-        .map_err(|folder| SpawnCwdError::FolderNotText {
-            folder: PathBuf::from(folder),
-        })?;
+    } = command;
+    let folder =
+        folder
+            .into_os_string()
+            .into_string()
+            .map_err(|folder| SpawnCwdError::FolderNotText {
+                folder: PathBuf::from(folder),
+            })?;
     let start = match strategy {
         SpawnCwdStrategy::ShellFolder => {
             shell_folder_start(&program, &arguments, &folder, stable_parent)
@@ -81,17 +97,16 @@ pub fn translate_spawn_cwd(
         },
     };
     environment.extend(start.added_environment);
-    Ok(SpawnRequest {
-        program: start.program,
-        arguments: start.arguments,
-        environment,
-        working_directory: start.spawn_folder,
-        shell_folder: start.shell_folder,
-        raw_command_tail: start.raw_command_tail,
-        rows,
-        columns,
-        shell_start,
-    })
+    Ok((
+        ShellCommand {
+            program: start.program,
+            arguments: start.arguments,
+            environment,
+            folder: start.shell_folder,
+            raw_command_tail: start.raw_command_tail,
+        },
+        start.spawn_folder,
+    ))
 }
 
 #[cfg(test)]
@@ -99,23 +114,30 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use sidekicks_platforms::shell_folder_start;
-    use sidekicks_terminal::{CommandLine, SpawnRequest};
+    use sidekicks_terminal::{CommandLine, ShellCommand, SpawnRequest};
 
     use super::{SpawnCwdStrategy, translate_spawn_cwd};
 
     const WORKTREE: &str = "/work/it's 100%";
 
-    fn request(program: &str, arguments: &[String], environment: &[(&str, &str)]) -> SpawnRequest {
-        SpawnRequest {
+    fn command(program: &str, arguments: &[String], environment: &[(&str, &str)]) -> ShellCommand {
+        ShellCommand {
             program: program.to_owned(),
             arguments: arguments.to_vec(),
             environment: environment
                 .iter()
                 .map(|&(name, value)| (name.to_owned(), value.to_owned()))
                 .collect(),
-            working_directory: PathBuf::from(WORKTREE),
-            shell_folder: PathBuf::from(WORKTREE),
+            folder: PathBuf::from(WORKTREE),
             raw_command_tail: None,
+        }
+    }
+
+    fn request(program: &str, arguments: &[String], environment: &[(&str, &str)]) -> SpawnRequest {
+        SpawnRequest {
+            shell: command(program, arguments, environment),
+            fallback: command("/bin/sh", &[], environment),
+            working_directory: PathBuf::from(WORKTREE),
             rows: 24,
             columns: 80,
             shell_start: CommandLine {
@@ -148,20 +170,25 @@ mod tests {
         let folder_start = shell_folder_start("pwsh.exe", &arguments, WORKTREE, stable);
         let mut shell_environment = vec![("PATH".to_owned(), "/usr/bin".to_owned())];
         shell_environment.extend(folder_start.added_environment);
-        let mut expected_shell = request(&folder_start.program, &folder_start.arguments, &[]);
-        expected_shell.environment = shell_environment;
-        expected_shell.working_directory = folder_start.spawn_folder;
-        expected_shell.shell_folder = folder_start.shell_folder;
-        expected_shell.raw_command_tail = folder_start.raw_command_tail;
-        let mut expected_agent = request(
+        let expected_shell = ShellCommand {
+            program: folder_start.program,
+            arguments: folder_start.arguments,
+            environment: shell_environment,
+            folder: folder_start.shell_folder,
+            raw_command_tail: folder_start.raw_command_tail,
+        };
+        let mut expected_agent = command(
             "git",
             &arguments,
             &[("PATH", "/usr/bin"), ("CWD", WORKTREE)],
         );
-        expected_agent.working_directory = stable.to_path_buf();
-        expected_agent.shell_folder = stable.to_path_buf();
+        expected_agent.folder = stable.to_path_buf();
+        assert_eq!(shell.shell, expected_shell);
+        assert_eq!(shell.working_directory, folder_start.spawn_folder);
         assert_ne!(shell.working_directory, Path::new(WORKTREE));
-        assert_eq!(shell, expected_shell);
-        assert_eq!(agent, expected_agent);
+        assert_eq!(agent.shell, expected_agent);
+        assert_eq!(agent.working_directory, stable);
+        // The fallback is told its worktree the same way as the shell.
+        assert_eq!(agent.fallback.folder, stable);
     }
 }

@@ -33,6 +33,9 @@ use tracing_subscriber::util::{SubscriberInitExt, TryInitError};
 // The folder in the data folder that holds the service log files.
 const SERVICE_LOG_FOLDER_NAME: &str = "logs";
 
+/// The folder in the data folder that holds the service's crash reports, one file per crash.
+pub(crate) const CRASH_REPORTS_FOLDER_NAME: &str = "crash-reports";
+
 // The most bytes one file holds before the next is begun: 16 MiB, so each file stays small enough
 // to open and to delete whole; at ordinary rates the day turns a file first.
 const SERVICE_LOG_FILE_BYTE_CEILING: u64 = 16 * 1024 * 1024;
@@ -155,6 +158,13 @@ impl ServiceLogGuard {
 impl ServiceLogFiles {
     /// The file the service log holds open now, which the expiry never deletes; `None` once the
     /// file has failed or when it never opened.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the diagnostic-log expiry leaves the live file alone"
+        )
+    )]
     pub(crate) fn live_file(&self) -> Option<PathBuf> {
         let file = lock(self.sides.file.as_ref()?);
         file.is_open.then(|| file.live_file.clone())

@@ -97,11 +97,8 @@ export function useDaemonFolders(): void {
     const runtimeDirectory = path.join(scratch, "run");
     await mkdir(homeDirectory);
     await mkdir(runtimeDirectory, { mode: 0o700 });
-    runFolder = resolveDaemonRunFolder({
-      runtimeDirectory,
-      temporaryDirectory: os.tmpdir(),
-      userId: os.userInfo().uid,
-    });
+    // The Linux rule, which puts the folder straight under the scratch runtime folder.
+    runFolder = resolveDaemonRunFolder({ platform: "linux", runtimeDirectory, homeDirectory });
   });
 
   afterEach(async () => {

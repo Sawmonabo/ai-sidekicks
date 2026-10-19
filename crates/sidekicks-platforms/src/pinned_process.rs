@@ -20,9 +20,10 @@ pub(crate) const KILL_WAIT_BOUND: Duration = Duration::from_secs(10);
 /// What a later process re-pins a process from, kept as JSON: its id and the system's marks of
 /// that process's start, which no later process given the same id carries (on macOS its unique id,
 /// start time and boot UUID; on Linux its start in clock ticks since boot and the boot's id; on
-/// Windows its creation time, one instant across boots, and its job's name). The process's exit
-/// never ends the group it leads or the job it runs in, so what it started is ended by its stop,
-/// or through the record once it is gone.
+/// Windows its creation time, one instant across boots, and its job's name, its boot one fixed
+/// word, since Windows keeps no boot mark a change of the clock leaves alone).
+/// The process's exit never ends the group it leads or the job it runs in, so what it started is
+/// ended by its stop, or through the record once it is gone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProcessRecord {
@@ -35,9 +36,9 @@ pub struct ProcessRecord {
     /// Its start time in microseconds since the epoch, on macOS; `None` elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) started_at: Option<u64>,
-    /// The id of the boot it started in, on macOS and Linux; `None` on Windows.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) boot: Option<String>,
+    /// The boot it started in: macOS's boot session UUID, Linux's boot id, one fixed word on
+    /// Windows.
+    pub(crate) boot: String,
     /// The name of the job of its own a lasting child runs in, on Windows; `None` elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) job: Option<String>,
@@ -60,15 +61,15 @@ impl ProcessRecord {
     }
 
     /// Ends what the record's process started that outlived it, for a record [`Self::pin`]
-    /// answered `None` for, before a fresh lasting child is started: on Windows what is left in the
-    /// job the record names, on macOS and Linux the group the process led, on its boot, while no
-    /// process holds its id and every member is in its session and started no earlier than it;
-    /// `true` when something was ended.
-    /// Fails with the system's error, on macOS with `Unsupported` where the system has no
-    /// id-checked process read, and on Windows with `InvalidData` for a job name no lasting child
-    /// is given.
-    pub fn end_survivors(&self) -> io::Result<bool> {
-        end_recorded_survivors(self)
+    /// answered `None` for: on Windows what is left in the job the record names; on macOS and
+    /// Linux, on its boot and while no process holds its id, each member of the group the process
+    /// led that is in its session, started no earlier than it and carries `environment_entry`
+    /// (`NAME=value`), so a group a stranger took the id for is left alone; `true` when something
+    /// was ended. A member that cannot be read or killed is logged and left. Fails with the
+    /// system's error, on macOS with `Unsupported` where the system has no id-checked process read,
+    /// and on Windows with `InvalidData` for a job name no lasting child is given.
+    pub fn end_survivors(&self, environment_entry: &str) -> io::Result<bool> {
+        end_recorded_survivors(self, environment_entry)
     }
 }
 
@@ -100,8 +101,8 @@ mod tests {
         assert_eq!(one.map(|record| record.id).ok(), Some(1));
     }
 
-    // Fails when a re-pin compares the id alone, or leaves out the start time or the boot, which
-    // takes a record of another process or another boot.
+    // Fails when a re-pin compares the id alone, or on macOS and Linux leaves out the start time
+    // or the boot, which takes a record of another process or another boot.
     #[test]
     fn pinned_process_record_re_pins_the_same_process_and_nothing_else() {
         let mut command = std::process::Command::new(sleeper_program());
@@ -116,23 +117,22 @@ mod tests {
         let stored = serde_json::to_string(&record).expect("the record writes as JSON");
         let read: ProcessRecord = serde_json::from_str(&stored).expect("the record reads back");
         let re_pinned = read.pin().expect("the re-pin reads");
-        let others = [
-            ProcessRecord {
-                start: record.start + 1,
-                ..record.clone()
-            },
-            ProcessRecord {
-                started_at: Some(record.started_at.map_or(1, |started_at| started_at + 1)),
-                ..record.clone()
-            },
-            ProcessRecord {
-                boot: Some(format!(
-                    "{}-another",
-                    record.boot.as_deref().unwrap_or("boot")
-                )),
-                ..record
-            },
-        ];
+        let changed = |change: &dyn Fn(&mut ProcessRecord)| {
+            let mut other = record.clone();
+            change(&mut other);
+            other
+        };
+        let mut others = vec![changed(&|other| other.start += 1)];
+        // Windows pins by the creation time alone, one instant across boots.
+        if cfg!(unix) {
+            others.extend([
+                changed(&|other| {
+                    other.started_at =
+                        Some(other.started_at.map_or(1, |started_at| started_at + 1));
+                }),
+                changed(&|other| other.boot.push_str("-another")),
+            ]);
+        }
         let re_pinned_others = others
             .iter()
             .map(|other| other.pin().expect("the re-pin reads").is_some())
@@ -141,12 +141,44 @@ mod tests {
         child.kill().expect("the test ends its own child");
         child.wait().expect("the child is reaped");
         assert_eq!(re_pinned.map(|process| process.id()), Some(child.id()));
-        assert_eq!(re_pinned_others, [false, false, false]);
+        assert_eq!(re_pinned_others, vec![false; others.len()]);
     }
 
-    // Fails when a record ends a group without checking each member's start, or while a process
-    // holds its id, or on another boot, any of which kills a group the record does not name; or
-    // leaves the group of its ended process running, whose output then stays open.
+    // The entry every survivor of a test's group carries, and one no process here carries.
+    #[cfg(unix)]
+    const SURVIVOR_ENTRY: (&str, &str) = ("SIDEKICKS_SURVIVOR_TEST", "own");
+    #[cfg(unix)]
+    const OWN_ENTRY: &str = "SIDEKICKS_SURVIVOR_TEST=own";
+    #[cfg(unix)]
+    const ANOTHER_ENTRY: &str = "SIDEKICKS_SURVIVOR_TEST=another";
+
+    // The survivor's stand-in: this test program, which waits; macOS hides the environment of its
+    // own programs, so a system program could not show the entry.
+    #[cfg(unix)]
+    const SURVIVOR_STAND_IN: &str = "pinned_process::tests::a_survivor_that_waits";
+
+    // What the survivor's stand-in writes to the group's output once it runs.
+    #[cfg(unix)]
+    const SURVIVOR_LINE: &[u8] = b"waiting\n";
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "run only as a group test's survivor"]
+    fn a_survivor_that_waits() {
+        use std::io::Write as _;
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open("/dev/fd/3")
+            .and_then(|mut output| output.write_all(SURVIVOR_LINE))
+            .expect("the survivor writes that it runs");
+        std::thread::sleep(std::time::Duration::from_secs(60));
+    }
+
+    // Fails when a record ends a group without checking each member's start or its environment
+    // entry, or while a process holds its id, or on another boot, any of which kills a group the
+    // record does not name; or leaves the group of its ended process running, whose output then
+    // stays open.
     #[cfg(unix)]
     #[test]
     fn pinned_process_record_ends_the_survivors_of_its_ended_process() {
@@ -159,34 +191,41 @@ mod tests {
             start: 0,
             ..record.clone()
         }
-        .end_survivors()
+        .end_survivors(OWN_ENTRY)
         .expect("the held record's survivors read");
         let is_running = record.pin().expect("the re-pin reads").is_some();
         drop(child.stdin.take());
         child.wait().expect("the child is reaped");
 
         let refusals = [
-            ProcessRecord {
-                start: u64::MAX,
-                ..record.clone()
-            },
-            ProcessRecord {
-                boot: Some("another".to_owned()),
-                ..record.clone()
-            },
+            (
+                ProcessRecord {
+                    start: u64::MAX,
+                    ..record.clone()
+                },
+                OWN_ENTRY,
+            ),
+            (
+                ProcessRecord {
+                    boot: "another".to_owned(),
+                    ..record.clone()
+                },
+                OWN_ENTRY,
+            ),
+            (record.clone(), ANOTHER_ENTRY),
         ]
-        .map(|other| {
+        .map(|(other, entry)| {
             other
-                .end_survivors()
+                .end_survivors(entry)
                 .expect("the other record's survivors read")
         });
         let is_re_pinned = record.pin().expect("the re-pin reads").is_some();
-        let is_group_ended = record.end_survivors().expect("the survivors end");
+        let is_group_ended = record.end_survivors(OWN_ENTRY).expect("the survivors end");
         let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
 
         assert!(!is_held_group_ended);
         assert!(is_running);
-        assert_eq!(refusals, [false, false]);
+        assert_eq!(refusals, [false, false, false]);
         assert!(!is_re_pinned);
         assert!(is_group_ended);
         assert_eq!(rest, Some(Vec::new()));
@@ -207,7 +246,7 @@ mod tests {
         drop(child.stdin.take());
         child.wait().expect("the child is reaped");
 
-        let is_group_ended = record.end_survivors().expect("the survivors read");
+        let is_group_ended = record.end_survivors(OWN_ENTRY).expect("the survivors read");
         signal_group(record.id, Signal::SIGKILL).expect("the test ends its own child's group");
         let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
 
@@ -216,7 +255,8 @@ mod tests {
     }
 
     // A shell that leads a group of its own, in a session of its own when `is_own_session`, and
-    // leaves a child sleeping a minute; answered once it is ready, with its output and record.
+    // leaves the survivor's stand-in waiting with the group's output open and the survivor's
+    // entry in its environment; answered once it is ready, with its output and record.
     #[cfg(unix)]
     fn start_group_leader(
         is_own_session: bool,
@@ -230,13 +270,20 @@ mod tests {
         use std::process::Stdio;
 
         use crate::posix::child_command::prepare_lasting_child_command;
+        use crate::test_program::this_test_arguments;
 
+        // The stand-in keeps the output open on a descriptor of its own, so the test runner's own
+        // lines never reach it, and writes there once it runs.
+        let survivor = format!(
+            "(exec \"$0\" {} 3>&1 >/dev/null 2>&1) & echo ready; read never",
+            this_test_arguments(SURVIVOR_STAND_IN).join(" ")
+        );
         let mut command = tokio::process::Command::new("/bin/sh");
         command
-            .args([
-                "-c",
-                "(/bin/sleep 60; echo outlived) & echo ready; read never",
-            ])
+            .arg("-c")
+            .arg(survivor)
+            .arg(std::env::current_exe().expect("the test program names itself"))
+            .env(SURVIVOR_ENTRY.0, SURVIVOR_ENTRY.1)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped());
         if is_own_session {
@@ -246,11 +293,14 @@ mod tests {
         }
         let mut child = command.as_std_mut().spawn().expect("the child starts");
         let mut output = child.stdout.take().expect("the child's output is piped");
-        let mut ready = [0; 6];
+        // The shell's line and the survivor's arrive in either order.
+        let mut lines = [0; 14];
         output
-            .read_exact(&mut ready)
-            .expect("the child's line reads");
-        assert_eq!(&ready, b"ready\n");
+            .read_exact(&mut lines)
+            .expect("the child's and the survivor's lines read");
+        let mut lines: Vec<&[u8]> = lines.split_inclusive(|byte| *byte == b'\n').collect();
+        lines.sort_unstable();
+        assert_eq!(lines, [&b"ready\n"[..], SURVIVOR_LINE]);
         let record = pin_child_process(child.id())
             .expect("the child pins")
             .record()

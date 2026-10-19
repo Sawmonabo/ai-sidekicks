@@ -34,6 +34,7 @@ import { JSONRPC_VERSION, MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/json
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
+import { supportedPlatform } from "@ai-sidekicks/contracts/platform";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
 
 import { connect } from "../ipc/__fixtures__/local-socket-client.js";
@@ -65,9 +66,9 @@ beforeEach(async () => {
   await mkdir(homeDirectory);
   await mkdir(runtimeDirectory, { mode: 0o700 });
   ({ socketPath, tokenPath } = resolveDaemonRunFolder({
+    platform: supportedPlatform(process.platform),
     runtimeDirectory,
-    temporaryDirectory: os.tmpdir(),
-    userId: os.userInfo().uid,
+    homeDirectory,
   }));
 });
 
@@ -361,11 +362,11 @@ describe("the daemon started from its command", () => {
     async () => {
       // A run folder other accounts can reach, which the start refuses.
       const { folderPath } = resolveDaemonRunFolder({
+        platform: supportedPlatform(process.platform),
         runtimeDirectory,
-        temporaryDirectory: os.tmpdir(),
-        userId: os.userInfo().uid,
+        homeDirectory,
       });
-      await mkdir(folderPath);
+      await mkdir(folderPath, { recursive: true });
       await chmod(folderPath, 0o755);
 
       const daemon = spawnDaemon();

@@ -98,6 +98,21 @@ impl<L: ScreenListener> TerminalScreen<L> {
         }
     }
 
+    /// At most `max` bytes of the output that came after `offset`, read from the scrollback window
+    /// and copying only those bytes; `None` when the window no longer holds the byte at `offset`,
+    /// or `offset` is past the output, so a reader at that cursor has missed output. Empty when
+    /// `offset` is the end of the output.
+    pub fn output_after(&self, offset: u64, max: usize) -> Option<Vec<u8>> {
+        let window_bytes =
+            u64::try_from(self.scrollback.byte_count()).expect("a window's length fits in 64 bits");
+        let window_start = self.output_offset - window_bytes;
+        if offset < window_start || offset > self.output_offset {
+            return None;
+        }
+        let skip = usize::try_from(offset - window_start).expect("a skip within the window fits");
+        Some(self.scrollback.read_range(skip, max))
+    }
+
     /// Adds `output` to the scrollback window and draws it on the screen through `processor`, up
     /// to the end of each question the listener finds and then the answer to it, so every answer
     /// leaves in the order its question was asked.

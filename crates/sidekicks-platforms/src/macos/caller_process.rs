@@ -221,8 +221,8 @@ mod tests {
     use super::{pin_token, read_parent_process, read_peer_process};
     use crate::caller_process::ParentProcess;
     use crate::macos::pinned_process::{
-        AuditToken, COMPARE_NOTHING, PinnedProcess, TOKEN_ID_VERSION, TOKEN_PROCESS_ID, pinned,
-        read_unique_identifiers,
+        AuditToken, COMPARE_NOTHING, PinnedProcess, TOKEN_ID_VERSION, TOKEN_PROCESS_ID,
+        pin_running_process, read_unique_identifiers,
     };
 
     #[test]
@@ -277,7 +277,7 @@ mod tests {
         let mut child = std::process::Command::new("/usr/bin/true")
             .spawn()
             .expect("the child starts");
-        let ended = pinned(child.id())
+        let ended = pin_running_process(child.id())
             .expect("the child reads")
             .expect("the child has not been reaped");
         child.wait().expect("the child is reaped");

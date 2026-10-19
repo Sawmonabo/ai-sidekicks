@@ -45,3 +45,13 @@ pub(crate) fn chat_unsupported(session_id: &SessionId) -> DomainError {
     )
     .with_detail(json!({ "sessionId": session_id }))
 }
+
+/// The refusal of `terminal.open` while the daemon's terminals drain at its stop, so no shell's
+/// terminal can open; `cause` is the terminals' own words.
+pub(crate) fn backend_unavailable(cause: &str) -> DomainError {
+    DomainError::new(
+        "The background service is stopping, so no shell can start.",
+        RefusalCode::TerminalBackendUnavailable,
+    )
+    .with_detail(json!({ "cause": cause }))
+}

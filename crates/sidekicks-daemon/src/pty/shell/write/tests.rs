@@ -11,8 +11,8 @@ use sidekicks_contracts::terminal::{TERMINAL_WRITE_MAX_BYTES, TerminalId};
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_platforms::Spawner;
 use sidekicks_terminal::{
-    CommandLine, OutputFilter, ScreenListener, SpawnRequest, TerminalAnswers, TerminalError,
-    TerminalEvent, TerminalHandle, TerminalOutput, TerminalWriteError, Terminals,
+    CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalAnswers,
+    TerminalError, TerminalEvent, TerminalHandle, TerminalOutput, TerminalWriteError, Terminals,
 };
 use tokio::runtime::Handle;
 
@@ -92,6 +92,17 @@ async fn read_until(output: &mut TerminalOutput, text: &mut String, marker: &str
     .expect("the output holds the marker");
 }
 
+/// The `shell` mode's stand-in's test, which the test shell starts through.
+const SHELL_MODE_STAND_IN: &str =
+    "pty::shell::write::tests::the_shell_mode_stand_in_starts_the_launched_shell";
+
+#[test]
+#[ignore = "run only as the shell mode's stand-in, in a test shell's terminal"]
+fn the_shell_mode_stand_in_starts_the_launched_shell() {
+    let error = sidekicks_platforms::run_shell_start_stand_in();
+    panic!("the stand-in did not start the launched shell: {error:?}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn writes_from_two_connections_and_the_screen_s_answers_reach_the_program_in_admission_order()
 {
@@ -141,23 +152,34 @@ async fn writes_from_two_connections_and_the_screen_s_answers_reach_the_program_
             }),
             is_bracketed_paste_requested: Box::new(|| false),
         },
+        Handle::current(),
     );
 
     let paste: Vec<String> = (b'a'..=b'd')
         .map(|letter| char::from(letter).to_string().repeat(51_200))
         .collect();
     let byte_count = "\x1b[?6c".len() + "one".len() + "two".len() + 4 * 51_200 + "three".len();
-    let start = sidekicks_platforms::pass_through_start();
+    let start = sidekicks_platforms::pass_through_start(SHELL_MODE_STAND_IN);
     let program = sidekicks_platforms::input_recorder(&recorded, byte_count);
+    let shell = ShellCommand {
+        program: program.program,
+        arguments: program.arguments,
+        environment: vec![("TERM".to_owned(), "xterm-256color".to_owned())],
+        folder: folder.path().to_owned(),
+        raw_command_tail: None,
+    };
     let mut spawned = terminals
         .spawn(
             SpawnRequest {
-                program: program.program,
-                arguments: program.arguments,
-                environment: vec![("TERM".to_owned(), "xterm-256color".to_owned())],
+                fallback: ShellCommand {
+                    program: sidekicks_platforms::default_shell()
+                        .to_string_lossy()
+                        .into_owned(),
+                    arguments: Vec::new(),
+                    ..shell.clone()
+                },
+                shell,
                 working_directory: folder.path().to_owned(),
-                shell_folder: folder.path().to_owned(),
-                raw_command_tail: None,
                 rows: 24,
                 columns: 80,
                 shell_start: CommandLine {

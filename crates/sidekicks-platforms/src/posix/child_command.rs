@@ -11,7 +11,7 @@ use std::process::{ExitStatus, Stdio};
 use nix::sys::prctl::set_thp_disable;
 use nix::sys::signal::Signal;
 use nix::unistd::setsid;
-use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
+use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop, ProcessSession};
 use tokio::process::Command;
 
 use crate::child_command::ChildEnd;
@@ -41,6 +41,19 @@ pub fn wrap_child_command(mut command: Command, daemon_pid: u32) -> CommandWrap 
     prepare_child_command(&mut command, daemon_pid);
     let mut wrap = CommandWrap::from(command);
     wrap.wrap(KillOnDrop);
+    wrap
+}
+
+/// Wraps `command` as a child that ends with the daemon `daemon_pid` and leads a session of its
+/// own, so its whole group, what it started included, can be ended at once: prepared as
+/// [`prepare_child_command`] prepares it; `start_kill` on its handle kills the whole group, while
+/// dropping the handle kills the child alone. The caller spawns it on the daemon's spawner thread;
+/// the spawn fails as [`prepare_child_command`] says, or with the system's error when the session
+/// is refused.
+pub fn wrap_session_child_command(mut command: Command, daemon_pid: u32) -> CommandWrap {
+    prepare_child_command(&mut command, daemon_pid);
+    let mut wrap = CommandWrap::from(command);
+    wrap.wrap(ProcessSession).wrap(KillOnDrop);
     wrap
 }
 

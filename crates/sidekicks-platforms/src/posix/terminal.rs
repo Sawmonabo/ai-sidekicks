@@ -27,8 +27,6 @@ use tokio::io::unix::AsyncFd;
 use crate::posix::process::exit::wait_for_exit;
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
-#[cfg(any(test, feature = "test-support"))]
-use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
@@ -605,21 +603,6 @@ fn posix_signal(signal: TerminalSignal) -> Signal {
     }
 }
 
-/// The `shell` mode's stand-in tests open shells through: `/bin/sh`, which enters the folder
-/// after the mode's `--folder`, then runs the program after the mode's `--` with the environment it
-/// was given.
-#[cfg(any(test, feature = "test-support"))]
-pub fn pass_through_start() -> TestProgram {
-    TestProgram {
-        program: "/bin/sh".to_owned(),
-        arguments: vec![
-            "-c".to_owned(),
-            r#"cd "$2" && shift 3 && exec "$@""#.to_owned(),
-            "shell-stand-in".to_owned(),
-        ],
-    }
-}
-
 /// A shell that prints `text` on a line of its own and exits with code 0.
 #[cfg(any(test, feature = "test-support"))]
 pub fn echo_program(text: &str) -> TestProgram {
@@ -704,15 +687,10 @@ pub fn key_stopped_printer() -> TestProgram {
     )
 }
 
-/// A shell that prints `unconfirmed` when its environment names no end of the daemon's
-/// confirmation of its start, and otherwise `confirmed <id> started <its own process id>`, where
-/// `<id>` is the process id read from that end.
+/// A shell that prints the folder it runs in, then its whole environment, one `NAME=value` a line.
 #[cfg(any(test, feature = "test-support"))]
-pub fn start_confirmation_reader() -> TestProgram {
-    shell_script(&format!(
-        "end=${SHELL_START_CONFIRMATION}; if [ -z \"$end\" ]; then echo unconfirmed; else \
-         id=$(eval \"od -An -tu4 -N4 <&$end\" | tr -d ' '); echo \"confirmed $id started $$\"; fi"
-    ))
+pub fn launch_printer() -> TestProgram {
+    shell_script("pwd -P; env")
 }
 
 #[cfg(any(test, feature = "test-support"))]

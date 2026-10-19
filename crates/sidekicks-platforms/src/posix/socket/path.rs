@@ -1,10 +1,13 @@
-//! A local socket's path checked against `sun_path` on macOS and Linux, before a bind.
+//! A local socket's path checked against `sun_path` on macOS and Linux, and what stands there read,
+//! before a bind.
 
+use std::io;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::SocketAddr;
 use std::path::Path;
 
-use crate::socket::path::SocketPathRefused;
+use crate::socket::path::{SocketPathEntry, SocketPathRefused};
 
 // The longest path a socket address holds: `sun_path`'s bytes less the NUL that ends it. Neither
 // system pads the struct, so `sun_path` runs from its offset to the end: 104 bytes on macOS, 108 on
@@ -28,13 +31,24 @@ pub fn check_socket_path(path: &Path) -> Result<(), SocketPathRefused> {
     Ok(())
 }
 
+/// What stands at `path`, read with one `lstat` that never follows a link. Fails with the stat's
+/// error other than `NotFound`.
+pub fn read_socket_path_entry(path: &Path) -> io::Result<SocketPathEntry> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_socket() => Ok(SocketPathEntry::Socket),
+        Ok(_) => Ok(SocketPathEntry::Other),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(SocketPathEntry::Absent),
+        Err(error) => Err(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::net::UnixListener;
 
-    use super::check_socket_path;
-    use crate::socket::path::SocketPathRefused;
+    use super::{check_socket_path, read_socket_path_entry};
+    use crate::socket::path::{SocketPathEntry, SocketPathRefused};
 
     // Written out rather than read from the struct, so a wrong measure of `sun_path` fails here.
     const EXPECTED_LIMIT: usize = if cfg!(target_os = "macos") { 103 } else { 107 };
@@ -60,5 +74,28 @@ mod tests {
             ),
             "{refusal:?}"
         );
+    }
+
+    // Fails when the connect probe reads the path unchecked: Linux answers a regular file as
+    // refused, which would remove it, and a dangling link as absent, which would fail every bind.
+    #[test]
+    fn only_a_socket_reads_as_a_socket_and_a_file_or_a_dangling_link_as_something_else() {
+        let scratch = tempfile::tempdir_in("/tmp").expect("a scratch folder");
+        let socket = scratch.path().join("socket");
+        let _listener = UnixListener::bind(&socket).expect("a listener binds");
+        let file = scratch.path().join("file");
+        std::fs::write(&file, b"").expect("the file is written");
+        let link = scratch.path().join("link");
+        std::os::unix::fs::symlink(scratch.path().join("missing"), &link)
+            .expect("the link is made");
+
+        let read = |name: &str| {
+            read_socket_path_entry(&scratch.path().join(name)).expect("the path's entry reads")
+        };
+
+        assert_eq!(read("socket"), SocketPathEntry::Socket);
+        assert_eq!(read("file"), SocketPathEntry::Other);
+        assert_eq!(read("link"), SocketPathEntry::Other);
+        assert_eq!(read("missing"), SocketPathEntry::Absent);
     }
 }

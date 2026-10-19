@@ -6,9 +6,12 @@ use std::time::Duration;
 use alacritty_terminal::event::EventListener;
 use sidekicks_platforms::{Spawner, TestProgram};
 use sidekicks_terminal::{
-    CommandLine, OutputFilter, ScreenListener, SpawnRequest, TerminalAnswers, TerminalEvent,
-    TerminalExit, TerminalOutput, Terminals,
+    CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalAnswers,
+    TerminalEvent, TerminalExit, TerminalOutput, Terminals,
 };
+
+/// The `shell` mode's stand-in's test, which every test shell starts through.
+const SHELL_MODE_STAND_IN: &str = "helpers::the_shell_mode_stand_in_starts_the_launched_shell";
 
 /// The bound on every wait for a test shell's output or exit, so a stalled loop fails the test.
 pub(crate) const OUTPUT_BOUND: Duration = Duration::from_secs(30);
@@ -55,18 +58,30 @@ pub(crate) fn terminals() -> Terminals {
     )
 }
 
-/// A 24 by 80 terminal running `program` in the test's folder, through the platform's
-/// pass-through start.
+/// A 24 by 80 terminal running `program` in the test's folder, through the `shell` mode's
+/// stand-in, the platform's default shell its fallback.
 pub(crate) fn request(program: TestProgram) -> SpawnRequest {
-    let start = sidekicks_platforms::pass_through_start();
+    let start = sidekicks_platforms::pass_through_start(SHELL_MODE_STAND_IN);
     let folder = std::env::current_dir().expect("the test runs in a folder");
+    let environment = vec![("TERM".to_owned(), "xterm-256color".to_owned())];
     SpawnRequest {
-        program: program.program,
-        arguments: program.arguments,
-        environment: vec![("TERM".to_owned(), "xterm-256color".to_owned())],
-        working_directory: folder.clone(),
-        shell_folder: folder,
-        raw_command_tail: None,
+        shell: ShellCommand {
+            program: program.program,
+            arguments: program.arguments,
+            environment: environment.clone(),
+            folder: folder.clone(),
+            raw_command_tail: None,
+        },
+        fallback: ShellCommand {
+            program: sidekicks_platforms::default_shell()
+                .to_string_lossy()
+                .into_owned(),
+            arguments: Vec::new(),
+            environment,
+            folder: folder.clone(),
+            raw_command_tail: None,
+        },
+        working_directory: folder,
         rows: 24,
         columns: 80,
         shell_start: CommandLine {
@@ -74,6 +89,13 @@ pub(crate) fn request(program: TestProgram) -> SpawnRequest {
             arguments: start.arguments,
         },
     }
+}
+
+#[test]
+#[ignore = "run only as the shell mode's stand-in, in a test shell's terminal"]
+fn the_shell_mode_stand_in_starts_the_launched_shell() {
+    let error = sidekicks_platforms::run_shell_start_stand_in();
+    panic!("the stand-in did not start the launched shell: {error:?}");
 }
 
 /// Reads the output through the exit, answering the text and the exit; fails the test when the

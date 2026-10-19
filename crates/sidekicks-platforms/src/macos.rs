@@ -6,6 +6,7 @@
 //! wall-clock timer, the login keychain, the Region setting's locale and hour cycle and the shells
 //! the live test opens on a folder.
 
+pub(crate) mod bash_start;
 pub(crate) mod caller_process;
 pub(crate) mod code_signature;
 pub(crate) mod credential_store;
