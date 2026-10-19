@@ -386,6 +386,7 @@ async fn a_spend_stop_retried_during_a_continue_interrupts_the_continued_run() {
 // a second token interrupt then goes while the first is pending, or none goes once the only
 // interrupt left is another limit's or a failed one.
 #[rstest]
+#[case::token_limit_requested("tokenLimit", "requested", 1)]
 #[case::token_limit_accepted("tokenLimit", "accepted", 1)]
 #[case::token_limit_failed("tokenLimit", "failed", 2)]
 #[case::step_limit_accepted("stepLimit", "accepted", 2)]
