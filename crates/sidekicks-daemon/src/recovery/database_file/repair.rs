@@ -66,7 +66,7 @@ const BACKUP_COPY_SUFFIX: &str = ".backup-read";
 // The marker holds nothing and is the person's alone.
 const READY_MARKER_MODE: u32 = 0o600;
 
-// What failed, as a failure that carries its cleanup's failures names it.
+// The operation a failure's cleanup failures name.
 const REPAIRING: &str = "the database file's repair";
 
 // The removal a repair makes before any work, of the files an earlier one left.

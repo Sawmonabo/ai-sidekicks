@@ -556,9 +556,9 @@ async fn a_fresh_file_not_of_this_build_or_not_sound_is_refused(#[case] fault: F
 }
 
 // A stop before the damaged file is copied aside ends the repair at once: the damaged file stays
-// as it was, no copy aside, fresh file or marker is left, and the next start repairs it again.
+// as it was, and no copy aside, fresh file or marker is left.
 #[tokio::test]
-async fn a_stop_before_the_ready_marker_leaves_the_damaged_file_as_it_was() {
+async fn a_stop_before_the_aside_copy_leaves_the_damaged_file_as_it_was() {
     let data_folder = tempfile::tempdir().expect("a data folder");
     let database_path = data_folder.path().join("daemon.db");
     write_damaged_database(&database_path);
