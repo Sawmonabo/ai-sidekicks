@@ -13,12 +13,15 @@ import { z } from "zod";
 export interface ProcessIdentity {
   /** The operating-system process id. */
   processId: number;
-  /** The id of the boot the process runs in: Linux's boot id, macOS's boot session id. */
+  /**
+   * The id of the boot the process runs in: Linux's boot id, macOS's boot session id; on Windows
+   * one fixed word, since Windows keeps no boot mark a change of the clock leaves alone.
+   */
   bootId: string;
   /**
    * The system's own record of when the process started, as the system writes it: Linux's clock
-   * ticks since boot, macOS's start instant. Compared only for equality, never read as a time, so
-   * a change of the clock does not change it.
+   * ticks since boot, macOS's start instant, Windows' creation time. Compared only for equality,
+   * never read as a time, so a change of the clock does not change it.
    */
   processStartTime: string;
 }
