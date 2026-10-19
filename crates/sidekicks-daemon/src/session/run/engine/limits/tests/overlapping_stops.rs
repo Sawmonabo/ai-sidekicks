@@ -15,17 +15,17 @@ use crate::session::run::engine::tests::{
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::uuid_v7::mint_uuid_v7;
 
-// A limit stop of `run_id` the test runs beside others: once `turn_first` answers, the stop goes,
-// and its end is reported on `ended`.
+// A limit stop of `run_id` the test runs beside others: once `goes_first` reports that the stop
+// before it reached its hand, the stop goes, and its end is reported on `ended`.
 async fn stop_after(
     engine: &RunEngine,
     run_id: RunId,
     stop: LimitStop,
-    turn_first: Option<oneshot::Receiver<()>>,
+    goes_first: Option<oneshot::Receiver<()>>,
     ended: oneshot::Sender<()>,
 ) -> Result<(), RunEngineError> {
-    if let Some(turn_first) = turn_first {
-        turn_first
+    if let Some(goes_first) = goes_first {
+        goes_first
             .await
             .expect("the stop before this one reaches its hand");
     }
