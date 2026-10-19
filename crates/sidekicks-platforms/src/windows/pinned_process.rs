@@ -281,8 +281,8 @@ fn end_job_processes(job: &OwnedHandle) -> io::Result<bool> {
 // How many processes `job`, open with the right to ask what it holds, still holds.
 fn count_active_processes(job: &OwnedHandle) -> io::Result<u32> {
     let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-    // SAFETY: the record points at a live accounting record of the length given, the one thing
-    // the call writes, with no returned length asked.
+    // SAFETY: the call writes only the live accounting record, of the length given, and asks no
+    // returned length.
     let is_read = unsafe {
         QueryInformationJobObject(
             job.as_raw_handle(),

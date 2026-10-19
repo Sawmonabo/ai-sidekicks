@@ -96,8 +96,7 @@ pub fn process_footprint() -> io::Result<ProcessFootprint> {
     })
 }
 
-// The resource usage `proc_pid_rusage` reports for the process with system id `pid`, taken as
-// the system's id with no conversion; the system's error otherwise.
+// The resource usage `proc_pid_rusage` reports for system id `pid`; fails with the system's error.
 fn read_resource_usage(pid: libc::pid_t) -> io::Result<libc::rusage_info_v4> {
     // SAFETY: `rusage_info_v4` is a C struct of integers, for which all zero bytes are valid.
     let mut usage: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
