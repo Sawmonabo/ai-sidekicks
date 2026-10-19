@@ -35,7 +35,7 @@ pub(in crate::interventions) enum ReachedState {
     Expired,
     /// Refused, with why.
     Rejected(FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>),
-    /// Its dispatch threw or never completed, with why.
+    /// Its dispatch threw, never completed or was never sent, with why.
     Failed(FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>),
 }
 

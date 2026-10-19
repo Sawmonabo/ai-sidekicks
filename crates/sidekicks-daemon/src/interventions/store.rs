@@ -146,9 +146,11 @@ pub(crate) enum InterventionTransition {
         /// The machine-readable cause.
         reason: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     },
-    /// `accepted` to `failed`: its dispatch threw or never completed, a daemon death among them.
+    /// `accepted` to `failed`: its dispatch threw, never completed (a daemon death among them), or
+    /// was never sent because the run ended and was continued before it.
     Fail {
-        /// The thrown error's code, else its message, or why it never completed.
+        /// The thrown error's code, else its message, or why it never completed or was never
+        /// sent.
         reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
     /// To `applied`.
@@ -176,7 +178,7 @@ pub(crate) struct SavedIntervention {
     pub(crate) payload: String,
     /// Why it was rejected, on a rejected row.
     pub(crate) rejection_reason: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-    /// Why its dispatch threw or never completed, on a failed row.
+    /// Why its dispatch threw, never completed or was never sent, on a failed row.
     pub(crate) failure_reason: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
