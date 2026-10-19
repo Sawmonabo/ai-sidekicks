@@ -113,13 +113,13 @@ impl PinnedProcess {
         })
     }
 
-    // Ends the process alone.
+    // Ends the process alone. Windows refuses the end of a process already ending with
+    // `ERROR_ACCESS_DENIED`, which answers `Ok`: the wait after it and the exit code decide.
     fn terminate_process(&self) -> io::Result<()> {
         // SAFETY: the handle is open while `self` lives and carries the right to end the process.
         if unsafe { TerminateProcess(self.handle(), KILLED_EXIT_CODE) } == FALSE {
             let error = io::Error::last_os_error();
-            // Windows refuses the end of a process already ending; the wait tells.
-            if !self.wait_for_exit(Duration::ZERO)? {
+            if win32_code(&error) != Some(ERROR_ACCESS_DENIED) {
                 return Err(error);
             }
         }
