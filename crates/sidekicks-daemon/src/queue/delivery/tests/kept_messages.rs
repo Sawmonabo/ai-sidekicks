@@ -12,7 +12,7 @@ use super::{
     FIRST_PROCESS, Fixture, HANDS_AT_ONCE, count_steers, driver_handing, fixture, hand,
     insert_item, set_run_state, settle, stored_item,
 };
-use crate::provider::driver::contract::{HandMoment, MessageHanding};
+use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::queue::delivery::ProviderProcessIdentity;
 use crate::queue::store::RecordedQueueItemState;
 use crate::session::run::pause::ContinuedMessages;

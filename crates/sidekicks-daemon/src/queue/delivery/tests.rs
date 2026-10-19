@@ -33,7 +33,8 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::contract::{HandMoment, MessageHanding, MockProviderDriver};
+use crate::provider::driver::contract::MockProviderDriver;
+use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
     WithdrawQueuedMessageResult,

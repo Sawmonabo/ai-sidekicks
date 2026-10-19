@@ -9,7 +9,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::contract::MessageHanding;
+use crate::provider::driver::message_handing::MessageHanding;
 use crate::queue::delivery::ProviderProcessIdentity;
 use crate::queue::delivery::chain::SessionChain;
 use crate::queue::store::QueueItemRecord;
@@ -152,17 +152,4 @@ pub(super) fn is_kept_by_process(
         }
         HandRoute::Continue { .. } => false,
     }
-}
-
-/// `waiting` with the item `deliver_first` names moved ahead of the rest, which keep their order;
-/// `None` when it names none of them.
-pub(super) fn reordered_of(
-    waiting: &[QueueItemRecord],
-    deliver_first: Option<QueueItemId>,
-) -> Option<Vec<QueueItemRecord>> {
-    let first_id = deliver_first?;
-    let first = waiting.iter().find(|item| item.id == first_id)?;
-    let mut ordered = vec![first.clone()];
-    ordered.extend(waiting.iter().filter(|item| item.id != first_id).cloned());
-    Some(ordered)
 }

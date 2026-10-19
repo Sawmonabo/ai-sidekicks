@@ -41,13 +41,14 @@ use crate::events::session::appender::SessionEventDraft;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::provider::driver::contract::{HandMoment, MessageHanding, ProviderDriver};
+use crate::provider::driver::contract::ProviderDriver;
+use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
     ApplyInterventionParams, InterruptPendingChoice, RunToolBoundary, SteerPayload, WaitingMessage,
 };
 use crate::queue::delivery::chain::{ChainJob, SessionChain};
-use crate::queue::delivery::state::{DeliveryState, HandRoute, is_kept_by_process, reordered_of};
+use crate::queue::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
 use crate::queue::refusals::UnreturnedReason;
 use crate::queue::store::{
@@ -793,6 +794,19 @@ impl ContinuedMessages for QueueDelivery {
         });
         Box::pin(async { Ok(()) })
     }
+}
+
+// `waiting` with the item `deliver_first` names moved ahead of the rest, which keep their order;
+// `None` when it names none of them.
+fn reordered_of(
+    waiting: &[QueueItemRecord],
+    deliver_first: Option<QueueItemId>,
+) -> Option<Vec<QueueItemRecord>> {
+    let first_id = deliver_first?;
+    let first = waiting.iter().find(|item| item.id == first_id)?;
+    let mut ordered = vec![first.clone()];
+    ordered.extend(waiting.iter().filter(|item| item.id != first_id).cloned());
+    Some(ordered)
 }
 
 // The steer that hands `item` to `run_id`, at the run version `run_version` the queue read.

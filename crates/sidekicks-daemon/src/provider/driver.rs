@@ -24,6 +24,7 @@ mod codex;
 pub(crate) mod contract;
 pub(crate) mod diagnostics;
 pub(crate) mod mcp_server_status;
+pub(crate) mod message_handing;
 pub(crate) mod plan_record;
 pub(crate) mod question_answers;
 pub(crate) mod registry;
