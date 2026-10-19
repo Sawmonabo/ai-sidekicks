@@ -9,11 +9,14 @@ use std::sync::{Arc, Weak};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::params;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::events::AgentTurnStartedPayload;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::Spawner;
@@ -23,12 +26,16 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::SessionEventDraft;
-use crate::policy::execution_posture_service::ExecutionPostureService;
+use crate::policy::execution_posture_service::{
+    ExecutionPostureService, compose_execution_posture,
+};
 use crate::provider::driver::DriverServices;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::projection::RUNS_TABLE_SQL;
+use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
+use crate::uuid_v7::mint_uuid_v7;
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
 /// interventions service and its posture files under `home`; a test makes the tables its runs
@@ -198,4 +205,46 @@ pub(super) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (Stri
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("the test reads the run's row")
+}
+
+/// A continue of the interrupted `run_id` from an admitted message, read-only at the root, whose
+/// driver starts the next turn as `start_driver` does and whose turn interrupt succeeds at once.
+pub(super) fn continue_request(
+    run_id: RunId,
+    start_driver: impl Fn(
+        ExecutionPosture,
+    ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
+    + Send
+    + Sync
+    + 'static,
+) -> RunContinueRequest {
+    let queue_item = serde_json::from_value(json!({
+        "state": "admitted",
+        "id": mint_uuid_v7().to_string(),
+        "position": 0,
+        "content": "Go on.",
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+    }))
+    .expect("the test's message reads as an admitted item");
+    RunContinueRequest {
+        turn: RunTurnStart {
+            run_id,
+            workspace_id: None,
+            execution_posture: compose_execution_posture(
+                PermissionLevel::Readonly,
+                FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+            ),
+            start_driver: Box::new(start_driver),
+            interrupt_driver: Box::new(|| async { Ok(()) }.boxed()),
+        },
+        queue_item,
+    }
+}
+
+/// A driver start that starts the turn at once.
+pub(super) fn started_turn(
+    _resolved_posture: ExecutionPosture,
+) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>> {
+    async { Ok(()) }.boxed()
 }
