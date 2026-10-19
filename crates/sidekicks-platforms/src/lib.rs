@@ -30,7 +30,8 @@
               `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
               exit event's registration), mimalloc's `mi_collect`, tree-sitter's \
               `set_allocator`, and the power notifications and wall-clock timers of macOS and \
-              Windows are C interfaces"
+              Windows are C interfaces, and tokio's watch of the Linux timer's and the terminal \
+              poller's descriptors trusts each to stay open while it watches"
 )]
 
 mod atomic_replace;
