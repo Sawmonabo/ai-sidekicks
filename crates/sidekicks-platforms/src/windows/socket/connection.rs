@@ -21,12 +21,13 @@ use crate::windows::process_user::ProcessUser;
 // The wait between two opens of a pipe whose every instance is busy, as tokio's own client waits.
 const PIPE_BUSY_WAIT: Duration = Duration::from_millis(50);
 
-// The opens a busy pipe gets before its connect fails with `ERROR_PIPE_BUSY`: two seconds.
+// The opens a busy pipe gets, `PIPE_BUSY_WAIT` apart, before its connect fails with
+// `ERROR_PIPE_BUSY`.
 const PIPE_BUSY_ATTEMPTS: u32 = 40;
 
 /// Connects to the named pipe at `socket_path`: opened for overlapped reads and writes at
-/// identification level, opened again every 50 ms for two seconds while every instance is busy,
-/// and refused unless a process of this account serves it. Fails with the system's error,
+/// identification level, opened up to 40 times, 50 ms apart, while every instance is busy, and
+/// refused unless a process of this account serves it. Fails with the system's error,
 /// `NotFound` when no server holds the name, and `PermissionDenied` when another account's process
 /// serves it.
 pub async fn connect_socket(socket_path: &Path) -> io::Result<Stream> {

@@ -1,7 +1,8 @@
-//! The `sidekicks` program: its arguments and the one error boundary every run passes through.
-//! Every failure is reported on stderr as one `error: <message>` line, never on stdout and never
-//! with a stack, and becomes the run's exit code; a daemon repairing its database file is named in
-//! the words the app shows, its counts in the person's number format.
+//! The `sidekicks` program: its arguments, the one error boundary every run passes through, and
+//! the process's end. A failure is reported on stderr as one `error: <message>` line, never on
+//! stdout and never with a stack, and becomes the run's exit code; a daemon repairing its database
+//! file is named in the words the app shows, its counts in the person's number format. A call
+//! canceled after a Ctrl-C writes no line and ends the process as the Ctrl-C does.
 
 use std::any::Any;
 use std::ffi::OsString;

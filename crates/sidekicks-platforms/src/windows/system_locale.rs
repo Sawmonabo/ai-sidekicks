@@ -13,11 +13,13 @@ use crate::system_locale::{LocaleCategory, hour_cycle_in_pattern};
 // The longest time format `GetLocaleInfoEx` answers, in UTF-16 units with its NUL.
 const TIME_FORMAT_MAX_LENGTH: usize = 80;
 
-/// The user's default locale, the same for every category on Windows; `None` when the system
-/// names none ICU can read, whose numbers are plain digits.
+/// The user's default locale, the same for every category on Windows, its alternate sort
+/// (`de-DE_phoneb`) aside; `None` when the system names none ICU can read, whose numbers are plain
+/// digits.
 pub fn system_locale(_category: LocaleCategory) -> Option<Locale> {
     let name = read_locale_info::<{ LOCALE_NAME_MAX_LENGTH as usize }>(LOCALE_SNAME).ok()?;
-    Locale::try_from_str(&name).ok()
+    let tag = name.split('_').next()?;
+    Locale::try_from_str(tag).ok()
 }
 
 /// The hour cycle the user's time format (`LOCALE_STIMEFORMAT`, the form Windows prefers over

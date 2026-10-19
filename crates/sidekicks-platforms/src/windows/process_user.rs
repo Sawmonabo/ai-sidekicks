@@ -119,12 +119,6 @@ impl ProcessUser {
         // SAFETY: both ids are valid: this one lives in the record, `sid` is the caller's.
         unsafe { EqualSid(self.sid(), sid) != FALSE }
     }
-
-    /// The user's id as SDDL text (`S-1-5-21-…`). Fails with the system's error when the id cannot
-    /// be written.
-    pub(crate) fn sid_text(&self) -> io::Result<String> {
-        sid_text(self.sid())
-    }
 }
 
 /// The id `sid` as SDDL text (`S-1-5-21-…`), the caller keeping it alive across the call. Fails
@@ -152,5 +146,5 @@ pub(crate) fn sid_text(sid: PSID) -> io::Result<String> {
 /// This process's user's id as SDDL text (`S-1-5-21-…`). Fails with the system's error when its
 /// token cannot be read.
 pub(crate) fn read_user_sid_text() -> io::Result<String> {
-    ProcessUser::of_this_process()?.sid_text()
+    sid_text(ProcessUser::of_this_process()?.sid())
 }

@@ -34,7 +34,8 @@ pub fn ctrl_c() -> io::Result<CtrlCListener> {
 }
 
 /// Ends the process the way a Ctrl-C does, with exit code `STATUS_CONTROL_C_EXIT`; the caller
-/// flushes its output first, since no destructor runs. Never returns.
+/// flushes its output first, since no destructor runs. Never returns; the type matches the macOS
+/// and Linux form.
 pub fn end_as_ctrl_c() -> io::Error {
     // SAFETY: the call takes an exit code and ends the process; nothing it reads is borrowed.
     unsafe { ExitProcess(CTRL_C_EXIT_CODE) }
