@@ -124,25 +124,27 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn pinned_process_record_ends_the_survivors_of_its_ended_process() {
-        use std::io::{BufRead as _, BufReader};
+        use std::io::Read as _;
         use std::process::Stdio;
+        use std::time::Duration;
 
         use crate::posix::child_command::prepare_lasting_child_command;
+        use crate::posix::process_group::read_group_output_to_end;
 
         let mut command = tokio::process::Command::new("/bin/sh");
         command
             .args([
                 "-c",
-                "(/bin/sleep 10; echo outlived) & echo ready; read never",
+                "(/bin/sleep 60; echo outlived) & echo ready; read never",
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped());
         prepare_lasting_child_command(&mut command);
         let mut child = command.as_std_mut().spawn().expect("the child starts");
-        let mut output = BufReader::new(child.stdout.take().expect("the child's output is piped"));
-        let mut ready = String::new();
+        let mut output = child.stdout.take().expect("the child's output is piped");
+        let mut ready = [0; 6];
         output
-            .read_line(&mut ready)
+            .read_exact(&mut ready)
             .expect("the child's line reads");
         let record = pin_child_process(child.id())
             .expect("the child pins")
@@ -161,16 +163,13 @@ mod tests {
             .expect("the later record's survivors read");
         let is_re_pinned = record.pin().expect("the re-pin reads").is_some();
         let is_group_ended = record.end_survivors().expect("the survivors end");
-        let mut rest = String::new();
-        output
-            .read_line(&mut rest)
-            .expect("the output reads to its end");
+        let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
 
-        assert_eq!(ready, "ready\n");
+        assert_eq!(&ready, b"ready\n");
         assert!(!is_later_group_ended);
         assert!(!is_re_pinned);
         assert!(is_group_ended);
-        assert_eq!(rest, "");
+        assert_eq!(rest, Some(Vec::new()));
     }
 
     #[cfg(unix)]

@@ -60,7 +60,7 @@ pub(crate) fn wait_for_event(poller: &Poller, bound: Duration) -> io::Result<boo
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead as _, BufReader};
+    use std::io::Read as _;
     use std::os::unix::process::ExitStatusExt as _;
     use std::process::Stdio;
     use std::time::{Duration, Instant};
@@ -71,6 +71,7 @@ mod tests {
     use crate::child_command::ChildEnd;
     use crate::pin_child_process;
     use crate::posix::child_command::prepare_lasting_child_command;
+    use crate::posix::process_group::read_group_output_to_end;
 
     // Fails when `SIGKILL` goes first, which ends the answering child by the kill and answers
     // `Kill`; when the `SIGKILL` is skipped, which leaves the trapping child running, so the stop
@@ -79,12 +80,12 @@ mod tests {
     // prints; or when the kill of a group left with only its exited, unreaped leader fails.
     #[rstest]
     #[case::ignoring_the_stop(
-        r#"trap "" TERM; (/bin/sleep 5; echo outlived) & echo ready; read never"#,
+        r#"trap "" TERM; (/bin/sleep 60; echo outlived) & echo ready; read never"#,
         ChildEnd::Kill,
         Signal::SIGKILL
     )]
     #[case::answering_the_stop(
-        "(/bin/sleep 5; echo outlived) & echo ready; read never",
+        "(/bin/sleep 60; echo outlived) & echo ready; read never",
         ChildEnd::Stop,
         Signal::SIGTERM
     )]
@@ -107,12 +108,12 @@ mod tests {
         prepare_lasting_child_command(&mut command);
         let mut child = command.as_std_mut().spawn().expect("the child starts");
         // The line comes once the trap is set and before the child waits.
-        let mut output = BufReader::new(child.stdout.take().expect("the child's output is piped"));
-        let mut ready = String::new();
+        let mut output = child.stdout.take().expect("the child's output is piped");
+        let mut ready = [0; 6];
         output
-            .read_line(&mut ready)
+            .read_exact(&mut ready)
             .expect("the child's line reads");
-        assert_eq!(ready, "ready\n");
+        assert_eq!(&ready, b"ready\n");
 
         let started = Instant::now();
         let end = pin_child_process(child.id()).and_then(|process| process.stop(grace));
@@ -121,10 +122,7 @@ mod tests {
         drop(child.stdin.take());
         let status = child.wait().expect("the child is reaped");
         // The output ends only once every process of the group holding it has ended.
-        let mut rest = String::new();
-        output
-            .read_line(&mut rest)
-            .expect("the output reads to its end");
+        let rest = read_group_output_to_end(&mut output, child.id(), Duration::from_secs(5));
         assert_eq!(
             end.expect("the child pins and its stop ends it"),
             expected_end
@@ -133,6 +131,6 @@ mod tests {
             assert!(elapsed >= grace, "the kill waits for the grace");
         }
         assert_eq!(status.signal(), Some(expected_signal as i32));
-        assert_eq!(rest, "");
+        assert_eq!(rest, Some(Vec::new()));
     }
 }
