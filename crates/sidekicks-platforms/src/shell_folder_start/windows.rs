@@ -366,15 +366,7 @@ pub(crate) fn compose_shell_folder_start(
 // Whether `start`'s program, arguments and raw tail, as the `shell` mode hands them to Windows (the
 // tail after one space, exactly as given), fit one command line.
 fn fits_command_line(start: &ShellFolderStart) -> bool {
-    let arguments: Vec<Vec<u16>> = start
-        .arguments
-        .iter()
-        .map(|argument| argument.encode_utf16().collect())
-        .collect();
-    let line = compose_command_line(
-        &start.program.encode_utf16().collect::<Vec<_>>(),
-        &arguments,
-    );
+    let line = compose_command_line(start.program.encode_utf16(), &start.arguments);
     let tail_units = start
         .raw_command_tail
         .as_ref()

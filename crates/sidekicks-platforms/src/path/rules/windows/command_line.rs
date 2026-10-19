@@ -9,14 +9,17 @@ pub(crate) const COMMAND_LINE_UNITS: usize = 32_767;
 /// The NUL-ended command line, in UTF-16 units: `program` in double quotes, then each argument
 /// after one space as a C program's standard argument parsing reads it back, the rule std's
 /// `Command` writes by. A program path holds no quote, so its own is never escaped.
-pub(crate) fn compose_command_line(program: &[u16], arguments: &[Vec<u16>]) -> Vec<u16> {
+pub(crate) fn compose_command_line(
+    program: impl IntoIterator<Item = u16>,
+    arguments: &[impl AsRef<str>],
+) -> Vec<u16> {
     let quote = u16::from(b'"');
     let mut line = vec![quote];
-    line.extend_from_slice(program);
+    line.extend(program);
     line.push(quote);
     for argument in arguments {
         line.push(u16::from(b' '));
-        append_argument(&mut line, argument);
+        append_argument(&mut line, argument.as_ref());
     }
     line.push(0);
     line
@@ -24,18 +27,15 @@ pub(crate) fn compose_command_line(program: &[u16], arguments: &[Vec<u16>]) -> V
 
 // Appends `argument`, quoted when it is empty or holds a space or a tab, its backslashes doubled
 // where a quote follows them.
-fn append_argument(line: &mut Vec<u16>, argument: &[u16]) {
+fn append_argument(line: &mut Vec<u16>, argument: &str) {
     let quote = u16::from(b'"');
     let backslash = u16::from(b'\\');
-    let is_quoted = argument.is_empty()
-        || argument
-            .iter()
-            .any(|&unit| unit == u16::from(b' ') || unit == u16::from(b'\t'));
+    let is_quoted = argument.is_empty() || argument.contains([' ', '\t']);
     if is_quoted {
         line.push(quote);
     }
     let mut backslashes = 0_usize;
-    for &unit in argument {
+    for unit in argument.encode_utf16() {
         if unit == backslash {
             backslashes += 1;
         } else {
@@ -68,7 +68,7 @@ mod tests {
             (r"C:\folder\", r"C:\folder\"),
             (r"C:\my folder\", r#""C:\my folder\\""#),
         ] {
-            let line = compose_command_line(&[], &[argument.encode_utf16().collect()]);
+            let line = compose_command_line([], &[argument]);
             assert_eq!(
                 String::from_utf16_lossy(&line),
                 format!("\"\" {expected}\0"),

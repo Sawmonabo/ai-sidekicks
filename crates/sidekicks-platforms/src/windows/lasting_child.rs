@@ -39,7 +39,7 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::lasting_child::{LastingChild, LastingCommand};
 use crate::path::rules::PathRules;
-use crate::path::rules::windows::command_line;
+use crate::path::rules::windows::command_line::compose_command_line;
 use crate::windows::pinned_process::{KILLED_EXIT_CODE, PinnedProcess};
 
 // The start of every lasting child's job name; random bytes follow it.
@@ -66,7 +66,8 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     let error_output = duplicate_inheritable(command.error_output.as_raw_handle())?;
     let mut program = wide_text(command.program.as_os_str())?;
     program.push(0);
-    let mut command_line = compose_command_line(command.program.as_os_str(), &command.arguments)?;
+    let mut command_line =
+        compose_checked_command_line(command.program.as_os_str(), &command.arguments)?;
     let environment = compose_environment_block(&command.environment)?;
     let mut working_folder = wide_text(command.working_folder.as_os_str())?;
     working_folder.push(0);
@@ -403,7 +404,7 @@ fn wide_text(text: &OsStr) -> io::Result<Vec<u16>> {
 
 // The NUL-ended command line, the program quoted and each argument as a C program reads it back;
 // fails with `InvalidInput` for a program path holding a quote, or text holding a NUL.
-fn compose_command_line(program: &OsStr, arguments: &[String]) -> io::Result<Vec<u16>> {
+fn compose_checked_command_line(program: &OsStr, arguments: &[String]) -> io::Result<Vec<u16>> {
     let program = wide_text(program)?;
     if program.contains(&u16::from(b'"')) {
         return Err(io::Error::new(
@@ -411,11 +412,13 @@ fn compose_command_line(program: &OsStr, arguments: &[String]) -> io::Result<Vec
             "a program path holds a quote",
         ));
     }
-    let arguments = arguments
-        .iter()
-        .map(|argument| wide_text(OsStr::new(argument)))
-        .collect::<io::Result<Vec<_>>>()?;
-    Ok(command_line::compose_command_line(&program, &arguments))
+    if arguments.iter().any(|argument| argument.contains('\0')) {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "a start's text holds a NUL",
+        ));
+    }
+    Ok(compose_command_line(program, arguments))
 }
 
 // The environment block: each `NAME=value`, NUL-ended, sorted by name without case as Windows

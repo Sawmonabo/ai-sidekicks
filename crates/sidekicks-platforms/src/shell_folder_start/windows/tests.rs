@@ -608,11 +608,7 @@ fn windows_powershell_takes_its_folder_start_only_within_the_command_line() {
         )
     };
     let line_units = |program: &str, arguments: &[String]| {
-        let arguments: Vec<Vec<u16>> = arguments
-            .iter()
-            .map(|argument| argument.encode_utf16().collect())
-            .collect();
-        compose_command_line(&program.encode_utf16().collect::<Vec<_>>(), &arguments).len()
+        compose_command_line(program.encode_utf16(), arguments).len()
     };
     let start_units = |folder_start: &ShellFolderStart| {
         line_units(&folder_start.program, &folder_start.arguments)
