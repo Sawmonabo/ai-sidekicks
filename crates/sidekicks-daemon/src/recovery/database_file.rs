@@ -10,7 +10,7 @@ pub mod aside_copy;
 pub mod check;
 pub mod copy;
 pub(crate) mod damage;
-pub mod fresh_file;
+pub mod fresh;
 pub mod last_run;
 pub(crate) mod newest_backup;
 pub mod repair;

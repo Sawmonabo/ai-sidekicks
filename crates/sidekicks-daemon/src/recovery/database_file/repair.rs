@@ -38,7 +38,7 @@ use crate::recovery::database_file::aside_copy::{
 };
 use crate::recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
 use crate::recovery::database_file::damage::{read_database_damage, remove_database_damage};
-use crate::recovery::database_file::fresh_file::{
+use crate::recovery::database_file::fresh::{
     FreshFileError, FreshFilePreparation, prepare_fresh_file,
 };
 use crate::recovery::database_file::last_run::{LastRunError, record_clean_stop};

@@ -16,7 +16,7 @@ use sidekicks_daemon::recovery::database_file::check::{
     DatabaseFileCheck, DatabaseFileCheckAnswer,
 };
 use sidekicks_daemon::recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
-use sidekicks_daemon::recovery::database_file::fresh_file::{
+use sidekicks_daemon::recovery::database_file::fresh::{
     FreshFileError, FreshFilePreparation, prepare_fresh_file,
 };
 use sidekicks_daemon::recovery::database_file::repair::{
