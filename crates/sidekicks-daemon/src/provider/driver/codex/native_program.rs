@@ -319,10 +319,10 @@ mod tests {
             .join(program_name)
     }
 
-    // Fails when the launcher itself is answered, which leaves Node pinned; when the platform
-    // package is skipped, which reads the launcher's own `vendor`, which npm leaves empty; or when
-    // npm is named for a pnpm install, or no variable is set, which shows Codex another install
-    // than its own start would.
+    // Fails when the launcher itself is answered, so Node stays pinned; when the platform package
+    // is skipped for the launcher's own `vendor` folder, which npm leaves empty; or when a pnpm
+    // install is named npm, or no variable is set, so Codex sees another install than its own
+    // start would show it.
     #[rstest]
     #[case::a_hoisted_platform_package(true, false, "CODEX_MANAGED_BY_NPM")]
     #[case::the_launcher_vendor_folder(false, false, "CODEX_MANAGED_BY_NPM")]
