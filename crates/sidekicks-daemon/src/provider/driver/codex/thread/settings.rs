@@ -478,12 +478,16 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{
-        CodexServiceTierChange, CodexThreadSettings, CodexThreadSettingsUpdateParams,
-        CodexTurnStartParams, ThreadForkParams, ThreadResumeParams, ThreadStartParams,
-        compose_codex_thread_fork_params, compose_codex_thread_resume_params,
-        compose_codex_thread_start_params,
+        ApprovalsReviewer, AskForApproval, CodexServiceTierChange, CodexThreadSettings,
+        CodexThreadSettingsUpdateParams, CodexTurnStartParams, CollaborationMode, ThreadForkParams,
+        ThreadResumeParams, ThreadStartParams, UserInput, compose_codex_thread_fork_params,
+        compose_codex_thread_resume_params, compose_codex_thread_start_params,
+    };
+    use crate::provider::driver::codex::app_server_protocol::{
+        ModeKind, Settings, TextUserInputType,
     };
     use crate::provider::driver::codex::permission_level::CodexProfileFolders;
+    use crate::provider::driver::codex::vendored_schema::vendored_schema_file;
     use crate::provider::driver::contract::SubagentPolicy;
 
     fn settings_with(subagent_policy: Option<SubagentPolicy>) -> CodexThreadSettings {
@@ -619,5 +623,82 @@ mod tests {
             serialized_service_tier(request, Some(Some("fast".to_owned()))),
             Some(json!("fast"))
         );
+    }
+
+    // The member names of a hand-written request type, every member set so none is skipped.
+    fn hand_written_members(type_name: &str) -> Vec<String> {
+        let collaboration_mode = Some(CollaborationMode {
+            mode: ModeKind::Default,
+            settings: Settings {
+                developer_instructions: None,
+                model: "gpt".to_owned(),
+                reasoning_effort: None,
+            },
+        });
+        let params = match type_name {
+            "TurnStartParams" => serde_json::to_value(CodexTurnStartParams {
+                thread_id: "thread".to_owned(),
+                input: vec![UserInput::TextUserInput {
+                    text: "hello".to_owned(),
+                    text_elements: Vec::new(),
+                    type_: TextUserInputType::Text,
+                }],
+                approvals_reviewer: Some(ApprovalsReviewer::User),
+                collaboration_mode,
+                model: Some("gpt".to_owned()),
+                client_user_message_id: Some("message".to_owned()),
+                output_schema: Some(json!({ "type": "object" })),
+                service_tier: Some(Some("fast".to_owned())),
+                service_tier_for_turn: Some("fast".to_owned()),
+            }),
+            "ThreadSettingsUpdateParams" => serde_json::to_value(CodexThreadSettingsUpdateParams {
+                thread_id: "thread".to_owned(),
+                collaboration_mode,
+                permissions: Some("profile".to_owned()),
+                approval_policy: Some(AskForApproval::Never),
+                approvals_reviewer: Some(ApprovalsReviewer::User),
+                service_tier: Some(Some("fast".to_owned())),
+            }),
+            _ => unreachable!("{type_name} is not hand-written"),
+        };
+        params
+            .expect("the params serialize")
+            .as_object()
+            .expect("the params are an object")
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    // The two request types the daemon writes by hand, for their three-state service tier, name
+    // only members the vendored release's schema has and every member it requires, so a release
+    // that drops, renames or newly requires one fails here instead of at the service. Killed by
+    // a member the schema lacks or a required member the type lacks.
+    #[rstest]
+    #[case("TurnStartParams")]
+    #[case("ThreadSettingsUpdateParams")]
+    fn a_hand_written_request_names_the_schemas_members(#[case] type_name: &str) {
+        let schema = vendored_schema_file("codex_app_server_protocol.v2.schemas.json");
+        let definition = &schema["definitions"][type_name];
+        let members = hand_written_members(type_name);
+        let properties = definition["properties"]
+            .as_object()
+            .expect("the schema names the type's members");
+        for member in &members {
+            assert!(
+                properties.contains_key(member),
+                "{type_name} sends {member}, which the schema does not name"
+            );
+        }
+        for required in definition["required"]
+            .as_array()
+            .expect("the schema names the type's required members")
+        {
+            let required = required.as_str().expect("a required member is a name");
+            assert!(
+                members.iter().any(|member| member == required),
+                "the schema requires {type_name}.{required}, which the type does not send"
+            );
+        }
     }
 }

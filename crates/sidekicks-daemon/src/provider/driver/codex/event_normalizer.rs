@@ -600,33 +600,18 @@ pub(crate) fn derive_codex_child_thread_announcement(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use serde_json::Value;
     use strum::VariantArray;
 
     use super::{
         CODEX_OPT_OUT_NOTIFICATION_METHODS, CodexFrameEmissionRoute, CodexFrameRoot,
         CodexInboundMethod, resolve_codex_frame_emission_route,
     };
+    use crate::provider::driver::codex::vendored_schema::vendored_schema_file;
     use crate::provider::driver::diagnostics::{OnceReportedDiagnostics, RecordedEvents};
 
     // The notification names of the vendored service schema, in its order.
     fn bundle_notification_methods() -> Vec<String> {
-        let compressed = std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/vendor/codex-app-server-protocol/app-server-exports-experimental.json.zst"
-        ))
-        .expect("the vendored schema bundle is in the crate");
-        let exports: Value = serde_json::from_slice(
-            &zstd::decode_all(compressed.as_slice()).expect("the bundle decompresses"),
-        )
-        .expect("the bundle is JSON");
-        let notification_schema: Value = serde_json::from_str(
-            exports["json_schema"]["ServerNotification.json"]
-                .as_str()
-                .expect("the bundle carries the notification schema as text"),
-        )
-        .expect("the notification schema is JSON");
-        notification_schema["oneOf"]
+        vendored_schema_file("ServerNotification.json")["oneOf"]
             .as_array()
             .expect("the notification schema is a union")
             .iter()

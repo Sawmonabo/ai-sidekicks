@@ -32,6 +32,8 @@ mod tools;
 mod transport;
 mod turn_evidence;
 mod usage_limit_signal;
+#[cfg(test)]
+mod vendored_schema;
 mod version;
 
 /// Codex's fixed facts.
