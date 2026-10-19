@@ -419,7 +419,7 @@ pub(crate) fn repin_lasting_codex_service(
 }
 
 // Waits for the exit of a lasting service this daemon started and answers it, with its log's
-// tail; a kill by this daemon or a former one reads from the exit itself.
+// tail; a kill by this daemon reads from the exit itself.
 async fn wait_for_lasting_child(
     exit: impl Future<Output = io::Result<ExitStatus>>,
     log_file: PathBuf,
