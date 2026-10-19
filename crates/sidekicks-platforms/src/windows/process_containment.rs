@@ -148,7 +148,7 @@ mod tests {
     /// What the stand-in prints before the id of the child it started.
     const CHILD_LINE_START: &str = "started child ";
 
-    /// How long the test waits for the child to end once the stand-in has.
+    /// How long a test waits for its child to end once the job holding it has ended.
     const CHILD_END_WAIT_MILLISECONDS: u32 = 10_000;
 
     #[test]
@@ -214,9 +214,16 @@ mod tests {
             .expect("the child starts");
 
         let job = hold_in_own_job(child.id()).expect("the child is held in a job of its own");
+        // SAFETY: the call takes an access mask, a flag and an id, and answers a handle or null.
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, child.id()) };
+        assert!(!handle.is_null(), "the unreaped child is opened");
         drop(job);
-        let ended = child.wait().expect("the child is reaped");
+        // SAFETY: the handle was just opened with the right to wait on it.
+        let waited = unsafe { WaitForSingleObject(handle, CHILD_END_WAIT_MILLISECONDS) };
+        // SAFETY: the handle is open and owned here alone.
+        unsafe { CloseHandle(handle) };
+        child.wait().expect("the child is reaped");
 
-        assert!(!ended.success());
+        assert_eq!(waited, WAIT_OBJECT_0, "the shell's tree outlived its job");
     }
 }

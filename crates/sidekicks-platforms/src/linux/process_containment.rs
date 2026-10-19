@@ -188,17 +188,15 @@ fn unified_mount(mount_info: &str) -> Option<UnifiedMount> {
 }
 
 // The folder of the cgroup `own_cgroup` names in the unified hierarchy under `mount`; `None` for
-// the root cgroup, which is no cgroup of the daemon's own, or a file naming none.
+// the root cgroup, which is no cgroup of the daemon's own, a cgroup outside the mount's root, or a
+// file naming none.
 fn own_cgroup_folder(mount: &UnifiedMount, own_cgroup: &str) -> Option<PathBuf> {
     let own = Path::new(
         own_cgroup
             .lines()
             .find_map(|line| line.strip_prefix(UNIFIED_CGROUP_PREFIX))?,
     );
-    let relative = own
-        .strip_prefix(&mount.root)
-        .or_else(|_outside_root| own.strip_prefix("/"))
-        .ok()?;
+    let relative = own.strip_prefix(&mount.root).ok()?;
     (!relative.as_os_str().is_empty()).then(|| mount.mount_point.join(relative))
 }
 
@@ -488,7 +486,8 @@ mod tests {
         );
     }
 
-    // Fails when a mount's root other than `/` is not taken off the process's cgroup path.
+    // Fails when a mount's root other than `/` is not taken off the process's cgroup path, or a
+    // cgroup outside that root is mapped below the mount point.
     #[test]
     fn a_cgroup_under_a_mount_s_own_root_is_found_below_its_mount_point() {
         let mount = unified_mount("40 30 0:30 /outer /mnt/cg rw - cgroup2 cgroup2 rw\n")
@@ -501,6 +500,7 @@ mod tests {
             own_cgroup_folder(&mount, "0::/outer/app.service\n"),
             Some(Path::new("/mnt/cg/app.service").to_path_buf())
         );
+        assert_eq!(own_cgroup_folder(&mount, "0::/elsewhere/x\n"), None);
     }
 
     // Fails when a cgroup with no kill switch, as before Linux 5.14, is left running, or is not
