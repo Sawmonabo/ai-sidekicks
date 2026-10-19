@@ -10,6 +10,7 @@ use sidekicks_contracts::transcript::turn_attribution::{
 };
 use strum::VariantArray as _;
 
+use crate::database::schema::SESSION_EVENTS_TABLE;
 use crate::database::sql_list::sql_list_of;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
@@ -30,7 +31,7 @@ pub(super) fn event_log_schema_sql() -> String {
 -- ---------------------------------------------------------------------------
 -- session_events: the append-only event log.
 -- ---------------------------------------------------------------------------
-CREATE TABLE session_events (
+CREATE TABLE {SESSION_EVENTS_TABLE} (
   id                TEXT PRIMARY KEY,
   -- A session's id, or a reserved daemon-scope id for a daemon-scope event; no foreign key.
   session_id        TEXT NOT NULL,

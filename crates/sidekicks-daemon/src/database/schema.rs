@@ -20,6 +20,10 @@ pub(crate) mod recovery;
 mod runs;
 mod session_directory;
 
+/// The event log's table, by the name the schema creates it under and the reads that look for it
+/// by name use.
+pub(crate) const SESSION_EVENTS_TABLE: &str = "session_events";
+
 /// Every table, index and trigger of the daemon's database, in foreign-key order; the search
 /// index's triggers follow the tables they watch.
 pub(crate) static DAEMON_SCHEMA_SQL: LazyLock<String> = LazyLock::new(|| {

@@ -13,6 +13,7 @@ use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::sync::LazyLock;
 
 use memchr::memmem::Finder;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -22,6 +23,7 @@ use tokio::process::{Child, ChildStderr, Command};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::database::schema::SESSION_EVENTS_TABLE;
 use crate::helper_mode::child::start_helper_mode_child;
 use crate::helper_mode::error_output::read_error_output_tail;
 use crate::recovery::database_file::stall_watch::{
@@ -64,9 +66,10 @@ const RECOVERY_WRITER_CACHE_FLOOR_BYTES: u64 = 256 * 1024 * 1024;
 const RECOVERY_WRITER_CACHE_FILE_SHARE: u64 = 6;
 const RECOVERY_WRITER_CACHE_MEMORY_SHARE: u64 = 8;
 
-// The table whose rows the recovery counts, and how `.recover` starts each row it writes to it.
-const COUNTED_TABLE: &str = "session_events";
-const COUNTED_ROW_START: &[u8] = b"\nINSERT OR IGNORE INTO 'session_events'(";
+// How `.recover` starts each row it writes to the event log, the table whose rows the recovery
+// counts.
+static COUNTED_ROW_START: LazyLock<String> =
+    LazyLock::new(|| format!("\nINSERT OR IGNORE INTO '{SESSION_EVENTS_TABLE}'("));
 
 // How many bytes of the recovery's SQL one read passes between the shells.
 const PUMP_BUFFER_BYTES: usize = 64 * 1024;
@@ -339,7 +342,7 @@ impl SqliteShell {
         stop: &CancellationToken,
     ) -> Result<SafeInt<0>, DamagedFileCountError> {
         let timeout = format!(".timeout {}", READ_BUSY_TIMEOUT.as_millis());
-        let count_sql = format!("SELECT count(*) FROM {COUNTED_TABLE}");
+        let count_sql = format!("SELECT count(*) FROM {SESSION_EVENTS_TABLE}");
         let output = self
             .run(
                 COUNTING_STEP,
@@ -490,7 +493,7 @@ where
     Reading: Future<Output = Result<Option<ShellProcessorTimes>, ReadError>>,
     ReadError: Error + 'static,
 {
-    let finder = Finder::new(COUNTED_ROW_START);
+    let finder = Finder::new(COUNTED_ROW_START.as_bytes());
     let tail_bytes = COUNTED_ROW_START.len() - 1;
     let mut buffer = vec![0_u8; tail_bytes + PUMP_BUFFER_BYTES];
     let mut tail_length = 0;
@@ -662,7 +665,7 @@ mod tests {
     async fn counts_each_row_once_wherever_a_read_splits_it_and_ends_the_writer_s_input(
         #[values(1, 7, 20, 38, 39, 40, 41)] split_offset: usize,
     ) {
-        let row_start = std::str::from_utf8(COUNTED_ROW_START).expect("the start is text");
+        let row_start = COUNTED_ROW_START.as_str();
         let first = format!("BEGIN;{row_start}1);\nINSERT OR IGNORE INTO 'other'(2);");
         let second = format!("{row_start}3);{row_start}4);\nCOMMIT;\n");
         let chunks = VecDeque::from([

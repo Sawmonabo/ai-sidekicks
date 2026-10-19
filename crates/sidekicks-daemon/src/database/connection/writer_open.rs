@@ -7,11 +7,11 @@ use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::setup::{apply_connection_pragmas, prepare_or_close};
-use crate::database::schema::{DAEMON_SCHEMA_FINGERPRINT, DAEMON_SCHEMA_SQL};
+use crate::database::schema::{DAEMON_SCHEMA_FINGERPRINT, DAEMON_SCHEMA_SQL, SESSION_EVENTS_TABLE};
 
 // Whether the file holds the schema; it is created whole, so its event log stands for every table.
 const HAS_SCHEMA_SQL: &str =
-    "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_events')";
+    "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)";
 
 /// Why the writer's database did not open.
 #[derive(Debug, thiserror::Error)]
@@ -119,7 +119,7 @@ fn create_schema_once(
 }
 
 fn has_schema(connection: &Connection) -> rusqlite::Result<bool> {
-    connection.query_row(HAS_SCHEMA_SQL, [], |row| row.get(0))
+    connection.query_row(HAS_SCHEMA_SQL, [SESSION_EVENTS_TABLE], |row| row.get(0))
 }
 
 // Refuses a file whose schema another build made: this build never migrates it.
@@ -145,7 +145,7 @@ mod tests {
     use rusqlite::types::Value;
 
     use super::{DatabaseOpenError, open_database};
-    use crate::database::schema::DAEMON_SCHEMA_FINGERPRINT;
+    use crate::database::schema::{DAEMON_SCHEMA_FINGERPRINT, SESSION_EVENTS_TABLE};
 
     fn table_names(connection: &Connection) -> BTreeSet<String> {
         connection
@@ -298,8 +298,8 @@ mod tests {
         let connection = Connection::open(&database_path).expect("the test opens the file");
         let event_logs: i64 = connection
             .query_row(
-                "SELECT count(*) FROM sqlite_master WHERE name = 'session_events'",
-                [],
+                "SELECT count(*) FROM sqlite_master WHERE name = ?1",
+                [SESSION_EVENTS_TABLE],
                 |row| row.get(0),
             )
             .expect("the schema reads");
