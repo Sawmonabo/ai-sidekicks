@@ -12,15 +12,14 @@ use sidekicks_contracts::session::controls::events::{
     AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
 };
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    INTERVENTIONS_TABLE_SQL, append, provider_end, run_version, stored_events, stored_run_state,
-    test_engine, token_limit, turn, turn_started_at,
+    INTERVENTIONS_TABLE_SQL, STEP_BOUND, append, provider_end, run_version, stored_events,
+    stored_run_state, test_engine, token_limit, turn, turn_started_at,
 };
 use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::read::{LiveRun, RunRead};
@@ -92,7 +91,7 @@ fn step_limit_reached(session_id: SessionId, run_id: RunId) -> SessionEvent {
     SessionEvent::AgentRunStepLimitReached(AgentRunStepLimitReachedPayload {
         session_id,
         run_id,
-        count: SafeInt::new(40).expect("40 is a step bound"),
+        count: STEP_BOUND,
     })
 }
 

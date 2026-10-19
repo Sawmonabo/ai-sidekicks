@@ -248,6 +248,9 @@ pub(super) async fn append(engine: &RunEngine, session_id: SessionId, event: &Se
         .expect("the test's event is appended");
 }
 
+/// The step bound the tests' turns reach.
+pub(super) const STEP_BOUND: SafeInt<1> = SafeInt::new(40).expect("40 is a step bound");
+
 /// A test's turn number.
 pub(super) fn turn(number: u64) -> SafeInt<1> {
     SafeInt::new(number).expect("the test's turn numbers count from 1")
@@ -256,7 +259,7 @@ pub(super) fn turn(number: u64) -> SafeInt<1> {
 /// The step stop of turn `turn_number` at its bound.
 pub(super) fn step_stop(turn_number: u64) -> LimitStop {
     LimitStop::Step {
-        count: SafeInt::new(40).expect("40 is a step bound"),
+        count: STEP_BOUND,
         turn_number: turn(turn_number),
     }
 }
