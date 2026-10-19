@@ -16,7 +16,7 @@ use crate::session::run::engine::tests::{
     test_engine, token_limit, turn, turn_completed_at, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::limit_interrupter::StopCut;
+use crate::session::run::limit_interrupter::HandedCut;
 use crate::uuid_v7::mint_uuid_v7;
 
 // A limit stop of `run_id` the test runs beside others: once `goes_first` reports that the stop
@@ -377,7 +377,7 @@ async fn a_late_failed_hand_withdraws_its_own_cut_and_leaves_another_of_its_limi
         .forget_late_limit_hand(
             run_id,
             RunLimit::TokenLimit,
-            Some(StopCut {
+            Some(HandedCut {
                 turn_number: turn(3),
                 stop_id: late.stop_id,
             }),

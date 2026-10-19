@@ -31,7 +31,7 @@ use crate::interventions::store::{
 };
 use crate::provider::driver::run_control::{InterruptPayload, InterruptPendingChoice};
 use crate::session::run::engine::{InterruptRoute, RunEngineError};
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter, StopCut};
+use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::safe_run_version;
 use crate::session::run::state_change::refused_statement_index;
 use crate::uuid_v7::mint_uuid_v7;
@@ -72,7 +72,7 @@ impl LimitInterrupter for InterventionService {
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut: Option<StopCut>,
+        cut: Option<HandedCut>,
     ) -> BoxFuture<'_, Result<(), LimitInterruptFailure>> {
         let service = self.clone();
         Box::pin(async move {
@@ -312,7 +312,7 @@ impl InterventionService {
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut: Option<StopCut>,
+        cut: Option<HandedCut>,
         late: Result<(), LimitInterruptFailure>,
     ) {
         let Err(failure) = late else {

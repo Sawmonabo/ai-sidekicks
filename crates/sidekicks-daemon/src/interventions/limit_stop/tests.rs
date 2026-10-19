@@ -32,7 +32,7 @@ use crate::interventions::service::tests::{Harness, applied, harness};
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::run_control::AnswerProviderChoiceResult;
 use crate::session::run::engine::tests::stored_run_state;
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter, StopCut};
+use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::provider_choice::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceResolver,
 };
@@ -151,7 +151,7 @@ async fn a_limits_row_is_never_refused_and_its_failure_says_what_it_left(
         }
     };
 
-    let cut = cut_turn.map(|turn_number| StopCut {
+    let cut = cut_turn.map(|turn_number| HandedCut {
         turn_number,
         stop_id: 0,
     });

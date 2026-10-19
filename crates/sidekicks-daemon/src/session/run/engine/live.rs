@@ -62,8 +62,9 @@ pub(super) struct EndingWrite {
     pub(super) landed: SetOnce<()>,
 }
 
-/// A limit stop's cut of a turn: the limit and the stop's own identity, which no other stop
-/// shares.
+/// One entry in a turn's list of cuts: the limit that cut it and the stop's own identity, which no
+/// other stop shares. The turn is the list's key; the hand carries the same cut as the turn with
+/// that identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct LimitCut {
     /// The limit that cut the turn.

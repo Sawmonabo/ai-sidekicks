@@ -34,7 +34,7 @@ use crate::session::run::engine::turns::set_step_limit_reached;
 use crate::session::run::engine::{
     LiveAppend, RunEngine, RunEngineError, refused_statement_index, settled,
 };
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter, StopCut};
+use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::RunStateEntry;
@@ -373,7 +373,7 @@ impl RunEngine {
             } => cut.map(|(_, turn_number)| turn_number),
             LimitStop::Step { .. } | LimitStop::Interrupt { .. } | LimitStop::Token { .. } => None,
         };
-        let row_cut = cut.map(|(_, turn_number)| StopCut {
+        let row_cut = cut.map(|(_, turn_number)| HandedCut {
             turn_number,
             stop_id: own_cut.stop_id,
         });
@@ -414,7 +414,7 @@ impl RunEngine {
         run_id: RunId,
         limit: RunLimit,
         reached_turn: Option<SafeInt<1>>,
-        row_cut: Option<StopCut>,
+        row_cut: Option<HandedCut>,
     ) -> Result<bool, RunEngineError> {
         let interrupter = self.live_limit_interrupter(run_id)?;
         let _in_flight = match limit {
@@ -451,7 +451,7 @@ impl RunEngine {
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut: Option<StopCut>,
+        cut: Option<HandedCut>,
     ) -> Result<(), RunEngineError> {
         // Owed under the lock before the run is read, so a run that ends meanwhile forgets the
         // limit with the rest of what it held.

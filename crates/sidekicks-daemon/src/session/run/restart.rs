@@ -147,7 +147,8 @@ pub(crate) struct PendingInterrupt {
     pub(crate) record: InterruptInterventionRecord,
 }
 
-/// An open turn the log shows a limit cut, with the highest-ranked limit whose mark names it.
+/// An open turn the log shows a limit cut, with the highest-ranked limit whose mark names it: what
+/// a restart reads from the interrupts' rows, where no stop's identity is kept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TurnCut {
     /// The turn.

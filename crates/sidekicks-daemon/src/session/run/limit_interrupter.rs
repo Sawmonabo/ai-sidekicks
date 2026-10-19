@@ -1,5 +1,5 @@
 //! The seam through which the run engine hands its own stop of a run at a limit to the
-//! interventions service, the one path every interrupt takes.
+//! interventions service, the one path every interrupt takes, with the cut that hand carries.
 
 use std::error::Error;
 
@@ -28,14 +28,16 @@ pub(crate) trait LimitInterrupter: Send + Sync {
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut: Option<StopCut>,
+        cut: Option<HandedCut>,
     ) -> BoxFuture<'_, Result<(), LimitInterruptFailure>>;
 }
 
-/// A limit stop's cut of one turn as its hand carries it: the turn its row names, and the stop's
-/// own identity, by which a hand that fails late withdraws that stop's cut and no other.
+/// The cut a limit's hand carries to the interventions service: the turn the stop cut, which the
+/// interrupt's row names, and the stop's own identity, by which a hand that fails late withdraws
+/// that stop's cut and no other. The engine keeps the same cut in its turn's list as the limit
+/// with that identity, and a restart reads a cut turn from the log as the turn with its limit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct StopCut {
+pub(crate) struct HandedCut {
     /// The turn the stop cut.
     pub(crate) turn_number: SafeInt<1>,
     /// The stop that made the cut.
