@@ -1,7 +1,9 @@
 //! How an operating system spells, joins and compares a path, how it names and lists the
 //! variables of a process's environment, and how its command shell reads a word. Both rule sets
-//! compile and parse on every system, so a path, a name or a command line for either system is
-//! written by its own rules, and [`PathRules::NATIVE`] names the running system's.
+//! compile and parse on every system, so a path, a name or a shell's word for either system is
+//! written by its own rules, and [`PathRules::NATIVE`] names the running system's. Windows' rules
+//! also hold `command_line`, a program's command line as Windows takes it and its bound, which
+//! compiles on Windows and under `test`.
 
 use std::borrow::Cow;
 

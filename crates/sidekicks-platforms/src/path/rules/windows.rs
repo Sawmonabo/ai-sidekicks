@@ -1,6 +1,7 @@
 //! How Windows spells paths: `\` or `/` between components, a drive or share as the root, names
-//! compared without case as NTFS compares them, and a program's line ended by `\r\n`; and how
-//! `cmd.exe` reads a word on its `/c` line.
+//! compared without case as NTFS compares them, and a program's line ended by `\r\n`; how
+//! `cmd.exe` reads a word on its `/c` line; and, in `command_line`, which compiles on Windows and
+//! under `test`, a program's command line and its bound.
 
 use std::iter;
 
