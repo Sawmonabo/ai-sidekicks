@@ -281,6 +281,7 @@ mod tests {
         settle_pending_statement,
     };
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::recovery::ProjectionCursorState;
     use crate::database::statement::WriteStatement;
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -344,6 +345,9 @@ mod tests {
                 &remembered.approval_request_id,
                 &remembered.remembered_scope,
             )]
+        } else if let SessionEvent::SessionDamagedEventsSkipped(_) = event {
+            // A skipped range writes no approval row.
+            Vec::new()
         } else {
             panic!("the test writes no {:?}", event.event_type())
         }
@@ -435,15 +439,16 @@ mod tests {
     // The rows the live writes wrote are the rows a rebuild writes: an approval with its
     // correction and its rule, a decline, a cancellation, and an ask a workflow gate's answer
     // names, which the clear keeps with its answer. Rebuilt whole, the gate-named ask's answer is
-    // written over the kept one; rebuilt short of that answer, as a skipped range leaves it, it
-    // settles as the gate's row says. A clear that drops the gate-named ask breaks the gate's
-    // reference, one that drops its answer or a missing settle leaves it pending or unanswered,
-    // and a plain insert of its answer collides with the kept one, each failing a case.
+    // written over the kept one; where the session skipped that answer as damaged, the ask settles
+    // as the gate's row says, and the cursor ends current at the log's head. A clear that drops the
+    // gate-named ask breaks the gate's reference, one that drops its answer or a missing settle
+    // leaves it pending or unanswered, and a plain insert of its answer collides with the kept
+    // one, each failing a case.
     #[rstest]
     #[case::rebuilt_whole(false)]
-    #[case::rebuilt_short_of_the_gate_named_answer(true)]
+    #[case::skipping_the_gate_named_answer(true)]
     #[tokio::test]
-    async fn a_rebuild_writes_the_rows_the_live_writes_wrote(#[case] is_cut_short: bool) {
+    async fn a_rebuild_writes_the_rows_the_live_writes_wrote(#[case] is_answer_skipped: bool) {
         let database = TestDatabase::new();
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -522,6 +527,19 @@ mod tests {
         }
         let (gate_answer_sequence, gate_answered_at) =
             appended.last().cloned().expect("the test appends events");
+        let mut head_sequence = gate_answer_sequence;
+        if is_answer_skipped {
+            let skipped: SessionEvent = serde_json::from_value(json!({
+                "type": "session.damagedEvents.skipped",
+                "payload": {
+                    "sessionId": session_id,
+                    "fromSequence": gate_answer_sequence,
+                    "toSequence": gate_answer_sequence,
+                },
+            }))
+            .expect("the test writes a valid skipped range");
+            (head_sequence, _) = append_live(&writer, session_id, &skipped).await;
+        }
         // The gate's row as the workflow engine writes it beside its answer; its run's rows are no
         // part of what a rebuild reads.
         let reader = database.reader();
@@ -563,12 +581,26 @@ mod tests {
             .rebuild(ProjectionRebuildRequest {
                 session_id,
                 is_forced: true,
-                before_sequence: is_cut_short.then_some(gate_answer_sequence),
+                before_sequence: None,
                 stop: None,
             })
             .await
             .expect("the session's approvals are rebuilt");
 
-        assert_eq!(approval_rows(&database.reader()), live_rows);
+        assert_eq!(approval_rows(&reader), live_rows);
+        let cursor: (String, i64) = reader
+            .query_row(
+                "SELECT state, last_sequence FROM projection_cursors WHERE session_id = ?",
+                [session_id.text().as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the session's cursor reads");
+        assert_eq!(
+            cursor,
+            (
+                <&str>::from(ProjectionCursorState::Current).to_owned(),
+                head_sequence
+            )
+        );
     }
 }
