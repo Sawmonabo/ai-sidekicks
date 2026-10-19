@@ -2,12 +2,27 @@
 //! written in the same write as each event the session appends, and the saved checkpoints, a cache
 //! the log can always rebuild.
 
-/// The words a projection cursor's state takes: current at the session's newest sequence, or due a
-/// rebuild at a restart.
-const PROJECTION_CURSOR_STATES_SQL: &str = "'current', 'rebuilding', 'stale'";
+use strum::{IntoStaticStr, VariantArray};
+
+use crate::database::sql_list::sql_list_of_every;
+
+/// Where a session's projection cursor stands, as the `projection_cursors.state` column holds it:
+/// current at its last sequence, being rebuilt, or left stale by a rebuild that stopped short.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
+#[strum(serialize_all = "camelCase")]
+pub(crate) enum ProjectionCursorState {
+    /// The projections reflect every event up to the cursor's sequence.
+    Current,
+    /// A rebuild has cleared the projections and is folding the log back in.
+    Rebuilding,
+    /// A rebuild stopped short, so the next restart lists the session again.
+    Stale,
+}
 
 /// Recovery's tables and indexes.
 pub(super) fn recovery_schema_sql() -> String {
+    let cursor_states = sql_list_of_every::<ProjectionCursorState>();
+    let current = <&'static str>::from(ProjectionCursorState::Current);
     format!(
         "
 -- ---------------------------------------------------------------------------
@@ -20,14 +35,14 @@ CREATE TABLE projection_cursors (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL UNIQUE,
   last_sequence   INTEGER NOT NULL,             -- the last event the projections reflect
-  state           TEXT NOT NULL DEFAULT 'current'
-                  CHECK(state IN ({PROJECTION_CURSOR_STATES_SQL})),
+  state           TEXT NOT NULL DEFAULT '{current}'
+                  CHECK(state IN ({cursor_states})),
   updated_at      TEXT NOT NULL
 ) STRICT;
 
 -- The sessions a restart rebuilds, found without reading every cursor.
 CREATE INDEX idx_projection_cursors_not_current ON projection_cursors(session_id)
-  WHERE state <> 'current';
+  WHERE state <> '{current}';
 
 CREATE TABLE recovery_checkpoints (
   id              TEXT PRIMARY KEY,

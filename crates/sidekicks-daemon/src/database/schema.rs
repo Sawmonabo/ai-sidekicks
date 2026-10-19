@@ -16,7 +16,7 @@ mod event_log;
 mod machine;
 mod provider_accounts;
 mod provider_drivers;
-mod recovery;
+pub(crate) mod recovery;
 mod runs;
 mod session_directory;
 

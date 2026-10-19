@@ -13,11 +13,19 @@ use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::links::SessionLinkKind;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
 
+use strum::{IntoStaticStr, VariantArray};
+
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 
-/// The word a converted file's row records once its copy lands; every other outcome is a reason
-/// it was not copied.
-const COPIED_FILE_OUTCOME: &str = "copied";
+/// A converted file's outcome once its copy lands, as the `session_convert_files.outcome` column
+/// holds it; every other outcome the column holds is the [`SessionConvertSkipReason`] it was not
+/// copied for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
+#[strum(serialize_all = "camelCase")]
+enum ConvertedFileOutcome {
+    /// The file was copied into the repository.
+    Copied,
+}
 
 /// The session directory's tables and indexes, in foreign-key order.
 pub(super) fn session_directory_schema_sql() -> String {
@@ -38,7 +46,8 @@ pub(super) fn session_directory_schema_sql() -> String {
     let yolo = <&'static str>::from(PermissionLevel::Yolo);
     let execution_modes = sql_list_of_every::<ExecutionMode>();
     let convert_outcomes = format!(
-        "'{COPIED_FILE_OUTCOME}', {}",
+        "{}, {}",
+        sql_list_of_every::<ConvertedFileOutcome>(),
         sql_list_of_every::<SessionConvertSkipReason>()
     );
     let session_modes = sql_list_of_every::<SessionMode>();
