@@ -362,9 +362,8 @@ impl RunEngine {
         } = turn_end;
         let cut_by = lock(&self.live)
             .cut_turns
-            .get(run_id)
-            .filter(|cut| cut.turn_number == turn_number)
-            .map(|cut| cut.limit);
+            .get(&(*run_id, turn_number))
+            .copied();
         let outcome = match cut_by {
             Some(limit) => TurnOutcome::Interrupted(Some(limit_turn_cause(limit))),
             None => outcome,
@@ -529,14 +528,7 @@ impl RunEngine {
     /// Forgets the cut of `turn_number` on `run_id`, once its end is written or the stop did not
     /// cut it.
     pub(super) fn forget_cut_turn(&self, run_id: &RunId, turn_number: SafeInt<1>) {
-        let mut live = lock(&self.live);
-        if live
-            .cut_turns
-            .get(run_id)
-            .is_some_and(|cut| cut.turn_number == turn_number)
-        {
-            live.cut_turns.remove(run_id);
-        }
+        lock(&self.live).cut_turns.remove(&(*run_id, turn_number));
     }
 }
 

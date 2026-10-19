@@ -48,15 +48,6 @@ static SELECT_TOKEN_LIMIT_REACHED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The turn a limit stop cut, kept until that turn's end is written, which may land after its
-/// run's end.
-pub(super) struct CutTurn {
-    /// The limit that cut it.
-    pub(super) limit: RunLimit,
-    /// The turn.
-    pub(super) turn_number: SafeInt<1>,
-}
-
 /// A limit the daemon stops a run at by itself, with what its reached event records. Spend has no
 /// run-level reached event: the interrupt the interventions service records is the stop's record.
 #[derive(Clone, Copy)]
@@ -182,7 +173,7 @@ impl RunEngine {
         if let Some(turn_number) = open_turn {
             lock(&self.live)
                 .cut_turns
-                .insert(run_id, CutTurn { limit, turn_number });
+                .insert((run_id, turn_number), limit);
         }
         let reached = self.record_limit_reached(run_id, stop).await;
         if !matches!(reached, Ok(true)) {

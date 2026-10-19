@@ -8,9 +8,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::{SetOnce, SetOnceError};
 
-use crate::session::run::engine::limits::CutTurn;
 use crate::session::run::engine::turns::StepCount;
 
 /// A run no driver has yet, from `starting` until the driver has it or the run ends. It is
@@ -61,9 +62,10 @@ pub(super) struct EndingWrite {
 }
 
 /// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
-/// its write or its turn ends, on every exit path. A cut leaves only when its turn's end is
-/// written, so it can outlive its run's end until then; a provider process's exit writes the end
-/// of the newest open turn of each of its runs.
+/// its write or its turn ends, on every exit path. The cuts are bounded by one cut per open cut
+/// turn, each leaving when its own turn's end is written, so it can outlive its run's end until
+/// then; a provider process's exit ends the newest open turn of each of its runs, and a restart
+/// settles the rest.
 #[derive(Default)]
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.
@@ -77,9 +79,9 @@ pub(super) struct LiveRuns {
     pub(super) carried_output_speeds: HashMap<RunId, ProviderToken>,
     /// The open turn's steps on a run whose provider does not bound them.
     pub(super) step_counts: HashMap<RunId, StepCount>,
-    /// The turn a limit stop cut, from before its reached event is written until that turn's end
-    /// is written.
-    pub(super) cut_turns: HashMap<RunId, CutTurn>,
+    /// Each turn a limit stop cut, by run and turn number, with the limit that cut it, from before
+    /// its reached event is written until that turn's end is written.
+    pub(super) cut_turns: HashMap<(RunId, SafeInt<1>), RunLimit>,
 }
 
 impl LiveRuns {
@@ -97,6 +99,15 @@ impl LiveRuns {
         {
             map.remove(run_id);
         }
+    }
+
+    /// The newest turn of `run_id` that `limit` cut whose end is not yet written.
+    pub(super) fn newest_cut_turn(&self, run_id: &RunId, limit: RunLimit) -> Option<SafeInt<1>> {
+        self.cut_turns
+            .iter()
+            .filter(|((cut_run_id, _), cut_by)| cut_run_id == run_id && **cut_by == limit)
+            .map(|((_, turn_number), _)| *turn_number)
+            .max()
     }
 
     /// Marks a run that ended while no driver has it: an entry still settling learns it ended; a

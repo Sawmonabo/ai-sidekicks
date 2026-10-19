@@ -69,12 +69,12 @@ impl RunEngine {
     /// Ends the run for an applied or degraded interrupt accepted at `accepted_run_version`,
     /// committing `verdict`, the interrupt's row move and its event, in the same write, and returns
     /// `true`: `interrupted` for a person's interrupt, and the end the limit gives its run for the
-    /// daemon's own at `limit`, with the end of the turn the limit cut, `agent.turn.interrupted`
-    /// with the limit as its cause, in the same write, so the provider's later end of that turn is
-    /// dropped. Returns `false` with no change of the run written when the run has ended since
-    /// that version, even if it was continued after, which is what the interrupt asked for; the
-    /// caller then records the verdict alone. On a run that reads ended, the turn the limit cut,
-    /// else the newest open turn started at or before that version, still takes the limit's end,
+    /// daemon's own at `limit`, with the end of the newest turn the limit cut, else of the newest
+    /// open turn started at or before that version, `agent.turn.interrupted` with the limit as its
+    /// cause, in the same write, so the provider's later end of that turn is dropped. Returns
+    /// `false` with no change of the run written when the run has ended since that version, even
+    /// if it was continued after, which is what the interrupt asked for; the caller then records
+    /// the verdict alone. On a run that reads ended, that turn still takes the limit's end,
     /// written on its own. Fails as [`RunEngine::transition`] does.
     #[cfg_attr(
         not(test),
@@ -106,10 +106,7 @@ impl RunEngine {
             }
             Some(limit) => {
                 let run = self.require_run(run_id).await?;
-                let cut_turn = lock(&self.live)
-                    .cut_turns
-                    .get(&run_id)
-                    .map(|cut| cut.turn_number);
+                let cut_turn = lock(&self.live).newest_cut_turn(&run_id, limit);
                 let turn_number = match cut_turn {
                     Some(turn_number) => Some(turn_number),
                     None => {
@@ -341,7 +338,6 @@ mod tests {
 
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
-    use crate::session::run::engine::limits::CutTurn;
     use crate::session::run::engine::live::lock;
     use crate::session::run::engine::tests::{
         append, run_version, stored_events, stored_run_state, test_engine, turn_started_at,
@@ -418,13 +414,9 @@ CREATE TABLE interventions (
 
         // The cut is planted directly to exercise the remap: no stop cuts a turn started at 5 for
         // an interrupt accepted at 2, before the run's end at 3.
-        lock(&engine.live).cut_turns.insert(
-            run_id,
-            CutTurn {
-                limit: RunLimit::StepLimit,
-                turn_number: turn_one,
-            },
-        );
+        lock(&engine.live)
+            .cut_turns
+            .insert((run_id, turn_one), RunLimit::StepLimit);
         let ended_since = engine
             .end_run_for_interrupt(
                 run_id,
