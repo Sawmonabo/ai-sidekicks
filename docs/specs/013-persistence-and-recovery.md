@@ -167,7 +167,7 @@ PRAGMA optimize = 0x10002;      -- once at open, after the schema step
 
 The transaction that creates the schema writes its fingerprint, the first 31 bits of the BLAKE3 hash of the schema's text, into `PRAGMA user_version`; an open of a file holding another fingerprint is refused, never migrated.
 
-The `synchronous = FULL` setting is load-bearing. The bundled build already defaults to FULL, but a `LIBSQLITE3_FLAGS` override at build time could change that default, so the service sets it and reads it back at open. NORMAL trades durability for WAL throughput, a trade-off that is unacceptable for `session_events` because it is the canonical record a rebuild reads from: an acknowledged write that is lost is a session fact gone for good.
+The `synchronous = FULL` setting is load-bearing: with it, every acknowledged write survives a crash of the application or of the operating system. On a power cut the database file stays intact, and at most the commits of the final moments before it are lost. The bundled build already defaults to FULL, but a `LIBSQLITE3_FLAGS` override at build time could change that default, so the service sets it and reads it back at open.
 
 ### Bounded Queue and Batched Transactions
 
