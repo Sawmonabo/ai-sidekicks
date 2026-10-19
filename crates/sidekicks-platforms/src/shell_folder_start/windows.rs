@@ -34,78 +34,211 @@ enum SwitchOperand {
     Command,
 }
 
+/// Which PowerShell takes its folder start beside a switch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AllowingPowerShells {
+    /// Both: pwsh's folder switch and Windows PowerShell's folder command.
+    Both,
+    /// Only pwsh: Windows PowerShell has no such switch, or the switch leaves no room for its
+    /// folder command.
+    PwshOnly,
+}
+
 /// A switch PowerShell reads at start: its name, the shortest prefix of it PowerShell takes, what
-/// follows it, and whether Windows PowerShell's folder command can still follow it.
+/// follows it, and which PowerShell takes its folder start beside it. pwsh takes it beside every
+/// switch but a script's, which its operand decides.
 struct PowerShellSwitch {
     name: &'static str,
     shortest: &'static str,
     operand: SwitchOperand,
-    allows_folder_command: bool,
+    allowed_by: AllowingPowerShells,
 }
 
 const fn powershell_switch(
     name: &'static str,
     shortest: &'static str,
     operand: SwitchOperand,
-    allows_folder_command: bool,
+    allowed_by: AllowingPowerShells,
 ) -> PowerShellSwitch {
     PowerShellSwitch {
         name,
         shortest,
         operand,
-        allows_folder_command,
+        allowed_by,
     }
 }
 
 /// The switches whose operand or effect decides the folder start, each at its shortest spelling
 /// PowerShell takes. No spelling names two different switches, so the first match is PowerShell's
-/// reading; a switch missing here takes no operand.
+/// reading. A switch missing here is one pwsh reads with no operand, or one it does not know, which
+/// it reads as a script path and then fails to start on; Windows PowerShell's start refuses every
+/// switch missing here.
 const POWERSHELL_SWITCHES: [PowerShellSwitch; 30] = [
-    powershell_switch("nologo", "nol", SwitchOperand::Nothing, true),
-    powershell_switch("noprofile", "nop", SwitchOperand::Nothing, true),
-    powershell_switch("noexit", "noe", SwitchOperand::Nothing, true),
-    powershell_switch("login", "l", SwitchOperand::Nothing, true),
-    powershell_switch("mta", "mta", SwitchOperand::Nothing, true),
-    powershell_switch("sta", "sta", SwitchOperand::Nothing, true),
+    powershell_switch(
+        "nologo",
+        "nol",
+        SwitchOperand::Nothing,
+        AllowingPowerShells::Both,
+    ),
+    powershell_switch(
+        "noprofile",
+        "nop",
+        SwitchOperand::Nothing,
+        AllowingPowerShells::Both,
+    ),
+    powershell_switch(
+        "noexit",
+        "noe",
+        SwitchOperand::Nothing,
+        AllowingPowerShells::Both,
+    ),
+    powershell_switch(
+        "login",
+        "l",
+        SwitchOperand::Nothing,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "mta",
+        "mta",
+        SwitchOperand::Nothing,
+        AllowingPowerShells::Both,
+    ),
+    powershell_switch(
+        "sta",
+        "sta",
+        SwitchOperand::Nothing,
+        AllowingPowerShells::Both,
+    ),
     powershell_switch(
         "noprofileloadtime",
         "noprofileloadtime",
         SwitchOperand::Nothing,
-        true,
+        AllowingPowerShells::PwshOnly,
     ),
-    powershell_switch("executionpolicy", "ex", SwitchOperand::One, true),
-    powershell_switch("ep", "ep", SwitchOperand::One, true),
-    powershell_switch("windowstyle", "w", SwitchOperand::One, true),
-    powershell_switch("file", "f", SwitchOperand::Script, false),
-    powershell_switch("command", "c", SwitchOperand::Command, false),
+    powershell_switch(
+        "executionpolicy",
+        "ex",
+        SwitchOperand::One,
+        AllowingPowerShells::Both,
+    ),
+    powershell_switch("ep", "ep", SwitchOperand::One, AllowingPowerShells::Both),
+    powershell_switch(
+        "windowstyle",
+        "w",
+        SwitchOperand::One,
+        AllowingPowerShells::Both,
+    ),
+    powershell_switch(
+        "file",
+        "f",
+        SwitchOperand::Script,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "command",
+        "c",
+        SwitchOperand::Command,
+        AllowingPowerShells::PwshOnly,
+    ),
     powershell_switch(
         "commandwithargs",
         "commandwithargs",
         SwitchOperand::Command,
-        false,
+        AllowingPowerShells::PwshOnly,
     ),
-    powershell_switch("cwa", "cwa", SwitchOperand::Command, false),
-    powershell_switch("encodedcommand", "e", SwitchOperand::One, false),
-    powershell_switch("ec", "e", SwitchOperand::One, false),
-    powershell_switch("encodedarguments", "encodeda", SwitchOperand::One, false),
-    powershell_switch("ea", "ea", SwitchOperand::One, false),
-    powershell_switch("workingdirectory", "wo", SwitchOperand::One, false),
-    powershell_switch("wd", "wd", SwitchOperand::One, false),
-    powershell_switch("configurationname", "config", SwitchOperand::One, false),
+    powershell_switch(
+        "cwa",
+        "cwa",
+        SwitchOperand::Command,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "encodedcommand",
+        "e",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch("ec", "e", SwitchOperand::One, AllowingPowerShells::PwshOnly),
+    powershell_switch(
+        "encodedarguments",
+        "encodeda",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "ea",
+        "ea",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "workingdirectory",
+        "wo",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "wd",
+        "wd",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "configurationname",
+        "config",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
     powershell_switch(
         "configurationfile",
         "configurationfile",
         SwitchOperand::One,
-        false,
+        AllowingPowerShells::PwshOnly,
     ),
-    powershell_switch("custompipename", "cus", SwitchOperand::One, false),
-    powershell_switch("settingsfile", "settings", SwitchOperand::One, false),
-    powershell_switch("inputformat", "inp", SwitchOperand::One, false),
-    powershell_switch("if", "if", SwitchOperand::One, false),
-    powershell_switch("outputformat", "o", SwitchOperand::One, false),
-    powershell_switch("of", "o", SwitchOperand::One, false),
-    powershell_switch("token", "to", SwitchOperand::One, false),
-    powershell_switch("utctimestamp", "utc", SwitchOperand::One, false),
+    powershell_switch(
+        "custompipename",
+        "cus",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "settingsfile",
+        "settings",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "inputformat",
+        "inp",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "if",
+        "if",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "outputformat",
+        "o",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch("of", "o", SwitchOperand::One, AllowingPowerShells::PwshOnly),
+    powershell_switch(
+        "token",
+        "to",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
+    powershell_switch(
+        "utctimestamp",
+        "utc",
+        SwitchOperand::One,
+        AllowingPowerShells::PwshOnly,
+    ),
 ];
 
 /// How `program` with `arguments` starts in `folder`: the `shell` mode is spawned in the system
@@ -251,7 +384,7 @@ fn can_windows_powershell_take_folder_command(arguments: &[String]) -> bool {
             return false;
         };
         let is_value_missing = switch.operand == SwitchOperand::One && arguments.next().is_none();
-        if !switch.allows_folder_command || is_value_missing {
+        if switch.allowed_by != AllowingPowerShells::Both || is_value_missing {
             return false;
         }
     }
@@ -333,10 +466,10 @@ mod tests {
     // a prefix, another switch character or a bare path started in the system folder; a user command
     // dropping pwsh's folder switch; a folder quote other than `'` left single, which ends the string
     // and runs the rest of the name; Windows PowerShell given its folder command beside an argument
-    // not known to leave it free, or after a switch missing its value; cmd
-    // started on a share starts in the Windows folder, and a share path with `&` or `%` left bare
-    // runs a command; MSYS bash without its variable opens in the home folder, and WSL's launcher
-    // given it goes through the MSYS arm; `--cd` added over the user's own `~`.
+    // not known to leave it free, a switch only pwsh has, or a switch missing its value; cmd started
+    // on a share starts in the Windows folder, and a share path with `&` or `%` left bare runs a
+    // command; MSYS bash without its variable opens in the home folder, and WSL's launcher given it
+    // goes through the MSYS arm; `--cd` added over the user's own `~`.
     #[rstest]
     #[case::pwsh_with_a_trailing_separator(
         r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -423,6 +556,15 @@ mod tests {
         &["-nol", "-WindowStyle"],
         r"C:\wt",
         &["-nol", "-WindowStyle"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_switch_only_pwsh_has(
+        "powershell.exe",
+        &["-Login", "-WindowStyle", "a'b"],
+        r"C:\wt",
+        &["-Login", "-WindowStyle", "a'b"],
         r"C:\wt",
         &[],
         None
