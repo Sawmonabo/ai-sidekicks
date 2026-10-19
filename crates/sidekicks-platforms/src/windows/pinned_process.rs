@@ -271,7 +271,7 @@ fn end_job_processes(job: &OwnedHandle) -> io::Result<bool> {
     if count_active_processes(job)? == 0 {
         return Ok(false);
     }
-    // SAFETY: the job's handle is open and carries the right to end it.
+    // SAFETY: the call reads the borrowed handle and writes nothing.
     if unsafe { TerminateJobObject(job.as_raw_handle(), KILLED_EXIT_CODE) } == FALSE {
         return Err(io::Error::last_os_error());
     }
@@ -281,8 +281,8 @@ fn end_job_processes(job: &OwnedHandle) -> io::Result<bool> {
 // How many processes `job`, open with the right to ask what it holds, still holds.
 fn count_active_processes(job: &OwnedHandle) -> io::Result<u32> {
     let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-    // SAFETY: the job's handle is open with the right to query it, and the call writes the live
-    // record of the length given and no returned length.
+    // SAFETY: the record points at a live accounting record of the length given, the one thing
+    // the call writes, with no returned length asked.
     let is_read = unsafe {
         QueryInformationJobObject(
             job.as_raw_handle(),
@@ -310,8 +310,8 @@ pub(crate) fn read_exit_code(process: BorrowedHandle<'_>) -> io::Result<u32> {
     Ok(code)
 }
 
-/// Whether `process` runs in `job`, or in any job when `job` is `None`; both handles carry the
-/// right to query them. Fails with the system's error.
+/// Whether `process` runs in `job`, or in any job when `job` is `None`; the process handle, and
+/// the job's when given, carry the right to query them. Fails with the system's error.
 pub(crate) fn is_process_in_job(
     process: BorrowedHandle<'_>,
     job: Option<BorrowedHandle<'_>>,
