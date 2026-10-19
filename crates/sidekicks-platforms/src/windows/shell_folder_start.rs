@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::shell_folder_start::ShellFolderProbe;
 use crate::shell_folder_start::ShellFolderStart;
 use crate::shell_folder_start::windows::compose_shell_folder_start;
 use crate::windows::known_folder::system_folder;
@@ -20,3 +22,23 @@ pub fn shell_folder_start(
 ) -> ShellFolderStart {
     compose_shell_folder_start(program, arguments, folder, &system_folder())
 }
+
+/// The shells the live test opens here with their own prompts: cmd holds its folder until it
+/// leaves it, and PowerShell, told its folder by its switch, never holds it.
+#[cfg(any(test, feature = "test-support"))]
+pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[
+    ShellFolderProbe {
+        program: "cmd.exe",
+        arguments: &[],
+        environment: &[],
+        prompt_prefix: "",
+        leaves_the_folder_first: true,
+    },
+    ShellFolderProbe {
+        program: "pwsh.exe",
+        arguments: &[],
+        environment: &[],
+        prompt_prefix: "PS ",
+        leaves_the_folder_first: false,
+    },
+];

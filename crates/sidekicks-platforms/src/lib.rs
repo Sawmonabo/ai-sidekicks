@@ -187,6 +187,8 @@ pub use posix::private_folder::create_private_folder;
 pub use posix::real_path::real_path;
 #[cfg(unix)]
 pub use posix::run_folder::{check_private_run_folder, daemon_run_folder};
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::shell_folder_start::SHELL_FOLDER_PROBES;
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
 #[cfg(unix)]
@@ -218,6 +220,8 @@ pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use program_start::{ProgramStart, program_start};
 pub use run_folder::{DaemonRunFolder, RunFolderRefused};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
+#[cfg(any(test, feature = "test-support"))]
+pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
 #[cfg(not(target_os = "macos"))]
 pub use shell_start::ShellStartConfirmation;
@@ -296,6 +300,8 @@ pub use windows::processes::{list_user_process_ids, read_process_environment};
 pub use windows::real_path::real_path;
 #[cfg(target_os = "windows")]
 pub use windows::run_folder::{check_private_run_folder, daemon_run_folder};
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::shell_folder_start::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "windows")]
 pub use windows::shell_folder_start::shell_folder_start;
 #[cfg(target_os = "windows")]

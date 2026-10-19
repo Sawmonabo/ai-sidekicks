@@ -25,3 +25,20 @@ pub struct ShellFolderStart {
     /// fills it.
     pub raw_command_tail: Option<String>,
 }
+
+/// A shell the live test opens on a worktree on this host to prove the worktree stays removable
+/// while the shell is open.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone, Copy, Debug)]
+pub struct ShellFolderProbe {
+    /// The program, found on `PATH`.
+    pub program: &'static str,
+    /// Its arguments, which keep the prompt to the probe's own.
+    pub arguments: &'static [&'static str],
+    /// Environment entries that replace the test's own of the same name.
+    pub environment: &'static [(&'static str, &'static str)],
+    /// What the prompt shows before the folder, which `>` follows.
+    pub prompt_prefix: &'static str,
+    /// Whether the shell holds the folder until it leaves it with `cd ..`.
+    pub leaves_the_folder_first: bool,
+}
