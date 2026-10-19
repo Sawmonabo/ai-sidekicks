@@ -62,8 +62,9 @@ pub(super) struct EndingWrite {
     pub(super) landed: SetOnce<()>,
 }
 
-/// A limit stop's cut of a turn: the limit and the stop's own identity, which no other stop
-/// shares.
+/// One entry in a turn's list of cuts: the limit that cut it and the stop's own identity, which no
+/// other stop shares. The turn is the list's key; the hand carries the same cut as the turn with
+/// that identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct LimitCut {
     /// The limit that cut the turn.
@@ -94,11 +95,13 @@ pub(super) struct LiveRuns {
     /// reached event is written until that turn's end is written, or until its stop withdraws it
     /// for want of a pending row naming the turn; a turn's list is never empty.
     pub(super) cut_turns: HashMap<(RunId, SafeInt<1>), Vec<LimitCut>>,
-    /// Each run's limits whose reached event is being written or landed while their interrupt is
-    /// not yet handed to the interventions service, so a stop retried at that limit sends the
-    /// interrupt alone; one leaves when its interrupt is handed, its write is refused or its run
-    /// ends. The step limit's outlives the turn that reached it, so a later step or turn end of
-    /// the run hands its interrupt again.
+    /// Each run's limits whose interrupt is owed and not yet handed to the interventions service:
+    /// one whose reached event is being written or landed, or one whose hand failed after the
+    /// service answered with its row pending, so a stop retried at that limit sends the interrupt
+    /// alone; one leaves when its interrupt is handed, its write is refused or its run ends. The
+    /// step limit's outlives the turn that reached it, so a later step or turn end of the run
+    /// hands its interrupt again, and every one is handed again once the provider runs again:
+    /// with the move back to `running` out of a wait or `pausing`, or once it took a resume.
     pub(super) reached_limits: HashSet<(RunId, RunLimit)>,
     /// Each run whose step limit's interrupt is being handed to the interventions service, so
     /// one goes at a time.

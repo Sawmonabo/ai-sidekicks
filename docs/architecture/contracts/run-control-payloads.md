@@ -265,8 +265,10 @@ type AgentRunInterveneResponse = InterventionResponseBase &
       }
     | {
         state: "failed";
-        // what the dispatch threw: a daemon error's code, else its message, persisted in the row's
-        // `failure_reason` column so a retry under the same key answers the same reason
+        // what the dispatch threw: a daemon error's code, else its message, the restart that kept
+        // it from completing, or the run's end and continue that kept it from being sent,
+        // persisted in the row's `failure_reason` column so a retry under the same key answers
+        // the same reason
         failureReason: string;
       }
     | { state: "requested" | "accepted" | "applied" | "degraded" | "expired" }

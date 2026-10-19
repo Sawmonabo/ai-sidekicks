@@ -11,7 +11,7 @@ mod live;
 mod settle;
 mod start;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub(crate) mod turns;
 
 use std::error::Error;
@@ -53,7 +53,7 @@ use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
     ContinuingRun, EndingGuard, EndingWrite, LiveRuns, StartingRun, lock,
 };
-use crate::session::run::engine::turns::{ProviderReportWritten, ProviderTurnEnd, TurnEnd};
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::{RunRead, read_run_provider, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
@@ -70,9 +70,10 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
-/// turn and every open turn, its provider, and the two agent reads.
+/// turn and every open turn, its provider, whether it ended since a version, and the two agent
+/// reads.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 12 + RUN_AGENT_STATEMENT_CAPACITY;
+pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 13 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -373,7 +374,6 @@ impl RunEngine {
     /// be written. A run being continued answers once its continue settles, `Driver` while it runs
     /// and `Ended` once it ended. Any other run is the driver's to stop. Fails when the run's read
     /// fails.
-    #[expect(dead_code, reason = "the interventions service")]
     pub(crate) async fn route_interrupt(
         &self,
         run_id: RunId,
@@ -416,14 +416,28 @@ impl RunEngine {
 
     /// Moves the run as `change` asks, with `companions` in the same write, and returns the run as
     /// the change left it. A terminal runs every terminal hook once it has committed; a hook's
-    /// failure is returned after all have run, with the change kept. Refuses as
+    /// failure is returned after all have run, with the change kept. A move into `running` whose
+    /// change names the state it leaves as a wait for an approval or for input, or `pausing`,
+    /// where the provider never stopped, hands again the interrupt of every limit the run owes
+    /// once it is written, on a task of its own; a move that names no state it leaves hands
+    /// nothing, its caller handing them once the provider runs. Refuses as
     /// [`RunStateChangeWriter::write`] does; a running change's posture is the start's to stamp.
     pub(crate) async fn transition(
-        &self,
+        self: &Arc<Self>,
         change: RunStateChange,
         companions: RunStateChangeCompanions,
     ) -> Result<RunRead, RunEngineError> {
-        self.change(change, companions).await
+        let run_id = change.run_id;
+        let is_back_to_running = RunState::from(change.entry.state()) == RunState::Running
+            && matches!(
+                change.expected_state,
+                Some(RunState::WaitingForApproval | RunState::WaitingForInput | RunState::Pausing)
+            );
+        let written = self.change(change, companions).await?;
+        if is_back_to_running {
+            self.hand_owed_limit_interrupts(run_id);
+        }
+        Ok(written)
     }
 
     /// Moves the run as its provider reported, as [`RunEngine::transition`] does, with the end of
@@ -436,14 +450,15 @@ impl RunEngine {
     /// the same way, but a terminal before its next turn started belongs to the turn that ended it
     /// and is refused at once. A send's re-open of an ended run is the daemon's, never a
     /// provider's. Once a turn's end is written with the change, a step limit's interrupt a stop
-    /// of the run could not hand is handed again, its failure returned beside the run as the
-    /// change left it.
+    /// of the run could not hand is handed again, and once the provider reports the run back to
+    /// `running` from a wait, a pause or `pausing`, the interrupt of every limit it owes, each
+    /// failure returned beside the run as the change left it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         self: &Arc<Self>,
         change: RunStateChange,
         turn_end: Option<ProviderTurnEnd>,
-    ) -> Result<ProviderReportWritten<RunRead>, RunEngineError> {
+    ) -> Result<WriteWithResend<RunRead>, RunEngineError> {
         let run_id = change.run_id;
         let to_state = change.entry.state();
         let settling = lock(&self.live)
@@ -472,16 +487,28 @@ impl RunEngine {
             return Err(self.refuse_ended(run_id, change, &run, turn_end).await);
         }
         let is_turn_ended = turn_end.is_some();
+        let left = run.state;
         let turn_end = turn_end.map(|end| self.provider_turn_end(&run_id, end));
         let changed = self
             .change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
             .await?;
-        let resend_failure = if is_turn_ended {
+        // A provider that reports `running` runs again, from a pause or `pausing` as well.
+        let is_back_to_running = RunState::from(to_state) == RunState::Running
+            && matches!(
+                left,
+                RunState::WaitingForApproval
+                    | RunState::WaitingForInput
+                    | RunState::Paused
+                    | RunState::Pausing
+            );
+        let resend_failure = if is_back_to_running {
+            self.stop_at_owed_limits(run_id).await.err()
+        } else if is_turn_ended {
             self.hand_owed_step_interrupt(run_id).await.err()
         } else {
             None
         };
-        Ok(ProviderReportWritten {
+        Ok(WriteWithResend {
             written: changed,
             resend_failure,
         })

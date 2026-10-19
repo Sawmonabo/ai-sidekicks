@@ -80,7 +80,8 @@ pub enum InterventionState {
     Degraded,
     /// Outdated before it could apply.
     Expired,
-    /// Its dispatch threw.
+    /// Its dispatch threw, never completed (a daemon death among them), or was never sent because
+    /// the run ended and was continued before it.
     Failed,
 }
 
@@ -386,8 +387,10 @@ macro_rules! intervention_request_response {
 intervention_request_response! {
     /// The daemon's answer to an intervention request. A refused intervention is a normal answer in
     /// state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; one whose
-    /// dispatch threw answers `failed` with its `failureReason`, the error's code or message, and a
-    /// retry under the same key answers the same. No other state carries a reason.
+    /// dispatch threw, never completed or was never sent answers `failed` with its `failureReason`,
+    /// the error's code or message, the restart that lost the outcome or the run's end and
+    /// continue before the dispatch, and a retry under the same key answers the same. No other
+    /// state carries a reason.
     pub enum AgentRunInterveneResponse {
         /// Asked for.
         Requested,
@@ -413,9 +416,11 @@ intervention_request_response! {
             #[schemars(with = "Never")]
             failure_reason: Option<Never>,
         },
-        /// Its dispatch threw, with what it threw.
+        /// Its dispatch threw, never completed (a daemon death among them), or was never sent
+        /// because the run ended and was continued before it, with why.
         Failed {
-            /// The thrown error's code, else its message.
+            /// The thrown error's code, else its message, or why it never completed or was never
+            /// sent.
             failure_reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
             /// Never present outside `rejected`.
             #[serde(

@@ -43,7 +43,7 @@ use crate::session::run::state_change::{
 
 /// The statements [`ProviderChoiceResolver`] prepares on a read connection: the newest request of
 /// a choice and a settlement since it.
-#[expect(dead_code, reason = "the daemon's start")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const PROVIDER_CHOICE_STATEMENT_CAPACITY: usize = 2;
 
 // The settlement guard is the one companion of a settlement's move, terminal or not.
@@ -68,7 +68,10 @@ const SELECT_SETTLEMENT_SINCE_SQL: &str = "SELECT 1 FROM session_events
 
 /// Who answered a choice: the device of the connection the answer arrived on.
 #[derive(Clone, Debug)]
-#[expect(dead_code, reason = "the provider choice answer handlers")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the provider choice answer handlers")
+)]
 pub(crate) struct ProviderChoiceAnswerOrigin {
     /// The answering device, where the connection names one.
     pub(crate) device_id: Option<DeviceId>,
@@ -164,7 +167,10 @@ pub(crate) struct ProviderChoiceResolver {
 
 impl ProviderChoiceResolver {
     /// A resolver reading runs and their log through `pool` and moving them through `engine`.
-    #[expect(dead_code, reason = "the provider choice answer handlers")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the provider choice answer handlers")
+    )]
     pub(crate) fn new(pool: Arc<DatabaseReadPool>, engine: Arc<RunEngine>) -> Self {
         Self {
             pool,
@@ -251,9 +257,13 @@ impl ProviderChoiceResolver {
     }
 
     /// Answers the switch-or-credits choice the run waits on and settles it; either answer returns
-    /// the run to `running`. Fails with [`RunRefusal::InvalidTransition`], nothing sent or
-    /// written, when the run waits on no such choice.
-    #[expect(dead_code, reason = "the provider choice answer handlers")]
+    /// the run to `running`, where a limit it owes is handed again on its own. Fails with
+    /// [`RunRefusal::InvalidTransition`], nothing sent or written, when the run waits on no such
+    /// choice.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the provider choice answer handlers")
+    )]
     pub(crate) async fn resolve_usage_credits_choice(
         &self,
         request: &AgentRunUsageCreditsChoiceResolveRequest,
@@ -389,7 +399,7 @@ impl ProviderChoiceResolver {
             leading_event: None,
         };
         match self.engine.transition(change, companions).await {
-            Ok(run) => Ok(run_control_response(run_id, &run)),
+            Ok(written) => Ok(run_control_response(run_id, &written)),
             Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
                 companion_index: SETTLEMENT_GUARD_COMPANION_INDEX,
                 source,

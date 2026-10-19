@@ -16,8 +16,8 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::orchestration::InterruptReason;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::events::{
-    AgentInterventionAppliedPayload, AgentInterventionAppliedState, DaemonInterventionActor,
-    InterventionActor, InterventionDeviceActor, TurnEndCause,
+    AgentInterventionAppliedPayload, AgentInterventionAppliedState, InterventionActor,
+    InterventionDeviceActor, TurnEndCause,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
@@ -33,8 +33,8 @@ use crate::database::stored_column::{
 };
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::{
-    InterventionResolvedError, InterventionTransition, UnresolvedInterventionState,
-    move_intervention_statement,
+    InterventionTransition, UnresolvedInterventionState, move_intervention_statement, stored_actor,
+    unresolved_state_of,
 };
 use crate::queue::store::{QueueItemReader, SELECT_WAITING_FOR_RUN_SQL};
 use crate::session::run::engine::turns::TURN_END_TYPES_SQL;
@@ -147,7 +147,8 @@ pub(crate) struct PendingInterrupt {
     pub(crate) record: InterruptInterventionRecord,
 }
 
-/// An open turn the log shows a limit cut, with the highest-ranked limit whose mark names it.
+/// An open turn the log shows a limit cut, with the highest-ranked limit whose mark names it: what
+/// a restart reads from the interrupts' rows, where no stop's identity is kept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TurnCut {
     /// The turn.
@@ -421,37 +422,18 @@ fn read_pending_interrupts(
         .query_map(named_params! { "@run_id": run_id.text().as_str() }, |row| {
             Ok(PendingInterrupt {
                 intervention_id: text_column(row, 0, |text| InterventionId::new(&text))?,
-                // The read selects only the two states before an outcome; any other reads as a
-                // broken row.
-                state: text_column(row, 1, |text| {
-                    closed_word::<InterventionState>(text)
-                        .map_err(UnresolvedStateError::Unreadable)
-                        .and_then(|state| {
-                            UnresolvedInterventionState::try_from(state)
-                                .map_err(UnresolvedStateError::Resolved)
-                        })
-                })?,
-                // A row the daemon wrote for itself names no device.
-                actor: optional_text_column(row, 2, closed_word::<InterventionDeviceActor>)?
-                    .map_or(
-                        InterventionActor::Daemon(DaemonInterventionActor::Value),
-                        InterventionActor::Device,
-                    ),
+                state: text_column(row, 1, unresolved_state_of)?,
+                actor: stored_actor(optional_text_column(
+                    row,
+                    2,
+                    closed_word::<InterventionDeviceActor>,
+                )?),
                 record: text_column(row, 3, |text| {
                     serde_json::from_str::<InterruptInterventionRecord>(&text)
                 })?,
             })
         })?
         .collect()
-}
-
-// Why a stored state is not one an interrupt leaves.
-#[derive(Debug, thiserror::Error)]
-enum UnresolvedStateError {
-    #[error("the stored state is not an intervention state")]
-    Unreadable(#[source] serde_json::Error),
-    #[error(transparent)]
-    Resolved(InterventionResolvedError),
 }
 
 /// The statement that refuses a settle once an interrupt it did not read is pending, written after

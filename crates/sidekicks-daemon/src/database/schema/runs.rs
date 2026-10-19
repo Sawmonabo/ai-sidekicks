@@ -90,7 +90,8 @@ CREATE TABLE interventions (
   rejection_reason        TEXT,
   -- The fallback a degraded intervention took; NULL in every other state.
   fallback_action         TEXT,
-  -- What a failed dispatch threw, so a retry's saved reply carries the same reason.
+  -- What a failed dispatch threw, or why it never completed or was never sent, so a retry's saved
+  -- reply carries the same reason.
   failure_reason          TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,

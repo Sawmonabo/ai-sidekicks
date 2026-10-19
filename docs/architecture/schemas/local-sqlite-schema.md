@@ -264,7 +264,7 @@ CREATE TABLE interventions (
   device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
   rejection_reason       TEXT,                       -- machine-readable rejected cause (provider.capability.unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   fallback_action        TEXT,                       -- the fallback a degraded intervention took; NULL in every other state
-  failure_reason         TEXT,                       -- what a failed dispatch threw (a daemon error's code, else its message), so a retry's saved reply carries the same failureReason; NULL in every other state
+  failure_reason         TEXT,                       -- what a failed dispatch threw (a daemon error's code, else its message), the restart that kept it from completing, or the run's end and continue that kept it from being sent, so a retry's saved reply carries the same failureReason; NULL in every other state
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   UNIQUE(target_run_id, client_idempotency_key)      -- identical retry returns the saved result; key reuse with a differing payload rejects as agent.intervention.idempotencyConflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)

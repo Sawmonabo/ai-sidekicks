@@ -1,19 +1,29 @@
 //! The `interventions` row: the statements that write it, each guarded so a write decided from a
-//! stale read is refused whole, and the read of a row saved under a reused idempotency key.
+//! stale read is refused whole, the read of a row saved under a reused idempotency key, the read of
+//! whether a limit's interrupt of a run is pending, and the settle at start of a faster-model retry
+//! a restart left with no outcome.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
+use sidekicks_contracts::run::events::{
+    AgentInterventionExpiredPayload, AgentInterventionExpiredState, AgentInterventionFailedPayload,
+    AgentInterventionFailedState, DaemonInterventionActor, InterventionActor,
+    InterventionDeviceActor,
+};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::intervention::InterventionType;
-use sidekicks_contracts::run::intervention::{InterventionId, InterventionState};
+use sidekicks_contracts::run::intervention::{
+    InterventionId, InterventionState, InterventionType, RunLimit,
+};
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -23,6 +33,7 @@ use crate::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
+use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 /// A new intervention as its `requested` row records it; `payload` is its type's own fields, as
 /// JSON text.
@@ -83,6 +94,38 @@ impl TryFrom<InterventionState> for UnresolvedInterventionState {
     }
 }
 
+/// Why a stored state is not one an intervention leaves.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum UnresolvedStateError {
+    /// The stored word is no intervention state.
+    #[error("the stored state is not an intervention state")]
+    Unreadable(#[source] serde_json::Error),
+    /// The state is an outcome.
+    #[error(transparent)]
+    Resolved(InterventionResolvedError),
+}
+
+/// The stored state word `text` of a row a read selected for having no outcome yet; any other
+/// state fails it, as a broken row.
+pub(crate) fn unresolved_state_of(
+    text: String,
+) -> Result<UnresolvedInterventionState, UnresolvedStateError> {
+    closed_word::<InterventionState>(text)
+        .map_err(UnresolvedStateError::Unreadable)
+        .and_then(|state| {
+            UnresolvedInterventionState::try_from(state).map_err(UnresolvedStateError::Resolved)
+        })
+}
+
+/// Who an intervention is from, read from its stored device: the device a person's came from, or
+/// the daemon for its own, which names none.
+pub(crate) fn stored_actor(device: Option<InterventionDeviceActor>) -> InterventionActor {
+    device.map_or(
+        InterventionActor::Daemon(DaemonInterventionActor::Value),
+        InterventionActor::Device,
+    )
+}
+
 /// One move of an intervention's row, each arm carrying only the states it may leave. Only a
 /// rejected or failed row carries a reason, and only a degraded one a fallback. A request expires
 /// only before dispatch: once dispatched, the driver's verdict stands. Only a restart that ends the
@@ -103,9 +146,11 @@ pub(crate) enum InterventionTransition {
         /// The machine-readable cause.
         reason: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
     },
-    /// `accepted` to `failed`, with what its dispatch threw.
+    /// `accepted` to `failed`: its dispatch threw, never completed (a daemon death among them), or
+    /// was never sent because the run ended and was continued before it.
     Fail {
-        /// The thrown error's code, else its message.
+        /// The thrown error's code, else its message, or why it never completed or was never
+        /// sent.
         reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
     /// To `applied`.
@@ -133,7 +178,7 @@ pub(crate) struct SavedIntervention {
     pub(crate) payload: String,
     /// Why it was rejected, on a rejected row.
     pub(crate) rejection_reason: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-    /// What its dispatch threw, on a failed row.
+    /// Why its dispatch threw, never completed or was never sent, on a failed row.
     pub(crate) failure_reason: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
@@ -172,6 +217,49 @@ const RUN_AT_VERSION_SQL: &str = "SELECT 1 FROM runs
 const RUN_IN_STATES_SQL: &str = "SELECT 1 FROM runs
   WHERE run_id = @run_id
     AND state IN (SELECT value FROM json_each(@states))";
+
+// An interrupt of the run at one limit that has no outcome yet.
+static PENDING_LIMIT_INTERRUPT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM interventions
+   WHERE target_run_id = @run_id
+     AND type = '{}'
+     AND state IN ('{}', '{}')
+     AND json_extract(payload, '$.limit') = @limit
+   LIMIT 1",
+        <&'static str>::from(InterventionType::Interrupt),
+        <&'static str>::from(InterventionState::Requested),
+        <&'static str>::from(InterventionState::Accepted)
+    )
+});
+
+static SELECT_LIMIT_INTERRUPT_PENDING_SQL: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT EXISTS ({})", *PENDING_LIMIT_INTERRUPT_SQL));
+
+// Every faster-model retry with no outcome yet, with its run's session, read through the partial
+// index on pending states, oldest first.
+static SELECT_PENDING_RETRIES_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT interventions.id, interventions.target_run_id, interventions.state,
+       interventions.device_id, runs.session_id
+  FROM interventions JOIN runs ON runs.run_id = interventions.target_run_id
+  WHERE interventions.type = '{}'
+    AND interventions.state IN ('{}', '{}')
+  ORDER BY interventions.created_at, interventions.id",
+        <&'static str>::from(InterventionType::FasterModelRetry),
+        <&'static str>::from(InterventionState::Requested),
+        <&'static str>::from(InterventionState::Accepted)
+    )
+});
+
+// The reason an accepted retry records when the daemon went down before its outcome.
+static RETRY_LOST_TO_RESTART: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
+    LazyLock::new(|| {
+        FreeFormText::new(
+            "The background service restarted before the retry's outcome was known".to_owned(),
+        )
+        .expect("the reason is non-blank and within the cap")
+    });
 
 const SELECT_BY_IDEMPOTENCY_KEY_SQL: &str =
     "SELECT id, type, state, payload, rejection_reason, failure_reason FROM interventions
@@ -308,4 +396,222 @@ pub(crate) fn read_intervention_by_idempotency_key(
             },
         )
         .optional()
+}
+
+/// A guard that refuses its write while an interrupt of `run_id` at `limit` is `requested` or
+/// `accepted`, so one limit's interrupt of a run is pending once at a time.
+pub(crate) fn no_pending_limit_interrupt_statement(
+    run_id: &RunId,
+    limit: RunLimit,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(PENDING_LIMIT_INTERRUPT_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@run_id", run_id.text().as_str()),
+            text_binding("@limit", <&'static str>::from(limit)),
+        ]),
+        expected_row_count: Some(0),
+    }
+}
+
+/// Whether an interrupt of `run_id` at `limit` is `requested` or `accepted`, read on `reader`.
+/// Fails as the read fails.
+pub(crate) fn is_limit_interrupt_pending(
+    reader: &Connection,
+    run_id: &RunId,
+    limit: RunLimit,
+) -> rusqlite::Result<bool> {
+    reader
+        .prepare_cached(&SELECT_LIMIT_INTERRUPT_PENDING_SQL)?
+        .query_row(
+            named_params! {
+                "@run_id": run_id.text().as_str(),
+                "@limit": <&'static str>::from(limit),
+            },
+            |row| row.get(0),
+        )
+}
+
+/// A faster-model retry a restart found with no outcome yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingRetry {
+    /// The retry.
+    pub(crate) intervention_id: InterventionId,
+    /// The run it retries.
+    pub(crate) target_run_id: RunId,
+    /// The run's session.
+    pub(crate) session_id: SessionId,
+    /// Where it stands.
+    pub(crate) state: UnresolvedInterventionState,
+    /// Who it is from.
+    pub(crate) actor: InterventionActor,
+}
+
+/// The one write that settles a pending retry: its row's move and the move's event.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's recovery pass at start")
+)]
+pub(crate) struct RetrySettlement {
+    /// The row's move, refused unless the row is still in the state it was read in.
+    pub(crate) statement: WriteStatement,
+    /// The move's `agent.intervention.*` event.
+    pub(crate) event: SessionEventDraft,
+}
+
+/// Every faster-model retry with no outcome yet, read on `reader` by the daemon's recovery pass at
+/// start. Fails when the read fails or a stored column does not read as its type.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's recovery pass at start")
+)]
+pub(crate) fn read_pending_retries(reader: &Connection) -> rusqlite::Result<Vec<PendingRetry>> {
+    reader
+        .prepare_cached(&SELECT_PENDING_RETRIES_SQL)?
+        .query_map([], |row| {
+            Ok(PendingRetry {
+                intervention_id: text_column(row, 0, |text| InterventionId::new(&text))?,
+                target_run_id: text_column(row, 1, |text| RunId::new(&text))?,
+                state: text_column(row, 2, unresolved_state_of)?,
+                actor: stored_actor(optional_text_column(
+                    row,
+                    3,
+                    closed_word::<InterventionDeviceActor>,
+                )?),
+                session_id: text_column(row, 4, |text| SessionId::new(&text))?,
+            })
+        })?
+        .collect()
+}
+
+/// The write that settles `retry` for the daemon's recovery pass at start, the provider process
+/// that held its turn having ended with the daemon: a `requested` retry was never sent, so it
+/// expires; an `accepted` one fails, its outcome lost with the daemon. Fails when the event breaks
+/// a check of its type.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's recovery pass at start")
+)]
+pub(crate) fn settle_retry_after_restart(
+    retry: &PendingRetry,
+) -> Result<RetrySettlement, SessionEventDraftError> {
+    let PendingRetry {
+        intervention_id,
+        target_run_id,
+        session_id,
+        state,
+        actor,
+    } = retry.clone();
+    let (transition, event) = match state {
+        UnresolvedInterventionState::Requested => (
+            InterventionTransition::Expire { from: state },
+            SessionEvent::AgentInterventionExpired(AgentInterventionExpiredPayload {
+                session_id,
+                intervention_id,
+                target_run_id,
+                intervention_type: InterventionType::FasterModelRetry,
+                state: AgentInterventionExpiredState::Value,
+                actor,
+            }),
+        ),
+        UnresolvedInterventionState::Accepted => (
+            InterventionTransition::Fail {
+                reason: RETRY_LOST_TO_RESTART.clone(),
+            },
+            SessionEvent::AgentInterventionFailed(AgentInterventionFailedPayload {
+                session_id,
+                intervention_id,
+                target_run_id,
+                intervention_type: InterventionType::FasterModelRetry,
+                state: AgentInterventionFailedState::Value,
+                actor,
+                failure_reason: RETRY_LOST_TO_RESTART.clone(),
+            }),
+        ),
+    };
+    Ok(RetrySettlement {
+        statement: move_intervention_statement(&intervention_id, &transition),
+        event: SessionEventDraft::of_session(session_id, &event)?,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::params;
+
+    use super::{read_pending_retries, settle_retry_after_restart};
+    use crate::database::statement::DATABASE_NOW_SQL;
+    use crate::interventions::service::tests::harness;
+    use crate::provider::driver::contract::MockProviderDriver;
+    use crate::uuid_v7::mint_uuid_v7;
+
+    // Each pending retry moves in one write with its event: a `requested` one to `expired`, an
+    // `accepted` one to `failed` with the restart as its reason. Killed by swapping the two moves
+    // or dropping the reason.
+    #[tokio::test]
+    async fn a_retry_pending_at_start_expires_unsent_or_fails_once_sent() {
+        let harness = harness(MockProviderDriver::new()).await;
+        for state in ["requested", "accepted"] {
+            let id = mint_uuid_v7().to_string();
+            harness
+                .database
+                .reader()
+                .execute(
+                    &format!(
+                        "INSERT INTO interventions (id, target_run_id, type, state, payload,
+                           expected_run_version, client_idempotency_key, device_id, created_at)
+                         VALUES (?1, ?2, 'fasterModelRetry', ?3, '{{}}', 1, ?1, 'device-1',
+                           {DATABASE_NOW_SQL})"
+                    ),
+                    params![id, harness.run_id.text().as_str(), state],
+                )
+                .expect("the test records the pending retry");
+        }
+
+        let pending =
+            read_pending_retries(&harness.database.reader()).expect("the pending retries read");
+        assert_eq!(pending.len(), 2);
+        for retry in &pending {
+            assert_eq!(retry.session_id, harness.session_id);
+            let settlement = settle_retry_after_restart(retry).expect("the settlement drafts");
+            harness
+                .service
+                .append(settlement.event, vec![settlement.statement], Vec::new())
+                .await
+                .expect("the settlement is written");
+        }
+
+        let reasons: Vec<(String, Option<String>)> = harness
+            .database
+            .reader()
+            .prepare("SELECT state, failure_reason FROM interventions ORDER BY created_at, id")
+            .expect("the test reads the retries")
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("the retries read")
+            .collect::<Result<_, _>>()
+            .expect("each retry reads");
+        assert_eq!(
+            reasons,
+            [
+                ("expired".to_owned(), None),
+                (
+                    "failed".to_owned(),
+                    Some(
+                        "The background service restarted before the retry's outcome was known"
+                            .to_owned()
+                    )
+                ),
+            ]
+        );
+        assert_eq!(
+            harness.stored_event_types(),
+            ["agent.intervention.expired", "agent.intervention.failed"]
+        );
+        assert_eq!(
+            read_pending_retries(&harness.database.reader())
+                .expect("the pending retries read")
+                .len(),
+            0
+        );
+    }
 }

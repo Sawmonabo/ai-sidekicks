@@ -8,14 +8,14 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::sync::{Arc, LazyLock, Weak};
 
-use rusqlite::{Connection, named_params};
+use futures::future::join_all;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::orchestration::InterruptReason;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::intervention::{InterventionState, InterventionType, RunLimit};
+use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::session::controls::events::{
     AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
 };
@@ -27,10 +27,13 @@ use tracing::Instrument as _;
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::events::session::appender::SessionEventDraft;
+use crate::interventions::store::is_limit_interrupt_pending;
 use crate::session::run::engine::live::{CutGuard, StepInterruptGuard, lock};
-use crate::session::run::engine::turns::set_step_limit_reached;
-use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, refused_statement_index};
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::engine::turns::{WriteWithResend, set_step_limit_reached};
+use crate::session::run::engine::{
+    LiveAppend, RunEngine, RunEngineError, refused_statement_index, settled,
+};
+use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::RunStateEntry;
@@ -52,21 +55,6 @@ static SELECT_TOKEN_LIMIT_REACHED_SQL: LazyLock<String> = LazyLock::new(|| {
             .category()
             .as_str(),
         SessionEventType::AgentRunTokenLimitReached.as_str()
-    )
-});
-
-// Whether an interrupt of the run at one limit has no outcome yet.
-static SELECT_LIMIT_INTERRUPT_PENDING_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT EXISTS (
-  SELECT 1 FROM interventions
-   WHERE target_run_id = @run_id
-     AND type = '{}'
-     AND state IN ('{}', '{}')
-     AND json_extract(payload, '$.limit') = @limit)",
-        <&'static str>::from(InterventionType::Interrupt),
-        <&'static str>::from(InterventionState::Requested),
-        <&'static str>::from(InterventionState::Accepted)
     )
 });
 
@@ -384,9 +372,12 @@ impl RunEngine {
             } => cut.map(|(_, turn_number)| turn_number),
             LimitStop::Step { .. } | LimitStop::Interrupt { .. } | LimitStop::Token { .. } => None,
         };
-        let row_turn = cut.map(|(_, turn_number)| turn_number);
+        let row_cut = cut.map(|(_, turn_number)| HandedCut {
+            turn_number,
+            stop_id: own_cut.stop_id,
+        });
         match self
-            .hand_limit_interrupt(run_id, limit, reached_turn, row_turn)
+            .hand_limit_interrupt(run_id, limit, reached_turn, row_cut)
             .await
         {
             Ok(true) => cut_guard.keep(),
@@ -412,8 +403,8 @@ impl RunEngine {
         Ok(())
     }
 
-    // Hands the interventions service the interrupt of `run_id` at `limit`, its row naming
-    // `row_turn`, and, once it is handed, forgets the limit and marks `reached_turn`'s count
+    // Hands the interventions service the interrupt of `run_id` at `limit`, its row naming the turn
+    // of `row_cut`, and, once it is handed, forgets the limit and marks `reached_turn`'s count
     // reached; answers whether it went. The step limit's goes one hand at a time, so one that
     // finds another in flight is left to it. Fails as the service is gone or fails, the limit
     // kept for the retry.
@@ -422,7 +413,7 @@ impl RunEngine {
         run_id: RunId,
         limit: RunLimit,
         reached_turn: Option<SafeInt<1>>,
-        row_turn: Option<SafeInt<1>>,
+        row_cut: Option<HandedCut>,
     ) -> Result<bool, RunEngineError> {
         let interrupter = self.live_limit_interrupter(run_id)?;
         let _in_flight = match limit {
@@ -438,7 +429,7 @@ impl RunEngine {
             RunLimit::SpendLimit | RunLimit::TokenLimit => None,
         };
         interrupter
-            .interrupt_for_limit(run_id, limit, row_turn)
+            .interrupt_for_limit(run_id, limit, row_cut)
             .await
             .map_err(|source| RunEngineError::LimitInterrupt { run_id, source })?;
         let mut live = lock(&self.live);
@@ -447,6 +438,79 @@ impl RunEngine {
             set_step_limit_reached(&mut live, &run_id, turn_number, true);
         }
         Ok(true)
+    }
+
+    /// Forgets what the engine kept for the interrupt of `run_id` at `limit` whose hand answered
+    /// with its row pending and then failed late, leaving no row pending: the stop's own `cut` is
+    /// withdrawn, as a hand that failed in time withdraws it, and a step or token limit is owed
+    /// again on a live run, so its next step, usage report or return from a wait hands the
+    /// interrupt again; the spend limit is never owed, the budget accountant's next call sending
+    /// it. Fails as the run's read fails, the cut withdrawn and the limit left owed.
+    pub(crate) async fn forget_late_limit_hand(
+        &self,
+        run_id: RunId,
+        limit: RunLimit,
+        cut: Option<HandedCut>,
+    ) -> Result<(), RunEngineError> {
+        // Owed under the lock before the run is read, so a run that ends meanwhile forgets the
+        // limit with the rest of what it held.
+        let is_owed = {
+            let mut live = lock(&self.live);
+            if let Some(cut) = cut {
+                live.withdraw_cut((run_id, cut.turn_number), cut.stop_id);
+            }
+            match limit {
+                RunLimit::StepLimit | RunLimit::TokenLimit => {
+                    live.reached_limits.insert((run_id, limit))
+                }
+                RunLimit::SpendLimit => false,
+            }
+        };
+        if is_owed && self.require_run(run_id).await?.state.is_terminal() {
+            lock(&self.live).reached_limits.remove(&(run_id, limit));
+        }
+        Ok(())
+    }
+
+    /// Hands the interventions service again, on a task of its own carrying the caller's span, the
+    /// interrupt of each limit `run_id` owes, once its provider runs again after a wait or a
+    /// pause, where no step or usage report comes to hand it; a failure is logged, the next step,
+    /// usage report or restart handing the limit once more. A person's call that returned the run
+    /// to `running` calls it only once the provider runs, so its answer never waits on a hand and
+    /// no interrupt reaches a provider before its resume.
+    pub(crate) fn hand_owed_limit_interrupts(self: &Arc<Self>, run_id: RunId) {
+        let engine = Arc::clone(self);
+        tokio::spawn(
+            async move {
+                WriteWithResend {
+                    written: (),
+                    resend_failure: engine.stop_at_owed_limits(run_id).await.err(),
+                }
+                .log_resend_failure(run_id);
+            }
+            .instrument(tracing::Span::current()),
+        );
+    }
+
+    /// Hands the interventions service again the interrupt of each limit `run_id` owes, as its
+    /// next step or usage report would: every limit is handed at once, the failures returned
+    /// together.
+    pub(super) async fn stop_at_owed_limits(
+        self: &Arc<Self>,
+        run_id: RunId,
+    ) -> Result<(), RunEngineError> {
+        let owed: Vec<RunLimit> = lock(&self.live)
+            .reached_limits
+            .iter()
+            .filter(|(owing_run_id, _)| *owing_run_id == run_id)
+            .map(|(_, limit)| *limit)
+            .collect();
+        let outcomes = join_all(
+            owed.into_iter()
+                .map(|limit| self.stop_at_limit(run_id, LimitStop::Interrupt { limit })),
+        )
+        .await;
+        settled(outcomes, "handing the interrupts a run owes at its limits")
     }
 
     // A step stop that wrote nothing leaves its turn's count to reach the bound again.
@@ -593,23 +657,6 @@ enum LimitReach {
     TurnEnded,
     // The limit's own interrupt of the run is still pending, and it ends the run.
     InterruptPending,
-}
-
-// Whether the interrupt of `run_id` at `limit` has no outcome yet, read on `reader`.
-fn is_limit_interrupt_pending(
-    reader: &Connection,
-    run_id: &RunId,
-    limit: RunLimit,
-) -> rusqlite::Result<bool> {
-    reader
-        .prepare_cached(&SELECT_LIMIT_INTERRUPT_PENDING_SQL)?
-        .query_row(
-            named_params! {
-                "@run_id": run_id.text().as_str(),
-                "@limit": <&'static str>::from(limit),
-            },
-            |row| row.get(0),
-        )
 }
 
 // Refuses a limit's end from a state the table does not let the run leave for it.

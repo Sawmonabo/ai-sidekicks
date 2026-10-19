@@ -40,13 +40,13 @@ use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
 use crate::uuid_v7::mint_uuid_v7;
 
-/// Bounds a start or a continue and the call made while its driver is held, so a call that waits
-/// on nothing fails the test.
-pub(super) const SETTLE_WAIT: Duration = Duration::from_secs(10);
+/// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
+/// its own, so a call that waits on nothing, or a hand that never comes, fails the test.
+pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(10);
 
 /// How long a held driver stays held once the call under test is in flight, long enough for a
 /// call that does not wait to read the run and act on what it reads.
@@ -55,7 +55,7 @@ pub(super) const DRIVER_HOLD: Duration = Duration::from_millis(200);
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
 /// interventions service and its posture files under `home`; a test makes the tables its runs
 /// need.
-pub(super) fn test_engine(
+pub(crate) fn test_engine(
     database: &TestDatabase,
     event_log: Arc<EventLogService>,
     home: &Path,
@@ -141,8 +141,9 @@ impl LimitInterrupter for TestLimitInterrupter {
         &self,
         run_id: RunId,
         limit: RunLimit,
-        cut_turn: Option<SafeInt<1>>,
+        cut: Option<HandedCut>,
     ) -> BoxFuture<'_, Result<(), LimitInterruptFailure>> {
+        let cut_turn = cut.map(|cut| cut.turn_number);
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.cut_turns
             .lock()
@@ -197,7 +198,7 @@ pub(super) fn hand_limit_interrupter(
 }
 
 /// Writes `run_id` of `session_id` running at version 1.
-pub(super) fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
+pub(crate) fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
     let connection = database.reader();
     connection
         .execute(
@@ -333,8 +334,37 @@ pub(super) fn token_limit() -> TokensPerRun {
     TokensPerRun(SafeInt::new(500_000).expect("the test's limit is a safe integer"))
 }
 
+/// Cuts turn `turn_number` of `run_id` at `limit` as a stop does before it hands the interrupt,
+/// and answers the cut as the hand carries it.
+pub(crate) fn hold_cut(
+    engine: &RunEngine,
+    run_id: RunId,
+    turn_number: SafeInt<1>,
+    limit: RunLimit,
+) -> HandedCut {
+    let mut live = lock(&engine.live);
+    let cut = live.new_cut(limit);
+    live.cut_turns
+        .entry((run_id, turn_number))
+        .or_default()
+        .push(cut);
+    HandedCut {
+        turn_number,
+        stop_id: cut.stop_id,
+    }
+}
+
+/// The limit turn `turn_number` of `run_id` ends with by the cuts the engine holds of it, if any.
+pub(crate) fn held_cut_limit(
+    engine: &RunEngine,
+    run_id: RunId,
+    turn_number: SafeInt<1>,
+) -> Option<RunLimit> {
+    lock(&engine.live).current_limit(&(run_id, turn_number))
+}
+
 /// The run's stored state and version.
-pub(super) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64) {
+pub(crate) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64) {
     database
         .reader()
         .query_row(

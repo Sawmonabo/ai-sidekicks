@@ -11,6 +11,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::sync::LazyLock;
 
+use rusqlite::named_params;
 use rusqlite::types::Value;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
@@ -82,7 +83,7 @@ impl RunEngine {
         not(test),
         expect(
             dead_code,
-            reason = "the interventions service ends the run of each interrupt it applies with it"
+            reason = "the run queue ends the run of each interrupt the service applies"
         )
     )]
     pub(crate) async fn end_run_for_interrupt(
@@ -142,6 +143,25 @@ impl RunEngine {
             ) => Ok(false),
             Err(error) => Err(error),
         }
+    }
+
+    /// Whether `run_id` has ended since `run_version`, read from its terminal records, a run
+    /// ended and continued since included. Fails as the read fails.
+    pub(crate) async fn has_ended_since(
+        &self,
+        run_id: RunId,
+        run_version: i64,
+    ) -> Result<bool, RunEngineError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(reader.prepare_cached(&SELECT_TERMINAL_SINCE_SQL)?.exists(
+                    named_params! {
+                        "@run_id": run_id.text().as_str(),
+                        "@run_version": run_version,
+                    },
+                )?)
+            })
+            .await
     }
 
     /// Ends the turns a provider process left when it ended on its own: the run, and each live run
