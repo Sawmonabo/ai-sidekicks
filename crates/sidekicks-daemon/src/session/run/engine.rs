@@ -426,7 +426,8 @@ impl RunEngine {
     /// waits on its own run's change. A change for a run being continued waits for its continue
     /// the same way, but a terminal before its next turn started belongs to the turn that ended it
     /// and is refused at once. A send's re-open of an ended run is the daemon's, never a
-    /// provider's.
+    /// provider's. A live run's end of a turn a step stop cut whose interrupt failed hands that
+    /// interrupt over again, failing as it fails.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         &self,
@@ -460,9 +461,16 @@ impl RunEngine {
         if run.state.is_terminal() {
             return self.refuse_ended(run_id, change, &run, turn_end).await;
         }
+        let is_interrupt_owed =
+            turn_end.is_some_and(|end| self.is_step_interrupt_owed(&run_id, end.turn_number));
         let turn_end = turn_end.map(|end| self.provider_turn_end(&run_id, end));
-        self.change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
-            .await
+        let changed = self
+            .change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
+            .await?;
+        if is_interrupt_owed && !changed.state.is_terminal() {
+            self.hand_owed_step_interrupt(run_id).await?;
+        }
+        Ok(changed)
     }
 
     // A provider's change of a run that has ended is refused; the turn end it reported still ends

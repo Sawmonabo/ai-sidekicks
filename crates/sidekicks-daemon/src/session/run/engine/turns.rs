@@ -283,8 +283,8 @@ impl RunEngine {
     /// Counts one step of the open turn on `run_id`, which the driver's delivery reports for a run
     /// whose provider does not bound a turn's steps; the step that reaches the turn's bound stops
     /// the run at the step limit. A run with no count armed is left as it is. Fails as the stop
-    /// fails; a failed stop is tried again at the next step, the interrupt alone once the turn's
-    /// reached event has landed.
+    /// fails; a failed stop is tried again at the next step or at the turn's end, the interrupt
+    /// alone once the turn's reached event has landed.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(&self, run_id: RunId) -> Result<(), RunEngineError> {
         let (turn_number, stop) = {
@@ -316,8 +316,9 @@ impl RunEngine {
 
     /// Writes the end its provider reported for a turn of `run_id` that changes no run: a turn
     /// that ended beside a live run, or a late end after the run ended. Returns whether it was
-    /// written; a duplicate of an end the turn holds is dropped. Fails with
-    /// `RunRefusal::NotFound` for an unknown run and with the append's failure.
+    /// written; a duplicate of an end the turn holds is dropped. The end of a turn a step stop cut
+    /// whose interrupt failed hands that interrupt over again. Fails with `RunRefusal::NotFound`
+    /// for an unknown run, with the append's failure and as that interrupt fails.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_turn_end(
         &self,
@@ -325,8 +326,37 @@ impl RunEngine {
         turn_end: ProviderTurnEnd,
     ) -> Result<bool, RunEngineError> {
         let run = self.require_run(run_id).await?;
+        let is_interrupt_owed = self.is_step_interrupt_owed(&run_id, turn_end.turn_number);
         let turn_end = self.provider_turn_end(&run_id, turn_end);
-        self.record_turn_end_alone(run_id, &run, turn_end).await
+        let is_written = self.record_turn_end_alone(run_id, &run, turn_end).await?;
+        if is_interrupt_owed {
+            self.hand_owed_step_interrupt(run_id).await?;
+        }
+        Ok(is_written)
+    }
+
+    /// Whether the step limit's interrupt of `run_id` is owed once `turn_number` ends: its stop
+    /// wrote that turn's reached event, its interrupt failed, and no stop is in flight.
+    pub(super) fn is_step_interrupt_owed(&self, run_id: &RunId, turn_number: SafeInt<1>) -> bool {
+        let live = lock(&self.live);
+        live.reached_limits
+            .contains(&(*run_id, RunLimit::StepLimit))
+            && live
+                .step_counts
+                .get(run_id)
+                .is_some_and(|count| count.turn_number == turn_number && !count.is_stopping)
+    }
+
+    /// Hands the interventions service the step limit's interrupt that a cut turn's end left owed,
+    /// so the run rests at the step limit. Fails as the interrupt fails.
+    pub(super) async fn hand_owed_step_interrupt(
+        &self,
+        run_id: RunId,
+    ) -> Result<(), RunEngineError> {
+        self.live_limit_interrupter(run_id)?
+            .interrupt_for_limit(run_id, RunLimit::StepLimit)
+            .await
+            .map_err(|source| RunEngineError::LimitInterrupt { run_id, source })
     }
 
     /// The end the log records for a turn end its provider reported: as reported, or interrupted
