@@ -58,8 +58,8 @@ async fn a_second_start_meeting_the_same_files_finds_the_first_copy() {
     writer
         .execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
-             CREATE TABLE session_events (sequence INTEGER PRIMARY KEY, payload TEXT);
-             INSERT INTO session_events VALUES (1, 'first');",
+             CREATE TABLE filler (sequence INTEGER PRIMARY KEY, payload TEXT);
+             INSERT INTO filler VALUES (1, 'first');",
         )
         .expect("the database is written");
     let copier = DatabaseFileCopier::new(daemon_program(), spawner());
@@ -80,7 +80,7 @@ async fn a_second_start_meeting_the_same_files_finds_the_first_copy() {
 
     assert_eq!(first, second);
     assert_eq!(aside_copies(data_folder.path()), vec![first.clone()]);
-    assert_eq!(row_count(&first.join("daemon.db"), "session_events"), 1);
+    assert_eq!(row_count(&first.join("daemon.db"), "filler"), 1);
     drop(writer);
 }
 
@@ -94,10 +94,10 @@ async fn a_log_folded_while_the_files_are_copied_keeps_every_commit() {
     writer
         .execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
-             CREATE TABLE session_events (sequence INTEGER PRIMARY KEY, payload TEXT);
+             CREATE TABLE filler (sequence INTEGER PRIMARY KEY, payload TEXT);
              WITH RECURSIVE counter(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM counter
                WHERE n < 500)
-             INSERT INTO session_events SELECT n, printf('%.100c', 'x') FROM counter;",
+             INSERT INTO filler SELECT n, printf('%.100c', 'x') FROM counter;",
         )
         .expect("the commits are written");
     let copier = DatabaseFileCopier::new(daemon_program(), spawner());
@@ -116,7 +116,7 @@ async fn a_log_folded_while_the_files_are_copied_keeps_every_commit() {
         .expect("the close's task ends")
         .expect("the last connection closes");
     let folder = copied.expect("the files are copied aside");
-    assert_eq!(row_count(&folder.join("daemon.db"), "session_events"), 500);
+    assert_eq!(row_count(&folder.join("daemon.db"), "filler"), 500);
 }
 
 #[tokio::test]
@@ -125,7 +125,7 @@ async fn a_stop_leaves_no_copy() {
     let database_path = data_folder.path().join("daemon.db");
     Connection::open(&database_path)
         .expect("the database opens")
-        .execute_batch("CREATE TABLE session_events (sequence INTEGER PRIMARY KEY);")
+        .execute_batch("CREATE TABLE filler (sequence INTEGER PRIMARY KEY);")
         .expect("the database is written");
     let copier = DatabaseFileCopier::new(daemon_program(), spawner());
     let stop = CancellationToken::new();
@@ -164,7 +164,8 @@ const WRITTEN_EVENTS: i64 = 2_000;
 
 // The fixture's database: session events, each with a mark pointing at it under a foreign key,
 // then one page in the middle of the events overwritten, so the events on it are lost while every
-// mark survives, which only a writer with foreign keys off can keep.
+// mark survives, which only a writer with foreign keys off can keep. The events' table keeps its
+// real name, since the repair counts the rows it recovers into that table.
 fn write_damaged_database(database_path: &Path) {
     let writer = Connection::open(database_path).expect("the database opens");
     writer
