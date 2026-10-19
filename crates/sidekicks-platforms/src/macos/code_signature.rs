@@ -178,7 +178,8 @@ fn owned<T: objc2_core_foundation::Type>(
 /// Whether `process` runs a program that meets `requirement`: a peer is looked up by its
 /// connection's audit token, which fails once the process ran another program; any other process
 /// by its id, taken only once the process is read still running afterward. Fails with
-/// `InvalidInput` for an id of 0 or past `i32::MAX`, else only when the system cannot check.
+/// `InvalidInput` only for a process with no audit token whose id is 0 or past `i32::MAX`, else
+/// only when the system cannot check.
 fn meets(process: &PinnedProcess, requirement: &Requirement) -> io::Result<SignatureCheck> {
     let attributes = if let Some(token) = process.audit_token() {
         let token = CFData::from_bytes(&token.to_bytes());
