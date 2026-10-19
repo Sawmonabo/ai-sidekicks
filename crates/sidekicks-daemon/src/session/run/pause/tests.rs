@@ -481,10 +481,12 @@ async fn a_failed_resume_moves_nothing_and_sends_each_message_once(#[case] failu
     assert_eq!(messages.releases.load(Ordering::SeqCst), releases);
 }
 
-// A run a provider process's exit ended while its driver took the resume is not moved: one the
-// exit left interrupted, a person's interrupt pending, answers that the version the caller read is
-// stale, one it left stopped that it cannot move, each giving the messages back. Killed by moving
-// the run before the driver, or by keeping the messages.
+// A run a provider process's exit ended while its driver took the resume is not moved, and the
+// messages the provider took are never given back: one the exit left interrupted, a person's
+// interrupt pending, answers that the version the caller read is stale and delivers them with the
+// run; one it left stopped answers that it cannot move, and the provider's own record, holding
+// them, settles them delivered. Killed by moving the run before the driver, or by giving the
+// messages back.
 #[rstest]
 #[case::interrupt_pending("interrupted", Refusal::VersionStale)]
 #[case::no_interrupt_pending("stopped", Refusal::InvalidTransition)]
@@ -512,6 +514,10 @@ async fn a_run_ended_under_the_resume_is_not_moved(
             .expect("the process exit ends the run");
         async { Ok(()) }.boxed()
     });
+    driver.expect_find_taken_messages().returning(|params| {
+        let taken = params.message_ids;
+        async move { Ok(TakenMessages { taken }) }.boxed()
+    });
     let fixture = fixture(driver, "paused").await;
     *database.lock().expect("the run reads") = Some((fixture.database.path(), fixture.run_id));
     let messages = WaitingMessages::holding(waiting_message());
@@ -527,8 +533,20 @@ async fn a_run_ended_under_the_resume_is_not_moved(
         _ => panic!("expected {expected:?}, got {resumed:?}"),
     }
     assert_eq!(fixture.run(), (ended_as.to_owned(), 2));
-    assert_eq!(messages.releases.load(Ordering::SeqCst), 1);
-    assert_eq!(messages.admissions.load(Ordering::SeqCst), 0);
+    assert_eq!(messages.releases.load(Ordering::SeqCst), 0);
+    let delivered = match expected {
+        Refusal::VersionStale => messages.admissions.load(Ordering::SeqCst),
+        Refusal::NotFound
+        | Refusal::InvalidTransition
+        | Refusal::ProviderNotFound
+        | Refusal::Unbound => messages
+            .settled_taken
+            .lock()
+            .expect("the settled messages read")
+            .len(),
+    };
+    assert_eq!(delivered, 1);
+    assert_eq!(messages.kept_messages(), []);
 }
 
 // While the driver takes a resume, the provider's `paused` report on the pausing run and a

@@ -140,14 +140,15 @@ pub(crate) enum RunPauseError {
     /// The messages waiting for the run could not be read; nothing was moved.
     #[error("the messages waiting for the run could not be read")]
     WaitingMessagesUnread(#[source] ContinuedMessagesError),
-    /// The resume failed, and giving its messages back failed too.
-    #[error("the run's resume failed ({resume}), and giving its waiting messages back failed")]
-    MessagesNotReleased {
+    /// The resume failed, and giving its messages back, or settling those the provider took,
+    /// failed too.
+    #[error("the run's resume failed ({resume}), and settling its waiting messages failed")]
+    MessagesNotSettled {
         /// Why the resume failed.
         resume: Box<RunPauseError>,
-        /// The failed give-back.
+        /// The failed give-back or settle.
         #[source]
-        release: ContinuedMessagesError,
+        settle: ContinuedMessagesError,
     },
     /// The run resumed with its messages, and marking them delivered failed.
     #[error("the run resumed, and marking its waiting messages delivered failed")]
@@ -200,8 +201,9 @@ impl From<RunEngineError> for RunPauseError {
 impl From<RunPauseError> for HandlerError {
     /// A refusal answers by its code, the driver's failure as a driver error answers, and a
     /// provider no driver answers `provider.notFound`; the rest are faults in the daemon. A failed
-    /// give-back or return to `running` carries the driver's refusal and still answers as a fault
-    /// on purpose: the call was not refused, the daemon failed after it was accepted.
+    /// settle of the messages or return to `running` carries the driver's refusal and still
+    /// answers as a fault on purpose: the call was not refused, the daemon failed after it was
+    /// accepted.
     fn from(error: RunPauseError) -> Self {
         match error {
             RunPauseError::Refused(refusal) => Self::Refused(refusal.into()),
@@ -210,7 +212,7 @@ impl From<RunPauseError> for HandlerError {
             fault @ (RunPauseError::Change(_)
             | RunPauseError::NotRestored { .. }
             | RunPauseError::WaitingMessagesUnread(_)
-            | RunPauseError::MessagesNotReleased { .. }
+            | RunPauseError::MessagesNotSettled { .. }
             | RunPauseError::MessagesNotAdmitted(_)
             | RunPauseError::KeptNotSettled(_)
             | RunPauseError::RecordUnreadable { .. }
@@ -299,8 +301,8 @@ impl RunPauseControl {
     /// [`RunPauseError::NoDriver`]. A resume the driver refuses moves nothing, gives the messages
     /// back and fails with [`RunPauseError::Driver`], as does one whose answer never came, which
     /// keeps the messages for the provider's own record to settle. A move refused once the driver
-    /// took the resume (a process exit ended or interrupted the run meanwhile) gives the messages
-    /// back and refuses from where the run went.
+    /// took the resume (a process exit ended or interrupted the run meanwhile) refuses from where
+    /// the run went and never gives the messages back, the provider holding them.
     pub(crate) async fn resume(
         &self,
         request: &AgentRunResumeRequest,
@@ -358,13 +360,47 @@ impl RunPauseControl {
                 let failure = self
                     .refusal_of_move(run_id, expected_run_version, change)
                     .await;
-                return Err(release(continued, hold, run_id, failure).await);
+                return Err(self
+                    .settle_taken_messages(hold, run_id, continued, failure)
+                    .await);
             }
         };
         let admitted = continued.admit(hold, run_id).await;
         self.engine.hand_owed_limit_interrupts(run_id);
         admitted.map_err(RunPauseError::MessagesNotAdmitted)?;
         Ok(run_control_response(run_id, &running))
+    }
+
+    // Settles the messages a resume the driver took read, its move refused or failed, answering
+    // `failure`, or the settle's failure beside it: the provider holds them, so none is given
+    // back. A run a process exit left interrupted ended the turn they started, so they are
+    // delivered with it; any other is kept, a run still live for the provider's report that it
+    // runs, an ended one settled at once by the provider's record.
+    async fn settle_taken_messages(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        run_id: RunId,
+        continued: &dyn ContinuedMessages,
+        failure: RunPauseError,
+    ) -> RunPauseError {
+        let state = match read_run_through::<RunPauseError>(&self.pool, run_id).await {
+            Ok(run) => run.map(|run| run.state),
+            Err(read) => return not_settled(failure, Box::new(read)),
+        };
+        if state == Some(RunState::Interrupted) {
+            return match continued.admit(hold, run_id).await {
+                Ok(()) => failure,
+                Err(admit) => not_settled(failure, admit),
+            };
+        }
+        continued.keep(hold, run_id);
+        if !state.is_some_and(RunState::is_terminal) {
+            return failure;
+        }
+        match self.settle_kept_under(hold, run_id, continued).await {
+            Ok(()) => failure,
+            Err(settle) => not_settled(failure, Box::new(settle)),
+        }
     }
 
     /// Settles as taken every message a resume of `run_id` kept, once the provider reports the run
@@ -606,10 +642,15 @@ async fn release(
 ) -> RunPauseError {
     match continued.release(hold, run_id).await {
         Ok(()) => failure,
-        Err(release) => RunPauseError::MessagesNotReleased {
-            resume: Box::new(failure),
-            release,
-        },
+        Err(release) => not_settled(failure, release),
+    }
+}
+
+// `failure` with the failed settle of the resume's messages beside it.
+fn not_settled(failure: RunPauseError, settle: ContinuedMessagesError) -> RunPauseError {
+    RunPauseError::MessagesNotSettled {
+        resume: Box::new(failure),
+        settle,
     }
 }
 
