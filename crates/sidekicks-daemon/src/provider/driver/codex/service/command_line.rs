@@ -14,6 +14,13 @@ use sidekicks_platforms::{PathRules, RunningProgramPath, ShellWordRefused};
 pub(crate) const CODEX_HOOK_TIMEOUT: Duration = Duration::from_secs(1_000_000_000_000);
 
 /// How long a conversation no client holds stays loaded, so a moved one is free to resume soon.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start of a managed Codex service composes its command line with it"
+    )
+)]
 const CODEX_THREAD_UNLOAD_DELAY: Duration = Duration::from_secs(5);
 
 /// The hook event before each tool call.
@@ -168,6 +175,13 @@ fn compose_daemon_hook_command(
 }
 
 /// What one service start carries beyond the switches every service the daemon starts shares.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start of a managed Codex service composes its command line with it"
+    )
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexServiceCommandLineInput {
     /// `unix://` for the home's own control socket, or `unix://<path>` for a second service that
@@ -196,6 +210,13 @@ struct CodexCommandHook<'command> {
 
 /// The arguments after the Codex command for one service the daemon starts. A conversation on a
 /// managed account home gets its hooks from its own start, so no hook switch is composed here.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start of a managed Codex service composes its command line with it"
+    )
+)]
 pub(crate) fn compose_codex_service_arguments(input: &CodexServiceCommandLineInput) -> Vec<String> {
     let shared_overrides = [
         format!(
