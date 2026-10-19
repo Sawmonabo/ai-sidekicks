@@ -371,9 +371,9 @@ mod tests {
     const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
     const WAIT: Duration = Duration::from_secs(10);
 
-    fn notice(paths: &[PathBuf]) -> notify::Result<Event> {
+    fn notice(paths: &[PathBuf]) -> Event {
         let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)));
-        Ok(paths.iter().cloned().fold(event, Event::add_path))
+        paths.iter().cloned().fold(event, Event::add_path)
     }
 
     async fn next_write(
@@ -419,11 +419,11 @@ mod tests {
             report_writes(&mut watch, &writes_sender).await
         });
 
-        feed.handle_event(notice(&[
+        feed.handle_event(Ok(notice(&[
             session.join("a.txt"),
             session.join("b.txt"),
             session.join("made"),
-        ]));
+        ])));
         assert_eq!(
             next_write(&mut writes).await,
             write("a.txt", ManagedWorkspaceWriteKind::File)
@@ -439,13 +439,13 @@ mod tests {
 
         fs::remove_file(session.join("b.txt")).expect("the file is removed");
         fs::write(session.join("zz-last.txt"), "last").expect("a file is written");
-        feed.handle_event(notice(&[session.join("a.txt")]));
-        feed.handle_event(notice(&[
+        feed.handle_event(Ok(notice(&[session.join("a.txt")])));
+        feed.handle_event(Ok(notice(&[
             session.join(".git").join("index"),
             session.join("b.txt"),
-        ]));
+        ])));
         // Sent last and sorted last, so any write the notices above wrongly cause comes first.
-        feed.handle_event(notice(&[session.join("zz-last.txt")]));
+        feed.handle_event(Ok(notice(&[session.join("zz-last.txt")])));
         assert_eq!(
             next_write(&mut writes).await,
             write("zz-last.txt", ManagedWorkspaceWriteKind::File)
@@ -481,9 +481,9 @@ mod tests {
         // for the writes are lost.
         let git_index = [session.join(".git").join("index")];
         for _ in 0..FEED_CAPACITY {
-            feed.handle_event(notice(&git_index));
+            feed.handle_event(Ok(notice(&git_index)));
         }
-        feed.handle_event(notice(&[session.join("a.txt"), unpacked]));
+        feed.handle_event(Ok(notice(&[session.join("a.txt"), unpacked])));
         let (writes_sender, mut writes) = mpsc::channel(16);
         let task = tokio::spawn(async move {
             let mut watch = watch;

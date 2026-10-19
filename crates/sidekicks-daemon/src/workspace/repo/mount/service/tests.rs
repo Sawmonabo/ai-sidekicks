@@ -131,7 +131,7 @@ async fn a_detach_that_loses_its_flip_reports_the_state_the_winner_left() {
         [WorkspaceId::new(WORKSPACE_ID).expect("the id is a UUID")]
     );
     assert_eq!(lost.state, RepoMountState::Detached);
-    assert!(lost.archived_workspace_ids.is_empty());
+    assert_eq!(lost.archived_workspace_ids, []);
 }
 
 #[tokio::test]
@@ -149,7 +149,7 @@ async fn a_read_whose_root_never_answers_reads_the_mount_unreachable() {
     .expect("the mount's root is stored");
     let mount_id = RepoMountId::new(MOUNT_ID).expect("the id is a UUID");
     let answered = service
-        .read(mount_id.clone())
+        .read(mount_id)
         .await
         .expect("the reachable mount reads");
     assert!(

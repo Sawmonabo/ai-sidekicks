@@ -570,15 +570,12 @@ impl RepoMountHealthReprobe {
         let repo_mount_id = mount.id;
         let mut probe = self.take_or_start_probe(mount);
         let probed = wait_within(Pin::new(&mut probe), GIT_COMMAND_TIMEOUT, Some(&self.stop)).await;
-        let probed = match probed {
-            Some(probed) => probed,
-            None => {
-                // Still running; the next pass waits on it instead of starting another.
-                if let Some(memory) = self.lock_mounts().get_mut(&repo_mount_id) {
-                    memory.probe_in_flight = Some(probe);
-                }
-                return self.read_timed_out_probe(mount, on_timeout);
+        let Some(probed) = probed else {
+            // Still running; the next pass waits on it instead of starting another.
+            if let Some(memory) = self.lock_mounts().get_mut(&repo_mount_id) {
+                memory.probe_in_flight = Some(probe);
             }
+            return self.read_timed_out_probe(mount, on_timeout);
         };
         match probed {
             Ok(Ok(health)) => Ok(Some(health)),

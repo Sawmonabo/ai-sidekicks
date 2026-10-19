@@ -365,7 +365,7 @@ impl RepoMountService {
             )
             .await?
         {
-            return Err(already_attached(holder).into());
+            return Err(already_attached(&holder).into());
         }
         Ok(RepoAttachTarget {
             local_path: request.local_path.clone(),
@@ -596,7 +596,7 @@ impl RepoMountService {
             .find_active_mount_of_repository(canonical_root, common_folder, place.cloned())
             .await
         {
-            Ok(Some(holder)) => already_attached(holder).into(),
+            Ok(Some(holder)) => already_attached(&holder).into(),
             Ok(None) => error.into(),
             Err(lookup_failure) => {
                 tracing::warn!(
@@ -638,7 +638,7 @@ fn refuse_distribution(request: &RepoMountAttachRequest) -> Result<(), RepoRefus
     }
 }
 
-fn already_attached(holder: ActiveMount) -> RepoRefusal {
+fn already_attached(holder: &ActiveMount) -> RepoRefusal {
     RepoRefusal::AlreadyAttached {
         conflicting_repo_mount_id: holder.id,
         conflicting_project_id: holder.project_id,
