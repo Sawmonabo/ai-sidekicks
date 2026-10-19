@@ -331,7 +331,7 @@ mod tests {
     use rusqlite::params;
     use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::run::events::{
-        AgentRunInterruptedNewState, AgentRunInterruptedPayload, AgentTurnStartedPayload,
+        AgentRunInterruptedNewState, AgentRunInterruptedPayload,
     };
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::intervention::RunLimit;
@@ -341,11 +341,11 @@ mod tests {
 
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
-    use crate::events::session::appender::SessionEventDraft;
-    use crate::session::run::engine::RunEngine;
     use crate::session::run::engine::limits::CutTurn;
     use crate::session::run::engine::live::lock;
-    use crate::session::run::engine::tests::{stored_events, stored_run_state, test_engine};
+    use crate::session::run::engine::tests::{
+        append, run_version, stored_events, stored_run_state, test_engine, turn_started_at,
+    };
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::projection::RUNS_TABLE_SQL;
     use crate::session::run::read::{LiveRun, RunRead};
@@ -365,22 +365,6 @@ CREATE TABLE interventions (
 ) STRICT;
 ";
 
-    async fn append(engine: &RunEngine, session_id: SessionId, event: &SessionEvent) {
-        engine
-            .append(
-                SessionEventDraft::of_session(session_id, event)
-                    .expect("the event passes its checks"),
-                Vec::new(),
-                Vec::new(),
-            )
-            .await
-            .expect("the test's event is appended");
-    }
-
-    fn run_version(version: u64) -> SafeInt<0> {
-        SafeInt::new(version).expect("the test's run versions are safe integers")
-    }
-
     fn interrupted_at(session_id: SessionId, run_id: RunId, version: u64) -> SessionEvent {
         SessionEvent::AgentRunInterrupted(AgentRunInterruptedPayload {
             session_id,
@@ -392,21 +376,6 @@ CREATE TABLE interventions (
             recovery_condition: None,
             intended_close: None,
             trigger: None,
-        })
-    }
-
-    fn turn_started_at(
-        session_id: SessionId,
-        run_id: RunId,
-        turn: u64,
-        version: u64,
-    ) -> SessionEvent {
-        SessionEvent::AgentTurnStarted(AgentTurnStartedPayload {
-            session_id,
-            run_id,
-            run_version: run_version(version),
-            turn_number: SafeInt::new(turn).expect("the test's turn numbers count from 1"),
-            position: None,
         })
     }
 
@@ -501,13 +470,14 @@ CREATE TABLE interventions (
         assert_eq!(
             stored_events(&database, &run_id),
             [
-                ("agent.run.interrupted".to_owned(), None),
-                ("agent.turn.started".to_owned(), None),
+                ("agent.run.interrupted".to_owned(), None, None),
+                ("agent.turn.started".to_owned(), None, None),
                 (
                     "agent.turn.interrupted".to_owned(),
-                    Some("stepLimit".to_owned())
+                    Some("stepLimit".to_owned()),
+                    Some("daemon".to_owned())
                 ),
-                ("agent.run.interrupted".to_owned(), None),
+                ("agent.run.interrupted".to_owned(), None, None),
             ]
         );
         assert_eq!(

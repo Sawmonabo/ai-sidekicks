@@ -285,3 +285,87 @@ fn no_token_limit_reached_statement(run_id: &RunId) -> WriteStatement {
         expected_row_count: Some(0),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::wire::integer::SafeInt;
+
+    use super::LimitStop;
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::events::log_service::tests::open_log;
+    use crate::session::run::engine::live::lock;
+    use crate::session::run::engine::tests::{
+        append, hand_limit_interrupter, insert_running_run, stored_events, test_engine,
+        turn_started_at,
+    };
+    use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
+    use crate::session::run::state_change::RunStateChangeCompanions;
+    use crate::uuid_v7::mint_uuid_v7;
+
+    // Killed by the run's end forgetting the cut before the cut turn's end is written, which its
+    // provider then reports with no cause.
+    #[tokio::test]
+    async fn a_cut_turn_its_provider_ends_after_a_persons_interrupt_keeps_the_limit() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let home = tempfile::tempdir().expect("the test makes a home folder");
+        let session_id = test_session_id();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let turn_one = SafeInt::new(1).expect("1 is a turn number");
+        insert_running_run(&database, session_id, run_id);
+        let engine = test_engine(&database, log.service, home.path());
+        let _interventions = hand_limit_interrupter(&engine, 0);
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 1, 1),
+        )
+        .await;
+
+        engine
+            .stop_at_limit(
+                run_id,
+                LimitStop::Step {
+                    count: SafeInt::new(40).expect("40 is a step bound"),
+                },
+            )
+            .await
+            .expect("the limit's interrupt is accepted");
+        // A person's interrupt, accepted while the limit's is pending, ends the run first.
+        let ended = engine
+            .end_run_for_interrupt(run_id, 1, None, RunStateChangeCompanions::default())
+            .await
+            .expect("the person's interrupt ends the run");
+        assert!(ended);
+        let turn_ended = engine
+            .record_turn_end(
+                run_id,
+                ProviderTurnEnd {
+                    turn_number: turn_one,
+                    outcome: TurnOutcome::Interrupted(None),
+                },
+            )
+            .await
+            .expect("the provider's end of the cut turn is written");
+
+        assert!(turn_ended);
+        assert_eq!(
+            stored_events(&database, &run_id),
+            [
+                ("agent.turn.started".to_owned(), None, None),
+                ("agent.run.stepLimit.reached".to_owned(), None, None),
+                ("agent.run.interrupted".to_owned(), None, None),
+                (
+                    "agent.turn.interrupted".to_owned(),
+                    Some("stepLimit".to_owned()),
+                    Some("provider".to_owned())
+                ),
+            ]
+        );
+        assert!(
+            lock(&engine.live).cut_turns.is_empty(),
+            "the cut leaves with its turn's end"
+        );
+    }
+}
