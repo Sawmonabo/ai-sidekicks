@@ -7,8 +7,6 @@ pub(crate) mod detection;
 pub(crate) mod id;
 pub(crate) mod ingest;
 pub(crate) mod manifest_write;
-#[cfg(test)]
-pub(crate) mod pause_point;
 pub(crate) mod payload_store;
 pub(crate) mod publish;
 pub(crate) mod refusals;

@@ -27,6 +27,8 @@ pub mod missing_entry;
 pub mod observability;
 pub mod operating_system;
 pub mod orchestration;
+#[cfg(test)]
+pub(crate) mod pause_point;
 pub mod policy;
 pub mod process_exit;
 pub mod processor_bound;

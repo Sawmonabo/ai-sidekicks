@@ -10,12 +10,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::artifacts::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
-#[cfg(test)]
-use crate::artifacts::pause_point::PausePoint;
 use crate::artifacts::refusals::{
     ArtifactError, artifact_too_large_for_volume, ingest_capacity_exhausted,
 };
 use crate::keyed_lock::{KeyHold, KeyedLock};
+#[cfg(test)]
+use crate::pause_point::PausePoint;
 
 /// Reads the free bytes on the volume holding a folder; the daemon's is the platform's.
 pub(crate) type VolumeFreeBytesReader = fn(&Path) -> io::Result<u64>;
