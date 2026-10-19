@@ -343,16 +343,21 @@ fn is_in_folder(program: &str, folder: &Path) -> bool {
         .eq_ignore_ascii_case(folder.replace('/', "\\").trim_end_matches('\\'))
 }
 
-// Whether pwsh can take `-WorkingDirectory` ahead of the user's arguments: always, unless they
-// run a script, by a `-File` form or a bare path, read as pwsh reads its command line.
+// Whether pwsh can take `-WorkingDirectory` ahead of the user's arguments, read as pwsh reads its
+// command line: always, unless they run a script by a relative path, given by a `-File` form or as
+// a bare word, which pwsh resolves against its process folder.
 fn can_pwsh_take_folder_switch(arguments: &[String]) -> bool {
     let mut arguments = arguments.iter();
     while let Some(argument) = arguments.next() {
         let Some(key) = powershell_switch_key(argument) else {
-            return false;
+            return is_resolved_without_folder(argument);
         };
         match find_powershell_switch(key).map(|switch| switch.operand) {
-            Some(SwitchOperand::Script) => return false,
+            Some(SwitchOperand::Script) => {
+                return arguments
+                    .next()
+                    .is_none_or(|script| is_resolved_without_folder(script));
+            }
             Some(SwitchOperand::Command) => return true,
             Some(SwitchOperand::One) => {
                 arguments.next();
@@ -361,6 +366,12 @@ fn can_pwsh_take_folder_switch(arguments: &[String]) -> bool {
         }
     }
     true
+}
+
+// Whether pwsh reads the script `script` names without its process folder: `-`, standard input,
+// or a path naming one complete location.
+fn is_resolved_without_folder(script: &str) -> bool {
+    script == "-" || PathRules::Windows.names_complete_location(script)
 }
 
 // Windows PowerShell's arguments that move it to `folder`, `None` where an argument leaves no room:
@@ -479,15 +490,16 @@ mod tests {
     const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 
     // Mutations killed: PowerShell started in the worktree holds it for its life; a trailing `\`
-    // kept breaks pwsh's quoted switch; a switch's value read as pwsh's script, or a script given by
-    // a prefix, another switch character or a bare path started in the system folder; a user command
-    // dropping pwsh's folder switch; a folder quote other than `'` left single, which ends the string
-    // and runs the rest of the name; Windows PowerShell given its folder command beside an argument
-    // not known to leave it free, a switch only pwsh has, or a switch missing its value, its
+    // kept breaks pwsh's quoted switch; a switch's value read as pwsh's script, or a relative
+    // script given by a prefix, another switch character or a bare path started in the system
+    // folder; a complete script path or standard input's `-` dropping pwsh's folder switch, as a
+    // user command would; a folder quote other than `'` left single, which ends the string and runs
+    // the rest of the name; Windows PowerShell given its folder command beside an argument not
+    // known to leave it free, a switch only pwsh has, or a switch missing its value, its
     // `Set-Location` put anywhere but in front of the user's command, or in front of standard
-    // input's `-`; cmd started on a share starts in the Windows folder, and a share path with `&` or `%` left bare runs a
-    // command; MSYS bash without its variable opens in the home folder, and WSL's launcher given it
-    // goes through the MSYS arm; `--cd` added over the user's own `~`.
+    // input's `-`; cmd started on a share starts in the Windows folder, and a share path with `&`
+    // or `%` left bare runs a command; MSYS bash without its variable opens in the home folder, and
+    // WSL's launcher given it goes through the MSYS arm; `--cd` added over the user's own `~`.
     #[rstest]
     #[case::pwsh_with_a_trailing_separator(
         r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -538,6 +550,24 @@ mod tests {
         r"C:\wt",
         &["/nop", "start.ps1"],
         r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::pwsh_with_the_user_s_script_by_its_complete_path(
+        "pwsh",
+        &["-File", r"D:\scripts\start.ps1"],
+        r"C:\wt",
+        &["-NoLogo", "-WorkingDirectory", r"C:\wt", "-File", r"D:\scripts\start.ps1"],
+        SYSTEM_FOLDER,
+        &[],
+        None
+    )]
+    #[case::pwsh_reading_its_script_from_standard_input(
+        "pwsh",
+        &["-nop", "-f", "-"],
+        r"C:\wt",
+        &["-NoLogo", "-WorkingDirectory", r"C:\wt", "-nop", "-f", "-"],
+        SYSTEM_FOLDER,
         &[],
         None
     )]
