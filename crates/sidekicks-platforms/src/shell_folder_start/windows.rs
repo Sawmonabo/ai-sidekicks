@@ -139,7 +139,7 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 30] = [
         "command",
         "c",
         SwitchOperand::Command,
-        AllowingPowerShells::PwshOnly,
+        AllowingPowerShells::Both,
     ),
     powershell_switch(
         "commandwithargs",
@@ -284,25 +284,13 @@ pub(crate) fn compose_shell_folder_start(
             "-WorkingDirectory".to_owned(),
             strip_trailing_separators(folder).to_owned(),
         ]),
-        // It has no folder switch, so its start command moves it, after the user's arguments since
-        // it takes the rest of the line; any argument not known to leave that command free starts
-        // the shell in the folder with the user's arguments, as every terminal starts it.
-        "powershell" if can_windows_powershell_take_folder_command(arguments) => start(
-            arguments
-                .iter()
-                .cloned()
-                .chain([
-                    "-NoLogo".to_owned(),
-                    "-NoExit".to_owned(),
-                    "-Command".to_owned(),
-                    format!(
-                        "Set-Location -LiteralPath {}",
-                        quote_powershell_literal(folder)
-                    ),
-                ])
-                .collect(),
-            system_folder.to_path_buf(),
-        ),
+        // It has no folder switch, so a `Set-Location` moves it: in front of the user's own command,
+        // or as a start command after their arguments; any argument not known to leave room for it
+        // starts the shell in the folder with the user's arguments, as every terminal starts it.
+        "powershell" => match windows_powershell_folder_arguments(arguments, folder) {
+            Some(arguments) => start(arguments, system_folder.to_path_buf()),
+            None => in_folder(),
+        },
         // cmd parses the text after `/K` itself, so the folder is written in its own quoting and
         // reaches it unchanged.
         "cmd" if is_share_path(folder) => ShellFolderStart {
@@ -375,20 +363,49 @@ fn can_pwsh_take_folder_switch(arguments: &[String]) -> bool {
     true
 }
 
-// Whether every user argument is a switch, with its value, that leaves Windows PowerShell's start
-// command free, so the folder's `-Command` can follow them.
-fn can_windows_powershell_take_folder_command(arguments: &[String]) -> bool {
-    let mut arguments = arguments.iter();
-    while let Some(argument) = arguments.next() {
-        let Some(switch) = powershell_switch_key(argument).and_then(find_powershell_switch) else {
-            return false;
-        };
-        let is_value_missing = switch.operand == SwitchOperand::One && arguments.next().is_none();
-        if switch.allowed_by != AllowingPowerShells::Both || is_value_missing {
-            return false;
+// Windows PowerShell's arguments that move it to `folder`, `None` where an argument leaves no room:
+// every user argument must be a switch it takes the folder start beside, with its value; a user
+// command given as text gets the `Set-Location` in front of it, and otherwise the `Set-Location`
+// follows the arguments as its start command.
+fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Option<Vec<String>> {
+    let set_location = format!(
+        "Set-Location -LiteralPath {}",
+        quote_powershell_literal(folder)
+    );
+    let mut index = 0;
+    while let Some(argument) = arguments.get(index) {
+        let switch = powershell_switch_key(argument).and_then(find_powershell_switch)?;
+        if switch.allowed_by != AllowingPowerShells::Both {
+            return None;
+        }
+        match switch.operand {
+            SwitchOperand::Nothing => index += 1,
+            SwitchOperand::One => {
+                arguments.get(index + 1)?;
+                index += 2;
+            }
+            // `-` reads the commands from standard input, which no text can go in front of.
+            SwitchOperand::Command => {
+                let command = arguments.get(index + 1).filter(|command| *command != "-")?;
+                let mut started = arguments.to_vec();
+                started[index + 1] = format!("{set_location}; {command}");
+                return Some(started);
+            }
+            SwitchOperand::Script => return None,
         }
     }
-    true
+    Some(
+        arguments
+            .iter()
+            .cloned()
+            .chain([
+                "-NoLogo".to_owned(),
+                "-NoExit".to_owned(),
+                "-Command".to_owned(),
+                set_location,
+            ])
+            .collect(),
+    )
 }
 
 // The name an argument gives after its switch character (`/`, a dash, or a dash doubled), trimmed
@@ -466,8 +483,9 @@ mod tests {
     // a prefix, another switch character or a bare path started in the system folder; a user command
     // dropping pwsh's folder switch; a folder quote other than `'` left single, which ends the string
     // and runs the rest of the name; Windows PowerShell given its folder command beside an argument
-    // not known to leave it free, a switch only pwsh has, or a switch missing its value; cmd started
-    // on a share starts in the Windows folder, and a share path with `&` or `%` left bare runs a
+    // not known to leave it free, a switch only pwsh has, or a switch missing its value, its
+    // `Set-Location` put anywhere but in front of the user's command, or in front of standard
+    // input's `-`; cmd started on a share starts in the Windows folder, and a share path with `&` or `%` left bare runs a
     // command; MSYS bash without its variable opens in the home folder, and WSL's launcher given it
     // goes through the MSYS arm; `--cd` added over the user's own `~`.
     #[rstest]
@@ -542,11 +560,26 @@ mod tests {
         &[],
         None
     )]
-    #[case::windows_powershell_with_the_user_s_command_by_a_prefix(
+    #[case::windows_powershell_as_the_developer_shell_on_a_folder_named_to_break_its_quotes(
         "powershell.exe",
-        &["-Comm", "Get-Date"],
+        &["-NoExit", "-Command", r#"&{Import-Module "C:\VS\DevShell.dll"; Enter-VsDevShell 1a2b}"#],
+        "C:\\wt\\it's \u{2018}\u{201A}\u{201B}\\a\u{2019};calc;\u{2019}",
+        &[
+            "-NoExit",
+            "-Command",
+            "Set-Location -LiteralPath \
+             'C:\\wt\\it''s \u{2018}\u{2018}\u{201A}\u{201A}\u{201B}\u{201B}\\a\u{2019}\u{2019};calc;\u{2019}\u{2019}'; \
+             &{Import-Module \"C:\\VS\\DevShell.dll\"; Enter-VsDevShell 1a2b}",
+        ],
+        SYSTEM_FOLDER,
+        &[],
+        None
+    )]
+    #[case::windows_powershell_reading_its_commands_from_standard_input(
+        "powershell.exe",
+        &["-nop", "-Command", "-"],
         r"C:\wt",
-        &["-Comm", "Get-Date"],
+        &["-nop", "-Command", "-"],
         r"C:\wt",
         &[],
         None
