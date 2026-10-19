@@ -8,6 +8,7 @@ use std::io::{self, Write};
 use std::panic::{self, AssertUnwindSafe};
 
 use clap::{Parser, Subcommand};
+use sidekicks_platforms::end_as_ctrl_c;
 
 use crate::command_context::CommandContext;
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
@@ -99,28 +100,63 @@ fn report_parse_refusal<Output: Write, ErrorOutput: Write>(
     }
 }
 
-/// The one error boundary: writes `error: <message>` to stderr and answers the failure's exit
-/// code. A daemon number with no exit code adds its own line and exits 70; a closed output pipe
-/// exits 141 with nothing written, since no one is left to read it.
+/// The one error boundary: writes `error: <message>` to stderr and answers how the run ends. A
+/// daemon number with no exit code adds its own line and exits 70; a closed output pipe exits 141
+/// with nothing written, since no one is left to read it; a call canceled after a Ctrl-C takes the
+/// Ctrl-C ending with nothing written, as the terminal already shows the Ctrl-C.
 pub(crate) fn report_failure<Output: Write, ErrorOutput: Write>(
     failure: &anyhow::Error,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
     let (code, lines) = match exit_code_for_failure(failure) {
-        Ok(ExitCode::BrokenPipe) => return ProcessEnding::Exit(ExitCode::BrokenPipe),
-        Ok(code) => (code, format!("error: {failure:#}\n")),
+        Ok(ProcessEnding::CtrlC) => return ProcessEnding::CtrlC,
+        Ok(ProcessEnding::Exit(ExitCode::BrokenPipe)) => {
+            return ProcessEnding::Exit(ExitCode::BrokenPipe);
+        }
+        Ok(ProcessEnding::Exit(code)) => (code, format!("error: {failure:#}\n")),
         Err(unmapped) => (
             ExitCode::Software,
             format!("error: {failure:#}\nerror: {unmapped}\n"),
         ),
     };
-    match write_all(&mut context.stderr, &lines) {
-        Ok(()) => ProcessEnding::Exit(code),
-        // A broken stderr decides the exit code, as a broken stdout does.
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {
-            ProcessEnding::Exit(ExitCode::BrokenPipe)
+    ProcessEnding::Exit(write_error_lines(&lines, code, context))
+}
+
+/// Ends the process as `ending` asks, answering the exit code for `main` to return: an exit's own
+/// code, and for the Ctrl-C ending, once both streams are flushed (since nothing runs after it),
+/// the process ends as a Ctrl-C ends it. Answers only when that ending fails or a flush fails for
+/// a reason other than a reader gone away, with the failure's line on stderr and 70.
+pub(crate) fn end_process<Output: Write, ErrorOutput: Write>(
+    ending: ProcessEnding,
+    context: &mut CommandContext<Output, ErrorOutput>,
+) -> ExitCode {
+    match ending {
+        ProcessEnding::Exit(code) => code,
+        ProcessEnding::CtrlC => {
+            let flushed = context.stdout.flush().and_then(|()| context.stderr.flush());
+            let failure = match flushed {
+                // A reader gone away loses only output no one is left to read.
+                Ok(()) => end_as_ctrl_c(),
+                Err(error) if error.kind() == io::ErrorKind::BrokenPipe => end_as_ctrl_c(),
+                Err(error) => error,
+            };
+            let lines = format!("error: the command could not end as a Ctrl-C does: {failure}\n");
+            write_error_lines(&lines, ExitCode::Software, context)
         }
-        Err(_) => ProcessEnding::Exit(ExitCode::Software),
+    }
+}
+
+/// Writes `lines` to stderr and answers `code`, or 141 when stderr's reader went away, as a broken
+/// stdout decides it, or 70 when the write failed otherwise.
+fn write_error_lines<Output: Write, ErrorOutput: Write>(
+    lines: &str,
+    code: ExitCode,
+    context: &mut CommandContext<Output, ErrorOutput>,
+) -> ExitCode {
+    match write_all(&mut context.stderr, lines) {
+        Ok(()) => code,
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::BrokenPipe,
+        Err(_) => ExitCode::Software,
     }
 }
 
@@ -218,7 +254,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::failing_body(anyhow!("the body failed"), "error: the body failed\n", ExitCode::Software)]
+    #[case::failing_body(
+        anyhow!("the body failed"),
+        "error: the body failed\n",
+        ExitCode::Software
+    )]
     #[case::unmapped_daemon_number(
         ClientError::Remote(RemoteError {
             code: -32_099,

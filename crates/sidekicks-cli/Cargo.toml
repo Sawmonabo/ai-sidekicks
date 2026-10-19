@@ -15,8 +15,6 @@ ignored = [
   # passes it on.
   "rpassword",
   "secrecy",
-  # The Ctrl-C ending the command line takes behind the platforms interface.
-  "sidekicks-platforms",
 ]
 
 [[bin]]
