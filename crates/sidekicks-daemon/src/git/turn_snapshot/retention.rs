@@ -2,7 +2,6 @@
 //! reads, the snapshot ref listing parser, and the absence probe.
 
 use std::fmt;
-use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::repo::git_reads::GitObjectId;
@@ -10,6 +9,8 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use uuid::Uuid;
+
+use crate::missing_entry::is_gone;
 
 /// The key of one run's execution context row: an agent run's id or a workflow run's id. It
 /// writes as the UUID's lowercase hyphenated text, so it is a safe ref path component.
@@ -78,10 +79,9 @@ pub(crate) fn parse_snapshot_ref_listing(
 /// Whether `path` is provably absent: only a missing entry or a file where a folder was expected
 /// counts, so any other failure answers `false`, and the prune reads the folder as unusable.
 pub(crate) async fn is_path_provably_absent(path: &Path) -> bool {
-    tokio::fs::metadata(path).await.is_err_and(|failure| {
-        let kind = failure.kind();
-        kind == io::ErrorKind::NotFound || kind == io::ErrorKind::NotADirectory
-    })
+    tokio::fs::metadata(path)
+        .await
+        .is_err_and(|failure| is_gone(&failure))
 }
 
 #[cfg(test)]
