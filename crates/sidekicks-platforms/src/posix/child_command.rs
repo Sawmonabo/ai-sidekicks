@@ -114,16 +114,13 @@ pub fn ask_child_to_stop(child: &mut dyn ChildWrapper) -> io::Result<()> {
 }
 
 /// The number of the signal that ended a child; `None` for a child that exited.
-pub(crate) fn exit_signal_number(status: &ExitStatus) -> Option<i32> {
+pub(crate) fn exit_signal_number(status: ExitStatus) -> Option<i32> {
     status.signal()
 }
 
 /// The name of the signal that ended a child, as the wire carries it (`SIGKILL`); `None` for a
 /// child that exited. `_asked_end` is not read: the status names the signal itself here.
-pub(crate) fn exit_signal_name(
-    status: &ExitStatus,
-    _asked_end: Option<ChildEnd>,
-) -> Option<String> {
+pub(crate) fn exit_signal_name(status: ExitStatus, _asked_end: Option<ChildEnd>) -> Option<String> {
     status.signal().and_then(signal_name)
 }
 

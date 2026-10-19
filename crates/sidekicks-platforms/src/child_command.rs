@@ -40,8 +40,8 @@ pub struct ChildExit {
 pub fn read_child_exit(status: &ExitStatus, asked_end: Option<ChildEnd>) -> ChildExit {
     ChildExit {
         exit_code: wire_exit_code(status.code()),
-        signal_number: exit_signal_number(status),
-        signal_name: exit_signal_name(status, asked_end),
+        signal_number: exit_signal_number(*status),
+        signal_name: exit_signal_name(*status, asked_end),
     }
 }
 
@@ -54,10 +54,6 @@ fn wire_exit_code(code: Option<i32>) -> i64 {
 /// end it: nothing to leave on this system, whose lasting start already left the daemon's job.
 /// Never fails.
 #[cfg(not(target_os = "linux"))]
-#[expect(
-    clippy::unused_async,
-    reason = "Linux's move is a call to systemd over D-Bus, and every system shares one signature"
-)]
 pub async fn leave_daemon_scope(_process_id: u32) -> io::Result<()> {
     Ok(())
 }

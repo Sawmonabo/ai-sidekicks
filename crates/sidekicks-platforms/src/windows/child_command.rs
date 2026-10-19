@@ -44,17 +44,14 @@ pub fn ask_child_to_stop(child: &mut dyn ChildWrapper) -> io::Result<()> {
 }
 
 /// The number of the signal that ended a child: always `None`, since no signal ends a process here.
-pub(crate) fn exit_signal_number(_status: &ExitStatus) -> Option<i32> {
+pub(crate) fn exit_signal_number(_status: ExitStatus) -> Option<i32> {
     None
 }
 
 /// The name of the end the daemon asked when it ended the child itself, or read from a lasting
 /// child's exit (`SIGTERM` for a stop, `SIGKILL` for a kill), as the wire carries it; `None`
 /// otherwise, since no signal ends a process here and the exit code tells the end.
-pub(crate) fn exit_signal_name(
-    _status: &ExitStatus,
-    asked_end: Option<ChildEnd>,
-) -> Option<String> {
+pub(crate) fn exit_signal_name(_status: ExitStatus, asked_end: Option<ChildEnd>) -> Option<String> {
     asked_end.map(|end| {
         match end {
             ChildEnd::Stop => "SIGTERM",
