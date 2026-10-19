@@ -6,7 +6,7 @@
 use std::borrow::Cow;
 
 mod posix;
-mod windows;
+pub(crate) mod windows;
 
 /// The rules one operating system spells paths and process-environment names by, and the ones its
 /// command shell (`sh` on macOS and Linux, `cmd.exe` on Windows) reads a word by.

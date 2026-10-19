@@ -8,6 +8,9 @@ use typed_path::{Utf8WindowsPath, Utf8WindowsPrefix};
 
 use super::ShellWordRefused;
 
+#[cfg(any(target_os = "windows", test))]
+pub(crate) mod command_line;
+
 /// The separator Windows writes between a path's components.
 pub(super) const SEPARATOR: char = '\\';
 

@@ -3,6 +3,7 @@ use std::path::Path;
 use rstest::rstest;
 
 use super::compose_shell_folder_start;
+use crate::path::rules::windows::command_line::{COMMAND_LINE_UNITS, compose_command_line};
 use crate::shell_folder_start::ShellFolderStart;
 
 const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
@@ -662,4 +663,44 @@ fn a_windows_shell_is_told_its_folder_by_its_own_means(
             raw_command_tail: raw_command_tail.map(str::to_owned),
         }
     );
+}
+
+// Fails when a folder start whose wrapped text passes Windows' command line is still handed to
+// Windows PowerShell, which then cannot start, or when one that fills the line to its last unit is
+// refused; a text of quotes fits as given and passes the line only once they are doubled.
+#[test]
+fn windows_powershell_takes_its_folder_start_only_within_the_command_line() {
+    let start = |text: &str| {
+        compose_shell_folder_start(
+            "powershell.exe",
+            &["-Command".to_owned(), text.to_owned()],
+            r"C:\wt",
+            Path::new(SYSTEM_FOLDER),
+        )
+    };
+    let line_units = |program: &str, arguments: &[String]| {
+        let arguments: Vec<Vec<u16>> = arguments
+            .iter()
+            .map(|argument| argument.encode_utf16().collect())
+            .collect();
+        compose_command_line(&program.encode_utf16().collect::<Vec<_>>(), &arguments).len()
+    };
+    let start_units = |folder_start: &ShellFolderStart| {
+        line_units(&folder_start.program, &folder_start.arguments)
+    };
+    let filler = "a".repeat(COMMAND_LINE_UNITS - start_units(&start("a")) + 1);
+
+    let filling = start(&filler);
+    let overfilled_text = format!("{filler}a");
+    let overfilled = start(&overfilled_text);
+    let quotes = "'".repeat(COMMAND_LINE_UNITS / 2);
+    let quoted = start(&quotes);
+
+    assert_eq!(start_units(&filling), COMMAND_LINE_UNITS);
+    assert_eq!(filling.shell_folder, Path::new(SYSTEM_FOLDER));
+    for (kept, text) in [(&overfilled, &overfilled_text), (&quoted, &quotes)] {
+        assert_eq!(kept.arguments, ["-Command", text.as_str()]);
+        assert_eq!(kept.shell_folder, Path::new(r"C:\wt"));
+    }
+    assert!(line_units("powershell.exe", &quoted.arguments) <= COMMAND_LINE_UNITS);
 }

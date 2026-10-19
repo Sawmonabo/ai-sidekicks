@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::path::rules::PathRules;
+use crate::path::rules::windows::command_line::{COMMAND_LINE_UNITS, compose_command_line};
 use crate::shell_folder_start::ShellFolderStart;
 
 /// The variable that keeps an MSYS bash login in the folder it starts in, not the home folder.
@@ -286,7 +287,7 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 33] = [
 /// How `program` with `arguments` starts in `folder`: `system_folder` is the folder the `shell`
 /// mode spawns in, and PowerShell, `wsl.exe` and `cmd.exe` on a share (which it refuses as its
 /// start folder) start there too and are told the folder by their own means; every other shell
-/// starts in `folder`.
+/// starts in `folder`, and so does one whose own means would pass Windows' command line.
 pub(crate) fn compose_shell_folder_start(
     program: &str,
     arguments: &[String],
@@ -311,7 +312,7 @@ pub(crate) fn compose_shell_folder_start(
             system_folder.to_path_buf(),
         )
     };
-    match program_name(program).as_str() {
+    let folder_start = match program_name(program).as_str() {
         // Its switch runs before the profile scripts, as a `Set-Location`, so the process's own
         // folder stays the system folder. A script, which pwsh resolves against its process folder,
         // starts in the folder with the user's arguments, as every terminal starts it.
@@ -354,7 +355,31 @@ pub(crate) fn compose_shell_folder_start(
             ..in_folder()
         },
         _ => in_folder(),
+    };
+    if fits_command_line(&folder_start) {
+        folder_start
+    } else {
+        in_folder()
     }
+}
+
+// Whether `start`'s program, arguments and raw tail, as the `shell` mode hands them to Windows (the
+// tail after one space, exactly as given), fit one command line.
+fn fits_command_line(start: &ShellFolderStart) -> bool {
+    let arguments: Vec<Vec<u16>> = start
+        .arguments
+        .iter()
+        .map(|argument| argument.encode_utf16().collect())
+        .collect();
+    let line = compose_command_line(
+        &start.program.encode_utf16().collect::<Vec<_>>(),
+        &arguments,
+    );
+    let tail_units = start
+        .raw_command_tail
+        .as_ref()
+        .map_or(0, |tail| 1 + tail.encode_utf16().count());
+    line.len() + tail_units <= COMMAND_LINE_UNITS
 }
 
 // The program's file name without case and without its `.exe`: `C:\…\PwSh.EXE` reads `pwsh`.

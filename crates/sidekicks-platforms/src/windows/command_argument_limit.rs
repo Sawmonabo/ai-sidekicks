@@ -2,8 +2,7 @@
 
 use std::io;
 
-// `CreateProcessW`'s command line holds at most 32,767 UTF-16 units, its NUL included.
-const COMMAND_LINE_UNITS: usize = 32_767;
+use crate::path::rules::windows::command_line::COMMAND_LINE_UNITS;
 
 // The most UTF-8 bytes one UTF-16 unit stands for: U+0800 to U+FFFF take 3 bytes in one unit, and
 // a surrogate pair 4 bytes in two.

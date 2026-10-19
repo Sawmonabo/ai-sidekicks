@@ -39,6 +39,7 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::lasting_child::{LastingChild, LastingCommand};
 use crate::path::rules::PathRules;
+use crate::path::rules::windows::command_line;
 use crate::windows::pinned_process::{KILLED_EXIT_CODE, PinnedProcess};
 
 // The start of every lasting child's job name; random bytes follow it.
@@ -400,8 +401,8 @@ fn wide_text(text: &OsStr) -> io::Result<Vec<u16>> {
     Ok(units)
 }
 
-// The NUL-ended command line: the program quoted, then each argument as a C program's standard
-// argument parsing reads it back, the rule std's `Command` writes by.
+// The NUL-ended command line, the program quoted and each argument as a C program reads it back;
+// fails with `InvalidInput` for a program path holding a quote, or text holding a NUL.
 fn compose_command_line(program: &OsStr, arguments: &[String]) -> io::Result<Vec<u16>> {
     let program = wide_text(program)?;
     if program.contains(&u16::from(b'"')) {
@@ -410,45 +411,11 @@ fn compose_command_line(program: &OsStr, arguments: &[String]) -> io::Result<Vec
             "a program path holds a quote",
         ));
     }
-    let mut line = vec![u16::from(b'"')];
-    line.extend(program);
-    line.push(u16::from(b'"'));
-    for argument in arguments {
-        line.push(u16::from(b' '));
-        append_argument(&mut line, &wide_text(OsStr::new(argument))?);
-    }
-    line.push(0);
-    Ok(line)
-}
-
-// Appends `argument`, quoted when it is empty or holds a space or a tab, its backslashes doubled
-// where a quote follows them.
-fn append_argument(line: &mut Vec<u16>, argument: &[u16]) {
-    let quote = u16::from(b'"');
-    let backslash = u16::from(b'\\');
-    let is_quoted = argument.is_empty()
-        || argument
-            .iter()
-            .any(|&unit| unit == u16::from(b' ') || unit == u16::from(b'\t'));
-    if is_quoted {
-        line.push(quote);
-    }
-    let mut backslashes = 0_usize;
-    for &unit in argument {
-        if unit == backslash {
-            backslashes += 1;
-        } else {
-            if unit == quote {
-                line.extend(std::iter::repeat_n(backslash, backslashes + 1));
-            }
-            backslashes = 0;
-        }
-        line.push(unit);
-    }
-    if is_quoted {
-        line.extend(std::iter::repeat_n(backslash, backslashes));
-        line.push(quote);
-    }
+    let arguments = arguments
+        .iter()
+        .map(|argument| wide_text(OsStr::new(argument)))
+        .collect::<io::Result<Vec<_>>>()?;
+    Ok(command_line::compose_command_line(&program, &arguments))
 }
 
 // The environment block: each `NAME=value`, NUL-ended, sorted by name without case as Windows
@@ -558,7 +525,7 @@ unsafe extern "system" fn notify_exit(context: *mut c_void, _timed_out: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_argument, compose_environment_block};
+    use super::compose_environment_block;
 
     // Fails when the block keeps both spellings, which lets the child read the first value, where
     // every other start reads the last.
@@ -570,23 +537,5 @@ mod tests {
         let block = compose_environment_block(&environment).expect("the block is composed");
 
         assert_eq!(String::from_utf16_lossy(&block), "ONE=1\0Path=last\0\0");
-    }
-
-    // Fails when the doubled backslashes before a quote are dropped, which changes what the child
-    // reads back.
-    #[test]
-    fn a_lasting_child_argument_reads_back_as_written() {
-        for (argument, expected) in [
-            ("plain", "plain"),
-            ("", r#""""#),
-            ("two words", r#""two words""#),
-            (r#"say "hi""#, r#""say \"hi\"""#),
-            (r"C:\folder\", r"C:\folder\"),
-            (r"C:\my folder\", r#""C:\my folder\\""#),
-        ] {
-            let mut line = Vec::new();
-            append_argument(&mut line, &argument.encode_utf16().collect::<Vec<_>>());
-            assert_eq!(String::from_utf16_lossy(&line), expected, "{argument}");
-        }
     }
 }
