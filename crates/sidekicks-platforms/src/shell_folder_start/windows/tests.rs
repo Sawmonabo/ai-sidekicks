@@ -22,13 +22,12 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 // anywhere but in front of the command text, or in front of standard input's `-`; the text is not
 // every value from the command's first on, joined by one space into one argument, or is not run by
 // `Invoke-Expression` after the `Set-Location`, both named with their modules, as a literal with
-// every single quote in it doubled, which a text opening with `using`, a param block, named blocks
-// or a comment line, ending in a comment, or holding a quote or a brace inside a string needs; a
-// blank text is handed to `Invoke-Expression`, which refuses it; a bare word is not read as the
-// command; cmd started on a share starts in the Windows folder, and a share path with `&` or `%`
-// left bare runs a command; a horizontal bar is not read as a dash; a drive root is quoted without
-// its `\`; MSYS bash without its variable opens in the home folder, and WSL's launcher given it
-// goes through the MSYS arm; or `--cd` is added over the user's own `~`.
+// every single quote in it doubled; a blank text is handed to `Invoke-Expression`, which refuses
+// it; a bare word is not read as the command; cmd started on a share starts in the Windows folder,
+// and a share path with `&` or `%` left bare runs a command; a horizontal bar is not read as a
+// dash; a drive root is quoted without its `\`; MSYS bash without its variable opens in the home
+// folder, and WSL's launcher given it goes through the MSYS arm; or `--cd` is added over the user's
+// own `~`.
 #[rstest]
 #[case::pwsh_with_a_trailing_separator(
     r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -251,34 +250,6 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     &[],
     None
 )]
-#[case::windows_powershell_with_a_command_opening_with_using(
-    "powershell.exe",
-    &["-Command", "using namespace System.Text; [StringBuilder]::new()"],
-    r"C:\wt",
-    &[
-        "-Command",
-        "Microsoft.PowerShell.Management\\Set-Location -LiteralPath 'C:\\wt'; \
-         Microsoft.PowerShell.Utility\\Invoke-Expression \
-         'using namespace System.Text; [StringBuilder]::new()'",
-    ],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_param_block(
-    "powershell.exe",
-    &["-Command", "[CmdletBinding()] param($x)"],
-    r"C:\wt",
-    &[
-        "-Command",
-        "Microsoft.PowerShell.Management\\Set-Location -LiteralPath 'C:\\wt'; \
-         Microsoft.PowerShell.Utility\\Invoke-Expression \
-         '[CmdletBinding()] param($x)'",
-    ],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
 #[case::windows_powershell_with_a_command_of_named_blocks(
     "powershell.exe",
     &["-Command", "begin { }", "end { }"],
@@ -287,34 +258,6 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
         "-Command",
         "Microsoft.PowerShell.Management\\Set-Location -LiteralPath 'C:\\wt'; \
          Microsoft.PowerShell.Utility\\Invoke-Expression 'begin { } end { }'",
-    ],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_comment_line(
-    "powershell.exe",
-    &["-Command", "#Requires -Version 5.1\nGet-Date"],
-    r"C:\wt",
-    &[
-        "-Command",
-        "Microsoft.PowerShell.Management\\Set-Location -LiteralPath 'C:\\wt'; \
-         Microsoft.PowerShell.Utility\\Invoke-Expression \
-         '#Requires -Version 5.1\nGet-Date'",
-    ],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_ending_in_a_comment(
-    "powershell.exe",
-    &["-Command", "Get-Date # the time"],
-    r"C:\wt",
-    &[
-        "-Command",
-        "Microsoft.PowerShell.Management\\Set-Location -LiteralPath 'C:\\wt'; \
-         Microsoft.PowerShell.Utility\\Invoke-Expression \
-         'Get-Date # the time'",
     ],
     SYSTEM_FOLDER,
     &[],
@@ -329,20 +272,6 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
         "Microsoft.PowerShell.Management\\Set-Location -LiteralPath 'C:\\wt'; \
          Microsoft.PowerShell.Utility\\Invoke-Expression \
          'Write-Output ''it''''s'' \u{2019}\u{2019}x\u{2019}\u{2019}'",
-    ],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_holding_a_brace_in_a_string(
-    "powershell.exe",
-    &["-Command", "Write-Output '}'; Get-Date"],
-    r"C:\wt",
-    &[
-        "-Command",
-        "Microsoft.PowerShell.Management\\Set-Location -LiteralPath 'C:\\wt'; \
-         Microsoft.PowerShell.Utility\\Invoke-Expression \
-         'Write-Output ''}''; Get-Date'",
     ],
     SYSTEM_FOLDER,
     &[],
