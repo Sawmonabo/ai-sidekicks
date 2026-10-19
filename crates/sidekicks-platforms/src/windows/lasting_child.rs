@@ -65,9 +65,8 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     let standard_stream = duplicate_inheritable(null_device.as_raw_handle())?;
     let error_output = duplicate_inheritable(command.error_output.as_raw_handle())?;
     let mut program = wide_text(command.program.as_os_str())?;
+    let mut command_line = compose_checked_command_line(&program, &command.arguments)?;
     program.push(0);
-    let mut command_line =
-        compose_checked_command_line(command.program.as_os_str(), &command.arguments)?;
     let environment = compose_environment_block(&command.environment)?;
     let mut working_folder = wide_text(command.working_folder.as_os_str())?;
     working_folder.push(0);
@@ -390,35 +389,37 @@ impl Drop for AttributeList {
     }
 }
 
-// `text` as UTF-16; fails with `InvalidInput` for text holding NUL, which ends a string here.
-fn wide_text(text: &OsStr) -> io::Result<Vec<u16>> {
-    let units: Vec<u16> = text.encode_wide().collect();
-    if units.contains(&0) {
+// Fails with `InvalidInput` for text holding NUL, which ends a string here.
+fn refuse_nul(text: &OsStr) -> io::Result<()> {
+    if text.as_encoded_bytes().contains(&0) {
         return Err(io::Error::new(
             ErrorKind::InvalidInput,
             "a start's text holds a NUL",
         ));
     }
-    Ok(units)
+    Ok(())
 }
 
-// The NUL-ended command line, the program quoted and each argument as a C program reads it back;
-// fails with `InvalidInput` for a program path holding a quote, or text holding a NUL.
-fn compose_checked_command_line(program: &OsStr, arguments: &[String]) -> io::Result<Vec<u16>> {
-    let program = wide_text(program)?;
+// `text` as UTF-16; fails with `InvalidInput` for text holding NUL.
+fn wide_text(text: &OsStr) -> io::Result<Vec<u16>> {
+    refuse_nul(text)?;
+    Ok(text.encode_wide().collect())
+}
+
+// The NUL-ended command line from the program's UTF-16 units, the program quoted and each argument
+// as a C program reads it back; fails with `InvalidInput` for a program path holding a quote, or
+// an argument holding a NUL.
+fn compose_checked_command_line(program: &[u16], arguments: &[String]) -> io::Result<Vec<u16>> {
     if program.contains(&u16::from(b'"')) {
         return Err(io::Error::new(
             ErrorKind::InvalidInput,
             "a program path holds a quote",
         ));
     }
-    if arguments.iter().any(|argument| argument.contains('\0')) {
-        return Err(io::Error::new(
-            ErrorKind::InvalidInput,
-            "a start's text holds a NUL",
-        ));
+    for argument in arguments {
+        refuse_nul(OsStr::new(argument))?;
     }
-    Ok(compose_command_line(program, arguments))
+    Ok(compose_command_line(program.iter().copied(), arguments))
 }
 
 // The environment block: each `NAME=value`, NUL-ended, sorted by name without case as Windows
