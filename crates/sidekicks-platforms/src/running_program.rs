@@ -67,7 +67,7 @@ mod tests {
     use super::{RunningProgramPath, classify_program_path};
     use crate::real_path;
 
-    // Mutation killed: a missing path answered as on disk, or as an error, leaves the daemon
+    // Fails when a missing path is answered as on disk, or as an error, which leaves the daemon
     // joining a service whose hooks run a program that is gone.
     #[test]
     fn a_running_program_path_reads_replaced_once_its_file_is_gone() {

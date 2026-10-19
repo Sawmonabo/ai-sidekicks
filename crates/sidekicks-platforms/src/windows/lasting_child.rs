@@ -559,8 +559,8 @@ unsafe extern "system" fn notify_exit(context: *mut c_void, _timed_out: bool) {
 mod tests {
     use super::{append_argument, compose_environment_block};
 
-    // Mutation killed: a block that keeps both spellings lets the child read the first value,
-    // where every other start reads the last.
+    // Fails when the block keeps both spellings, which lets the child read the first value, where
+    // every other start reads the last.
     #[test]
     fn a_lasting_child_environment_keeps_one_variable_per_name_without_case() {
         let environment = [("Path", "first"), ("ONE", "1"), ("PATH", "last")]
@@ -571,7 +571,7 @@ mod tests {
         assert_eq!(String::from_utf16_lossy(&block), "ONE=1\0Path=last\0\0");
     }
 
-    // Mutation killed: dropping the doubled backslashes before a quote changes what the child
+    // Fails when the doubled backslashes before a quote are dropped, which changes what the child
     // reads back.
     #[test]
     fn a_lasting_child_argument_reads_back_as_written() {

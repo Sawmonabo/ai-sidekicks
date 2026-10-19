@@ -66,7 +66,7 @@ pub async fn leave_daemon_scope(_process_id: u32) -> io::Result<()> {
 mod tests {
     use super::wire_exit_code;
 
-    // Mutation killed: reading the signed code as is gives a crash a negative code.
+    // Fails when the signed code is read as is, which gives a crash a negative code.
     #[test]
     fn child_exit_reads_a_crash_code_as_its_unsigned_value() {
         // An access violation's code, as Windows reports it in a signed 32-bit integer.

@@ -155,7 +155,7 @@ mod tests {
 
     use super::{prepare_lasting_child_command, signal_name};
 
-    // Mutation killed: dropping the `setsid` leaves the child in the test's own session.
+    // Fails when the `setsid` is dropped, which leaves the child in the test's own session.
     #[test]
     fn a_lasting_child_leads_its_own_session() {
         let mut command = tokio::process::Command::new("/bin/sleep");
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(session.expect("the child's session reads"), pid);
     }
 
-    // Mutation killed: answering `None` for a number `Signal` does not list leaves Linux's
+    // Fails when a number `Signal` does not list is answered `None`, which leaves Linux's
     // real-time signals unnamed.
     #[test]
     fn every_exit_signal_the_system_defines_has_a_name() {

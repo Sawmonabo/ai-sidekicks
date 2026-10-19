@@ -59,8 +59,8 @@ impl ProcessRecord {
 mod tests {
     use crate::{ProcessRecord, pin_child_process};
 
-    // Mutations killed: a re-pin that compares the id alone, or leaves out the start time or the
-    // boot, takes a record of another process or another boot.
+    // Fails when a re-pin compares the id alone, or leaves out the start time or the boot, which
+    // takes a record of another process or another boot.
     #[test]
     fn pinned_process_record_re_pins_the_same_process_and_nothing_else() {
         let mut command = std::process::Command::new(sleeper_program());

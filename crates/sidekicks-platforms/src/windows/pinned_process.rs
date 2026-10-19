@@ -257,8 +257,8 @@ mod tests {
     use crate::pinned_process::KILL_WAIT_BOUND;
     use crate::windows::lasting_child::spawn_lasting_child;
 
-    // Mutations killed: ending the process alone, or re-pinning it without its job's name, leaves
-    // its own child running.
+    // Fails when the stop ends the process alone, or re-pins it without its job's name, which
+    // leaves its own child running.
     #[test]
     fn pinned_process_stop_ends_a_re_pinned_lasting_child_and_its_child() {
         let shell = std::env::var_os("ComSpec").expect("Windows names its command shell");

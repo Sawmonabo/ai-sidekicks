@@ -70,9 +70,10 @@ mod tests {
     use crate::pin_child_process;
     use crate::posix::child_command::prepare_lasting_child_command;
 
-    // Mutations killed: sending `SIGKILL` first ends the sleeper by the kill and answers `Kill`;
-    // skipping the `SIGKILL` leaves the trapping child running, so the stop times out; sending it
-    // to the leader alone leaves the trapping child's own child running, which then prints.
+    // Fails when `SIGKILL` goes first, which ends the sleeper by the kill and answers `Kill`; when
+    // the `SIGKILL` is skipped, which leaves the trapping child running, so the stop times out; or
+    // when it goes to the leader alone, which leaves the trapping child's own child running, which
+    // then prints.
     #[rstest]
     #[case::ignoring_the_stop(
         r#"trap "" TERM; (/bin/sleep 5; echo outlived) & echo ready; read never"#,
