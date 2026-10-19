@@ -118,18 +118,94 @@ mod tests {
         assert_eq!(re_pinned_others, [false, false, false]);
     }
 
-    // Fails when a record ends a group without checking each member's start, which kills a group
-    // the record does not name, or leaves the group of its ended process running, whose child then
-    // prints.
+    // Fails when a record ends a group without checking each member's start, or while a process
+    // holds its id, or on another boot, any of which kills a group the record does not name; or
+    // leaves the group of its ended process running, whose output then stays open.
     #[cfg(unix)]
     #[test]
     fn pinned_process_record_ends_the_survivors_of_its_ended_process() {
-        use std::io::Read as _;
-        use std::process::Stdio;
         use std::time::Duration;
 
-        use crate::posix::child_command::prepare_lasting_child_command;
         use crate::posix::process_group::read_group_output_to_end;
+
+        let (mut child, mut output, record) = start_group_leader(true);
+        let is_held_group_ended = ProcessRecord {
+            start: 0,
+            ..record.clone()
+        }
+        .end_survivors()
+        .expect("the held record's survivors read");
+        let is_running = record.pin().expect("the re-pin reads").is_some();
+        drop(child.stdin.take());
+        child.wait().expect("the child is reaped");
+
+        let refusals = [
+            ProcessRecord {
+                start: u64::MAX,
+                ..record.clone()
+            },
+            ProcessRecord {
+                boot: Some("another".to_owned()),
+                ..record.clone()
+            },
+        ]
+        .map(|other| {
+            other
+                .end_survivors()
+                .expect("the other record's survivors read")
+        });
+        let is_re_pinned = record.pin().expect("the re-pin reads").is_some();
+        let is_group_ended = record.end_survivors().expect("the survivors end");
+        let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
+
+        assert!(!is_held_group_ended);
+        assert!(is_running);
+        assert_eq!(refusals, [false, false]);
+        assert!(!is_re_pinned);
+        assert!(is_group_ended);
+        assert_eq!(rest, Some(Vec::new()));
+    }
+
+    // Fails when a record ends a group without checking each member's session, which kills a
+    // group in another session, here the test's own.
+    #[cfg(unix)]
+    #[test]
+    fn pinned_process_record_leaves_a_group_of_another_session() {
+        use std::time::Duration;
+
+        use nix::sys::signal::{Signal, killpg};
+        use nix::unistd::Pid;
+
+        use crate::posix::process_group::read_group_output_to_end;
+
+        let (mut child, mut output, record) = start_group_leader(false);
+        drop(child.stdin.take());
+        child.wait().expect("the child is reaped");
+
+        let is_group_ended = record.end_survivors().expect("the survivors read");
+        let group = Pid::from_raw(i32::try_from(record.id).expect("a process id fits"));
+        killpg(group, Signal::SIGKILL).expect("the test ends its own child's group");
+        let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
+
+        assert!(!is_group_ended);
+        assert_eq!(rest, Some(Vec::new()));
+    }
+
+    // A shell that leads a group of its own, in a session of its own when `is_own_session`, and
+    // leaves a child sleeping a minute; answered once it is ready, with its output and record.
+    #[cfg(unix)]
+    fn start_group_leader(
+        is_own_session: bool,
+    ) -> (
+        std::process::Child,
+        std::process::ChildStdout,
+        ProcessRecord,
+    ) {
+        use std::io::Read as _;
+        use std::os::unix::process::CommandExt as _;
+        use std::process::Stdio;
+
+        use crate::posix::child_command::prepare_lasting_child_command;
 
         let mut command = tokio::process::Command::new("/bin/sh");
         command
@@ -139,37 +215,24 @@ mod tests {
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped());
-        prepare_lasting_child_command(&mut command);
+        if is_own_session {
+            prepare_lasting_child_command(&mut command);
+        } else {
+            command.as_std_mut().process_group(0);
+        }
         let mut child = command.as_std_mut().spawn().expect("the child starts");
         let mut output = child.stdout.take().expect("the child's output is piped");
         let mut ready = [0; 6];
         output
             .read_exact(&mut ready)
             .expect("the child's line reads");
+        assert_eq!(&ready, b"ready\n");
         let record = pin_child_process(child.id())
             .expect("the child pins")
             .record()
             .expect("the record reads")
             .expect("the child runs");
-        drop(child.stdin.take());
-        child.wait().expect("the child is reaped");
-
-        let later_record = ProcessRecord {
-            start: u64::MAX,
-            ..record.clone()
-        };
-        let is_later_group_ended = later_record
-            .end_survivors()
-            .expect("the later record's survivors read");
-        let is_re_pinned = record.pin().expect("the re-pin reads").is_some();
-        let is_group_ended = record.end_survivors().expect("the survivors end");
-        let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
-
-        assert_eq!(&ready, b"ready\n");
-        assert!(!is_later_group_ended);
-        assert!(!is_re_pinned);
-        assert!(is_group_ended);
-        assert_eq!(rest, Some(Vec::new()));
+        (child, output, record)
     }
 
     #[cfg(unix)]
