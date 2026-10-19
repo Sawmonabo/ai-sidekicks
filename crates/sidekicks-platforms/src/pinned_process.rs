@@ -4,7 +4,7 @@
 use std::io;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::PinnedProcess;
 #[cfg(target_os = "linux")]
@@ -26,7 +26,8 @@ pub(crate) const KILL_WAIT_BOUND: Duration = Duration::from_secs(10);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProcessRecord {
-    /// The process's id.
+    /// The process's id, never 0.
+    #[serde(deserialize_with = "deserialize_process_id")]
     pub(crate) id: u32,
     /// The system's fixed mark of the process: its unique id on macOS, its start in clock ticks
     /// since boot on Linux, its creation time on Windows.
@@ -71,9 +72,33 @@ impl ProcessRecord {
     }
 }
 
+// A record's process id; refuses 0, which names no process.
+fn deserialize_process_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+    let id = u32::deserialize(deserializer)?;
+    if id == 0 {
+        return Err(serde::de::Error::custom(
+            "the record's id 0 names no process",
+        ));
+    }
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{ProcessRecord, pin_child_process};
+
+    // Fails when a record naming the id 0, which no process has, reads as a process to re-pin.
+    #[test]
+    fn pinned_process_record_refuses_the_id_0() {
+        let zero = serde_json::from_str::<ProcessRecord>(r#"{"id":0,"start":1}"#);
+        let one = serde_json::from_str::<ProcessRecord>(r#"{"id":1,"start":1}"#);
+
+        assert!(
+            zero.is_err_and(|error| error.to_string().contains("names no process")),
+            "the id 0 reads"
+        );
+        assert_eq!(one.map(|record| record.id).ok(), Some(1));
+    }
 
     // Fails when a re-pin compares the id alone, or leaves out the start time or the boot, which
     // takes a record of another process or another boot.

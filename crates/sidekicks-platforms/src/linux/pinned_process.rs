@@ -152,10 +152,14 @@ impl PinnedProcess {
 }
 
 /// The process `record` names, pinned: its descriptor opened first, then its start and boot read
-/// after the open; `None` when the machine has started again, the process has ended or its id
-/// now names another process. Fails with the system's error.
+/// after the open; `None` for an id of 0 or past `i32::MAX`, which names no process, or when the
+/// machine has started again, the process has ended or its id now names another process. Fails
+/// with the system's error.
 pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
     let id = record.id;
+    if system_process_id(id).is_err() {
+        return Ok(None);
+    }
     let descriptor = match open_process_descriptor(id) {
         Ok(descriptor) => descriptor,
         Err(error) if error.raw_os_error() == Some(libc::ESRCH) => return Ok(None),
