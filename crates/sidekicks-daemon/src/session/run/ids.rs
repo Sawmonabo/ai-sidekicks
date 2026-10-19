@@ -10,7 +10,6 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 /// The ids, in one `runId` column, of the runs of the session the `@sessionId` parameter names:
 /// the rows the rebuild wrote, every run its events name, so a run the rebuild never reached past
 /// a damaged event is still found, and those that had an execution root.
-#[expect(dead_code, reason = "a session's close and purge, which find its runs")]
 pub(crate) const SESSION_RUN_IDS_SQL: &str = "
   SELECT run_id AS runId FROM runs WHERE session_id = @sessionId
   UNION

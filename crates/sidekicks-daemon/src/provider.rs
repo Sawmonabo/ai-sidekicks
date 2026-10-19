@@ -2,8 +2,9 @@
 //! searches a provider needs.
 
 pub(crate) mod callback_tools;
-pub(crate) mod capability_probe;
+pub(crate) mod capability;
 pub(crate) mod compaction_wait;
+pub(crate) mod conversation_purge;
 pub(crate) mod declared_output_speed;
 pub(crate) mod driver;
 pub(crate) mod event_disposition;
@@ -18,6 +19,7 @@ pub(crate) mod record_readers;
 pub(crate) mod runtime_binding;
 pub(crate) mod service_log;
 pub(crate) mod spawn_environment;
+pub(crate) mod spawned_version;
 pub(crate) mod terminal_emission_gate;
 pub(crate) mod thread_frame_router;
 pub(crate) mod tool_server_name;

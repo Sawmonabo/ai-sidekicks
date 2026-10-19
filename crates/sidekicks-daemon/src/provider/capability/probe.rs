@@ -7,12 +7,15 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use futures::future::BoxFuture;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
 use strum::VariantArray;
 
 use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
 use crate::provider::driver::contract::CapabilityDetectionSource;
+use crate::provider::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+};
 use crate::provider::driver::is_same_text;
 
 /// One condition a probe must meet to decide a flag; a flag read from the driver's own table names
@@ -174,6 +177,49 @@ impl CapabilityDetectionReading {
                     .any(|withdrawal| withdrawal.flag == flag)
         })
     }
+
+    /// Reports each flag this reading withdrew as a diagnostic of its own, apart from a failed
+    /// read: the read worked, but the build carries less than the driver declares. Reports nothing
+    /// when every flag was accepted.
+    #[expect(
+        dead_code,
+        reason = "each driver's capability read reports the flags its probe withdrew through it"
+    )]
+    pub(crate) fn report_withdrawals(&self) {
+        for withdrawal in &self.withdrawals {
+            let (reason, disposition_reason) = match withdrawal.reason {
+                WithdrawalReason::UnknownName => (
+                    "unknownName",
+                    "the probe channel refused the wire name itself, so this build lacks what the \
+                     flag declares; flag withdrawn",
+                ),
+                WithdrawalReason::UnrecognizedReply => (
+                    "unrecognizedReply",
+                    "the probe's reply could not be classified, and an unread reply never counts \
+                     as available; flag withdrawn",
+                ),
+            };
+            emit_driver_diagnostic(&DriverDiagnosticRecord {
+                provider: self.provider.clone(),
+                provider_account_id: None,
+                kind: DriverDiagnosticKind::CapabilityFlagWithdrawn,
+                raw_wire_type: Some(withdrawal.probe_name.to_owned()),
+                disposition_reason: disposition_reason.to_owned(),
+                details: Map::from_iter([
+                    (
+                        "flag".to_owned(),
+                        Value::from(<&str>::from(withdrawal.flag)),
+                    ),
+                    ("probeName".to_owned(), Value::from(withdrawal.probe_name)),
+                    ("disposition".to_owned(), Value::from(reason)),
+                    (
+                        "boundExecutablePath".to_owned(),
+                        Value::from(self.bound_executable_path.to_string_lossy()),
+                    ),
+                ]),
+            });
+        }
+    }
 }
 
 /// Reads which of `rules`' probed flags the build at `bound_executable_path` carries, through
@@ -304,7 +350,7 @@ macro_rules! assert_admissible_detection {
             let mut i = 0;
             while i < flags.len() {
                 assert!(
-                    $crate::provider::capability_probe::is_detection_admissible(
+                    $crate::provider::capability::probe::is_detection_admissible(
                         $detection_of(flags[i]),
                         $prohibited_names,
                     ),

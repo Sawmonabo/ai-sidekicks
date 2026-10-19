@@ -46,7 +46,7 @@ use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, is_ecmascript_
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
-use crate::provider::capability_probe::CapabilityProbeError;
+use crate::provider::capability::probe::CapabilityProbeError;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
