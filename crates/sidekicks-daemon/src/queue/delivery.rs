@@ -499,15 +499,18 @@ impl QueueDelivery {
     }
 
     /// Settles what was handed to the ended run `run_id`: its credits choice, its next-turn marks
-    /// and every hand but one the session's live provider process keeps go; the run's other
-    /// waiting messages are left for the next run. Called after [`QueueDelivery::settle`].
+    /// and every hand go, but one the session's live provider process keeps and one a resume kept,
+    /// which waits for the provider's record to settle it; the run's other waiting messages are
+    /// left for the next run. Called after [`QueueDelivery::settle`].
     #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's run lifecycle"))]
     pub(crate) fn end_run(&self, session_id: SessionId, run_id: RunId) {
         let live_process = self.shared.deps.processes.process_identity(&session_id);
         let mut state = self.lock_state();
         state.credits_choice_runs.remove(&run_id);
         state.handed.retain(|_, handed| {
-            handed.run_id != run_id || is_kept_by_process(handed, live_process)
+            handed.run_id != run_id
+                || is_kept_by_process(handed, live_process)
+                || matches!(handed.route, HandRoute::Continue { is_kept: true })
         });
         state
             .next_turn_runs
@@ -597,7 +600,7 @@ impl QueueDelivery {
     }
 
     /// Keeps the messages the resume of `run_id` read, whose outcome is unknown (the request went
-    /// out and no answer came): no later continue reads them until
+    /// out and no answer came): no later continue reads them, the run's end keeps them, until
     /// [`QueueDelivery::settle_kept_continue`] or the provider's record of one says what became
     /// of them, so none is sent twice.
     pub(crate) fn keep_continued(&self, run_id: RunId) {
@@ -610,22 +613,20 @@ impl QueueDelivery {
         }
     }
 
-    /// Settles the messages a resume of `run_id` kept once its outcome is known: admitted into the
-    /// run when the provider took them, else given back to wait for the next continue. Fails when
-    /// a read or an admission's write fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the run control service's resume")
-    )]
+    /// Settles the messages a resume of `run_id` kept once their outcome is known: each of `taken`
+    /// admitted into the run, the provider having taken it, every other one given back to go once
+    /// more under its own id. Fails when a read or an admission's write fails.
     pub(crate) async fn settle_kept_continue(
         &self,
         run_id: RunId,
-        is_taken: bool,
+        taken: &[QueueItemId],
     ) -> Result<(), DeliveryError> {
         let kept = self.lock_state().continued_of(run_id, true);
         for item_id in kept {
             match self.read_item(item_id).await? {
-                Some(item) if is_taken => self.record_admission(&item, run_id).await?,
+                Some(item) if taken.contains(&item_id) => {
+                    self.record_admission(&item, run_id).await?;
+                }
                 Some(_) | None => self.forget_hand(item_id),
             }
         }
@@ -801,6 +802,20 @@ impl ContinuedMessages for QueueDelivery {
 
     fn keep(&self, _hold: &KeyHold<'_, SessionId>, run_id: RunId) {
         self.keep_continued(run_id);
+    }
+
+    fn kept(&self, _hold: &KeyHold<'_, SessionId>, run_id: RunId) -> Vec<QueueItemId> {
+        self.lock_state().continued_of(run_id, true)
+    }
+
+    fn settle_kept(
+        &self,
+        _hold: &KeyHold<'_, SessionId>,
+        run_id: RunId,
+        taken: &[QueueItemId],
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        let taken = taken.to_vec();
+        Box::pin(async move { Ok(self.settle_kept_continue(run_id, &taken).await?) })
     }
 }
 

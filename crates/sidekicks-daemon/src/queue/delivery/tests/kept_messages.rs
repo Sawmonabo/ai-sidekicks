@@ -68,8 +68,8 @@ async fn a_message_kept_by_a_process_no_longer_the_sessions_waits_unhanded(
 }
 
 // A message a resume read and kept, its outcome unknown, is read by no later continue, and a
-// later resume's release leaves it kept, until its settle gives it back. Killed by reading a kept
-// message again.
+// later resume's release and the run's end both leave it kept, until its settle gives it back.
+// Killed by reading a kept message again, or by forgetting it at the run's end.
 #[tokio::test]
 async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
     let fixture = fixture(driver_handing(HANDS_AT_ONCE)).await;
@@ -86,15 +86,20 @@ async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
             .expect("the release answers");
     }
     let read_after_a_release = continued_ids(&fixture).await;
-    fixture
-        .delivery
-        .settle_kept_continue(fixture.run_id, false)
-        .await
-        .expect("the kept message is settled");
+    set_run_state(&fixture, RunState::Stopped);
+    fixture.delivery.end_run(fixture.session_id, fixture.run_id);
+    let is_kept_through_the_end = fixture.delivery.is_handed(&item.id);
+    {
+        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        ContinuedMessages::settle_kept(&fixture.delivery, &hold, fixture.run_id, &[])
+            .await
+            .expect("the kept message is settled");
+    }
     let read_after_the_settle = continued_ids(&fixture).await;
 
     assert_eq!(first_read, vec![item.id]);
     assert_eq!(second_read, []);
     assert_eq!(read_after_a_release, []);
+    assert!(is_kept_through_the_end);
     assert_eq!(read_after_the_settle, vec![item.id]);
 }

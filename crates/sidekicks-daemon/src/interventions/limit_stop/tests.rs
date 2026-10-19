@@ -22,6 +22,7 @@ use sidekicks_contracts::run::provider_choice::{
     AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolveRequest,
     RunUsageCreditsChoice,
 };
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -605,6 +606,19 @@ impl ContinuedMessages for NoWaitingMessages {
     }
 
     fn keep(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) {}
+
+    fn kept(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) -> Vec<QueueItemId> {
+        Vec::new()
+    }
+
+    fn settle_kept(
+        &self,
+        _hold: &KeyHold<'_, SessionId>,
+        _run_id: RunId,
+        _taken: &[QueueItemId],
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        async { Ok(()) }.boxed()
+    }
 }
 
 // A limit owed through a pause is handed again once its provider runs: a resume, from `paused` or

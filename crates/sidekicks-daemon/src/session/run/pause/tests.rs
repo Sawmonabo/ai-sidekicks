@@ -29,7 +29,7 @@ use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::error_causes::RequestUnanswered;
-use crate::provider::driver::run_control::WaitingMessage;
+use crate::provider::driver::run_control::{TakenMessages, WaitingMessage};
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
@@ -50,6 +50,7 @@ struct Fixture {
     database: TestDatabase,
     engine: Arc<RunEngine>,
     control: RunPauseControl,
+    session_id: SessionId,
     run_id: RunId,
     _log: TestLog,
     _home: TempDir,
@@ -119,6 +120,7 @@ async fn fixture(driver: MockProviderDriver, state: &str) -> Fixture {
         database,
         engine,
         control,
+        session_id,
         run_id,
         _log: log,
         _home: home,
@@ -174,6 +176,9 @@ struct WaitingMessages {
     kept: Mutex<Vec<WaitingMessage>>,
     releases: AtomicUsize,
     admissions: AtomicUsize,
+    // The kept messages a settle delivered with the run, and those it gave back.
+    settled_taken: Mutex<Vec<QueueItemId>>,
+    settled_given_back: Mutex<Vec<QueueItemId>>,
     // A read the test holds: it signals when it starts, then waits for the test to let it go.
     held_read: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
     session_lock: KeyedLock<SessionId>,
@@ -186,6 +191,8 @@ impl Default for WaitingMessages {
             kept: Mutex::default(),
             releases: AtomicUsize::default(),
             admissions: AtomicUsize::default(),
+            settled_taken: Mutex::default(),
+            settled_given_back: Mutex::default(),
             held_read: Mutex::default(),
             session_lock: KeyedLock::new(),
         }
@@ -200,7 +207,7 @@ impl WaitingMessages {
         }
     }
 
-    fn kept(&self) -> Vec<WaitingMessage> {
+    fn kept_messages(&self) -> Vec<WaitingMessage> {
         self.kept.lock().expect("the kept messages read").clone()
     }
 }
@@ -252,6 +259,40 @@ impl ContinuedMessages for WaitingMessages {
             .lock()
             .expect("the kept messages read")
             .append(&mut waiting);
+    }
+
+    fn kept(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) -> Vec<QueueItemId> {
+        self.kept_messages()
+            .iter()
+            .map(|message| message.id)
+            .collect()
+    }
+
+    fn settle_kept(
+        &self,
+        _hold: &KeyHold<'_, SessionId>,
+        _run_id: RunId,
+        taken: &[QueueItemId],
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        let kept = std::mem::take(&mut *self.kept.lock().expect("the kept messages read"));
+        for message in kept {
+            if taken.contains(&message.id) {
+                self.settled_taken
+                    .lock()
+                    .expect("the settled messages read")
+                    .push(message.id);
+            } else {
+                self.settled_given_back
+                    .lock()
+                    .expect("the settled messages read")
+                    .push(message.id);
+                self.waiting
+                    .lock()
+                    .expect("the messages read")
+                    .push(message);
+            }
+        }
+        async { Ok(()) }.boxed()
     }
 }
 
@@ -367,7 +408,7 @@ async fn a_resume_is_refused_by_the_run_then_the_version_then_the_state_then_the
         _ => panic!("expected {expected:?}, got {resumed:?}"),
     }
     assert_eq!(messages.releases.load(Ordering::SeqCst), 0);
-    assert_eq!(messages.kept(), []);
+    assert_eq!(messages.kept_messages(), []);
 }
 
 /// How the driver fails a resume.
@@ -436,7 +477,7 @@ async fn a_failed_resume_moves_nothing_and_sends_each_message_once(#[case] failu
         *sent.lock().expect("the sent messages read"),
         vec![vec![message], second_sent]
     );
-    assert_eq!(messages.kept(), kept);
+    assert_eq!(messages.kept_messages(), kept);
     assert_eq!(messages.releases.load(Ordering::SeqCst), releases);
 }
 
@@ -613,4 +654,93 @@ async fn a_report_during_the_resumes_read_waits_and_the_resume_takes_the_run() {
     assert_eq!(fixture.run(), ("running".to_owned(), 2));
     assert_eq!(messages.admissions.load(Ordering::SeqCst), 1);
     assert_eq!(messages.releases.load(Ordering::SeqCst), 0);
+}
+
+/// What settles the messages a resume kept.
+#[derive(Clone, Copy, Debug)]
+enum KeptSettle {
+    /// The provider reports the run running again.
+    ProviderRuns,
+    /// The run ends, and the provider's record does not hold them.
+    RunEndsUnrecorded,
+}
+
+// A message a resume sent with no answer back stays kept until the provider shows what became of
+// it: its report of the run running again delivers it with the run, and at the run's end the
+// provider's own record, not holding it, gives it back to go once more under its own id. Killed by
+// settling a kept message on anything but that proof, or by giving back one the provider took.
+#[rstest]
+#[case::provider_runs(KeptSettle::ProviderRuns)]
+#[case::run_ends_unrecorded(KeptSettle::RunEndsUnrecorded)]
+#[tokio::test]
+async fn a_kept_message_settles_on_the_providers_own_word(#[case] settle: KeptSettle) {
+    let message = waiting_message();
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_resume_run()
+        .times(1)
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    let looked_up = Arc::new(Mutex::new(Vec::new()));
+    let lookups = Arc::clone(&looked_up);
+    driver
+        .expect_find_taken_messages()
+        .returning(move |params| {
+            lookups
+                .lock()
+                .expect("the lookups read")
+                .push(params.message_ids);
+            async { Ok(TakenMessages { taken: Vec::new() }) }.boxed()
+        });
+    let fixture = fixture(driver, "paused").await;
+    let messages = WaitingMessages::holding(message.clone());
+
+    let resumed = fixture.resume(1, &messages).await;
+    let kept_after_the_resume = messages.kept_messages();
+    let settled = match settle {
+        KeptSettle::ProviderRuns => {
+            fixture
+                .control
+                .settle_kept_as_taken(fixture.session_id, fixture.run_id, &messages)
+                .await
+        }
+        KeptSettle::RunEndsUnrecorded => {
+            fixture.set_run("stopped", 2);
+            fixture
+                .control
+                .settle_kept_by_record(fixture.session_id, fixture.run_id, &messages)
+                .await
+        }
+    };
+
+    assert!(
+        matches!(
+            resumed,
+            Err(RunPauseError::Driver(DriverError::Unanswered(_)))
+        ),
+        "{resumed:?}"
+    );
+    assert_eq!(kept_after_the_resume, vec![message.clone()]);
+    assert!(settled.is_ok(), "{settled:?}");
+    assert_eq!(messages.kept_messages(), []);
+    let taken = messages
+        .settled_taken
+        .lock()
+        .expect("the settled messages read")
+        .clone();
+    let given_back = messages
+        .settled_given_back
+        .lock()
+        .expect("the settled messages read")
+        .clone();
+    let lookups = looked_up.lock().expect("the lookups read").clone();
+    match settle {
+        KeptSettle::ProviderRuns => {
+            assert_eq!((taken, given_back), (vec![message.id], Vec::new()));
+            assert_eq!(lookups, Vec::<Vec<QueueItemId>>::new());
+        }
+        KeptSettle::RunEndsUnrecorded => {
+            assert_eq!((taken, given_back), (Vec::new(), vec![message.id]));
+            assert_eq!(lookups, vec![vec![message.id]]);
+        }
+    }
 }

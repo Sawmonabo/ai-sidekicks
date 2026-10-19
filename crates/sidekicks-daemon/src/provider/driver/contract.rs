@@ -56,8 +56,9 @@ use crate::provider::driver::rewind::{RewindConversationParams, RewindConversati
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    InterruptRunRequest, OverrideDenialParams, PauseRunParams, ResumeRunParams,
-    SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
+    ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
+    WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ProviderBuildChange,
@@ -210,6 +211,17 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// Continues a paused or pausing run from where it stopped, with nothing repeated, delivering
     /// the waiting messages; resolves once the provider has the request.
     fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Looks messages a resume sent with no answer back up in the provider's own record of the
+    /// conversation by their ids, answering the ones it holds; fails when the record is unreadable.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "each provider's driver reads its record")
+    )]
+    fn find_taken_messages(
+        &self,
+        params: FindTakenMessagesParams,
+    ) -> BoxFuture<'_, Result<TakenMessages, DriverError>>;
 
     /// Takes back a steer the provider has not read yet (gated on `steer`); an edit is a withdraw
     /// and a new send.
