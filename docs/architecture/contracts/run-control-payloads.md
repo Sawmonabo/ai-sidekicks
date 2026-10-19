@@ -159,8 +159,11 @@ type AgentRunInterveneRequest =
       // or put back into the draft one line per message in send order (`returnToDraft`, which
       // `Interrupt everything` sends).
       pending: "nextTurn" | "returnToDraft";
-      // `Send now` on a waiting message: the interrupt ends the turn and this item goes first, the
-      // rest following in order as the next turn's messages. Only with `pending: "nextTurn"`.
+      // `Send now` on a waiting message on Codex: the interrupt ends the turn and this item goes
+      // first, the rest following in order as the next turn's messages. Only with
+      // `pending: "nextTurn"`. On Claude Code `Send now` is no interrupt: the daemon takes back the
+      // rows ahead, sends this one with `priority: "now"` and resends the rows ahead after it, with
+      // no `Turn interrupted` row.
       deliverFirst?: QueueItemId;
     }
   | {
@@ -533,8 +536,9 @@ interface AgentChildRunInterruptRequest {
   childHandle: ChildHandle;
   expectedRunVersion: number;
   clientIdempotencyKey: string; // a UUID
-  // `Send now` on one of the child's pending rows: the interrupt ends the child's turn and this
-  // item goes first, the rest following in order as its next turn's messages.
+  // `Send now` on one of the child's pending rows on Codex: the interrupt ends the child's turn
+  // and this item goes first, the rest following in order as its next turn's messages. On Claude
+  // Code a child's `Send now` is no interrupt, as the lead's is not.
   deliverFirst?: QueueItemId;
 }
 // Where the child stands after the interrupt; a child that had already finished answers the state

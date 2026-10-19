@@ -177,7 +177,7 @@ CREATE TABLE session_console_state (
 ) STRICT;
 ```
 
-The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, Claude Code's as `--max-turns` and Codex's as the daemon's own per-turn count; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
+The number is carried onto a spawn through `runtime_bindings.spawn_config` and counted by the daemon per turn on every provider, a Claude Code process also started with the number plus one as `--max-turns`, a backstop the daemon's interrupt comes before; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
 
 ```sql
 -- Owner: Plan-008
