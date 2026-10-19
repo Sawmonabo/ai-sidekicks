@@ -234,12 +234,21 @@ pub enum PersonInterruptRecord {
 }
 
 /// The daemon's own stop at a limit as its `interventions` row stores it, with no device: the
-/// limit, so a restart settles the run with that cause. The waiting messages stay waiting.
+/// limit and the turn the stop cut, so a restart settles the run and ends that turn with that
+/// cause. The waiting messages stay waiting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LimitInterruptRecord {
     /// The limit the run reached.
     pub limit: RunLimit,
+    /// The turn the stop cut; absent when no turn of the run was open.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SafeInt<1>")]
+    pub turn_number: Option<SafeInt<1>>,
 }
 
 /// The stored `payload` of an interrupt's `interventions` row: a person's, or the daemon's own at
@@ -435,10 +444,12 @@ mod tests {
 
     use super::{InterruptInterventionRecord, RunLimit};
 
-    // Dropping the person arms' `limit: Never` reads the mixed row as a person's interrupt, and
-    // reading `reason` as a limit makes the person's text settle as one.
+    // Dropping the person arms' `limit: Never` reads the mixed row as a person's interrupt,
+    // reading `reason` as a limit makes the person's text settle as one, and a limit record that
+    // refuses the turn its stop cut leaves every stored limit row unreadable.
     #[rstest]
     #[case(json!({"limit": "stepLimit"}), Some(Some(RunLimit::StepLimit)))]
+    #[case(json!({"limit": "spendLimit", "turnNumber": 2}), Some(Some(RunLimit::SpendLimit)))]
     #[case(json!({"limit": "tokenLimit"}), Some(Some(RunLimit::TokenLimit)))]
     #[case(json!({"pending": "nextTurn", "reason": "stepLimit"}), Some(None))]
     #[case(json!({"pending": "returnToDraft"}), Some(None))]
