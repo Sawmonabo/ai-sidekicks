@@ -140,14 +140,10 @@ async fn list_models(
     // Stable, so the rest keep the table's order.
     drivers.sort_by_key(|(provider, _)| Some(*provider) != own_provider.as_ref());
     let reads = drivers.into_iter().map(|(provider, driver)| {
-        let provider_account_id = if Some(provider) == own_provider.as_ref() {
-            own_account.clone()
-        } else {
-            None
-        };
+        let is_own = Some(provider) == own_provider.as_ref();
         let read = driver.list_models(ListModelsParams {
-            session_id,
-            provider_account_id,
+            session_id: is_own.then_some(session_id),
+            provider_account_id: if is_own { own_account.clone() } else { None },
         });
         async move { (provider.clone(), read.await) }
     });

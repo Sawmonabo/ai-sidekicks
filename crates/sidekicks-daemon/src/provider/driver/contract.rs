@@ -806,8 +806,8 @@ pub(crate) struct ListProviderCommandsParams {
 /// to read it against, `None` for the provider's default account.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ListModelsParams {
-    /// The session.
-    pub(crate) session_id: SessionId,
+    /// The session, only where this is the session's own provider; `None` for any other.
+    pub(crate) session_id: Option<SessionId>,
     /// The account: the session's own bound account for its own provider.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
