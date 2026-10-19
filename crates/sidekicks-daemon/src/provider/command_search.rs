@@ -23,6 +23,7 @@ use sidekicks_platforms::{
 use tokio::process::Command;
 use tokio::sync::OnceCell;
 
+use crate::missing_entry::is_gone;
 use crate::provider::driver::{InstallFolderBase, ProviderDescriptor};
 use crate::provider::spawn_environment::{
     place_folder_first_on_search_path, remove_environment_names,
@@ -369,14 +370,7 @@ fn expand_folder(folder: ProgramFolder) -> Vec<PathBuf> {
     };
     let entries = match std::fs::read_dir(&versions) {
         Ok(entries) => entries,
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
-            ) =>
-        {
-            return Vec::new();
-        }
+        Err(error) if is_gone(&error) => return Vec::new(),
         Err(error) => {
             log_unlisted_folder(&versions, &error);
             return Vec::new();

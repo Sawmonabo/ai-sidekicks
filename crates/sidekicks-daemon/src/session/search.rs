@@ -1,7 +1,8 @@
-//! Session search: the search box's query, its pages and cursors, the hit lines, and the index
-//! the search reads.
+//! Session search: the search box's query, its pages and cursors, the hit lines, the index the
+//! search reads, and the `@` search of a session's working-folder files.
 
 pub(crate) mod cursor;
+pub(crate) mod files;
 pub(crate) mod hits;
 pub(crate) mod index;
 pub(crate) mod marked_line;

@@ -122,6 +122,19 @@ impl PathRules {
             .collect()
     }
 
+    /// Whether `path` names a place strictly inside `folder`, read lexically with no link
+    /// followed and compared by [`comparable_components`], so a sibling that shares a prefix
+    /// (`/repo-old` beside `/repo`) and the folder itself are not inside it. Both paths come
+    /// folded, `.` and `..` resolved away, as [`resolve_path_against`] gives them.
+    ///
+    /// [`comparable_components`]: Self::comparable_components
+    /// [`resolve_path_against`]: crate::resolve_path_against
+    pub fn is_within(self, folder: &Path, path: &Path) -> bool {
+        let folder = self.comparable_components(folder);
+        let path = self.comparable_components(path);
+        path.len() > folder.len() && path.starts_with(&folder)
+    }
+
     /// The key two environment names share exactly when the system reads them as one variable: the
     /// name itself on macOS and Linux, and on Windows the name with each character that has a
     /// single upper-case form upper-cased, as the system's ordinal case-blind comparison folds it
@@ -218,9 +231,31 @@ fn fold_to_upper_case(character: char) -> char {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use rstest::rstest;
 
     use super::PathRules;
+
+    // Fails when containment compares text prefixes, admits the folder itself, or stops folding
+    // case on Windows.
+    #[rstest]
+    #[case::inside(PathRules::Posix, "/repo", "/repo/src/main.rs", true)]
+    #[case::the_folder_itself(PathRules::Posix, "/repo", "/repo", false)]
+    #[case::a_sibling_sharing_a_prefix(PathRules::Posix, "/repo", "/repo-old/main.rs", false)]
+    #[case::posix_keeps_case(PathRules::Posix, "/repo", "/Repo/main.rs", false)]
+    #[case::windows_folds_case(PathRules::Windows, "/repo", "/REPO/Main.rs", true)]
+    fn is_within_holds_only_a_path_strictly_inside_the_folder(
+        #[case] rules: PathRules,
+        #[case] folder: &str,
+        #[case] path: &str,
+        #[case] is_within: bool,
+    ) {
+        assert_eq!(
+            rules.is_within(Path::new(folder), Path::new(path)),
+            is_within
+        );
+    }
 
     // Fails when the `'` escape, the `%` escape or the `"` doubling is dropped.
     #[rstest]

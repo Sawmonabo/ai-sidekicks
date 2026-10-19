@@ -167,7 +167,11 @@ impl<Written> WriteWithResend<Written> {
     /// What was written, the failure of the interrupts handed again logged for the next hand.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the run control and provider choice handlers")
+        expect(
+            dead_code,
+            reason = "the provider's event delivery, the run control and the provider choice \
+                      handlers"
+        )
     )]
     pub(crate) fn log_resend_failure(self, run_id: RunId) -> Written {
         if let Some(error) = &self.resend_failure {

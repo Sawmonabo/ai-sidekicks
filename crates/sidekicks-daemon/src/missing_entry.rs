@@ -1,5 +1,6 @@
 //! Reading an entry that may be missing: a `NotFound` failure read as nothing there, every other
-//! failure kept, and the wider test of a path that names nothing.
+//! failure kept, the wider test of a path that names nothing, and whether a path's failure says it
+//! is gone.
 
 use std::io;
 
@@ -27,4 +28,13 @@ impl<T> MissingEntry<T> for io::Result<T> {
             Err(failure) => Err(failure),
         }
     }
+}
+
+/// Whether a call on a path failed because the path is gone: it is missing (`NotFound`), or a
+/// folder on its way is not a folder (`NotADirectory`).
+pub(crate) fn is_gone(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+    )
 }

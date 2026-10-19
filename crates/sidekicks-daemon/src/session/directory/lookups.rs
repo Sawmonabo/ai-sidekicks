@@ -12,7 +12,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 
 use crate::database::sql_list::sql_list_of;
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::statement::{
+    StatementBindings, StatementResult, WriteStatement, text_binding,
+};
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
@@ -83,19 +85,21 @@ impl From<SessionWriteError> for HandlerError {
 }
 
 /// Writes `change` only while `session_id` has a directory row, the check and the change in one
-/// write, so a purge cannot land between them. Fails with [`SessionWriteError::Refused`]
-/// (`session.notFound`) for a session with no row, and with [`SessionWriteError::Write`] when the
-/// write is not kept.
+/// write, so a purge cannot land between them, and returns what `change` did. Fails with
+/// [`SessionWriteError::Refused`] (`session.notFound`) for a session with no row, and with
+/// [`SessionWriteError::Write`] when the write is not kept.
 pub(crate) async fn write_while_session_exists(
     writer: &DatabaseWriter,
     session_id: &SessionId,
     change: WriteStatement,
-) -> Result<(), SessionWriteError> {
+) -> Result<StatementResult, SessionWriteError> {
     match writer
         .write(vec![session_exists_statement(session_id), change])
         .await
     {
-        Ok(_) => Ok(()),
+        Ok(mut results) => Ok(results
+            .pop()
+            .expect("a committed write answers for each of its two statements")),
         Err(WriteError::Refused {
             statement_index: 0, ..
         }) => Err(session_not_found(session_id).into()),

@@ -209,6 +209,8 @@ pub use posix::disk::{
 };
 #[cfg(unix)]
 pub use posix::entry_identity::entry_identity;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::error_codes::is_illegal_byte_sequence;
 #[cfg(unix)]
 pub use posix::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_link_loop, is_no_such_process,
@@ -336,6 +338,8 @@ pub use windows::disk::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::entry_identity::entry_identity;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::error_codes::is_illegal_byte_sequence;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
     is_hard_link_unsupported, is_held_file_error, is_link_loop, is_no_such_process,

@@ -117,7 +117,7 @@ pub(crate) enum RunStateEntry {
     /// Into `pausing`.
     Pausing,
     /// Into `paused`.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     Paused,
     /// Into `completed`.
     #[expect(dead_code, reason = "the provider's event delivery")]

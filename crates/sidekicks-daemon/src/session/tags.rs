@@ -97,7 +97,8 @@ impl SessionTagService {
             },
         )
         .await
-        .map_err(SessionTagError::from)
+        .map_err(SessionTagError::from)?;
+        Ok(())
     }
 
     /// Removes the tag from the session, matched ignoring case; a tag it does not hold is already
@@ -118,7 +119,8 @@ impl SessionTagService {
             },
         )
         .await
-        .map_err(SessionTagError::from)
+        .map_err(SessionTagError::from)?;
+        Ok(())
     }
 
     /// The tags in use across every session, for `Add tag` to suggest. Fails with

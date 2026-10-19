@@ -1,6 +1,6 @@
 //! What a failed file or process call on macOS and Linux means, read from its system error code:
 //! out of open files, a busy entry, a volume with no hard links, a rename a held file stops, a
-//! link that loops, a signal that found no process.
+//! link that loops, a name the file system cannot hold, a signal that found no process.
 
 use std::io::{self, ErrorKind};
 
@@ -15,6 +15,13 @@ pub fn is_out_of_open_files(error: &io::Error) -> bool {
 /// them (`ELOOP`), which std reads as a kind that is not yet stable.
 pub fn is_link_loop(error: &io::Error) -> bool {
     error.raw_os_error() == Some(libc::ELOOP)
+}
+
+/// Whether `error` says the system refused a name whose bytes its file system cannot hold
+/// (`EILSEQ`), as APFS refuses a name that is not UTF-8.
+#[cfg(any(test, feature = "test-support"))]
+pub fn is_illegal_byte_sequence(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(libc::EILSEQ)
 }
 
 /// Whether `error` says the entry is busy (`EBUSY`).

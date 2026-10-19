@@ -561,7 +561,7 @@ pub enum SessionSearchResponse {
 }
 
 /// The `session.file.search` input: the text typed after `@` in a session's draft. An empty query
-/// lists the working folder's files; the list narrows as the name is typed.
+/// lists the working folder's files and folders; the list narrows as the name is typed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -572,23 +572,48 @@ pub struct SessionFileSearchRequest {
     pub query: NulFreeText<SESSION_SEARCH_QUERY_MAX_LEN>,
 }
 
-/// The `session.file.search` result: the matching files' paths relative to the working folder,
-/// best first, and how many files the query was matched against, never fewer than it matched. A
-/// search that failed is an error, never an empty result.
+/// What a `session.file.search` row names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, IntoStaticStr)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum SessionFileSearchEntryKind {
+    /// A file.
+    File,
+    /// A folder.
+    Folder,
+}
+
+/// One `session.file.search` row: a path relative to the working folder, and whether it names a
+/// file or a folder.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionFileSearchEntry {
+    /// The path, relative to the working folder.
+    pub path: FilesystemPath,
+    /// What it names.
+    pub kind: SessionFileSearchEntryKind,
+}
+
+/// The `session.file.search` result: the matching files and folders, each path relative to the
+/// working folder, best first, and how many files the query was matched against, never fewer than
+/// the files it matched. A search that failed is an error, never an empty result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct SessionFileSearchResponse {
-    /// The paths, best first.
-    #[garde(custom(|paths: &Vec<FilesystemPath>, (): &()| {
-        if u64::try_from(paths.len()).is_ok_and(|count| count <= self.searched_file_count.get()) {
+    /// The files and folders, best first.
+    #[garde(custom(|entries: &Vec<SessionFileSearchEntry>, (): &()| {
+        let file_count = entries
+            .iter()
+            .filter(|entry| entry.kind == SessionFileSearchEntryKind::File)
+            .count();
+        if u64::try_from(file_count).is_ok_and(|count| count <= self.searched_file_count.get()) {
             Ok(())
         } else {
             Err(garde::Error::new("a file search cannot match more files than it searched"))
         }
     }))]
-    #[schemars(extend("maxItems" = { "$data": "1/searchedFileCount" }))]
-    pub paths: Vec<FilesystemPath>,
+    pub entries: Vec<SessionFileSearchEntry>,
     /// How many files the query was matched against.
     pub searched_file_count: SafeInt<0>,
 }
@@ -634,6 +659,7 @@ methods! {
                 SessionAlreadyClosed,
                 SessionChangeRefused,
                 ProviderUnavailable,
+                ProviderNotFound,
             ],
         },
         /// Pins a session.
@@ -700,7 +726,7 @@ methods! {
             result: SessionSearchResponse,
             refusals: [SessionSearchCursorUnresolvable],
         },
-        /// Lists a session's working-folder files matching what was typed after `@`.
+        /// Lists a session's working-folder files and folders matching what was typed after `@`.
         SessionFileSearch = query "session.file.search" {
             mutating: false,
             params: SessionFileSearchRequest,
@@ -744,6 +770,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionSearchGroup>(),
         Definition::read::<SessionSearchResponse>().checked(),
         Definition::read::<SessionFileSearchRequest>().checked(),
+        Definition::read::<SessionFileSearchEntryKind>(),
+        Definition::read::<SessionFileSearchEntry>(),
         Definition::read::<SessionFileSearchResponse>().checked(),
     ],
     constants: &[],

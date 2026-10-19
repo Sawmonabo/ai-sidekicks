@@ -568,6 +568,29 @@ interface SearchMatchRange {
   end: number;
 }
 
+// SessionFileSearch — session.file.search, the composer's `@` list. The daemon lists the session's
+// working folder, through `git ls-files` inside a repository and a walk outside one, and answers
+// the best matching rows, best first, at most a daemon constant. A row is a path relative to the
+// working folder and its kind: inside git the folders are the listed paths' parents and the
+// repositories git lists, outside git the walked folders, and a link takes its target's kind. A
+// row whose real location is not inside the working folder is dropped. Refused `session.notFound`
+// and `session.workingFolder.missing`.
+interface SessionFileSearchRequest {
+  sessionId: SessionId;
+  query: string; // the text typed after `@`, empty for every row; at most SESSION_SEARCH_QUERY_MAX_LEN
+}
+interface SessionFileSearchEntry {
+  path: string;
+  kind: "file" | "folder";
+}
+interface SessionFileSearchResponse {
+  entries: SessionFileSearchEntry[];
+  // The files listed: folders left out, files whose names no row can carry counted. That the
+  // `file` rows are at most this count is garde's check at the daemon, since Ajv's `$data`
+  // cannot count the rows of one kind.
+  searchedFileCount: number;
+}
+
 // TranscriptSearch — transcript.search. The same search over one session's own rows, answering the
 // session's find box, a page at a time. Hits come newest first, and `beforeCursor` continues from
 // the previous page's `nextCursor`. `matchCount` counts the whole session, so the box's `N of M`
@@ -735,6 +758,7 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.recovery.continue` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
 | `session.recovery.delete` | `mutation` | `SessionTargetRequest` | `EmptyPayload` |
 | `session.search` | `query` | `SessionSearchRequest` | `SessionSearchResponse` |
+| `session.file.search` | `query` | `SessionFileSearchRequest` | `SessionFileSearchResponse` |
 | `session.group.create` | `mutation` | `SessionGroupCreateRequest` | `SessionGroupCreateResponse` |
 | `session.group.move` | `mutation` | `SessionGroupMoveRequest` | `EmptyPayload` |
 | `session.group.rename` | `mutation` | `SessionGroupRenameRequest` | `EmptyPayload` |

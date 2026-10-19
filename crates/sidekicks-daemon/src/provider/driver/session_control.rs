@@ -1,23 +1,158 @@
 //! The params of the driver operations that act on a whole session rather than one run, and the
-//! refusal of a level a provider cannot run: the live permission-level and mode moves, a revoked
-//! rule's removal, the commands the daemon answers itself, the side question and the review, the
-//! live command list, the move onto a new provider build, and the purge of the provider's own copy
-//! of its conversations.
+//! refusal of a level a provider cannot run: the session's opening, resume, close and naming, the
+//! live permission-level and mode moves, a revoked rule's removal, the commands the daemon answers
+//! itself, the side question and the review, the live command list, the move onto a new provider
+//! build, and the purge of the provider's own copy of its conversations.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde_json::json;
+use serde_json::{Map, Value, json};
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::machine::settings::ProviderRowValues;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::declaration::ProviderOptionSetting;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
+use tokio_util::sync::CancellationToken;
 
 use crate::ipc::domain_error::DomainError;
+use crate::provider::driver::callback_tool::CallbackToolDispatcher;
+use crate::provider::driver::contract::{SessionToolServer, SubagentPolicy};
+use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::port::permission_ask::ProviderAskRule;
+
+/// What the daemon hands a driver to open a session: its config, its spawn-bound legs and the
+/// daemon's callbacks. A spawn-bound leg that gets nothing here launches without it; per-run
+/// carriers are on [`StartRunParams`](super::contract::StartRunParams).
+#[derive(Clone)]
+pub(crate) struct CreateSessionParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The session's config.
+    pub(crate) config: Map<String, Value>,
+    /// The session's model. A provider that takes it at process start applies a usage-credits
+    /// prompt's `switchDefault` to this session alone, never to the account's saved default.
+    pub(crate) model: ProviderToken,
+    /// The larger window chosen for the model, in tokens, as recorded when it was picked; `None`
+    /// runs the model's default window. A provider whose model id names the window refuses one.
+    pub(crate) larger_window: Option<SafeInt<1>>,
+    /// How the session may touch the machine.
+    pub(crate) execution_posture: Option<ExecutionPosture>,
+    /// The agent's accepted output-speed level (gated on `outputSpeed`), sent when the process
+    /// starts and never refused: a level the model does not list runs at standard. The provider's
+    /// declared state is read through `observed_output_speed_for`, never written back here.
+    pub(crate) output_speed: Option<ProviderToken>,
+    /// The agent's values of the session options its driver declares, sent when the process starts;
+    /// an option left out keeps the provider's default. What the provider reports is read through
+    /// `observed_options_for`.
+    pub(crate) options: Vec<ProviderOptionSetting>,
+    /// The values set in the app on the rows the driver declares, passed to the process through
+    /// the provider's own command-line layer; a row left out follows the provider's own settings.
+    pub(crate) row_values: ProviderRowValues,
+    /// The daemon's callback tools (gated on `callbackTools`); a driver may host them as an
+    /// ephemeral tool server, under whose name they then surface.
+    pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
+    /// The provider-native subagent policy (gated on `subagents`).
+    pub(crate) subagent_policy: Option<SubagentPolicy>,
+    /// Every tool server the session can reach, each switched on or off by the person (gated on
+    /// `mcp`); the driver hands each to the provider as an entry on the daemon's route.
+    pub(crate) tool_servers: Option<Vec<SessionToolServer>>,
+    /// A JSON Schema the final output must meet, for a provider that binds it per session (gated
+    /// on `structuredOutput`); one that binds it per turn reads
+    /// [`StartRunParams::output_schema`](super::contract::StartRunParams::output_schema).
+    pub(crate) output_schema: Option<Map<String, Value>>,
+    /// The account the leg is admitted against, resolved by the daemon; `None` spawns on the
+    /// machine's default for the provider. The spawn path pins the account's credential home, so
+    /// the driver only carries it.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The daemon's callback-tool dispatcher (gated on `callbackTools`); its presence tells the
+    /// driver the registry is served, and the driver never calls it.
+    pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
+    /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
+    /// cannot report for another leg and needs no id for the census it reports while opening.
+    pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
+}
+
+/// What the daemon hands a driver to resume a session in a fresh process. A resume is a fresh
+/// spawn, so it repeats every spawn-bound leg of [`CreateSessionParams`], rebuilt from the stored
+/// spawn record and never from the original request; a leg left out would be shed silently.
+#[derive(Clone)]
+pub(crate) struct ResumeSessionParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The provider's own handle of the conversation.
+    pub(crate) resume_handle: String,
+    /// The session's current model, given by the caller since a later switch moves the session.
+    pub(crate) model: ProviderToken,
+    /// The recorded larger window, sent as recorded whatever the catalog offers now.
+    pub(crate) larger_window: Option<SafeInt<1>>,
+    /// Build or Plan, which the resumed provider runs in from its first turn.
+    pub(crate) mode: SessionMode,
+    /// How the session may touch the machine; left out, the leg would relaunch unsandboxed.
+    pub(crate) execution_posture: Option<ExecutionPosture>,
+    /// The agent's accepted output-speed level; left out, the leg would relaunch at the
+    /// provider's default.
+    pub(crate) output_speed: Option<ProviderToken>,
+    /// The agent's session option values; an option left out would relaunch at the provider's
+    /// default.
+    pub(crate) options: Vec<ProviderOptionSetting>,
+    /// The values set in the app on the driver's rows as they stand now, which a resumed process
+    /// starts with.
+    pub(crate) row_values: ProviderRowValues,
+    /// The daemon's callback tools.
+    pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
+    /// The provider-native subagent policy.
+    pub(crate) subagent_policy: Option<SubagentPolicy>,
+    /// Every tool server the session can reach.
+    pub(crate) tool_servers: Option<Vec<SessionToolServer>>,
+    /// A JSON Schema the final output must meet.
+    pub(crate) output_schema: Option<Map<String, Value>>,
+    /// The account read back from the stored spawn record, never resolved again, so a live run's
+    /// spend never moves onto an account it was not admitted against.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The callback-tool dispatcher, injected again at every spawn; its presence tells the resumed
+    /// leg the registry is served, and the driver never calls it.
+    pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
+    /// The status sink, bound to the resumed leg, through which it reports its census again.
+    pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
+}
+
+/// Asks a driver to close one session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CloseSessionParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+}
+
+/// Params of `name_session`: the session, where it runs, and its first exchange, the reply cut
+/// to [`NAME_SESSION_REPLY_MAX_BYTES`] at a character boundary.
+#[derive(Clone, Debug)]
+pub(crate) struct NameSessionParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// Where the session runs: `None` on macOS and Linux, Windows itself or a WSL 2 distribution
+    /// on Windows.
+    pub(crate) place: Option<Place>,
+    /// The person's first message.
+    pub(crate) first_message: String,
+    /// The text of the first completed run's reply, cut.
+    pub(crate) first_reply: String,
+    /// Fires when the pass is no longer wanted: the session was renamed, or the daemon stops.
+    pub(crate) cancel: CancellationToken,
+}
+
+/// The most of the first reply a naming pass reads, in UTF-8 bytes, as much as a short title
+/// needs.
+pub(crate) const NAME_SESSION_REPLY_MAX_BYTES: usize = 960;
 
 /// Params of `update_permission_level`: the level the session moves to and the roots it opens to
 /// writes, applied by the provider from its next request without a relaunch.

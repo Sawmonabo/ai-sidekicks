@@ -283,7 +283,7 @@ impl RunEngine {
     /// which asked its provider for the subagent, then `starting` and `running`, and returns the
     /// new run's id. Returns `None` with nothing written when the parent has ended, and fails with
     /// [`RunRefusal::NotFound`] for a parent the daemon has no run for.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn start_provider_subagent_run(
         &self,
         parent_run_id: RunId,
@@ -470,7 +470,7 @@ impl RunEngine {
     /// `None` with nothing written when the run no longer reads interrupted. Whatever the provider
     /// reports on the run after this call waits for its write. Fails as [`RunEngine::transition`]
     /// does.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn continue_run_with_kept_messages(
         &self,
         run_id: RunId,

@@ -119,7 +119,8 @@ pub(crate) enum RunMarker {
 }
 
 impl RunMarker {
-    fn run_id(&self) -> RunId {
+    /// The run the marker is on.
+    pub(crate) fn run_id(&self) -> RunId {
         match self {
             Self::ProviderInitialized { run_id, .. } | Self::WorkerShuttingDown { run_id, .. } => {
                 *run_id
@@ -553,7 +554,7 @@ impl RunEngine {
     /// Records `marker` on its run at the run's current version and returns the id of the event
     /// written, or `None` with nothing written when the run has ended. Fails with
     /// [`RunRefusal::NotFound`] for a run the daemon has no row for.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn append_run_marker(
         &self,
         marker: RunMarker,
