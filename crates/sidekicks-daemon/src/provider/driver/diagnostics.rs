@@ -3,7 +3,9 @@
 //! the service log with its counter's name. These are diagnostics for the person, never stored
 //! session events; a frame that reaches this channel is never silently dropped.
 
-use serde_json::{Map, Value};
+use std::collections::HashSet;
+
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use strum::IntoStaticStr;
@@ -131,6 +133,9 @@ pub(crate) enum DriverDiagnosticKind {
     /// A provider's model catalog, or one row of it, could not be run or read; those picker rows
     /// carry no window.
     ModelWindowReadFailed,
+    /// An optional member of a model catalog row could not be read, so the row reads it as
+    /// absent; the row and the rest of the catalog stand.
+    ModelCatalogMemberUnreadable,
     /// A message's final text did not begin with the text already streamed as its pieces, which
     /// stand.
     StreamedTextDiverged,
@@ -193,6 +198,7 @@ impl DriverDiagnosticKind {
             Self::ProviderFrameOversized => "driver.process.frameOversized",
             Self::ControlOnlyReadFailed => "driver.controlOnly.readFailed",
             Self::ModelWindowReadFailed => "driver.modelWindow.readFailed",
+            Self::ModelCatalogMemberUnreadable => "driver.modelCatalog.memberUnreadable",
             Self::StreamedTextDiverged => "driver.streamedText.diverged",
             Self::StreamedBlocksAbandoned => "driver.streamedText.blocksAbandoned",
         }
@@ -236,6 +242,58 @@ pub(crate) fn emit_driver_diagnostic(record: &DriverDiagnosticRecord) {
         details = details.as_str(),
         "driver diagnostic"
     );
+}
+
+/// How many distinct diagnostics one provider connection logs; their wire types are named by the
+/// provider, so the set of those already logged is bounded.
+const ONCE_REPORTED_DIAGNOSTICS_LIMIT: usize = 32;
+
+/// The diagnostics one provider connection has logged, by kind and wire type, so one that keeps
+/// arriving (an unmapped notification on every frame) is logged once, not once per frame. Past
+/// the limit one last record says later ones go unlogged.
+#[derive(Debug, Default)]
+pub(crate) struct OnceReportedDiagnostics {
+    /// The kind and wire type of each diagnostic logged on this connection.
+    reported: HashSet<(DriverDiagnosticKind, String)>,
+    /// Whether the record saying the limit was reached has been logged.
+    is_limit_reported: bool,
+}
+
+impl OnceReportedDiagnostics {
+    /// Logs `record` the first time its kind arrives with its `raw_wire_type` on this connection;
+    /// one already logged is not logged again. The first new one past the limit logs one record
+    /// saying so, and later ones log nothing. Answers whether `record` itself was logged.
+    pub(crate) fn report(&mut self, record: &DriverDiagnosticRecord) -> bool {
+        let key = (
+            record.kind,
+            record.raw_wire_type.clone().unwrap_or_default(),
+        );
+        if self.reported.contains(&key) {
+            return false;
+        }
+        if self.reported.len() < ONCE_REPORTED_DIAGNOSTICS_LIMIT {
+            self.reported.insert(key);
+            emit_driver_diagnostic(record);
+            return true;
+        }
+        if !self.is_limit_reported {
+            self.is_limit_reported = true;
+            let mut details = Map::new();
+            details.insert(
+                "reportedDiagnostics".to_owned(),
+                json!(ONCE_REPORTED_DIAGNOSTICS_LIMIT),
+            );
+            emit_driver_diagnostic(&DriverDiagnosticRecord {
+                disposition_reason: format!(
+                    "{ONCE_REPORTED_DIAGNOSTICS_LIMIT} diagnostics already reported on this \
+                     connection; later new ones on it are not reported"
+                ),
+                details,
+                ..record.clone()
+            });
+        }
+        false
+    }
 }
 
 #[cfg(test)]
@@ -317,5 +375,63 @@ mod recorded_events {
                 .expect("no test thread panics holding the lock")
                 .push(fields.0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Map;
+    use sidekicks_contracts::provider::id::ProviderId;
+
+    use super::{
+        DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, RecordedEvents,
+    };
+
+    fn unmapped(wire_kind: &str) -> DriverDiagnosticRecord {
+        DriverDiagnosticRecord {
+            provider: ProviderId::new("codex".to_owned()).expect("a valid provider id"),
+            provider_account_id: None,
+            kind: DriverDiagnosticKind::UnmappedWireKind,
+            raw_wire_type: Some(wire_kind.to_owned()),
+            disposition_reason: "unmapped".to_owned(),
+            details: Map::new(),
+        }
+    }
+
+    // A kind that keeps arriving logs once; the 33rd distinct kind logs the one record saying the
+    // limit was reached, and nothing after it logs.
+    #[test]
+    fn a_diagnostic_is_reported_once_per_kind_and_the_set_stops_at_its_limit() {
+        let recorded = RecordedEvents::default();
+        let mut reports = OnceReportedDiagnostics::default();
+        let mut logged = Vec::new();
+        recorded.record_during(|| {
+            logged.push(reports.report(&unmapped("thread/new")));
+            logged.push(reports.report(&unmapped("thread/new")));
+            for index in 1..32 {
+                logged.push(reports.report(&unmapped(&format!("kind/{index}"))));
+            }
+            logged.push(reports.report(&unmapped("kind/33")));
+            logged.push(reports.report(&unmapped("kind/34")));
+            logged.push(reports.report(&unmapped("thread/new")));
+        });
+
+        let expected: Vec<bool> = [true, false]
+            .into_iter()
+            .chain([true; 31])
+            .chain([false, false, false])
+            .collect();
+        assert_eq!(logged, expected);
+        let wire_kinds = recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type");
+        assert_eq!(wire_kinds.len(), 33);
+        assert_eq!(wire_kinds.first().map(String::as_str), Some("thread/new"));
+        assert_eq!(wire_kinds.last().map(String::as_str), Some("kind/33"));
+        let reasons = recorded.field_on("driver.normalize.unmappedWireKind", "disposition_reason");
+        assert!(
+            reasons
+                .last()
+                .is_some_and(|reason| reason.contains("not reported")),
+            "{reasons:?}"
+        );
     }
 }

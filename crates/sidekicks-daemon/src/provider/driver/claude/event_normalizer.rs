@@ -16,11 +16,10 @@ use serde_json::Map;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::id::ProviderId;
 use strum::{EnumString, IntoStaticStr, VariantArray};
 
 use crate::provider::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
 use crate::provider::event_disposition::{NormalizedEventKind, resolve_adopted_event_target};
 use crate::provider::thread_frame_router::{
@@ -456,13 +455,14 @@ pub(crate) enum ClaudeFrameEmissionRoute {
     Emit(ClaudeNormalizedCategoryEmission),
     /// The frame adds no event.
     NotEvented(ClaudeNotEventedFrameDisposition),
-    /// The frame went to the diagnostic default branch, which has already logged this record.
+    /// The frame went to the diagnostic default branch, which logged this record unless its kind
+    /// was already reported on the connection.
     Diagnostic(DriverDiagnosticRecord),
 }
 
 /// The driver core's entry point onto the census, for the account `provider_account_id` names.
-/// Never fails: a kind outside the census is logged as a diagnostic and routed there, never forced
-/// into an envelope or dropped.
+/// Never fails: a kind outside the census is routed to a diagnostic, logged once per kind on the
+/// connection `reports` belongs to, never forced into an envelope or dropped.
 #[cfg_attr(
     not(test),
     expect(
@@ -473,11 +473,11 @@ pub(crate) enum ClaudeFrameEmissionRoute {
 pub(crate) fn resolve_claude_frame_emission_route(
     frame_kind: &str,
     provider_account_id: Option<ProviderAccountId>,
+    reports: &mut OnceReportedDiagnostics,
 ) -> ClaudeFrameEmissionRoute {
     let Ok(census_kind) = ClaudeWireFrameKind::from_str(frame_kind) else {
         let record = DriverDiagnosticRecord {
-            provider: ProviderId::new(super::DESCRIPTOR.id.to_owned())
-                .expect("the provider id matches the pattern"),
+            provider: super::DESCRIPTOR.provider_id(),
             provider_account_id,
             kind: DriverDiagnosticKind::UnmappedWireKind,
             raw_wire_type: Some(frame_kind.to_owned()),
@@ -487,7 +487,7 @@ pub(crate) fn resolve_claude_frame_emission_route(
                 .to_owned(),
             details: Map::new(),
         };
-        emit_driver_diagnostic(&record);
+        reports.report(&record);
         return ClaudeFrameEmissionRoute::Diagnostic(record);
     };
     match census_kind.normalization() {
@@ -674,7 +674,9 @@ mod tests {
         ClaudeFrameEmissionRoute, ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal,
         normalize_claude_subagent_lifecycle, resolve_claude_frame_emission_route,
     };
-    use crate::provider::driver::diagnostics::{DriverDiagnosticKind, RecordedEvents};
+    use crate::provider::driver::diagnostics::{
+        DriverDiagnosticKind, OnceReportedDiagnostics, RecordedEvents,
+    };
 
     #[test]
     fn an_unknown_kind_routes_to_a_logged_diagnostic() {
@@ -684,6 +686,7 @@ mod tests {
             route = Some(resolve_claude_frame_emission_route(
                 "system/brand_new",
                 None,
+                &mut OnceReportedDiagnostics::default(),
             ));
         });
 
@@ -708,7 +711,11 @@ mod tests {
         #[case] frame_kind: &str,
         #[case] event_type: SessionEventType,
     ) {
-        let route = resolve_claude_frame_emission_route(frame_kind, None);
+        let route = resolve_claude_frame_emission_route(
+            frame_kind,
+            None,
+            &mut OnceReportedDiagnostics::default(),
+        );
 
         let ClaudeFrameEmissionRoute::Emit(emission) = route else {
             panic!("a result frame emits, got {route:?}");
