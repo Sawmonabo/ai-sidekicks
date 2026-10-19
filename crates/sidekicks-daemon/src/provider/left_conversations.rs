@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use rusqlite::Connection;
 use rusqlite::types::Type;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -61,14 +62,14 @@ const SELECT_LEFT_CONVERSATIONS_SQL: &str = "
 /// `binding_id` with `left_at`; it adds nothing when that update changed no row, so it expects no
 /// row count.
 pub(crate) fn compose_left_conversation_insert(
-    binding_id: &str,
+    binding_id: &RuntimeBindingId,
     left_at: &str,
     conversation: &LeftConversation,
 ) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(INSERT_LEFT_CONVERSATION_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@binding_id", binding_id),
+            text_binding("@binding_id", binding_id.as_str()),
             text_binding("@left_at", left_at),
             text_binding("@session_id", conversation.session_id.text().as_str()),
             nullable_text_binding(

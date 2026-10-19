@@ -13,6 +13,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FALLBACK_ACTION_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_REASON_MAX_LEN;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
@@ -284,7 +285,7 @@ pub(crate) struct RunToolBoundary {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DaemonTurnBinding {
     /// The runtime binding.
-    pub(crate) binding_id: String,
+    pub(crate) binding_id: RuntimeBindingId,
     /// The session's lead agent.
     pub(crate) agent_id: AgentId,
 }
@@ -340,7 +341,7 @@ pub(crate) struct RunDispatch {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The runtime binding the run's deliveries are attributed on, opened by the daemon.
-    pub(crate) binding_id: String,
+    pub(crate) binding_id: RuntimeBindingId,
     /// The opening message's words.
     pub(crate) opening_text: MessageContent,
     /// The opening message's files, in staging order.

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -32,7 +33,7 @@ pub(crate) struct McpServerStatusUpdate {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The binding the producer was bound to.
-    pub(crate) binding_id: String,
+    pub(crate) binding_id: RuntimeBindingId,
     /// The server's name.
     pub(crate) server_name: McpServerName,
     /// Its status.

@@ -28,10 +28,11 @@ use sidekicks_contracts::provider::driver::capabilities::{
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::length_limits::{
-    PROVIDER_BINDING_ID_MAX_LEN, PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
+    PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::{ProviderToolMetadata, SessionCallbackTool};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
@@ -582,7 +583,7 @@ pub(crate) enum DriverResumeResult {
     /// The conversation resumed.
     Resumed {
         /// The new binding, stored by the daemon.
-        binding_id: FreeFormText<PROVIDER_BINDING_ID_MAX_LEN>,
+        binding_id: RuntimeBindingId,
         /// The driver's monotonic session position (a turn or event ordinal), which the daemon
         /// compares with its recorded one to catch a provider that answered with a fresh session.
         session_position: SafeInt<0>,
@@ -624,7 +625,7 @@ pub(crate) struct MoveSessionToForkParams {
     /// The driver's monotonic session position to fork at.
     pub(crate) position: SafeInt<0>,
     /// The leg to fork.
-    pub(crate) binding_id: String,
+    pub(crate) binding_id: RuntimeBindingId,
 }
 
 /// What a fork did, built by the driver from provider output. An applied fork has already moved
@@ -664,7 +665,7 @@ pub(crate) struct SetSessionGoalParams {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The target agent's live binding.
-    pub(crate) binding_id: String,
+    pub(crate) binding_id: RuntimeBindingId,
     /// The run, for context.
     pub(crate) run_id: RunId,
     /// The condition as typed.
@@ -681,7 +682,7 @@ pub(crate) struct ClearSessionGoalParams {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The live binding.
-    pub(crate) binding_id: String,
+    pub(crate) binding_id: RuntimeBindingId,
     /// The run, for context.
     pub(crate) run_id: RunId,
 }
@@ -728,7 +729,7 @@ pub(crate) struct CompactContextParams {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The binding.
-    pub(crate) binding_id: String,
+    pub(crate) binding_id: RuntimeBindingId,
 }
 
 /// Params of `list_provider_commands` (gated on `providerCommands`); addresses one binding.
@@ -737,7 +738,7 @@ pub(crate) struct ListProviderCommandsParams {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The binding.
-    pub(crate) binding_id: String,
+    pub(crate) binding_id: RuntimeBindingId,
 }
 
 /// The provider-native subagent policy (gated on `subagents`). Provider subagents run inside the
