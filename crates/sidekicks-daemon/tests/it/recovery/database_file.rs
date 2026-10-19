@@ -1,6 +1,7 @@
 //! The database file's copies aside, its repair and the readying of its fresh file, each run
 //! through the daemon's own program in its `database copy` and `database shell` modes.
 
+use std::error::Error as _;
 use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -20,7 +21,8 @@ use sidekicks_daemon::recovery::database_file::fresh::{
     FreshFileError, FreshFilePreparation, prepare_fresh_file,
 };
 use sidekicks_daemon::recovery::database_file::repair::{
-    DatabaseFileRepair, DatabaseFileRepairOptions, repair_damaged_file,
+    DatabaseFileRepair, DatabaseFileRepairError, DatabaseFileRepairOptions, LeftoverFile,
+    repair_damaged_file,
 };
 use sidekicks_daemon::recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_platforms::{Spawner, physical_memory};
@@ -595,5 +597,70 @@ async fn a_stop_before_the_ready_marker_leaves_the_damaged_file_as_it_was() {
     assert_eq!(aside_copies(data_folder.path()), Vec::<PathBuf>::new());
     for left in ["daemon.db.recovered", "daemon.db.recovered-ready"] {
         assert!(!data_folder.path().join(left).exists(), "{left} is left");
+    }
+}
+
+// What an earlier repair left where the newest backup's copy goes: the copy, or a folder no
+// removal of a file takes.
+#[derive(Clone, Copy, Debug)]
+enum EarlierBackupCopy {
+    File,
+    Folder,
+}
+
+// A repair a stop or a crash cut short may leave the newest backup's copy beside the database
+// file; the next repair removes it before any work, and one it cannot remove ends the repair
+// before the work, naming the file that stayed.
+#[rstest]
+#[case::a_copy(EarlierBackupCopy::File)]
+#[case::a_folder(EarlierBackupCopy::Folder)]
+#[tokio::test]
+async fn a_backup_copy_an_earlier_repair_left_is_removed_before_any_work(
+    #[case] earlier: EarlierBackupCopy,
+) {
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let database_path = data_folder.path().join("daemon.db");
+    write_damaged_database(&database_path);
+    let backup_copy_path = data_folder.path().join("daemon.db.backup-read");
+    match earlier {
+        EarlierBackupCopy::File => {
+            fs::write(&backup_copy_path, b"an earlier repair's copy").expect("the copy is left");
+        }
+        EarlierBackupCopy::Folder => {
+            fs::create_dir(&backup_copy_path).expect("the folder is left");
+        }
+    }
+    let shell = SqliteShell::new(daemon_program(), spawner());
+    let copier = DatabaseFileCopier::new(daemon_program(), spawner());
+    let (progress, _progress_reader) = watch::channel(None);
+
+    let repaired = Box::pin(repair_damaged_file(
+        &DatabaseFileRepairOptions {
+            database_path: &database_path,
+            data_folder: data_folder.path(),
+            index_folder_path: &data_folder.path().join("search-index"),
+            shell: &shell,
+            copier: &copier,
+            now: jiff::Timestamp::now(),
+        },
+        "page 7 is damaged",
+        None,
+        &progress,
+        &CancellationToken::new(),
+    ))
+    .await;
+
+    match (earlier, repaired) {
+        (EarlierBackupCopy::File, Ok(_)) => {
+            assert!(!backup_copy_path.exists(), "the earlier copy is left");
+        }
+        (EarlierBackupCopy::Folder, Err(DatabaseFileRepairError::Leftover(leftovers))) => {
+            let first = leftovers
+                .source()
+                .and_then(|first| first.downcast_ref::<LeftoverFile>())
+                .expect("the first file that stayed is named");
+            assert_eq!(first.path, backup_copy_path);
+        }
+        (earlier, repaired) => panic!("{earlier:?} was answered {repaired:?}"),
     }
 }
