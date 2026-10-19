@@ -112,6 +112,11 @@ async fn list_models(
     sources: &DriverMethodSources,
     session_id: SessionId,
 ) -> Result<ProviderModelListResponse, HandlerError> {
+    let read_bound = session_read_bound(
+        sources.read_damaged_from_sequence.as_ref(),
+        &session_id,
+        None,
+    );
     let lead = sources
         .pool
         .read(
@@ -120,7 +125,7 @@ async fn list_models(
                 if !session_exists(reader, &session_id)? {
                     return Ok(None);
                 }
-                Ok(Some(read_lead_binding(reader, &session_id)?))
+                Ok(Some(read_lead_binding(reader, &session_id, read_bound)?))
             },
         )
         .await?;

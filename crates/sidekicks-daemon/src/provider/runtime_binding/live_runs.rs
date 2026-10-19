@@ -133,7 +133,7 @@ pub(crate) fn resolve_agent_bindings(
     if !bindings.is_empty() {
         return Ok(AgentBindingResolution::Bound(bindings));
     }
-    if has_live_run || is_agent_named(reader, session_id, agent_id)? {
+    if has_live_run || is_agent_named(reader, session_id, agent_id, read_bound)? {
         Ok(AgentBindingResolution::NoLiveBinding {})
     } else {
         Ok(AgentBindingResolution::UnknownAgent {})
