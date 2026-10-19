@@ -65,8 +65,8 @@ pub(crate) fn exit_signal_name(
 }
 
 /// The end the daemon's own kill of a lasting child left in its exit: `Kill` for the kill's exit
-/// code, else `None`. A logoff or shutdown control event leaves a lasting child the same code, so
-/// such an end reads as the daemon's kill too. Never fails.
+/// code, else `None`. A console control event another process generates on its console leaves the
+/// same code, so such an end reads as the daemon's kill too. Never fails.
 pub fn lasting_child_asked_end(status: &ExitStatus) -> Option<ChildEnd> {
     (status.code() == Some(KILLED_EXIT_CODE.cast_signed())).then_some(ChildEnd::Kill)
 }
