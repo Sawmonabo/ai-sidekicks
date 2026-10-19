@@ -344,6 +344,8 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::intervention::RunLimit;
     use sidekicks_contracts::run::state::RunState;
+    use sidekicks_contracts::session::controls::events::AgentRunTokenLimitReachedPayload;
+    use sidekicks_contracts::session::cost::TokensPerRun;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
 
@@ -351,8 +353,8 @@ mod tests {
     use crate::events::log_service::tests::open_log;
     use crate::session::run::engine::live::{LimitCut, lock};
     use crate::session::run::engine::tests::{
-        INTERVENTIONS_TABLE_SQL, append, run_version, stored_events, stored_run_state, test_engine,
-        turn_started_at,
+        INTERVENTIONS_TABLE_SQL, append, insert_running_run, run_version, stored_events,
+        stored_run_state, test_engine, turn_started_at,
     };
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::projection::RUNS_TABLE_SQL;
@@ -512,6 +514,81 @@ mod tests {
             stored_events(&database, &run_id),
             continued,
             "a turn started after the limit was accepted takes no limit end"
+        );
+    }
+
+    // Killed by a restart reading only a pending interrupt, which fails a run the daemon was
+    // stopping at its token limit when no interrupt of it was recorded, and by ending only the
+    // newest open turn, which leaves an older one open for good.
+    #[tokio::test]
+    async fn a_restart_stops_a_run_at_a_token_limit_no_interrupt_was_recorded_for() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let home = tempfile::tempdir().expect("the test makes a home folder");
+        let session_id = test_session_id();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        insert_running_run(&database, session_id, run_id);
+        let engine = test_engine(&database, log.service, home.path());
+        // Turn 1 was left open when turn 2 started; the token stop wrote its reached event and
+        // the daemon went down before its interrupt was recorded.
+        for turn_number in 1..=2 {
+            append(
+                &engine,
+                session_id,
+                &turn_started_at(session_id, run_id, turn_number, 1),
+            )
+            .await;
+        }
+        let token_limit = TokensPerRun(SafeInt::new(500_000).expect("the limit is a safe integer"));
+        append(
+            &engine,
+            session_id,
+            &SessionEvent::AgentRunTokenLimitReached(AgentRunTokenLimitReachedPayload {
+                session_id,
+                run_id,
+                token_limit,
+            }),
+        )
+        .await;
+
+        engine
+            .settle_run_after_restart(
+                &LiveRun {
+                    run_id,
+                    run: RunRead {
+                        version: 1,
+                        session_id,
+                        state: RunState::Running,
+                    },
+                    parent_run_id: None,
+                    reached_by: None,
+                },
+                "the run could not be resumed",
+            )
+            .await
+            .expect("the restart settles the run");
+
+        let interrupted = |cause: &str| {
+            (
+                "agent.turn.interrupted".to_owned(),
+                Some(cause.to_owned()),
+                Some("daemon".to_owned()),
+            )
+        };
+        assert_eq!(
+            stored_events(&database, &run_id),
+            [
+                ("agent.turn.started".to_owned(), None, None),
+                ("agent.turn.started".to_owned(), None, None),
+                ("agent.run.tokenLimit.reached".to_owned(), None, None),
+                interrupted("daemonRestart"),
+                interrupted("tokenLimit"),
+                ("agent.run.stopped".to_owned(), None, None),
+            ]
+        );
+        assert_eq!(
+            stored_run_state(&database, &run_id),
+            ("stopped".to_owned(), 2)
         );
     }
 
