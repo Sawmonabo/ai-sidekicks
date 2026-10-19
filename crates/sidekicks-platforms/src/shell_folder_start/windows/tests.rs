@@ -11,20 +11,19 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 // kept, which breaks pwsh's quoted switch; a switch's value is read as pwsh's script, or a
 // relative script given by a prefix, another switch character or a bare path starts in the
 // system folder; a complete script path or standard input's `-` drops pwsh's folder switch, as
-// a user command would; a folder quote other than `'` is left single, which ends the string
-// and runs the rest of the name; Windows PowerShell gets its folder statement beside an
-// argument not known to leave it free, a switch only pwsh has (`-cwa` among them), a switch
-// missing its value or a `-Version` after another switch, or loses it beside its `-Version`
-// first or its own format or quiet switches; the
-// statement goes anywhere but in front of the command's first value, in front of standard
-// input's `-`, or in front of a command opening, past a blank first value, with `using`, `param`,
-// an attribute list and `param`, a named block, `#` or `<#`, or is kept from a command opening
-// with a type literal, a static call or a name that begins like `param` or `using`; a bare
-// word is not read as the command; cmd started on a share starts in the Windows folder, and a
-// share path with `&` or `%` left bare runs a command; a horizontal bar is not read as a dash;
-// a drive root is quoted without its `\`; MSYS bash without its variable opens in the home
-// folder, and WSL's launcher given it goes through the MSYS arm; or `--cd` is added over the
-// user's own `~`.
+// a user command would; a folder quote other than `'` is left single, which ends the string and
+// runs the rest of the name; Windows PowerShell gets its folder statement beside an argument not
+// known to leave it free, a switch only pwsh has (`-cwa` among them), a switch missing its value
+// or a `-Version` after another switch, or loses it beside its `-Version` first or its own format
+// or quiet switches; the statement goes anywhere but in front of the command text, or in front of
+// standard input's `-`; the text is not every value from the command's first on, joined by one
+// space into one argument, or is not dot-sourced as a script block on lines of its own, which a
+// text opening with `using`, a param block, named blocks or a comment line, or ending in a
+// comment, needs; a bare word is not read as the command; cmd started on a share starts in the
+// Windows folder, and a share path with `&` or `%` left bare runs a command; a horizontal bar is
+// not read as a dash; a drive root is quoted without its `\`; MSYS bash without its variable opens
+// in the home folder, and WSL's launcher given it goes through the MSYS arm; or `--cd` is added
+// over the user's own `~`.
 #[rstest]
 #[case::pwsh_with_a_trailing_separator(
     r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -108,8 +107,9 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
         "-NoLogo",
         "-NoExit",
         "-Command",
-        "Set-Location -LiteralPath \
-         'C:\\wt\\it''s \u{2018}\u{2018}\u{201A}\u{201A}\u{201B}\u{201B}\\a\u{2019}\u{2019};calc;\u{2019}\u{2019}'",
+        "Set-Location -LiteralPath 'C:\\wt\\it''s \
+         \u{2018}\u{2018}\u{201A}\u{201A}\u{201B}\u{201B}\
+         \\a\u{2019}\u{2019};calc;\u{2019}\u{2019}'",
     ],
     SYSTEM_FOLDER,
     &[],
@@ -122,10 +122,20 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     &[
         "-NoExit",
         "-Command",
-        "Set-Location -LiteralPath \
-         'C:\\wt\\it''s \u{2018}\u{2018}\u{201A}\u{201A}\u{201B}\u{201B}\\a\u{2019}\u{2019};calc;\u{2019}\u{2019}'; \
-         &{Import-Module \"C:\\VS\\DevShell.dll\"; Enter-VsDevShell 1a2b}",
+        "Set-Location -LiteralPath 'C:\\wt\\it''s \
+         \u{2018}\u{2018}\u{201A}\u{201A}\u{201B}\u{201B}\
+         \\a\u{2019}\u{2019};calc;\u{2019}\u{2019}'; \
+         . {\n&{Import-Module \"C:\\VS\\DevShell.dll\"; Enter-VsDevShell 1a2b}\n}",
     ],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_command(
+    "powershell.exe",
+    &["-NoExit", "-Command", "Get-Date"],
+    r"C:\wt",
+    &["-NoExit", "-Command", "Set-Location -LiteralPath 'C:\\wt'; . {\nGet-Date\n}"],
     SYSTEM_FOLDER,
     &[],
     None
@@ -134,134 +144,8 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     "powershell.exe",
     &["-nop", "Get-Date"],
     r"C:\wt",
-    &["-nop", r"Set-Location -LiteralPath 'C:\wt'; Get-Date"],
+    &["-nop", "Set-Location -LiteralPath 'C:\\wt'; . {\nGet-Date\n}"],
     SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_using(
-    "powershell.exe",
-    &["-NoExit", "-Command", "USING namespace System.Text; [StringBuilder]::new()"],
-    r"C:\wt",
-    &["-NoExit", "-Command", "USING namespace System.Text; [StringBuilder]::new()"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_param(
-    "powershell.exe",
-    &["-Command", "  Param($x) $x"],
-    r"C:\wt",
-    &["-Command", "  Param($x) $x"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_an_attribute(
-    "powershell.exe",
-    &["-Command", "[CmdletBinding()] param($x)"],
-    r"C:\wt",
-    &["-Command", "[CmdletBinding()] param($x)"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_type_literal(
-    "powershell.exe",
-    &["-NoExit", "-Command", "[int]3 + 4"],
-    r"C:\wt",
-    &["-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\wt'; [int]3 + 4"],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_static_call(
-    "powershell.exe",
-    &["-NoExit", "-Command", "[Console]::WriteLine('x')"],
-    r"C:\wt",
-    &["-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\wt'; [Console]::WriteLine('x')"],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_named_like_param(
-    "powershell.exe",
-    &["-NoExit", "-Command", "Params-Get"],
-    r"C:\wt",
-    &["-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\wt'; Params-Get"],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_named_like_using(
-    "powershell.exe",
-    &["-NoExit", "-Command", "UsingX"],
-    r"C:\wt",
-    &["-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\wt'; UsingX"],
-    SYSTEM_FOLDER,
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_begin_block(
-    "powershell.exe",
-    &["-Command", "begin { 1 }"],
-    r"C:\wt",
-    &["-Command", "begin { 1 }"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_process_block(
-    "powershell.exe",
-    &["-Command", "Process{ $_ }"],
-    r"C:\wt",
-    &["-Command", "Process{ $_ }"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_an_end_block(
-    "powershell.exe",
-    &["-Command", "END { 2 }"],
-    r"C:\wt",
-    &["-Command", "END { 2 }"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_dynamicparam_block(
-    "powershell.exe",
-    &["-Command", "dynamicparam { }"],
-    r"C:\wt",
-    &["-Command", "dynamicparam { }"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_param_past_a_blank_value(
-    "powershell.exe",
-    &["-Command", " ", "param($x) $x"],
-    r"C:\wt",
-    &["-Command", " ", "param($x) $x"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_comment(
-    "powershell.exe",
-    &["-Command", "#Requires -Version 5.1\nGet-Date"],
-    r"C:\wt",
-    &["-Command", "#Requires -Version 5.1\nGet-Date"],
-    r"C:\wt",
-    &[],
-    None
-)]
-#[case::windows_powershell_with_a_command_opening_with_a_block_comment(
-    "powershell.exe",
-    &["-Command", "<# a note #> Get-Date"],
-    r"C:\wt",
-    &["-Command", "<# a note #> Get-Date"],
-    r"C:\wt",
     &[],
     None
 )]
@@ -291,9 +175,57 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
         "XML",
         "-NoExit",
         "-Command",
-        r"Set-Location -LiteralPath 'C:\wt'; Get-ChildItem",
-        "-Force",
+        "Set-Location -LiteralPath 'C:\\wt'; . {\nGet-ChildItem -Force\n}",
     ],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_command_opening_with_using(
+    "powershell.exe",
+    &["-Command", "using namespace System.Text; [StringBuilder]::new()"],
+    r"C:\wt",
+    &[
+        "-Command",
+        "Set-Location -LiteralPath 'C:\\wt'; . {\n\
+         using namespace System.Text; [StringBuilder]::new()\n}",
+    ],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_command_opening_with_a_param_block(
+    "powershell.exe",
+    &["-Command", "[CmdletBinding()] param($x)"],
+    r"C:\wt",
+    &["-Command", "Set-Location -LiteralPath 'C:\\wt'; . {\n[CmdletBinding()] param($x)\n}"],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_command_of_named_blocks(
+    "powershell.exe",
+    &["-Command", "begin { }", "end { }"],
+    r"C:\wt",
+    &["-Command", "Set-Location -LiteralPath 'C:\\wt'; . {\nbegin { } end { }\n}"],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_command_opening_with_a_comment_line(
+    "powershell.exe",
+    &["-Command", "#Requires -Version 5.1\nGet-Date"],
+    r"C:\wt",
+    &["-Command", "Set-Location -LiteralPath 'C:\\wt'; . {\n#Requires -Version 5.1\nGet-Date\n}"],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_command_ending_in_a_comment(
+    "powershell.exe",
+    &["-Command", "Get-Date # the time"],
+    r"C:\wt",
+    &["-Command", "Set-Location -LiteralPath 'C:\\wt'; . {\nGet-Date # the time\n}"],
     SYSTEM_FOLDER,
     &[],
     None

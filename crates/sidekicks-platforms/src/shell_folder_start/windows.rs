@@ -21,9 +21,6 @@ const POWERSHELL_DASHES: [char; 4] = ['-', '\u{2013}', '\u{2014}', '\u{2015}'];
 /// The characters PowerShell reads as a single quote, each doubled inside a single-quoted string.
 const POWERSHELL_SINGLE_QUOTES: [char; 5] = ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
 
-/// The characters PowerShell reads as a double quote.
-const POWERSHELL_DOUBLE_QUOTES: [char; 4] = ['"', '\u{201C}', '\u{201D}', '\u{201E}'];
-
 /// What follows a PowerShell switch on its command line.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SwitchOperand {
@@ -299,9 +296,9 @@ pub(crate) fn compose_shell_folder_start(
             strip_trailing_separators(folder).to_owned(),
         ]),
         // It has no folder switch, so a `Set-Location` moves it: in front of the user's own
-        // command, or as a start command after their arguments; any argument not known to leave
-        // room for it starts the shell in the folder with the user's arguments, as every terminal
-        // starts it.
+        // command, which runs dot-sourced as a script block, or as a start command after their
+        // arguments; any argument not known to leave room for it starts the shell in the folder
+        // with the user's arguments, as every terminal starts it.
         "powershell" => match windows_powershell_folder_arguments(arguments, folder) {
             Some(arguments) => start(arguments, system_folder.to_path_buf()),
             None => in_folder(),
@@ -392,21 +389,23 @@ fn is_resolved_without_folder(script: &str) -> bool {
 // Windows PowerShell's arguments that move it to `folder`, `None` where an argument leaves no room:
 // every user argument before its command must be a switch it takes the folder start beside, with
 // its value, `-Version` only first. A command given as text, after `-Command` or as a bare word,
-// gets the `Set-Location` in front of its first value, unless the command must open the script;
+// becomes one argument, the `Set-Location` in front of the text dot-sourced as a script block;
 // with no command the `Set-Location` follows the arguments as its start command.
 fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Option<Vec<String>> {
     let set_location = format!(
         "Set-Location -LiteralPath {}",
         quote_powershell_literal(folder)
     );
-    // Windows PowerShell joins every argument from the command's first value on into one command.
+    // Windows PowerShell joins every argument from the command's first value on into one command,
+    // with one space between; the joined text is dot-sourced as a script block on lines of its
+    // own, so it may open with what only a script's start takes and end in a comment.
     let put_before_command = |first: usize| {
-        if must_open_the_script(&arguments[first..].join(" ")) {
-            return None;
-        }
-        let mut started = arguments.to_vec();
-        started[first] = format!("{set_location}; {}", arguments[first]);
-        Some(started)
+        let mut started = arguments[..first].to_vec();
+        started.push(format!(
+            "{set_location}; . {{\n{}\n}}",
+            arguments[first..].join(" ")
+        ));
+        started
     };
     let mut index = 0;
     if arguments
@@ -422,7 +421,7 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
             if argument.trim().is_empty() {
                 return None;
             }
-            return put_before_command(index);
+            return Some(put_before_command(index));
         };
         let switch = find_powershell_switch(key)?;
         if switch.allowed_by != AllowingPowerShells::Both {
@@ -437,7 +436,7 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
             // `-` reads the commands from standard input, which no text can go in front of.
             SwitchOperand::Command => {
                 arguments.get(index + 1).filter(|command| *command != "-")?;
-                return put_before_command(index + 1);
+                return Some(put_before_command(index + 1));
             }
             SwitchOperand::Script => return None,
         }
@@ -468,74 +467,6 @@ fn is_windows_powershell_version_switch(argument: &str) -> bool {
         && "version"
             .get(..name.len())
             .is_some_and(|start| start.eq_ignore_ascii_case(name))
-}
-
-// Whether `command` opens with what PowerShell takes only at a script's start, so no statement can
-// go in front of it: a comment (which `#requires` is), `using`, a param block, or a named block,
-// each keyword compared without case and followed by whitespace or its own opening bracket.
-fn must_open_the_script(command: &str) -> bool {
-    let command = command.trim_start();
-    command.starts_with('#')
-        || command.starts_with("<#")
-        || opens_with_keyword(command, "using", &[])
-        || opens_with_param_block(command)
-        || ["begin", "process", "end", "dynamicparam"]
-            .iter()
-            .any(|block| opens_with_keyword(command, block, &['{']))
-}
-
-// Whether `text` opens with a param block: any bracketed lists, an attribute's or a type literal's,
-// then `param`. Any other bracketed start, `[int]3` or `[Console]::WriteLine(…)`, is a statement.
-fn opens_with_param_block(mut text: &str) -> bool {
-    while text.starts_with('[') {
-        let Some(end) = bracketed_list_end(text) else {
-            return false;
-        };
-        text = text[end..].trim_start();
-    }
-    opens_with_keyword(text, "param", &['('])
-}
-
-// The byte index just past the `]` that closes the `[` opening `text`, counting nested brackets and
-// skipping quoted strings, a backtick escaping the next character in a double-quoted one; `None`
-// when it never closes.
-fn bracketed_list_end(text: &str) -> Option<usize> {
-    let mut depth = 0_usize;
-    let mut open_quotes: Option<&[char]> = None;
-    let mut is_escaped = false;
-    for (index, character) in text.char_indices() {
-        match open_quotes {
-            Some(_) if is_escaped => is_escaped = false,
-            Some(quotes) if quotes.contains(&character) => open_quotes = None,
-            Some(quotes) => is_escaped = character == '`' && quotes == POWERSHELL_DOUBLE_QUOTES,
-            None if POWERSHELL_SINGLE_QUOTES.contains(&character) => {
-                open_quotes = Some(&POWERSHELL_SINGLE_QUOTES);
-            }
-            None if POWERSHELL_DOUBLE_QUOTES.contains(&character) => {
-                open_quotes = Some(&POWERSHELL_DOUBLE_QUOTES);
-            }
-            None if character == '[' => depth += 1,
-            None if character == ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(index + 1);
-                }
-            }
-            None => {}
-        }
-    }
-    None
-}
-
-// Whether `text` opens with `keyword`, compared without case, followed by whitespace or one of
-// `bounds`.
-fn opens_with_keyword(text: &str, keyword: &str, bounds: &[char]) -> bool {
-    text.get(..keyword.len())
-        .is_some_and(|start| start.eq_ignore_ascii_case(keyword))
-        && text[keyword.len()..]
-            .chars()
-            .next()
-            .is_some_and(|next| next.is_whitespace() || bounds.contains(&next))
 }
 
 // The name an argument gives after its switch character (`/`, a dash, or a dash doubled), trimmed
