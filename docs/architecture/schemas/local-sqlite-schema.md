@@ -90,7 +90,7 @@ END;
 CREATE TRIGGER trg_run_terminal_key_update BEFORE UPDATE OF run_id, run_version, category, type ON session_events
 WHEN OLD.category = 'runLifecycle'
   AND OLD.type IN ('agent.run.completed', 'agent.run.interrupted', 'agent.run.stopped', 'agent.run.failed')
-  AND (NEW.run_id IS NULL OR NEW.run_version IS NULL OR NEW.run_id IS NOT OLD.run_id OR NEW.run_version IS NOT OLD.run_version OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
+  AND (NEW.run_id IS NOT OLD.run_id OR NEW.run_version IS NOT OLD.run_version OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'a terminal run row keeps its run_id, run_version, category and type');
 END;
@@ -114,7 +114,7 @@ END;
 CREATE TRIGGER trg_turn_end_key_update BEFORE UPDATE OF run_id, turn_number, category, type ON session_events
 WHEN OLD.category = 'runLifecycle'
   AND OLD.type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed')
-  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL OR NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
+  AND (NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'a turn end row keeps its run_id, turn_number, category and type');
 END;
@@ -138,7 +138,7 @@ END;
 CREATE TRIGGER trg_turn_start_key_update BEFORE UPDATE OF run_id, turn_number, category, type ON session_events
 WHEN OLD.category = 'runLifecycle'
   AND OLD.type = 'agent.turn.started'
-  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL OR NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
+  AND (NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'a turn start row keeps its run_id, turn_number, category and type');
 END;

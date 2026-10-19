@@ -107,8 +107,7 @@ CREATE TRIGGER trg_run_terminal_key_update
 BEFORE UPDATE OF run_id, run_version, category, type ON {SESSION_EVENTS_TABLE}
 WHEN OLD.category = '{run_lifecycle}'
   AND OLD.type IN ({terminal_types})
-  AND (NEW.run_id IS NULL OR NEW.run_version IS NULL
-    OR NEW.run_id IS NOT OLD.run_id OR NEW.run_version IS NOT OLD.run_version
+  AND (NEW.run_id IS NOT OLD.run_id OR NEW.run_version IS NOT OLD.run_version
     OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'a terminal run row keeps its run_id, run_version, category and type');
@@ -139,8 +138,7 @@ CREATE TRIGGER trg_turn_end_key_update
 BEFORE UPDATE OF run_id, turn_number, category, type ON {SESSION_EVENTS_TABLE}
 WHEN OLD.category = '{run_lifecycle}'
   AND OLD.type IN ({turn_end_types})
-  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL
-    OR NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number
+  AND (NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number
     OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'a turn end row keeps its run_id, turn_number, category and type');
@@ -171,8 +169,7 @@ CREATE TRIGGER trg_turn_start_key_update
 BEFORE UPDATE OF run_id, turn_number, category, type ON {SESSION_EVENTS_TABLE}
 WHEN OLD.category = '{run_lifecycle}'
   AND OLD.type = '{TURN_STARTED_EVENT_TYPE}'
-  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL
-    OR NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number
+  AND (NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number
     OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'a turn start row keeps its run_id, turn_number, category and type');
