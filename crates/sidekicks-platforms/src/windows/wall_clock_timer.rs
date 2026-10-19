@@ -30,7 +30,8 @@ const SYNCHRONIZATION_TIMER: u32 = 0;
 
 /// The system's wall clock and its timer on Windows.
 pub struct WallClockTimer {
-    timer: OwnedHandle,
+    // Taken only by the drop, which closes it once the wait has ended.
+    timer: Option<OwnedHandle>,
     wait_registration: HANDLE,
     fired: Arc<Notify>,
 }
@@ -77,10 +78,18 @@ impl WallClockTimer {
             return Err(io::Error::last_os_error());
         }
         Ok(Self {
-            timer,
+            timer: Some(timer),
             wait_registration,
             fired,
         })
+    }
+
+    // The timer's handle, which only the drop takes.
+    fn timer_handle(&self) -> HANDLE {
+        self.timer
+            .as_ref()
+            .expect("the timer lives until the drop")
+            .as_raw_handle()
     }
 }
 
@@ -92,7 +101,7 @@ impl WallClock for WallClockTimer {
         // the timer never wakes the machine.
         let is_set = unsafe {
             SetWaitableTimer(
-                self.timer.as_raw_handle(),
+                self.timer_handle(),
                 &raw const due_time,
                 0,
                 None,
@@ -108,7 +117,7 @@ impl WallClock for WallClockTimer {
 
     fn disarm(&self) -> io::Result<()> {
         // SAFETY: the handle is the timer's own.
-        if unsafe { CancelWaitableTimer(self.timer.as_raw_handle()) } == FALSE {
+        if unsafe { CancelWaitableTimer(self.timer_handle()) } == FALSE {
             return Err(io::Error::last_os_error());
         }
         Ok(())
@@ -124,16 +133,19 @@ impl WallClock for WallClockTimer {
 
 impl Drop for WallClockTimer {
     fn drop(&mut self) {
-        // Waits for a callback under way, so none reads `fired` once it goes; the handle closes
-        // after.
+        let timer = self.timer.take();
+        // Waits for a callback under way, so none reads `fired` once it goes; the timer closes
+        // after, as `timer` drops.
         // SAFETY: the registration is the timer's own and is ended once.
         if unsafe { UnregisterWaitEx(self.wait_registration, INVALID_HANDLE_VALUE) } == FALSE {
             tracing::warn!(
                 error = &io::Error::last_os_error() as &(dyn std::error::Error + 'static),
                 "A wall-clock timer's wait could not be ended"
             );
-            // The wait may still call back, so what it reads is kept for the process's life.
+            // The wait may still call back, so what it reads and the timer it waits on are kept
+            // for the process's life.
             mem::forget(Arc::clone(&self.fired));
+            mem::forget(timer);
         }
     }
 }

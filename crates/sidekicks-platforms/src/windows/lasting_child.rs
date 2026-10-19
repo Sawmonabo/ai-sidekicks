@@ -8,6 +8,7 @@ use std::ffi::{OsStr, c_void};
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
 use std::marker::PhantomData;
+use std::mem;
 use std::os::windows::io::{
     AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
 };
@@ -445,28 +446,29 @@ fn compose_environment_block(environment: &[(String, String)]) -> io::Result<Vec
 // Waits for `process` to exit on the system's wait thread, then reads its exit code.
 async fn wait_for_exit(process: Arc<OwnedHandle>) -> io::Result<ExitStatus> {
     let exited = Arc::new(Notify::new());
-    let registration = ExitRegistration::register(&process, Arc::clone(&exited))?;
+    let registration = ExitRegistration::register(Arc::clone(&process), Arc::clone(&exited))?;
     exited.notified().await;
     drop(registration);
     Ok(ExitStatus::from_raw(read_exit_code(process.as_handle())?))
 }
 
 /// A one-shot wait the system's thread pool runs on a process handle, which notifies once the
-/// process exits; unregistered on drop, before the handle it waits on, borrowed for `'process`, can
+/// process exits; unregistered on drop, before its share of the handle it waits on lets the handle
 /// close.
-struct ExitRegistration<'process> {
+struct ExitRegistration {
     wait: HANDLE,
     exited: *const Notify,
-    process: PhantomData<&'process OwnedHandle>,
+    process: Arc<OwnedHandle>,
 }
 
 // SAFETY: the wait handle and the notification are used only through calls the system allows
 // from any thread, and `Notify` is `Sync`.
-unsafe impl Send for ExitRegistration<'_> {}
+unsafe impl Send for ExitRegistration {}
 
-impl<'process> ExitRegistration<'process> {
-    // Registers the wait on `process`, which the lifetime keeps open until the wait is removed.
-    fn register(process: &'process OwnedHandle, exited: Arc<Notify>) -> io::Result<Self> {
+impl ExitRegistration {
+    // Registers the wait on `process`, whose share the registration holds until the wait is
+    // removed.
+    fn register(process: Arc<OwnedHandle>, exited: Arc<Notify>) -> io::Result<Self> {
         let exited = Arc::into_raw(exited);
         let mut wait: HANDLE = std::ptr::null_mut();
         // SAFETY: the handle is open, the callback reads the context as the `Notify` it is, and
@@ -490,20 +492,24 @@ impl<'process> ExitRegistration<'process> {
         Ok(Self {
             wait,
             exited,
-            process: PhantomData,
+            process,
         })
     }
 }
 
-impl Drop for ExitRegistration<'_> {
+impl Drop for ExitRegistration {
     fn drop(&mut self) {
         // SAFETY: the wait is registered; `INVALID_HANDLE_VALUE` makes the call wait for a running
-        // callback to return, so the notification is freed only after its last use.
+        // callback to return, so the notification is freed only after its last use. After a
+        // failure the wait may still call back, so the notification it reads and the process
+        // handle it waits on are kept for the process's life.
         if unsafe { UnregisterWaitEx(self.wait, INVALID_HANDLE_VALUE) } == FALSE {
             tracing::warn!(
                 error = &io::Error::last_os_error() as &(dyn std::error::Error + 'static),
                 "a lasting child's exit wait could not be unregistered"
             );
+            mem::forget(Arc::clone(&self.process));
+            return;
         }
         // SAFETY: the pointer came from `Arc::into_raw`, and no callback runs any more.
         drop(unsafe { Arc::from_raw(self.exited) });
