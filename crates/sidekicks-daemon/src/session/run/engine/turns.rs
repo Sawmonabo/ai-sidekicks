@@ -130,6 +130,18 @@ pub(super) struct StepCount {
     is_reached: bool,
 }
 
+impl StepCount {
+    /// The count of `turn_number` at its start, bounded at `bound` steps.
+    pub(super) fn new(turn_number: SafeInt<1>, bound: SafeInt<1>) -> Self {
+        Self {
+            turn_number,
+            bound,
+            steps: 0,
+            is_reached: false,
+        }
+    }
+}
+
 /// A provider's report the engine wrote, with the failure of the step limit's interrupt it then
 /// handed again, which the caller logs and goes on from: the next step, turn end or restart hands
 /// that interrupt once more.
@@ -274,15 +286,8 @@ impl RunEngine {
         let mut live = lock(&self.live);
         match counted_bound {
             Some(bound) => {
-                live.step_counts.insert(
-                    run_id,
-                    StepCount {
-                        turn_number,
-                        bound,
-                        steps: 0,
-                        is_reached: false,
-                    },
-                );
+                live.step_counts
+                    .insert(run_id, StepCount::new(turn_number, bound));
             }
             None => {
                 live.step_counts.remove(&run_id);
@@ -299,7 +304,7 @@ impl RunEngine {
     /// the stop fails; a failed stop is tried again at the next step or turn end, the interrupt
     /// alone once the turn's reached event has landed.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
-    pub(crate) async fn count_step(&self, run_id: RunId) -> Result<(), RunEngineError> {
+    pub(crate) async fn count_step(self: &Arc<Self>, run_id: RunId) -> Result<(), RunEngineError> {
         let stop = {
             let mut live = lock(&self.live);
             let Some(count) = live.step_counts.get_mut(&run_id) else {
@@ -336,7 +341,7 @@ impl RunEngine {
     /// `RunRefusal::NotFound` for an unknown run and with the read's or the append's failure.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_turn_end(
-        &self,
+        self: &Arc<Self>,
         run_id: RunId,
         turn_end: ProviderTurnEnd,
     ) -> Result<ProviderReportWritten<bool>, RunEngineError> {
@@ -372,7 +377,7 @@ impl RunEngine {
     /// still pending owes it no more. Fails as the stop at the limit fails, the interrupt still
     /// owed.
     pub(super) async fn hand_owed_step_interrupt(
-        &self,
+        self: &Arc<Self>,
         run_id: RunId,
     ) -> Result<(), RunEngineError> {
         if !lock(&self.live)

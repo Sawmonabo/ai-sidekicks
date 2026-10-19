@@ -165,8 +165,8 @@ impl LiveRuns {
     }
 }
 
-/// Holds a run's step limit interrupt in flight until its hand settles on any exit path, its
-/// future dropped included.
+/// Holds a run's step limit interrupt in flight until its hand settles on any exit path, the
+/// daemon's own shutdown of the stop's task included.
 pub(super) struct StepInterruptGuard<'engine> {
     /// The engine's live runs.
     pub(super) live: &'engine Mutex<LiveRuns>,
@@ -183,7 +183,7 @@ impl Drop for StepInterruptGuard<'_> {
 }
 
 /// Holds a limit stop's cut of a turn until the stop keeps it for the row that names it, and
-/// withdraws it on every other exit path, the stop's future dropped included.
+/// withdraws it on every other exit path, the daemon's own shutdown of the stop's task included.
 pub(super) struct CutGuard<'engine> {
     /// The engine's live runs.
     pub(super) live: &'engine Mutex<LiveRuns>,

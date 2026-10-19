@@ -37,7 +37,8 @@ use crate::policy::execution_posture_service::{
 use crate::provider::driver::DriverServices;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::engine::limits::LimitStop;
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
+use crate::session::run::engine::live::lock;
+use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::projection::RUNS_TABLE_SQL;
@@ -59,12 +60,12 @@ pub(super) fn test_engine(
     database: &TestDatabase,
     event_log: Arc<EventLogService>,
     home: &Path,
-) -> RunEngine {
+) -> Arc<RunEngine> {
     let services = DriverServices {
         spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
         data_folder: PathBuf::from("data"),
     };
-    RunEngine::new(RunEngineDeps {
+    Arc::new(RunEngine::new(RunEngineDeps {
         pool: Arc::new(DatabaseReadPool::new(
             database.path(),
             RUN_ENGINE_STATEMENT_CAPACITY,
@@ -75,7 +76,7 @@ pub(super) fn test_engine(
             home.join("session-token"),
         )),
         providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
-    })
+    }))
 }
 
 /// A stand-in interventions service that refuses the first limit interrupts it is handed, as many
@@ -250,6 +251,14 @@ pub(super) async fn append(engine: &RunEngine, session_id: SessionId, event: &Se
 
 /// The step bound the tests' turns reach.
 pub(super) const STEP_BOUND: SafeInt<1> = SafeInt::new(40).expect("40 is a step bound");
+
+/// Arms the step count of turn `turn_number` on `run_id` at `bound`, as the turn's start does on a
+/// run whose provider does not bound its steps.
+pub(super) fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u64) {
+    lock(&engine.live)
+        .step_counts
+        .insert(run_id, StepCount::new(turn(turn_number), turn(bound)));
+}
 
 /// A test's turn number.
 pub(super) fn turn(number: u64) -> SafeInt<1> {

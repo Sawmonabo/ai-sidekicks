@@ -7,34 +7,20 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 
-use super::{StepCount, no_turn_end_statement, no_turn_start_from_statement};
+use super::{no_turn_end_statement, no_turn_start_from_statement};
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 use crate::events::log_service::tests::open_log;
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
+use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    append, events, hand_limit_interrupter, insert_running_run, provider_end, stored_events,
-    stored_run_state, test_engine, turn, turn_started_at,
+    append, arm_step_count, events, hand_limit_interrupter, insert_running_run, provider_end,
+    stored_events, stored_run_state, test_engine, turn, turn_started_at,
 };
-use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::RunStateChangeCompanions;
 use crate::uuid_v7::mint_uuid_v7;
-
-// Arms the step count of turn `turn_number` on `run_id` at `bound`, as the turn's start does on a
-// run whose provider does not bound its steps.
-fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u64) {
-    lock(&engine.live).step_counts.insert(
-        run_id,
-        StepCount {
-            turn_number: turn(turn_number),
-            bound: turn(bound),
-            steps: 0,
-            is_reached: false,
-        },
-    );
-}
 
 // Killed by the append not writing an event's turn number, which lets every guard pass on a
 // NULL column, by the start guard reading `=` for `>=`, which lets a start numbered below the

@@ -42,7 +42,7 @@ async fn write_cut_log(
     home: &Path,
     session_id: SessionId,
     run_id: RunId,
-) -> (RunEngine, Arc<TestLimitInterrupter>) {
+) -> (Arc<RunEngine>, Arc<TestLimitInterrupter>) {
     insert_running_run(database, session_id, run_id);
     let engine = test_engine(database, event_log, home);
     let interventions = hand_limit_interrupter(&engine, 0);

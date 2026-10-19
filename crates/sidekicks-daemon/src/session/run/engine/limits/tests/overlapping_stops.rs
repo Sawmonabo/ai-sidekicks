@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use futures::FutureExt as _;
+use rstest::rstest;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
@@ -9,8 +13,8 @@ use crate::pause_point::ArmedPause;
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    SETTLE_WAIT, append, hand_limit_interrupter, insert_running_run, test_engine, token_limit,
-    turn, turn_started_at,
+    SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, stored_events,
+    test_engine, token_limit, turn, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::uuid_v7::mint_uuid_v7;
@@ -18,7 +22,7 @@ use crate::uuid_v7::mint_uuid_v7;
 // A limit stop of `run_id` the test runs beside others: once `goes_first` reports that the stop
 // before it reached its hand, the stop goes, and its end is reported on `ended`.
 async fn stop_after(
-    engine: &RunEngine,
+    engine: &Arc<RunEngine>,
     run_id: RunId,
     stop: LimitStop,
     goes_first: Option<oneshot::Receiver<()>>,
@@ -253,4 +257,98 @@ async fn a_stop_whose_turn_ends_as_its_cut_goes_in_names_no_turn() {
         vec![None]
     );
     assert!(lock(&engine.live).cut_turns.is_empty());
+}
+
+// The run's limit rows: each row's state and the turn it names.
+fn limit_rows(database: &TestDatabase, run_id: &RunId) -> Vec<(String, Option<i64>)> {
+    database
+        .reader()
+        .prepare(
+            "SELECT state, json_extract(payload, '$.turnNumber') FROM interventions
+              WHERE target_run_id = ?1",
+        )
+        .expect("the test reads the run's limit rows")
+        .query_map([run_id.text().as_str()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("the run's limit rows read")
+        .collect::<Result<_, _>>()
+        .expect("each limit row reads")
+}
+
+// Killed by a stop that runs on its caller's future instead of a task of its own: the caller's
+// drop mid-hand drops the hand with it, so the test's answer finds no hand waiting, no row is
+// written and the cut is withdrawn; and for a step stop by a finished stop clearing its turn's
+// reach, which writes the turn's reached event again at its next step.
+#[rstest]
+#[case::spend(false)]
+#[case::step(true)]
+#[tokio::test]
+async fn a_stop_its_caller_drops_mid_hand_keeps_the_cut_its_row_names(#[case] is_step: bool) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 0);
+    interventions.record_rows_in(&database);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    if is_step {
+        arm_step_count(&engine, run_id, 1, 1);
+    }
+    let ArmedPause { reached, release } = interventions.held_hands.arm();
+    let mut stopping = if is_step {
+        engine.count_step(run_id).boxed()
+    } else {
+        engine.stop_at_spend_limit(run_id).boxed()
+    };
+
+    let held = tokio::time::timeout(SETTLE_WAIT, async {
+        tokio::select! {
+            stopped = &mut stopping => Err(stopped),
+            handed = reached => Ok(handed),
+        }
+    })
+    .await
+    .expect("the stop reaches its hand or ends");
+    assert!(matches!(held, Ok(Ok(()))), "the stop answers {held:?}");
+    drop(stopping);
+    release
+        .send(false)
+        .expect("the stop's hand outlives its caller");
+    tokio::time::timeout(SETTLE_WAIT, async {
+        while limit_rows(&database, &run_id).is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the stop's hand records its row");
+
+    assert_eq!(
+        limit_rows(&database, &run_id),
+        vec![("accepted".to_owned(), Some(1))]
+    );
+    {
+        let live = lock(&engine.live);
+        assert!(live.cut_turns.contains_key(&(run_id, turn(1))));
+        assert!(live.step_interrupts_in_flight.is_empty());
+    }
+    if is_step {
+        engine
+            .count_step(run_id)
+            .await
+            .expect("a step past the turn's reached bound stops nothing");
+        let reached_events = stored_events(&database, &run_id)
+            .into_iter()
+            .filter(|(event_type, _, _)| event_type == "agent.run.stepLimit.reached")
+            .count();
+        assert_eq!(reached_events, 1);
+    }
 }

@@ -153,7 +153,10 @@ impl RunEngine {
             reason = "the budget accountant calls it when a session's spend reaches its limit"
         )
     )]
-    pub(crate) async fn stop_at_spend_limit(&self, run_id: RunId) -> Result<(), RunEngineError> {
+    pub(crate) async fn stop_at_spend_limit(
+        self: &Arc<Self>,
+        run_id: RunId,
+    ) -> Result<(), RunEngineError> {
         self.stop_at_limit(
             run_id,
             LimitStop::Interrupt {
@@ -175,7 +178,7 @@ impl RunEngine {
         )
     )]
     pub(crate) async fn stop_at_token_limit(
-        &self,
+        self: &Arc<Self>,
         run_id: RunId,
         token_limit: TokensPerRun,
     ) -> Result<(), RunEngineError> {
@@ -183,17 +186,18 @@ impl RunEngine {
             .await
     }
 
-    /// The daemon's own stop of a live run at a limit: it cuts a turn (a step stop's own, else the
-    /// newest open turn, its cut held beside any other stop's of that turn), writes the limit's
-    /// reached event where it has one, and hands the interrupt naming that turn to the
-    /// interventions service unless the limit's interrupt of the run is pending or another step
-    /// hand is in flight, a stop that stops nothing or whose hand leaves no pending row withdrawing
-    /// its cut, since that row is the cut's one mark. Fails with
-    /// [`RunEngineError::LimitInterrupterGone`] when no live interventions service is held, else
-    /// with [`RunEngineError::LimitInterrupt`] or the read or write that failed, the reached event
-    /// and the limit kept for the stop's retry.
+    /// The daemon's own stop of a live run at a limit, run as a task of its own so it finishes
+    /// whatever its caller does: it cuts a turn (a step stop's own, else the newest open turn, its
+    /// cut held beside any other stop's of that turn), writes the limit's reached event where it
+    /// has one, and hands the interrupt naming that turn to the interventions service unless the
+    /// limit's interrupt of the run is pending or another step hand is in flight, a stop that
+    /// stops nothing or whose hand leaves no pending row withdrawing its cut, since that row is the
+    /// cut's one mark. Fails with [`RunEngineError::LimitInterrupterGone`] when no live
+    /// interventions service is held or the daemon's shutdown ends the stop's task, else with
+    /// [`RunEngineError::LimitInterrupt`] or the read or write that failed, the reached event and
+    /// the limit kept for the stop's retry.
     pub(super) async fn stop_at_limit(
-        &self,
+        self: &Arc<Self>,
         run_id: RunId,
         stop: LimitStop,
     ) -> Result<(), RunEngineError> {
@@ -206,11 +210,28 @@ impl RunEngine {
         {
             return Ok(());
         }
+        if let Err(gone) = self.live_limit_interrupter(run_id) {
+            self.release_step_reach(run_id, stop);
+            return Err(gone);
+        }
+        let engine = Arc::clone(self);
+        let stopping = tokio::spawn(async move { engine.run_limit_stop(run_id, stop).await });
+        match stopping.await {
+            Ok(stopped) => stopped,
+            Err(error) => match error.try_into_panic() {
+                Ok(panic) => std::panic::resume_unwind(panic),
+                // Only the runtime's shutdown cancels the task, and no caller then waits on it.
+                Err(_canceled) => Err(RunEngineError::LimitInterrupterGone { run_id }),
+            },
+        }
+    }
+
+    // The body of `stop_at_limit`, run on the stop's own task.
+    async fn run_limit_stop(&self, run_id: RunId, stop: LimitStop) -> Result<(), RunEngineError> {
         let limit = stop.limit();
         // The turn the stop cuts, if any; `None` once the run reads ended, which stops nothing and
         // cuts no turn.
         let read = async {
-            self.live_limit_interrupter(run_id)?;
             self.wait_while_continuing(&run_id).await;
             let run = self.require_run(run_id).await?;
             if run.state.is_terminal() {
@@ -226,10 +247,7 @@ impl RunEngine {
         let cut_turn = match read.await {
             Ok(Some(cut_turn)) => cut_turn,
             stopped_nothing => {
-                // A step stop that wrote nothing leaves its turn's count to reach the bound again.
-                if let LimitStop::Step { turn_number, .. } = stop {
-                    set_step_limit_reached(&mut lock(&self.live), &run_id, turn_number, false);
-                }
+                self.release_step_reach(run_id, stop);
                 return stopped_nothing.map(drop);
             }
         };
@@ -260,7 +278,7 @@ impl RunEngine {
             (stop, own_cut, cut, is_memory_own)
         };
         // From here the cut is withdrawn on every path that leaves no pending row naming it, the
-        // stop's future dropped included.
+        // daemon's own shutdown of the stop's task included.
         let mut cut_guard = CutGuard {
             live: &self.live,
             key: cut,
@@ -399,6 +417,13 @@ impl RunEngine {
             set_step_limit_reached(&mut live, &run_id, turn_number, true);
         }
         Ok(true)
+    }
+
+    // A step stop that wrote nothing leaves its turn's count to reach the bound again.
+    fn release_step_reach(&self, run_id: RunId, stop: LimitStop) {
+        if let LimitStop::Step { turn_number, .. } = stop {
+            set_step_limit_reached(&mut lock(&self.live), &run_id, turn_number, false);
+        }
     }
 
     // Whether the interrupt of `run_id` at `limit` has no outcome yet. Fails as the read fails.

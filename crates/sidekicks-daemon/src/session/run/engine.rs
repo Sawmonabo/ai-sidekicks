@@ -440,7 +440,7 @@ impl RunEngine {
     /// change left it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
-        &self,
+        self: &Arc<Self>,
         change: RunStateChange,
         turn_end: Option<ProviderTurnEnd>,
     ) -> Result<ProviderReportWritten<RunRead>, RunEngineError> {
