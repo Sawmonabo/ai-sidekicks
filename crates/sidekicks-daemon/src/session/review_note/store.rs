@@ -54,9 +54,12 @@ use crate::session::review_note::diff_line::{NoteLocation, NotedLineError, Noted
 
 /// The statements the store's reads prepare on a read connection: the session's notes, one note,
 /// and whether the session has a row.
-#[expect(
-    dead_code,
-    reason = "the daemon's start sizes the read connections' statement caches with it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start sizes the read connections' statement caches with it"
+    )
 )]
 pub(crate) const REVIEW_NOTE_STORE_STATEMENT_CAPACITY: usize = 3;
 
@@ -210,9 +213,12 @@ pub(crate) struct SessionReviewNoteStore {
 impl SessionReviewNoteStore {
     /// The store reading through `pool`, writing through `writer`, and reading and following each
     /// session's working folder through `folders`.
-    #[expect(
-        dead_code,
-        reason = "the worktree's live session folders build the store with their folder reads"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the worktree's live session folders build the store with their folder reads"
+        )
     )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
@@ -231,9 +237,12 @@ impl SessionReviewNoteStore {
     /// a note already held under its id is answered as held. Refused `session.notFound` for an
     /// unknown session and `session.reviewNote.notFound` when the note is deleted elsewhere before
     /// it is answered; fails as a read, a write or a line read fails.
-    #[expect(
-        dead_code,
-        reason = "the `session.reviewNote.add` handler holds a person's note through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the `session.reviewNote.add` handler holds a person's note through it"
+        )
     )]
     pub(crate) async fn add(
         &self,
@@ -317,9 +326,12 @@ impl SessionReviewNoteStore {
     /// Discards the named notes in one write and answers the ids it discarded; an id the session
     /// does not hold is passed over. Refused `session.notFound` for an unknown session; fails when
     /// the write is not kept or a discarded id does not read.
-    #[expect(
-        dead_code,
-        reason = "the `session.reviewNote.delete` handler discards a person's notes through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the `session.reviewNote.delete` handler discards a person's notes through it"
+        )
     )]
     pub(crate) async fn delete(
         &self,
@@ -705,6 +717,120 @@ fn deleted_note_id(row: &[Value]) -> rusqlite::Result<ReviewNoteId> {
                 Type::Null,
                 Box::new(StoredNoteMemberInvalid("note id")),
             ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures::FutureExt as _;
+    use futures::future::BoxFuture;
+    use rstest::rstest;
+    use serde_json::json;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::review_note::{
+        ReviewNoteId, SessionReviewNoteAddRequest, SessionReviewNoteDeleteRequest,
+    };
+    use sidekicks_contracts::session::id::SessionId;
+
+    use super::{
+        REVIEW_NOTE_STORE_STATEMENT_CAPACITY, ReviewNoteFolderError, ReviewNoteFolders,
+        SessionReviewNoteStore, WorkingFolderDetach,
+    };
+    use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+    use crate::ipc::registry::HandlerError;
+    use crate::session::directory::test_rows::insert_session_row;
+    use crate::session::review_note::diff_line::NotedLineReader;
+    use crate::uuid_v7::mint_uuid_v7;
+
+    /// A session that works in no repository's folder.
+    struct NoWorkingFolder;
+
+    impl ReviewNoteFolders for NoWorkingFolder {
+        fn open_line_reader(
+            &self,
+            _session_id: SessionId,
+        ) -> BoxFuture<'_, Result<Option<NotedLineReader>, ReviewNoteFolderError>> {
+            async { Ok(None) }.boxed()
+        }
+
+        fn follow_working_folder(
+            &self,
+            _session_id: SessionId,
+            _on_change: Arc<dyn Fn() + Send + Sync>,
+        ) -> BoxFuture<'_, Result<Option<WorkingFolderDetach>, ReviewNoteFolderError>> {
+            async { Ok(None) }.boxed()
+        }
+    }
+
+    fn note_id() -> ReviewNoteId {
+        serde_json::from_value(json!(mint_uuid_v7().to_string())).expect("a UUID is a note id")
+    }
+
+    // Killed by the delete answering the session's existence check in place of its own deleted
+    // rows, which reads no note id, and by a gone session's delete answering anything but
+    // `session.notFound`.
+    #[rstest]
+    #[case::a_held_note_and_one_never_held(true)]
+    #[case::a_note_of_a_session_that_is_gone(false)]
+    #[tokio::test]
+    async fn review_note_delete_answers_only_the_notes_it_discarded(#[case] is_live: bool) {
+        let database = TestDatabase::new();
+        // Opening the writer creates the file with the daemon's schema.
+        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens its database");
+        let store = SessionReviewNoteStore::new(
+            Arc::new(DatabaseReadPool::new(
+                database.path(),
+                REVIEW_NOTE_STORE_STATEMENT_CAPACITY,
+            )),
+            Arc::new(writer),
+            Arc::new(NoWorkingFolder),
+        );
+        let session_id = test_session_id();
+        let (held, never_held) = (note_id(), note_id());
+        if is_live {
+            insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
+            let add: SessionReviewNoteAddRequest = serde_json::from_value(json!({
+                "sessionId": session_id,
+                "noteId": held,
+                "body": "this name reads wrong",
+                "comparison": {
+                    "scope": "changes",
+                    "base": "main",
+                    "workingTreeBlobId": "1111111111111111111111111111111111111111",
+                },
+                "path": "src/main.rs",
+                "side": "added",
+                "line": 3,
+            }))
+            .expect("a note to add");
+            store.add(add).await.expect("the note is held");
+        }
+
+        let deleted = store
+            .delete(SessionReviewNoteDeleteRequest {
+                session_id,
+                note_ids: serde_json::from_value(json!([held, never_held])).expect("two note ids"),
+            })
+            .await;
+
+        if is_live {
+            assert_eq!(
+                deleted.expect("the delete is kept").removed_note_ids,
+                [held]
+            );
+        } else {
+            let refused = deleted.map_err(HandlerError::from);
+            let Err(HandlerError::Refused(refusal)) = refused else {
+                panic!("a gone session's delete is refused: {refused:?}");
+            };
+            assert_eq!(refusal.code, RefusalCode::SessionNotFound);
         }
     }
 }
