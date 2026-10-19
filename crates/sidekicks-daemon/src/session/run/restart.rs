@@ -589,8 +589,9 @@ mod tests {
     // whose log still owes a limit (`step_limit_owed*`), by letting a pending interrupt win over an
     // owed token limit (`*_beside_an_owed_token_limit`), by settling by the first pending row
     // alone, or by a limit's row over a person's or the step limit's over the spend limit's
-    // (`*_beside_a_pending_step_limit`), by giving the cause to the newest turn rather than every
-    // turn the limit reached (`*_owed`, `*_and_owed`), by dropping the held child's rule
+    // (`*_beside_a_pending_step_limit`) or the spend limit's over the token limit's
+    // (`token_limit_beside_a_pending_spend_limit`), by giving the cause to the newest turn rather
+    // than every turn the limit reached (`*_owed`, `*_and_owed`), by dropping the held child's rule
     // (`held_child_*`), and by giving a run the wrong turn end or none.
     #[rstest]
     #[case::queued_behind_a_message(RunState::Queued, false, &[], None, true, None)]
@@ -653,6 +654,14 @@ mod tests {
         RunState::Paused,
         true,
         &[r#"{"limit":"tokenLimit"}"#],
+        None,
+        false,
+        stopped_at_token_limit()
+    )]
+    #[case::token_limit_beside_a_pending_spend_limit(
+        RunState::Running,
+        false,
+        &[r#"{"limit":"spendLimit"}"#, r#"{"limit":"tokenLimit"}"#],
         None,
         false,
         stopped_at_token_limit()

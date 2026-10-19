@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
+use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
     INTERVENTIONS_TABLE_SQL, append, continue_request, events, hand_limit_interrupter,
@@ -28,8 +29,8 @@ use crate::session::run::engine::tests::{
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::read::{LiveRun, RunRead};
-use crate::session::run::restart::{QUEUE_ITEMS_TABLE_SQL, RestartFacts};
-use crate::session::run::state_change::RunStateChangeCompanions;
+use crate::session::run::restart::{QUEUE_ITEMS_TABLE_SQL, RestartFacts, read_restart_facts};
+use crate::session::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
 use crate::uuid_v7::mint_uuid_v7;
 
 // The test's interrupt rows: the daemon's own at the token limit and at the step limit, and a
@@ -614,6 +615,68 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
     assert_eq!(
         stored_run_state(&database, &run_id),
         ("queued".to_owned(), 0)
+    );
+    assert!(stored_events(&database, &run_id).is_empty());
+}
+
+// Killed by pushing the no-pending guard only when the settle read no pending interrupt, which
+// lets the restart's end pass over an interrupt asked for after its read, and by pushing it
+// before the moves, which refuses at another position.
+#[tokio::test]
+async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let connection = database.reader();
+    let record_interrupt = |id: &str, payload: &str, device_id: Option<&str>, created_at: &str| {
+        connection
+            .execute(
+                "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
+                   expected_run_version, client_idempotency_key, created_at)
+                 VALUES (?1, ?2, 'interrupt', 'accepted', ?3, ?4, 1, ?1, ?5)",
+                params![id, run_id.text().as_str(), payload, device_id, created_at],
+            )
+            .expect("the test records the run's interrupt");
+    };
+    record_interrupt(
+        PERSON_INTERRUPT_ID,
+        r#"{"pending":"nextTurn"}"#,
+        Some("phone"),
+        "2026-01-01T00:00:00.000Z",
+    );
+    let run = running_at(session_id, run_id, 1);
+    let facts = read_restart_facts(&connection, &run).expect("the restart reads the run's facts");
+    // The step limit's interrupt is asked for after the read.
+    record_interrupt(
+        STEP_INTERRUPT_ID,
+        r#"{"limit":"stepLimit"}"#,
+        None,
+        "2026-01-01T00:00:01.000Z",
+    );
+
+    let settled = engine
+        .settle_run_from_facts(&run, &facts, "not resumed")
+        .await;
+
+    let rows_read = facts.pending_interrupts.len();
+    assert_eq!(rows_read, 1);
+    assert!(
+        matches!(
+            settled,
+            Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
+                companion_index,
+                ..
+            })) if companion_index == rows_read
+        ),
+        "the settle answers {settled:?}"
+    );
+    assert_eq!(
+        stored_run_state(&database, &run_id),
+        ("running".to_owned(), 1)
     );
     assert!(stored_events(&database, &run_id).is_empty());
 }
