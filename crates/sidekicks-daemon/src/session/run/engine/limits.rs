@@ -233,21 +233,20 @@ impl RunEngine {
             (stop, own_cut, cut, is_memory_own)
         };
         let reached = match cut {
-            Some(((_, turn_number), _)) => match self.read_open_turns(run_id).await {
-                Ok(open_turns) if open_turns.contains(&turn_number) => {
+            Some((key, earlier)) => match self.read_open_turns(run_id).await {
+                Ok(open_turns) if open_turns.contains(&key.1) => {
                     self.reach_limit(run_id, stop).await
                 }
-                Ok(_) => {
-                    // The turn ended before its cut went in, so it keeps none, and a step stop,
-                    // whose bound was that turn's, reached nothing.
-                    lock(&self.live).restore_cut((run_id, turn_number), own_cut, None);
-                    match stop {
-                        LimitStop::Step { .. } => Ok(LimitReach::TurnEnded),
-                        LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
-                            self.reach_limit(run_id, stop).await
-                        }
+                // The turn ended before its cut went in, so it keeps the cut it had: a step stop,
+                // whose bound was that turn's, reached nothing and leaves that to the cleanup; any
+                // other stop still goes, so it puts the cut back first.
+                Ok(_) => match stop {
+                    LimitStop::Step { .. } => Ok(LimitReach::TurnEnded),
+                    LimitStop::Interrupt { .. } | LimitStop::Token { .. } => {
+                        lock(&self.live).restore_cut(key, own_cut, earlier);
+                        self.reach_limit(run_id, stop).await
                     }
-                }
+                },
                 Err(error) => Err(error),
             },
             None => self.reach_limit(run_id, stop).await,
