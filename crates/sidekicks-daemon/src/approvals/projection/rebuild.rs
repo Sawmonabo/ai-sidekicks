@@ -275,6 +275,7 @@ mod tests {
     use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 
     use super::ApprovalsProjection;
+    use crate::approvals::request_create::ApprovalResourceDescriptor;
     use crate::approvals::store::{
         ApprovalSettlement, InsertedApprovalRequest, InsertedApprovalResolution,
         insert_request_statement, insert_resolution_statement, remembered_scope_statement,
@@ -315,10 +316,9 @@ mod tests {
             ]
         };
         if let SessionEvent::ApprovalRequested(requested) = event {
-            let resource_descriptor = serde_json::from_value(
-                serde_json::to_value(&requested.resource_descriptor).expect("a record serializes"),
-            )
-            .expect("the test's descriptor reads");
+            let resource_descriptor =
+                ApprovalResourceDescriptor::try_from(&requested.resource_descriptor)
+                    .expect("the test's descriptor reads");
             vec![insert_request_statement(&InsertedApprovalRequest {
                 approval_request_id: requested.approval_request_id,
                 session_id: requested.session_id,
@@ -436,19 +436,30 @@ mod tests {
         )
     }
 
+    // The gate-named ask's events the session skipped as damaged.
+    #[derive(Clone, Copy, Debug)]
+    enum GateNamedSkip {
+        Nothing,
+        AnswerAndRule,
+        Rule,
+    }
+
     // The rows the live writes wrote are the rows a rebuild writes: an approval with its
     // correction and its rule, a decline, a cancellation, and an ask a workflow gate's answer
-    // names, which the clear keeps with its answer. Rebuilt whole, the gate-named ask's answer is
-    // written over the kept one; where the session skipped that answer as damaged, the ask settles
-    // as the gate's row says, and the cursor ends current at the log's head. A clear that drops the
-    // gate-named ask breaks the gate's reference, one that drops its answer or a missing settle
-    // leaves it pending or unanswered, and a plain insert of its answer collides with the kept
-    // one, each failing a case.
+    // names, with its rule, which the clear keeps with its answer. Rebuilt whole, the gate-named
+    // ask's answer is written over the kept one; where the session skipped that answer as damaged,
+    // the ask settles as the gate's row says; where it skipped only the rule, the answer is
+    // written without it. Every rebuild leaves the cursor current at the log's head. A clear that
+    // drops the gate-named ask breaks the gate's reference, one that drops its answer or a missing
+    // settle leaves it pending or unanswered, a plain insert of its answer collides with the kept
+    // one, and a rewrite that keeps the kept answer's rule keeps one the log no longer holds, each
+    // failing a case.
     #[rstest]
-    #[case::rebuilt_whole(false)]
-    #[case::skipping_the_gate_named_answer(true)]
+    #[case::rebuilt_whole(GateNamedSkip::Nothing)]
+    #[case::skipping_the_gate_named_answer(GateNamedSkip::AnswerAndRule)]
+    #[case::skipping_the_gate_named_rule(GateNamedSkip::Rule)]
     #[tokio::test]
-    async fn a_rebuild_writes_the_rows_the_live_writes_wrote(#[case] is_answer_skipped: bool) {
+    async fn a_rebuild_writes_the_rows_the_live_writes_wrote(#[case] skip: GateNamedSkip) {
         let database = TestDatabase::new();
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -494,14 +505,8 @@ mod tests {
             }
             ask.event(session_id, event_type, &extra)
         };
-        let events = [
-            requested(&approved, Some("ask-1")),
-            answer(
-                &approved,
-                "approval.approved",
-                Some("npm run build -- --watch"),
-            ),
-            approved.event(
+        let remembered = |ask: &Ask| {
+            ask.event(
                 session_id,
                 "approval.rule.remembered",
                 &json!({
@@ -513,28 +518,49 @@ mod tests {
                         "sense": "allow",
                     },
                 }),
+            )
+        };
+        let events = [
+            requested(&approved, Some("ask-1")),
+            answer(
+                &approved,
+                "approval.approved",
+                Some("npm run build -- --watch"),
             ),
+            remembered(&approved),
             requested(&rejected, Some("ask-2")),
             answer(&rejected, "approval.rejected", None),
             requested(&canceled, None),
             canceled.event(session_id, "approval.canceled", &json!({})),
             requested(&gate_named, Some("ask-3")),
             answer(&gate_named, "approval.approved", None),
+            remembered(&gate_named),
         ];
         let mut appended = Vec::with_capacity(events.len());
         for event in &events {
             appended.push(append_live(&writer, session_id, event).await);
         }
-        let (gate_answer_sequence, gate_answered_at) =
-            appended.last().cloned().expect("the test appends events");
-        let mut head_sequence = gate_answer_sequence;
-        if is_answer_skipped {
+        let [
+            ..,
+            (gate_answer_sequence, gate_answered_at),
+            (gate_rule_sequence, _),
+        ] = appended.as_slice()
+        else {
+            panic!("the test appends the gate-named ask's answer and rule last");
+        };
+        let mut head_sequence = *gate_rule_sequence;
+        let skipped_range = match skip {
+            GateNamedSkip::Nothing => None,
+            GateNamedSkip::AnswerAndRule => Some((*gate_answer_sequence, *gate_rule_sequence)),
+            GateNamedSkip::Rule => Some((*gate_rule_sequence, *gate_rule_sequence)),
+        };
+        if let Some((from_sequence, to_sequence)) = skipped_range {
             let skipped: SessionEvent = serde_json::from_value(json!({
                 "type": "session.damagedEvents.skipped",
                 "payload": {
                     "sessionId": session_id,
-                    "fromSequence": gate_answer_sequence,
-                    "toSequence": gate_answer_sequence,
+                    "fromSequence": from_sequence,
+                    "toSequence": to_sequence,
                 },
             }))
             .expect("the test writes a valid skipped range");
@@ -562,7 +588,26 @@ mod tests {
                 ),
             )
             .expect("the gate's row is written");
-        let live_rows = approval_rows(&reader);
+        let (live_requests, mut live_resolutions) = approval_rows(&reader);
+        if let GateNamedSkip::Rule = skip {
+            // A rebuild that never reads the gate-named ask's rule writes its answer without it.
+            let columns = reader
+                .prepare("SELECT * FROM approval_resolutions")
+                .expect("the read prepares");
+            let column_names = columns.column_names();
+            let at = |name: &str| {
+                column_names
+                    .iter()
+                    .position(|column| *column == name)
+                    .expect("the answers' table holds the column")
+            };
+            for row in &mut live_resolutions {
+                if row[at("request_id")] == Value::Text(gate_named.id.clone()) {
+                    row[at("remembered_scope_kind")] = Value::Null;
+                    row[at("remembered_scope_pattern")] = Value::Null;
+                }
+            }
+        }
         let pool = Arc::new(DatabaseReadPool::new(
             database.path(),
             PROJECTION_REBUILD_STATEMENT_CAPACITY + SESSION_SERVICE_STATEMENT_CAPACITY,
@@ -587,7 +632,7 @@ mod tests {
             .await
             .expect("the session's approvals are rebuilt");
 
-        assert_eq!(approval_rows(&reader), live_rows);
+        assert_eq!(approval_rows(&reader), (live_requests, live_resolutions));
         let cursor: (String, i64) = reader
             .query_row(
                 "SELECT state, last_sequence FROM projection_cursors WHERE session_id = ?",

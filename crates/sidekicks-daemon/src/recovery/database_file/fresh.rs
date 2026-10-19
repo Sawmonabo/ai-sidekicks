@@ -47,7 +47,7 @@ pub struct FreshFilePreparation<'a> {
     pub backup_copy_path: Option<&'a Path>,
 }
 
-/// Why the fresh file could not be readied, a stop aside.
+/// Why the fresh file could not be readied, or [`FreshFileError::Stopped`] when a stop ended it.
 #[derive(Debug, thiserror::Error)]
 pub enum FreshFileError {
     /// A step's shell could not start or failed.
@@ -280,7 +280,8 @@ async fn read_backup_fingerprint(
     })
 }
 
-fn log_passed_over_backup(error: &(dyn Error + 'static)) {
+/// Logs why the newest backup could not be read and was passed over.
+pub(crate) fn log_passed_over_backup(error: &(dyn Error + 'static)) {
     warn!(
         error,
         "the newest backup could not be read and was passed over"

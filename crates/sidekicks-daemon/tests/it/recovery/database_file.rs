@@ -334,8 +334,8 @@ enum BackupCopy {
 // snapshots and its recovery checkpoints from it, and one the fresh file holds more of keeps its
 // own; a backup another build made, or one that does not read, is passed over and heals nothing.
 #[rstest]
-#[case::this_build_s(BackupCopy::ThisBuild, 1)]
-#[case::another_build_s(BackupCopy::AnotherBuild, 0)]
+#[case::of_this_build(BackupCopy::ThisBuild, 1)]
+#[case::of_another_build(BackupCopy::AnotherBuild, 0)]
 #[case::unreadable(BackupCopy::Unreadable, 0)]
 #[tokio::test]
 async fn sessions_the_newest_backup_holds_more_of_come_from_it(
@@ -484,7 +484,7 @@ enum FreshFileFault {
 #[case::holding_another_table(FreshFileFault::ExtraTable)]
 #[case::failing_its_integrity_check(FreshFileFault::SwappedIndexes)]
 #[tokio::test]
-async fn a_fresh_file_not_this_build_s_or_not_sound_is_refused(#[case] fault: FreshFileFault) {
+async fn a_fresh_file_not_of_this_build_or_not_sound_is_refused(#[case] fault: FreshFileFault) {
     let data_folder = tempfile::tempdir().expect("a data folder");
     let fresh_path = data_folder.path().join("daemon.db.recovered");
     let fresh = schema_file(&fresh_path);

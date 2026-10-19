@@ -39,7 +39,7 @@ use crate::recovery::database_file::aside_copy::{
 use crate::recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
 use crate::recovery::database_file::damage::{read_database_damage, remove_database_damage};
 use crate::recovery::database_file::fresh::{
-    FreshFileError, FreshFilePreparation, prepare_fresh_file,
+    FreshFileError, FreshFilePreparation, log_passed_over_backup, prepare_fresh_file,
 };
 use crate::recovery::database_file::last_run::{LastRunError, record_clean_stop};
 use crate::recovery::database_file::newest_backup::find_newest_backup_database;
@@ -403,10 +403,7 @@ async fn prepare_with_newest_backup(
                 Ok(is_copied) => is_copied,
                 Err(_) if stop.is_cancelled() => return Err(FreshFileError::Stopped),
                 Err(error) => {
-                    warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "the newest backup could not be read and was passed over"
-                    );
+                    log_passed_over_backup(&error);
                     false
                 }
             }
