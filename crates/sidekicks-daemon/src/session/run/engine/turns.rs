@@ -20,6 +20,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::stored_column::safe_int_column;
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::run_at_version_statement;
 use crate::session::run::engine::limits::LimitStop;
@@ -44,17 +45,15 @@ const LONE_TURN_END_GUARD_INDEX: usize = 0;
 // A turn start's guard that no start holds its number yet follows the version guard.
 const TURN_START_GUARD_INDEX: usize = 1;
 
-// A run's first turn.
-const FIRST_TURN_NUMBER: SafeInt<1> = SafeInt::new(1).expect("1 is a turn number");
-
 // Reads of a run's newest turn start before a start that keeps losing its number to another, or
 // whose run keeps moving under it, gives up.
 const TURN_START_ATTEMPTS: usize = 3;
 
-// The run's newest turn start, by the event's own run columns.
-static SELECT_NEWEST_TURN_START_SQL: LazyLock<String> = LazyLock::new(|| {
+// The number the run's next turn start takes, its newest start's plus one or 1, by the event's own
+// run columns.
+static SELECT_NEXT_TURN_NUMBER_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT MAX(turn_number) FROM session_events
+        "SELECT COALESCE(MAX(turn_number), 0) + 1 FROM session_events
   WHERE category = '{}'
     AND type = '{}'
     AND run_id = @run_id",
@@ -557,14 +556,13 @@ impl RunEngine {
 
     /// The number of the newest turn of `run_id` that holds no end, started at or before the run
     /// version `started_by` where one is given; `None` when no such turn is open. Fails when the
-    /// read fails.
+    /// read fails or a stored turn number is not one.
     pub(super) async fn read_open_turn(
         &self,
         run_id: RunId,
         started_by: Option<i64>,
     ) -> Result<Option<SafeInt<1>>, RunEngineError> {
-        let open_turn: Option<i64> = self
-            .pool
+        self.pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, RunEngineError>(
                     reader
@@ -574,23 +572,21 @@ impl RunEngine {
                                 "@run_id": run_id.text().as_str(),
                                 "@started_by": started_by,
                             },
-                            |row| row.get(0),
+                            |row| safe_int_column(row, 0),
                         )
                         .optional()?,
                 )
             })
-            .await?;
-        Ok(open_turn.map(stored_turn_number))
+            .await
     }
 
     /// The numbers of every turn of `run_id` that holds no end, oldest first. Fails when the read
-    /// fails.
+    /// fails or a stored turn number is not one.
     pub(super) async fn read_open_turns(
         &self,
         run_id: RunId,
     ) -> Result<Vec<SafeInt<1>>, RunEngineError> {
-        let open_turns: Vec<i64> = self
-            .pool
+        self.pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, RunEngineError>(
                     reader
@@ -600,30 +596,27 @@ impl RunEngine {
                                 "@run_id": run_id.text().as_str(),
                                 "@started_by": None::<i64>,
                             },
-                            |row| row.get(0),
+                            |row| safe_int_column(row, 0),
                         )?
                         .collect::<Result<_, _>>()?,
                 )
             })
-            .await?;
-        Ok(open_turns.into_iter().map(stored_turn_number).collect())
+            .await
     }
 
     // The number the run's next turn start takes: its newest start's plus one, or 1.
     async fn read_next_turn_number(&self, run_id: RunId) -> Result<SafeInt<1>, RunEngineError> {
-        let newest: Option<i64> = self
-            .pool
+        self.pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, RunEngineError>(
                     reader
-                        .prepare_cached(&SELECT_NEWEST_TURN_START_SQL)?
+                        .prepare_cached(&SELECT_NEXT_TURN_NUMBER_SQL)?
                         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
-                            row.get(0)
+                            safe_int_column(row, 0)
                         })?,
                 )
             })
-            .await?;
-        Ok(newest.map_or(FIRST_TURN_NUMBER, |newest| stored_turn_number(newest + 1)))
+            .await
     }
 
     // What the engine held for a turn whose end is written or dropped. A step limit's interrupt
@@ -667,15 +660,6 @@ fn open_turns_sql(tail: &str) -> String {
         SessionEventType::AgentTurnStarted.as_str(),
         *TURN_END_TYPES_SQL
     )
-}
-
-/// A turn number the log stored, which the engine wrote from a turn number; one that is not
-/// breaks that invariant and panics.
-pub(crate) fn stored_turn_number(stored: i64) -> SafeInt<1> {
-    u64::try_from(stored)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a stored turn number counts up from 1 within the safe integers")
 }
 
 // Refuses a start numbered `turn_number` once a start holds it or a later number.

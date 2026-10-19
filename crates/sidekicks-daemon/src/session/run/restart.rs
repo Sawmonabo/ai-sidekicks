@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use rusqlite::types::Type;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -25,14 +26,15 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
+use crate::database::stored_column::{
+    closed_word, optional_text_column, safe_int_column, text_column,
+};
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::{
     InterventionResolvedError, InterventionTransition, UnresolvedInterventionState,
     move_intervention_statement,
 };
 use crate::queue::store::{QueueItemReader, SELECT_WAITING_FOR_RUN_SQL};
-use crate::session::run::engine::turns::stored_turn_number;
 use crate::session::run::read::LiveRun;
 use crate::session::run::state_change::RunStateChangeCompanions;
 
@@ -213,7 +215,7 @@ pub(crate) fn read_restart_facts(
 /// The limit `run_id` still owes, read on `reader` from its log alone: its newest limit reached
 /// event that no end of the run by that limit followed, a token limit's before a step limit's,
 /// with the turn its stop cut. Whether an interrupt was recorded, is pending or failed since does
-/// not decide it. Fails when SQLite refuses the read.
+/// not decide it. Fails when SQLite refuses the read or a stored turn number is not one.
 pub(crate) fn read_owed_limit(
     reader: &Connection,
     run_id: &RunId,
@@ -222,7 +224,12 @@ pub(crate) fn read_owed_limit(
         .prepare_cached(&SELECT_OWED_LIMIT_SQL)?
         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
             let reached_type: String = row.get(0)?;
-            let cut_turn: Option<i64> = row.get(1)?;
+            let cut_turn = match row.get_ref(1)?.data_type() {
+                Type::Null => None,
+                Type::Integer | Type::Real | Type::Text | Type::Blob => {
+                    Some(safe_int_column(row, 1)?)
+                }
+            };
             Ok(OwedLimit {
                 // The read selects only the two reached types.
                 limit: if reached_type == SessionEventType::AgentRunTokenLimitReached.as_str() {
@@ -230,7 +237,7 @@ pub(crate) fn read_owed_limit(
                 } else {
                     RunLimit::StepLimit
                 },
-                cut_turn: cut_turn.map(stored_turn_number),
+                cut_turn,
             })
         })
         .optional()
