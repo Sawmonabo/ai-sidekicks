@@ -305,7 +305,7 @@ mod tests {
     use std::io::ErrorKind;
 
     use rstest::rstest;
-    use sidekicks_platforms::{PathRules, UnremovableFile, resolve_path};
+    use sidekicks_platforms::{PathRules, UnremovableFile, is_superuser, resolve_path};
 
     use super::{
         DestinationState, StagedCloneError, address_without_credentials, make_staged_clone,
@@ -497,6 +497,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_staged_clone_whose_removal_is_refused_fails_and_keeps_its_files() {
+        // Root's override would let the removal through and prove nothing.
+        if is_superuser() {
+            return;
+        }
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let staged = make_staged_clone(&scratch.path().join("app"))
             .await
@@ -504,7 +508,6 @@ mod tests {
         let locked = staged.path.join("objects");
         fs::create_dir(&locked).expect("a folder is made inside");
         let held = UnremovableFile::create_in(&locked, "pack").expect("a held file is made");
-        // Root's override would let the removal through and prove nothing.
         fs::remove_file(held.path()).expect_err("the system refuses the file's removal");
 
         let refusal = remove_staged_clone(&staged)
