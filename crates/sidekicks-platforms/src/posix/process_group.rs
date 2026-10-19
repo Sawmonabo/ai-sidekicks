@@ -81,8 +81,10 @@ fn live_group_members(id: u32) -> io::Result<Vec<u32>> {
     list_live_group_members(id)
 }
 
-// The members of group `id` the system reads as running; an exited member, and one still being
-// made, reads as no process.
+// The members of group `id` that `pinned` answers for, which are the live ones: its lookup goes
+// through `proc_find`, which refuses a process still being made (`P_REF_NEW`) or already exiting
+// (`P_REF_DEAD`). The group listing (`PROC_PGRP_ONLY`) also lists exited members not yet reaped,
+// which that lookup leaves out.
 #[cfg(target_os = "macos")]
 fn list_live_group_members(id: u32) -> io::Result<Vec<u32>> {
     let mut members = Vec::new();
