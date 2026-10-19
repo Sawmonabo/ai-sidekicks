@@ -259,8 +259,8 @@ mod tests {
         compose_daemon_hook_commands,
     };
 
-    // Mutations killed: answering adopt without reading the list, comparing the event alone, or
-    // joining a service whose hooks run a program since replaced.
+    // Fails when adopt is answered without reading the list, when the event alone is compared, or
+    // when the daemon joins a service whose hooks run a program since replaced.
     #[rstest]
     #[case::the_same_hooks("", CODEX_HOOK_TIMEOUT.as_secs(), false, LastingServiceVerdict::Adopt)]
     #[case::another_program(

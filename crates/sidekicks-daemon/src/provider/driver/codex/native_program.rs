@@ -319,9 +319,10 @@ mod tests {
             .join(program_name)
     }
 
-    // Mutations killed: answering the launcher itself leaves Node pinned; skipping the platform
-    // package reads the launcher's own `vendor`, which npm leaves empty; naming npm for a pnpm
-    // install, or setting no variable, shows Codex another install than its own start would.
+    // Fails when the launcher itself is answered, which leaves Node pinned; when the platform
+    // package is skipped, which reads the launcher's own `vendor`, which npm leaves empty; or when
+    // npm is named for a pnpm install, or no variable is set, which shows Codex another install
+    // than its own start would.
     #[rstest]
     #[case::a_hoisted_platform_package(true, false, "CODEX_MANAGED_BY_NPM")]
     #[case::the_launcher_vendor_folder(false, false, "CODEX_MANAGED_BY_NPM")]
@@ -387,7 +388,7 @@ mod tests {
         );
     }
 
-    // Mutation killed: an install record whose id is `null` refused, so a Vite+ install reads as
+    // Fails when an install record whose id is `null` is refused, so a Vite+ install reads as
     // npm's.
     #[test]
     fn a_vite_plus_record_with_a_null_install_id_names_the_unversioned_install() {
