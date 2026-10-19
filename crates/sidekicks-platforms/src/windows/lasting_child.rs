@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, c_void};
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
+use std::marker::PhantomData;
 use std::os::windows::io::{
     AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
 };
@@ -78,7 +79,7 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
         standard_stream.as_raw_handle(),
         error_output.as_raw_handle(),
     ];
-    let attributes = AttributeList::new(2)?;
+    let mut attributes = AttributeList::new(2)?;
     attributes.update(PROC_THREAD_ATTRIBUTE_JOB_LIST, &jobs)?;
     attributes.update(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &inherited)?;
 
@@ -336,14 +337,16 @@ fn duplicate_inheritable(handle: BorrowedHandle<'_>) -> io::Result<OwnedHandle> 
     Ok(unsafe { OwnedHandle::from_raw_handle(duplicate) })
 }
 
-/// A process start's attribute list, deleted on drop.
-struct AttributeList {
+/// A process start's attribute list, deleted on drop; the handle arrays it points at live for
+/// `'handles`, which outlasts the list.
+struct AttributeList<'handles> {
     list: LPPROC_THREAD_ATTRIBUTE_LIST,
     // The list's storage, in eight-byte words for its alignment.
     _storage: Vec<u64>,
+    handles: PhantomData<&'handles [HANDLE]>,
 }
 
-impl AttributeList {
+impl<'handles> AttributeList<'handles> {
     // A list with room for `count` attributes.
     fn new(count: u32) -> io::Result<Self> {
         let mut size = 0_usize;
@@ -359,11 +362,12 @@ impl AttributeList {
         Ok(Self {
             list,
             _storage: storage,
+            handles: PhantomData,
         })
     }
 
-    // Sets `attribute` to `handles`, which must outlive the start that reads the list.
-    fn update(&self, attribute: u32, handles: &[HANDLE]) -> io::Result<()> {
+    // Sets `attribute` to `handles`, which the lifetime keeps alive until the list is deleted.
+    fn update(&mut self, attribute: u32, handles: &'handles [HANDLE]) -> io::Result<()> {
         // SAFETY: the list is initialized, and `handles` is a live array of the size given.
         if unsafe {
             UpdateProcThreadAttribute(
@@ -383,7 +387,7 @@ impl AttributeList {
     }
 }
 
-impl Drop for AttributeList {
+impl Drop for AttributeList<'_> {
     fn drop(&mut self) {
         // SAFETY: the list was initialized and its storage still lives.
         unsafe { DeleteProcThreadAttributeList(self.list) };
@@ -448,19 +452,21 @@ async fn wait_for_exit(process: Arc<OwnedHandle>) -> io::Result<ExitStatus> {
 }
 
 /// A one-shot wait the system's thread pool runs on a process handle, which notifies once the
-/// process exits; unregistered on drop.
-struct ExitRegistration {
+/// process exits; unregistered on drop, before the handle it waits on, borrowed for `'process`, can
+/// close.
+struct ExitRegistration<'process> {
     wait: HANDLE,
     exited: *const Notify,
+    process: PhantomData<&'process OwnedHandle>,
 }
 
 // SAFETY: the wait handle and the notification are used only through calls the system allows
 // from any thread, and `Notify` is `Sync`.
-unsafe impl Send for ExitRegistration {}
+unsafe impl Send for ExitRegistration<'_> {}
 
-impl ExitRegistration {
-    // Registers the wait on `process`, which outlives the registration.
-    fn register(process: &OwnedHandle, exited: Arc<Notify>) -> io::Result<Self> {
+impl<'process> ExitRegistration<'process> {
+    // Registers the wait on `process`, which the lifetime keeps open until the wait is removed.
+    fn register(process: &'process OwnedHandle, exited: Arc<Notify>) -> io::Result<Self> {
         let exited = Arc::into_raw(exited);
         let mut wait: HANDLE = std::ptr::null_mut();
         // SAFETY: the handle is open, the callback reads the context as the `Notify` it is, and
@@ -481,11 +487,15 @@ impl ExitRegistration {
             drop(unsafe { Arc::from_raw(exited) });
             return Err(error);
         }
-        Ok(Self { wait, exited })
+        Ok(Self {
+            wait,
+            exited,
+            process: PhantomData,
+        })
     }
 }
 
-impl Drop for ExitRegistration {
+impl Drop for ExitRegistration<'_> {
     fn drop(&mut self) {
         // SAFETY: the wait is registered; `INVALID_HANDLE_VALUE` makes the call wait for a running
         // callback to return, so the notification is freed only after its last use.
