@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use strum::{IntoStaticStr, VariantArray};
+use strum::{IntoStaticStr, VariantArray, VariantNames};
 
 use crate::place::Place;
 use crate::provider::id::ProviderId;
@@ -282,7 +282,7 @@ pub enum MemoryImportOutcomeKind {
 /// How the account's one memory import went: `imported` counts what was copied and when,
 /// `nothingToImport` found nothing. The outcome is kept, so a repeat answers it again.
 #[derive(
-    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate, IntoStaticStr,
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate, VariantNames,
 )]
 #[serde(
     tag = "outcome",

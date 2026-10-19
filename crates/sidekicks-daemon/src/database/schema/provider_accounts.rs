@@ -8,6 +8,8 @@ use sidekicks_contracts::provider::account::record::{
     ProviderAccountMemoryImportOutcome, ProviderAccountUsageWindowSource, ProviderAuthMode,
 };
 
+use strum::VariantNames as _;
+
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 
 /// The provider accounts' tables, indexes and triggers, in foreign-key order.
@@ -16,10 +18,8 @@ pub(super) fn provider_accounts_schema_sql() -> String {
     let health_states = sql_list_of_every::<ProviderAccountHealthState>();
     let auth_modes = sql_list_of_every::<ProviderAuthMode>();
     let imported = <&'static str>::from(MemoryImportOutcomeKind::Imported);
-    let memory_import_outcomes = sql_list_of([
-        imported,
-        <&'static str>::from(&ProviderAccountMemoryImportOutcome::NothingToImport {}),
-    ]);
+    let memory_import_outcomes =
+        sql_list_of(ProviderAccountMemoryImportOutcome::VARIANTS.iter().copied());
     let reading_sources = sql_list_of_every::<ProviderAccountUsageWindowSource>();
     format!(
         "
