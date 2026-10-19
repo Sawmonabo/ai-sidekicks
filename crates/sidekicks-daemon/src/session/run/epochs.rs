@@ -25,7 +25,7 @@ use crate::provider::driver::diagnostics::{
 /// late delivery of it may read as from before the last cut.
 #[expect(
     dead_code,
-    reason = "the binding cursors open each runtime binding's cursor under this cap"
+    reason = "the daemon's start builds the execution epochs under this cap"
 )]
 pub(crate) const MAX_ASSOCIATIONS_PER_BINDING: NonZeroUsize =
     NonZeroUsize::new(4096).expect("the cap is not zero");
@@ -209,7 +209,8 @@ impl ExecutionEpochs {
     /// else at `start`. Fails with [`EpochCursorError::AlreadyOpen`] for a binding that has one.
     #[expect(
         dead_code,
-        reason = "the binding cursors continue a resumed leg's cursor from its predecessor's"
+        reason = "a driver's relaunch continues its new binding's cursor through the binding \
+                  cursors"
     )]
     pub(crate) fn continue_binding(
         &mut self,

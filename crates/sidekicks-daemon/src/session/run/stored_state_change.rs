@@ -50,8 +50,8 @@ pub(crate) enum StoredRunStateChange {
     not(test),
     expect(
         dead_code,
-        reason = "the queue's run lifecycle and the run binding cursors read each stored change's \
-                  run and state"
+        reason = "the queue's run lifecycle, and the daemon's start handing committed changes to \
+                  the run binding cursors"
     )
 )]
 impl StoredRunStateChange {
@@ -96,8 +96,8 @@ impl StoredRunStateChange {
     not(test),
     expect(
         dead_code,
-        reason = "the run state reply, which reads each stored change for the run state stream \
-                  it sends"
+        reason = "the run state reply, and the daemon's start handing committed changes to the \
+                  run binding cursors"
     )
 )]
 pub(crate) fn read_stored_run_state_change(
