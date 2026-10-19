@@ -42,8 +42,11 @@ CREATE TABLE session_events (
   UNIQUE (session_id, sequence)
 ) STRICT;
 
-CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number) WHERE category = 'runLifecycle' AND type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed');
-CREATE UNIQUE INDEX idx_session_events_turn_start_once ON session_events(run_id, turn_number) WHERE category = 'runLifecycle' AND type = 'agent.turn.started';
+CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number)
+    WHERE category = 'runLifecycle'
+    AND type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed');
+CREATE UNIQUE INDEX idx_session_events_turn_start_once ON session_events(run_id, turn_number)
+    WHERE category = 'runLifecycle' AND type = 'agent.turn.started';
 
 CREATE TABLE projection_cursors (
   id              TEXT PRIMARY KEY,

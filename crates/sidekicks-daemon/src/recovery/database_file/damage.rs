@@ -94,7 +94,7 @@ impl DatabaseDamageWatch {
         not(test),
         expect(
             dead_code,
-            reason = "the daemon's start, which puts the damage gate in front of the registry and gives the watch to the subscriptions"
+            reason = "the daemon's start, which puts the damage gate before the registry"
         )
     )]
     pub(crate) fn report_dispatch_failure(&self, error: &DispatchError) {
