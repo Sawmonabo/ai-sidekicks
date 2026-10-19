@@ -9,6 +9,7 @@ use std::sync::{Arc, LazyLock};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
@@ -16,7 +17,6 @@ use tokio_util::sync::CancellationToken;
 use crate::error_description::describe_error;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::inbound_json::decode_inbound_json;
 
 /// The sentence a pre-tool call is denied with when its input cannot be read; the model reads it.
 /// It never quotes the input, which holds the tool's arguments.
@@ -46,10 +46,12 @@ pub(crate) enum CodexHookEvent {
     PostToolUse,
 }
 
-/// One tool hook input as Codex sends it, read at the dispatch point.
+/// One tool hook call as the dispatch point reads it: the hook event's members the row's template
+/// carries, and the conversation from the call's `_meta`.
 #[expect(
     dead_code,
-    reason = "the pre-tool checks read the call's tool, input and folder"
+    reason = "the pre-tool checks read the call's tool, input and folder, and the post-tool \
+              checks its answer"
 )]
 #[derive(Debug)]
 pub(crate) struct CodexHookInput {
@@ -137,7 +139,7 @@ impl CodexHookDispatch {
     pub(crate) async fn answer(
         &self,
         event: CodexHookEvent,
-        call: CodexHookCall<'_>,
+        call: CodexHookCall,
         token: &CancellationToken,
     ) -> Option<CodexHookAnswer> {
         // Cancellation is polled first, so an answer ready on the same poll is dropped too.
@@ -151,7 +153,7 @@ impl CodexHookDispatch {
     async fn answer_call(
         &self,
         event: CodexHookEvent,
-        call: CodexHookCall<'_>,
+        call: CodexHookCall,
         token: &CancellationToken,
     ) -> CodexHookAnswer {
         let input = match read_hook_input(event, call) {
@@ -204,9 +206,9 @@ fn failure_answer(event: CodexHookEvent, reason: String) -> CodexHookAnswer {
     }
 }
 
-/// One tool call Codex makes for a hook row, as its JSON: the call's arguments, which Codex fills
-/// from the row's `input` template, and the call's `_meta`, to which Codex adds the owning
-/// conversation's id.
+/// One tool call Codex makes for a hook row, as the tool server hands it parsed: the call's
+/// arguments, which Codex fills from the row's `input` template, and the call's `_meta`, to which
+/// Codex adds the owning conversation's id.
 #[cfg_attr(
     not(test),
     expect(
@@ -214,12 +216,12 @@ fn failure_answer(event: CodexHookEvent, reason: String) -> CodexHookAnswer {
         reason = "the Codex hook tools hand each call to the dispatch point"
     )
 )]
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct CodexHookCall<'call> {
+#[derive(Clone, Debug)]
+pub(crate) struct CodexHookCall {
     /// The call's `arguments` object.
-    pub(crate) arguments: &'call [u8],
-    /// The call's `_meta` object.
-    pub(crate) meta: &'call [u8],
+    pub(crate) arguments: Map<String, Value>,
+    /// The call's `_meta` object, empty when the call carries none.
+    pub(crate) meta: Map<String, Value>,
 }
 
 /// Why a hook call could not be read as a tool hook input.
@@ -228,8 +230,8 @@ enum HookInputError {
     /// The call's arguments are not a JSON object of the template's members.
     #[error("the Codex hook call's arguments are not a hook input")]
     Malformed(#[source] serde_json::Error),
-    /// The call's `_meta` is not a JSON object.
-    #[error("the Codex hook call's metadata is not an object")]
+    /// The call's `_meta` names its conversation with something other than text.
+    #[error("the Codex hook call's metadata names its conversation with something other than text")]
     MalformedMeta(#[source] serde_json::Error),
     /// The call names an event other than the hook called.
     #[error("the Codex hook call names the event \"{named}\", not the hook called")]
@@ -271,12 +273,12 @@ struct HookCallMeta {
 // Reads the tool call Codex made for `event`'s hook row.
 fn read_hook_input(
     event: CodexHookEvent,
-    call: CodexHookCall<'_>,
+    call: CodexHookCall,
 ) -> Result<CodexHookInput, HookInputError> {
-    let arguments: HookCallArguments = serde_json::from_str(&decode_inbound_json(call.arguments))
-        .map_err(HookInputError::Malformed)?;
-    let meta: HookCallMeta = serde_json::from_str(&decode_inbound_json(call.meta))
-        .map_err(HookInputError::MalformedMeta)?;
+    let arguments: HookCallArguments =
+        serde_json::from_value(Value::Object(call.arguments)).map_err(HookInputError::Malformed)?;
+    let meta: HookCallMeta =
+        serde_json::from_value(Value::Object(call.meta)).map_err(HookInputError::MalformedMeta)?;
     let named_event = match arguments.hook_event_name.as_str() {
         "PreToolUse" => Some(CodexHookEvent::PreToolUse),
         "PostToolUse" => Some(CodexHookEvent::PostToolUse),
@@ -315,6 +317,7 @@ mod tests {
     use futures::FutureExt;
     use futures::future::BoxFuture;
     use rstest::rstest;
+    use serde_json::{Map, Value, json};
     use tokio_util::sync::CancellationToken;
 
     use super::{
@@ -323,24 +326,49 @@ mod tests {
     };
     use crate::provider::driver::codex::session::errors::CodexError;
 
-    const PRE_TOOL_ARGUMENTS: &[u8] = concat!(
-        r#"{"hook_event_name":"PreToolUse","session_id":"thread-1","turn_id":"turn-1","#,
-        r#""tool_name":"Bash","tool_use_id":"call-1","tool_input":{"command":"ls"},"#,
-        r#""cwd":"/work"}"#,
-    )
-    .as_bytes();
-    const POST_TOOL_ARGUMENTS: &[u8] = concat!(
-        r#"{"hook_event_name":"PostToolUse","session_id":"thread-1","turn_id":"turn-1","#,
-        r#""tool_name":"Bash","tool_use_id":"call-1","tool_input":{"command":"ls"},"#,
-        r#""tool_response":"done","cwd":"/work"}"#,
-    )
-    .as_bytes();
-    const META: &[u8] = br#"{"threadId":"thread-1","progressToken":7}"#;
+    fn object(value: Value) -> Map<String, Value> {
+        let Value::Object(object) = value else {
+            panic!("the fixture is an object");
+        };
+        object
+    }
 
-    fn call(arguments: &'static [u8]) -> CodexHookCall<'static> {
+    fn pre_tool_arguments() -> Map<String, Value> {
+        object(json!({
+            "hook_event_name": "PreToolUse",
+            "session_id": "thread-1",
+            "turn_id": "turn-1",
+            "tool_name": "Bash",
+            "tool_use_id": "call-1",
+            "tool_input": { "command": "ls" },
+            "cwd": "/work",
+        }))
+    }
+
+    fn post_tool_arguments() -> Map<String, Value> {
+        object(json!({
+            "hook_event_name": "PostToolUse",
+            "session_id": "thread-1",
+            "turn_id": "turn-1",
+            "tool_name": "Bash",
+            "tool_use_id": "call-1",
+            "tool_input": { "command": "ls" },
+            "tool_response": "done",
+            "cwd": "/work",
+        }))
+    }
+
+    // Arguments with every member but the event's name.
+    fn no_event_arguments() -> Map<String, Value> {
+        let mut arguments = pre_tool_arguments();
+        arguments.remove("hook_event_name");
+        arguments
+    }
+
+    fn call(arguments: Map<String, Value>) -> CodexHookCall {
         CodexHookCall {
             arguments,
-            meta: META,
+            meta: object(json!({ "threadId": "thread-1", "progressToken": 7 })),
         }
     }
 
@@ -400,52 +428,58 @@ mod tests {
     }
 
     #[rstest]
-    #[case::not_json_before_a_tool(
+    #[case::no_event_before_a_tool(
         CodexHookEvent::PreToolUse,
-        call(b"not json"),
+        call(no_event_arguments()),
         Ok(None),
         deny(HOOK_INPUT_UNREADABLE_REASON)
     )]
-    #[case::not_json_after_a_tool(
+    #[case::no_event_after_a_tool(
         CodexHookEvent::PostToolUse,
-        call(b"not json"),
+        call(no_event_arguments()),
         Ok(None),
         CodexHookAnswer::Pass
     )]
     #[case::no_conversation(
         CodexHookEvent::PreToolUse,
-        CodexHookCall { arguments: PRE_TOOL_ARGUMENTS, meta: br#"{"progressToken":7}"# },
+        CodexHookCall {
+            arguments: pre_tool_arguments(),
+            meta: object(json!({ "progressToken": 7 })),
+        },
         Ok(None),
         deny(HOOK_INPUT_UNREADABLE_REASON)
     )]
-    #[case::meta_not_an_object(
+    #[case::thread_id_not_text(
         CodexHookEvent::PreToolUse,
-        CodexHookCall { arguments: PRE_TOOL_ARGUMENTS, meta: b"[]" },
+        CodexHookCall {
+            arguments: pre_tool_arguments(),
+            meta: object(json!({ "threadId": 7 })),
+        },
         Ok(None),
         deny(HOOK_INPUT_UNREADABLE_REASON)
     )]
     #[case::another_event(
         CodexHookEvent::PreToolUse,
-        call(POST_TOOL_ARGUMENTS),
+        call(post_tool_arguments()),
         Ok(None),
         deny(HOOK_INPUT_UNREADABLE_REASON)
     )]
     #[case::answerer_failed_before_a_tool(
         CodexHookEvent::PreToolUse,
-        call(PRE_TOOL_ARGUMENTS),
+        call(pre_tool_arguments()),
         Err("  the policy store is gone  "),
         deny("the policy store is gone")
     )]
     #[case::answerer_failed_after_a_tool(
         CodexHookEvent::PostToolUse,
-        call(POST_TOOL_ARGUMENTS),
+        call(post_tool_arguments()),
         Err("the policy store is gone"),
         CodexHookAnswer::Pass
     )]
     #[tokio::test]
     async fn a_call_that_cannot_be_answered_denies_before_a_tool_and_passes_after(
         #[case] event: CodexHookEvent,
-        #[case] hook_call: CodexHookCall<'static>,
+        #[case] hook_call: CodexHookCall,
         #[case] answered: Result<Option<CodexHookAnswer>, &'static str>,
         #[case] expected: CodexHookAnswer,
     ) {
@@ -470,7 +504,11 @@ mod tests {
         let token = CancellationToken::new();
 
         let answer = dispatch
-            .answer(CodexHookEvent::PreToolUse, call(PRE_TOOL_ARGUMENTS), &token)
+            .answer(
+                CodexHookEvent::PreToolUse,
+                call(pre_tool_arguments()),
+                &token,
+            )
             .await;
 
         assert_eq!(answer, Some(deny("first")));
@@ -479,7 +517,11 @@ mod tests {
 
         let none_answers = CodexHookDispatch::new(vec![letting_go]);
         let answer = none_answers
-            .answer(CodexHookEvent::PreToolUse, call(PRE_TOOL_ARGUMENTS), &token)
+            .answer(
+                CodexHookEvent::PreToolUse,
+                call(pre_tool_arguments()),
+                &token,
+            )
             .await;
         assert_eq!(answer, Some(CodexHookAnswer::Pass));
     }
@@ -493,7 +535,11 @@ mod tests {
             let token = token.clone();
             async move {
                 dispatch
-                    .answer(CodexHookEvent::PreToolUse, call(PRE_TOOL_ARGUMENTS), &token)
+                    .answer(
+                        CodexHookEvent::PreToolUse,
+                        call(pre_tool_arguments()),
+                        &token,
+                    )
                     .await
             }
         });

@@ -305,6 +305,7 @@ mod tests {
     use std::time::Duration;
 
     use rstest::rstest;
+    use serde_json::{Map, Value};
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use tokio::task::JoinHandle;
@@ -371,13 +372,14 @@ mod tests {
             CodexHookEvent::PreToolUse => "PreToolUse",
             CodexHookEvent::PostToolUse => "PostToolUse",
         };
-        let arguments = format!(r#"{{"hook_event_name":"{event_name}","session_id":"{LEAD}"}}"#);
-        let meta = format!(r#"{{"threadId":"{thread_id}"}}"#);
+        let hook_call = CodexHookCall {
+            arguments: Map::from_iter([
+                ("hook_event_name".to_owned(), Value::from(event_name)),
+                ("session_id".to_owned(), Value::from(LEAD)),
+            ]),
+            meta: Map::from_iter([("threadId".to_owned(), Value::from(thread_id))]),
+        };
         tokio::spawn(async move {
-            let hook_call = CodexHookCall {
-                arguments: arguments.as_bytes(),
-                meta: meta.as_bytes(),
-            };
             dispatch
                 .answer(event, hook_call, &CancellationToken::new())
                 .await
