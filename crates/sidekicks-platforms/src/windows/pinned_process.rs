@@ -73,7 +73,8 @@ impl PinnedProcess {
     /// so it runs in `spawn_blocking`. Answers the end that took effect; fails with `TimedOut` when
     /// it outlives the kill's bound, else with the system's error.
     pub fn stop(&self, grace: Duration) -> io::Result<ChildEnd> {
-        if self.wait_for_exit(grace)? {
+        // A process that ends between the grace and the kill ended on the stop it was asked.
+        if self.wait_for_exit(grace)? || self.wait_for_exit(Duration::ZERO)? {
             self.terminate_job()?;
             return Ok(ChildEnd::Stop);
         }
