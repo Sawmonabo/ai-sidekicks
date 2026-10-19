@@ -79,7 +79,7 @@ pub use caller_process::read_responsible_process;
 pub use caller_process::{ParentProcess, ResponsibleProcess};
 #[cfg(not(target_os = "linux"))]
 pub use child_command::leave_daemon_scope;
-pub use child_command::{ChildEnd, ChildExit, read_child_exit};
+pub use child_command::{ChildEnd, ChildExit, lasting_child_asked_end, read_child_exit};
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};

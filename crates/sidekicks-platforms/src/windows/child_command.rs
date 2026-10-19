@@ -10,6 +10,7 @@ use tokio::process::Command;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::child_command::ChildEnd;
+use crate::windows::pinned_process::KILLED_EXIT_CODE;
 
 /// Whether a process is asked to stop by a signal it can answer: none exists here, so a caller
 /// first asks the program to stop by the program's own means, then calls `PinnedProcess::stop`.
@@ -47,9 +48,9 @@ pub(crate) fn exit_signal_number(_status: &ExitStatus) -> Option<i32> {
     None
 }
 
-/// The name of the end the daemon asked when it ended the child itself (`SIGTERM` for a stop,
-/// `SIGKILL` for a kill), as the wire carries it; `None` otherwise, since no signal ends a process
-/// here and the exit code tells the end.
+/// The name of the end the daemon asked when it ended the child itself, or read from a lasting
+/// child's exit (`SIGTERM` for a stop, `SIGKILL` for a kill), as the wire carries it; `None`
+/// otherwise, since no signal ends a process here and the exit code tells the end.
 pub(crate) fn exit_signal_name(
     _status: &ExitStatus,
     asked_end: Option<ChildEnd>,
@@ -61,4 +62,32 @@ pub(crate) fn exit_signal_name(
         }
         .to_owned()
     })
+}
+
+/// The end the daemon's own kill of a lasting child left in its exit: `Kill` for the kill's exit
+/// code, else `None`. A logoff or shutdown control event leaves a lasting child the same code, so
+/// such an end reads as the daemon's kill too. Never fails.
+pub fn lasting_child_asked_end(status: &ExitStatus) -> Option<ChildEnd> {
+    (status.code() == Some(KILLED_EXIT_CODE.cast_signed())).then_some(ChildEnd::Kill)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::windows::process::ExitStatusExt as _;
+    use std::process::ExitStatus;
+
+    use super::lasting_child_asked_end;
+    use crate::child_command::ChildEnd;
+    use crate::windows::pinned_process::KILLED_EXIT_CODE;
+
+    // Fails when a lasting child's exit with the kill's code does not read as the daemon's kill,
+    // which puts the raw code on the wire, or when another code does, naming a kill never sent.
+    #[test]
+    fn lasting_child_asked_end_reads_the_kill_code_alone() {
+        let killed = lasting_child_asked_end(&ExitStatus::from_raw(KILLED_EXIT_CODE));
+        let failed = lasting_child_asked_end(&ExitStatus::from_raw(1));
+
+        assert_eq!(killed, Some(ChildEnd::Kill));
+        assert_eq!(failed, None);
+    }
 }

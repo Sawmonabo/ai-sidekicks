@@ -127,6 +127,12 @@ pub(crate) fn exit_signal_name(
     status.signal().and_then(signal_name)
 }
 
+/// The end the daemon's own kill of a lasting child left in its exit: always `None`, since the
+/// status names the signal itself here. Never fails.
+pub fn lasting_child_asked_end(_status: &ExitStatus) -> Option<ChildEnd> {
+    None
+}
+
 /// The name of signal `number`: the system's own name, or, for a Linux real-time signal no name
 /// covers, its place from `SIGRTMIN` as signal(7) writes it (`SIGRTMIN+3`); `None` for a number no
 /// signal here has.

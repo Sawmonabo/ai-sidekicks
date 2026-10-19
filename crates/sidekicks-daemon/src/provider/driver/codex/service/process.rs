@@ -8,7 +8,6 @@ use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
@@ -17,8 +16,8 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
     CAN_SIGNAL_A_STOP, ChildEnd, LastingChild, LastingCommand, PinnedProcess, ProcessRecord,
-    Spawner, ask_child_to_stop, leave_daemon_scope, read_child_exit, spawn_lasting_child,
-    wrap_child_command,
+    Spawner, ask_child_to_stop, lasting_child_asked_end, leave_daemon_scope, read_child_exit,
+    spawn_lasting_child, wrap_child_command,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::process::{ChildStderr, ChildStdout, Command};
@@ -69,7 +68,8 @@ impl CodexProcessLaunch {
     }
 }
 
-/// A service's exit, read once from the task that waits on it.
+/// A service's exit, read once from the task that waits on it; it can arrive before a `stop`
+/// under way returns, since one exit wakes both.
 struct ServiceExit(Option<oneshot::Receiver<io::Result<ProcessExit>>>);
 
 impl ServiceExit {
@@ -254,20 +254,11 @@ async fn read_output_tail(
     Ok(tail)
 }
 
-/// Where a lasting service's stop stands, for the exit its waiting task composes.
-#[derive(Clone, Copy)]
-enum AskedEnd {
-    NotAsked,
-    Asking,
-    Asked(ChildEnd),
-}
-
 /// The lasting Codex service on the person's own Codex folder: a process that outlives the
 /// daemon, held by its pinned identity so a later daemon finds the same one again.
 pub(crate) struct LastingCodexService {
     process: PinnedProcess,
     record: ProcessRecord,
-    asked_end: Arc<watch::Sender<AskedEnd>>,
     // Only for a service this daemon started, which is still its child.
     exit: Option<ServiceExit>,
 }
@@ -320,21 +311,9 @@ impl LastingCodexService {
             }
         }
         let process = self.process.clone();
-        let asked_end = Arc::clone(&self.asked_end);
-        // The verdict is set inside the blocking stop, so a dropped caller still records it. Only
-        // the forced end is the daemon's: a service that stopped within the grace ended itself,
-        // so its exit keeps its own code or signal.
-        tokio::task::spawn_blocking(move || {
-            asked_end.send_replace(AskedEnd::Asking);
-            let ended = process.stop(grace);
-            asked_end.send_replace(match &ended {
-                Ok(ChildEnd::Kill) => AskedEnd::Asked(ChildEnd::Kill),
-                Ok(ChildEnd::Stop) | Err(_) => AskedEnd::NotAsked,
-            });
-            ended
-        })
-        .await
-        .map_err(io::Error::other)?
+        tokio::task::spawn_blocking(move || process.stop(grace))
+            .await
+            .map_err(io::Error::other)?
     }
 }
 
@@ -409,18 +388,15 @@ pub(crate) async fn start_lasting_codex_service(
             "the Codex service could not leave the daemon's scope"
         );
     }
-    let (asked_end, asked_end_received) = watch::channel(AskedEnd::NotAsked);
     let (exit_sender, exit_received) = oneshot::channel();
     tokio::spawn(wait_for_lasting_child(
         exit,
-        asked_end_received,
         log_file.to_owned(),
         exit_sender,
     ));
     Ok(LastingCodexService {
         process,
         record,
-        asked_end: Arc::new(asked_end),
         exit: Some(ServiceExit(Some(exit_received))),
     })
 }
@@ -438,32 +414,24 @@ pub(crate) fn repin_lasting_codex_service(
     Ok(record.pin()?.map(|process| LastingCodexService {
         process,
         record,
-        asked_end: Arc::new(watch::channel(AskedEnd::NotAsked).0),
         exit: None,
     }))
 }
 
 // Waits for the exit of a lasting service this daemon started and answers it, with its log's
-// tail.
+// tail; a kill by this daemon or a former one reads from the exit itself.
 async fn wait_for_lasting_child(
     exit: impl Future<Output = io::Result<ExitStatus>>,
-    mut asked_end: watch::Receiver<AskedEnd>,
     log_file: PathBuf,
     exit_sender: oneshot::Sender<io::Result<ProcessExit>>,
 ) {
     let composed = async {
         let status = exit.await?;
-        // A stop under way names the end it asked for once it returns; a dropped handle asked none.
-        let asked = match asked_end
-            .wait_for(|asked| !matches!(asked, AskedEnd::Asking))
-            .await
-            .map(|asked| *asked)
-        {
-            Ok(AskedEnd::Asked(end)) => Some(end),
-            Ok(AskedEnd::NotAsked | AskedEnd::Asking) | Err(_) => None,
-        };
         let tail = read_provider_service_log_tail(&log_file).await?;
-        Ok::<_, io::Error>(compose_process_exit(read_child_exit(&status, asked), tail))
+        Ok::<_, io::Error>(compose_process_exit(
+            read_child_exit(&status, lasting_child_asked_end(&status)),
+            tail,
+        ))
     }
     .await;
     if exit_sender.send(composed).is_err() {

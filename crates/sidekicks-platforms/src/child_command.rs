@@ -7,7 +7,11 @@ use std::io;
 use std::process::ExitStatus;
 
 #[cfg(unix)]
+pub use crate::posix::child_command::lasting_child_asked_end;
+#[cfg(unix)]
 use crate::posix::child_command::{exit_signal_name, exit_signal_number};
+#[cfg(windows)]
+pub use crate::windows::child_command::lasting_child_asked_end;
 #[cfg(windows)]
 use crate::windows::child_command::{exit_signal_name, exit_signal_number};
 
@@ -31,12 +35,12 @@ pub struct ChildExit {
     pub signal_number: Option<i32>,
     /// The signal's name as the wire carries it (`SIGKILL`, `SIGRTMIN+3`): on macOS and Linux the
     /// signal that ended the child, on Windows the end the daemon asked when it ended the child
-    /// itself (`SIGTERM` for a stop, `SIGKILL` for a kill).
+    /// itself, or read from a lasting child's exit (`SIGTERM` for a stop, `SIGKILL` for a kill).
     pub signal_name: Option<String>,
 }
 
 /// How the child whose exit is `status` ended, `asked_end` being the end the daemon asked when it
-/// ended the child itself and `None` otherwise. Never fails.
+/// ended the child itself, or read from a lasting child's exit, and `None` otherwise. Never fails.
 pub fn read_child_exit(status: &ExitStatus, asked_end: Option<ChildEnd>) -> ChildExit {
     ChildExit {
         exit_code: wire_exit_code(status.code()),
