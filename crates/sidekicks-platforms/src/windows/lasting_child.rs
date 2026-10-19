@@ -116,11 +116,11 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
             &raw mut information,
         )
     };
-    // Deleted here, since `job`, whose handle it borrows, moves into the pinned process below.
-    drop(attributes);
     if created == FALSE {
         return Err(io::Error::last_os_error());
     }
+    // Deleted here, since `job`, whose handle it borrows, moves into the pinned process below.
+    drop(attributes);
     // SAFETY: the call succeeded, so both handles are new and owned by nothing else.
     let (process_handle, _thread) = unsafe {
         (
