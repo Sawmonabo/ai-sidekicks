@@ -59,6 +59,9 @@ mod tests {
     /// What the command stand-in prints once it listens for Ctrl-C.
     const LISTENING: &str = "listening for Ctrl-C";
 
+    /// What the command stand-in prints once its listener caught the Ctrl-C.
+    const CAUGHT: &str = "caught Ctrl-C";
+
     #[test]
     #[ignore = "the command stand-in, which the Ctrl-C test starts as its child"]
     fn the_command_stand_in_ends_as_a_ctrl_c_does() {
@@ -70,6 +73,7 @@ mod tests {
             let mut listener = ctrl_c().expect("the listener starts");
             writeln!(std::io::stdout(), "{LISTENING}").expect("the line is written");
             listener.recv().await.expect("a Ctrl-C arrives");
+            writeln!(std::io::stdout(), "{CAUGHT}").expect("the line is written");
         });
         let failure = end_as_ctrl_c();
         Err::<(), _>(failure).expect("the Ctrl-C ending ends the process");
@@ -83,11 +87,9 @@ mod tests {
             .spawn()
             .expect("the stand-in starts");
         let stdout = child.stdout.take().expect("the stand-in's output is piped");
+        let mut lines = BufReader::new(stdout).lines().map_while(Result::ok);
         // libtest may print the test's name on the marker's line.
-        let is_listening = BufReader::new(stdout)
-            .lines()
-            .map_while(Result::ok)
-            .any(|line| line.ends_with(LISTENING));
+        let is_listening = lines.any(|line| line.ends_with(LISTENING));
         if !is_listening {
             child.kill().expect("the stand-in is killed");
             child.wait().expect("the stand-in is reaped");
@@ -96,8 +98,14 @@ mod tests {
         let child_id = i32::try_from(child.id()).expect("a process id fits a pid");
 
         kill(Pid::from_raw(child_id), Signal::SIGINT).expect("the signal is sent");
+        // The listener caught the Ctrl-C, so the death below is the ending's, not SIGINT's own.
+        let has_caught = lines.any(|line| line.ends_with(CAUGHT));
         let status = child.wait().expect("the stand-in is reaped");
 
+        assert!(
+            has_caught,
+            "the stand-in's listener never caught the Ctrl-C"
+        );
         assert_eq!(status.signal(), Some(libc::SIGINT), "{status:?}");
     }
 }
