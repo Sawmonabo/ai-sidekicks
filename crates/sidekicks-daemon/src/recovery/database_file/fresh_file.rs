@@ -221,7 +221,8 @@ async fn take_richer_sessions_from_backup(
         }
     };
     // The shell runs in the copy's folder and attaches the copy by its bare name, which is UTF-8,
-    // so a folder whose name is not reaches the shell only as its working folder.
+    // so a folder whose name is not reaches the shell only as its working folder. The `database
+    // shell` mode must keep the working folder its parent gives it, or the name resolves elsewhere.
     let script = format!(
         "{WRITING_STEP_PREAMBLE}ATTACH DATABASE {} AS backup;\n{}",
         quote_sql_text(copy_name),
