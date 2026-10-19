@@ -56,8 +56,8 @@ fn append_argument(line: &mut Vec<u16>, argument: &str) {
 mod tests {
     use super::compose_command_line;
 
-    // Fails when the doubled backslashes before a quote are dropped, which changes what the program
-    // reads back.
+    // Fails when the doubled backslashes before a quote are dropped, or an argument holding a tab
+    // is left unquoted, which changes what the program reads back.
     #[test]
     fn a_command_line_argument_reads_back_as_written() {
         for (argument, expected) in [
@@ -68,6 +68,8 @@ mod tests {
             (r#"a\"b"#, r#"a\\\"b"#),
             (r"C:\folder\", r"C:\folder\"),
             (r"C:\my folder\", r#""C:\my folder\\""#),
+            ("a\tb", "\"a\tb\""),
+            (r"C:\my folder\\", r#""C:\my folder\\\\""#),
         ] {
             let line = compose_command_line([], &[argument]);
             assert_eq!(
