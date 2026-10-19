@@ -194,8 +194,8 @@ pub(crate) enum RunEngineError {
         run_id: RunId,
     },
     /// The interventions service did not interrupt the run the daemon stopped at a limit; the
-    /// limit's reached event and the cut of the run's turn stand, so a step stop's retry sends
-    /// the interrupt alone.
+    /// limit's reached event and the cut of the run's turn stand, so the stop's retry at any limit
+    /// sends the interrupt alone.
     #[error("run {run_id}, stopped at a limit, was not interrupted")]
     LimitInterrupt {
         /// The run.
@@ -608,6 +608,8 @@ impl RunEngine {
         let mut live = lock(&self.live);
         live.carried_output_speeds.remove(run_id);
         live.step_counts.remove(run_id);
+        live.reached_limits
+            .retain(|(reached_run_id, _)| reached_run_id != run_id);
         live.mark_starting_run_ended(run_id);
     }
 

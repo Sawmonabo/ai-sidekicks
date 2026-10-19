@@ -2,7 +2,7 @@
 //! driver has yet, the runs being continued, the terminal writes in flight, and what a live run's
 //! turn carries; and the guards that settle each entry on every exit path.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -82,6 +82,10 @@ pub(super) struct LiveRuns {
     /// Each turn a limit stop cut, by run and turn number, with the limit that cut it, from before
     /// its reached event is written until that turn's end is written.
     pub(super) cut_turns: HashMap<(RunId, SafeInt<1>), RunLimit>,
+    /// Each run's limits whose reached event landed while their interrupt is not yet handed to the
+    /// interventions service, so a stop retried at that limit sends the interrupt alone; one
+    /// leaves when its interrupt is handed or its run ends, the step limit's also with its turn.
+    pub(super) reached_limits: HashSet<(RunId, RunLimit)>,
 }
 
 impl LiveRuns {

@@ -15,6 +15,7 @@ use sidekicks_contracts::run::events::{
     AgentTurnStartedPayload, TurnEndCause, TurnEndOrigin,
 };
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::ReadLength;
@@ -141,7 +142,6 @@ pub(super) struct StepCount {
     bound: SafeInt<1>,
     steps: u64,
     is_stopping: bool,
-    is_reached_recorded: bool,
 }
 
 /// A turn's end as the log records it: the turn, who reported the end, and how it ended.
@@ -282,7 +282,6 @@ impl RunEngine {
                         bound,
                         steps: 0,
                         is_stopping: false,
-                        is_reached_recorded: false,
                     },
                 );
             }
@@ -290,6 +289,8 @@ impl RunEngine {
                 live.step_counts.remove(&run_id);
             }
         }
+        // The step limit's reached event lands once per turn, so a new turn's stop writes its own.
+        live.reached_limits.remove(&(run_id, RunLimit::StepLimit));
         Ok(Some(turn_number))
     }
 
@@ -313,27 +314,16 @@ impl RunEngine {
                 return Ok(());
             }
             count.is_stopping = true;
-            // The turn's reached event lands once; a retry sends the interrupt alone.
-            let stop = if count.is_reached_recorded {
-                LimitStop::StepInterrupt
-            } else {
-                LimitStop::Step { count: count.bound }
-            };
-            (count.turn_number, stop)
+            (count.turn_number, LimitStop::Step { count: count.bound })
         };
         let stopped = self.stop_at_limit(run_id, stop).await;
-        if let Err(error) = &stopped
+        if stopped.is_err()
             && let Some(count) = lock(&self.live)
                 .step_counts
                 .get_mut(&run_id)
                 .filter(|count| count.turn_number == turn_number)
         {
             count.is_stopping = false;
-            // The interrupt is the stop's last step, so its failure comes after the reached event
-            // landed.
-            if matches!(error, RunEngineError::LimitInterrupt { .. }) {
-                count.is_reached_recorded = true;
-            }
         }
         stopped
     }
@@ -522,6 +512,7 @@ impl RunEngine {
             .is_some_and(|count| count.turn_number == turn_number)
         {
             live.step_counts.remove(run_id);
+            live.reached_limits.remove(&(*run_id, RunLimit::StepLimit));
         }
     }
 
@@ -684,7 +675,6 @@ mod tests {
                 bound: turn(1),
                 steps: 0,
                 is_stopping: false,
-                is_reached_recorded: false,
             },
         );
         for step in 1..=2 {
@@ -722,7 +712,6 @@ mod tests {
                 bound: turn(1),
                 steps: 0,
                 is_stopping: false,
-                is_reached_recorded: false,
             },
         );
 
