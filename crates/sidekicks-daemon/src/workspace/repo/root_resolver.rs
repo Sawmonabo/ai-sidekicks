@@ -81,6 +81,10 @@ pub(crate) struct RepoRootResolver {
     canned_resolution: Option<RepoRootResolution>,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the repository mount attach and its health read")
+)]
 impl RepoRootResolver {
     /// The resolver asking `git`, each call held to [`ROOT_RESOLUTION_GIT_TIMEOUT`].
     pub(crate) fn new(git: GitRunner) -> Self {

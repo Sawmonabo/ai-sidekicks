@@ -14,6 +14,10 @@ use crate::missing_entry::MissingEntry;
 /// The four filter settings `git lfs install` writes, exactly as Git LFS writes them, passed to
 /// the clone as `-c` options so its checkout fetches large files; the clone's own config gets them
 /// from `git lfs install --local` afterwards.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the clone method's large-file step")
+)]
 pub(crate) const LARGE_FILES_CLONE_OPTIONS: [&str; 8] = [
     "-c",
     "filter.lfs.required=true",
@@ -31,6 +35,10 @@ const LARGE_FILES_ATTRIBUTE: &[u8] = b"filter=lfs";
 /// Whether Git LFS is installed for the git a project at `place` runs: `git lfs version` exits 0.
 /// A git that exits with any failure means no; fails with the run's error when git did not run to
 /// an exit code (not found, not started, timed out, ended by a signal).
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the clone method's large-file step")
+)]
 pub(crate) async fn is_large_files_installed(
     git: &GitRunner,
     place: Option<&Place>,
@@ -45,6 +53,10 @@ pub(crate) async fn is_large_files_installed(
 /// Whether the repository at `root` keeps files in Git LFS, read from its top `.gitattributes` as
 /// bytes, so a name that is not UTF-8 does not fail the read. A missing file means no; fails with
 /// any other read's error.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the clone method's large-file step")
+)]
 pub(crate) async fn keeps_large_files(root: &Path) -> io::Result<bool> {
     let attributes = tokio::fs::read(root.join(".gitattributes"))
         .await

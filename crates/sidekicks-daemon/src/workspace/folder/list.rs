@@ -81,11 +81,19 @@ pub(crate) enum RepositoryCheckError {
 }
 
 /// Lists the machine's folders for another device's folder chooser.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the folder list method's handler")
+)]
 pub(crate) struct FolderListService {
     home_folder: PathBuf,
     git: GitRunner,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the folder list method's handler")
+)]
 impl FolderListService {
     /// The listing starting at `home_folder`, the home folder of the account the service runs as,
     /// asking `git` which folders are repositories.

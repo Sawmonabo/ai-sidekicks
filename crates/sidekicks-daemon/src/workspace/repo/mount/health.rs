@@ -60,6 +60,10 @@ use crate::workspace::row_guards::{
 use crate::workspace::trust_envelope::{components_equal, is_contained_within};
 
 /// The statements the re-probe's reads keep prepared on each read connection.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, sizing its read connections")
+)]
 pub(crate) const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 5;
 
 // What every attached-mount read selects, in the order `attached_mount_of` reads it.

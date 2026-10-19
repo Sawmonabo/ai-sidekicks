@@ -51,6 +51,7 @@ pub(crate) struct AdmittedExecutionRoot {
 /// which trees the mount's repository has; nothing is kept between picks. Fails with
 /// [`RepoRefusal::OutsideTrustEnvelope`] (`outsideProject`) on every refusal, a vanished mount
 /// among them, and with the resolver's `rootResolutionFailed` refusal when git cannot answer.
+#[cfg_attr(not(test), expect(dead_code, reason = "a run starting in a workspace"))]
 pub(crate) async fn validate_execution_root(
     resolver: &RepoRootResolver,
     candidate: WorkspaceExecutionRootCandidate<'_>,
