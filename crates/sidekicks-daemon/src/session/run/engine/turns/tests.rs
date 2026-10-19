@@ -6,7 +6,6 @@ use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
-use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{StepCount, no_turn_end_statement, no_turn_start_from_statement};
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
@@ -15,18 +14,13 @@ use crate::events::log_service::tests::open_log;
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    append, events, hand_limit_interrupter, insert_running_run, stored_events, stored_run_state,
-    test_engine, turn_started_at,
+    append, events, hand_limit_interrupter, insert_running_run, provider_end, stored_events,
+    stored_run_state, test_engine, turn, turn_started_at,
 };
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::RunStateChangeCompanions;
 use crate::uuid_v7::mint_uuid_v7;
-
-fn turn(number: u64) -> SafeInt<1> {
-    SafeInt::new(number).expect("the test's turn numbers count from 1")
-}
 
 // Arms the step count of turn `turn_number` on `run_id` at `bound`, as the turn's start does on a
 // run whose provider does not bound its steps.
@@ -40,14 +34,6 @@ fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u6
             is_reached: false,
         },
     );
-}
-
-// The provider's end of turn `turn_number`, interrupted with no cause of its own.
-fn provider_end(turn_number: u64) -> ProviderTurnEnd {
-    ProviderTurnEnd {
-        turn_number: turn(turn_number),
-        outcome: TurnOutcome::Interrupted(None),
-    }
 }
 
 // Killed by the append not writing an event's turn number, which lets every guard pass on a
@@ -144,8 +130,9 @@ async fn a_limit_stop_with_no_interventions_service_writes_nothing_and_is_tried_
     assert!(stored_events(&database, &run_id).is_empty());
 }
 
-// Killed by a step stop retried after its interrupt failed writing the reached event again,
-// and by the failed interrupt leaving the count stopping, so the next step sends none.
+// Killed by a step stop retried after its interrupt failed writing the reached event again, by
+// the failed interrupt leaving the count stopping, so the next step sends none, and by it keeping
+// the cut no row names.
 #[tokio::test]
 async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event() {
     let database = TestDatabase::new();
@@ -169,6 +156,7 @@ async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event()
         matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
         "the first stop answers {refused:?}"
     );
+    assert!(lock(&engine.live).cut_turns.is_empty());
     engine
         .count_step(run_id)
         .await
@@ -180,6 +168,7 @@ async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event()
             run_id,
             1,
             Some(RunLimit::StepLimit),
+            Some(turn(1)),
             RunStateChangeCompanions::default(),
         )
         .await
@@ -296,10 +285,10 @@ async fn a_step_stop_refused_on_the_runs_state_is_tried_again_at_the_next_step()
     );
 }
 
-// Killed by a cut turn's end, or the next turn's start, forgetting the step limit's interrupt its
-// stop could not hand, by that end writing turn 1 without the limit's cause, and by a retry that
-// waits for the cut turn's own count: the next step and the next turn end then hand nothing, and
-// the run goes on past its step limit.
+// Killed by a turn's end, or the next turn's start, forgetting the step limit's interrupt its stop
+// could not hand, by a retry that waits for the reaching turn's own count: the next step and the
+// next turn end then hand nothing, and the run goes on past its step limit; and by a failed hand
+// keeping its cut, which ends turn 1 or turn 2 with a limit no row names.
 #[tokio::test]
 async fn a_failed_resend_at_a_cut_turns_end_is_tried_at_the_next_step_and_turn_end() {
     let database = TestDatabase::new();
@@ -362,17 +351,9 @@ async fn a_failed_resend_at_a_cut_turns_end_is_tried_at_the_next_step_and_turn_e
         events(&[
             ("agent.turn.started", None, None),
             ("agent.run.stepLimit.reached", None, None),
-            (
-                "agent.turn.interrupted",
-                Some("stepLimit"),
-                Some("provider")
-            ),
+            ("agent.turn.interrupted", None, Some("provider")),
             ("agent.turn.started", None, None),
-            (
-                "agent.turn.interrupted",
-                Some("stepLimit"),
-                Some("provider")
-            ),
+            ("agent.turn.interrupted", None, Some("provider")),
         ])
     );
 }
@@ -426,11 +407,7 @@ async fn a_later_turn_reaching_its_bound_writes_its_own_reached_event_and_one_ha
         events(&[
             ("agent.turn.started", None, None),
             ("agent.run.stepLimit.reached", None, None),
-            (
-                "agent.turn.interrupted",
-                Some("stepLimit"),
-                Some("provider")
-            ),
+            ("agent.turn.interrupted", None, Some("provider")),
             ("agent.turn.started", None, None),
             ("agent.run.stepLimit.reached", None, None),
         ])
@@ -492,6 +469,7 @@ async fn a_step_interrupt_handed_again_cuts_the_open_turn_whichever_end_lands_fi
             run_id,
             1,
             Some(RunLimit::StepLimit),
+            Some(turn(2)),
             RunStateChangeCompanions::default(),
         )
     };
@@ -583,8 +561,9 @@ async fn a_turn_reaching_its_bound_while_a_resend_is_in_flight_writes_its_reache
 // the run is pending (`requested`, `accepted`), or by a resend that finds it pending once a hand
 // in flight let go of the run sending one (`accepted_after_a_hand_in_flight`): either sends the
 // run a second interrupt; by the pending check counting a failed interrupt (`failed`); by the stop
-// putting back its cut or its turn's reach, which ends turn 2 with no cause or writes its reached
-// event again; and by the stop keeping the limit owed, which reads the pending row at every step.
+// keeping its cut, which ends turn 2 with a limit no row names, or putting back its turn's reach,
+// which writes its reached event again; and by the stop keeping the limit owed, which reads the
+// pending row at every step.
 #[rstest]
 #[case::requested("requested", false, 1)]
 #[case::accepted("accepted", false, 1)]
@@ -659,9 +638,11 @@ async fn a_turn_reaching_its_bound_while_the_step_interrupt_is_pending_sends_non
     assert_eq!(interventions.calls.load(Ordering::SeqCst), expected_calls);
     let live = lock(&engine.live);
     assert!(live.reached_limits.is_empty());
-    assert!(
+    // Turn 2's stop keeps its cut once its own interrupt is handed, or left to the hand in
+    // flight, which cuts the newest open turn; one that finds the interrupt pending puts it back.
+    assert_eq!(
         live.cut_turns.contains_key(&(run_id, turn(2))),
-        "turn 2 keeps its stop's cut"
+        expected_calls == 2 || is_hand_in_flight
     );
     drop(live);
     assert_eq!(
@@ -728,19 +709,15 @@ async fn a_step_stop_whose_turn_has_ended_writes_nothing_and_keeps_an_owed_inter
         events(&[
             ("agent.turn.started", None, None),
             ("agent.run.stepLimit.reached", None, None),
-            (
-                "agent.turn.interrupted",
-                Some("stepLimit"),
-                Some("provider")
-            ),
+            ("agent.turn.interrupted", None, Some("provider")),
         ])
     );
 }
 
 // Killed by the hand of the step limit's interrupt going while another is in flight, which sends
-// the run two interrupts; by a resend left to that hand keeping its own cut in place of the
-// stop's; and by that resend reading the run before it finds the hand in flight, which reads the
-// run ended and forgets the limit, so no resend goes once the run runs again.
+// the run two interrupts; by a resend left to that hand cutting a turn; and by that resend reading
+// the run before it finds the hand in flight, which reads the run ended and forgets the limit, so
+// no resend goes once the run runs again.
 #[tokio::test]
 async fn a_step_interrupt_resend_waits_for_the_hand_in_flight() {
     let database = TestDatabase::new();

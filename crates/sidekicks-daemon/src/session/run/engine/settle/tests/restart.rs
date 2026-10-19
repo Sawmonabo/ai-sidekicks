@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use rstest::rstest;
 use rusqlite::params;
@@ -14,8 +13,8 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{
-    LIMIT_INTERRUPT_ID, PERSON_INTERRUPT_ID, STEP_INTERRUPT_ID, interrupted_at, running_at,
-    step_limit_reached, token_limit_reached,
+    LIMIT_INTERRUPT_ID, PERSON_INTERRUPT_ID, STEP_INTERRUPT_ID, interrupt_state, interrupted_at,
+    limit_record, record_interrupt, running_at, step_limit_reached, token_limit_reached,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
@@ -34,8 +33,9 @@ use crate::uuid_v7::mint_uuid_v7;
 // Killed by the owed read joining the interventions, where the failed token interrupt and its
 // requested event read as discharging the limit; by the person's pending interrupt or the
 // newer step limit winning over the owed token limit; by applying only one pending interrupt,
-// which leaves the other pending on an ended run; by ending only the newest open turn; and by
-// giving the limit's cause to the newest turn rather than the one its stop cut.
+// which leaves the other pending on an ended run; by ending only the newest open turn; by giving
+// a row's limit to the newest turn rather than the one it names; and by reading a failed row as a
+// cut, which ends turn 2 `tokenLimit`.
 #[tokio::test]
 async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     let database = TestDatabase::new();
@@ -46,9 +46,9 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     insert_running_run(&database, session_id, run_id);
     let engine = test_engine(&database, log.service, home.path());
     // Turn 1 was left open when turn 2 started; the token stop wrote its reached event on
-    // turn 2 and its interrupt failed, a person's interrupt is still pending, a step stop
-    // reached its bound and its interrupt is pending too, and turn 3 started before the daemon
-    // went down.
+    // turn 2 and its interrupt failed, a person's interrupt is still pending, a step stop of
+    // turn 2 reached its bound and its interrupt is pending too, and turn 3 started before the
+    // daemon went down.
     for turn_number in 1..=2 {
         append(
             &engine,
@@ -68,17 +68,19 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
         .execute(
             "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
                expected_run_version, client_idempotency_key, created_at)
-             VALUES (?1, ?2, 'interrupt', 'failed', '{\"limit\":\"tokenLimit\"}', NULL, 1, ?1,
+             VALUES (?1, ?2, 'interrupt', 'failed', ?5, NULL, 1, ?1,
                      '2026-01-01T00:00:00.000Z'),
                     (?3, ?2, 'interrupt', 'accepted', '{\"pending\":\"nextTurn\"}', 'phone',
                      1, ?3, '2026-01-01T00:00:01.000Z'),
-                    (?4, ?2, 'interrupt', 'requested', '{\"limit\":\"stepLimit\"}', NULL, 1,
-                     ?4, '2026-01-01T00:00:02.000Z')",
+                    (?4, ?2, 'interrupt', 'requested', ?6, NULL, 1, ?4,
+                     '2026-01-01T00:00:02.000Z')",
             params![
                 LIMIT_INTERRUPT_ID,
                 run_id.text().as_str(),
                 PERSON_INTERRUPT_ID,
                 STEP_INTERRUPT_ID,
+                limit_record("tokenLimit", 2),
+                limit_record("stepLimit", 2),
             ],
         )
         .expect("the test records the run's interrupts");
@@ -122,7 +124,7 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
                 Some("daemonRestart"),
                 Some("daemon")
             ),
-            ("agent.turn.interrupted", Some("tokenLimit"), Some("daemon")),
+            ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
             (
                 "agent.turn.interrupted",
                 Some("daemonRestart"),
@@ -161,27 +163,33 @@ enum Logged {
     StepReached,
     TokenReached,
     RunInterrupted,
-    // The spend limit's interrupt, accepted and still pending, recorded now.
-    SpendInterruptPending,
+    // The daemon's own interrupt row at a limit, naming the turn its stop cut, in a state.
+    LimitRow(&'static str, u64, &'static str),
+    // A faster-model retry still pending.
+    RetryPending,
 }
 
-// Killed by the cut read keeping only one mark of the limit, which gives turn 1 `daemonRestart`
-// though its own stop cut it (`two_steps_on_overlapping_turns`); by reading the turn a mark names
-// as the newest started before it, ended or not, which cuts turn 3
-// (`reached_after_turn_two_ended`); by giving a limit's cause to an open turn no mark names
-// (`reaching_turn_closed`) or to the newest open turn over the one the stop cut
-// (`step_cut_on_an_older_turn`); by keeping a step limit a later interrupt of the run discharged,
-// or ending a turn a discharged limit cut with the run's failure
-// (`step_discharged_by_an_interrupt`); by giving a turn only the limit that settles the run
-// (`step_cut_beside_an_owed_token_limit`, `step_cut_beside_a_pending_spend_interrupt`); and by
-// reading no interrupt row as a mark (`step_cut_beside_a_pending_spend_interrupt`).
+// Killed by the cut read keeping only one row of the limit, which gives turn 1 `daemonRestart`
+// though its own stop cut it (`two_step_rows`); by placing a row on any turn but the one it names,
+// such as turn 2, which ended before the token stop cut turn 1, or turn 3, the newest
+// (`row_after_turn_two_ended`); by giving a limit's cause to an open turn no row names
+// (`reaching_turn_closed`, `step_owed_with_no_row`) or to the newest open turn over the one a row
+// names (`step_cut_on_an_older_turn`); by keeping a step limit a later interrupt of the run
+// discharged, or leaving an applied row out of the cuts (`step_discharged_by_an_interrupt`); by
+// reading a failed row as a cut (`failed_step_row`); by giving a turn only the limit that settles
+// the run (`step_cut_beside_an_owed_token_limit`, `step_cut_beside_a_pending_spend_interrupt`); by
+// a turn two rows name keeping the first or the later row's limit over the higher-ranked
+// (`step_then_spend_rows`, `spend_then_step_rows`); and by the pending read taking a faster-model
+// retry for an interrupt (`retry_pending`).
 #[rstest]
-#[case::two_steps_on_overlapping_turns(
+#[case::two_step_rows(
     &[
         Logged::TurnStarted(1),
         Logged::StepReached,
+        Logged::LimitRow("stepLimit", 1, "accepted"),
         Logged::TurnStarted(2),
         Logged::StepReached,
+        Logged::LimitRow("stepLimit", 2, "requested"),
     ],
     "interrupted",
     &[
@@ -190,12 +198,14 @@ enum Logged {
         ("agent.run.interrupted", None, None),
     ]
 )]
-#[case::reached_after_turn_two_ended(
+#[case::row_after_turn_two_ended(
     &[
         Logged::TurnStarted(1),
         Logged::TurnStarted(2),
         Logged::TurnCompleted(2),
         Logged::TokenReached,
+        Logged::LimitRow("tokenLimit", 1, "failed"),
+        Logged::LimitRow("tokenLimit", 1, "accepted"),
         Logged::TurnStarted(3),
     ],
     "stopped",
@@ -209,6 +219,7 @@ enum Logged {
     &[
         Logged::TurnStarted(1),
         Logged::StepReached,
+        Logged::LimitRow("stepLimit", 1, "accepted"),
         Logged::TurnCompleted(1),
         Logged::TurnStarted(2),
     ],
@@ -218,8 +229,26 @@ enum Logged {
         ("agent.run.interrupted", None, None),
     ]
 )]
+#[case::step_owed_with_no_row(
+    &[
+        Logged::TurnStarted(1),
+        Logged::TurnStarted(2),
+        Logged::StepReached,
+        Logged::TurnCompleted(2),
+    ],
+    "interrupted",
+    &[
+        ("agent.turn.interrupted", Some("daemonRestart"), Some("daemon")),
+        ("agent.run.interrupted", None, None),
+    ]
+)]
 #[case::step_cut_on_an_older_turn(
-    &[Logged::TurnStarted(1), Logged::StepReached, Logged::TurnStarted(2)],
+    &[
+        Logged::TurnStarted(1),
+        Logged::StepReached,
+        Logged::LimitRow("stepLimit", 1, "accepted"),
+        Logged::TurnStarted(2),
+    ],
     "interrupted",
     &[
         ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
@@ -231,6 +260,7 @@ enum Logged {
     &[
         Logged::TurnStarted(1),
         Logged::StepReached,
+        Logged::LimitRow("stepLimit", 1, "applied"),
         Logged::RunInterrupted,
         Logged::TurnStarted(2),
     ],
@@ -241,12 +271,26 @@ enum Logged {
         ("agent.run.failed", None, None),
     ]
 )]
+#[case::failed_step_row(
+    &[
+        Logged::TurnStarted(1),
+        Logged::StepReached,
+        Logged::LimitRow("stepLimit", 1, "failed"),
+    ],
+    "interrupted",
+    &[
+        ("agent.turn.interrupted", Some("daemonRestart"), Some("daemon")),
+        ("agent.run.interrupted", None, None),
+    ]
+)]
 #[case::step_cut_beside_an_owed_token_limit(
     &[
         Logged::TurnStarted(1),
         Logged::StepReached,
+        Logged::LimitRow("stepLimit", 1, "accepted"),
         Logged::TurnStarted(2),
         Logged::TokenReached,
+        Logged::LimitRow("tokenLimit", 2, "requested"),
     ],
     "stopped",
     &[
@@ -259,8 +303,9 @@ enum Logged {
     &[
         Logged::TurnStarted(1),
         Logged::StepReached,
+        Logged::LimitRow("stepLimit", 1, "accepted"),
         Logged::TurnStarted(2),
-        Logged::SpendInterruptPending,
+        Logged::LimitRow("spendLimit", 2, "accepted"),
         Logged::TurnStarted(3),
     ],
     "interrupted",
@@ -271,8 +316,40 @@ enum Logged {
         ("agent.run.interrupted", None, None),
     ]
 )]
+#[case::step_then_spend_rows(
+    &[
+        Logged::TurnStarted(1),
+        Logged::LimitRow("stepLimit", 1, "accepted"),
+        Logged::LimitRow("spendLimit", 1, "accepted"),
+    ],
+    "interrupted",
+    &[
+        ("agent.turn.interrupted", Some("spendLimit"), Some("daemon")),
+        ("agent.run.interrupted", None, None),
+    ]
+)]
+#[case::spend_then_step_rows(
+    &[
+        Logged::TurnStarted(1),
+        Logged::LimitRow("spendLimit", 1, "accepted"),
+        Logged::LimitRow("stepLimit", 1, "accepted"),
+    ],
+    "interrupted",
+    &[
+        ("agent.turn.interrupted", Some("spendLimit"), Some("daemon")),
+        ("agent.run.interrupted", None, None),
+    ]
+)]
+#[case::retry_pending(
+    &[Logged::TurnStarted(1), Logged::RetryPending],
+    "failed",
+    &[
+        ("agent.turn.failed", Some("daemonRestart"), Some("daemon")),
+        ("agent.run.failed", None, None),
+    ]
+)]
 #[tokio::test]
-async fn a_restart_ends_the_turns_its_owed_limit_reached_with_the_limit(
+async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
     #[case] logged: &[Logged],
     #[case] settled_state: &str,
     #[case] settled_events: &[(&str, Option<&str>, Option<&str>)],
@@ -285,21 +362,32 @@ async fn a_restart_ends_the_turns_its_owed_limit_reached_with_the_limit(
     insert_running_run(&database, session_id, run_id);
     let engine = test_engine(&database, log.service, home.path());
     let mut expected = Vec::new();
+    let mut retry_row = None;
     for &record in logged {
         let (event, event_type) = match record {
-            Logged::SpendInterruptPending => {
+            Logged::LimitRow(limit, turn_number, state) => {
+                record_interrupt(
+                    &database,
+                    run_id,
+                    &limit_record(limit, turn_number),
+                    state,
+                    false,
+                );
+                continue;
+            }
+            Logged::RetryPending => {
+                let id = mint_uuid_v7().to_string();
                 database
                     .reader()
                     .execute(
-                        "INSERT INTO interventions (id, target_run_id, type, state, payload,
+                        "INSERT INTO interventions (id, target_run_id, type, state,
                            expected_run_version, client_idempotency_key, created_at)
-                         VALUES (?1, ?2, 'interrupt', 'accepted', '{\"limit\":\"spendLimit\"}', 1,
-                           ?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                        params![LIMIT_INTERRUPT_ID, run_id.text().as_str()],
+                         VALUES (?1, ?2, 'fasterModelRetry', 'accepted', 1, ?1,
+                           '2026-01-01T00:00:00.000Z')",
+                        params![id, run_id.text().as_str()],
                     )
-                    .expect("the test records the spend limit's interrupt");
-                // A turn started in the same millisecond reads as started before the row.
-                tokio::time::sleep(Duration::from_millis(2)).await;
+                    .expect("the test records the run's retry");
+                retry_row = Some(id);
                 continue;
             }
             Logged::TurnStarted(turn_number) => (
@@ -343,11 +431,14 @@ async fn a_restart_ends_the_turns_its_owed_limit_reached_with_the_limit(
         stored_run_state(&database, &run_id),
         (settled_state.to_owned(), 2)
     );
+    if let Some(retry_row) = retry_row {
+        assert_eq!(interrupt_state(&database, &retry_row), "accepted");
+    }
 }
 
 // Killed by the owed read taking the overtaken token interrupt as the limit's discharge, which
 // fails a run the live path would stop at its token limit, and by giving the limit's cause to
-// turn 2, which the continue started after the stop cut turn 1.
+// turn 2, which the continue started after the stop's row named turn 1.
 #[tokio::test]
 async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() {
     let database = TestDatabase::new();
@@ -357,7 +448,8 @@ async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() 
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_running_run(&database, session_id, run_id);
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
-    let _interventions = hand_limit_interrupter(&engine, 0);
+    let interventions = hand_limit_interrupter(&engine, 0);
+    interventions.record_rows_in(&database);
     append(
         &engine,
         session_id,
@@ -371,7 +463,7 @@ async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() 
     // A person's interrupt ends the run before the limit's end, a continue runs turn 2, and
     // the daemon goes down before turn 1's provider end.
     let ended = engine
-        .end_run_for_interrupt(run_id, 1, None, RunStateChangeCompanions::default())
+        .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);

@@ -1,11 +1,9 @@
+mod process_exit;
 mod restart;
 mod turn_causes;
 
-use rstest::rstest;
 use rusqlite::params;
-use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::events::{AgentRunInterruptedNewState, AgentRunInterruptedPayload};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
@@ -18,13 +16,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
-use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    append, events, hand_limit_interrupter, insert_running_run, run_version, stored_events,
-    stored_run_state, test_engine, token_limit, turn_started_at,
+    INTERVENTIONS_TABLE_SQL, append, provider_end, run_version, stored_events, stored_run_state,
+    test_engine, token_limit, turn, turn_started_at,
 };
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::read::{LiveRun, RunRead};
 use crate::session::run::state_change::RunStateChangeCompanions;
@@ -35,6 +31,52 @@ use crate::uuid_v7::mint_uuid_v7;
 const LIMIT_INTERRUPT_ID: &str = "0199f3a0-0000-7000-8000-000000000001";
 const PERSON_INTERRUPT_ID: &str = "0199f3a0-0000-7000-8000-000000000002";
 const STEP_INTERRUPT_ID: &str = "0199f3a0-0000-7000-8000-000000000003";
+
+// The stored record of the daemon's own interrupt at `limit`, naming the turn it cut.
+fn limit_record(limit: &str, turn_number: u64) -> String {
+    format!(r#"{{"limit":"{limit}","turnNumber":{turn_number}}}"#)
+}
+
+// Records an interrupt of `run_id` with `record` in `state`, a person's from a phone where
+// `is_person`, else the daemon's own, and returns its id.
+fn record_interrupt(
+    database: &TestDatabase,
+    run_id: RunId,
+    record: &str,
+    state: &str,
+    is_person: bool,
+) -> String {
+    let id = mint_uuid_v7().to_string();
+    database
+        .reader()
+        .execute(
+            "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
+               expected_run_version, client_idempotency_key, created_at)
+             VALUES (?1, ?2, 'interrupt', ?3, ?4, ?5, 1, ?1,
+               strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            params![
+                id,
+                run_id.text().as_str(),
+                state,
+                record,
+                is_person.then_some("phone"),
+            ],
+        )
+        .expect("the test records the run's interrupt");
+    id
+}
+
+// The state of the interrupt `id`.
+fn interrupt_state(database: &TestDatabase, id: &str) -> String {
+    database
+        .reader()
+        .query_row(
+            "SELECT state FROM interventions WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .expect("the test reads the run's interrupt")
+}
 
 fn token_limit_reached(session_id: SessionId, run_id: RunId) -> SessionEvent {
     SessionEvent::AgentRunTokenLimitReached(AgentRunTokenLimitReachedPayload {
@@ -80,45 +122,12 @@ fn interrupted_at(session_id: SessionId, run_id: RunId, version: u64) -> Session
     })
 }
 
-fn turn(number: u64) -> SafeInt<1> {
-    SafeInt::new(number).expect("the test's turn numbers count from 1")
-}
-
-// The step stop of turn `turn_number` at its bound.
-fn step_stop(turn_number: u64) -> LimitStop {
-    LimitStop::Step {
-        count: SafeInt::new(40).expect("40 is a step bound"),
-        turn_number: turn(turn_number),
-    }
-}
-
-// The provider's end of turn `turn_number`, interrupted with no cause of its own.
-fn provider_end(turn_number: u64) -> ProviderTurnEnd {
-    ProviderTurnEnd {
-        turn_number: turn(turn_number),
-        outcome: TurnOutcome::Interrupted(None),
-    }
-}
-
-// The trigger of the run's end of type `end_type`.
-fn end_trigger(database: &TestDatabase, run_id: &RunId, end_type: &str) -> Option<String> {
-    database
-        .reader()
-        .query_row(
-            "SELECT json_extract(payload, '$.trigger') FROM session_events
-              WHERE run_id = ?1 AND type = ?2",
-            [run_id.text().as_str(), end_type],
-            |row| row.get(0),
-        )
-        .expect("the test reads the run's end")
-}
-
 // Killed by the limit's end leaving the cut turn's end to its provider, which writes it with
 // no cause; by the since-guard's refusal read at the position the turn end's guard shifts it
 // to, which answers a run ended since with an error; by dropping that guard, which ends a run
-// continued after the interrupt was accepted; and by the open-turn read taking a turn started
-// after the accepted version, which marks a later turn of a run continued since, or leaving
-// out one started at that version.
+// continued after the interrupt was accepted; and by resolving the turn's cause from the engine's
+// cut and the applying limit alone, which ends turn 1, whose higher-ranked cut only a row of the
+// log holds after a restart, `stepLimit`.
 #[tokio::test]
 async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since() {
     let database = TestDatabase::new();
@@ -128,12 +137,12 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let turn_one = turn(1);
     // Interrupted at version 3, continued at 4, and running turn 1 at 5.
-    database
-        .reader()
+    let connection = database.reader();
+    connection
         .execute_batch(RUNS_TABLE_SQL)
-        .expect("the test makes the runs table");
-    database
-        .reader()
+        .and_then(|()| connection.execute_batch(INTERVENTIONS_TABLE_SQL))
+        .expect("the test makes the runs and interventions tables");
+    connection
         .execute(
             "INSERT INTO runs (run_id, session_id, state, run_version)
              VALUES (?1, ?2, 'running', 5)",
@@ -150,10 +159,9 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
     .await;
     let seeded = stored_events(&database, &run_id);
 
-    // The cut is planted directly, read at the accepted version, to exercise the remap: no
-    // stop cuts a turn started at 5 for an interrupt accepted at 2, before the run's end at 3.
+    // The cut is planted directly, for a step interrupt accepted at 2, before the run's end at 3.
     let mut live = lock(&engine.live);
-    let cut = live.new_cut(RunLimit::StepLimit, 2);
+    let cut = live.new_cut(RunLimit::StepLimit);
     live.cut_turns.insert((run_id, turn_one), cut);
     drop(live);
     let ended_since = engine
@@ -161,6 +169,7 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
             run_id,
             2,
             Some(RunLimit::StepLimit),
+            Some(turn_one),
             RunStateChangeCompanions::default(),
         )
         .await
@@ -172,26 +181,31 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
         ("running".to_owned(), 5)
     );
 
-    // With no cut held, the read finds turn 1, started at the accepted version.
+    // After a restart the engine holds no cut, and the log's rows name turn 1: the applying step
+    // limit's, and the token limit's.
     engine.forget_cut_turn(&run_id, turn_one);
+    for limit in ["stepLimit", "tokenLimit"] {
+        record_interrupt(
+            &database,
+            run_id,
+            &limit_record(limit, 1),
+            "accepted",
+            false,
+        );
+    }
     let ended = engine
         .end_run_for_interrupt(
             run_id,
             5,
             Some(RunLimit::StepLimit),
+            Some(turn_one),
             RunStateChangeCompanions::default(),
         )
         .await
         .expect("the run ends at its limit");
     assert!(ended);
     let late_end = engine
-        .record_turn_end(
-            run_id,
-            ProviderTurnEnd {
-                turn_number: turn_one,
-                outcome: TurnOutcome::Interrupted(None),
-            },
-        )
+        .record_turn_end(run_id, provider_end(1))
         .await
         .expect("the provider's late end is read");
     assert!(
@@ -205,7 +219,7 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
             ("agent.turn.started".to_owned(), None, None),
             (
                 "agent.turn.interrupted".to_owned(),
-                Some("stepLimit".to_owned()),
+                Some("tokenLimit".to_owned()),
                 Some("daemon".to_owned())
             ),
             ("agent.run.interrupted".to_owned(), None, None),
@@ -215,134 +229,4 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
         stored_run_state(&database, &run_id),
         ("interrupted".to_owned(), 6)
     );
-
-    // Continued at 7 on turn 2, which a person's interrupt at 8 left with no end, before the
-    // limit accepted at 5 is ended again.
-    append(
-        &engine,
-        session_id,
-        &turn_started_at(session_id, run_id, 2, 7),
-    )
-    .await;
-    append(&engine, session_id, &interrupted_at(session_id, run_id, 8)).await;
-    database
-        .reader()
-        .execute(
-            "UPDATE runs SET state = 'interrupted', run_version = 8 WHERE run_id = ?1",
-            [run_id.text().as_str()],
-        )
-        .expect("the test ends the run again");
-    let continued = stored_events(&database, &run_id);
-    let ended_again = engine
-        .end_run_for_interrupt(
-            run_id,
-            5,
-            Some(RunLimit::StepLimit),
-            RunStateChangeCompanions::default(),
-        )
-        .await
-        .expect("a run that ended again is left");
-    assert!(!ended_again);
-    assert_eq!(
-        stored_events(&database, &run_id),
-        continued,
-        "a turn started after the limit was accepted takes no limit end"
-    );
-}
-
-// Killed by a process exit failing a run whose step limit's stop it still owes, which loses the
-// limit's end and its `Continue`, or by leaving that limit's pending interrupt pending on the ended
-// run (`step_cut`); by ending the turn the stop cut with the exit's failure, or a turn no stop cut
-// with the limit; and by settling a run that waits on no stop as anything but `failed`
-// (`no_stop`).
-#[rstest]
-#[case::step_cut(true)]
-#[case::no_stop(false)]
-#[tokio::test]
-async fn a_process_exit_settles_the_run_as_its_stop_would_and_fails_every_uncut_turn(
-    #[case] is_step_cut: bool,
-) {
-    let database = TestDatabase::new();
-    let log = open_log(&database, None).await;
-    let home = tempfile::tempdir().expect("the test makes a home folder");
-    let session_id = test_session_id();
-    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&database, session_id, run_id);
-    let engine = test_engine(&database, log.service, home.path());
-    let _interventions = hand_limit_interrupter(&engine, 0);
-    for turn_number in 1..=2 {
-        append(
-            &engine,
-            session_id,
-            &turn_started_at(session_id, run_id, turn_number, 1),
-        )
-        .await;
-    }
-    if is_step_cut {
-        engine
-            .stop_at_limit(run_id, step_stop(1))
-            .await
-            .expect("the limit's interrupt is accepted");
-        database
-            .reader()
-            .execute(
-                "INSERT INTO interventions (id, target_run_id, type, state, payload,
-                   expected_run_version, client_idempotency_key, created_at)
-                 VALUES (?1, ?2, 'interrupt', 'accepted', '{\"limit\":\"stepLimit\"}', 1, ?1,
-                   '2026-01-01T00:00:00.000Z')",
-                params![STEP_INTERRUPT_ID, run_id.text().as_str()],
-            )
-            .expect("the test records the limit's interrupt");
-    }
-    let process_exit: ProcessExit =
-        serde_json::from_value(json!({ "exitCode": 1, "outputTail": "the provider stopped" }))
-            .expect("the test's exit reads as one");
-
-    engine
-        .end_turn_on_process_exit(run_id, process_exit)
-        .await
-        .expect("the exit ends the run");
-
-    let (end_type, expected) = if is_step_cut {
-        (
-            "agent.run.interrupted",
-            events(&[
-                ("agent.turn.started", None, None),
-                ("agent.turn.started", None, None),
-                ("agent.run.stepLimit.reached", None, None),
-                ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
-                ("agent.turn.failed", Some("processExit"), Some("daemon")),
-                ("agent.run.interrupted", None, None),
-            ]),
-        )
-    } else {
-        (
-            "agent.run.failed",
-            events(&[
-                ("agent.turn.started", None, None),
-                ("agent.turn.started", None, None),
-                ("agent.turn.failed", Some("processExit"), Some("daemon")),
-                ("agent.turn.failed", Some("processExit"), Some("daemon")),
-                ("agent.run.failed", None, None),
-            ]),
-        )
-    };
-    assert_eq!(stored_events(&database, &run_id), expected);
-    assert_eq!(
-        end_trigger(&database, &run_id, end_type).as_deref(),
-        is_step_cut.then_some("stepLimit")
-    );
-    let state = if is_step_cut { "interrupted" } else { "failed" };
-    assert_eq!(stored_run_state(&database, &run_id), (state.to_owned(), 2));
-    if is_step_cut {
-        let interrupt_state: String = database
-            .reader()
-            .query_row(
-                "SELECT state FROM interventions WHERE id = ?1",
-                [STEP_INTERRUPT_ID],
-                |row| row.get(0),
-            )
-            .expect("the test reads the limit's interrupt");
-        assert_eq!(interrupt_state, "applied");
-    }
 }

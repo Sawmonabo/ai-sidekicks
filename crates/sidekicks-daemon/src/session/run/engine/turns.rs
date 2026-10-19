@@ -30,7 +30,7 @@ use crate::session::run::engine::{
     safe_run_version, with_cleanup_failures,
 };
 use crate::session::run::read::RunRead;
-use crate::session::run::restart::limit_turn_cause;
+use crate::session::run::restart::{TurnCut, limit_turn_cause, read_turn_cuts};
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError,
 };
@@ -39,7 +39,7 @@ use crate::session::run::state_change::{
 // the turn's end rides first, so its guard leads the companions.
 const TURN_END_GUARD_COMPANION_INDEX: usize = 0;
 
-// A lone turn end's guard is the first statement of its write.
+// A lone turn end's guard is the first statement of its write, before any guard on its run.
 const LONE_TURN_END_GUARD_INDEX: usize = 0;
 
 // A turn start's guard that no start holds its number yet follows the version guard.
@@ -101,8 +101,7 @@ static SELECT_TURN_END_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The run's newest started turn that holds no end, started at or before `@started_by` where one is
-// bound.
+// The run's newest started turn that holds no end.
 static SELECT_OPEN_TURN_SQL: LazyLock<String> =
     LazyLock::new(|| open_turns_sql("ORDER BY started.turn_number DESC\n  LIMIT 1"));
 
@@ -331,11 +330,11 @@ impl RunEngine {
     }
 
     /// Writes the end its provider reported for a turn of `run_id` that changes no run: a turn
-    /// that ended beside a live run, or a late end after the run ended. What it wrote is whether
-    /// the end was written; a duplicate of an end the turn holds is dropped. A step limit's
-    /// interrupt a stop of the run could not hand is handed again once the end is written, its
-    /// failure returned beside it. Fails with `RunRefusal::NotFound` for an unknown run and with
-    /// the append's failure.
+    /// that ended beside a live run, or a late end after the run ended, whose cut the log's rows
+    /// give where the engine holds none. What it wrote is whether the end was written; a duplicate
+    /// of an end the turn holds is dropped. A step limit's interrupt a stop of the run could not
+    /// hand is handed again once the end is written, its failure returned beside it. Fails with
+    /// `RunRefusal::NotFound` for an unknown run and with the read's or the append's failure.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_turn_end(
         &self,
@@ -343,8 +342,24 @@ impl RunEngine {
         turn_end: ProviderTurnEnd,
     ) -> Result<ProviderReportWritten<bool>, RunEngineError> {
         let run = self.require_run(run_id).await?;
-        let turn_end = self.provider_turn_end(&run_id, turn_end);
-        let is_written = self.record_turn_end_alone(run_id, &run, turn_end).await?;
+        let turn_end = if run.state.is_terminal() {
+            let ProviderTurnEnd {
+                turn_number,
+                outcome,
+            } = turn_end;
+            TurnEnd {
+                turn_number,
+                origin: TurnEndOrigin::Provider,
+                outcome: self
+                    .cut_outcome_of_ended_run(run_id, turn_number, outcome)
+                    .await?,
+            }
+        } else {
+            self.provider_turn_end(&run_id, turn_end)
+        };
+        let is_written = self
+            .record_turn_end_alone(run_id, &run, turn_end, false)
+            .await?;
         Ok(ProviderReportWritten {
             written: is_written,
             resend_failure: self.hand_owed_step_interrupt(run_id).await.err(),
@@ -376,8 +391,8 @@ impl RunEngine {
         .await
     }
 
-    /// The end the log records for a turn end its provider reported: as reported, or interrupted
-    /// with the limit where a limit stop cut that turn.
+    /// The end the log records for a turn end its provider reported on a run that reads live: as
+    /// reported, or interrupted with the limit where the engine holds a limit stop's cut of it.
     pub(super) fn provider_turn_end(&self, run_id: &RunId, turn_end: ProviderTurnEnd) -> TurnEnd {
         let ProviderTurnEnd {
             turn_number,
@@ -386,79 +401,132 @@ impl RunEngine {
         TurnEnd {
             turn_number,
             origin: TurnEndOrigin::Provider,
-            outcome: self.cut_outcome(run_id, turn_number, outcome),
+            outcome: self.cut_outcome(run_id, turn_number, &[], outcome),
         }
     }
 
     /// The end the daemon writes for `turn_number` of `run_id` with no provider frame: `outcome`,
-    /// or interrupted with the limit where a limit stop cut that turn.
+    /// or interrupted with the limit of its cut, the engine's own first, then one in `turn_cuts`,
+    /// the cuts the log's rows mark.
     pub(super) fn daemon_turn_end(
         &self,
         run_id: &RunId,
         turn_number: SafeInt<1>,
+        turn_cuts: &[TurnCut],
         outcome: TurnOutcome,
     ) -> TurnEnd {
         TurnEnd {
             turn_number,
             origin: TurnEndOrigin::Daemon,
-            outcome: self.cut_outcome(run_id, turn_number, outcome),
+            outcome: self.cut_outcome(run_id, turn_number, turn_cuts, outcome),
         }
     }
 
-    /// How `turn_number` of `run_id` ends: interrupted with the highest-ranked limit whose stop cut
-    /// it, else `outcome`. A turn's cause is its cut's, so the live path writes the cause a restart
-    /// reads from the same log.
+    /// How `turn_number` of `run_id` ends once its run reads ended or this end ends it:
+    /// interrupted with the limit of the engine's cut of it, else of the cut the log's rows mark,
+    /// else `outcome`; the log is read only where the engine holds no cut, as after a restart.
+    /// Fails as the read fails.
+    pub(super) async fn cut_outcome_of_ended_run(
+        &self,
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        outcome: TurnOutcome,
+    ) -> Result<TurnOutcome, RunEngineError> {
+        let is_cut_held = lock(&self.live)
+            .cut_turns
+            .contains_key(&(run_id, turn_number));
+        let turn_cuts = if is_cut_held {
+            Vec::new()
+        } else {
+            self.read_run_turn_cuts(run_id).await?
+        };
+        Ok(self.cut_outcome(&run_id, turn_number, &turn_cuts, outcome))
+    }
+
+    /// Every open turn of `run_id` a limit's intervention row marks as cut, oldest first. Fails
+    /// when the read fails or a stored turn number or limit is not one.
+    pub(super) async fn read_run_turn_cuts(
+        &self,
+        run_id: RunId,
+    ) -> Result<Vec<TurnCut>, RunEngineError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(read_turn_cuts(reader, &run_id)?)
+            })
+            .await
+    }
+
+    // How `turn_number` of `run_id` ends: interrupted with the limit of the engine's cut of it,
+    // which holds the higher-ranked of two, else of its cut in `turn_cuts`, else `outcome`.
     fn cut_outcome(
         &self,
         run_id: &RunId,
         turn_number: SafeInt<1>,
+        turn_cuts: &[TurnCut],
         outcome: TurnOutcome,
     ) -> TurnOutcome {
-        match lock(&self.live).cut_turns.get(&(*run_id, turn_number)) {
-            Some(cut) => TurnOutcome::Interrupted(Some(limit_turn_cause(cut.limit))),
+        let held_limit = lock(&self.live)
+            .cut_turns
+            .get(&(*run_id, turn_number))
+            .map(|cut| cut.limit);
+        let cut_limit = held_limit.or_else(|| {
+            turn_cuts
+                .iter()
+                .find(|cut| cut.turn_number == turn_number)
+                .map(|cut| cut.limit)
+        });
+        match cut_limit {
+            Some(limit) => TurnOutcome::Interrupted(Some(limit_turn_cause(limit))),
             None => outcome,
         }
     }
 
-    /// Ends every turn in `open_turns`, oldest first, each with the outcome `outcome_of` gives its
-    /// number as [`RunEngine::daemon_turn_end`] reports it: each older one written on its own, and
-    /// the newest returned for the run's end to carry in its own write. Fails with the first write
-    /// that fails, the ends before it kept.
+    /// Ends every turn in `open_turns`, oldest first, as [`RunEngine::daemon_turn_end`] reports it
+    /// with `turn_cuts` and `uncut_end`: each older one written on its own, held to the run's
+    /// version where `is_run_version_held`, and the newest returned for the caller to write. Fails
+    /// with the first write that fails, the ends before it kept.
     pub(super) async fn end_open_turns(
         &self,
         run_id: RunId,
         run: &RunRead,
         open_turns: &[SafeInt<1>],
-        outcome_of: impl Fn(SafeInt<1>) -> TurnOutcome,
+        turn_cuts: &[TurnCut],
+        uncut_end: TurnOutcome,
+        is_run_version_held: bool,
     ) -> Result<Option<TurnEnd>, RunEngineError> {
         let Some((&newest_turn, older_turns)) = open_turns.split_last() else {
             return Ok(None);
         };
         for &turn_number in older_turns {
-            let turn_end = self.daemon_turn_end(&run_id, turn_number, outcome_of(turn_number));
-            self.record_turn_end_alone(run_id, run, turn_end).await?;
+            let turn_end = self.daemon_turn_end(&run_id, turn_number, turn_cuts, uncut_end);
+            self.record_turn_end_alone(run_id, run, turn_end, is_run_version_held)
+                .await?;
         }
         Ok(Some(self.daemon_turn_end(
             &run_id,
             newest_turn,
-            outcome_of(newest_turn),
+            turn_cuts,
+            uncut_end,
         )))
     }
 
-    /// Writes `turn_end` on its own, guarded on the turn holding no end, and returns whether it
-    /// was written; a duplicate is dropped. Fails with the append's failure.
+    /// Writes `turn_end` on its own, guarded on the turn holding no end and, where
+    /// `is_run_version_held`, on the run still at the version `run` read, and returns whether it
+    /// was written; a duplicate is dropped. Fails with the append's failure, a run moved since
+    /// among them.
     pub(super) async fn record_turn_end_alone(
         &self,
         run_id: RunId,
         run: &RunRead,
         turn_end: TurnEnd,
+        is_run_version_held: bool,
     ) -> Result<bool, RunEngineError> {
+        let mut guards = vec![no_turn_end_statement(&run_id, turn_end.turn_number)];
+        if is_run_version_held {
+            guards.push(run_at_version_statement(&run_id, run.version));
+        }
         let appended = self
-            .append(
-                turn_end.draft(run_id, run)?,
-                vec![no_turn_end_statement(&run_id, turn_end.turn_number)],
-                Vec::new(),
-            )
+            .append(turn_end.draft(run_id, run)?, guards, Vec::new())
             .await;
         let is_written = match appended {
             Ok(_receipt) => true,
@@ -524,7 +592,10 @@ impl RunEngine {
                 },
             )),
             Err(refused @ RunEngineError::Refused(_)) => {
-                match self.record_turn_end_alone(run_id, run, turn_end).await {
+                match self
+                    .record_turn_end_alone(run_id, run, turn_end, false)
+                    .await
+                {
                     Ok(_is_written) => Err(refused),
                     Err(error) => Err(with_cleanup_failures(
                         refused,
@@ -537,26 +608,20 @@ impl RunEngine {
         }
     }
 
-    /// The number of the newest turn of `run_id` that holds no end, started at or before the run
-    /// version `started_by` where one is given; `None` when no such turn is open. Fails when the
-    /// read fails or a stored turn number is not one.
+    /// The number of the newest turn of `run_id` that holds no end; `None` when none is open.
+    /// Fails when the read fails or a stored turn number is not one.
     pub(super) async fn read_open_turn(
         &self,
         run_id: RunId,
-        started_by: Option<i64>,
     ) -> Result<Option<SafeInt<1>>, RunEngineError> {
         self.pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, RunEngineError>(
                     reader
                         .prepare_cached(&SELECT_OPEN_TURN_SQL)?
-                        .query_row(
-                            named_params! {
-                                "@run_id": run_id.text().as_str(),
-                                "@started_by": started_by,
-                            },
-                            |row| safe_int_column(row, 0),
-                        )
+                        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+                            safe_int_column(row, 0)
+                        })
                         .optional()?,
                 )
             })
@@ -574,13 +639,9 @@ impl RunEngine {
                 Ok::<_, RunEngineError>(
                     reader
                         .prepare_cached(&SELECT_OPEN_TURNS_SQL)?
-                        .query_map(
-                            named_params! {
-                                "@run_id": run_id.text().as_str(),
-                                "@started_by": None::<i64>,
-                            },
-                            |row| safe_int_column(row, 0),
-                        )?
+                        .query_map(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+                            safe_int_column(row, 0)
+                        })?
                         .collect::<Result<_, _>>()?,
                 )
             })
@@ -642,8 +703,7 @@ pub(super) fn set_step_limit_reached(
     }
 }
 
-// The run's started turns that hold no end, started at or before `@started_by` where one is bound,
-// ordered and bounded by `tail`.
+// The run's started turns that hold no end, ordered and bounded by `tail`.
 fn open_turns_sql(tail: &str) -> String {
     let category = EventCategory::RunLifecycle.as_str();
     format!(
@@ -651,7 +711,6 @@ fn open_turns_sql(tail: &str) -> String {
   WHERE started.category = '{category}'
     AND started.type = '{}'
     AND started.run_id = @run_id
-    AND (@started_by IS NULL OR started.run_version <= @started_by)
     AND NOT EXISTS (
       SELECT 1 FROM session_events AS ended
        WHERE ended.category = '{category}'

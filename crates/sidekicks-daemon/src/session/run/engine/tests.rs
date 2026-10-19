@@ -3,13 +3,13 @@
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use rusqlite::params;
+use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -34,8 +34,10 @@ use crate::policy::execution_posture_service::{
 };
 use crate::provider::driver::DriverServices;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::session::run::engine::limits::LimitStop;
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
-use crate::session::run::limit_interrupter::LimitInterrupter;
+use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
 use crate::uuid_v7::mint_uuid_v7;
@@ -75,31 +77,86 @@ pub(super) fn test_engine(
 }
 
 /// A stand-in interventions service that refuses the first limit interrupts it is handed, as many
-/// as it was told, and accepts the rest, leaving the run's end to the test.
+/// as it was told, each leaving no pending row unless a test says otherwise, and accepts the rest,
+/// leaving the run's end to the test. Once a test hands it the database, every interrupt it
+/// accepts, or refuses with its row pending, records its row `accepted` with the turn it names.
 pub(super) struct TestLimitInterrupter {
     refusals_left: AtomicUsize,
+    is_refused_row_pending: AtomicBool,
+    row_database: OnceLock<PathBuf>,
     /// How many interrupts it was handed.
     pub(super) calls: AtomicUsize,
+    /// The turn each interrupt it was handed names, in order.
+    pub(super) cut_turns: Mutex<Vec<Option<SafeInt<1>>>>,
+}
+
+impl TestLimitInterrupter {
+    /// Has every later refusal leave its row pending.
+    pub(super) fn refuse_with_row_pending(&self) {
+        self.is_refused_row_pending.store(true, Ordering::SeqCst);
+    }
+
+    /// Records each later row in `database`, whose interventions table the test made.
+    pub(super) fn record_rows_in(&self, database: &TestDatabase) {
+        assert!(
+            self.row_database.set(database.path()).is_ok(),
+            "the stand-in records its rows in one database"
+        );
+    }
+
+    // Records the interrupt of `run_id` at `limit`, naming `cut_turn`, as an accepted row.
+    fn record_row(&self, run_id: RunId, limit: RunLimit, cut_turn: Option<SafeInt<1>>) {
+        let Some(path) = self.row_database.get() else {
+            return;
+        };
+        let id = mint_uuid_v7().to_string();
+        Connection::open(path)
+            .and_then(|connection| {
+                connection.execute(
+                    "INSERT INTO interventions (id, target_run_id, type, state, payload,
+                       expected_run_version, client_idempotency_key, created_at)
+                     VALUES (?1, ?2, 'interrupt', 'accepted', json_object('limit', ?3,
+                       'turnNumber', ?4), 1, ?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    params![
+                        id,
+                        run_id.text().as_str(),
+                        <&'static str>::from(limit),
+                        cut_turn.map(i64::from),
+                    ],
+                )
+            })
+            .expect("the stand-in records the limit's interrupt");
+    }
 }
 
 impl LimitInterrupter for TestLimitInterrupter {
     fn interrupt_for_limit(
         &self,
-        _run_id: RunId,
-        _limit: RunLimit,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        run_id: RunId,
+        limit: RunLimit,
+        cut_turn: Option<SafeInt<1>>,
+    ) -> BoxFuture<'_, Result<(), LimitInterruptFailure>> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.cut_turns
+            .lock()
+            .expect("the stand-in's turns are not poisoned")
+            .push(cut_turn);
         let is_refused = self
             .refusals_left
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(1)
             })
             .is_ok();
+        let is_row_pending = self.is_refused_row_pending.load(Ordering::SeqCst);
+        if !is_refused || is_row_pending {
+            self.record_row(run_id, limit, cut_turn);
+        }
         async move {
-            if is_refused {
-                Err("the test's interventions service refuses the interrupt".into())
-            } else {
-                Ok(())
+            let source = "the test's interventions service refuses the interrupt".into();
+            match (is_refused, is_row_pending) {
+                (false, _) => Ok(()),
+                (true, false) => Err(LimitInterruptFailure::NoRow { source }),
+                (true, true) => Err(LimitInterruptFailure::RowPending { source }),
             }
         }
         .boxed()
@@ -114,7 +171,10 @@ pub(super) fn hand_limit_interrupter(
 ) -> Arc<TestLimitInterrupter> {
     let interrupter = Arc::new(TestLimitInterrupter {
         refusals_left: AtomicUsize::new(refusals),
+        is_refused_row_pending: AtomicBool::new(false),
+        row_database: OnceLock::new(),
         calls: AtomicUsize::new(0),
+        cut_turns: Mutex::new(Vec::new()),
     });
     let handed: Weak<TestLimitInterrupter> = Arc::downgrade(&interrupter);
     assert!(
@@ -174,6 +234,27 @@ pub(super) async fn append(engine: &RunEngine, session_id: SessionId, event: &Se
         )
         .await
         .expect("the test's event is appended");
+}
+
+/// A test's turn number.
+pub(super) fn turn(number: u64) -> SafeInt<1> {
+    SafeInt::new(number).expect("the test's turn numbers count from 1")
+}
+
+/// The step stop of turn `turn_number` at its bound.
+pub(super) fn step_stop(turn_number: u64) -> LimitStop {
+    LimitStop::Step {
+        count: SafeInt::new(40).expect("40 is a step bound"),
+        turn_number: turn(turn_number),
+    }
+}
+
+/// The provider's end of turn `turn_number`, interrupted with no cause of its own.
+pub(super) fn provider_end(turn_number: u64) -> ProviderTurnEnd {
+    ProviderTurnEnd {
+        turn_number: turn(turn_number),
+        outcome: TurnOutcome::Interrupted(None),
+    }
 }
 
 /// A test's run version.

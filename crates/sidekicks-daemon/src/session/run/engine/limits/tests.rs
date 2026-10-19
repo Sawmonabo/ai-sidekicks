@@ -1,34 +1,24 @@
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rstest::rstest;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
-use sidekicks_contracts::wire::integer::SafeInt;
+use tokio::sync::SetOnce;
 
 use super::LimitStop;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
-use crate::session::run::engine::live::lock;
+use crate::session::run::engine::live::{ContinuingRun, lock};
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, events, hand_limit_interrupter,
-    held_driver, insert_running_run, started_turn, stored_events, stored_run_state, test_engine,
-    token_limit, turn_started_at,
+    held_driver, insert_running_run, started_turn, step_stop, stored_events, stored_run_state,
+    test_engine, token_limit, turn, turn_started_at,
 };
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::state_change::RunStateChangeCompanions;
 use crate::uuid_v7::mint_uuid_v7;
-
-fn step_stop(turn_number: u64) -> LimitStop {
-    LimitStop::Step {
-        count: SafeInt::new(40).expect("40 is a step bound"),
-        turn_number: turn(turn_number),
-    }
-}
-
-fn turn(number: u64) -> SafeInt<1> {
-    SafeInt::new(number).expect("the test's turn numbers count from 1")
-}
 
 // A person's interrupt accepted at `accepted_run_version` ends the run, and a continue runs it
 // again.
@@ -37,6 +27,7 @@ async fn interrupt_and_continue(engine: &RunEngine, run_id: RunId, accepted_run_
         .end_run_for_interrupt(
             run_id,
             accepted_run_version,
+            None,
             None,
             RunStateChangeCompanions::default(),
         )
@@ -75,7 +66,7 @@ async fn a_cut_turn_keeps_its_limit_past_the_runs_end_and_a_stop_that_found_it_e
         .expect("the limit's interrupt is accepted");
     // A person's interrupt, accepted while the limit's is pending, ends the run first.
     let ended = engine
-        .end_run_for_interrupt(run_id, 1, None, RunStateChangeCompanions::default())
+        .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);
@@ -188,7 +179,8 @@ async fn a_later_turns_cut_keeps_the_limit_of_an_earlier_cut_turn() {
 }
 
 // Killed by a retried token stop writing its reached event again, which the once-per-run
-// guard refuses so no interrupt goes, and by a retry sending no interrupt.
+// guard refuses so no interrupt goes, by a retry sending no interrupt, and by a failed hand that
+// left no row keeping its cut, which no restart reads.
 #[tokio::test]
 async fn a_token_stop_retried_after_a_failed_interrupt_sends_the_interrupt_alone() {
     let database = TestDatabase::new();
@@ -211,6 +203,7 @@ async fn a_token_stop_retried_after_a_failed_interrupt_sends_the_interrupt_alone
         matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
         "the first stop answers {refused:?}"
     );
+    assert!(lock(&engine.live).cut_turns.is_empty());
     engine
         .stop_at_token_limit(run_id, token_limit())
         .await
@@ -222,6 +215,7 @@ async fn a_token_stop_retried_after_a_failed_interrupt_sends_the_interrupt_alone
             run_id,
             1,
             Some(RunLimit::TokenLimit),
+            Some(turn(1)),
             RunStateChangeCompanions::default(),
         )
         .await
@@ -270,7 +264,7 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
     // A person's interrupt ends the run before the limit's end, which then finds it ended,
     // and a continue runs turn 2.
     let ended = engine
-        .end_run_for_interrupt(run_id, 1, None, RunStateChangeCompanions::default())
+        .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);
@@ -279,6 +273,7 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
             run_id,
             1,
             Some(RunLimit::TokenLimit),
+            Some(turn(1)),
             RunStateChangeCompanions::default(),
         )
         .await
@@ -304,6 +299,7 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
             run_id,
             3,
             Some(RunLimit::TokenLimit),
+            Some(turn(2)),
             RunStateChangeCompanions::default(),
         )
         .await
@@ -329,7 +325,8 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
 }
 
 // Killed by the interrupt alone reading a run being continued as ended, which sends no
-// interrupt and leaves the continued run past the session's spend limit.
+// interrupt and leaves the continued run past the session's spend limit, and by a failed hand that
+// left no row keeping its cut.
 #[tokio::test]
 async fn a_spend_stop_retried_during_a_continue_interrupts_the_continued_run() {
     let database = TestDatabase::new();
@@ -352,8 +349,9 @@ async fn a_spend_stop_retried_during_a_continue_interrupts_the_continued_run() {
         matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
         "the first stop answers {refused:?}"
     );
+    assert!(lock(&engine.live).cut_turns.is_empty());
     let ended = engine
-        .end_run_for_interrupt(run_id, 1, None, RunStateChangeCompanions::default())
+        .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);
@@ -415,7 +413,8 @@ async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_inter
         &turn_started_at(session_id, run_id, 1, 1),
     )
     .await;
-    // The first hand is accepted, or refused with its row recorded, so the limit stays owed.
+    // The first hand is accepted, or refused, which keeps the limit owed; the test then inserts
+    // the run's interrupt row itself.
     let first = engine.stop_at_token_limit(run_id, token_limit()).await;
     assert_eq!(
         first.is_ok(),
@@ -541,6 +540,7 @@ async fn a_turn_two_limits_cut_ends_with_the_higher_ranked_limit(
                 run_id,
                 1,
                 Some(RunLimit::StepLimit),
+                Some(turn(1)),
                 RunStateChangeCompanions::default(),
             )
             .await
@@ -559,5 +559,120 @@ async fn a_turn_two_limits_cut_ends_with_the_higher_ranked_limit(
             Some("tokenLimit".to_owned()),
             Some(origin.to_owned())
         ))
+    );
+}
+
+// How a test fails a limit stop after its cut went in.
+#[derive(Clone, Copy, Debug)]
+enum StopFailure {
+    // The read of whether the limit's interrupt is pending fails.
+    PendingReadFails,
+    // The interventions service is gone by the time the interrupt is handed.
+    InterrupterGone,
+    // The service fails the interrupt and leaves no row pending.
+    NoRow,
+    // The service fails the interrupt with its row still pending.
+    RowPending,
+}
+
+// Killed by a failed pending read keeping the stop's cut (`spend_pending_read_fails`), by a gone
+// service or a failed hand that left no row keeping it (`spend_interrupter_gone`, `spend_no_row`,
+// `step_no_row`), and by a hand whose row is still pending rolling it back (`spend_row_pending`):
+// the live path then ends the turn with a limit no row names, or without the one a row names; and
+// by a failed step hand forgetting the limit its retry hands again (`step_no_row`).
+#[rstest]
+#[case::spend_pending_read_fails(false, StopFailure::PendingReadFails)]
+#[case::spend_interrupter_gone(false, StopFailure::InterrupterGone)]
+#[case::spend_no_row(false, StopFailure::NoRow)]
+#[case::spend_row_pending(false, StopFailure::RowPending)]
+#[case::step_no_row(true, StopFailure::NoRow)]
+#[tokio::test]
+async fn a_failed_stop_keeps_its_cut_only_while_its_row_is_pending(
+    #[case] is_step: bool,
+    #[case] failure: StopFailure,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let refusals = usize::from(matches!(
+        failure,
+        StopFailure::NoRow | StopFailure::RowPending
+    ));
+    let interventions = hand_limit_interrupter(&engine, refusals);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    let stop = if is_step {
+        step_stop(1)
+    } else {
+        LimitStop::Interrupt {
+            limit: RunLimit::SpendLimit,
+        }
+    };
+
+    let stopped = match failure {
+        StopFailure::PendingReadFails => {
+            database
+                .reader()
+                .execute_batch("DROP TABLE interventions")
+                .expect("the test drops the interventions table");
+            engine.stop_at_limit(run_id, stop).await
+        }
+        StopFailure::InterrupterGone => {
+            // The stop waits out a continue that settles only once the service is gone, after
+            // the stop found it live.
+            let continuing = Arc::new(ContinuingRun {
+                is_turn_started: AtomicBool::new(false),
+                settled: SetOnce::new(),
+            });
+            lock(&engine.live)
+                .continuing
+                .insert(run_id, Arc::clone(&continuing));
+            let stopping = engine.stop_at_limit(run_id, stop);
+            tokio::pin!(stopping);
+            assert!(
+                futures::poll!(&mut stopping).is_pending(),
+                "the stop waits out the continue"
+            );
+            drop(interventions);
+            continuing
+                .settled
+                .set(())
+                .expect("the test settles the continue once");
+            stopping.await
+        }
+        StopFailure::NoRow => engine.stop_at_limit(run_id, stop).await,
+        StopFailure::RowPending => {
+            interventions.refuse_with_row_pending();
+            engine.stop_at_limit(run_id, stop).await
+        }
+    };
+
+    let is_failure_expected = match failure {
+        StopFailure::PendingReadFails => stopped.is_err(),
+        StopFailure::InterrupterGone => {
+            matches!(stopped, Err(RunEngineError::LimitInterrupterGone { .. }))
+        }
+        StopFailure::NoRow | StopFailure::RowPending => {
+            matches!(stopped, Err(RunEngineError::LimitInterrupt { .. }))
+        }
+    };
+    assert!(is_failure_expected, "the stop answers {stopped:?}");
+    let live = lock(&engine.live);
+    assert_eq!(
+        live.cut_turns.contains_key(&(run_id, turn(1))),
+        matches!(failure, StopFailure::RowPending)
+    );
+    assert_eq!(
+        live.reached_limits.contains(&(run_id, RunLimit::StepLimit)),
+        is_step,
+        "a step stop's limit stays owed for its retry"
     );
 }

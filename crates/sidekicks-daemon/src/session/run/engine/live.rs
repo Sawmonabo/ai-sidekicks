@@ -61,14 +61,12 @@ pub(super) struct EndingWrite {
     pub(super) landed: SetOnce<()>,
 }
 
-/// A limit stop's cut of a turn: the limit, the run version the stop read before it wrote, and
-/// the stop's own identity, which no other stop shares.
+/// A limit stop's cut of a turn: the limit and the stop's own identity, which no other stop
+/// shares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct LimitCut {
     /// The limit that cut the turn.
     pub(super) limit: RunLimit,
-    /// The run version the stop read.
-    pub(super) run_version: i64,
     /// The stop that made the cut, from [`LiveRuns::next_stop_id`].
     pub(super) stop_id: u64,
 }
@@ -91,7 +89,8 @@ pub(super) struct LiveRuns {
     /// The open turn's steps on a run whose provider does not bound them.
     pub(super) step_counts: HashMap<RunId, StepCount>,
     /// Each turn a limit stop cut, by run and turn number, from before its reached event is
-    /// written until that turn's end is written.
+    /// written until that turn's end is written, or until the stop rolls it back for want of a
+    /// pending row naming the turn.
     pub(super) cut_turns: HashMap<(RunId, SafeInt<1>), LimitCut>,
     /// Each run's limits whose reached event is being written or landed while their interrupt is
     /// not yet handed to the interventions service, so a stop retried at that limit sends the
@@ -123,29 +122,10 @@ impl LiveRuns {
         }
     }
 
-    /// The newest turn of `run_id` that `limit` cut, by a stop that read the run at or before
-    /// `run_version`, whose end is not yet written.
-    pub(super) fn newest_cut_turn(
-        &self,
-        run_id: &RunId,
-        limit: RunLimit,
-        run_version: i64,
-    ) -> Option<SafeInt<1>> {
-        self.cut_turns
-            .iter()
-            .filter(|((cut_run_id, _), cut)| {
-                cut_run_id == run_id && cut.limit == limit && cut.run_version <= run_version
-            })
-            .map(|((_, turn_number), _)| *turn_number)
-            .max()
-    }
-
-    /// A new stop's cut at `limit`, read at `run_version`, with an identity no other stop's cut
-    /// has.
-    pub(super) fn new_cut(&self, limit: RunLimit, run_version: i64) -> LimitCut {
+    /// A new stop's cut at `limit`, with an identity no other stop's cut has.
+    pub(super) fn new_cut(&self, limit: RunLimit) -> LimitCut {
         LimitCut {
             limit,
-            run_version,
             stop_id: self.next_stop_id.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -367,16 +347,16 @@ mod tests {
         assert!(lock(&live).ending.is_empty());
     }
 
-    // Killed by the restore comparing cuts by their limit and version: two stops at one limit
-    // that read the same version make cuts alike in both, so the earlier stop's refusal would
-    // remove the later live stop's cut, and its turn's end would carry no cause.
+    // Killed by the restore comparing cuts by their limit: two stops at one limit make cuts alike
+    // in it, so the earlier stop's refusal would remove the later live stop's cut, and its turn's
+    // end would carry no cause.
     #[test]
     fn a_refused_stop_restores_only_its_own_cut() {
         let mut live = LiveRuns::default();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let key = (run_id, SafeInt::new(1).expect("1 is a turn number"));
-        let earlier = live.new_cut(RunLimit::TokenLimit, 3);
-        let later = live.new_cut(RunLimit::TokenLimit, 3);
+        let earlier = live.new_cut(RunLimit::TokenLimit);
+        let later = live.new_cut(RunLimit::TokenLimit);
         live.cut_turns.insert(key, earlier);
         live.cut_turns.insert(key, later);
 

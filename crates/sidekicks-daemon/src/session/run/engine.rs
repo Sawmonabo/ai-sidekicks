@@ -25,7 +25,7 @@ use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::events::{
-    AgentRunProviderInitializedPayload, AgentRunWorkerShuttingDownPayload,
+    AgentRunProviderInitializedPayload, AgentRunWorkerShuttingDownPayload, TurnEndOrigin,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -51,8 +51,8 @@ use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
     ContinuingRun, EndingGuard, EndingWrite, LiveRuns, StartingRun, lock,
 };
-use crate::session::run::engine::turns::{ProviderReportWritten, ProviderTurnEnd};
-use crate::session::run::limit_interrupter::LimitInterrupter;
+use crate::session::run::engine::turns::{ProviderReportWritten, ProviderTurnEnd, TurnEnd};
+use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::{RunRead, read_run_provider, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::session::run::setup_gates::{
@@ -196,15 +196,15 @@ pub(crate) enum RunEngineError {
         run_id: RunId,
     },
     /// The interventions service did not interrupt the run the daemon stopped at a limit; the
-    /// limit's reached event and the cut of the run's turn stand, so the stop's retry at any limit
-    /// sends the interrupt alone.
+    /// limit's reached event stands, so the stop's retry sends the interrupt alone, and the cut of
+    /// the run's turn stands only while the failure left the interrupt's row pending.
     #[error("run {run_id}, stopped at a limit, was not interrupted")]
     LimitInterrupt {
         /// The run.
         run_id: RunId,
         /// The service's failure.
         #[source]
-        source: Box<dyn Error + Send + Sync>,
+        source: LimitInterruptFailure,
     },
     /// No registered driver answers the run's provider (`provider.notFound`).
     #[error(transparent)]
@@ -480,7 +480,7 @@ impl RunEngine {
     }
 
     // The refusal of a provider's change of a run that has ended; the turn end it reported still
-    // ends its turn, written once on its own.
+    // ends its turn, with its cut's limit where a cut names it, written once on its own.
     async fn refuse_ended(
         &self,
         run_id: RunId,
@@ -490,11 +490,29 @@ impl RunEngine {
     ) -> RunEngineError {
         let refusal =
             RunEngineError::from(ended_run_refusal(run_id, change.entry.state(), ended.state));
-        let Some(turn_end) = turn_end else {
+        let Some(ProviderTurnEnd {
+            turn_number,
+            outcome,
+        }) = turn_end
+        else {
             return refusal;
         };
-        let turn_end = self.provider_turn_end(&run_id, turn_end);
-        match self.record_turn_end_alone(run_id, ended, turn_end).await {
+        let written = match self
+            .cut_outcome_of_ended_run(run_id, turn_number, outcome)
+            .await
+        {
+            Ok(outcome) => {
+                let turn_end = TurnEnd {
+                    turn_number,
+                    origin: TurnEndOrigin::Provider,
+                    outcome,
+                };
+                self.record_turn_end_alone(run_id, ended, turn_end, false)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
+        match written {
             Ok(_) => refusal,
             Err(error) => with_cleanup_failures(
                 refusal,

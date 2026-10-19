@@ -162,6 +162,10 @@ impl<'connection> RunStateReader<'connection> {
     }
 
     /// Every run that has ended while a turn of it holds no end, as a restart finds it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's recovery pass at start")
+    )]
     pub(crate) fn list_ended_runs_with_open_turns(&self) -> rusqlite::Result<Vec<RunId>> {
         self.reader
             .prepare_cached(&SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL)?
