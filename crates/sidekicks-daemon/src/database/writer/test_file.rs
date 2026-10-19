@@ -2,43 +2,56 @@
 //! and the event rows tests write to it.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use rusqlite::Connection;
-use serde_json::json;
-use sidekicks_contracts::event::envelope::EventOccurredAt;
-use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::session::id::SessionId;
 use tempfile::TempDir;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
+
+// The event rows serve only the crate's own tests.
+#[cfg(test)]
+use std::sync::Arc;
+
+#[cfg(test)]
+use serde_json::json;
+#[cfg(test)]
+use sidekicks_contracts::event::envelope::EventOccurredAt;
+#[cfg(test)]
+use sidekicks_contracts::event::session::SessionEvent;
+#[cfg(test)]
+use sidekicks_contracts::session::id::SessionId;
+
+#[cfg(test)]
 use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
+#[cfg(test)]
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
+#[cfg(test)]
 use crate::events::session::version::SESSION_EVENT_VERSION;
+#[cfg(test)]
 use crate::uuid_v7::mint_uuid_v7;
 
 /// A database file in a folder of its own, removed when this drops.
-pub(crate) struct TestDatabase {
+pub struct TestDatabase {
     folder: TempDir,
 }
 
 impl TestDatabase {
     /// A folder for a database file the opener creates.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             folder: tempfile::tempdir().expect("the test makes a temporary folder"),
         }
     }
 
     /// The database file's path.
-    pub(crate) fn path(&self) -> PathBuf {
+    pub fn path(&self) -> PathBuf {
         self.folder.path().join("daemon.db")
     }
 
     /// The opener a writer runs on its thread: the daemon's own open of the file, which creates it
     /// with the daemon's schema. Fails as that open does.
-    pub(crate) fn opener(
+    pub fn opener(
         &self,
     ) -> impl FnOnce() -> Result<Connection, CleanupFailures<DatabaseOpenError, rusqlite::Error>>
     + Send
@@ -48,17 +61,19 @@ impl TestDatabase {
     }
 
     /// A second connection on the file, for a test to read what the writer committed.
-    pub(crate) fn reader(&self) -> Connection {
+    pub fn reader(&self) -> Connection {
         Connection::open(self.path()).expect("the test opens a second connection on its file")
     }
 }
 
 /// A fresh session's id.
+#[cfg(test)]
 pub(crate) fn test_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
 }
 
 /// The envelope of `event` on `session_id`'s log, occurring now, with no linkage.
+#[cfg(test)]
 pub(crate) fn test_envelope(
     session_id: SessionId,
     event: &SessionEvent,
@@ -74,6 +89,7 @@ pub(crate) fn test_envelope(
 }
 
 /// A `session.pinned` row for `session_id`, with no body.
+#[cfg(test)]
 pub(crate) fn session_event_row(session_id: &SessionId) -> SessionEventRow {
     let pinned = serde_json::from_value(json!({
         "type": "session.pinned",

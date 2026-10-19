@@ -15,7 +15,7 @@ const HAS_SCHEMA_SQL: &str =
 
 /// Why the writer's database did not open.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DatabaseOpenError {
+pub enum DatabaseOpenError {
     /// SQLite refused a step of the open.
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
@@ -39,7 +39,7 @@ pub(crate) enum DatabaseOpenError {
 /// [`DatabaseOpenError::SchemaFromAnotherBuild`] for a file whose schema is not this build's; the
 /// connection is closed first, with the close's own failure beside the original when that fails.
 #[cfg_attr(
-    not(test),
+    not(any(test, feature = "test-support")),
     expect(dead_code, reason = "the daemon's start opens the writer through it")
 )]
 pub(crate) fn open_database(

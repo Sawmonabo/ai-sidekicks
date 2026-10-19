@@ -12,8 +12,8 @@
 mod backpressure;
 pub(crate) mod messages;
 mod queue;
-#[cfg(test)]
-pub(crate) mod test_file;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_file;
 #[cfg(test)]
 mod tests;
 mod thread;
@@ -71,7 +71,7 @@ pub(crate) type CloseOutcome =
 
 /// What the writer takes from the daemon besides its opener.
 #[derive(Default)]
-pub(crate) struct DatabaseWriterOptions {
+pub struct DatabaseWriterOptions {
     /// Holds every write and checkpoint in the queue until it answers `Ok`; an error, or the sender
     /// dropped, ends the writer with it, so no held write and no checkpoint is ever sent.
     pub(crate) writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
@@ -180,7 +180,7 @@ pub(crate) enum WritesHeldError {
 
 /// Why [`DatabaseWriter::open`] failed; no writer thread is left running.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DatabaseWriterOpenError<OpenError> {
+pub enum DatabaseWriterOpenError<OpenError> {
     /// The opener failed, beside the failure of joining its thread when that failed too.
     #[error("the database writer could not open the database")]
     Open(#[source] CleanupFailures<OpenError, ThreadJoinError>),
@@ -211,7 +211,7 @@ pub(crate) enum WriterCloseError {
 
 /// Why the writer's thread could not be joined.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ThreadJoinError {
+pub enum ThreadJoinError {
     /// The thread panicked; the panic hook has reported the panic itself.
     #[error("the database writer's thread panicked")]
     Panicked,
@@ -240,7 +240,7 @@ impl Future for PendingWrite {
 /// The daemon's one way to write its database. Open it with [`DatabaseWriter::open`]; share it as
 /// an `Arc`. Dropping every handle without a close closes it as [`DatabaseWriter::close`] does
 /// with no bound.
-pub(crate) struct DatabaseWriter {
+pub struct DatabaseWriter {
     messages: mpsc::UnboundedSender<QueueMessage>,
     shared: Arc<WriterShared>,
     commits: watch::Receiver<u64>,
@@ -253,7 +253,7 @@ impl DatabaseWriter {
     /// once it has. Fails with the open's error, the thread already joined. A cancelled open
     /// joins its thread on the blocking pool while the runtime runs; at the runtime's shutdown the
     /// thread ends on its own.
-    pub(crate) async fn open<OpenError>(
+    pub async fn open<OpenError>(
         open: impl FnOnce() -> Result<Connection, OpenError> + Send + 'static,
         options: DatabaseWriterOptions,
     ) -> Result<Self, DatabaseWriterOpenError<OpenError>>

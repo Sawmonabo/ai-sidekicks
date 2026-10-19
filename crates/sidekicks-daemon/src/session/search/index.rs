@@ -3,11 +3,11 @@
 //! `index` mode that builds it in a child process, and the live index the daemon serves searches
 //! from.
 
-pub(crate) mod applier;
+pub mod applier;
 pub(crate) mod build_mode;
 pub(crate) mod columns;
-pub(crate) mod live;
-pub(crate) mod outbox;
-pub(crate) mod rebuild;
+pub mod live;
+pub mod outbox;
+pub mod rebuild;
 pub(crate) mod rows;
 pub(crate) mod schema;

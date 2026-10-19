@@ -177,6 +177,8 @@ strum.workspace = true
 subtle.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
+# The test database file of the `test-support` feature.
+tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
@@ -208,6 +210,8 @@ insta.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+# The test database and session rows the integration tests build on.
+sidekicks-daemon = { path = ".", features = ["test-support"] }
 # A file whose removal the system refuses, for the clone's failed-removal test.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The screen copy drawn without a shell, for the screen listener's answer tests.
@@ -222,6 +226,11 @@ x-wing.workspace = true
 # The SQLite shell, compiled from its vendored source after its hash is checked.
 cc.workspace = true
 sha3.workspace = true
+
+[features]
+# Helpers the integration tests use: a database file with the daemon's schema and the session
+# rows other tables build on.
+test-support = ["dep:tempfile"]
 
 [lints]
 workspace = true

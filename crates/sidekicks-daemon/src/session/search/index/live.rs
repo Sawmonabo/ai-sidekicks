@@ -46,26 +46,26 @@ use crate::session::search::transcript::{TranscriptSearchError, search_transcrip
 const HELD_SEARCH_EXPIRY_JOB: &str = "search_held_expiry";
 
 /// What the live index is started with.
-pub(crate) struct LiveIndexOptions {
+pub struct LiveIndexOptions {
     /// The daemon's database, which a build reads in its own process.
-    pub(crate) database_path: PathBuf,
+    pub database_path: PathBuf,
     /// The index's folder in the daemon's data folder, an absolute path.
-    pub(crate) index_folder: PathBuf,
+    pub index_folder: PathBuf,
     /// The daemon's own program, which a build runs in its `index` mode.
-    pub(crate) program: PathBuf,
+    pub program: PathBuf,
     /// Where a build's process is started.
-    pub(crate) spawner: Spawner,
+    pub spawner: Spawner,
     /// The daemon's read connections: every search and outbox read runs on them.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The daemon's writer: its commits start each apply, and it deletes the applied outbox rows.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The daemon's scheduler, which lets go of held searches at their expiry by the wall clock.
-    pub(crate) scheduler: Arc<Scheduler>,
+    pub scheduler: Arc<Scheduler>,
 }
 
 /// Why the live index failed or did not close cleanly.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LiveIndexError {
+pub enum LiveIndexError {
     /// SQLite refused a read of the outbox or of the groups' members.
     #[error("a read of the search outbox failed")]
     Database(#[from] rusqlite::Error),
@@ -96,7 +96,7 @@ pub(crate) enum LiveIndexError {
 }
 
 /// Why the live index's close did not end cleanly: the first failure, with any after it.
-pub(crate) type LiveIndexCloseError = CleanupFailures<LiveIndexError>;
+pub type LiveIndexCloseError = CleanupFailures<LiveIndexError>;
 
 /// Why a search on the live index was not answered.
 #[derive(Debug, thiserror::Error)]
@@ -179,7 +179,7 @@ struct LiveIndexShared {
 
 /// The search index the daemon serves searches from; see the module doc. Start it with
 /// [`LiveIndex::start`], which returns while the index still opens.
-pub(crate) struct LiveIndex {
+pub struct LiveIndex {
     shared: Arc<LiveIndexShared>,
     // The task that opens, serves and closes the index, settling with the close's answer.
     finished: Shared<BoxFuture<'static, Result<(), Arc<LiveIndexCloseError>>>>,
@@ -188,7 +188,7 @@ pub(crate) struct LiveIndex {
 impl LiveIndex {
     /// Starts opening the index in `options.index_folder` on a task of its own and returns at
     /// once; commits of the writer from now on are applied once the index is open.
-    pub(crate) fn start(options: LiveIndexOptions) -> Self {
+    pub fn start(options: LiveIndexOptions) -> Self {
         // Followed before the open, so a commit during it is applied once the index is open.
         let commits = options.writer.follow_commits();
         let shared =
@@ -220,7 +220,7 @@ impl LiveIndex {
 
     /// Settles with why the open, a rebuild or an apply failed, once one has; never settles
     /// otherwise. Every search waiting and every later one fails with the same failure.
-    pub(crate) async fn when_failed(&self) -> Arc<LiveIndexError> {
+    pub async fn when_failed(&self) -> Arc<LiveIndexError> {
         let mut state = self.shared.state.subscribe();
         let failed = state
             .wait_for(|state| matches!(state, LiveIndexState::Failed(_)))
@@ -279,7 +279,7 @@ impl LiveIndex {
     /// a build under way and settles once the build's process has exited. Repeated calls share the
     /// first close. Fails with what a step of the close failed with, or with a failure that came
     /// after the close began.
-    pub(crate) async fn close(&self) -> Result<(), Arc<LiveIndexCloseError>> {
+    pub async fn close(&self) -> Result<(), Arc<LiveIndexCloseError>> {
         self.shared.state.send_if_modified(|state| {
             let is_serving = matches!(state, LiveIndexState::Opening | LiveIndexState::Open(_));
             if is_serving {

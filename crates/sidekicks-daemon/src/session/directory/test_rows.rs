@@ -8,7 +8,7 @@ const SESSION_ROW_AT: &str = "2026-10-18T09:00:00.000Z";
 
 /// Stores the session `session_id`, an active chat named `name` running in `place` (the place's
 /// wire JSON), each `None` left unset.
-pub(crate) fn insert_session_row(
+pub fn insert_session_row(
     connection: &Connection,
     session_id: &str,
     name: Option<&str>,

@@ -4,7 +4,7 @@
 pub(crate) mod cursor;
 pub(crate) mod files;
 pub(crate) mod hits;
-pub(crate) mod index;
+pub mod index;
 pub(crate) mod marked_line;
 pub(crate) mod merging;
 pub(crate) mod page;

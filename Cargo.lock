@@ -8368,6 +8368,7 @@ dependencies = [
  "sha3 0.12.0",
  "shlex",
  "sidekicks-contracts",
+ "sidekicks-daemon",
  "sidekicks-platforms",
  "sidekicks-search",
  "sidekicks-terminal",
