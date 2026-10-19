@@ -495,7 +495,9 @@ fn windows_powershell_native_front_end(arguments: &[String]) -> Option<usize> {
 }
 
 // Whether `argument` names the switch `name` as Windows PowerShell's native entry reads it: one
-// dash, then a prefix of the name from its first letter, compared without case.
+// dash, then a prefix of the name from its first letter, compared without case. The compare folds
+// ASCII case only, where the entry folds case by the invariant locale, so a spelling the two read
+// apart is refused, which leaves the shell in its folder: the safe direction.
 fn is_native_switch(argument: &str, name: &str) -> bool {
     let mut characters = argument.chars();
     let rest = match characters.next() {
