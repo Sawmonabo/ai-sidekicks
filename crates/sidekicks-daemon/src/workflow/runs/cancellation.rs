@@ -109,9 +109,7 @@ mod tests {
     use super::{WorkflowRunCancellation, workflow_run_cancellation_statements};
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
-    use crate::workflow::test_rows::{
-        TestStep, create_workflow_tables, insert_run, insert_step, insert_workflow_version,
-    };
+    use crate::workflow::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
 
     const CANCELED_AT: &str = "2026-10-02T00:10:00.000Z";
     const ENDED_AT: &str = "2026-10-02T00:05:00.000Z";
@@ -180,17 +178,9 @@ mod tests {
     #[tokio::test]
     async fn a_cancel_clears_every_wait_of_a_going_run_and_never_touches_an_ended_one() {
         let database = TestDatabase::new();
-        let opener = database.opener();
-        let writer = DatabaseWriter::open(
-            move || -> rusqlite::Result<Connection> {
-                let connection = opener()?;
-                create_workflow_tables(&connection)?;
-                Ok(connection)
-            },
-            DatabaseWriterOptions::default(),
-        )
-        .await
-        .expect("the writer opens the test database");
+        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens the test database");
         let rows = database.reader();
         insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Fan out");
         insert_run(

@@ -20,7 +20,7 @@ use crate::session::search::index::outbox::{
 use crate::session::search::index::rebuild::{
     SearchIndexOpening, make_index_at, open_search_index,
 };
-use crate::session::search::index::schema::{add_titled_session, make_search_source_tables};
+use crate::session::search::index::schema::add_titled_session;
 use crate::session::search::rowid_floors::RowidFloorLog;
 
 // The daemon's scheduler on the system's wall-clock timer.
@@ -38,14 +38,11 @@ fn build_marker(index_folder: &Path, name: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-// A writer on the test's file, which holds the search's source tables already.
+// A writer on the test's file.
 async fn writer_on(database: &TestDatabase) -> DatabaseWriter {
-    DatabaseWriter::open(
-        database.opener_without_event_tables(),
-        DatabaseWriterOptions::default(),
-    )
-    .await
-    .expect("the writer opens its database")
+    DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+        .await
+        .expect("the writer opens its database")
 }
 
 // A database of `session_count` titled sessions, beside an index whose newest commit records the
@@ -56,8 +53,7 @@ async fn index_behind_its_database(
     folder: &Path,
     session_count: usize,
 ) -> (Arc<LiveIndexShared>, OpenIndex, u64) {
-    let connection = database.reader();
-    make_search_source_tables(&connection);
+    let connection = database.opener()().expect("the test creates its database");
     let committed_id = add_titled_session(&connection, "session-1");
     for number in 2..=session_count {
         add_titled_session(&connection, &format!("session-{number}"));
@@ -100,11 +96,6 @@ async fn a_close_during_a_build_settles_once_the_build_has_exited() {
     let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
         .await
         .expect("the writer opens its database");
-    // The outbox's id sequence alone: the open reads only its highest id before it builds.
-    database
-        .reader()
-        .execute_batch("CREATE TABLE session_search_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT);")
-        .expect("the outbox table is made");
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
     let index_folder = folder.path().join("search-index");
     let live = LiveIndex::start(LiveIndexOptions {

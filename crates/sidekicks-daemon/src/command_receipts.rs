@@ -47,14 +47,7 @@ pub(crate) struct CommandToReceive {
 
 /// The receipt's status at acceptance: a refused command is recorded `rejected` and never run.
 /// Stored by its camelCase name.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tool call's dispatch, which accepts, claims and completes receipts"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr, strum::VariantArray)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum CommandAcceptance {
     /// The command was received and may run.
@@ -64,11 +57,7 @@ pub(crate) enum CommandAcceptance {
 }
 
 /// The receipt's status once its command has run. Stored by its camelCase name.
-#[expect(
-    dead_code,
-    reason = "the tool call's dispatch, which accepts, claims and completes receipts"
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr, strum::VariantArray)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum CommandOutcome {
     /// The command ran to its end.
@@ -268,18 +257,6 @@ mod tests {
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
-    // The receipt table's columns the store writes, as the daemon's schema declares them.
-    const COMMAND_RECEIPTS_SQL: &str = "
-CREATE TABLE command_receipts (
-  id TEXT PRIMARY KEY,
-  command_id TEXT NOT NULL UNIQUE,
-  run_id TEXT,
-  status TEXT NOT NULL CHECK (status IN ('accepted', 'rejected', 'completed', 'failed')),
-  started_at TEXT,
-  completed_at TEXT,
-  created_at TEXT NOT NULL
-) STRICT;";
-
     // A canceled accept writes nothing; the accept after it records the command, which only an
     // accepted receipt lets a worker claim.
     #[rstest]
@@ -291,10 +268,6 @@ CREATE TABLE command_receipts (
         #[case] is_claimable: bool,
     ) {
         let database = TestDatabase::new();
-        database
-            .reader()
-            .execute_batch(COMMAND_RECEIPTS_SQL)
-            .expect("the receipts table is made");
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens its database");

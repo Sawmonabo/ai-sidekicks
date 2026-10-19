@@ -7,13 +7,25 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 /// One driver capability flag. The stored list and every map over the flags follow this order.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    VariantArray,
+    IntoStaticStr,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum DriverCapabilityFlag {
     /// Resumes a provider session.
     Resume,

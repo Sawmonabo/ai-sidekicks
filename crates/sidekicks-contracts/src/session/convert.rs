@@ -3,6 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
@@ -36,8 +37,21 @@ pub struct SessionConvertRequest {
 impl KeyedRequest for SessionConvertRequest {}
 
 /// Why one of the workspace's files was not copied.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum SessionConvertSkipReason {
     /// The repository already holds its path.
     RepositoryHasFile,

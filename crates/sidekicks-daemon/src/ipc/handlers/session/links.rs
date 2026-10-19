@@ -120,6 +120,7 @@ mod tests {
         Dispatch as _, DispatchError, EncodedFeed, MethodRegistryBuilder, Reply,
     };
     use crate::ipc::stream::feed::CreditGate;
+    use crate::session::directory::test_rows::insert_session_row;
     use crate::session::links::service::{
         SESSION_LINK_SERVICE_STATEMENT_CAPACITY, SessionLinkService,
     };
@@ -129,16 +130,6 @@ mod tests {
 
     /// Long enough for a re-score round to store and raise, many times over.
     const ROUND_WAIT: Duration = Duration::from_secs(10);
-
-    /// The tables the link verbs and the ranking name, with only the columns they read.
-    const LINK_TABLES_SQL: &str = "
-CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT);
-CREATE TABLE session_links (
-  source_session_id TEXT NOT NULL, target_session_id TEXT NOT NULL, kind TEXT NOT NULL,
-  use_count INTEGER NOT NULL, first_at TEXT NOT NULL, last_at TEXT NOT NULL,
-  UNIQUE (source_session_id, target_session_id, kind));
-CREATE TABLE session_related (
-  session_id TEXT NOT NULL, related_session_id TEXT NOT NULL, score REAL NOT NULL);";
 
     /// The related sessions the next emission lists.
     async fn next_related(feed: &mut Box<dyn EncodedFeed>, gate: &CreditGate) -> Vec<SessionId> {
@@ -162,16 +153,8 @@ CREATE TABLE session_related (
         let log = open_log(&database, None).await;
         let (followed, first, second) = (test_session_id(), test_session_id(), test_session_id());
         let reader = database.reader();
-        reader
-            .execute_batch(LINK_TABLES_SQL)
-            .expect("the link tables are made");
         for session_id in [followed, first, second] {
-            reader
-                .execute(
-                    "INSERT INTO sessions (id) VALUES (?1)",
-                    [session_id.text().as_str()],
-                )
-                .expect("the session is written");
+            insert_session_row(&reader, session_id.text().as_str(), None, None);
         }
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),

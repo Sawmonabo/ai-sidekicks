@@ -13,11 +13,11 @@ use crate::provider::driver::contract::DriverCliVersionReport;
 pub(crate) const RESUME_HANDLE_MAX_LEN: usize = 4096;
 
 /// The longest `DriverCliVersionReport::raw_version`, in code points; equals the SQL CHECK bound.
-const CLI_VERSION_RAW_MAX_LEN: usize = 128;
+pub(crate) const CLI_VERSION_RAW_MAX_LEN: usize = 128;
 
 /// The longest `DriverCliVersionReport::parsed_version`, in code points; equals the SQL CHECK
 /// bound.
-const CLI_VERSION_SEMVER_MAX_LEN: usize = 64;
+pub(crate) const CLI_VERSION_SEMVER_MAX_LEN: usize = 64;
 
 /// A provider-declared value refused where it would be stored. It names the field and why, and the
 /// provider when one is known, but never the value, which is provider-supplied and may carry an

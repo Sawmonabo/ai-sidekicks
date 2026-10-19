@@ -587,13 +587,14 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{SessionSearchError, SessionSearchService};
+    use crate::database::schema::DAEMON_SCHEMA_SQL;
     use crate::session::search::cursor::decode_search_cursor;
     use crate::session::search::index::outbox::OutboxReader;
     use crate::session::search::index::rebuild::{
         SearchIndexOpening, build_search_index, open_search_index,
     };
     use crate::session::search::index::rows::IndexRowReader;
-    use crate::session::search::index::schema::{add_titled_session, make_search_source_tables};
+    use crate::session::search::index::schema::add_titled_session;
     use crate::session::search::snapshots::SearchSnapshot;
 
     // How long a page the test expects is waited for before the test fails.
@@ -612,7 +613,9 @@ mod tests {
             let folder = tempfile::tempdir().expect("the test makes a temporary folder");
             let connection =
                 Connection::open(folder.path().join("daemon.db")).expect("the database opens");
-            make_search_source_tables(&connection);
+            connection
+                .execute_batch(&DAEMON_SCHEMA_SQL)
+                .expect("the daemon's schema runs");
             for number in 1..=3 {
                 add_titled_session(
                     &connection,

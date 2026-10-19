@@ -248,12 +248,13 @@ mod tests {
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let database_path = scratch.path().join("daemon.db");
         let writer = Connection::open(&database_path).expect("the file opens");
+        // Pages enough for the walk to begin; the check reads pages, never the schema.
         writer
             .execute_batch(
-                "CREATE TABLE session_events (sequence INTEGER PRIMARY KEY, payload TEXT);
+                "CREATE TABLE filler (n INTEGER PRIMARY KEY, text TEXT);
                  WITH RECURSIVE counter(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM counter
                    WHERE n < 4000)
-                 INSERT INTO session_events SELECT n, printf('%.200c', 'x') FROM counter;",
+                 INSERT INTO filler SELECT n, printf('%.200c', 'x') FROM counter;",
             )
             .expect("the rows are written");
         drop(writer);

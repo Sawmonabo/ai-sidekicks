@@ -1,5 +1,5 @@
-//! A database file for tests, opened as the daemon opens its own, holding the two tables an event
-//! row write touches unless a test makes its own, and the event rows tests write to it.
+//! A database file for tests, opened as the daemon opens its own with the daemon's whole schema,
+//! and the event rows tests write to it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,44 +11,12 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use tempfile::TempDir;
 
-use crate::database::connection::setup::apply_connection_pragmas;
+use crate::cleanup_failures::CleanupFailures;
+use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
 use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::uuid_v7::mint_uuid_v7;
-
-/// The daemon schema's `session_events` and `projection_cursors` tables, as the full schema
-/// declares them, without the indexes and triggers no row write here needs.
-const EVENT_TABLES_SQL: &str = "
-CREATE TABLE session_events (
-  id                TEXT PRIMARY KEY,
-  session_id        TEXT NOT NULL,
-  sequence          INTEGER NOT NULL,
-  occurred_at       TEXT NOT NULL,
-  monotonic_ns      INTEGER NOT NULL,
-  category          TEXT NOT NULL,
-  type              TEXT NOT NULL,
-  actor             TEXT,
-  payload           TEXT NOT NULL DEFAULT '{}',
-  content_payload   BLOB,
-  correlation_id    TEXT,
-  causation_id      TEXT,
-  version           TEXT NOT NULL DEFAULT '1.0'
-                    CHECK(version GLOB '[0-9]*.[0-9]*'),
-  run_id            TEXT,
-  run_version       INTEGER,
-  UNIQUE (session_id, sequence)
-) STRICT;
-
-CREATE TABLE projection_cursors (
-  id              TEXT PRIMARY KEY,
-  session_id      TEXT NOT NULL UNIQUE,
-  last_sequence   INTEGER NOT NULL,
-  state           TEXT NOT NULL DEFAULT 'current'
-                  CHECK(state IN ('current', 'rebuilding', 'stale')),
-  updated_at      TEXT NOT NULL
-) STRICT;
-";
 
 /// A database file in a folder of its own, removed when this drops.
 pub(crate) struct TestDatabase {
@@ -68,29 +36,15 @@ impl TestDatabase {
         self.folder.path().join("daemon.db")
     }
 
-    /// The opener a writer runs on its thread: the file in WAL mode with every connection's
-    /// setup, and the event tables created. Fails as SQLite does.
-    pub(crate) fn opener(&self) -> impl FnOnce() -> rusqlite::Result<Connection> + Send + 'static {
-        let open = self.opener_without_event_tables();
-        move || {
-            let connection = open()?;
-            connection.execute_batch(EVENT_TABLES_SQL)?;
-            Ok(connection)
-        }
-    }
-
-    /// The opener for a file whose tables the test makes itself: the file in WAL mode with every
-    /// connection's setup. Fails as SQLite does.
-    pub(crate) fn opener_without_event_tables(
+    /// The opener a writer runs on its thread: the daemon's own open of the file, which creates it
+    /// with the daemon's schema. Fails as that open does.
+    pub(crate) fn opener(
         &self,
-    ) -> impl FnOnce() -> rusqlite::Result<Connection> + Send + 'static {
+    ) -> impl FnOnce() -> Result<Connection, CleanupFailures<DatabaseOpenError, rusqlite::Error>>
+    + Send
+    + 'static {
         let path = self.path();
-        move || {
-            let connection = Connection::open(path)?;
-            connection.pragma_update(None, "journal_mode", "WAL")?;
-            apply_connection_pragmas(&connection)?;
-            Ok(connection)
-        }
+        move || open_database(&path)
     }
 
     /// A second connection on the file, for a test to read what the writer committed.
