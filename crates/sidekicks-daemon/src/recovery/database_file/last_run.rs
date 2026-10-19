@@ -35,7 +35,7 @@ pub(crate) enum LastRunEnd {
 
 /// Why the last run's record could not be read or written.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LastRunError {
+pub enum LastRunError {
     /// The file system refused a read or a removal of the record, or the flush of its folder.
     #[error(
         "the database file's last-run record could not be read or removed, or its folder flushed"

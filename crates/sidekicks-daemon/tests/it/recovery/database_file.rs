@@ -19,6 +19,9 @@ use sidekicks_daemon::recovery::database_file::copy::{DatabaseCopyError, Databas
 use sidekicks_daemon::recovery::database_file::fresh_file::{
     FreshFileError, FreshFilePreparation, prepare_fresh_file,
 };
+use sidekicks_daemon::recovery::database_file::repair::{
+    DatabaseFileRepair, DatabaseFileRepairOptions, repair_damaged_file,
+};
 use sidekicks_daemon::recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_platforms::{Spawner, physical_memory};
 use tokio::runtime::Handle;
@@ -547,5 +550,50 @@ async fn a_fresh_file_not_this_build_s_or_not_sound_is_refused(#[case] fault: Fr
         }
         (FreshFileFault::SwappedIndexes, Err(FreshFileError::Integrity(_))) => {}
         (fault, refused) => panic!("{fault:?} was answered {refused:?}"),
+    }
+}
+
+// A stop before the ready marker ends the repair at once: the damaged file stays as it was, no
+// copy aside, fresh file or marker is left, and the next start repairs it again.
+#[tokio::test]
+async fn a_stop_before_the_ready_marker_leaves_the_damaged_file_as_it_was() {
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let database_path = data_folder.path().join("daemon.db");
+    write_damaged_database(&database_path);
+    let damaged_bytes = fs::read(&database_path).expect("the damaged file reads");
+    let shell = SqliteShell::new(daemon_program(), spawner());
+    let copier = DatabaseFileCopier::new(daemon_program(), spawner());
+    let (progress, _progress_reader) = watch::channel(None);
+    let stop = CancellationToken::new();
+    stop.cancel();
+
+    let repaired = repair_damaged_file(
+        &DatabaseFileRepairOptions {
+            database_path: &database_path,
+            data_folder: data_folder.path(),
+            index_folder_path: &data_folder.path().join("search-index"),
+            shell: &shell,
+            copier: &copier,
+            now: jiff::Timestamp::now(),
+        },
+        "page 7 is damaged",
+        None,
+        &progress,
+        &stop,
+    )
+    .await
+    .expect("the repair ends");
+
+    assert!(
+        matches!(repaired, DatabaseFileRepair::Stopped),
+        "{repaired:?}"
+    );
+    assert_eq!(
+        fs::read(&database_path).expect("the damaged file reads"),
+        damaged_bytes
+    );
+    assert_eq!(aside_copies(data_folder.path()), Vec::<PathBuf>::new());
+    for left in ["daemon.db.recovered", "daemon.db.recovered-ready"] {
+        assert!(!data_folder.path().join(left).exists(), "{left} is left");
     }
 }

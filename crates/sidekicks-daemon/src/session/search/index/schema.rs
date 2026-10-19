@@ -143,8 +143,9 @@ CREATE TABLE session_search_outbox (
 ) STRICT;
 
 -- Settled rows only, as they are appended. A purge deletes a session's log rows with its directory
--- row, whose trigger takes every row the session owns out; a repair of the database file rewrites
--- log rows with no outbox row and drops the whole index, which is built again.
+-- row, whose trigger takes every row the session owns out; a repair of the database file drops the
+-- whole index, which is built again from the repaired rows, whether they left an outbox row or
+-- not.
 CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON {SESSION_EVENTS_TABLE}
 WHEN NEW.type IN ({indexed_event_types})
 BEGIN

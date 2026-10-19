@@ -11,8 +11,9 @@ pub mod check;
 pub mod copy;
 pub(crate) mod damage;
 pub mod fresh_file;
-pub(crate) mod last_run;
+pub mod last_run;
 pub(crate) mod newest_backup;
+pub mod repair;
 pub mod sqlite_shell;
 pub(crate) mod stall_watch;
 
