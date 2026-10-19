@@ -210,6 +210,10 @@ pub(crate) struct ProviderCommand {
 /// hold none: the names it starts by and the folders its own installer puts it in.
 pub(crate) struct ProviderCommandLookup {
     /// The command's names, tried in order.
+    #[expect(
+        dead_code,
+        reason = "each driver's command resolution tries these names when the person set no command"
+    )]
     pub(crate) names: &'static [&'static str],
     /// The folders the provider's own installer puts its command in, searched in order.
     pub(crate) install_folders: &'static [InstallFolder],
