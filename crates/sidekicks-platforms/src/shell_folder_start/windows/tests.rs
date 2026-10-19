@@ -298,6 +298,24 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     &[],
     None
 )]
+#[case::windows_powershell_with_its_format_switches_by_their_short_names(
+    "powershell.exe",
+    &["-if", "Text", "-of", "XML"],
+    r"C:\wt",
+    &[
+        "-if",
+        "Text",
+        "-of",
+        "XML",
+        "-NoLogo",
+        "-NoExit",
+        "-Command",
+        r"Set-Location -LiteralPath 'C:\wt'",
+    ],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
 #[case::windows_powershell_with_its_version_first(
     "powershell.exe",
     &["-Version", "2.0"],

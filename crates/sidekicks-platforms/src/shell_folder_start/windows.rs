@@ -76,7 +76,7 @@ const fn powershell_switch(
 /// reading. A switch missing here is one pwsh reads with no operand, or one it does not know, which
 /// it reads as a script path and then fails to start on; beside a switch missing here, Windows
 /// PowerShell's folder start is refused.
-const POWERSHELL_SWITCHES: [PowerShellSwitch; 32] = [
+const POWERSHELL_SWITCHES: [PowerShellSwitch; 33] = [
     powershell_switch(
         "nologo",
         "nol",
@@ -177,6 +177,7 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 32] = [
         AllowingPowerShells::PwshOnly,
     ),
     powershell_switch("ec", "e", SwitchOperand::One, AllowingPowerShells::PwshOnly),
+    // Windows PowerShell's folder start is refused beside it, since it feeds the command text.
     powershell_switch(
         "encodedarguments",
         "encodeda",
@@ -205,7 +206,14 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 32] = [
         "configurationname",
         "config",
         SwitchOperand::One,
-        AllowingPowerShells::PwshOnly,
+        AllowingPowerShells::Both,
+    ),
+    // Only Windows PowerShell has it; no open parser shows it taking less than its whole name.
+    powershell_switch(
+        "psconsolefile",
+        "psconsolefile",
+        SwitchOperand::One,
+        AllowingPowerShells::Both,
     ),
     powershell_switch(
         "configurationfile",
@@ -227,7 +235,7 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 32] = [
     ),
     powershell_switch(
         "inputformat",
-        "inp",
+        "i",
         SwitchOperand::One,
         AllowingPowerShells::Both,
     ),
