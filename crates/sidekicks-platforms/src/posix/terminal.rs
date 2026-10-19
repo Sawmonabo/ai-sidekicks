@@ -282,9 +282,15 @@ impl TerminalWatch {
         if let Err(error) = unsafe { pty.register(&waker.poller, interest, PollMode::Level) } {
             return Err((error, Box::new(pty)));
         }
-        let poller = match AsyncFd::with_interest(Arc::clone(&waker.poller), Interest::READABLE) {
+        // SAFETY: the poller's descriptor stays open for as long as the `Arc` the `AsyncFd` holds
+        // keeps the poller alive, and `as_raw_fd` answers that one descriptor every time.
+        let registered = unsafe {
+            AsyncFd::register_with_interest(Arc::clone(&waker.poller), Interest::READABLE)
+        };
+        let poller = match registered {
             Ok(poller) => poller,
-            Err(error) => {
+            Err(registration) => {
+                let error = io::Error::from(registration);
                 if let Err(deregister_error) = pty.deregister(&waker.poller) {
                     tracing::warn!(
                         error = &deregister_error as &(dyn Error + 'static),

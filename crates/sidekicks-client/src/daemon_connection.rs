@@ -54,8 +54,8 @@ const QUIET_AFTER: Duration = Duration::from_secs(5);
 /// How long the link may carry no frame before it counts as lost.
 const LOST_AFTER: Duration = Duration::from_secs(20);
 
-/// Where the daemon on this machine is reached: its run folder, which holds its socket and its
-/// token file.
+/// Where the daemon on this machine is reached: its run folder, which holds its token file, and its
+/// socket.
 #[derive(Clone, Debug)]
 pub struct DaemonEndpoint {
     run_folder: DaemonRunFolder,
@@ -67,8 +67,9 @@ impl DaemonEndpoint {
         Self { run_folder }
     }
 
-    /// The endpoint of the daemon this account runs on this machine. Fails where the running
-    /// system has no run folder.
+    /// The endpoint of the daemon this account runs on this machine. Fails with the system's error
+    /// when the run folder cannot be resolved: on Windows, when the account's local application
+    /// data folder or its id cannot be read.
     pub fn this_machine() -> io::Result<Self> {
         daemon_run_folder().map(Self::new)
     }
@@ -97,8 +98,8 @@ impl DaemonConnector for DaemonEndpoint {
 
     async fn open_stream(&self) -> Result<LocalSocketStream, ClientError> {
         let stream = connect_local_socket(&self.run_folder.socket_path).await?;
-        // A folder another account made could hold its own socket and token, which would then
-        // prove nothing.
+        // A folder another account made or can write could hold a token of its own, and on macOS
+        // and Linux a socket of its own, which would then prove nothing.
         check_private_run_folder(&self.run_folder.folder_path)?;
         Ok(stream)
     }

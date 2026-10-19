@@ -6,7 +6,7 @@ use std::path::Path;
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 
-use crate::socket_listener::ExistingSocket;
+use crate::socket::listener::ExistingSocket;
 
 /// Binds a listener at `socket_path`, which the caller checked with
 /// [`check_socket_path`](crate::check_socket_path); `existing` says what happens to a socket file

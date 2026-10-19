@@ -6,7 +6,7 @@ use std::path::Path;
 
 use interprocess::local_socket::tokio::Listener;
 
-use crate::socket_listener::ExistingSocket;
+use crate::socket::listener::ExistingSocket;
 
 /// Binds no listener: Windows has no local socket limited to this account yet. Always fails with
 /// `Unsupported`.

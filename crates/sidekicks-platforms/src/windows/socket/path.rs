@@ -4,7 +4,7 @@ use std::path::Path;
 
 use windows_sys::Win32::Networking::WinSock::SOCKADDR_UN;
 
-use crate::socket_path::SocketPathRefused;
+use crate::socket::path::SocketPathRefused;
 
 // The longest path a socket address holds: `sun_path`'s 108 bytes less the NUL that ends it; the
 // struct is not padded, so `sun_path` runs from its offset to the end.

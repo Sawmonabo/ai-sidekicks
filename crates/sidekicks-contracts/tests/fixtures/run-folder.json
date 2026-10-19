@@ -55,5 +55,21 @@
     "environment": {},
     "userId": 0,
     "folderPath": "/tmp/ai-sidekicks-0"
+  },
+  {
+    "case": "Windows: the local application data folder",
+    "localAppData": "C:\\Users\\Ada\\AppData\\Local",
+    "userSid": "S-1-5-21-1004336348-1177238915-682003330-1001",
+    "folderPath": "C:\\Users\\Ada\\AppData\\Local\\ai-sidekicks\\run",
+    "socketPath": "\\\\.\\pipe\\ai-sidekicks-S-1-5-21-1004336348-1177238915-682003330-1001",
+    "tokenPath": "C:\\Users\\Ada\\AppData\\Local\\ai-sidekicks\\run\\daemon.token"
+  },
+  {
+    "case": "Windows: a local application data folder with a trailing backslash",
+    "localAppData": "D:\\Profiles\\Ada\\Local\\",
+    "userSid": "S-1-5-21-1004336348-1177238915-682003330-1001",
+    "folderPath": "D:\\Profiles\\Ada\\Local\\ai-sidekicks\\run",
+    "socketPath": "\\\\.\\pipe\\ai-sidekicks-S-1-5-21-1004336348-1177238915-682003330-1001",
+    "tokenPath": "D:\\Profiles\\Ada\\Local\\ai-sidekicks\\run\\daemon.token"
   }
 ]

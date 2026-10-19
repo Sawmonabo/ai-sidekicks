@@ -202,9 +202,8 @@ mod tests {
     use std::process::{Command, Output, Stdio};
 
     use super::{ShellStartConfirmation, check_confirming_parent, receive_confirmation};
-    use crate::macos::responsibility::{
-        read_responsible_id, run_test_as_own_root, this_test_program,
-    };
+    use crate::macos::responsibility::{read_responsible_id, run_test_as_own_root};
+    use crate::posix::this_test_program;
 
     /// The `shell` mode stand-in's test.
     const SHELL_MODE_STAND_IN: &str =

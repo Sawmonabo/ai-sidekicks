@@ -1,6 +1,8 @@
-//! The `sidekicks` program: its arguments and the one error boundary every run passes through.
-//! Every failure is reported on stderr as one `error: <message>` line, never on stdout and never
-//! with a stack, and becomes the run's exit code.
+//! The `sidekicks` program: its arguments, the one error boundary every run passes through, and
+//! the process's end. A failure is reported on stderr as one `error: <message>` line, never on
+//! stdout and never with a stack, and becomes the run's exit code; a daemon repairing its database
+//! file is named in the words the app shows, its counts in the person's number format. A call
+//! canceled after a Ctrl-C writes no line and ends the process as the Ctrl-C does.
 
 use std::any::Any;
 use std::ffi::OsString;
@@ -8,6 +10,17 @@ use std::io::{self, Write};
 use std::panic::{self, AssertUnwindSafe};
 
 use clap::{Parser, Subcommand};
+use icu_decimal::DecimalFormatter;
+use icu_decimal::input::Decimal;
+use icu_decimal::options::DecimalFormatterOptions;
+use icu_locale_core::Locale;
+use serde_json::Value;
+use sidekicks_client::error::ClientError;
+use sidekicks_contracts::daemon::recovery::{
+    DaemonRepairingDetails, DaemonRepairingLinePart, describe_daemon_repairing_line,
+};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, system_locale};
 
 use crate::command_context::CommandContext;
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
@@ -99,28 +112,122 @@ fn report_parse_refusal<Output: Write, ErrorOutput: Write>(
     }
 }
 
-/// The one error boundary: writes `error: <message>` to stderr and answers the failure's exit
-/// code. A daemon number with no exit code adds its own line and exits 70; a closed output pipe
-/// exits 141 with nothing written, since no one is left to read it.
+/// The one error boundary: writes `error: <message>` to stderr and answers how the run ends. A
+/// daemon number with no exit code adds its own line and exits 70; a closed output pipe exits 141
+/// with nothing written, since no one is left to read it; a call canceled after a Ctrl-C takes the
+/// Ctrl-C ending with nothing written, as the terminal already shows the Ctrl-C.
 pub(crate) fn report_failure<Output: Write, ErrorOutput: Write>(
     failure: &anyhow::Error,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
     let (code, lines) = match exit_code_for_failure(failure) {
-        Ok(ExitCode::BrokenPipe) => return ProcessEnding::Exit(ExitCode::BrokenPipe),
-        Ok(code) => (code, format!("error: {failure:#}\n")),
+        Ok(ProcessEnding::CtrlC) => return ProcessEnding::CtrlC,
+        Ok(ProcessEnding::Exit(ExitCode::BrokenPipe)) => {
+            return ProcessEnding::Exit(ExitCode::BrokenPipe);
+        }
+        Ok(ProcessEnding::Exit(code)) => (code, format!("error: {}\n", describe_failure(failure))),
         Err(unmapped) => (
             ExitCode::Software,
-            format!("error: {failure:#}\nerror: {unmapped}\n"),
+            format!("error: {}\nerror: {unmapped}\n", describe_failure(failure)),
         ),
     };
-    match write_all(&mut context.stderr, &lines) {
-        Ok(()) => ProcessEnding::Exit(code),
-        // A broken stderr decides the exit code, as a broken stdout does.
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {
-            ProcessEnding::Exit(ExitCode::BrokenPipe)
+    ProcessEnding::Exit(write_error_lines(&lines, code, context))
+}
+
+/// The failure's message: the repair's line when the daemon refused as `daemon.repairing`, its
+/// counts in the person's number format, else every cause in the failure's chain.
+fn describe_failure(failure: &anyhow::Error) -> String {
+    match repairing_line_parts(failure) {
+        Some(parts) => write_repairing_line(parts, system_locale(LocaleCategory::Number).as_ref()),
+        None => format!("{failure:#}"),
+    }
+}
+
+/// The repair's line in parts when the failure's first client error is the `daemon.repairing`
+/// refusal; a detail that does not read as the refusal's reads as no count.
+fn repairing_line_parts(failure: &anyhow::Error) -> Option<Vec<DaemonRepairingLinePart>> {
+    let client_error = failure
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ClientError>())?;
+    let ClientError::Remote(remote) = client_error else {
+        return None;
+    };
+    let data = remote
+        .data
+        .as_ref()
+        .filter(|data| data.refusal == RefusalCode::DaemonRepairing.as_str())?;
+    let progress = data
+        .fields
+        .as_ref()
+        .and_then(|fields| {
+            let members = fields
+                .as_map()
+                .iter()
+                .map(|(name, value)| (name.clone(), value.0.clone()))
+                .collect();
+            serde_json::from_value::<DaemonRepairingDetails>(Value::Object(members)).ok()
+        })
+        .and_then(|details| details.progress);
+    Some(describe_daemon_repairing_line(progress))
+}
+
+/// The repair's line from its parts, each count grouped as `locale` writes numbers, and in plain
+/// digits for the POSIX locale (`None`).
+fn write_repairing_line(parts: Vec<DaemonRepairingLinePart>, locale: Option<&Locale>) -> String {
+    let formatter = locale.map(|locale| {
+        DecimalFormatter::try_new(locale.into(), DecimalFormatterOptions::default())
+            .expect("the compiled number data covers every locale through its fallback")
+    });
+    parts
+        .into_iter()
+        .map(|part| match (part, &formatter) {
+            (DaemonRepairingLinePart::Words(words), _) => words,
+            (DaemonRepairingLinePart::Count(count), Some(formatter)) => {
+                formatter.format(&Decimal::from(count)).to_string()
+            }
+            (DaemonRepairingLinePart::Count(count), None) => count.to_string(),
+        })
+        .collect()
+}
+
+/// Ends the process as `ending` asks, answering the exit code for `main` to return: an exit's own
+/// code, and for the Ctrl-C ending, once both streams are flushed (since nothing runs after it),
+/// the process ends as a Ctrl-C ends it, a flush that failed for a reason other than a reader gone
+/// away written to stderr first. Answers only when that ending fails, with its line on stderr and
+/// 70.
+pub(crate) fn end_process<Output: Write, ErrorOutput: Write>(
+    ending: ProcessEnding,
+    context: &mut CommandContext<Output, ErrorOutput>,
+) -> ExitCode {
+    match ending {
+        ProcessEnding::Exit(code) => code,
+        ProcessEnding::CtrlC => {
+            let flushed = context.stdout.flush().and_then(|()| context.stderr.flush());
+            // A reader gone away loses only output no one is left to read; any other lost output
+            // is named, and the command still ends as a Ctrl-C does, so a script running it stops.
+            if let Err(error) = flushed
+                && error.kind() != io::ErrorKind::BrokenPipe
+            {
+                write_error_lines(&format!("error: {error}\n"), ExitCode::Software, context);
+            }
+            let failure = end_as_ctrl_c();
+            let lines = format!("error: the command could not end as a Ctrl-C does: {failure}\n");
+            write_error_lines(&lines, ExitCode::Software, context)
         }
-        Err(_) => ProcessEnding::Exit(ExitCode::Software),
+    }
+}
+
+/// Writes `lines` to stderr and answers `code`, or 141 when stderr's reader went away, as a broken
+/// stdout decides it, or 70 when the write failed otherwise.
+fn write_error_lines<Output: Write, ErrorOutput: Write>(
+    lines: &str,
+    code: ExitCode,
+    context: &mut CommandContext<Output, ErrorOutput>,
+) -> ExitCode {
+    match write_all(&mut context.stderr, lines) {
+        Ok(()) => code,
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::BrokenPipe,
+        Err(_) => ExitCode::Software,
     }
 }
 
@@ -147,8 +254,18 @@ mod tests {
     use anyhow::anyhow;
     use rstest::rstest;
     use sidekicks_client::error::{ClientError, RemoteError};
+    use sidekicks_contracts::daemon::recovery::{
+        DaemonRepairProgress, describe_daemon_repairing_line,
+    };
+    use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
+    use sidekicks_contracts::jsonrpc::message::JsonRpcErrorData;
+    use sidekicks_contracts::jsonrpc::refusal::{
+        KnownRefusalCategory, RefusalCategory, RefusalCode,
+    };
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_contracts::wire::record::JsonRecord;
 
-    use super::{report_failure, run_program};
+    use super::{report_failure, run_program, write_repairing_line};
     use crate::command_context::CommandContext;
     use crate::exit_codes::{ExitCode, ProcessEnding};
 
@@ -218,7 +335,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::failing_body(anyhow!("the body failed"), "error: the body failed\n", ExitCode::Software)]
+    #[case::failing_body(
+        anyhow!("the body failed"),
+        "error: the body failed\n",
+        ExitCode::Software
+    )]
     #[case::unmapped_daemon_number(
         ClientError::Remote(RemoteError {
             code: -32_099,
@@ -228,6 +349,21 @@ mod tests {
         "error: an unknown code\n\
          error: The background service returned error code -32099, which has no exit code\n",
         ExitCode::Software
+    )]
+    #[case::repairing_with_no_count(
+        repairing(None).into(),
+        "error: Repairing saved sessions after an unexpected shutdown…\n",
+        ExitCode::Unavailable
+    )]
+    #[case::repairing_with_its_count(
+        repairing(Some(serde_json::json!({ "progress": { "done": 12, "total": 34 } }))).into(),
+        "error: Repairing saved sessions after an unexpected shutdown · 12 of 34\n",
+        ExitCode::Unavailable
+    )]
+    #[case::repairing_with_a_count_that_does_not_read(
+        repairing(Some(serde_json::json!({ "progress": { "done": "many" } }))).into(),
+        "error: Repairing saved sessions after an unexpected shutdown…\n",
+        ExitCode::Unavailable
     )]
     fn a_failure_is_one_error_line_on_stderr_and_nothing_on_stdout(
         #[case] failure: anyhow::Error,
@@ -239,5 +375,42 @@ mod tests {
         assert_eq!(ending, ProcessEnding::Exit(expected));
         assert_eq!(context.stdout, b"");
         assert_eq!(String::from_utf8(context.stderr).expect("UTF-8"), reported);
+    }
+
+    /// The `daemon.repairing` refusal, its detail `fields`.
+    fn repairing(fields: Option<serde_json::Value>) -> ClientError {
+        ClientError::Remote(RemoteError {
+            code: i64::from(JsonRpcErrorCode::DomainRefusal.code()),
+            message: "repairing".to_owned(),
+            data: Some(JsonRpcErrorData {
+                refusal: RefusalCode::DaemonRepairing.as_str().to_owned(),
+                category: RefusalCategory::Known(KnownRefusalCategory::Unavailable),
+                fields: fields.map(|fields| {
+                    serde_json::from_value::<JsonRecord>(fields).expect("the detail is a record")
+                }),
+            }),
+        })
+    }
+
+    #[rstest]
+    #[case::grouped_as_the_us_writes_them(Some("en-US"), "1,234 of 56,789")]
+    #[case::grouped_as_germany_writes_them(Some("de-DE"), "1.234 of 56.789")]
+    #[case::plain_digits_for_the_posix_locale(None, "1234 of 56789")]
+    fn the_repairing_line_groups_its_counts_as_the_locale_writes_numbers(
+        #[case] locale: Option<&str>,
+        #[case] counts: &str,
+    ) {
+        let locale = locale.map(|tag| tag.parse().expect("a locale"));
+        let parts = describe_daemon_repairing_line(Some(DaemonRepairProgress {
+            done: SafeInt::new(1_234).expect("a safe integer"),
+            total: SafeInt::new(56_789).expect("a safe integer"),
+        }));
+
+        let line = write_repairing_line(parts, locale.as_ref());
+
+        assert_eq!(
+            line,
+            format!("Repairing saved sessions after an unexpected shutdown · {counts}")
+        );
     }
 }

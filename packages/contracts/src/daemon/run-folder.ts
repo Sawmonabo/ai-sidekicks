@@ -1,13 +1,16 @@
-// The daemon's run folder on macOS and Linux: the person's own folder holding the Unix domain
-// socket the daemon binds and every client (the desktop's main process, the command line) connects
-// to, and the session token the daemon writes at each start and every client presents. Pure, so
-// the daemon and its clients resolve the same paths from the facts each reads off its own process.
+// The daemon's run folder: the person's own folder holding the session token the daemon writes at
+// each start and every client (the desktop's main process, the command line) presents, and on
+// macOS and Linux the Unix domain socket the daemon binds and every client connects to; on Windows
+// that socket is the person's own named pipe. Pure, so the daemon and its clients resolve the same
+// paths from the facts each reads off its own process.
 
+const RUN_FOLDER_NAME = "ai-sidekicks";
+const RUN_SUBFOLDER_NAME = "run";
 const SOCKET_FILE_NAME = "daemon.sock";
 const SESSION_TOKEN_FILE_NAME = "daemon.token";
 
-/** What the run folder is resolved from; each side reads these off its own process. */
-export interface DaemonRunFolderFacts {
+/** What the run folder is resolved from on macOS and Linux, read off each side's own process. */
+export interface PosixDaemonRunFolderFacts {
   /** `XDG_RUNTIME_DIR`, or `undefined` where it is unset (macOS, and Linux without a session). */
   readonly runtimeDirectory: string | undefined;
   /** `os.tmpdir()`. */
@@ -16,24 +19,48 @@ export interface DaemonRunFolderFacts {
   readonly userId: number;
 }
 
-/** The run folder and the two files in it. */
+/** What the run folder is resolved from on Windows, read off each side's own process. */
+export interface WindowsDaemonRunFolderFacts {
+  /** The person's local application data folder, the known folder `FOLDERID_LocalAppData`. */
+  readonly localAppDataDirectory: string;
+  /** The person's user id as SDDL text (`S-1-5-21-…`), which names their named pipe. */
+  readonly userSid: string;
+}
+
+/** What the run folder is resolved from, by the system's own facts. */
+export type DaemonRunFolderFacts = PosixDaemonRunFolderFacts | WindowsDaemonRunFolderFacts;
+
+/** The run folder, the daemon's socket and its token file. */
 export interface DaemonRunFolder {
   readonly folderPath: string;
+  /** A socket file in the folder on macOS and Linux, the person's own named pipe on Windows. */
   readonly socketPath: string;
   /** The session token file, rewritten with a new token at every daemon start. */
   readonly tokenPath: string;
 }
 
 /**
- * Resolves the run folder on macOS or Linux: `$XDG_RUNTIME_DIR/ai-sidekicks` where the session
+ * Resolves the run folder. On macOS or Linux: `$XDG_RUNTIME_DIR/ai-sidekicks` where the session
  * provides one, and otherwise `<temporary folder>/ai-sidekicks-<uid>`, kept per person because a
- * temporary folder can be shared.
+ * temporary folder can be shared, the socket and the token in it. On Windows:
+ * `<local app data>\ai-sidekicks\run` holding the token, and the named pipe
+ * `\\.\pipe\ai-sidekicks-<user SID>`.
  */
 export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFolder {
+  if ("userSid" in facts) {
+    const localAppData = trimTrailingSeparator(facts.localAppDataDirectory, "\\");
+    const folderPath = `${localAppData}\\${RUN_FOLDER_NAME}\\${RUN_SUBFOLDER_NAME}`;
+    return {
+      folderPath,
+      socketPath: `\\\\.\\pipe\\${RUN_FOLDER_NAME}-${facts.userSid}`,
+      tokenPath: `${folderPath}\\${SESSION_TOKEN_FILE_NAME}`,
+    };
+  }
+  const temporaryDirectory = trimTrailingSeparator(facts.temporaryDirectory, "/");
   const folderPath =
     facts.runtimeDirectory !== undefined && facts.runtimeDirectory.length > 0
-      ? `${trimTrailingSlash(facts.runtimeDirectory)}/ai-sidekicks`
-      : `${trimTrailingSlash(facts.temporaryDirectory)}/ai-sidekicks-${String(facts.userId)}`;
+      ? `${trimTrailingSeparator(facts.runtimeDirectory, "/")}/${RUN_FOLDER_NAME}`
+      : `${temporaryDirectory}/${RUN_FOLDER_NAME}-${String(facts.userId)}`;
   return {
     folderPath,
     socketPath: `${folderPath}/${SOCKET_FILE_NAME}`,
@@ -42,18 +69,18 @@ export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFo
 }
 
 /**
- * The run folder on Windows, which has none: the service is reached through its per-user named
- * pipe. Always throws.
+ * The run folder of a Windows operating-system object: neither desktop main nor the TypeScript
+ * daemon reads the person's SID, which names the pipe. Always throws.
  */
 export function refuseWindowsDaemonRunFolder(): never {
   throw new Error(
-    "On Windows the background service is reached through its per-user named pipe, not a " +
-      "Unix domain socket",
+    "On Windows the person's SID, which names the background service's pipe, is not read here",
   );
 }
 
-function trimTrailingSlash(folder: string): string {
-  return folder.length > 1 && folder.endsWith("/") ? folder.slice(0, -1) : folder;
+// `folder` with one trailing `separator` removed when it is longer than one character.
+function trimTrailingSeparator(folder: string, separator: string): string {
+  return folder.length > 1 && folder.endsWith(separator) ? folder.slice(0, -1) : folder;
 }
 
 /** What `lstat` reports about the run folder, as much as {@link assertPrivateRunFolder} reads. */
