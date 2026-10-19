@@ -2,73 +2,26 @@
 
 use std::error::Error;
 use std::fmt::Write as _;
-use std::path::PathBuf;
-use std::sync::Arc;
 
 use rstest::rstest;
-use serde_json::Map;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{
-    CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBinding,
-    RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig, RuntimeBindingStore,
-    read_binding,
+    RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
+    RuntimeBindingStore, read_binding,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::contract::{
-    DriverCliVersionReport, SessionToolServer, SpawnedVersionBindingCarriers, SubagentDefinition,
-    SubagentPolicy,
-};
+use crate::provider::driver::contract::{SessionToolServer, SubagentDefinition, SubagentPolicy};
 use crate::provider::left_conversations::LeftConversation;
+use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::uuid_v7::mint_uuid_v7;
-
-async fn open_store(database: &TestDatabase) -> RuntimeBindingStore {
-    let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-        .await
-        .expect("the writer opens its database");
-    let reads = DatabaseReadPool::new(database.path(), RUNTIME_BINDING_STORE_STATEMENT_CAPACITY);
-    RuntimeBindingStore::new(Arc::new(reads), Arc::new(writer))
-}
 
 fn token(text: &str) -> ProviderToken {
     FreeFormText::new(text.to_owned()).expect("the test's token is valid text")
-}
-
-// One spawned build's reading: its version and where it ran.
-fn spawned_build(version: &str, path: &str) -> SpawnedVersionBindingCarriers {
-    SpawnedVersionBindingCarriers {
-        cli_version: DriverCliVersionReport {
-            raw_version: version.to_owned(),
-            parsed_version: Some(version.to_owned()),
-        },
-        resolved_executable_path: PathBuf::from(path),
-    }
-}
-
-// A binding of a fresh run on the table's first provider, on conversation `conversation-1`.
-fn binding_input(
-    spawn_config: RuntimeBindingSpawnConfig,
-    spawned_version: SpawnedVersionBindingCarriers,
-) -> CreateRuntimeBindingInput {
-    CreateRuntimeBindingInput {
-        run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
-        provider_name: ProviderId::new(PROVIDERS[0].id.to_owned())
-            .expect("a table id is a provider id"),
-        contract_version: FreeFormText::new("1.0.0".to_owned()).expect("a contract version"),
-        spawned_version,
-        resume_handle: Some("conversation-1".to_owned()),
-        spawn_config,
-        runtime_metadata: Map::new(),
-    }
 }
 
 async fn create(

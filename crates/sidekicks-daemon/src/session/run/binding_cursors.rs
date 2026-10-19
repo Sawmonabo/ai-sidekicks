@@ -300,10 +300,9 @@ fn drop_run(session: &mut SessionCursors, epochs: &mut ExecutionEpochs, run_id: 
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
-    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
-    use serde_json::{Map, json};
+    use serde_json::json;
     use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -311,21 +310,15 @@ mod tests {
     use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
-    use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::events::session::followers::CommittedEvent;
-    use crate::provider::driver::contract::{
-        DriverCliVersionReport, SpawnedVersionBindingCarriers,
-    };
-    use crate::provider::driver::registry::test_provider;
     use crate::provider::runtime_binding::store::{
-        CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY,
-        RuntimeBindingSpawnConfig, RuntimeBindingStore,
+        CreateRuntimeBindingInput, RuntimeBindingSpawnConfig,
     };
+    use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
     use crate::session::run::engine::tests::insert_running_run;
     use crate::session::run::epochs::ExecutionEpochs;
     use crate::uuid_v7::mint_uuid_v7;
@@ -340,16 +333,7 @@ mod tests {
     impl Harness {
         async fn new() -> Self {
             let database = TestDatabase::new();
-            let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-                .await
-                .expect("the writer opens its database");
-            let store = RuntimeBindingStore::new(
-                Arc::new(DatabaseReadPool::new(
-                    database.path(),
-                    RUNTIME_BINDING_STORE_STATEMENT_CAPACITY,
-                )),
-                Arc::new(writer),
-            );
+            let store = open_store(&database).await;
             let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
                 NonZeroUsize::new(8).expect("the cap is not zero"),
             )));
@@ -381,19 +365,10 @@ mod tests {
             self.cursors
                 .create(CreateRuntimeBindingInput {
                     run_id,
-                    provider_name: test_provider(),
-                    contract_version: FreeFormText::new("1.0.0".to_owned())
-                        .expect("a contract version"),
-                    spawned_version: SpawnedVersionBindingCarriers {
-                        cli_version: DriverCliVersionReport {
-                            raw_version: "2.0.0".to_owned(),
-                            parsed_version: Some("2.0.0".to_owned()),
-                        },
-                        resolved_executable_path: PathBuf::from("/opt/provider/bin"),
-                    },
-                    resume_handle: None,
-                    spawn_config: RuntimeBindingSpawnConfig::default(),
-                    runtime_metadata: Map::new(),
+                    ..binding_input(
+                        RuntimeBindingSpawnConfig::default(),
+                        spawned_build("2.0.0", "/opt/provider/bin"),
+                    )
                 })
                 .await
                 .expect("the binding is recorded")

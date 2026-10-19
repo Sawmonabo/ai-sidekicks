@@ -4,3 +4,5 @@
 pub(crate) mod live_runs;
 pub(crate) mod resume;
 pub(crate) mod store;
+#[cfg(test)]
+pub(crate) mod test_store;
