@@ -36,9 +36,23 @@ use crate::recovery::projection_rebuild::{
 };
 
 // The asks a workflow gate's answer names, which outlive the clear.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 const GATE_NAMED_ASKS_SQL: &str = "SELECT approval_request_id FROM workflow_gate_resolutions";
 
 // The session's answers, but those of the asks the clear keeps.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 static CLEAR_RESOLUTIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "DELETE FROM approval_resolutions
@@ -47,6 +61,13 @@ static CLEAR_RESOLUTIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 static CLEAR_REQUESTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "DELETE FROM approval_requests
@@ -56,6 +77,13 @@ static CLEAR_REQUESTS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // Each of the session's asks a gate's answer names that the fold left pending takes the newest
 // gate answer's outcome and instant, the words a decision and an ask's state share.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 static SETTLE_AS_GATES_ANSWERED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE approval_requests
@@ -70,6 +98,13 @@ static SETTLE_AS_GATES_ANSWERED_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Every type the fold reads: an ask, its answer either way, its cancellation and its rule.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 const APPROVALS_EVENT_TYPES: [SessionEventType; 5] = [
     SessionEventType::ApprovalRequested,
     SessionEventType::ApprovalApproved,
@@ -177,6 +212,13 @@ impl SessionProjectionFold for ApprovalsProjection {
 }
 
 // An answer settles its pending ask and records itself, over the answer a gate-named ask kept.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 fn push_answer(
     resolved: &ApprovalResolvedPayload,
     decision: ApprovalDecision,
@@ -200,6 +242,13 @@ fn push_answer(
 }
 
 // A statement over the session's rows, which any number of them may match.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 fn session_statement(sql: &'static LazyLock<String>, session_id: &SessionId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(sql.as_str()),
