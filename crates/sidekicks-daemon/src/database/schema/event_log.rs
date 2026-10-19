@@ -29,7 +29,7 @@ pub(super) fn event_log_schema_sql() -> String {
     format!(
         "
 -- ---------------------------------------------------------------------------
--- session_events: the append-only event log.
+-- {SESSION_EVENTS_TABLE}: the append-only event log.
 -- ---------------------------------------------------------------------------
 CREATE TABLE {SESSION_EVENTS_TABLE} (
   id                TEXT PRIMARY KEY,
@@ -62,35 +62,38 @@ CREATE TABLE {SESSION_EVENTS_TABLE} (
   UNIQUE (session_id, sequence)
 ) STRICT;
 
-CREATE INDEX idx_session_events_type ON session_events(session_id, type);
+CREATE INDEX idx_session_events_type ON {SESSION_EVENTS_TABLE}(session_id, type);
 -- The sessions that skipped a damaged range, few or none, so a read over many sessions' rows
 -- probes the skipped ranges of those sessions alone.
-CREATE INDEX idx_session_events_skipped ON session_events(session_id)
+CREATE INDEX idx_session_events_skipped ON {SESSION_EVENTS_TABLE}(session_id)
   WHERE type = '{skipped_type}';
 -- One run's events of one type in log order, for the reads that seed a run's turns and that find
 -- a live run's agent and newest touch.
-CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence)
+CREATE INDEX idx_session_events_run ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)
   WHERE run_id IS NOT NULL;
 -- One run's events that name an actor, in log order, for the read that finds who acts for a run.
-CREATE INDEX idx_session_events_run_actor ON session_events(session_id, run_id, sequence)
+CREATE INDEX idx_session_events_run_actor ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)
   WHERE run_id IS NOT NULL AND actor IS NOT NULL;
-CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
+CREATE INDEX idx_session_events_correlation ON {SESSION_EVENTS_TABLE}(correlation_id)
   WHERE correlation_id IS NOT NULL;
 -- At most one terminal event per run version. A NULL key would pass a UNIQUE index, so the
 -- triggers below refuse one.
-CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version)
+CREATE UNIQUE INDEX idx_session_events_run_terminal_once
+  ON {SESSION_EVENTS_TABLE}(run_id, run_version)
   WHERE category = '{run_lifecycle}' AND type IN ({terminal_types});
 -- Every started turn gets exactly one end; a late turn end is the one row a run's log takes after
 -- its terminal row. A NULL key would pass a UNIQUE index, so the triggers below refuse one.
-CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number)
+CREATE UNIQUE INDEX idx_session_events_turn_end_once
+  ON {SESSION_EVENTS_TABLE}(run_id, turn_number)
   WHERE category = '{run_lifecycle}' AND type IN ({turn_end_types});
 -- A turn number starts once in its run: a start that raced another to the same number is refused
 -- and numbered again. A NULL key would pass a UNIQUE index, so the trigger below refuses one.
-CREATE UNIQUE INDEX idx_session_events_turn_start_once ON session_events(run_id, turn_number)
+CREATE UNIQUE INDEX idx_session_events_turn_start_once
+  ON {SESSION_EVENTS_TABLE}(run_id, turn_number)
   WHERE category = '{run_lifecycle}' AND type = '{TURN_STARTED_EVENT_TYPE}';
 
 -- A terminal insert must carry its run's key.
-CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
+CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON {SESSION_EVENTS_TABLE}
 WHEN NEW.category = '{run_lifecycle}'
   AND NEW.type IN ({terminal_types})
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL)
@@ -101,7 +104,7 @@ END;
 -- A committed terminal row keeps its key and cannot be moved out of the index's predicate. IS NOT,
 -- not <>, so a NULL operand still yields true or false.
 CREATE TRIGGER trg_run_terminal_key_update
-BEFORE UPDATE OF run_id, run_version, category, type ON session_events
+BEFORE UPDATE OF run_id, run_version, category, type ON {SESSION_EVENTS_TABLE}
 WHEN OLD.category = '{run_lifecycle}'
   AND OLD.type IN ({terminal_types})
   AND (NEW.run_id IS NULL OR NEW.run_version IS NULL
@@ -112,7 +115,8 @@ BEGIN
 END;
 
 -- Terminal rows are insert-only: no update may promote a row into the index.
-CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
+CREATE TRIGGER trg_run_terminal_key_promote
+BEFORE UPDATE OF category, type ON {SESSION_EVENTS_TABLE}
 WHEN NOT (OLD.category = '{run_lifecycle}' AND OLD.type IN ({terminal_types}))
   AND NEW.category = '{run_lifecycle}'
   AND NEW.type IN ({terminal_types})
@@ -122,7 +126,7 @@ BEGIN
 END;
 
 -- A turn-end insert must carry its turn's key.
-CREATE TRIGGER trg_turn_end_key_insert BEFORE INSERT ON session_events
+CREATE TRIGGER trg_turn_end_key_insert BEFORE INSERT ON {SESSION_EVENTS_TABLE}
 WHEN NEW.category = '{run_lifecycle}'
   AND NEW.type IN ({turn_end_types})
   AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL)
@@ -132,7 +136,7 @@ END;
 
 -- A committed turn end keeps its key and cannot be moved out of the index's predicate.
 CREATE TRIGGER trg_turn_end_key_update
-BEFORE UPDATE OF run_id, turn_number, category, type ON session_events
+BEFORE UPDATE OF run_id, turn_number, category, type ON {SESSION_EVENTS_TABLE}
 WHEN OLD.category = '{run_lifecycle}'
   AND OLD.type IN ({turn_end_types})
   AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL
@@ -143,7 +147,8 @@ BEGIN
 END;
 
 -- Turn ends are insert-only: no update may promote a row into the index.
-CREATE TRIGGER trg_turn_end_key_promote BEFORE UPDATE OF category, type ON session_events
+CREATE TRIGGER trg_turn_end_key_promote
+BEFORE UPDATE OF category, type ON {SESSION_EVENTS_TABLE}
 WHEN NOT (OLD.category = '{run_lifecycle}' AND OLD.type IN ({turn_end_types}))
   AND NEW.category = '{run_lifecycle}'
   AND NEW.type IN ({turn_end_types})
@@ -153,7 +158,7 @@ BEGIN
 END;
 
 -- A turn-start insert must carry its turn's key.
-CREATE TRIGGER trg_turn_start_key_insert BEFORE INSERT ON session_events
+CREATE TRIGGER trg_turn_start_key_insert BEFORE INSERT ON {SESSION_EVENTS_TABLE}
 WHEN NEW.category = '{run_lifecycle}'
   AND NEW.type = '{TURN_STARTED_EVENT_TYPE}'
   AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL)
@@ -167,7 +172,7 @@ CREATE TABLE session_snapshots (
   as_of_sequence  INTEGER NOT NULL,             -- reflects events up to this sequence
   state_blob      BLOB NOT NULL,
   created_at      TEXT NOT NULL,
-  FOREIGN KEY (session_id, as_of_sequence) REFERENCES session_events(session_id, sequence)
+  FOREIGN KEY (session_id, as_of_sequence) REFERENCES {SESSION_EVENTS_TABLE}(session_id, sequence)
 ) STRICT;
 
 CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_of_sequence);

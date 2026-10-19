@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use sidekicks_search::index::IndexRowKind;
 
+use crate::database::schema::SESSION_EVENTS_TABLE;
 use crate::database::sql_list::sql_list_of_every;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 use crate::session::search::index::columns::index_key_sql;
@@ -112,7 +113,7 @@ fn search_index_schema_sql() -> String {
         "OLD.session_id",
     );
     let activity_tag_key = index_key_sql("tag.rowid", IndexRowKind::Tag);
-    let event_floor = rowid_floor_trigger_sql("session_events", IndexRowKind::Event);
+    let event_floor = rowid_floor_trigger_sql(SESSION_EVENTS_TABLE, IndexRowKind::Event);
     let title_floor = rowid_floor_trigger_sql("sessions", IndexRowKind::Title);
     let group_floor = rowid_floor_trigger_sql("session_groups", IndexRowKind::Group);
     let tag_floor = rowid_floor_trigger_sql("session_tags", IndexRowKind::Tag);
@@ -144,7 +145,7 @@ CREATE TABLE session_search_outbox (
 -- Settled rows only, as they are appended. A purge deletes a session's log rows with its directory
 -- row, whose trigger takes every row the session owns out; a repair of the database file rewrites
 -- log rows with no outbox row and drops the whole index, which is built again.
-CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
+CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON {SESSION_EVENTS_TABLE}
 WHEN NEW.type IN ({indexed_event_types})
 BEGIN
   {event_insert}
@@ -152,12 +153,12 @@ END;
 
 -- A damaged session continued from its last good point skips a range of its log that no read takes
 -- again, so each settled row in it is read again, and found gone.
-CREATE TRIGGER trg_session_search_events_skipped AFTER INSERT ON session_events
+CREATE TRIGGER trg_session_search_events_skipped AFTER INSERT ON {SESSION_EVENTS_TABLE}
 WHEN NEW.type = '{skipped_type}'
 BEGIN
   INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
   SELECT {skipped_key}, '{event}', session.rowid, '{row}'
-    FROM session_events AS skipped
+    FROM {SESSION_EVENTS_TABLE} AS skipped
     JOIN sessions AS session ON session.id = skipped.session_id
    WHERE skipped.session_id = NEW.session_id
      AND skipped.type IN ({indexed_event_types})
