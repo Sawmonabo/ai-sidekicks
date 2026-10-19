@@ -23,11 +23,12 @@ const PROCESS_IDENTITY_TEXT_MAX_LEN: usize = 128;
 pub struct ProcessIdentity {
     /// The operating-system process id.
     pub process_id: SafeInt<1>,
-    /// The id of the boot the process runs in: Linux's boot id, macOS's boot session id.
+    /// The id of the boot the process runs in: Linux's boot id, macOS's boot session id; on Windows
+    /// one fixed word, since Windows keeps no boot mark a change of the clock leaves alone.
     pub boot_id: BoundedText<1, PROCESS_IDENTITY_TEXT_MAX_LEN>,
     /// The system's own record of when the process started, as the system writes it: Linux's
-    /// clock ticks since boot, macOS's start instant. Compared only for equality, never read as a
-    /// time, so a change of the clock does not change it.
+    /// clock ticks since boot, macOS's start instant, Windows' creation time. Compared only for
+    /// equality, never read as a time, so a change of the clock does not change it.
     pub process_start_time: BoundedText<1, PROCESS_IDENTITY_TEXT_MAX_LEN>,
 }
 
