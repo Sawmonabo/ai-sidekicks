@@ -24,7 +24,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::events::session::appender::SessionEventDraft;
-use crate::session::run::engine::live::lock;
+use crate::session::run::engine::live::{StepInterruptGuard, lock};
+use crate::session::run::engine::turns::mark_step_limit_reached;
 use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, refused_statement_index};
 use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::read::RunRead;
@@ -186,11 +187,12 @@ impl RunEngine {
     /// else the newest open turn) and the limit it reaches are remembered before the limit's
     /// reached event is written while the run is live (a token limit's once per run, none for the
     /// spend limit or a stop retried at a limit whose reached event landed), then the interrupt
-    /// goes to the interventions service. The stop waits out a continue of the run. A run that has
-    /// ended, a step stop whose turn ended before its cut went in, and a token stop whose
-    /// once-per-run guard refused while the token limit's own interrupt is still pending are left
-    /// with the cuts as they were and nothing written; a run the limit's end may not leave its
-    /// state from is refused with nothing written. Fails with
+    /// goes to the interventions service; the step limit's goes one hand at a time, and a stop
+    /// that finds one in flight leaves the run to it. The stop waits out a continue of the run. A
+    /// run that has ended, a step stop whose turn ended before its cut went in, and a token stop
+    /// whose once-per-run guard refused while the token limit's own interrupt is still pending are
+    /// left with the cuts as they were and nothing written; a run the limit's end may not leave
+    /// its state from is refused with nothing written. Fails with
     /// [`RunEngineError::LimitInterrupterGone`], nothing written, when the engine holds no live
     /// interventions service, and with [`RunEngineError::LimitInterrupt`] when the service fails,
     /// the reached event, the cut and the memory kept for the stop's retry.
@@ -264,25 +266,65 @@ impl RunEngine {
             }
             return reached.map(drop);
         }
-        if let LimitStop::Step { turn_number, .. } = stop {
-            self.mark_step_limit_reached(&run_id, turn_number);
+        // A turn that reached the step limit, or that the step limit's interrupt alone cuts once
+        // it is handed, reaches no stop of its own after.
+        let handed_turn = match stop {
+            LimitStop::Step { turn_number, .. } => {
+                mark_step_limit_reached(&mut lock(&self.live), &run_id, turn_number);
+                None
+            }
+            LimitStop::Interrupt {
+                limit: RunLimit::StepLimit,
+            } => cut.map(|((_, turn_number), _)| turn_number),
+            LimitStop::Interrupt { .. } | LimitStop::Token { .. } => None,
+        };
+        let is_handed = self
+            .hand_limit_interrupt(run_id, limit, handed_turn)
+            .await?;
+        if !is_handed
+            && let LimitStop::Interrupt { .. } = stop
+            && let Some((key, earlier)) = cut
+        {
+            // The step limit's interrupt another hand has in flight stops the run, so this stop
+            // cut nothing.
+            lock(&self.live).restore_cut(key, own_cut, earlier);
         }
-        self.hand_limit_interrupt(run_id, limit).await
+        Ok(())
     }
 
     // Hands the interventions service the interrupt of `run_id` at `limit` and, once it is handed,
-    // forgets the limit. Fails as the service is gone or fails, the limit kept for the retry.
+    // forgets the limit and marks `cut_turn`'s count reached; answers whether it went. The
+    // step limit's goes one hand at a time, so one that finds another in flight is left to it.
+    // Fails as the service is gone or fails, the limit kept for the retry.
     async fn hand_limit_interrupt(
         &self,
         run_id: RunId,
         limit: RunLimit,
-    ) -> Result<(), RunEngineError> {
-        self.live_limit_interrupter(run_id)?
+        cut_turn: Option<SafeInt<1>>,
+    ) -> Result<bool, RunEngineError> {
+        let interrupter = self.live_limit_interrupter(run_id)?;
+        let _in_flight = match limit {
+            RunLimit::StepLimit => {
+                if !lock(&self.live).step_interrupts_in_flight.insert(run_id) {
+                    return Ok(false);
+                }
+                Some(StepInterruptGuard {
+                    live: &self.live,
+                    run_id,
+                })
+            }
+            RunLimit::SpendLimit | RunLimit::TokenLimit => None,
+        };
+        interrupter
             .interrupt_for_limit(run_id, limit)
             .await
             .map_err(|source| RunEngineError::LimitInterrupt { run_id, source })?;
-        lock(&self.live).reached_limits.remove(&(run_id, limit));
-        Ok(())
+        let mut live = lock(&self.live);
+        live.reached_limits.remove(&(run_id, limit));
+        if let Some(turn_number) = cut_turn {
+            mark_step_limit_reached(&mut live, &run_id, turn_number);
+        }
+        Ok(true)
     }
 
     // The interventions service the engine was handed, while it runs. Fails with

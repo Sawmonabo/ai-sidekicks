@@ -477,7 +477,8 @@ async fn a_later_turn_reaching_its_bound_writes_its_own_reached_event_and_one_ha
 
 // Killed by the step interrupt handed again at a turn's end going straight to the interventions
 // service: the open turn it cuts then holds no cut, and ends with the limit only when the run's
-// end lands before its provider's frame.
+// end lands before its provider's frame; and by the hand leaving that turn's count unmarked, so
+// its own bound writes a second reached event and sends a second interrupt.
 #[rstest]
 #[case::run_end_first(true)]
 #[case::provider_end_first(false)]
@@ -509,11 +510,18 @@ async fn a_step_interrupt_handed_again_cuts_the_open_turn_whichever_end_lands_fi
         matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
         "the stop answers {refused:?}"
     );
+    arm_step_count(&engine, run_id, 2, 1);
     let turn_one_ended = engine
         .record_turn_end(run_id, provider_end(1))
         .await
         .expect("the provider's end of the cut turn is written");
     assert!(turn_one_ended.resend_failure.is_none());
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), 2);
+    // Turn 2, which the interrupt cut, reaching its own bound writes and sends nothing more.
+    engine
+        .count_step(run_id)
+        .await
+        .expect("turn 2's step is counted");
     assert_eq!(interventions.calls.load(Ordering::SeqCst), 2);
 
     // The interventions service ends the run with the limit it accepted at version 1.
@@ -547,6 +555,66 @@ async fn a_step_interrupt_handed_again_cuts_the_open_turn_whichever_end_lands_fi
         )
         .expect("turn 2 holds one end");
     assert_eq!(turn_two_cause.as_deref(), Some("stepLimit"));
+}
+
+// Killed by a turn's reached write waiting on the step limit's interrupt another hand has in
+// flight, which leaves turn 2 with no reached event of its own, and by the hand going while that
+// one is in flight, which sends a second interrupt.
+#[tokio::test]
+async fn a_turn_reaching_its_bound_while_a_resend_is_in_flight_writes_its_reached_event_once() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 1);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    arm_step_count(&engine, run_id, 1, 1);
+    let refused = engine.count_step(run_id).await;
+    assert!(
+        matches!(refused, Err(RunEngineError::LimitInterrupt { .. })),
+        "the stop answers {refused:?}"
+    );
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 2, 1),
+    )
+    .await;
+    arm_step_count(&engine, run_id, 2, 1);
+    // A resend of turn 1's interrupt is in flight.
+    lock(&engine.live).step_interrupts_in_flight.insert(run_id);
+
+    for _step in 1..=2 {
+        engine
+            .count_step(run_id)
+            .await
+            .expect("a step leaves the run to the hand in flight");
+    }
+
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        lock(&engine.live)
+            .reached_limits
+            .contains(&(run_id, RunLimit::StepLimit)),
+        "the limit stays owed for the hand in flight"
+    );
+    assert_eq!(
+        stored_events(&database, &run_id),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+            ("agent.turn.started", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+        ])
+    );
 }
 
 // Killed by a step stop writing its reached event and sending its interrupt for a turn that
