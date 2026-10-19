@@ -4,12 +4,14 @@
 
 use std::ffi::OsStr;
 use std::io::{self, ErrorKind};
-use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
+use std::os::windows::io::{
+    AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
-    ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_PARAMETER, FALSE, FILETIME, HANDLE,
+    ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_PARAMETER, FALSE, FILETIME,
     WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::JobObjects::{
@@ -116,8 +118,8 @@ impl PinnedProcess {
     // Ends the process alone. Windows refuses the end of a process already ending with
     // `ERROR_ACCESS_DENIED`, which answers `Ok`: the wait after it and the exit code decide.
     fn terminate_process(&self) -> io::Result<()> {
-        // SAFETY: the handle is open while `self` lives and carries the right to end the process.
-        if unsafe { TerminateProcess(self.handle(), KILLED_EXIT_CODE) } == FALSE {
+        // SAFETY: the call reads the borrowed handle and writes nothing.
+        if unsafe { TerminateProcess(self.handle().as_raw_handle(), KILLED_EXIT_CODE) } == FALSE {
             let error = io::Error::last_os_error();
             if win32_code(&error) != Some(ERROR_ACCESS_DENIED) {
                 return Err(error);
@@ -127,12 +129,11 @@ impl PinnedProcess {
     }
 
     /// The handle the process is read through: its open handle, or this process's pseudo-handle.
-    pub(crate) fn handle(&self) -> HANDLE {
-        self.process.as_ref().map_or_else(
-            // SAFETY: the call takes nothing and answers this process's pseudo-handle.
-            || unsafe { GetCurrentProcess() },
-            |process| process.as_raw_handle(),
-        )
+    pub(crate) fn handle(&self) -> BorrowedHandle<'_> {
+        match &self.process {
+            Some(process) => process.as_handle(),
+            None => current_process(),
+        }
     }
 
     // Waits up to `bound` for the process's handle to signal its exit; answers whether it did.
@@ -141,8 +142,8 @@ impl PinnedProcess {
         let milliseconds = u32::try_from(bound.as_millis())
             .unwrap_or(u32::MAX)
             .min(INFINITE - 1);
-        // SAFETY: the handle is open while `self` lives and carries the right to wait on it.
-        match unsafe { WaitForSingleObject(self.handle(), milliseconds) } {
+        // SAFETY: the call reads the borrowed handle and writes nothing.
+        match unsafe { WaitForSingleObject(self.handle().as_raw_handle(), milliseconds) } {
             WAIT_OBJECT_0 => Ok(true),
             WAIT_TIMEOUT => Ok(false),
             WAIT_FAILED => Err(io::Error::last_os_error()),
@@ -179,7 +180,7 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
         )
     };
     let job = job.flatten().ok_or_else(not_its_job)?;
-    if !is_process_in_job(process.handle(), job.as_raw_handle())? {
+    if !is_process_in_job(process.handle(), Some(job.as_handle()))? {
         return Err(not_its_job());
     }
     process.job = Some(name.clone());
@@ -300,26 +301,36 @@ fn count_active_processes(job: &OwnedHandle) -> io::Result<u32> {
 
 /// The exit code of `process`, open with the right to read it; final once the process has exited.
 /// Fails with the system's error.
-pub(crate) fn read_exit_code(process: HANDLE) -> io::Result<u32> {
+pub(crate) fn read_exit_code(process: BorrowedHandle<'_>) -> io::Result<u32> {
     let mut code = 0_u32;
-    // SAFETY: the handle is open with the right to read the process's exit, and the code points at
-    // a live `u32` the call writes.
-    if unsafe { GetExitCodeProcess(process, &raw mut code) } == FALSE {
+    // SAFETY: the code points at a live `u32`, the one thing the call writes.
+    if unsafe { GetExitCodeProcess(process.as_raw_handle(), &raw mut code) } == FALSE {
         return Err(io::Error::last_os_error());
     }
     Ok(code)
 }
 
-/// Whether `process` runs in `job`, or in any job when `job` is null; both handles carry the
+/// Whether `process` runs in `job`, or in any job when `job` is `None`; both handles carry the
 /// right to query them. Fails with the system's error.
-pub(crate) fn is_process_in_job(process: HANDLE, job: HANDLE) -> io::Result<bool> {
+pub(crate) fn is_process_in_job(
+    process: BorrowedHandle<'_>,
+    job: Option<BorrowedHandle<'_>>,
+) -> io::Result<bool> {
+    let job = job.map_or(std::ptr::null_mut(), |job| job.as_raw_handle());
     let mut is_in_job = FALSE;
-    // SAFETY: the handles are open with the right to query them, or the job's null, and the result
-    // points at a live `BOOL`.
-    if unsafe { IsProcessInJob(process, job, &raw mut is_in_job) } == FALSE {
+    // SAFETY: the result points at a live `BOOL`, the one thing the call writes; a null job asks
+    // about any job.
+    if unsafe { IsProcessInJob(process.as_raw_handle(), job, &raw mut is_in_job) } == FALSE {
         return Err(io::Error::last_os_error());
     }
     Ok(is_in_job != FALSE)
+}
+
+/// This process's pseudo-handle, which names this process wherever it is used.
+pub(crate) fn current_process() -> BorrowedHandle<'static> {
+    // SAFETY: the call takes nothing and answers this process's pseudo-handle, which is always
+    // valid and never closed.
+    unsafe { BorrowedHandle::borrow_raw(GetCurrentProcess()) }
 }
 
 /// The caller's own child `id`, held open; the caller's handle to the child keeps its id from
@@ -364,12 +375,11 @@ fn open_process(id: u32) -> io::Result<PinnedProcess> {
 }
 
 // The process's creation time, as one integer of 100-nanosecond intervals.
-fn read_creation_time(process: HANDLE) -> io::Result<u64> {
+fn read_creation_time(process: BorrowedHandle<'_>) -> io::Result<u64> {
     let mut times = [FILETIME::default(); 4];
     let [creation, exit, kernel, user] = &mut times;
-    // SAFETY: the handle is open and carries the right to read the process's times, and each
-    // pointer names a live `FILETIME` the call writes.
-    if unsafe { GetProcessTimes(process, creation, exit, kernel, user) } == FALSE {
+    // SAFETY: each pointer names a live `FILETIME`, the four things the call writes.
+    if unsafe { GetProcessTimes(process.as_raw_handle(), creation, exit, kernel, user) } == FALSE {
         return Err(io::Error::last_os_error());
     }
     Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))

@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, c_void};
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
-use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
+use std::os::windows::io::{
+    AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
+};
 use std::os::windows::process::ExitStatusExt as _;
 use std::process::ExitStatus;
 use std::sync::Arc;
@@ -27,7 +29,7 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
-    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, INFINITE,
+    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, INFINITE,
     InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcessToken,
     PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION,
     RegisterWaitForSingleObject, STARTF_USESTDHANDLES, STARTUPINFOEXW, UnregisterWaitEx,
@@ -37,7 +39,9 @@ use windows_sys::Win32::System::Threading::{
 use crate::lasting_child::{LastingChild, LastingCommand};
 use crate::path::rules::PathRules;
 use crate::path::rules::windows::command_line::compose_command_line;
-use crate::windows::pinned_process::{PinnedProcess, is_process_in_job, read_exit_code};
+use crate::windows::pinned_process::{
+    PinnedProcess, current_process, is_process_in_job, read_exit_code,
+};
 use crate::windows::wide_text::{refuse_nul, wide_text};
 
 // The start of every lasting child's job name; random bytes follow it.
@@ -60,8 +64,8 @@ const JOB_NAME_RANDOM_BYTES: usize = 16;
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
     let (job, job_name) = create_named_job()?;
     let null_device = OpenOptions::new().read(true).write(true).open("NUL")?;
-    let standard_stream = duplicate_inheritable(null_device.as_raw_handle())?;
-    let error_output = duplicate_inheritable(command.error_output.as_raw_handle())?;
+    let standard_stream = duplicate_inheritable(null_device.as_handle())?;
+    let error_output = duplicate_inheritable(command.error_output.as_handle())?;
     let mut program = wide_text(command.program.as_os_str())?;
     let mut command_line = compose_checked_command_line(&program, &command.arguments)?;
     program.push(0);
@@ -89,9 +93,7 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     startup.StartupInfo.hStdError = error_output.as_raw_handle();
     startup.lpAttributeList = attributes.list;
     let mut flags = CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW;
-    // SAFETY: the call takes nothing and answers this process's pseudo-handle; a null job asks
-    // about any job.
-    if is_process_in_job(unsafe { GetCurrentProcess() }, std::ptr::null_mut())? {
+    if is_process_in_job(current_process(), None)? {
         flags |= CREATE_BREAKAWAY_FROM_JOB;
     }
     // SAFETY: `PROCESS_INFORMATION` is a C struct of integers and handles, for which all zero
@@ -249,8 +251,15 @@ impl Drop for UserOnlyDescriptor {
 // This process's user's id as SDDL text (`S-1-5-21-…`).
 fn read_user_sid_text() -> io::Result<String> {
     let mut raw_token: HANDLE = std::ptr::null_mut();
-    // SAFETY: the pseudo-handle names this process, and the call writes a new token handle.
-    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut raw_token) } == FALSE {
+    // SAFETY: the call writes a new token handle.
+    if unsafe {
+        OpenProcessToken(
+            current_process().as_raw_handle(),
+            TOKEN_QUERY,
+            &raw mut raw_token,
+        )
+    } == FALSE
+    {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: the handle was just opened and is owned by nothing else.
@@ -306,15 +315,14 @@ fn read_user_sid_text() -> io::Result<String> {
 }
 
 // A new handle to what `handle` opens, inheritable, so the attribute list can name it.
-fn duplicate_inheritable(handle: HANDLE) -> io::Result<OwnedHandle> {
+fn duplicate_inheritable(handle: BorrowedHandle<'_>) -> io::Result<OwnedHandle> {
     let mut duplicate: HANDLE = std::ptr::null_mut();
-    // SAFETY: `handle` is open while its owner lives through the call, both process handles are
-    // this process's pseudo-handle, and the call writes the new handle.
+    // SAFETY: the call writes the new handle, the one thing it writes.
     if unsafe {
         DuplicateHandle(
-            GetCurrentProcess(),
-            handle,
-            GetCurrentProcess(),
+            current_process().as_raw_handle(),
+            handle.as_raw_handle(),
+            current_process().as_raw_handle(),
             &raw mut duplicate,
             0,
             TRUE,
@@ -436,9 +444,7 @@ async fn wait_for_exit(process: Arc<OwnedHandle>) -> io::Result<ExitStatus> {
     let registration = ExitRegistration::register(&process, Arc::clone(&exited))?;
     exited.notified().await;
     drop(registration);
-    Ok(ExitStatus::from_raw(read_exit_code(
-        process.as_raw_handle(),
-    )?))
+    Ok(ExitStatus::from_raw(read_exit_code(process.as_handle())?))
 }
 
 /// A one-shot wait the system's thread pool runs on a process handle, which notifies once the
