@@ -1,9 +1,10 @@
 //! The daemon's word that it started a terminal's `shell` mode, and the shell's launch with it, on
-//! Windows: the ConPTY start hands the mode no handle, so the daemon makes a named pipe of a fresh
-//! random name before the spawn and puts the name in the mode's environment; the daemon writes the
-//! launch only to the client whose process is the one it started, and the mode reads it only from
-//! a server whose process is the daemon its argument names. No other process can take the name
-//! first, and no remote client is let in.
+//! Windows: the `ConPTY` start hands the mode no handle, so the daemon makes a named pipe of a
+//! fresh random name before the spawn and puts the name in the mode's environment; the daemon
+//! writes the launch only to the client whose process is the one it started, and the mode reads it
+//! only from a server whose process is the daemon its argument names. No other process can take the
+//! name first, the pipe takes one client, only this user may open it, and no remote client is let
+//! in.
 
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
@@ -14,10 +15,12 @@ use std::os::windows::io::AsRawHandle as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use windows_sys::Win32::Foundation::FALSE;
+use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::Storage::FileSystem::SECURITY_IDENTIFICATION;
 use windows_sys::Win32::System::Pipes::{GetNamedPipeClientProcessId, GetNamedPipeServerProcessId};
 
 use crate::shell_start::{SHELL_START_CONFIRMATION, ShellLaunch};
+use crate::windows::process_user::UserOnlyDescriptor;
 
 // The start of every shell start's pipe name; the daemon's process id and random bytes follow.
 const PIPE_NAME_PREFIX: &str = r"\\.\pipe\ai-sidekicks-shell-";
@@ -37,9 +40,10 @@ pub struct ShellStartConfirmation {
 }
 
 impl ShellStartConfirmation {
-    /// Makes the pipe for the next shell's start, as its first and only instance and closed to
-    /// remote clients. Runs inside the runtime, on the daemon's spawner thread. Fails with the
-    /// system's error, `PermissionDenied` when a pipe of the drawn name already exists.
+    /// Makes the pipe for the next shell's start, as its first and only instance, open to this user
+    /// alone and closed to remote clients. Runs inside the runtime, on the daemon's spawner thread.
+    /// Fails with the system's error, `PermissionDenied` when a pipe of the drawn name already
+    /// exists.
     pub fn new() -> io::Result<Self> {
         let mut random = [0_u8; PIPE_NAME_RANDOM_BYTES];
         getrandom::fill(&mut random).map_err(io::Error::other)?;
@@ -47,10 +51,21 @@ impl ShellStartConfirmation {
         for byte in random {
             write!(name, "{byte:02x}").expect("a string takes any text written to it");
         }
-        let pipe = ServerOptions::new()
-            .first_pipe_instance(true)
-            .reject_remote_clients(true)
-            .create(&name)?;
+        let descriptor = UserOnlyDescriptor::new()?;
+        let mut attributes = SECURITY_ATTRIBUTES {
+            nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())
+                .expect("the attributes' size fits a u32"),
+            lpSecurityDescriptor: descriptor.as_raw(),
+            bInheritHandle: FALSE,
+        };
+        // SAFETY: the attributes and the descriptor they point to live across the call.
+        let pipe = unsafe {
+            ServerOptions::new()
+                .first_pipe_instance(true)
+                .max_instances(1)
+                .reject_remote_clients(true)
+                .create_with_security_attributes_raw(&name, (&raw mut attributes).cast())
+        }?;
         Ok(Self {
             pipe: Some(pipe),
             name,

@@ -4,7 +4,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 /// Whether a rename of a folder replaces an empty folder already at its destination: yes, as
@@ -19,6 +19,12 @@ pub fn create_new_file(path: &Path, mode: u32) -> io::Result<File> {
         .create_new(true)
         .mode(mode)
         .open(path)
+}
+
+/// Whether the entry at `path`, never followed through a link, has exactly the mode bits `mode`:
+/// its permission, set-id and sticky bits. Fails with the stat's error.
+pub fn has_file_mode(path: &Path, mode: u32) -> io::Result<bool> {
+    Ok(fs::symlink_metadata(path)?.permissions().mode() & 0o7777 == mode)
 }
 
 /// Renames `from` to `to` in one step: a file at `to` is replaced, and a folder renamed onto an

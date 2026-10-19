@@ -10,7 +10,7 @@ use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 
 #[cfg(target_os = "macos")]
-use crate::macos::pinned_process::pinned;
+use crate::macos::pinned_process::pin_running_process;
 #[cfg(target_os = "macos")]
 use crate::macos::processes::list_group_process_ids;
 use crate::posix::process::id::system_process_id;
@@ -121,15 +121,15 @@ fn live_group_members(id: u32) -> io::Result<Vec<u32>> {
     list_live_group_members(id)
 }
 
-// The members of group `id` that `pinned` answers for, which are the live ones: its lookup goes
-// through `proc_find`, which refuses a process still being made (`P_REF_NEW`) or already exiting
-// (`P_REF_DEAD`). The group listing (`PROC_PGRP_ONLY`) also lists exited members not yet reaped,
-// which that lookup leaves out.
+// The members of group `id` that `pin_running_process` answers for, which are the live ones: its
+// lookup goes through `proc_find`, which refuses a process still being made (`P_REF_NEW`) or
+// already exiting (`P_REF_DEAD`). The group listing (`PROC_PGRP_ONLY`) also lists exited members
+// not yet reaped, which that lookup leaves out.
 #[cfg(target_os = "macos")]
 fn list_live_group_members(id: u32) -> io::Result<Vec<u32>> {
     let mut members = Vec::new();
     for member in list_group_process_ids(id)? {
-        if pinned(member)?.is_some() {
+        if pin_running_process(member)?.is_some() {
             members.push(member);
         }
     }

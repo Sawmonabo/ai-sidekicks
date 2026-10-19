@@ -11,7 +11,7 @@ use sidekicks_contracts::wire::text::BoundedText;
 #[cfg(target_os = "linux")]
 use crate::linux::pinned_process::pin_running_process;
 #[cfg(target_os = "macos")]
-use crate::macos::pinned_process::pinned as pin_running_process;
+use crate::macos::pinned_process::pin_running_process;
 #[cfg(target_os = "windows")]
 use crate::windows::pinned_process::pin_running_process;
 

@@ -243,7 +243,7 @@ mod tests {
     use super::{DesktopClientRequirement, compile, signed_by_team};
     use crate::code_signature::{CodeSignatureError, SignatureCheck};
     use crate::macos::caller_process::read_peer_process;
-    use crate::macos::pinned_process::pinned;
+    use crate::macos::pinned_process::pin_running_process;
 
     /// The requirement `nc` meets as the helper and `sleep` as the app: two programs the system
     /// signs.
@@ -311,10 +311,10 @@ mod tests {
             .arg("30")
             .spawn()
             .expect("sleep starts");
-        let app = pinned(sleep.id())
+        let app = pin_running_process(sleep.id())
             .expect("sleep reads")
             .expect("sleep runs");
-        let unsigned = pinned(std::process::id())
+        let unsigned = pin_running_process(std::process::id())
             .expect("the test reads")
             .expect("the test runs");
 

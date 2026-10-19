@@ -24,6 +24,7 @@ pub(crate) mod machine_name;
 pub(crate) mod measurement;
 pub(crate) mod memory;
 pub(crate) mod null_device;
+pub(crate) mod os_text;
 pub(crate) mod pinned_process;
 pub(crate) mod private_folder;
 pub(crate) mod process_containment;

@@ -54,6 +54,12 @@ pub fn default_shell() -> PathBuf {
     PathBuf::from(DEFAULT_SHELL)
 }
 
+/// Whether a shell's end with the daemon follows the thread that started it rather than the
+/// daemon's process: on Linux, whose parent-death signal fires when that thread ends; not on
+/// macOS, whose check follows the daemon's process.
+#[cfg(any(test, feature = "test-support"))]
+pub const DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD: bool = cfg!(target_os = "linux");
+
 /// Arms the process to end with the daemon `daemon_pid` and checks the daemon is still its parent;
 /// on Linux also clears the huge-page switch the daemon set for itself. Async-signal-safe and
 /// allocation-free, so a `Command`'s `pre_exec` calls it. Fails with `ESRCH` when the daemon is no

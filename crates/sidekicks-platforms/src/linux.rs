@@ -256,9 +256,10 @@ fn drive_mounts_in(kernel_release: &[u8], mount_table: &[u8]) -> Vec<PathBuf> {
     mounts
 }
 
-// The mount table writes a space, tab, newline or backslash in a path as `\` and three octal
-// digits; each decodes to its byte, and one above `\377`, which names no byte, stays as written.
-fn unescape_mount_point(escaped: &[u8]) -> Vec<u8> {
+/// A mount table's path decoded: the table writes a space, tab, newline or backslash in a path as
+/// `\` and three octal digits; each decodes to its byte, and one above `\377`, which names no byte,
+/// stays as written.
+pub(crate) fn unescape_mount_point(escaped: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(escaped.len());
     let mut rest = escaped;
     while let Some((&byte, after)) = rest.split_first() {

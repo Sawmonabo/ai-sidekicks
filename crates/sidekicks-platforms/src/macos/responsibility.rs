@@ -16,7 +16,7 @@ use std::sync::OnceLock;
 
 use crate::ResponsibleProcess;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
-use crate::macos::pinned_process::pinned;
+use crate::macos::pinned_process::pin_running_process;
 use crate::own_root::OwnRootError;
 use crate::posix::process::id::system_process_id;
 
@@ -311,7 +311,8 @@ fn read_own_root_step(id: u32, has_re_run: bool) -> io::Result<OwnRootStep> {
 /// program when the system names the same program path for both, each read while its process is
 /// pinned. Fails with the system's error.
 fn read_start_responsibility(id: u32) -> io::Result<StartResponsibility> {
-    let this_process = pinned(id)?.ok_or_else(|| io::Error::other("this process has no record"))?;
+    let this_process =
+        pin_running_process(id)?.ok_or_else(|| io::Error::other("this process has no record"))?;
     match read_responsible_process(&this_process)? {
         ResponsibleProcess::ThisProcess | ResponsibleProcess::Itself => {
             Ok(StartResponsibility::Itself)
@@ -477,7 +478,7 @@ mod tests {
     };
     use crate::ResponsibleProcess;
     use crate::macos::caller_process::read_responsible_process;
-    use crate::macos::pinned_process::pinned;
+    use crate::macos::pinned_process::pin_running_process;
     use crate::test_program::this_test_program;
 
     /// What the stand-in started under an own-root instance of this program prints once it found
@@ -605,7 +606,7 @@ mod tests {
             .expect("the pipe reads until the exec closes it");
 
         let child_id = u32::try_from(child).expect("a child's id is positive");
-        let process = pinned(child_id)
+        let process = pin_running_process(child_id)
             .expect("the child reads")
             .expect("the child runs");
         assert_eq!(
@@ -627,7 +628,7 @@ mod tests {
             .arg("30")
             .spawn()
             .expect("the plain child starts");
-        let plain_process = pinned(plain.id())
+        let plain_process = pin_running_process(plain.id())
             .expect("the plain child reads")
             .expect("the plain child runs");
         let own_responsible = read_responsible_id(std::process::id())

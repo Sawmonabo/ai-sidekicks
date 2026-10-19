@@ -16,6 +16,7 @@ pub(crate) mod file_system;
 pub(crate) mod login_shell;
 pub(crate) mod memory;
 pub(crate) mod null_device;
+pub(crate) mod os_text;
 pub(crate) mod private_folder;
 pub(crate) mod process;
 pub(crate) mod real_path;

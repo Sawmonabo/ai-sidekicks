@@ -1,25 +1,28 @@
 //! The user a Windows process runs as, read from its token: this process's or another's by its id,
-//! compared with another user's id, and written as SDDL text (`S-1-5-21-…`).
+//! compared with another user's id, written as SDDL text (`S-1-5-21-…`), and made into the security
+//! descriptor that lets this user alone open what it guards.
 
-use std::ffi::c_void;
+use std::ffi::{OsStr, c_void};
 use std::io::{self, ErrorKind};
 use std::os::windows::io::{
     AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
 };
 
 use windows_sys::Win32::Foundation::{FALSE, HANDLE, LocalFree};
-use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+use windows_sys::Win32::Security::Authorization::{
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+};
 #[cfg(test)]
 use windows_sys::Win32::Security::{
     CreateWellKnownSid, SECURITY_MAX_SID_SIZE, WELL_KNOWN_SID_TYPE,
 };
 use windows_sys::Win32::Security::{
-    EqualSid, GetTokenInformation, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
+    EqualSid, GetTokenInformation, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::System::Threading::{OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
 
 use crate::windows::pinned_process::{current_process, open_process};
-use crate::windows::wide_text::read_wide_string;
+use crate::windows::wide_text::{read_wide_string, wide_text};
 
 /// The user a process's token names, kept in the token's own record, which holds the user's id.
 pub(crate) struct ProcessUser {
@@ -147,4 +150,44 @@ pub(crate) fn sid_text(sid: PSID) -> io::Result<String> {
 /// token cannot be read.
 pub(crate) fn read_user_sid_text() -> io::Result<String> {
     sid_text(ProcessUser::of_this_process()?.sid())
+}
+
+/// A security descriptor granting this user, and no one else, every right; freed on drop.
+pub(crate) struct UserOnlyDescriptor(PSECURITY_DESCRIPTOR);
+
+impl UserOnlyDescriptor {
+    /// Reads this user's id from the process token and builds the descriptor from its SDDL. Fails
+    /// with the system's error.
+    pub(crate) fn new() -> io::Result<Self> {
+        let user = read_user_sid_text()?;
+        let mut sddl = wide_text(OsStr::new(&format!("D:P(A;;GA;;;{user})")))?;
+        sddl.push(0);
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        // SAFETY: the SDDL is a live NUL-ended UTF-16 string, and the call writes a descriptor
+        // it allocates, which `Drop` frees.
+        if unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                SDDL_REVISION_1,
+                &raw mut descriptor,
+                std::ptr::null_mut(),
+            )
+        } == FALSE
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self(descriptor))
+    }
+
+    /// The descriptor, for a call's security attributes; it lives as long as `self`.
+    pub(crate) fn as_raw(&self) -> PSECURITY_DESCRIPTOR {
+        self.0
+    }
+}
+
+impl Drop for UserOnlyDescriptor {
+    fn drop(&mut self) {
+        // SAFETY: the descriptor came from the conversion, which allocated it with `LocalAlloc`.
+        unsafe { LocalFree(self.0) };
+    }
 }

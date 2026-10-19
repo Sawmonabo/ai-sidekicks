@@ -32,6 +32,11 @@ pub fn default_shell() -> PathBuf {
     env::var_os("ComSpec").map_or_else(|| PathBuf::from("cmd.exe"), PathBuf::from)
 }
 
+/// Whether a shell's end with the daemon follows the thread that started it: never on Windows,
+/// where the daemon's job ends every shell.
+#[cfg(any(test, feature = "test-support"))]
+pub const DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD: bool = false;
+
 /// Arms the process to end with the daemon: nothing to do on Windows, where the daemon's
 /// kill-on-close job ends every shell with it; never fails.
 pub fn arm_parent_death(_daemon_pid: u32) -> io::Result<()> {

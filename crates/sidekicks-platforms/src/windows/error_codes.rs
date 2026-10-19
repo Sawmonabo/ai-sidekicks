@@ -1,5 +1,6 @@
-//! What a failed file call on Windows means, read from its system error code: out of open files, a
-//! busy entry, a volume with no hard links, a rename a held file stops.
+//! What a failed file or process call on Windows means, read from its system error code: out of
+//! open files, a busy entry, a volume with no hard links, a rename a held file stops, a kill that
+//! found no process.
 
 use std::io::{self, ErrorKind};
 
@@ -47,6 +48,12 @@ pub fn is_held_file_error(error: &io::Error) -> bool {
         || code == Some(ERROR_ELEVATION_REQUIRED)
         || code == Some(ERROR_CANT_ACCESS_FILE)
         || error.raw_os_error() == Some(WSAEACCES)
+}
+
+/// Whether `error`, from ending a process's job, says nothing was left to end: never, since ending
+/// a job whose processes all ended succeeds.
+pub fn is_no_such_process(_error: &io::Error) -> bool {
+    false
 }
 
 /// The error's system code as Windows types it, which std holds as an `i32`; `None` when the

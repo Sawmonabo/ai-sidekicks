@@ -161,7 +161,7 @@ pub use macos::memory::{
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::pinned_process::this_process;
 #[cfg(target_os = "macos")]
-pub use macos::pinned_process::{PinnedProcess, pin_child_process, pinned as pin_running_process};
+pub use macos::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
 #[cfg(target_os = "macos")]
 pub use macos::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "macos")]
@@ -203,7 +203,8 @@ pub use posix::disk::{
 pub use posix::entry_identity::entry_identity;
 #[cfg(unix)]
 pub use posix::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_no_such_process, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(unix)]
 pub use posix::file_facts::file_facts;
@@ -211,12 +212,14 @@ pub use posix::file_facts::file_facts;
 pub use posix::file_system::UnremovableFile;
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
 };
 #[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
+#[cfg(unix)]
+pub use posix::os_text::os_text_bytes;
 #[cfg(unix)]
 pub use posix::private_folder::create_private_folder;
 #[cfg(unix)]
@@ -226,7 +229,7 @@ pub use posix::run_folder::{RUN_FOLDER_FILE_MODE, check_private_run_folder, daem
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
 #[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::shell_start::run_shell_start_stand_in;
+pub use posix::shell_start::{DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, run_shell_start_stand_in};
 #[cfg(unix)]
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
@@ -238,7 +241,7 @@ pub use posix::socket::connection::connect_socket;
 #[cfg(unix)]
 pub use posix::socket::listener::bind_socket_listener;
 #[cfg(unix)]
-pub use posix::socket::path::check_socket_path;
+pub use posix::socket::path::{check_socket_path, read_socket_path_entry};
 #[cfg(unix)]
 pub use posix::stop_request::StopRequest;
 #[cfg(unix)]
@@ -261,7 +264,8 @@ pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use process_containment::{
-    ShellContainment, contain_daemon_descendants, stable_working_folder,
+    ShellContainment, contain_daemon_descendants, end_leftover_shell_containments,
+    stable_working_folder,
 };
 pub use process_identity::process_identity;
 pub use program_install_folders::{ProgramFolder, program_install_folders};
@@ -271,9 +275,11 @@ pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
+#[cfg(any(test, feature = "test-support"))]
+pub use shell_start::SHELL_START_CONFIRMATION;
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::listener::ExistingSocket;
-pub use socket::path::SocketPathRefused;
+pub use socket::path::{SocketPathEntry, SocketPathRefused};
 pub use spawner::Spawner;
 pub use standard_streams::set_binary_standard_streams;
 pub use system_folder::{
@@ -319,7 +325,8 @@ pub use windows::disk::{
 pub use windows::entry_identity::entry_identity;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_no_such_process, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_facts::file_facts;
@@ -327,7 +334,7 @@ pub use windows::file_facts::file_facts;
 pub use windows::file_system::UnremovableFile;
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]
 pub use windows::lasting_child::spawn_lasting_child;
@@ -343,6 +350,8 @@ pub use windows::memory::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::null_device::NULL_DEVICE_PATH;
+#[cfg(target_os = "windows")]
+pub use windows::os_text::os_text_bytes;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
@@ -360,7 +369,9 @@ pub use windows::shell_folder_start::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "windows")]
 pub use windows::shell_folder_start::shell_folder_start;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
-pub use windows::shell_start::run_shell_start_stand_in;
+pub use windows::shell_start::{
+    DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, run_shell_start_stand_in,
+};
 #[cfg(target_os = "windows")]
 pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
@@ -372,7 +383,7 @@ pub use windows::socket::connection::connect_socket;
 #[cfg(target_os = "windows")]
 pub use windows::socket::listener::bind_socket_listener;
 #[cfg(target_os = "windows")]
-pub use windows::socket::path::check_socket_path;
+pub use windows::socket::path::{check_socket_path, read_socket_path_entry};
 #[cfg(target_os = "windows")]
 pub use windows::stop_request::StopRequest;
 #[cfg(target_os = "windows")]

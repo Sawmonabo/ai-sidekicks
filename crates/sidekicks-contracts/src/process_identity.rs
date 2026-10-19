@@ -1,6 +1,7 @@
 //! A running process as the system knows it: its id, the boot it runs in, and the system's own
 //! record of when it started. The system hands a freed id to a new process with a new start, and a
-//! reboot changes the boot, so two readings of one process are equal and a reading of any other
+//! reboot changes the boot (on Windows, whose boot is one fixed word, the start is an instant no
+//! later boot repeats), so two readings of one process are equal and a reading of any other
 //! process is not, short of its id being reused within the start record's resolution (a
 //! microsecond on macOS, a clock tick on Linux, 100 nanoseconds on Windows). The service reports
 //! its own; a client that ends a service it found running reads that id again before each signal

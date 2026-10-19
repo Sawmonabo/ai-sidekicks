@@ -1,5 +1,6 @@
-//! What a failed file call on macOS and Linux means, read from its system error code: out of open
-//! files, a busy entry, a volume with no hard links, a rename a held file stops.
+//! What a failed file or process call on macOS and Linux means, read from its system error code:
+//! out of open files, a busy entry, a volume with no hard links, a rename a held file stops, a
+//! signal that found no process.
 
 use std::io::{self, ErrorKind};
 
@@ -31,4 +32,10 @@ pub fn is_hard_link_unsupported(error: &io::Error) -> bool {
 /// permission refusal is itself on macOS and Linux, so only a busy entry counts.
 pub fn is_held_file_error(error: &io::Error) -> bool {
     is_resource_busy(error)
+}
+
+/// Whether `error`, from a signal to a process or a group, says nothing was left to signal
+/// (`ESRCH`).
+pub fn is_no_such_process(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(libc::ESRCH)
 }

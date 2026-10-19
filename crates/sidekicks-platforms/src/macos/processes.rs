@@ -20,6 +20,10 @@ const PROCESS_ID_BYTES: usize = size_of::<libc::pid_t>();
 // The bytes of the argument count that opens a `KERN_PROCARGS2` answer.
 const ARGUMENT_COUNT_BYTES: usize = size_of::<libc::c_int>();
 
+// The boundary the kernel pads the executable's path to before the arguments: a pointer of a
+// 64-bit process, which is every process this macOS runs.
+const STRING_AREA_ALIGNMENT: usize = size_of::<u64>();
+
 // The most bytes a process's arguments and environment take together (`KERN_ARGMAX`), read once.
 static ARGUMENT_BYTES: OnceLock<usize> = OnceLock::new();
 
@@ -136,18 +140,20 @@ fn read_argument_bytes() -> io::Result<usize> {
     usize::try_from(argument_bytes).map_err(io::Error::other)
 }
 
-// A `KERN_PROCARGS2` answer is the argument count, then the executable's path, padding, each
-// argument and each environment entry, each ended by a zero byte, and the environment by an empty
-// entry; the environment's entries, or `None` when there are none.
+// A `KERN_PROCARGS2` answer is the argument count, then the executable's path, zero bytes that
+// pad the strings to the next pointer boundary from their start, each argument and each environment
+// entry, each ended by a zero byte, and the environment by an empty entry; the environment's
+// entries, or `None` when there are none or the answer is cut short. Only the padding is skipped,
+// so an empty first argument is still counted.
 fn environment_in(answer: &[u8]) -> Option<Vec<String>> {
     let (count_bytes, strings) = answer.split_at_checked(ARGUMENT_COUNT_BYTES)?;
     let argument_count = libc::c_int::from_ne_bytes(count_bytes.try_into().ok()?);
     let argument_count = usize::try_from(argument_count).ok()?;
+    let path_end = strings.iter().position(|byte| *byte == 0)?;
+    let arguments_start = (path_end + 1).next_multiple_of(STRING_AREA_ALIGNMENT);
     let environment: Vec<String> = strings
+        .get(arguments_start..)?
         .split(|byte| *byte == 0)
-        // The executable's path, then the padding after it, a run of empty entries.
-        .skip(1)
-        .skip_while(|entry| entry.is_empty())
         .skip(argument_count)
         .take_while(|entry| !entry.is_empty())
         .map(|entry| String::from_utf8_lossy(entry).into_owned())
@@ -161,6 +167,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use super::environment_in;
     use crate::{list_user_process_ids, read_process_environment};
 
     // The marker the child carries, and the value it carries it with.
@@ -207,5 +214,24 @@ mod tests {
                 .expect("the user's processes list")
                 .contains(&child_id)
         );
+    }
+
+    // Fails when the padding after the executable's path is skipped as a run of empty entries,
+    // which also skips an empty first argument and then reads one argument as the environment.
+    #[test]
+    fn an_empty_first_argument_is_counted_after_the_path_s_padding() {
+        let answer = |path: &[u8]| -> Vec<u8> {
+            let mut answer = 2_i32.to_ne_bytes().to_vec();
+            answer.extend_from_slice(path);
+            answer.push(0);
+            answer.resize((answer.len() - 4).next_multiple_of(8) + 4, 0);
+            answer.extend_from_slice(b"\0second\0A=1\0B=2\0\0apple=x\0");
+            answer
+        };
+        let expected = Some(vec!["A=1".to_owned(), "B=2".to_owned()]);
+
+        // A path whose end falls between boundaries, and one whose end falls on one.
+        assert_eq!(environment_in(&answer(b"/bin/a")), expected);
+        assert_eq!(environment_in(&answer(b"/bin/ab")), expected);
     }
 }

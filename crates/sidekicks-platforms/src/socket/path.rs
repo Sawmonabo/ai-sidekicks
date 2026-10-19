@@ -1,5 +1,5 @@
-//! Why a path cannot name a local socket; each platform's module measures the path against its
-//! socket address before any bind.
+//! Why a path cannot name a local socket, and what already stands at one; each platform's module
+//! measures the path against its socket address and reads what is there before any bind.
 
 use std::io;
 
@@ -18,4 +18,15 @@ pub enum SocketPathRefused {
     /// UTF-8.
     #[error("the path is no socket address")]
     Invalid(#[source] io::Error),
+}
+
+/// What stands at a socket's path before a bind, read without following a link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SocketPathEntry {
+    /// Nothing: the path is free.
+    Absent,
+    /// A socket, which a listener may still serve; a connect tells.
+    Socket,
+    /// A file, a folder, a link or anything else that is no socket.
+    Other,
 }

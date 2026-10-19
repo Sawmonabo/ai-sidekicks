@@ -7,15 +7,12 @@ use std::io::{self, ErrorKind};
 use std::os::windows::io::{
     AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
 };
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
-use windows_sys::Wdk::System::SystemInformation::{
-    NtQuerySystemInformation, SystemTimeOfDayInformation,
-};
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_PARAMETER, FALSE, FILETIME,
-    RtlNtStatusToDosError, STATUS_SUCCESS, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::JobObjects::{
     IsProcessInJob, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,
@@ -35,8 +32,10 @@ use crate::windows::error_codes::win32_code;
 use crate::windows::lasting_child::is_lasting_job_name;
 use crate::windows::wide_text::wide_text;
 
-// The size of the system's time-of-day record.
-const TIME_OF_DAY_RECORD_BYTES: usize = 48;
+// The boot every record and identity names: Windows keeps no mark of a boot that a change of the
+// clock leaves alone, so no boot is told apart, and a process's creation time, one instant across
+// boots, alone tells a process from a later one given its id.
+const WINDOWS_BOOT: &str = "windows";
 
 /// The exit code a killed process, or every process of a killed job, is given:
 /// `STATUS_CONTROL_C_EXIT`, the code Windows gives a console program ended by a control event,
@@ -64,8 +63,8 @@ impl PinnedProcess {
         self.id
     }
 
-    /// The record a later process re-pins this one from: its id, its creation time, the boot it
-    /// runs in and its job's name; `None` once it has ended. Fails with the system's error.
+    /// The record a later process re-pins this one from: its id, its creation time, the one boot
+    /// Windows records and its job's name; `None` once it has ended. Fails with the system's error.
     pub fn record(&self) -> io::Result<Option<ProcessRecord>> {
         if self.wait_for_exit(Duration::ZERO)? {
             return Ok(None);
@@ -74,7 +73,7 @@ impl PinnedProcess {
             id: self.id,
             start: read_creation_time(self.handle())?,
             started_at: None,
-            boot: current_boot()?,
+            boot: WINDOWS_BOOT.to_owned(),
             job: self.job.clone(),
         }))
     }
@@ -197,9 +196,13 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 
 /// Ends what is left of the tree `record` names once its process has ended: every process still
 /// in the job a lasting child ran in; `false` when the record names no job, its process still
-/// runs, which its stop ends, or no running process is left in a job of its name. Fails with
+/// runs, which its stop ends, or no running process is left in a job of its name. The job holds
+/// only the child's own tree, so no process in it is told apart by an environment entry. Fails with
 /// `InvalidData` for a job name no lasting child is given, else with the system's error.
-pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
+pub(crate) fn end_recorded_survivors(
+    record: &ProcessRecord,
+    _environment_entry: &str,
+) -> io::Result<bool> {
     let Some(name) = &record.job else {
         return Ok(false);
     };
@@ -367,40 +370,6 @@ pub fn pin_running_process(id: u32) -> io::Result<Option<PinnedProcess>> {
     }
 }
 
-/// The machine's current boot: the instant the kernel records it started, in 100-nanosecond
-/// intervals since 1601, as decimal text; read once, since this process runs within one boot.
-/// Fails with the system's error.
-pub(crate) fn current_boot() -> io::Result<String> {
-    static BOOT: OnceLock<String> = OnceLock::new();
-    if let Some(boot) = BOOT.get() {
-        return Ok(boot.clone());
-    }
-    // The time-of-day record's first member is the boot's instant, a little-endian `i64`.
-    let mut time_of_day = [0_u8; TIME_OF_DAY_RECORD_BYTES];
-    let length = u32::try_from(time_of_day.len()).expect("the record's size fits a u32");
-    // SAFETY: the buffer is live and writable for `length` bytes, the size of the record the
-    // class asks for, and no returned length is asked for.
-    let status = unsafe {
-        NtQuerySystemInformation(
-            SystemTimeOfDayInformation,
-            time_of_day.as_mut_ptr().cast(),
-            length,
-            std::ptr::null_mut(),
-        )
-    };
-    if status != STATUS_SUCCESS {
-        // SAFETY: the call takes a status and answers the matching system error code.
-        let code = unsafe { RtlNtStatusToDosError(status) };
-        return Err(io::Error::from_raw_os_error(code.cast_signed()));
-    }
-    let boot_instant = i64::from_le_bytes(
-        time_of_day[..size_of::<i64>()]
-            .try_into()
-            .expect("eight bytes were taken"),
-    );
-    Ok(BOOT.get_or_init(|| boot_instant.to_string()).clone())
-}
-
 /// This process, held by its id.
 #[cfg(any(test, feature = "test-support"))]
 pub fn this_process() -> PinnedProcess {
@@ -555,7 +524,7 @@ mod tests {
             child.process.stop(Duration::ZERO).expect("the stop reads") == ChildEnd::Stop
         } else {
             child.record.pin().expect("the re-pin reads").is_none()
-                && child.record.end_survivors().expect("the survivors end")
+                && child.record.end_survivors("").expect("the survivors end")
         };
 
         assert!(ended);
@@ -594,7 +563,7 @@ mod tests {
         }
 
         let end = child.process.stop(Duration::ZERO).expect("the stop reads");
-        let is_ended = child.record.end_survivors().expect("the survivors read");
+        let is_ended = child.record.end_survivors("").expect("the survivors read");
         let read_end = child.process.read_end().expect("the exit code reads");
 
         assert_eq!(end, ChildEnd::Stop);

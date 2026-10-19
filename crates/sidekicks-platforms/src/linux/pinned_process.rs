@@ -12,6 +12,7 @@ use nix::sys::signal::Signal;
 use polling::{Event, Poller};
 
 use crate::child_command::ChildEnd;
+use crate::linux::processes::read_process_environment;
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;
@@ -118,8 +119,13 @@ impl PinnedProcess {
         signal_group(self.id, Signal::SIGKILL)
     }
 
-    // Sends `signal` through the descriptor with `flags`; `false` when the process has ended.
-    fn send_through_descriptor(&self, signal: Signal, flags: libc::c_uint) -> io::Result<bool> {
+    /// Sends `signal` through the descriptor with `flags`; `false` when the process has ended.
+    /// Fails with the system's error.
+    pub(crate) fn send_through_descriptor(
+        &self,
+        signal: Signal,
+        flags: libc::c_uint,
+    ) -> io::Result<bool> {
         // SAFETY: the descriptor stays open while `self` lives, and the call takes it, a signal
         // number, no signal information and the flags.
         let status = unsafe {
@@ -141,9 +147,10 @@ impl PinnedProcess {
         Err(error)
     }
 
-    // Waits up to `bound` for the descriptor to read ready, which it does once the process has
-    // exited, an exit before the wait included; answers whether it did.
-    fn wait_for_exit(&self, bound: Duration) -> io::Result<bool> {
+    /// Waits up to `bound` for the descriptor to read ready, which it does once the process has
+    /// exited, an exit before the wait included; answers whether it did. Fails with the system's
+    /// error.
+    pub(crate) fn wait_for_exit(&self, bound: Duration) -> io::Result<bool> {
         let poller = Poller::new()?;
         // SAFETY: the descriptor is held by `self`, which outlives the poller made in this call.
         unsafe { poller.add(&*self.descriptor, Event::readable(EXIT_KEY)) }?;
@@ -153,8 +160,8 @@ impl PinnedProcess {
 
 /// The process `record` names, pinned: its descriptor opened first, then its start and boot read
 /// after the open; `None` for an id of 0 or past `i32::MAX`, which names no process, or when the
-/// machine has started again, the process has ended or its id now names another process. Fails
-/// with the system's error.
+/// machine has started again, the process has ended or its id now names another process or a
+/// thread. Fails with the system's error.
 pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
     let id = record.id;
     if system_process_id(id).is_err() {
@@ -162,7 +169,7 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
     }
     let descriptor = match open_process_descriptor(id) {
         Ok(descriptor) => descriptor,
-        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => return Ok(None),
+        Err(error) if names_no_process(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
     let process = PinnedProcess {
@@ -178,10 +185,14 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 }
 
 /// Ends what is left of the group the process `record` names led, once that process has ended: on
-/// the boot it was recorded in, only while no process holds its id and every member of the group
-/// is in its session and started no earlier than it; `false` when nothing was ended. Fails with
-/// the system's error, and with `InvalidData` for a stat file whose fields do not read.
-pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
+/// the boot it was recorded in and while no process holds its id, each member of the group that is
+/// in its session, started no earlier than it and carries `environment_entry`, killed through its
+/// own descriptor; `false` when nothing was ended. A member that cannot be read or killed is
+/// logged and left. Fails with the system's error when the boot or `/proc` cannot be read.
+pub(crate) fn end_recorded_survivors(
+    record: &ProcessRecord,
+    environment_entry: &str,
+) -> io::Result<bool> {
     if record.boot != current_boot()? {
         return Ok(false);
     }
@@ -190,33 +201,58 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
     if is_id_held(record.id)? {
         return Ok(false);
     }
-    let mut has_members = false;
+    let mut is_any_ended = false;
     for entry in std::fs::read_dir("/proc")? {
         let Ok(id) = entry?.file_name().to_string_lossy().parse::<u32>() else {
             continue;
         };
-        // A process whose stat file `/proc` hides is another user's, read as no member.
-        let fields = match read_process_stat_fields(id, [GROUP_FIELD, SESSION_FIELD, START_FIELD]) {
-            Err(error) if error.kind() == ErrorKind::PermissionDenied => continue,
-            read => read?,
-        };
-        let Some([group, session, start]) = fields else {
-            continue;
-        };
-        if parse_stat_number::<i64>(&group)? != i64::from(record.id) {
-            continue;
+        match end_survivor(record, id, environment_entry) {
+            Ok(is_ended) => is_any_ended |= is_ended,
+            Err(error) => tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                process_id = id,
+                "a process left in an ended child's group could not be read or killed"
+            ),
         }
-        if parse_stat_number::<i64>(&session)? != i64::from(record.id)
-            || parse_stat_number::<u64>(&start)? < record.start
-        {
-            return Ok(false);
-        }
-        has_members = true;
     }
-    if !has_members {
+    Ok(is_any_ended)
+}
+
+// Kills process `id` when it is a survivor of `record`'s group carrying `environment_entry`:
+// pinned first, its environment read, then checked again through its pin, so the environment read
+// is the pinned process's own; `false` when it is no such survivor.
+fn end_survivor(record: &ProcessRecord, id: u32, environment_entry: &str) -> io::Result<bool> {
+    // A process whose stat file `/proc` hides is another user's, read as no member.
+    let fields = match read_process_stat_fields(id, [GROUP_FIELD, SESSION_FIELD, START_FIELD]) {
+        Err(error) if error.kind() == ErrorKind::PermissionDenied => return Ok(false),
+        read => read?,
+    };
+    let Some([group, session, start]) = fields else {
+        return Ok(false);
+    };
+    let recorded_id = i64::from(record.id);
+    let start = parse_stat_number::<u64>(&start)?;
+    if parse_stat_number::<i64>(&group)? != recorded_id
+        || parse_stat_number::<i64>(&session)? != recorded_id
+        || start < record.start
+    {
         return Ok(false);
     }
-    signal_group(record.id, Signal::SIGKILL)
+    let Some(member) = pin_running_process(id)? else {
+        return Ok(false);
+    };
+    let is_pinned_member = |member: &PinnedProcess| -> io::Result<bool> {
+        Ok(member.record()?.is_some_and(|read| read.start == start))
+    };
+    if !is_pinned_member(&member)? {
+        return Ok(false);
+    }
+    let carries_entry = read_process_environment(id)?
+        .is_some_and(|environment| environment.iter().any(|entry| entry == environment_entry));
+    if !carries_entry || !is_pinned_member(&member)? {
+        return Ok(false);
+    }
+    member.send_through_descriptor(Signal::SIGKILL, 0)
 }
 
 // Whether a process holds `id`, one whose stat file `/proc` hides included.
@@ -243,7 +279,7 @@ fn current_boot() -> io::Result<String> {
 }
 
 /// Process `id` as it runs now, pinned by a descriptor; `None` for an id of 0 or past `i32::MAX`,
-/// or when no process has the id. Fails with the system's error.
+/// or when no process has the id, a thread's id included. Fails with the system's error.
 pub fn pin_running_process(id: u32) -> io::Result<Option<PinnedProcess>> {
     if system_process_id(id).is_err() {
         return Ok(None);
@@ -253,9 +289,19 @@ pub fn pin_running_process(id: u32) -> io::Result<Option<PinnedProcess>> {
             id,
             descriptor: Arc::new(descriptor),
         })),
-        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(None),
+        Err(error) if names_no_process(&error) => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+// Whether a descriptor's open failed because the id names no running process: `ESRCH` for an id
+// no task holds, and for an id that names a thread other than its process's first, `EINVAL` before
+// Linux 6.9 and `ENOENT` from it.
+fn names_no_process(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(libc::ESRCH | libc::EINVAL | libc::ENOENT)
+    )
 }
 
 /// The caller's own child `id`, pinned; the child is not yet reaped, so no other process can take
@@ -320,4 +366,43 @@ pub(crate) fn open_process_descriptor(id: u32) -> io::Result<OwnedFd> {
     let descriptor = RawFd::try_from(descriptor).map_err(io::Error::other)?;
     // SAFETY: the call succeeded, so `descriptor` is a new open descriptor nothing else owns.
     Ok(unsafe { OwnedFd::from_raw_fd(descriptor) })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use super::{current_boot, pin_recorded, pin_running_process};
+    use crate::pinned_process::ProcessRecord;
+
+    // Fails when a descriptor's open refused for a thread's id reads as a failure, which fails the
+    // orphan sweep, and with it every start, while a thread holds a recorded shell's old id.
+    #[test]
+    fn a_thread_s_id_pins_no_process() {
+        let (id_sender, id_receiver) = mpsc::channel();
+        let (end_sender, end_receiver) = mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            id_sender
+                .send(nix::unistd::gettid().as_raw())
+                .expect("the test reads the thread's id");
+            end_receiver.recv().expect("the test ends the thread");
+        });
+        let thread_id = u32::try_from(id_receiver.recv().expect("the thread sends its id"))
+            .expect("a thread's id is positive");
+        let record = ProcessRecord {
+            id: thread_id,
+            start: 0,
+            started_at: None,
+            boot: current_boot().expect("the boot reads"),
+            job: None,
+        };
+
+        let running = pin_running_process(thread_id).map(|process| process.is_some());
+        let recorded = pin_recorded(&record).map(|process| process.is_some());
+
+        end_sender.send(()).expect("the thread waits for its end");
+        thread.join().expect("the thread ends");
+        assert!(!running.expect("the thread's id reads"));
+        assert!(!recorded.expect("the thread's record reads"));
+    }
 }

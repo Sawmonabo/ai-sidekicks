@@ -6,9 +6,8 @@ use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
-use tokio::process::Command;
-
 use nix::unistd::{User, getuid};
+use tokio::process::Command;
 
 /// The login shell the user database names for the account this process runs as, read at each
 /// call; `None` when the entry names none. Fails with the system's error from the read, and with
@@ -42,6 +41,13 @@ pub(crate) fn read_account() -> io::Result<(String, Option<PathBuf>)> {
 /// The account's own temporary folder, the `TMPDIR` a login session gets: on macOS the folder the
 /// system keeps per account (`_CS_DARWIN_USER_TEMP_DIR`), as the system writes it; `None` on Linux,
 /// whose login sets none. Fails with the system's error.
+#[cfg_attr(
+    target_os = "linux",
+    expect(
+        clippy::unnecessary_wraps,
+        reason = "the macOS read of the folder can fail"
+    )
+)]
 pub(crate) fn user_temporary_folder() -> io::Result<Option<String>> {
     #[cfg(target_os = "macos")]
     return read_configuration_text(libc::_CS_DARWIN_USER_TEMP_DIR).map(Some);

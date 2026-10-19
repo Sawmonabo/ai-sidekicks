@@ -1,9 +1,11 @@
 //! The daemon's word that it started a terminal's `shell` mode, and the shell's launch that follows
 //! it, on macOS and Linux: the daemon opens a socket pair, hands one end to the mode it starts,
 //! writes the id of the process it started on the other, then the launch frame; the mode starts a
-//! shell only when the process that wrote them is the daemon its argument names and the id is its
-//! own. An agent's command that runs the daemon's program in the `shell` mode itself inherits no
-//! such end, so the mode starts nothing for it.
+//! shell only when the id is its own and the system vouches for the daemon its argument names. On
+//! macOS that daemon is the mode's parent and the process that last wrote on the pair; on Linux
+//! it made the pair, whose end is no socket a listener's connection gave, and runs as this account.
+//! An agent's command that runs the daemon's program in the `shell` mode itself inherits no such
+//! end, so the mode starts nothing for it.
 
 use std::io::{self, Read as _, Write as _};
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
@@ -114,11 +116,12 @@ impl ShellLaunchWriter {
 
 /// Reads the daemon's confirmation that this process is the `shell` mode it started, then the
 /// shell's launch: the end the variable names is a local socket on which the daemon `daemon_pid`
-/// wrote this process's id and the frame. Closes that end. Fails with `NotFound` when no end is
-/// named, `InvalidData` when it is not a socket, the id is not this process's or the frame is
-/// malformed, `PermissionDenied` when `daemon_pid` did not write it (on macOS also when it is not
-/// its own responsible process or ended while it was read), `UnexpectedEof` when the other end
-/// closed early, and the system's error otherwise.
+/// wrote this process's id and the frame. The writer and the id are checked before the frame is
+/// read. Closes that end. Fails with `NotFound` when no end is named, `InvalidData` when it is not
+/// a socket, the id is not this process's or the frame is malformed, `PermissionDenied` when the
+/// system does not vouch for `daemon_pid` as the writer (on macOS also when it is not its own
+/// responsible process or ended while it was read; on Linux also when the end came from a
+/// listener), `UnexpectedEof` when the other end closed early, and the system's error otherwise.
 pub(crate) fn receive_launch(daemon_pid: u32, check: WriterCheck) -> io::Result<ShellLaunch> {
     let descriptor = std::env::var(SHELL_START_CONFIRMATION)
         .map_err(|error| io::Error::new(io::ErrorKind::NotFound, error))?
@@ -127,7 +130,8 @@ pub(crate) fn receive_launch(daemon_pid: u32, check: WriterCheck) -> io::Result<
     let mut end = UnixStream::from(take_socket(descriptor)?);
     let mut confirmed: ConfirmedId = [0; size_of::<u32>()];
     end.read_exact(&mut confirmed)?;
-    let launch = ShellLaunch::read_from(&mut end)?;
+    // The writer and the id are checked before the frame is read, so an unchecked writer never has
+    // its frame's bytes taken in.
     check_confirming_writer(&end, daemon_pid, check)?;
     if u32::from_ne_bytes(confirmed) != std::process::id() {
         return Err(io::Error::new(
@@ -135,7 +139,7 @@ pub(crate) fn receive_launch(daemon_pid: u32, check: WriterCheck) -> io::Result<
             "the confirmation names another process",
         ));
     }
-    Ok(launch)
+    ShellLaunch::read_from(&mut end)
 }
 
 /// The open socket `descriptor` names, taken over so it closes with the value. Fails with

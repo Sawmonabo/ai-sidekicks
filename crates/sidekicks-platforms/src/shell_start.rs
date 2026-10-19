@@ -14,7 +14,7 @@ use crate::windows::shell_start::start_failure_words;
 /// The environment variable that names the `shell` mode's end of the daemon's start confirmation:
 /// the inherited descriptor's number on macOS and Linux, the named pipe's name on Windows. It is
 /// the only entry the mode's own environment needs.
-pub(crate) const SHELL_START_CONFIRMATION: &str = "SIDEKICKS_SHELL_START_CONFIRMATION";
+pub const SHELL_START_CONFIRMATION: &str = "SIDEKICKS_SHELL_START_CONFIRMATION";
 
 /// The most bytes one shell launch frame holds, so a reader never allocates past it: far above two
 /// launches with the largest environment a system lets a program start with.
