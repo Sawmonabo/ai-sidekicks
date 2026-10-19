@@ -32,8 +32,7 @@ use crate::provider::port::permission_ask::ProviderAskRule;
 
 /// What the daemon hands a driver to open a session: its config, its spawn-bound legs and the
 /// daemon's callbacks. A spawn-bound leg that gets nothing here launches without it; per-run
-/// carriers are on
-/// [`StartRunParams`](super::contract::StartRunParams).
+/// carriers are on [`StartRunParams`](super::contract::StartRunParams).
 #[derive(Clone)]
 pub(crate) struct CreateSessionParams {
     /// The session.

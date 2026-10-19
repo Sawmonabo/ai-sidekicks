@@ -85,9 +85,9 @@ impl From<SessionWriteError> for HandlerError {
 }
 
 /// Writes `change` only while `session_id` has a directory row, the check and the change in one
-/// write, so a purge cannot land between them, and returns what `change` did. Fails with [`SessionWriteError::Refused`]
-/// (`session.notFound`) for a session with no row, and with [`SessionWriteError::Write`] when the
-/// write is not kept.
+/// write, so a purge cannot land between them, and returns what `change` did. Fails with
+/// [`SessionWriteError::Refused`] (`session.notFound`) for a session with no row, and with
+/// [`SessionWriteError::Write`] when the write is not kept.
 pub(crate) async fn write_while_session_exists(
     writer: &DatabaseWriter,
     session_id: &SessionId,

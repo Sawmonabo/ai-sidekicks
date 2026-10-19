@@ -278,8 +278,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// Closes one session.
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
-    /// Names a session from its first exchange in one short pass of the provider's own, on the
-    /// session's live leg where it has one; `None` when the pass returned no name. A pass whose
+    /// Names a session from its first exchange in one short pass of the provider's own: through
+    /// the provider's naming verb on the session's live leg when it has one and the verb answers
+    /// with a name, else, when no leg is live or the verb fails or returns no name, in a one-shot
+    /// pass of the provider's program. `None` only when both returned no name. A pass whose
     /// `cancel` fires ends at once and returns `None`.
     fn name_session(
         &self,
@@ -287,7 +289,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<Option<String>, DriverError>>;
 
     /// Tells the provider the name the session now goes by, so its own session list shows that
-    /// name. Fails with the driver's error when the provider did not take it.
+    /// name: through the provider's rename verb on the session's live leg when it has one, else
+    /// on the provider's stored session where the provider renames one at rest. Fails with the
+    /// driver's error when the provider did not take it, a session it cannot rename at rest
+    /// among them.
     fn tell_session_name(
         &self,
         session_id: SessionId,
