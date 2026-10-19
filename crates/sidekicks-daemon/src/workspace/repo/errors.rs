@@ -5,7 +5,8 @@
 //! daemon did not write: a clone refusal's git line and a failed clone service start's text, whose
 //! paths the reply's sanitizing strips. Every other message names no path: a closed reason makes
 //! that certain, the ones naming an id rely on ids being opaque, and the two naming a WSL
-//! distribution carry its name alone.
+//! distribution carry its name alone. A root resolution's detail is the system's own reason for a
+//! failed read, which names no path either.
 
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
@@ -14,13 +15,15 @@ use sidekicks_contracts::place::{DistributionRefusalDetails, DistroName};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::clone::ProjectCloneRefusedDetails;
 use sidekicks_contracts::repo::folders::{
-    RepoMountAlreadyAttachedDetails, RepoMountOutsideTrustEnvelopeDetails,
-    RepoMountOutsideTrustEnvelopeReason, RepoMountReattachConflictDetails,
-    RepoMountReattachRefusedDetails, RepoMountReattachRefusedReason,
-    RepoMountRootResolutionFailedDetails, RepoMountRootResolutionReason,
+    ROOT_RESOLUTION_DETAIL_MAX_LEN, RepoMountAlreadyAttachedDetails,
+    RepoMountOutsideTrustEnvelopeDetails, RepoMountOutsideTrustEnvelopeReason,
+    RepoMountReattachConflictDetails, RepoMountReattachRefusedDetails,
+    RepoMountReattachRefusedReason, RepoMountRootResolutionFailedDetails,
+    RepoMountRootResolutionReason,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::ipc::domain_error::{DomainError, refusal_fields};
 
@@ -40,12 +43,15 @@ pub(crate) enum RepoRefusal {
         /// The mount asked for.
         repo_mount_id: RepoMountId,
     },
-    /// A path's canonical repository root could not be resolved (`repoMount.rootResolutionFailed`);
-    /// only the closed reason is kept, so the path tried never enters the refusal.
+    /// A path's canonical repository root could not be resolved, or a folder to list could not be
+    /// read (`repoMount.rootResolutionFailed`); only the closed reason and the system's own words
+    /// are kept, so the path tried never enters the refusal.
     #[error("{}", root_resolution_message(*.reason))]
     RootResolutionFailed {
         /// Why.
         reason: RepoMountRootResolutionReason,
+        /// The system's own reason for a failed read, where there was one.
+        detail: Option<FreeFormText<ROOT_RESOLUTION_DETAIL_MAX_LEN>>,
     },
     /// A path or a workspace binding resolves outside the machine's attached roots, or names a
     /// tree whose removal is committed while its folder waits for deletion
@@ -156,10 +162,11 @@ impl From<RepoRefusal> for DomainError {
                 RefusalCode::RepoMountNotFound,
                 Some(refusal_fields(json!({ "repoMountId": repo_mount_id }))),
             ),
-            RepoRefusal::RootResolutionFailed { reason } => (
+            RepoRefusal::RootResolutionFailed { reason, detail } => (
                 RefusalCode::RepoMountRootResolutionFailed,
                 Some(refusal_fields(RepoMountRootResolutionFailedDetails {
                     reason,
+                    detail,
                 })),
             ),
             RepoRefusal::OutsideTrustEnvelope { reason } => (
