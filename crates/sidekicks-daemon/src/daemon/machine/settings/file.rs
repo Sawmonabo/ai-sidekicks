@@ -11,8 +11,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use sidekicks_contracts::machine::settings::{
-    MachineSettings, MachineSettingsChange, MachineSettingsReading, SettingsFileRepair,
-    SettingsFileRepairCause, parse_machine_settings_file,
+    BranchNamePattern, MachineSettings, MachineSettingsChange, MachineSettingsReading,
+    ProjectBranchPatternRefusedDetails, SettingsFileRepair, SettingsFileRepairCause,
+    parse_machine_settings_file,
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::create_private_folder;
@@ -43,9 +44,9 @@ pub(crate) enum MachineSettingsFileError {
     /// The file could not be written.
     #[error(transparent)]
     Write(#[from] AtomicWriteError),
-    /// The change does not fit the settings, its pattern's placeholder rule among the reasons.
-    #[error("the machine settings change does not fit the settings")]
-    Change(#[source] serde_json::Error),
+    /// The change's branch-name pattern does not hold its title placeholder exactly once.
+    #[error("the machine settings change's branch-name pattern is refused: {0:?}")]
+    BranchNamePattern(ProjectBranchPatternRefusedDetails),
 }
 
 /// The settings file with its read, write and repair rules.
@@ -86,7 +87,7 @@ impl MachineSettingsFile {
     }
 
     /// Writes `change` over the file as it stands, clears the repair and tells every listener.
-    /// Fails with [`MachineSettingsFileError::Change`] when the change does not fit, and as
+    /// Fails with [`MachineSettingsFileError::BranchNamePattern`] for a refused pattern, and as
     /// [`Self::read`] does.
     pub(crate) async fn update(
         &self,
@@ -138,14 +139,14 @@ impl MachineSettingsFile {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let settings = MachineSettings::default();
                 self.write(&settings).await?;
-                return Ok(reading_of(settings, repair));
+                return Ok(reading_of(settings, repair.as_ref()));
             }
             Err(error) => return Err(MachineSettingsFileError::Read(error)),
         };
         let cause = match serde_json::from_slice(&file_text) {
             Err(_) => SettingsFileRepairCause::Unparsable,
             Ok(file_json) => match parse_machine_settings_file(file_json) {
-                Ok(settings) => return Ok(reading_of(settings, repair)),
+                Ok(settings) => return Ok(reading_of(settings, repair.as_ref())),
                 Err(_) => SettingsFileRepairCause::SchemaRefused,
             },
         };
@@ -155,7 +156,7 @@ impl MachineSettingsFile {
             repaired_at: WireInstant::now(),
             cause,
         });
-        let reading = reading_of(settings, repair);
+        let reading = reading_of(settings, repair.as_ref());
         self.announce(&reading);
         Ok(reading)
     }
@@ -188,30 +189,54 @@ impl MachineSettingsFile {
 
 fn reading_of(
     settings: MachineSettings,
-    repair: &Option<SettingsFileRepair>,
+    repair: Option<&SettingsFileRepair>,
 ) -> MachineSettingsReading {
     MachineSettingsReading {
         settings,
-        repair: repair.clone(),
+        repair: repair.cloned(),
     }
 }
 
-// The settings with the change's one member replaced by its whole value, checked by the
-// settings' own parse.
+// The settings with the change's one member replaced by its whole value.
 fn apply_change(
-    settings: MachineSettings,
+    mut settings: MachineSettings,
     change: MachineSettingsChange,
 ) -> Result<MachineSettings, MachineSettingsFileError> {
-    let mut settings = serde_json::to_value(settings).expect("the settings serialize as JSON");
-    let serde_json::Value::Object(change) =
-        serde_json::to_value(change).expect("a change serializes as JSON")
-    else {
-        unreachable!("a change serializes as an object of one member");
-    };
-    if let serde_json::Value::Object(members) = &mut settings {
-        members.extend(change);
+    match change {
+        MachineSettingsChange::UpdatesAutomatic(value) => settings.updates_automatic = value,
+        MachineSettingsChange::KeepCrashReports(value) => settings.keep_crash_reports = value,
+        MachineSettingsChange::EditorId(value) => settings.editor_id = value,
+        MachineSettingsChange::CommitTextModel(value) => settings.commit_text_model = value,
+        MachineSettingsChange::DefaultCheckout(value) => settings.default_checkout = value,
+        MachineSettingsChange::NewSessionCarriesLastModel(value) => {
+            settings.new_session_carries_last_model = value;
+        }
+        MachineSettingsChange::LastLeadModel(value) => settings.last_lead_model = value,
+        MachineSettingsChange::KeepAwakeWhileAgentWorks(value) => {
+            settings.keep_awake_while_agent_works = value;
+        }
+        MachineSettingsChange::KeepAwakeForOtherDevices(value) => {
+            settings.keep_awake_for_other_devices = value;
+        }
+        MachineSettingsChange::Notifications(value) => settings.notifications = value,
+        MachineSettingsChange::RememberSiteData(value) => settings.remember_site_data = value,
+        MachineSettingsChange::BrowserToolsForAgents(value) => {
+            settings.browser_tools_for_agents = value;
+        }
+        MachineSettingsChange::SandboxBackgroundBrowser(value) => {
+            settings.sandbox_background_browser = value;
+        }
+        MachineSettingsChange::ScreenReaderMode(value) => settings.screen_reader_mode = value,
+        MachineSettingsChange::EnvironmentRows(value) => settings.environment_rows = value,
+        MachineSettingsChange::Backup(value) => settings.backup = value,
+        MachineSettingsChange::BranchNamePattern(value) => {
+            settings.branch_name_pattern = BranchNamePattern::new(value)
+                .map_err(MachineSettingsFileError::BranchNamePattern)?;
+        }
+        MachineSettingsChange::CloneFolder(value) => settings.clone_folder = value,
+        MachineSettingsChange::Voice(value) => settings.voice = value,
     }
-    serde_json::from_value(settings).map_err(MachineSettingsFileError::Change)
+    Ok(settings)
 }
 
 #[cfg(test)]

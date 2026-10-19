@@ -7,6 +7,7 @@ use std::backtrace::Backtrace;
 use std::io::Write as _;
 use std::panic::PanicHookInfo;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use flexi_logger::writers::ArcFileLogWriter;
 use jiff::Timestamp;
@@ -16,6 +17,9 @@ use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
 
 // A crash record readable by the person alone.
 const CRASH_RECORD_MODE: u32 = 0o600;
+
+// Counts this run's crash records, so two panics in one millisecond never write one name.
+static CRASH_RECORD_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// Installs the hook every panic runs before it unwinds: it logs the panic, its place, its thread
 /// and its backtrace, writes them to a new record in `data_folder`'s crash reports folder, flushes
@@ -79,8 +83,9 @@ fn describe_panic(panic: &PanicHookInfo<'_>) -> String {
 fn write_crash_record(folder: &Path, report: &str) -> std::io::Result<()> {
     create_private_folder(folder)?;
     let record = folder.join(format!(
-        "panic-{}.txt",
-        Timestamp::now().strftime("%Y-%m-%dT%H-%M-%S-%3fZ")
+        "panic-{}-{}.txt",
+        Timestamp::now().strftime("%Y-%m-%dT%H-%M-%S-%3fZ"),
+        CRASH_RECORD_COUNT.fetch_add(1, Ordering::Relaxed)
     ));
     replace_file_atomically(&record, report.as_bytes(), CRASH_RECORD_MODE)
         .map_err(std::io::Error::other)

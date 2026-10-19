@@ -67,17 +67,27 @@ pub(crate) async fn write_file_atomically(
 }
 
 /// Replaces `file_path` with `contents` as [`write_file_atomically`] does, unless it already holds
-/// exactly them, so a reader that has the file open never meets a rewrite it did not need. A file
-/// that cannot be read is replaced. Fails as [`write_file_atomically`] does.
+/// exactly them with exactly `mode`, so a reader that has the file open never meets a rewrite it
+/// did not need. A file that cannot be read is replaced. Fails as [`write_file_atomically`] does.
 pub(crate) async fn write_file_atomically_if_changed(
     file_path: &Path,
     contents: &'static [u8],
     mode: u32,
 ) -> Result<(), AtomicWriteError> {
-    if tokio::fs::read(file_path)
-        .await
-        .is_ok_and(|held| held == contents)
-    {
+    let held_path = file_path.to_path_buf();
+    let is_held = tokio::task::spawn_blocking(move || {
+        std::fs::read(&held_path).is_ok_and(|held| held == contents)
+            && matches!(
+                sidekicks_platforms::has_file_mode(&held_path, mode),
+                Ok(true)
+            )
+    })
+    .await
+    .map_err(|failure| AtomicWriteError::Interrupted {
+        path: file_path.to_path_buf(),
+        failure,
+    })?;
+    if is_held {
         return Ok(());
     }
     write_file_atomically(file_path, contents, mode).await
@@ -102,4 +112,28 @@ fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), Atom
         path: target.to_path_buf(),
         failure,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_platforms::has_file_mode;
+
+    use super::{write_file_atomically, write_file_atomically_if_changed};
+
+    // Fails when only the bytes are compared, so a file holding the app's contents under a wider
+    // mode keeps it.
+    #[tokio::test]
+    async fn a_file_with_the_same_bytes_and_another_mode_is_rewritten_with_the_mode() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let file = folder.path().join("script");
+        write_file_atomically(&file, b"contents", 0o644)
+            .await
+            .expect("the open file is written");
+
+        write_file_atomically_if_changed(&file, b"contents", 0o600)
+            .await
+            .expect("the file is checked");
+
+        assert!(has_file_mode(&file, 0o600).expect("the file's mode reads"));
+    }
 }

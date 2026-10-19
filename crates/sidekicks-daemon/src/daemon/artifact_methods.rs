@@ -28,7 +28,7 @@ const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
 
 // How often the reaper looks for streams past their lifetime and spools gone unwritten: often
 // enough that a stream is ended within minutes of its six-hour lifetime.
-const INGEST_REAPER_INTERVAL: Duration = Duration::from_secs(10 * 60);
+const INGEST_REAPER_INTERVAL: Duration = Duration::from_mins(10);
 
 /// What the artifact store is built from.
 pub(crate) struct ArtifactMethodsDeps {

@@ -5,9 +5,10 @@
 use std::io;
 
 use sidekicks_platforms::{
-    DaemonRunFolder, RUN_FOLDER_FILE_MODE, RunFolderRefused, check_private_run_folder,
-    connect_socket, create_private_folder,
+    DaemonRunFolder, RUN_FOLDER_FILE_MODE, RunFolderRefused, SocketPathEntry,
+    check_private_run_folder, connect_socket, create_private_folder, read_socket_path_entry,
 };
+use tokio::task::JoinError;
 
 use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
@@ -29,9 +30,18 @@ pub(crate) enum RunFolderError {
     /// The folder is not private to this account.
     #[error(transparent)]
     Refused(#[from] RunFolderRefused),
-    /// The socket left there could not be probed or removed.
-    #[error("the socket left in the run folder could not be probed or removed")]
+    /// The socket left there could not be read, probed or removed.
+    #[error("the socket left in the run folder could not be read, probed or removed")]
     LeftSocket(#[source] io::Error),
+    /// Something other than a socket stands at the socket's path, which the start never removes.
+    #[error("{} is not a socket, so the daemon cannot bind there", path.display())]
+    NotASocket {
+        /// The socket's path.
+        path: std::path::PathBuf,
+    },
+    /// The blocking task that prepared the folder ended before it finished.
+    #[error("the run folder's preparation ended before it finished")]
+    Interrupted(#[source] JoinError),
     /// The socket could not be bound.
     #[error("the daemon's socket could not be bound")]
     Bind(#[source] io::Error),
@@ -48,10 +58,27 @@ pub(crate) fn mint_session_token() -> Result<String, getrandom::Error> {
 
 /// Makes the run folder ready for a bind: creates it readable by the person alone, refuses one
 /// another account could reach, and removes a socket nobody answers on. Fails with
-/// [`RunFolderError::AlreadyRunning`] when a daemon answers there.
+/// [`RunFolderError::AlreadyRunning`] when a daemon answers there and with
+/// [`RunFolderError::NotASocket`] when anything else stands at the socket's path.
 pub(crate) async fn prepare_run_folder(run_folder: &DaemonRunFolder) -> Result<(), RunFolderError> {
-    create_private_folder(&run_folder.folder_path).map_err(RunFolderError::Folder)?;
-    check_private_run_folder(&run_folder.folder_path)?;
+    let folder_path = run_folder.folder_path.clone();
+    let socket_path = run_folder.socket_path.clone();
+    let entry = tokio::task::spawn_blocking(move || {
+        create_private_folder(&folder_path).map_err(RunFolderError::Folder)?;
+        check_private_run_folder(&folder_path)?;
+        read_socket_path_entry(&socket_path).map_err(RunFolderError::LeftSocket)
+    })
+    .await
+    .map_err(RunFolderError::Interrupted)??;
+    match entry {
+        SocketPathEntry::Absent => return Ok(()),
+        SocketPathEntry::Other => {
+            return Err(RunFolderError::NotASocket {
+                path: run_folder.socket_path.clone(),
+            });
+        }
+        SocketPathEntry::Socket => {}
+    }
     match connect_socket(&run_folder.socket_path).await {
         Ok(_answering) => Err(DaemonAlreadyRunningError {
             held_place: HeldPlace::Socket(run_folder.socket_path.clone()),

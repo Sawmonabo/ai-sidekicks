@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use sidekicks_platforms::{
-    Spawner, StopRequest, contain_daemon_descendants, install_tree_sitter_allocator,
+    StopRequest, contain_daemon_descendants, install_tree_sitter_allocator,
     restrict_library_search, stable_working_folder, turn_off_transparent_huge_pages,
 };
 
@@ -102,12 +102,10 @@ fn start_and_run() -> Result<(), ServiceStartError> {
         .build()
         .map_err(ServiceStartError::Runtime)?;
     let ran = runtime.block_on(async {
-        let spawner = Spawner::new(tokio::runtime::Handle::current())?;
         let mut stop = StopRequest::listen()?;
         tracing::info!("The background service started");
         stop.requested().await;
         tracing::info!("The background service stops");
-        drop(spawner);
         Ok(())
     });
     runtime.shutdown_timeout(RUNTIME_SHUTDOWN_BOUND);

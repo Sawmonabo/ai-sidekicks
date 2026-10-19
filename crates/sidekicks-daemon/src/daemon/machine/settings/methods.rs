@@ -85,7 +85,23 @@ pub(crate) fn register_machine_settings_methods(
                         };
                         refuse_branch_pattern(refusal)?;
                     }
-                    _ => {}
+                    MachineSettingsChange::UpdatesAutomatic(_)
+                    | MachineSettingsChange::KeepCrashReports(_)
+                    | MachineSettingsChange::EditorId(_)
+                    | MachineSettingsChange::CommitTextModel(_)
+                    | MachineSettingsChange::DefaultCheckout(_)
+                    | MachineSettingsChange::NewSessionCarriesLastModel(_)
+                    | MachineSettingsChange::LastLeadModel(_)
+                    | MachineSettingsChange::KeepAwakeWhileAgentWorks(_)
+                    | MachineSettingsChange::KeepAwakeForOtherDevices(_)
+                    | MachineSettingsChange::Notifications(_)
+                    | MachineSettingsChange::RememberSiteData(_)
+                    | MachineSettingsChange::BrowserToolsForAgents(_)
+                    | MachineSettingsChange::SandboxBackgroundBrowser(_)
+                    | MachineSettingsChange::ScreenReaderMode(_)
+                    | MachineSettingsChange::Backup(_)
+                    | MachineSettingsChange::CloneFolder(_)
+                    | MachineSettingsChange::Voice(_) => {}
                 }
                 Ok(MachineSettingsUpdateResponse {
                     settings: file.update(request.change).await?,

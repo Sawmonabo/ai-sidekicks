@@ -158,6 +158,13 @@ impl ServiceLogGuard {
 impl ServiceLogFiles {
     /// The file the service log holds open now, which the expiry never deletes; `None` once the
     /// file has failed or when it never opened.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the diagnostic-log expiry leaves the live file alone"
+        )
+    )]
     pub(crate) fn live_file(&self) -> Option<PathBuf> {
         let file = lock(self.sides.file.as_ref()?);
         file.is_open.then(|| file.live_file.clone())

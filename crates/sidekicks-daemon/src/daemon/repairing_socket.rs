@@ -154,8 +154,7 @@ async fn bind_repairing_socket(
     );
     let negotiator = ProtocolNegotiator::new(session_token.clone(), caller_check.admission_check());
     let mut builder = MethodRegistryBuilder::new();
-    negotiator
-        .register_repairing_handshake(&mut builder, Arc::new(move || progress.borrow().clone()))?;
+    negotiator.register_repairing_handshake(&mut builder, Arc::new(move || *progress.borrow()))?;
     register_lifecycle_methods(
         &mut builder,
         &LifecycleMethodsDeps {
