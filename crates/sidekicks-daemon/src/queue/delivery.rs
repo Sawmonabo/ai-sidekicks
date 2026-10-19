@@ -38,8 +38,7 @@ use tracing::Instrument as _;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::WriteStatement;
 use crate::events::session::appender::SessionEventDraft;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::read_run_driver;
+use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, read_run_driver};
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
@@ -142,9 +141,10 @@ pub(crate) enum DeliveryError {
     /// The read pool did not run a read.
     #[error("the run queue's read did not reach the database")]
     Pool(#[from] DatabaseReadError),
-    /// The run's driver was refused: the run has no binding, or no driver answers its provider.
+    /// The run's driver was not resolved: the run has no binding, or no driver answers its
+    /// provider.
     #[error("the run's provider driver could not be found")]
-    Driver(#[from] DomainError),
+    Driver(#[from] LiveRunDriverError),
     /// A message's outcome was not recorded.
     #[error("a queued message's outcome was not recorded")]
     Record(#[from] QueueRecordError),
