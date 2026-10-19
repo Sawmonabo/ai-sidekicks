@@ -218,13 +218,14 @@ impl RunEngine {
             return Err(gone);
         }
         let engine = Arc::clone(self);
+        let limit = stop.limit();
         // The task sends the stop's result to this future's receiver, whose guard logs an error
         // its caller's drop leaves unread.
         let (sender, receiver) = oneshot::channel::<Result<(), RunEngineError>>();
         let mut answer = LimitStopAnswer {
             receiver,
             run_id,
-            limit: stop.limit(),
+            limit,
         };
         let stopping = tokio::spawn(
             async move {
@@ -233,7 +234,7 @@ impl RunEngine {
                 // task logs it. Only a panic after the caller dropped goes unlogged, which only a
                 // test meets: the daemon's panic hook aborts.
                 if let Err(Err(error)) = sender.send(stopped) {
-                    log_unread_limit_stop_failure(run_id, stop.limit(), error);
+                    log_unread_limit_stop_failure(run_id, limit, error);
                 }
             }
             .in_current_span(),
