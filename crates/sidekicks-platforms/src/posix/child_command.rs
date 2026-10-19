@@ -171,8 +171,8 @@ mod tests {
         assert_eq!(session.expect("the child's session reads"), pid);
     }
 
-    // Fails when a number `Signal` does not list is answered `None`, which leaves Linux's
-    // real-time signals unnamed.
+    // Fails when a signal number missing from `Signal`'s list gets no name, as Linux's real-time
+    // signals would.
     #[test]
     fn every_exit_signal_the_system_defines_has_a_name() {
         let listed = Signal::iterator().map(|signal| signal as i32);

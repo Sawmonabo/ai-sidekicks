@@ -197,7 +197,7 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 33] = [
         AllowingPowerShells::PwshOnly,
     ),
     powershell_switch("ec", "e", SwitchOperand::One, AllowingPowerShells::PwshOnly),
-    // Windows PowerShell's folder start is refused beside it, since it feeds the command text.
+    // Windows PowerShell's folder start is refused beside it, since it fills the command's `$args`.
     powershell_switch(
         "encodedarguments",
         "encodeda",
