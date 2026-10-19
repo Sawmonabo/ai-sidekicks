@@ -236,7 +236,7 @@ impl RunEngine {
                 // task logs an error; only a panic after the caller dropped is left to the panic
                 // hook.
                 if let Err(Err(error)) = sender.send(stopped) {
-                    log_unread_limit_stop_failure(run_id, limit, error);
+                    log_unread_limit_stop_failure(&tracing::Span::current(), run_id, limit, error);
                 }
             }
             .instrument(span),
@@ -490,7 +490,8 @@ impl RunEngine {
         run_id: RunId,
         stop: LimitStop,
     ) -> Result<LimitReach, RunEngineError> {
-        let to_state = limit_run_end(stop.limit()).state();
+        let limit = stop.limit();
+        let to_state = limit_run_end(limit).state();
         match stop {
             LimitStop::Interrupt { .. } => {
                 let run = self.require_run(run_id).await?;
@@ -532,9 +533,7 @@ impl RunEngine {
                         // before: that reached event stands, and the interrupt goes alone unless
                         // the token limit's own interrupt of the run is still pending, which ends
                         // it.
-                        let is_pending = self
-                            .has_pending_limit_interrupt(run_id, stop.limit())
-                            .await?;
+                        let is_pending = self.has_pending_limit_interrupt(run_id, limit).await?;
                         Ok(if is_pending {
                             LimitReach::InterruptPending
                         } else {
@@ -549,8 +548,8 @@ impl RunEngine {
 }
 
 // The receiving end of a limit stop's result, held by the stop's caller: dropped before it reads
-// the result, it logs an error the task sent before its close went in, the log line carrying the
-// stop's span as the task's does.
+// the result, it logs an error the task sent before its close went in, the log line a child of the
+// stop's span as the task's is.
 struct LimitStopAnswer {
     receiver: oneshot::Receiver<Result<(), RunEngineError>>,
     run_id: RunId,
@@ -562,15 +561,21 @@ impl Drop for LimitStopAnswer {
     fn drop(&mut self) {
         self.receiver.close();
         if let Ok(Err(error)) = self.receiver.try_recv() {
-            self.span
-                .in_scope(|| log_unread_limit_stop_failure(self.run_id, self.limit, error));
+            log_unread_limit_stop_failure(&self.span, self.run_id, self.limit, error);
         }
     }
 }
 
-// Logs a limit stop's error that no caller reads.
-fn log_unread_limit_stop_failure(run_id: RunId, limit: RunLimit, error: RunEngineError) {
+// Logs a limit stop's error that no caller reads, as a child of the stop's span: a root line when
+// no span was current at the stop.
+fn log_unread_limit_stop_failure(
+    parent: &tracing::Span,
+    run_id: RunId,
+    limit: RunLimit,
+    error: RunEngineError,
+) {
     tracing::warn!(
+        parent: parent,
         run_id = %run_id,
         limit = <&'static str>::from(limit),
         error = &error as &(dyn Error + 'static),
