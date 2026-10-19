@@ -12,6 +12,7 @@ use std::panic::{self, AssertUnwindSafe};
 use clap::{Parser, Subcommand};
 use icu_decimal::DecimalFormatter;
 use icu_decimal::input::Decimal;
+use icu_decimal::options::DecimalFormatterOptions;
 use icu_locale_core::Locale;
 use serde_json::Value;
 use sidekicks_client::error::ClientError;
@@ -174,7 +175,7 @@ fn repairing_line_parts(failure: &anyhow::Error) -> Option<Vec<DaemonRepairingLi
 /// digits for the POSIX locale (`None`).
 fn write_repairing_line(parts: Vec<DaemonRepairingLinePart>, locale: Option<&Locale>) -> String {
     let formatter = locale.map(|locale| {
-        DecimalFormatter::try_new(locale.into(), Default::default())
+        DecimalFormatter::try_new(locale.into(), DecimalFormatterOptions::default())
             .expect("the compiled number data covers every locale through its fallback")
     });
     parts

@@ -90,7 +90,7 @@ mod tests {
             writeln!(std::io::stdout(), "{marker}").expect("the line is written");
         });
         let failure = end_as_ctrl_c();
-        Err::<(), _>(failure).expect("the Ctrl-C ending ends the process");
+        panic!("the Ctrl-C ending ends the process: {failure}");
     }
 
     #[test]
