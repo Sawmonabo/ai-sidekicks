@@ -22,6 +22,7 @@ mod intervention;
 mod native_program;
 mod permission_level;
 mod rules;
+mod server_requests;
 mod service;
 mod session;
 mod tools;

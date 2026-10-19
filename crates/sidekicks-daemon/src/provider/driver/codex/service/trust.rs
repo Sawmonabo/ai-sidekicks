@@ -1,0 +1,185 @@
+//! Trust for the daemon's two command hooks on the terminal service the daemon starts on the
+//! person's own Codex folder. Codex runs a command hook only once its hash is recorded as trusted
+//! and skips an untrusted one without a word, so the daemon lists the hooks, records the hash of
+//! each of its own that is not yet trusted, and lists again to confirm before any conversation.
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::provider::driver::codex::service::command_line::CodexHookCommands;
+use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::provider::inbound_json::decode_inbound_json;
+
+/// The request that lists the hooks a service runs, with each one's key, hash and trust.
+const HOOKS_LIST_METHOD: &str = "hooks/list";
+
+/// The request that writes one value into the person's Codex config.
+const CONFIG_VALUE_WRITE_METHOD: &str = "config/value/write";
+
+/// Where Codex keeps each hook's trusted hash, by the hook's key.
+const HOOK_STATE_KEY_PATH: &str = "hooks.state";
+
+/// The source `hooks/list` names for a hook the service's command line set.
+const SESSION_FLAGS_HOOK_SOURCE: &str = "sessionFlags";
+
+// `hooks/list` with no folders, which lists the service's own working folder.
+#[derive(Serialize)]
+struct HooksListParams {}
+
+// The members of a `hooks/list` reply the trust reads.
+#[derive(Deserialize)]
+struct HooksListReply {
+    #[serde(default)]
+    data: Vec<HooksListEntry>,
+}
+
+#[derive(Deserialize)]
+struct HooksListEntry {
+    #[serde(default)]
+    hooks: Vec<ListedHook>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListedHook {
+    source: Option<String>,
+    command: Option<String>,
+    key: Option<String>,
+    current_hash: Option<String>,
+    trust_status: Option<String>,
+}
+
+// One of the daemon's hooks as the service lists it.
+struct DaemonHook<'reply> {
+    key: &'reply str,
+    current_hash: &'reply str,
+    is_trusted: bool,
+}
+
+// The `config/value/write` that records trusted hashes, merged into what the config holds.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TrustedHashesWrite<'reply> {
+    key_path: &'static str,
+    value: BTreeMap<&'reply str, TrustedHash<'reply>>,
+    merge_strategy: &'static str,
+}
+
+#[derive(Serialize)]
+struct TrustedHash<'reply> {
+    trusted_hash: &'reply str,
+}
+
+/// Records the trusted hash of each of the daemon's `hook_commands` the terminal service lists
+/// untrusted, in one upsert, then lists the hooks again. Fails with `CodexError::Transport` when
+/// the service does not list a daemon hook with its key and hash, its reply cannot be read, or a
+/// daemon hook is still untrusted after the write, since an untrusted hook never runs; a failed
+/// request fails as the connection reports it.
+#[expect(
+    dead_code,
+    reason = "the daemon's start trusts the terminal service's hooks before any conversation"
+)]
+pub(crate) async fn trust_codex_daemon_hooks(
+    connection: &CodexAppServerConnection,
+    hook_commands: &CodexHookCommands,
+) -> Result<(), CodexError> {
+    let reply = list_hooks(connection).await?;
+    let untrusted: BTreeMap<&str, TrustedHash<'_>> = read_daemon_hooks(&reply, hook_commands)?
+        .into_iter()
+        .filter(|hook| !hook.is_trusted)
+        .map(|hook| {
+            (
+                hook.key,
+                TrustedHash {
+                    trusted_hash: hook.current_hash,
+                },
+            )
+        })
+        .collect();
+    if untrusted.is_empty() {
+        return Ok(());
+    }
+    connection
+        .request(
+            CONFIG_VALUE_WRITE_METHOD,
+            &TrustedHashesWrite {
+                key_path: HOOK_STATE_KEY_PATH,
+                value: untrusted,
+                merge_strategy: "upsert",
+            },
+        )
+        .await?;
+    let relisted = list_hooks(connection).await?;
+    if read_daemon_hooks(&relisted, hook_commands)?
+        .iter()
+        .any(|hook| !hook.is_trusted)
+    {
+        return Err(CodexError::Transport {
+            detail: "The Codex service still lists a daemon hook as untrusted after its hash was \
+                     recorded, so the hook would never run."
+                .to_owned(),
+            cause: None,
+        });
+    }
+    Ok(())
+}
+
+// The service's `hooks/list` reply, read for the members trust needs.
+async fn list_hooks(connection: &CodexAppServerConnection) -> Result<HooksListReply, CodexError> {
+    let reply = connection
+        .request(HOOKS_LIST_METHOD, &HooksListParams {})
+        .await?;
+    serde_json::from_str(&decode_inbound_json(reply.get().as_bytes())).map_err(|error| {
+        CodexError::Transport {
+            detail: format!("The Codex service's \"{HOOKS_LIST_METHOD}\" reply is unreadable"),
+            cause: Some(Box::new(error)),
+        }
+    })
+}
+
+// The daemon's two hooks in `reply`, the pre-tool one first; fails when either is not listed as
+// a command-line hook with its key and hash.
+fn read_daemon_hooks<'reply>(
+    reply: &'reply HooksListReply,
+    hook_commands: &CodexHookCommands,
+) -> Result<[DaemonHook<'reply>; 2], CodexError> {
+    let find = |command: &str| {
+        reply
+            .data
+            .iter()
+            .flat_map(|entry| &entry.hooks)
+            .find_map(|hook| read_daemon_hook(hook, command))
+            .ok_or_else(|| CodexError::Transport {
+                detail: "The Codex service does not list a hook the daemon started it with, so it \
+                         cannot be trusted and would never run."
+                    .to_owned(),
+                cause: None,
+            })
+    };
+    Ok([
+        find(&hook_commands.pre_tool_use)?,
+        find(&hook_commands.post_tool_use)?,
+    ])
+}
+
+// `hook` read as the daemon's hook running `command`, when it is one with a key and a hash. A hook
+// Codex manages runs without a recorded trust.
+fn read_daemon_hook<'reply>(hook: &'reply ListedHook, command: &str) -> Option<DaemonHook<'reply>> {
+    if hook.source.as_deref() != Some(SESSION_FLAGS_HOOK_SOURCE)
+        || hook.command.as_deref() != Some(command)
+    {
+        return None;
+    }
+    let key = hook.key.as_deref().filter(|key| !key.is_empty())?;
+    let current_hash = hook
+        .current_hash
+        .as_deref()
+        .filter(|current_hash| !current_hash.is_empty())?;
+    Some(DaemonHook {
+        key,
+        current_hash,
+        is_trusted: matches!(hook.trust_status.as_deref(), Some("trusted" | "managed")),
+    })
+}
