@@ -388,8 +388,8 @@ interface CreateSessionParams {
   // one leg realizes it as a start flag (Spec-003 §The Step Bound On A Turn). Absent means the
   // session set no bound of its own, in which case the machine's own Runtime value applies and
   // where that is unset each provider does what it does on its own. The driver carries the number
-  // onto its own realization: `--max-turns` on the Claude leg, where the provider enforces it, and
-  // the daemon's own per-turn count on the Codex leg, that provider publishing no cap. Spawn-bound
+  // onto its own realization: the daemon's own per-turn count on every leg, which interrupts the
+  // turn at the number, and on the Claude leg one more as `--max-turns`, a backstop. Spawn-bound
   // like posture and speed, so `ResumeSessionParams` re-realizes it below. Reaching the bound ends
   // the turn as `agent.turn.interrupted` with cause `stepLimit`, its partial result kept, and the
   // run rests `interrupted` with trigger `stepLimit` until a send, or `Continue`, carries it on
@@ -456,8 +456,8 @@ interface ResumeSessionParams {
   // to take one from. Same opacity rule as on `CreateSessionParams` above.
   providerAccountId?: string;
   // A reconstructed data leg: a resume that dropped the session's own step bound would relaunch the
-  // Claude leg without `--max-turns` while the session record still holds the number the person
-  // set, which is the silent shedding this list exists to prevent. Read back from
+  // Claude leg without its `--max-turns` backstop while the session record still holds the number
+  // the person set, which is the silent shedding this list exists to prevent. Read back from
   // `runtime_bindings.spawn_config` like its siblings, never re-read from the session record at the
   // resume, so a bound changed mid-run reaches the next turn rather than the relaunch.
   maxStepsPerTurn?: number;
@@ -565,8 +565,9 @@ interface PickedSkill {
 }
 
 interface InterruptPayload {
-  // the waiting messages go as the next turn, or back to the draft
-  pending: "nextTurn" | "returnToDraft";
+  // the waiting messages go as the next turn, back to the draft, or keep waiting (the daemon's own
+  // interrupt at a limit, which no wire request carries)
+  pending: "nextTurn" | "returnToDraft" | "keepWaiting";
   reason?: string;
 }
 
@@ -580,6 +581,9 @@ interface ApplyInterventionResponse {
   // a delivered message's run when that is not its target: settling a choice the target was held on
   // ended it, so the message started the session's next turn as a run of its own
   deliveredRunId?: RunId;
+  // the waiting messages an interrupt took back from the provider, none of which runs: the ids of
+  // its receipt that read as queue items, any other dropped
+  cancelled: string[];
 }
 
 // The MOVE ONTO A FORK: the driver starts a new provider conversation from the bound one's history
