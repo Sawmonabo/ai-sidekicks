@@ -1,6 +1,7 @@
 //! The `sidekicks` program: its arguments and the one error boundary every run passes through.
 //! Every failure is reported on stderr as one `error: <message>` line, never on stdout and never
-//! with a stack, and becomes the run's exit code.
+//! with a stack, and becomes the run's exit code; a daemon repairing its database file is named in
+//! the words the app shows, its counts in the person's number format.
 
 use std::any::Any;
 use std::ffi::OsString;
@@ -8,7 +9,15 @@ use std::io::{self, Write};
 use std::panic::{self, AssertUnwindSafe};
 
 use clap::{Parser, Subcommand};
-use sidekicks_platforms::end_as_ctrl_c;
+use icu_decimal::DecimalFormatter;
+use icu_decimal::input::Decimal;
+use icu_locale_core::Locale;
+use sidekicks_client::error::ClientError;
+use sidekicks_contracts::daemon::recovery::{
+    DaemonRepairingDetails, DaemonRepairingLinePart, describe_daemon_repairing_line,
+};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, system_locale};
 
 use crate::command_context::CommandContext;
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
@@ -113,13 +122,63 @@ pub(crate) fn report_failure<Output: Write, ErrorOutput: Write>(
         Ok(ProcessEnding::Exit(ExitCode::BrokenPipe)) => {
             return ProcessEnding::Exit(ExitCode::BrokenPipe);
         }
-        Ok(ProcessEnding::Exit(code)) => (code, format!("error: {failure:#}\n")),
+        Ok(ProcessEnding::Exit(code)) => (code, format!("error: {}\n", describe_failure(failure))),
         Err(unmapped) => (
             ExitCode::Software,
-            format!("error: {failure:#}\nerror: {unmapped}\n"),
+            format!("error: {}\nerror: {unmapped}\n", describe_failure(failure)),
         ),
     };
     ProcessEnding::Exit(write_error_lines(&lines, code, context))
+}
+
+/// The failure's message: the repair's line when the daemon refused as `daemon.repairing`, its
+/// counts in the person's number format, else every cause in the failure's chain.
+fn describe_failure(failure: &anyhow::Error) -> String {
+    match repairing_line_parts(failure) {
+        Some(parts) => write_repairing_line(parts, system_locale(LocaleCategory::Number).as_ref()),
+        None => format!("{failure:#}"),
+    }
+}
+
+/// The repair's line in parts when the failure's first client error is the `daemon.repairing`
+/// refusal; a detail that does not read as the refusal's reads as no count.
+fn repairing_line_parts(failure: &anyhow::Error) -> Option<Vec<DaemonRepairingLinePart>> {
+    let client_error = failure
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ClientError>())?;
+    let ClientError::Remote(remote) = client_error else {
+        return None;
+    };
+    let data = remote
+        .data
+        .as_ref()
+        .filter(|data| data.refusal == RefusalCode::DaemonRepairing.as_str())?;
+    let progress = data
+        .fields
+        .as_ref()
+        .and_then(|fields| serde_json::to_value(fields).ok())
+        .and_then(|fields| serde_json::from_value::<DaemonRepairingDetails>(fields).ok())
+        .and_then(|details| details.progress);
+    Some(describe_daemon_repairing_line(progress))
+}
+
+/// The repair's line from its parts, each count grouped as `locale` writes numbers, and in plain
+/// digits for the POSIX locale (`None`).
+fn write_repairing_line(parts: Vec<DaemonRepairingLinePart>, locale: Option<&Locale>) -> String {
+    let formatter = locale.map(|locale| {
+        DecimalFormatter::try_new(locale.into(), Default::default())
+            .expect("the compiled number data covers every locale through its fallback")
+    });
+    parts
+        .into_iter()
+        .map(|part| match (part, &formatter) {
+            (DaemonRepairingLinePart::Words(words), _) => words,
+            (DaemonRepairingLinePart::Count(count), Some(formatter)) => {
+                formatter.format(&Decimal::from(count)).to_string()
+            }
+            (DaemonRepairingLinePart::Count(count), None) => count.to_string(),
+        })
+        .collect()
 }
 
 /// Ends the process as `ending` asks, answering the exit code for `main` to return: an exit's own
@@ -183,8 +242,18 @@ mod tests {
     use anyhow::anyhow;
     use rstest::rstest;
     use sidekicks_client::error::{ClientError, RemoteError};
+    use sidekicks_contracts::daemon::recovery::{
+        DaemonRepairProgress, describe_daemon_repairing_line,
+    };
+    use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
+    use sidekicks_contracts::jsonrpc::message::JsonRpcErrorData;
+    use sidekicks_contracts::jsonrpc::refusal::{
+        KnownRefusalCategory, RefusalCategory, RefusalCode,
+    };
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_contracts::wire::record::JsonRecord;
 
-    use super::{report_failure, run_program};
+    use super::{report_failure, run_program, write_repairing_line};
     use crate::command_context::CommandContext;
     use crate::exit_codes::{ExitCode, ProcessEnding};
 
@@ -269,6 +338,16 @@ mod tests {
          error: The background service returned error code -32099, which has no exit code\n",
         ExitCode::Software
     )]
+    #[case::repairing_with_no_count(
+        repairing(None).into(),
+        "error: Repairing saved sessions after an unexpected shutdown…\n",
+        ExitCode::Unavailable
+    )]
+    #[case::repairing_with_a_count_that_does_not_read(
+        repairing(Some(serde_json::json!({ "progress": { "done": "many" } }))).into(),
+        "error: Repairing saved sessions after an unexpected shutdown…\n",
+        ExitCode::Unavailable
+    )]
     fn a_failure_is_one_error_line_on_stderr_and_nothing_on_stdout(
         #[case] failure: anyhow::Error,
         #[case] reported: &str,
@@ -279,5 +358,42 @@ mod tests {
         assert_eq!(ending, ProcessEnding::Exit(expected));
         assert_eq!(context.stdout, b"");
         assert_eq!(String::from_utf8(context.stderr).expect("UTF-8"), reported);
+    }
+
+    /// The `daemon.repairing` refusal, its detail `fields`.
+    fn repairing(fields: Option<serde_json::Value>) -> ClientError {
+        ClientError::Remote(RemoteError {
+            code: i64::from(JsonRpcErrorCode::DomainRefusal.code()),
+            message: "repairing".to_owned(),
+            data: Some(JsonRpcErrorData {
+                refusal: RefusalCode::DaemonRepairing.as_str().to_owned(),
+                category: RefusalCategory::Known(KnownRefusalCategory::Unavailable),
+                fields: fields.map(|fields| {
+                    serde_json::from_value::<JsonRecord>(fields).expect("the detail is a record")
+                }),
+            }),
+        })
+    }
+
+    #[rstest]
+    #[case::grouped_as_the_us_writes_them(Some("en-US"), "1,234 of 56,789")]
+    #[case::grouped_as_germany_writes_them(Some("de-DE"), "1.234 of 56.789")]
+    #[case::plain_digits_for_the_posix_locale(None, "1234 of 56789")]
+    fn the_repairing_line_groups_its_counts_as_the_locale_writes_numbers(
+        #[case] locale: Option<&str>,
+        #[case] counts: &str,
+    ) {
+        let locale = locale.map(|tag| tag.parse().expect("a locale"));
+        let parts = describe_daemon_repairing_line(Some(DaemonRepairProgress {
+            done: SafeInt::new(1_234).expect("a safe integer"),
+            total: SafeInt::new(56_789).expect("a safe integer"),
+        }));
+
+        let line = write_repairing_line(parts, locale.as_ref());
+
+        assert_eq!(
+            line,
+            format!("Repairing saved sessions after an unexpected shutdown · {counts}")
+        );
     }
 }

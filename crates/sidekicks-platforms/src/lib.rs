@@ -32,7 +32,8 @@
               `set_allocator`, and the power notifications and wall-clock timers of macOS and \
               Windows are C interfaces, and tokio's watch of the Linux timer's and the terminal \
               poller's descriptors trusts each to stay open while it watches, and the Windows \
-              Ctrl-C ending's `ExitProcess` is a C interface too"
+              Ctrl-C ending's `ExitProcess` and the user's locale read (`GetLocaleInfoEx`) are C \
+              interfaces too"
 )]
 
 mod atomic_replace;
@@ -66,6 +67,7 @@ mod socket_listener;
 mod socket_path;
 mod spawner;
 mod system_folder;
+mod system_locale;
 mod terminal;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
@@ -206,6 +208,8 @@ pub use posix::socket_listener::bind_socket_listener;
 #[cfg(unix)]
 pub use posix::socket_path::check_socket_path;
 #[cfg(unix)]
+pub use posix::system_locale::{system_hour_cycle, system_locale};
+#[cfg(unix)]
 pub use posix::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
     end_process_tree, read_console, read_console_waiting_input, release_terminal,
@@ -239,6 +243,7 @@ pub use system_folder::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
 };
+pub use system_locale::LocaleCategory;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
@@ -321,6 +326,8 @@ pub use windows::shell_start::{
 pub use windows::socket_listener::bind_socket_listener;
 #[cfg(target_os = "windows")]
 pub use windows::socket_path::check_socket_path;
+#[cfg(target_os = "windows")]
+pub use windows::system_locale::{system_hour_cycle, system_locale};
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,

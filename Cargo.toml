@@ -248,6 +248,9 @@ file-format = {
 icu_casemap = "2.3.0"
 icu_collator = "2.3.1"
 icu_datetime = "2.3.0"
+# Groups the counts the command line writes, in the person's number format, from ICU4X's
+# compiled CLDR data.
+icu_decimal = "2.3.0"
 icu_locale_core = "2.3.0"
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }

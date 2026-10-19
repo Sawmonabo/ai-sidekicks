@@ -11,9 +11,6 @@ publish.workspace = true
 ignored = [
   # Claude Code's token pipe and the background browser's DevTools pipe on fixed descriptors.
   "command-fds",
-  # The machine's hour cycle for the email digest on Linux.
-  "icu_datetime",
-  "icu_locale_core",
   # The link to an agent's memory folder on Windows.
   "junction",
   # Keeping the machine awake while work runs.
@@ -25,6 +22,7 @@ ignored = [
 
 [dependencies]
 alacritty_terminal.workspace = true
+icu_locale_core.workspace = true
 interprocess.workspace = true
 keepawake.workspace = true
 keyring-core.workspace = true
@@ -46,14 +44,13 @@ rstest.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+icu_datetime.workspace = true
 libmimalloc-sys.workspace = true
 mimalloc.workspace = true
 tree-sitter.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 futures-util.workspace = true
-icu_datetime.workspace = true
-icu_locale_core.workspace = true
 secret-service.workspace = true
 zbus.workspace = true
 zbus-secret-service-keyring-store.workspace = true
@@ -84,6 +81,7 @@ windows-sys = {
     "Wdk_Storage_FileSystem",
     "Wdk_System_SystemServices",
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Networking_WinSock",
     "Win32_Security",
     "Win32_Security_Authorization",

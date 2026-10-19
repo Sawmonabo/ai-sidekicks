@@ -22,6 +22,7 @@ pub(crate) mod shell_folder_start;
 pub(crate) mod shell_start;
 pub(crate) mod socket_listener;
 pub(crate) mod socket_path;
+pub(crate) mod system_locale;
 pub(crate) mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod uptime;
