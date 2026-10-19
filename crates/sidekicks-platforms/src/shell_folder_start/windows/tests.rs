@@ -23,12 +23,12 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 // every value from the command's first on, joined by one space into one argument, or is not run by
 // `Invoke-Expression` after the `Set-Location`, both named with their modules, as a literal with
 // every single quote in it doubled; an empty text, which `Invoke-Expression` refuses, or a
-// whitespace text, which runs nothing, does not take the folder statement alone; an empty bare
-// word takes the folder statement; a bare word is not read as the command; cmd started on a share
-// starts in the Windows folder, and a share path with `&` or `%` left bare runs a command; a
-// horizontal bar is not read as a dash; a drive root is quoted without its `\`; MSYS bash without
-// its variable opens in the home folder, and WSL's launcher given it goes through the MSYS arm; or
-// `--cd` is added over the user's own `~`.
+// whitespace text, which runs nothing, does not take the folder statement alone; an empty or
+// whitespace bare word takes the folder statement; a bare word is not read as the command; cmd
+// started on a share starts in the Windows folder, and a share path with `&` or `%` left bare runs
+// a command; a horizontal bar is not read as a dash; a drive root is quoted without its `\`; MSYS
+// bash without its variable opens in the home folder, and WSL's launcher given it goes through the
+// MSYS arm; or `--cd` is added over the user's own `~`.
 #[rstest]
 #[case::pwsh_with_a_trailing_separator(
     r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -223,6 +223,15 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
     &["-nop", ""],
     r"C:\wt",
     &["-nop", ""],
+    r"C:\wt",
+    &[],
+    None
+)]
+#[case::windows_powershell_with_a_whitespace_bare_word(
+    "powershell.exe",
+    &["-nop", " "],
+    r"C:\wt",
+    &["-nop", " "],
     r"C:\wt",
     &[],
     None

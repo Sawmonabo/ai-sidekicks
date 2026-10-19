@@ -463,7 +463,7 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
     let mut index = windows_powershell_native_front_end(arguments)?;
     while let Some(argument) = arguments.get(index) {
         let Some(key) = powershell_switch_key(argument) else {
-            // A bare word begins the command; an empty argument is refused.
+            // A bare word begins the command; an empty or whitespace argument is refused.
             if argument.trim().is_empty() {
                 return None;
             }
