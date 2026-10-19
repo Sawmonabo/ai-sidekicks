@@ -36,7 +36,8 @@ use crate::workspace::trust_envelope::{components_equal, is_contained_within};
 /// How long each one of the resolver's git calls may run, so one call a hung network folder holds
 /// ends long before the runner's own bound. It bounds each call, not an attach: an attach makes
 /// several calls in turn, and its file reads are held to the bounded read's ceiling apart from
-/// them. A call past it reads `vcsError`.
+/// them. A call past it reads `notReadable`, as a file read past that ceiling does, since a git
+/// that cannot finish reading the folder says the folder is out of reach.
 pub(crate) const ROOT_RESOLUTION_GIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// git's exit code for a fatal error, half of its not-a-repository verdict.
@@ -110,7 +111,8 @@ impl RepoRootResolver {
     /// a path naming no complete location, `pathNotFound` or `notReadable` from the path's own
     /// read before git runs, `notReadable` for any file read past the bounded read's ceiling,
     /// `notARepository` on git's verdict alone, `rootMismatch` for a working tree git does not
-    /// name for the repository, and `vcsError` when git cannot answer.
+    /// name for the repository, `notReadable` when a git call passes its bound, and `vcsError` when
+    /// git cannot answer otherwise.
     pub(crate) async fn resolve_canonical_root(
         &self,
         local_path: &Path,
@@ -200,7 +202,7 @@ impl RepoRootResolver {
     /// The git common folder of the repository whose working tree has `root` as its top level, or
     /// `None` when `root` names nothing or git says it is no such top level (its `.git` entry
     /// gone, broken or naming another tree). Fails with `notReadable` when `root` cannot be read
-    /// and `vcsError` when git cannot answer.
+    /// or a git call passes its bound, and `vcsError` when git cannot answer otherwise.
     pub(crate) async fn read_repository_identity(
         &self,
         root: &Path,
@@ -379,14 +381,25 @@ fn root_resolution_refusal(
     RepoRefusal::RootResolutionFailed { reason, detail }
 }
 
-// `vcsError` for a git call that could not answer, the cause kept in the service log, since the
-// refusal must not echo the path git was asked about.
+// `vcsError` for a git call that could not answer, `notReadable` for one past its bound, the cause
+// kept in the service log, since the refusal must not echo the path git was asked about.
 fn vcs_refusal(error: &GitError) -> RepoRefusal {
     tracing::warn!(
         error = error as &(dyn Error + 'static),
         "git could not answer for a repository root"
     );
-    root_resolution_refusal(RepoMountRootResolutionReason::VcsError, None)
+    let reason = match error {
+        GitError::TimedOut { .. } => RepoMountRootResolutionReason::NotReadable,
+        GitError::WslPlace { .. }
+        | GitError::NotFound
+        | GitError::Start(_)
+        | GitError::OutputTooLarge { .. }
+        | GitError::Read(_)
+        | GitError::Exited { .. }
+        | GitError::PathText(_)
+        | GitError::NotStartable => RepoMountRootResolutionReason::VcsError,
+    };
+    root_resolution_refusal(reason, None)
 }
 
 // Whether git itself answered that the folder is in no repository: exit 128 with its own line. A

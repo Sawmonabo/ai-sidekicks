@@ -11,6 +11,7 @@
 //! boundary's to guard.
 
 use std::error::Error;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use sidekicks_contracts::repo::folders::RepoMountOutsideTrustEnvelopeReason;
@@ -20,7 +21,7 @@ use crate::file::bounded_read::read_within_ceiling;
 use crate::file::real_location::resolve_real_path;
 use crate::missing_entry::is_missing_entry;
 use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::repo::root_resolver::RepoRootResolver;
+use crate::workspace::repo::root_resolver::{RepoRootResolver, refusal_of_filesystem_failure};
 
 /// One picked folder; the caller supplies every root, so the validator looks nothing up.
 #[derive(Clone, Copy, Debug)]
@@ -50,7 +51,9 @@ pub(crate) struct AdmittedExecutionRoot {
 /// Resolves and admits one picked folder, asking `resolver` which working tree it sits in and
 /// which trees the mount's repository has; nothing is kept between picks. Fails with
 /// [`RepoRefusal::OutsideTrustEnvelope`] (`outsideProject`) on every refusal, a vanished mount
-/// among them, and with the resolver's `rootResolutionFailed` refusal when git cannot answer.
+/// among them, and with the resolver's `rootResolutionFailed` refusal when git cannot answer or
+/// the folder's resolve or listing gets no answer within the bounded read's ceiling, which says
+/// nothing of where the folder lies.
 #[cfg_attr(not(test), expect(dead_code, reason = "a run starting in a workspace"))]
 pub(crate) async fn validate_execution_root(
     resolver: &RepoRootResolver,
@@ -72,13 +75,9 @@ pub(crate) async fn validate_execution_root(
 
     let spelled = join_candidate_path(anchor, candidate.directory)?;
     // A folder the file system will not resolve cannot be shown to lie inside a root.
-    let resolved = resolve_real_path(&spelled).await.map_err(|error| {
-        tracing::debug!(
-            error = &error as &(dyn Error + 'static),
-            "a picked folder could not be resolved"
-        );
-        outside_project()
-    })?;
+    let resolved = resolve_real_path(&spelled)
+        .await
+        .map_err(|error| unread_folder_refusal(&error, "a picked folder could not be resolved"))?;
 
     let working_tree = resolver.read_working_tree_root(&resolved).await?;
     let provenance_checkout = admit_by_provenance(
@@ -98,11 +97,10 @@ pub(crate) async fn validate_execution_root(
     if let Err(error) =
         read_within_ceiling(&resolved, |resolved| std::fs::read_dir(resolved).map(drop)).await
     {
-        tracing::debug!(
-            error = &error as &(dyn Error + 'static),
-            "a picked folder could not be listed"
-        );
-        return Err(outside_project());
+        return Err(unread_folder_refusal(
+            &error,
+            "a picked folder could not be listed",
+        ));
     }
     Ok(AdmittedExecutionRoot {
         execution_root: resolved,
@@ -123,6 +121,17 @@ pub(crate) fn is_contained_within(candidate: &Path, anchor: &Path) -> bool {
 /// system's comparable form. Both are compared as given: a caller resolves links first.
 pub(crate) fn components_equal(left: &Path, right: &Path) -> bool {
     PathRules::NATIVE.comparable_components(left) == PathRules::NATIVE.comparable_components(right)
+}
+
+// The refusal for a picked folder whose read failed: `notReadable` when the file system gave no
+// answer in time, which says nothing of where the folder lies, else `outsideProject`.
+fn unread_folder_refusal(error: &io::Error, failure: &'static str) -> RepoRefusal {
+    tracing::debug!(error = error as &(dyn Error + 'static), "{failure}");
+    if error.kind() == io::ErrorKind::TimedOut {
+        refusal_of_filesystem_failure(error)
+    } else {
+        outside_project()
+    }
 }
 
 fn outside_project() -> RepoRefusal {

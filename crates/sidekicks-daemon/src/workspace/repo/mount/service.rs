@@ -532,9 +532,10 @@ impl RepoMountService {
         row.ok_or_else(|| RepoRefusal::MountNotFound { repo_mount_id }.into())
     }
 
-    /// One mount's facts, in any state, with a freshly probed health verdict. Refuses
-    /// `repoMount.notFound`, and `repoMount.rootResolutionFailed` (`vcsError`) when git cannot
-    /// answer for the root; fails as [`RepoMountService::read_row`] does.
+    /// One mount's facts, in any state, with a freshly probed health verdict, `unreachable` when the
+    /// root or git gives no answer in time. Refuses `repoMount.notFound`, and
+    /// `repoMount.rootResolutionFailed` (`vcsError`) when git cannot answer for the root otherwise;
+    /// fails as [`RepoMountService::read_row`] does.
     pub(crate) async fn read(
         &self,
         repo_mount_id: RepoMountId,

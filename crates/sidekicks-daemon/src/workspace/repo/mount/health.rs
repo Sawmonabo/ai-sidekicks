@@ -149,7 +149,8 @@ pub(crate) async fn probe_repo_mount_health(
         .read_repository_identity(mount_row.canonical_root)
         .await
     {
-        // The root opened, then its resolve got no answer in time or was refused: out of reach.
+        // The root opened, then its resolve or a git call got no answer in time, or the resolve was
+        // refused: out of reach.
         Err(RepoRefusal::RootResolutionFailed {
             reason: RepoMountRootResolutionReason::NotReadable,
             ..
