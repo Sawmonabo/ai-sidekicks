@@ -30,16 +30,31 @@ pub struct SpawnRequest {
     /// Exactly the shell's environment, in order; a later entry with a name already given wins.
     /// A name is never empty and holds no `=`, and no name or value holds a NUL.
     pub environment: Vec<(String, String)>,
-    /// The folder the shell starts in.
+    /// The folder the PTY spawns the `shell` mode in.
     pub working_directory: PathBuf,
+    /// The folder the `shell` mode starts the shell in.
+    pub shell_folder: PathBuf,
+    /// Text the shell parses itself, which the `shell` mode writes after the shell's arguments
+    /// exactly as given.
+    pub raw_command_tail: Option<String>,
     /// The terminal's height in rows.
     pub rows: u16,
     /// The terminal's width in columns.
     pub columns: u16,
-    /// The daemon's `shell` mode with its arguments up to the shell's program, which starts
-    /// the shell with exactly `environment`.
+    /// The daemon's `shell` mode with its arguments up to its own switches, which starts the
+    /// shell in `shell_folder` with exactly `environment`.
     pub shell_start: CommandLine,
 }
+
+/// The `shell` mode's switch whose value is the folder it starts the shell in.
+pub const SHELL_FOLDER_SWITCH: &str = "--folder";
+
+/// The `shell` mode's switch whose value is the text it writes after the shell's arguments
+/// exactly as given.
+pub const RAW_COMMAND_TAIL_SWITCH: &str = "--raw-tail";
+
+/// The end of the `shell` mode's own switches; the shell's program and its arguments follow it.
+pub const END_OF_SHELL_SWITCHES: &str = "--";
 
 /// A shell's open PTY and the daemon's end of its start's confirmation, which the `shell` mode
 /// reads only while that end is open, so the two are released together once the shell has ended.
@@ -59,28 +74,47 @@ impl OpenedPty {
     }
 }
 
-/// Opens the shell's PTY and starts its program through the `shell` mode, confirming to the mode
-/// that the daemon started it; blocking, so it runs on the daemon's spawner thread, which starts no
-/// other child between the confirmation's opening and its writing. Fails with `InvalidInput` for an
-/// environment entry with an empty name, an `=` in its name or a NUL, with `NotADirectory` when the
-/// working folder is not a folder, and with the system's error when the terminal cannot be opened,
-/// the program started or its start confirmed; a start not confirmed ends the program.
+/// Opens the shell's PTY and starts its program through the `shell` mode, its switches naming the
+/// shell's folder and any raw tail before the shell's program, confirming to the mode that the
+/// daemon started it; blocking, so it runs on the daemon's spawner thread, which starts no other
+/// child between the confirmation's opening and its writing. Fails with `InvalidInput` for an
+/// environment entry with an empty name, an `=` in its name or a NUL, or a shell folder that is not
+/// text, with `NotADirectory` when the mode's or the shell's folder is not a folder, and with the
+/// system's error when the terminal cannot be opened, the program started or its start confirmed;
+/// a start not confirmed ends the program.
 pub(crate) fn open_pty(request: &SpawnRequest) -> io::Result<OpenedPty> {
     check_environment(&request.environment)?;
-    if !request.working_directory.is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotADirectory,
-            format!("{} is not a folder", request.working_directory.display()),
-        ));
+    for folder in [&request.working_directory, &request.shell_folder] {
+        if !folder.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotADirectory,
+                format!("{} is not a folder", folder.display()),
+            ));
+        }
     }
+    let shell_folder = request.shell_folder.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "the shell folder {} is not text",
+                request.shell_folder.display()
+            ),
+        )
+    })?;
     let mut arguments = request.shell_start.arguments.clone();
+    arguments.extend([SHELL_FOLDER_SWITCH.to_owned(), shell_folder.to_owned()]);
+    if let Some(tail) = &request.raw_command_tail {
+        arguments.extend([RAW_COMMAND_TAIL_SWITCH.to_owned(), tail.clone()]);
+    }
+    arguments.push(END_OF_SHELL_SWITCHES.to_owned());
     arguments.push(request.program.clone());
     arguments.extend(request.arguments.iter().cloned());
     let mut start_confirmation = ShellStartConfirmation::new()?;
     let mut environment = encode_shell_environment(&request.environment);
     environment.extend(start_confirmation.environment_entry());
     let options = sidekicks_platforms::terminal_options(
-        tty::Shell::new(request.shell_start.program.clone(), arguments),
+        request.shell_start.program.clone(),
+        arguments,
         Some(request.working_directory.clone()),
         environment,
     );

@@ -166,20 +166,6 @@ pub(crate) fn place_folder_first_on_search_path(
     }
 }
 
-/// The value of the first pair in `environment` that names `name` under `rules`, `None` where none
-/// does.
-pub(crate) fn read_environment_value<'e>(
-    environment: &'e [(String, String)],
-    name: &str,
-    rules: PathRules,
-) -> Option<&'e str> {
-    let key = rules.environment_name_key(name);
-    environment
-        .iter()
-        .find(|(pair_name, _)| rules.environment_name_key(pair_name) == key)
-        .map(|(_, value)| value.as_str())
-}
-
 /// `environment` without any pair that one of `names` names under `rules`.
 pub(crate) fn remove_environment_names(
     environment: &mut Vec<(String, String)>,
@@ -320,15 +306,16 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::machine::settings::{APP_SET_ENVIRONMENT_NAMES, EnvironmentRow};
     use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
-    use sidekicks_platforms::PathRules;
+    use sidekicks_platforms::{PathRules, PerSystem, SystemFolders};
 
     use super::{
         ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
         SpawnEnvironmentError, build_conversation_command_environment,
         build_project_command_environment, build_provider_process_environment,
-        read_environment_value,
     };
-    use crate::provider::driver::{ManagedSettingsFolders, ProviderCommand, ProviderDescriptor};
+    use crate::provider::driver::{
+        CommandSandboxNeeds, ProviderCommand, ProviderDescriptor, ProviderMemoryEstimates,
+    };
 
     /// A provider that sets, withholds and reserves names of its own.
     const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
@@ -340,10 +327,24 @@ mod tests {
             windows: None,
             unix: None,
         },
-        managed_settings_folders: ManagedSettingsFolders {
+        managed_settings_folders: SystemFolders {
             macos: None,
             linux: None,
             windows: None,
+        },
+        command_sandbox: PerSystem {
+            macos: false,
+            linux: false,
+            windows: false,
+        },
+        command_sandbox_needs: PerSystem {
+            macos: CommandSandboxNeeds::NOTHING,
+            linux: CommandSandboxNeeds::NOTHING,
+            windows: CommandSandboxNeeds::NOTHING,
+        },
+        memory: ProviderMemoryEstimates {
+            process_bytes: 0,
+            conversation_bytes: None,
         },
         standard_output_speed: "standard",
         output_speed_levels: None,
@@ -391,7 +392,7 @@ mod tests {
     }
 
     fn value<'e>(environment: &'e [(String, String)], name: &str) -> Option<&'e str> {
-        read_environment_value(environment, name, PathRules::Posix)
+        PathRules::Posix.environment_value(environment, name)
     }
 
     #[test]
@@ -459,7 +460,7 @@ mod tests {
             .expect("the provider's environment builds");
 
         assert_eq!(
-            read_environment_value(&process, "path", PathRules::Posix),
+            PathRules::Posix.environment_value(&process, "path"),
             remaining_path
         );
     }

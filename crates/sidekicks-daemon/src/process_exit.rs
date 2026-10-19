@@ -8,6 +8,7 @@ use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode, ProcessExitWithSignal};
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use sidekicks_platforms::ChildExit;
 use unicode_segmentation::GraphemeCursor;
 
 // What a tail reads when the process printed nothing but whitespace, since the wire refuses blank.
@@ -121,24 +122,22 @@ impl<const CAP: usize> OutputTail<CAP> {
     }
 }
 
-/// The exit a process that ended on its own crosses the wire with: the name of the signal that
-/// ended it where there is one, else its exit code (a Windows code read as its unsigned 32-bit
-/// value, so a crash reads 3221225477, and a missing code 0), with its output tail.
+/// The exit a process crosses the wire with: the name of the signal that ended it, or that the
+/// daemon asked, where there is one, else its exit code, with its output tail.
 pub(crate) fn compose_process_exit<const CAP: usize>(
-    exit_code: Option<i32>,
-    signal_name: Option<String>,
+    exit: ChildExit,
     output_tail: OutputTail<CAP>,
 ) -> ProcessExit {
     let output_tail = FreeFormText::<PROVIDER_FAILURE_DETAIL_MAX_LEN>::new(output_tail.into_text())
         .expect("a tail is never blank, holds no NUL and is within the failure-detail cap");
-    match signal_name {
+    match exit.signal_name {
         Some(signal) => ProcessExit::Signal(ProcessExitWithSignal {
             signal: FreeFormText::new(signal).expect("a signal's name is a short, non-blank word"),
             exit_code: None,
             output_tail,
         }),
         None => ProcessExit::Code(ProcessExitWithCode {
-            exit_code: ExitCode::new(exit_code.map_or(0, |code| i64::from(code.cast_unsigned())))
+            exit_code: ExitCode::new(exit.exit_code)
                 .expect("an unsigned 32-bit code is a safe integer"),
             signal: None,
             output_tail,
@@ -150,6 +149,7 @@ pub(crate) fn compose_process_exit<const CAP: usize>(
 mod tests {
     use rstest::rstest;
     use sidekicks_contracts::run::control::ProcessExit;
+    use sidekicks_platforms::ChildExit;
 
     use super::{OutputTail, compose_process_exit};
 
@@ -181,11 +181,16 @@ mod tests {
         let mut tail = OutputTail::<32>::new();
         tail.push(b"failed\0here");
 
-        let ProcessExit::Code(exit) = compose_process_exit(Some(-1_073_741_819), None, tail) else {
+        let exit = ChildExit {
+            exit_code: 3_221_225_477,
+            signal_number: None,
+            signal_name: None,
+        };
+
+        let ProcessExit::Code(exit) = compose_process_exit(exit, tail) else {
             panic!("an exit with no signal carries its code");
         };
 
         assert_eq!(exit.output_tail.as_str(), "failed\u{FFFD}here");
-        assert_eq!(exit.exit_code.get(), 3_221_225_477);
     }
 }

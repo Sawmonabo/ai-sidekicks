@@ -34,8 +34,8 @@ pub fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
     from_units.push(0);
     let mut to_units = verbatim_path(to)?;
     to_units.push(0);
-    // SAFETY: both paths are NUL-terminated UTF-16 vectors that live until the call returns, and the
-    // call reads them only up to their NUL.
+    // SAFETY: both paths are NUL-terminated UTF-16 vectors that live until the call returns, and
+    // the call reads them only up to their NUL.
     let moved = unsafe {
         MoveFileExW(
             from_units.as_ptr(),
@@ -50,13 +50,13 @@ pub fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 /// Removes `path` and everything under it, as `rm -rf` does: a link or a junction is removed and
-/// never followed, and a read-only entry goes too, on a volume without POSIX deletes as well. A path
-/// already gone is `Ok`; fails with the stat's or the removal's error, and a failed walk clearing
-/// read-only entries is logged while the removal's own refusal returns.
+/// never followed, and a read-only entry goes too, on a volume without POSIX deletes as well. A
+/// path already gone is `Ok`; fails with the stat's or the removal's error, and a failed walk
+/// clearing read-only entries is logged while the removal's own refusal returns.
 pub fn remove_tree(path: &Path) -> io::Result<()> {
     let removed = match remove_entry(path) {
-        // A volume without POSIX deletes (FAT, exFAT) refuses a read-only entry; it is made writable
-        // and removed once more.
+        // A volume without POSIX deletes (FAT, exFAT) refuses a read-only entry; it is made
+        // writable and removed once more.
         Err(failure) if failure.kind() == io::ErrorKind::PermissionDenied => {
             match clear_read_only(path) {
                 Ok(()) => remove_entry(path),

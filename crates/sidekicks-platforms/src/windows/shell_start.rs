@@ -3,7 +3,8 @@
 
 use std::env;
 use std::io;
-use std::path::PathBuf;
+use std::os::windows::process::CommandExt as _;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use windows_sys::Win32::Foundation::{FALSE, TRUE};
@@ -31,17 +32,20 @@ pub fn arm_parent_death(_daemon_pid: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// Prepares the `shell` mode's own process for the shell's start: nothing to do on Windows;
+/// Prepares the `shell` mode's own process for the shell's start: nothing to do on Windows, where
+/// the mode keeps the folder it was spawned in and [`start_program`] starts the shell in `_folder`;
 /// never fails.
-pub fn prepare_shell_start(_daemon_pid: u32) -> Result<(), ShellStartError> {
+pub fn prepare_shell_start(_daemon_pid: u32, _folder: &Path) -> Result<(), ShellStartError> {
     Ok(())
 }
 
-/// Starts `start`'s program with exactly its arguments and environment, waits for it and ends this
-/// process with the program's exit code, returning only when the handler routine cannot be
-/// registered or the program cannot be started or waited for. It ends through
-/// `std::process::exit`, since `ExitCode` holds only a `u8` and setting a raw 32-bit code on it is
-/// not stable; the exit hands the code to `ExitProcess` as the same 32 bits.
+/// Starts `start`'s program in its folder with exactly its arguments, its raw tail written after
+/// them as given, and its environment, waits for it and ends this process with the program's exit
+/// code, returning only when the handler routine cannot be registered or the program cannot be
+/// started or waited for. This process keeps the folder it was spawned in, so it never holds the
+/// shell's. It ends through `std::process::exit`, since `ExitCode` holds only a `u8` and setting a
+/// raw 32-bit code on it is not stable; the exit hands the code to `ExitProcess` as the same 32
+/// bits.
 #[expect(
     clippy::exit,
     reason = "the shell's 32-bit exit code passes on only through process::exit, since ExitCode \
@@ -55,13 +59,17 @@ pub fn start_program(start: &ShellStart) -> io::Error {
         return io::Error::last_os_error();
     }
     // std sorts the block and replaces repeated names case-insensitively, and looks a bare name
-    // up on the block's own `PATH`; the working folder and the console are inherited.
-    let status = match Command::new(&start.program)
+    // up on the block's own `PATH`; the console is inherited.
+    let mut command = Command::new(&start.program);
+    command
         .args(&start.arguments)
+        .current_dir(&start.folder)
         .env_clear()
-        .envs(start.environment.iter().map(|(name, value)| (name, value)))
-        .status()
-    {
+        .envs(start.environment.iter().map(|(name, value)| (name, value)));
+    if let Some(tail) = &start.raw_command_tail {
+        command.raw_arg(tail);
+    }
+    let status = match command.status() {
         Ok(status) => status,
         Err(error) => return error,
     };

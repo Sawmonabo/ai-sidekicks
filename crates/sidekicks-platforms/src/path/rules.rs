@@ -1,14 +1,17 @@
-//! How an operating system spells, joins and compares a path, and how it names and lists the
-//! variables of a process's environment. Both rule sets compile and parse on every system, so a
-//! path or a name from either system reads by its own rules, and [`PathRules::NATIVE`] names the
-//! running system's.
+//! How an operating system spells, joins and compares a path, how it names and lists the
+//! variables of a process's environment, and how its command shell reads a word. Both rule sets
+//! compile and parse on every system, so a path, a name or a shell's word for either system is
+//! written by its own rules, and [`PathRules::NATIVE`] names the running system's. Windows' rules
+//! also hold `command_line`, a program's command line as Windows takes it and its bound, which
+//! compiles on Windows and under `test`.
 
 use std::borrow::Cow;
 
 mod posix;
-mod windows;
+pub(crate) mod windows;
 
-/// The rules one operating system spells paths and process-environment names by.
+/// The rules one operating system spells paths and process-environment names by, and the ones its
+/// command shell (`sh` on macOS and Linux, `cmd.exe` on Windows) reads a word by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathRules {
     /// macOS and Linux.
@@ -115,6 +118,22 @@ impl PathRules {
         }
     }
 
+    /// The value `environment` gives the variable `name`, read as the system reads it: the last
+    /// pair whose name shares `name`'s [`environment_name_key`](Self::environment_name_key), since
+    /// a later pair wins when a child's environment is set; `None` where no pair names it.
+    pub fn environment_value<'e>(
+        self,
+        environment: &'e [(String, String)],
+        name: &str,
+    ) -> Option<&'e str> {
+        let key = self.environment_name_key(name);
+        environment
+            .iter()
+            .rev()
+            .find(|(pair_name, _)| self.environment_name_key(pair_name) == key)
+            .map(|(_, value)| value.as_str())
+    }
+
     /// The character between the folders of a search-path list such as `PATH`: `:` on macOS and
     /// Linux, `;` on Windows.
     pub fn search_path_separator(self) -> char {
@@ -132,7 +151,33 @@ impl PathRules {
             Self::Windows => true,
         }
     }
+
+    /// The environment variable naming the person's home folder: `HOME` on macOS and Linux,
+    /// `USERPROFILE` on Windows. It goes by the place a process runs in, so a WSL distribution
+    /// reads `HOME` through [`PathRules::Posix`].
+    pub fn home_environment_name(self) -> &'static str {
+        match self {
+            Self::Posix => "HOME",
+            Self::Windows => "USERPROFILE",
+        }
+    }
+
+    /// `word` written so the system's command shell hands it to the program exactly: single-quoted
+    /// for `sh`, and for a `cmd.exe /c` line on Windows. Fails with [`ShellWordRefused`] only on
+    /// Windows, for a word holding a line break.
+    pub fn quote_shell_word(self, word: &str) -> Result<String, ShellWordRefused> {
+        match self {
+            Self::Posix => Ok(posix::quote_shell_word(word)),
+            Self::Windows => windows::quote_shell_word(word),
+        }
+    }
 }
+
+/// A word the system's command shell cannot be given exactly: on Windows a `\r` or `\n`, where
+/// `cmd.exe` ends the line.
+#[derive(Debug, thiserror::Error)]
+#[error("a line break cannot be written into a Windows command line")]
+pub struct ShellWordRefused;
 
 /// `character`'s upper-case form where `character` is one UTF-16 unit and its upper-case form is
 /// one character, as Windows' upper-case table maps one unit to one; `character` itself otherwise.
@@ -152,6 +197,25 @@ mod tests {
     use rstest::rstest;
 
     use super::PathRules;
+
+    // Fails when the `'` escape, the `%` escape or the `"` doubling is dropped.
+    #[rstest]
+    #[case::posix(PathRules::Posix, "it's 100%", Some(r"'it'\''s 100%'"))]
+    #[case::windows_quote_and_percent(
+        PathRules::Windows,
+        r#"say "hi" 100%PATH%"#,
+        Some(r#""say ""hi"" 100%%cd:~,%PATH%%cd:~,%""#)
+    )]
+    #[case::windows_trailing_backslash(PathRules::Windows, r"C:\a b\", Some(r#""C:\a b\\""#))]
+    #[case::windows_empty(PathRules::Windows, "", Some(r#""""#))]
+    #[case::windows_line_break(PathRules::Windows, "a\nb", None)]
+    fn quote_shell_word_hands_the_program_the_word_exactly(
+        #[case] rules: PathRules,
+        #[case] word: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(rules.quote_shell_word(word).ok().as_deref(), expected);
+    }
 
     #[rstest]
     #[case::posix_root(PathRules::Posix, "/repos/app", true)]

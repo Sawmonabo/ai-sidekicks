@@ -14,12 +14,14 @@ use nix::sys::prctl::{set_pdeathsig, set_thp_disable};
 use nix::sys::signal::{SigHandler, Signal, signal};
 #[cfg(target_os = "linux")]
 use nix::unistd::execve;
-use nix::unistd::{AccessFlags, Pid, access, getppid};
+use nix::unistd::{Pid, chdir, getppid};
 
 #[cfg(target_os = "macos")]
 use crate::macos::responsibility::OwnRootStart;
 #[cfg(target_os = "macos")]
 use crate::macos::shell_start_confirmation::receive_confirmation;
+use crate::posix::executable_file::is_executable_file;
+use crate::posix::process::id::system_process_id;
 use crate::shell_start::{ShellStart, ShellStartError};
 
 // zsh, the system's own shell on macOS.
@@ -66,11 +68,13 @@ pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
 
 /// Prepares the `shell` mode's own process for its exec: arms it as [`arm_parent_death`]
 /// does; on macOS waits for the daemon's confirmation that it started this process, without which
-/// no program starts as its own responsible process; then sets `SIGPIPE` back to its default, since
-/// an ignored signal survives `execve`. Fails with [`ShellStartError::DaemonGone`] when the daemon
-/// is no longer the parent, [`ShellStartError::Unconfirmed`] when the confirmation does not come,
-/// and with the variant naming the call the system refused.
-pub fn prepare_shell_start(daemon_pid: u32) -> Result<(), ShellStartError> {
+/// no program starts as its own responsible process; enters `folder`, which the shell inherits
+/// across the exec; then sets `SIGPIPE` back to its default, since an ignored signal survives
+/// `execve`. Fails with [`ShellStartError::DaemonGone`] when the daemon is no longer the parent,
+/// [`ShellStartError::Unconfirmed`] when the confirmation does not come,
+/// [`ShellStartError::FolderRefused`] when the folder cannot be entered, and with the variant
+/// naming the call the system refused.
+pub fn prepare_shell_start(daemon_pid: u32, folder: &Path) -> Result<(), ShellStartError> {
     arm(daemon_pid).map_err(|failure| match failure {
         ArmingFailure::DaemonGone => ShellStartError::DaemonGone,
         #[cfg(target_os = "linux")]
@@ -78,6 +82,7 @@ pub fn prepare_shell_start(daemon_pid: u32) -> Result<(), ShellStartError> {
     })?;
     #[cfg(target_os = "macos")]
     receive_confirmation().map_err(ShellStartError::Unconfirmed)?;
+    chdir(folder).map_err(|errno| ShellStartError::FolderRefused(io::Error::from(errno)))?;
     // SAFETY: the default disposition installs no handler, so no code of this program can run
     // inside a signal.
     unsafe { signal(Signal::SIGPIPE, SigHandler::SigDfl) }
@@ -85,7 +90,8 @@ pub fn prepare_shell_start(daemon_pid: u32) -> Result<(), ShellStartError> {
         .map_err(|errno| ShellStartError::SignalResetRefused(io::Error::from(errno)))
 }
 
-/// Replaces the process with `start`'s program, with exactly its arguments and environment, and
+/// Replaces the process with `start`'s program, with exactly its arguments, its raw tail as one
+/// last argument, and its environment, in the folder [`prepare_shell_start`] entered, and
 /// returns only on failure: `InvalidInput` for a NUL in the program, an argument or the
 /// environment, `ENOENT` for a bare name no `PATH` folder holds as a program, and otherwise the
 /// error the exec answers. A bare name is looked up on the environment's own `PATH`, and the exec
@@ -99,9 +105,9 @@ pub fn start_program(start: &ShellStart) -> io::Error {
 
 fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
     let program = start.program.as_bytes();
-    let mut argv = Vec::with_capacity(start.arguments.len() + 1);
+    let mut argv = Vec::with_capacity(start.arguments.len() + 2);
     argv.push(CString::new(program)?);
-    for argument in &start.arguments {
+    for argument in start.arguments.iter().chain(&start.raw_command_tail) {
         argv.push(CString::new(argument.as_bytes())?);
     }
     let envp = start
@@ -115,17 +121,10 @@ fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
         let resolved = find_program(&start.program, search_path(start))?;
         CString::new(resolved.into_os_string().into_vec())?
     };
-    exec(path, argv, envp)
-}
-
-#[cfg(target_os = "linux")]
-fn exec(path: CString, argv: Vec<CString>, envp: Vec<CString>) -> io::Result<Infallible> {
-    execve(&path, &argv, &envp).map_err(io::Error::from)
-}
-
-#[cfg(target_os = "macos")]
-fn exec(path: CString, argv: Vec<CString>, envp: Vec<CString>) -> io::Result<Infallible> {
-    Err(OwnRootStart::new(path, argv, envp)?.exec())
+    #[cfg(target_os = "linux")]
+    return execve(&path, &argv, &envp).map_err(io::Error::from);
+    #[cfg(target_os = "macos")]
+    return Err(OwnRootStart::new(path, argv, envp)?.exec());
 }
 
 fn search_path(start: &ShellStart) -> &str {
@@ -142,12 +141,7 @@ fn find_program(name: &OsStr, search_path: &str) -> io::Result<PathBuf> {
     search_path
         .split(':')
         .map(|folder| Path::new(if folder.is_empty() { "." } else { folder }).join(name))
-        .find(|candidate| {
-            candidate
-                .metadata()
-                .is_ok_and(|metadata| metadata.is_file())
-                && access(candidate, AccessFlags::X_OK).is_ok()
-        })
+        .find(|candidate| is_executable_file(candidate))
         .ok_or_else(|| io::Error::from(Errno::ENOENT))
 }
 
@@ -165,10 +159,10 @@ fn arm(daemon_pid: u32) -> Result<(), ArmingFailure> {
     check_parent(daemon_pid)
 }
 
-// A pid past `i32::MAX` is never the parent.
+// A pid of 0 or past `i32::MAX` is never the parent.
 fn check_parent(daemon_pid: u32) -> Result<(), ArmingFailure> {
     let is_parent =
-        i32::try_from(daemon_pid).is_ok_and(|daemon_pid| getppid() == Pid::from_raw(daemon_pid));
+        system_process_id(daemon_pid).is_ok_and(|pid| getppid() == Pid::from_raw(pid.get()));
     if is_parent {
         Ok(())
     } else {

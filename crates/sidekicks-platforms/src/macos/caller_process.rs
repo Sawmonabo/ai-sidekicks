@@ -1,8 +1,7 @@
 //! The process at the other end of a local connection on macOS, read from the socket's audit token
 //! and pinned by its unique id, which the system never gives another process; a pinned process's
-//! parent, and the process responsible for it, pinned the same way. Every read of a pinned process
-//! asks the system to answer only while the id still names that process, so a reused process id is
-//! never read.
+//! parent, the process responsible for it and the program it runs, each read through the pinned
+//! process's id-checked reads, so a reused process id is never read.
 
 use std::ffi::OsString;
 use std::io;
@@ -14,105 +13,12 @@ use std::sync::OnceLock;
 use interprocess::local_socket::tokio::Stream;
 
 use crate::caller_process::{PARENT_READ_ATTEMPTS, ParentProcess, ResponsibleProcess};
+use crate::macos::pinned_process::{
+    AuditToken, COMPARE_ID_VERSION, COMPARE_NOTHING, COMPARE_UNIQUE_ID, PinnedProcess,
+    TOKEN_ID_VERSION, TOKEN_PROCESS_ID, is_running, read_checked, read_unique_identifiers,
+};
 use crate::macos::responsibility::{read_responsible_id, read_responsible_unique_id};
-
-// The record of a process's unique ids, which the SDK's headers leave out; its layout is fixed.
-const UNIQUE_IDENTIFIERS_FLAVOR: libc::c_int = 17;
-
-// The process-information call a checked read makes.
-const PROCESS_INFORMATION_CALL: i32 = 2;
-
-// A checked read answers only while the id names the process with this id version (`exec`
-// changes it) or this unique id (fixed for the process's life).
-const COMPARE_ID_VERSION: u32 = 0x1;
-const COMPARE_UNIQUE_ID: u32 = 0x2;
-const COMPARE_NOTHING: u32 = 0;
-
-// The audit token's slots holding the process's id and its id version.
-const TOKEN_PROCESS_ID: usize = 5;
-const TOKEN_ID_VERSION: usize = 7;
-
-/// A socket's audit token: who last used its other end.
-#[derive(Clone, Copy, Debug)]
-#[repr(C)]
-pub(crate) struct AuditToken {
-    val: [u32; 8],
-}
-
-impl AuditToken {
-    /// The token's bytes, as the system lays them out.
-    pub(crate) fn to_bytes(self) -> [u8; size_of::<Self>()] {
-        let mut bytes = [0; size_of::<Self>()];
-        for (chunk, word) in bytes
-            .as_chunks_mut::<{ size_of::<u32>() }>()
-            .0
-            .iter_mut()
-            .zip(self.val)
-        {
-            *chunk = word.to_ne_bytes();
-        }
-        bytes
-    }
-}
-
-/// A process's unique ids, the system's `proc_uniqidentifierinfo`.
-#[repr(C)]
-struct UniqueIdentifiers {
-    uuid: [u8; 16],
-    unique_id: u64,
-    parent_unique_id: u64,
-    id_version: i32,
-    original_parent_id_version: i32,
-    reserved: [u64; 2],
-}
-
-const _: () = assert!(size_of::<UniqueIdentifiers>() == 56);
-
-/// `__proc_info_extended_id(callnum, pid, flavor, flags, ext_id, arg, buffer, buffersize)`: a
-/// process-information read that the kernel answers only while `pid` names the process `flags`
-/// and `ext_id` pin, failing with `ESRCH` otherwise.
-type CheckedProcessRead =
-    unsafe extern "C" fn(i32, i32, u32, u32, u64, u64, u64, i32) -> libc::c_int;
-
-/// A private `libsystem_kernel` call no SDK header declares; used because it is the one process
-/// read the kernel refuses atomically when the id names any process but the pinned one, where a
-/// public `sysctl` start-time read is a read-then-compare race. Looked up once at run time, so a
-/// macOS without it refuses callers instead of failing to load the daemon; `None` there.
-fn checked_process_read() -> Option<CheckedProcessRead> {
-    static READ: OnceLock<Option<CheckedProcessRead>> = OnceLock::new();
-    *READ.get_or_init(|| {
-        // SAFETY: `RTLD_DEFAULT` searches every loaded image, and the name is a C string.
-        let symbol =
-            unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"__proc_info_extended_id".as_ptr()) };
-        (!symbol.is_null()).then(|| {
-            // SAFETY: the symbol is libsystem_kernel's function of exactly this signature.
-            unsafe { std::mem::transmute::<*mut libc::c_void, CheckedProcessRead>(symbol) }
-        })
-    })
-}
-
-/// A process held by its unique id, so a read made through it names that process or finds it
-/// ended, never another process given its id.
-#[derive(Clone, Debug)]
-pub struct PinnedProcess {
-    id: u32,
-    unique_id: u64,
-    /// The connection's audit token for a peer, which also names the program the process runs at
-    /// the connect; `None` for a process pinned by its id alone.
-    audit_token: Option<AuditToken>,
-}
-
-impl PinnedProcess {
-    /// The process's id.
-    pub fn id(&self) -> u32 {
-        self.id
-    }
-
-    /// The audit token a peer was read from; `None` for a process pinned by its id alone.
-    pub(crate) fn audit_token(&self) -> Option<AuditToken> {
-        self.audit_token
-    }
-}
+use crate::posix::process::id::system_process_id;
 
 /// The process that last used the other end of `stream` (the connecting one until it hands the
 /// socket on), pinned. `None` once that end has closed or that process has ended; fails with the
@@ -261,7 +167,7 @@ fn own_unique_id() -> io::Result<u64> {
 /// once `process` has ended. Fails with the system's error, `ENOENT` when the program's file is
 /// gone, so a start whose responsible process runs a deleted program fails.
 pub(crate) fn read_program_path(process: &PinnedProcess) -> io::Result<Option<PathBuf>> {
-    let Ok(pid) = libc::pid_t::try_from(process.id) else {
+    let Ok(pid) = system_process_id(process.id) else {
         return Ok(None);
     };
     let maximum =
@@ -269,7 +175,7 @@ pub(crate) fn read_program_path(process: &PinnedProcess) -> io::Result<Option<Pa
     let mut path = vec![0_u8; maximum];
     let path_length = u32::try_from(path.len()).expect("the path buffer's length fits a u32");
     // SAFETY: `path` is a live, writable buffer of the length given, which the call fills.
-    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path_length) };
+    let written = unsafe { libc::proc_pidpath(pid.get(), path.as_mut_ptr().cast(), path_length) };
     let Ok(written) = usize::try_from(written) else {
         return failed_path_read();
     };
@@ -293,30 +199,6 @@ fn failed_path_read() -> io::Result<Option<PathBuf>> {
     Err(error)
 }
 
-/// Whether `process` still runs under its id. Fails with the system's error.
-pub(crate) fn is_running(process: &PinnedProcess) -> io::Result<bool> {
-    Ok(read_unique_identifiers(process.id, COMPARE_UNIQUE_ID, process.unique_id)?.is_some())
-}
-
-/// This process, pinned.
-#[cfg(any(test, feature = "test-support"))]
-pub fn this_process() -> PinnedProcess {
-    pinned(std::process::id())
-        .expect("this process reads its own record")
-        .expect("this process runs")
-}
-
-/// Process `id`, pinned as it runs now; `None` when no process has the id.
-pub(crate) fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
-    Ok(
-        read_unique_identifiers(id, COMPARE_NOTHING, 0)?.map(|identifiers| PinnedProcess {
-            id,
-            unique_id: identifiers.unique_id,
-            audit_token: None,
-        }),
-    )
-}
-
 /// `process`'s parent's id, `None` once it has ended.
 fn read_parent_id(process: &PinnedProcess) -> io::Result<Option<u32>> {
     // SAFETY: `proc_bsdshortinfo` is a C struct of integers, for which all zero bytes are valid.
@@ -331,77 +213,17 @@ fn read_parent_id(process: &PinnedProcess) -> io::Result<Option<u32>> {
     Ok(is_read.then_some(record.pbsi_ppid))
 }
 
-/// Process `id`'s unique ids, while `flags` and `pin` still name it; `None` otherwise.
-fn read_unique_identifiers(id: u32, flags: u32, pin: u64) -> io::Result<Option<UniqueIdentifiers>> {
-    // SAFETY: `UniqueIdentifiers` is a C struct of integers, for which all zero bytes are valid.
-    let mut identifiers: UniqueIdentifiers = unsafe { std::mem::zeroed() };
-    let is_read = read_checked(id, UNIQUE_IDENTIFIERS_FLAVOR, flags, pin, &mut identifiers)?;
-    Ok(is_read.then_some(identifiers))
-}
-
-/// Fills `record` with process `id`'s `flavor` record, answering `false` when `id` names no
-/// process `flags` and `pin` accept. `Record` must be the C struct of integers `flavor` writes.
-/// Fails with the system's error, with `Other` when the record comes back short, and with
-/// `Unsupported` on a macOS without the checked read.
-fn read_checked<Record>(
-    id: u32,
-    flavor: libc::c_int,
-    flags: u32,
-    pin: u64,
-    record: &mut Record,
-) -> io::Result<bool> {
-    let Some(read) = checked_process_read() else {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "this macOS has no id-checked process read",
-        ));
-    };
-    // No process id passes `i32::MAX`, the largest the call takes.
-    let Ok(pid) = i32::try_from(id) else {
-        return Ok(false);
-    };
-    let record_length =
-        i32::try_from(size_of::<Record>()).expect("a process record's size fits in an i32");
-    let flavor = u32::try_from(flavor).expect("a flavor is positive");
-    // SAFETY: `record` is a live, writable `Record` of the length given, the struct `flavor` asks
-    // the call to fill, and nothing else reads it until the call returns.
-    let written = unsafe {
-        read(
-            PROCESS_INFORMATION_CALL,
-            pid,
-            flavor,
-            flags,
-            pin,
-            0,
-            (&raw mut *record).addr() as u64,
-            record_length,
-        )
-    };
-    if written == record_length {
-        return Ok(true);
-    }
-    if written > 0 {
-        return Err(io::Error::other(format!(
-            "process {id}'s record came back {written} of {record_length} bytes"
-        )));
-    }
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) {
-        return Ok(false);
-    }
-    Err(error)
-}
-
 #[cfg(test)]
 mod tests {
     use interprocess::local_socket::tokio::Stream;
     use interprocess::os::unix::uds_local_socket::tokio::Stream as UnixSocketStream;
 
-    use super::{
-        AuditToken, COMPARE_NOTHING, PinnedProcess, TOKEN_ID_VERSION, TOKEN_PROCESS_ID, pin_token,
-        pinned, read_parent_process, read_peer_process, read_unique_identifiers,
-    };
+    use super::{pin_token, read_parent_process, read_peer_process};
     use crate::caller_process::ParentProcess;
+    use crate::macos::pinned_process::{
+        AuditToken, COMPARE_NOTHING, PinnedProcess, TOKEN_ID_VERSION, TOKEN_PROCESS_ID, pinned,
+        read_unique_identifiers,
+    };
 
     #[test]
     fn pins_this_process_as_its_own_peer_and_its_parent_until_each_ends() {

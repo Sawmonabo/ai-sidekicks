@@ -20,6 +20,8 @@ use tokio::sync::{Notify, watch};
 use tokio::task::JoinError;
 use tokio::time::{Instant, sleep_until};
 
+use crate::provider::driver::ProviderDescriptor;
+
 const MEBIBYTE: u64 = 1024 * 1024;
 
 /// Kept free of every reservation: a fifth of physical memory, and never less than 1 GiB.
@@ -56,14 +58,37 @@ pub(crate) struct MemoryGateFigures {
     pub(crate) ingest_worker_bytes: u64,
 }
 
-/// A provider process's starting footprint, which its driver supplies: `kind` names the start the
-/// learned peak is kept for, so two starts of one kind share it.
+/// A provider start's footprint, its figures from the provider's descriptor: a new process of the
+/// provider or one more conversation on a running one, each keeping its own learned peak.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ProviderStartEstimate {
-    /// The provider's start kind, unique across providers.
-    pub(crate) kind: &'static str,
-    /// Its reservation until a peak is learned on this machine.
-    pub(crate) starting_bytes: u64,
+    provider_id: &'static str,
+    is_conversation: bool,
+    starting_bytes: u64,
+}
+
+impl ProviderStartEstimate {
+    /// The estimate of one start of `descriptor`'s provider: a conversation joining a running
+    /// process of it where `joins_running_process` and the provider runs conversations that way,
+    /// else a new process.
+    pub(crate) fn new(descriptor: &ProviderDescriptor, joins_running_process: bool) -> Self {
+        let conversation_bytes = descriptor
+            .memory
+            .conversation_bytes
+            .filter(|_| joins_running_process);
+        Self {
+            provider_id: descriptor.id,
+            is_conversation: conversation_bytes.is_some(),
+            starting_bytes: conversation_bytes.unwrap_or(descriptor.memory.process_bytes),
+        }
+    }
+
+    fn estimated_kind(&self) -> EstimatedKind {
+        EstimatedKind::Provider {
+            provider_id: self.provider_id,
+            is_conversation: self.is_conversation,
+        }
+    }
 }
 
 /// The interpreter a script step runs in.
@@ -119,14 +144,17 @@ pub(crate) enum AdmissionWork {
 /// The start a provider or script entry's estimate and learned peak belong to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum EstimatedKind {
-    Provider(&'static str),
+    Provider {
+        provider_id: &'static str,
+        is_conversation: bool,
+    },
     Script(ScriptRuntime),
 }
 
 impl AdmissionWork {
     fn estimated_kind(&self) -> Option<EstimatedKind> {
         match self {
-            Self::Provider { start, .. } => Some(EstimatedKind::Provider(start.kind)),
+            Self::Provider { start, .. } => Some(start.estimated_kind()),
             Self::Script { runtime, .. } => Some(EstimatedKind::Script(*runtime)),
             Self::QuickCode { .. } | Self::Ingest { .. } => None,
         }
@@ -553,7 +581,7 @@ impl GateState {
             AdmissionWork::Provider { start, .. } => node_peak
                 .or_else(|| {
                     self.learned_peak_by_kind
-                        .get(&EstimatedKind::Provider(start.kind))
+                        .get(&start.estimated_kind())
                         .copied()
                 })
                 .unwrap_or(start.starting_bytes),

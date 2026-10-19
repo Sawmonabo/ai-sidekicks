@@ -4,8 +4,15 @@ use std::io;
 use std::ptr;
 use std::sync::OnceLock;
 
-// `<libproc.h>`'s `PROC_UID_ONLY`, which `libc` does not bind: list the processes of one user id.
+use crate::posix::process::id::system_process_id;
+
+// `<libproc.h>`'s `PROC_UID_ONLY` and `PROC_PPID_ONLY`, which `libc` does not bind: list the
+// processes of one user id, or the children of one process.
 const PROC_UID_ONLY: u32 = 4;
+const PROC_PPID_ONLY: u32 = 6;
+
+// `<sys/proc_info.h>`'s `PROC_PGRP_ONLY`, which `libc` does not bind: list one process group.
+const PROC_PGRP_ONLY: u32 = 2;
 
 // The bytes of one process id in `proc_listpids`' answer.
 const PROCESS_ID_BYTES: usize = size_of::<libc::pid_t>();
@@ -19,8 +26,25 @@ static ARGUMENT_BYTES: OnceLock<usize> = OnceLock::new();
 /// The ids of the processes the user with `user_id` runs. Blocks on the read; fails with the
 /// system's error when macOS refuses the list.
 pub fn list_user_process_ids(user_id: u32) -> io::Result<Vec<u32>> {
+    list_process_ids(PROC_UID_ONLY, user_id)
+}
+
+/// The ids of process `parent_id`'s children, as `proc_listchildpids` lists them. Blocks on the
+/// read; fails with the system's error when macOS refuses the list.
+pub(crate) fn list_child_process_ids(parent_id: u32) -> io::Result<Vec<u32>> {
+    list_process_ids(PROC_PPID_ONLY, parent_id)
+}
+
+/// The ids of the processes in group `group_id`. Blocks on the read; fails with the system's error
+/// when macOS refuses the list.
+pub(crate) fn list_group_process_ids(group_id: u32) -> io::Result<Vec<u32>> {
+    list_process_ids(PROC_PGRP_ONLY, group_id)
+}
+
+// The ids of the processes `kind` and `value` select.
+fn list_process_ids(kind: u32, value: u32) -> io::Result<Vec<u32>> {
     // SAFETY: a null buffer of zero bytes asks only for the bytes the list needs.
-    let needed_bytes = unsafe { libc::proc_listpids(PROC_UID_ONLY, user_id, ptr::null_mut(), 0) };
+    let needed_bytes = unsafe { libc::proc_listpids(kind, value, ptr::null_mut(), 0) };
     if needed_bytes < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -29,14 +53,8 @@ pub fn list_user_process_ids(user_id: u32) -> io::Result<Vec<u32>> {
     let mut buffer = vec![0_u8; usize::try_from(buffer_bytes).map_err(io::Error::other)?];
     // SAFETY: the buffer is live, owned here and `buffer_bytes` long, and nothing else reads it
     // until the call returns.
-    let written_bytes = unsafe {
-        libc::proc_listpids(
-            PROC_UID_ONLY,
-            user_id,
-            buffer.as_mut_ptr().cast(),
-            buffer_bytes,
-        )
-    };
+    let written_bytes =
+        unsafe { libc::proc_listpids(kind, value, buffer.as_mut_ptr().cast(), buffer_bytes) };
     if written_bytes < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -58,7 +76,9 @@ pub fn list_user_process_ids(user_id: u32) -> io::Result<Vec<u32>> {
 /// runs it) or shows no environment, as it shows none for its own programs. Blocks on the read;
 /// fails with the system's error on any other refusal.
 pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String>>> {
-    let pid = libc::c_int::try_from(process_id).map_err(io::Error::other)?;
+    let Ok(pid) = system_process_id(process_id) else {
+        return Ok(None);
+    };
     let argument_bytes = if let Some(bytes) = ARGUMENT_BYTES.get() {
         *bytes
     } else {
@@ -68,7 +88,7 @@ pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String
     // Allocated per read and freed after it, so no buffer the size of the limit stays held.
     let mut buffer = vec![0_u8; argument_bytes];
     let mut length = buffer.len();
-    let mut name = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut name = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid.get()];
     // SAFETY: `name` holds three integers, the buffer is live and `length` long, and nothing else
     // reads either until the call returns.
     let status = unsafe {

@@ -3,12 +3,13 @@
 //! signature, the start as its own responsible process and the daemon's confirmation of a shell's
 //! start, the bound on a program's argument, a process's memory and the machine's available
 //! memory, one user's processes and a process's environment, the machine's wakes from sleep, a
-//! wall-clock timer and the login keychain.
+//! wall-clock timer, the login keychain and the shells the live test opens on a folder.
 
 pub(crate) mod caller_process;
 pub(crate) mod code_signature;
 pub(crate) mod credential_store;
 pub(crate) mod memory;
+pub(crate) mod pinned_process;
 pub(crate) mod processes;
 pub(crate) mod responsibility;
 pub(crate) mod shell_start_confirmation;
@@ -24,6 +25,10 @@ use tokio::process::Command;
 
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::posix::child_command::prepare_child_command;
+#[cfg(any(test, feature = "test-support"))]
+use crate::posix::shell_folder_start::BASH_SHELL_FOLDER_PROBE;
+#[cfg(any(test, feature = "test-support"))]
+use crate::shell_folder_start::ShellFolderProbe;
 use crate::spawner::Spawner;
 
 // The program that reads the computer name, by its full path so no `PATH` entry stands in for it.
@@ -85,3 +90,18 @@ pub fn read_command_argument_limit() -> io::Result<usize> {
         .ok_or_else(|| io::Error::other("the system sets no limit on a program's arguments"))?;
     usize::try_from(limit).map_err(io::Error::other)
 }
+
+/// The shells the live test opens here, each with no startup files and a prompt of its folder:
+/// macOS removes a folder a process sits in, so none leaves it first.
+#[cfg(any(test, feature = "test-support"))]
+pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[
+    ShellFolderProbe {
+        program: "zsh",
+        arguments: &["-f"],
+        environment: &[("PS1", "%/>")],
+        prompt_prefix: "",
+        leaves_the_folder_first: false,
+        folder_name: "worktree",
+    },
+    BASH_SHELL_FOLDER_PROBE,
+];

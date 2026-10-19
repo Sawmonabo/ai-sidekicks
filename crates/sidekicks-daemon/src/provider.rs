@@ -15,6 +15,7 @@ pub(crate) mod output_validation;
 pub(crate) mod port;
 pub(crate) mod project_rule_folders;
 pub(crate) mod record_readers;
+pub(crate) mod service_log;
 pub(crate) mod spawn_environment;
 pub(crate) mod terminal_emission_gate;
 pub(crate) mod thread_frame_router;

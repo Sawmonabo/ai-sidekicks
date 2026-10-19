@@ -17,7 +17,8 @@ use objc2_security::{
 
 use crate::PinnedProcess;
 use crate::code_signature::{CodeSignatureError, SignatureCheck};
-use crate::macos::caller_process::is_running;
+use crate::macos::pinned_process::is_running;
+use crate::posix::process::id::system_process_id;
 
 /// The kernel's "no such process" as the Security framework reports it: its POSIX error base
 /// (100000) plus `ESRCH`, for a process that ended before its signature was read.
@@ -176,8 +177,9 @@ fn owned<T: objc2_core_foundation::Type>(
 
 /// Whether `process` runs a program that meets `requirement`: a peer is looked up by its
 /// connection's audit token, which fails once the process ran another program; any other process
-/// by its id, taken only once the process is read still running afterward. Fails only when the
-/// system cannot check.
+/// by its id, taken only once the process is read still running afterward. Fails with
+/// `InvalidInput` only for a process with no audit token whose id is 0 or past `i32::MAX`, else
+/// only when the system cannot check.
 fn meets(process: &PinnedProcess, requirement: &Requirement) -> io::Result<SignatureCheck> {
     let attributes = if let Some(token) = process.audit_token() {
         let token = CFData::from_bytes(&token.to_bytes());
@@ -185,8 +187,7 @@ fn meets(process: &PinnedProcess, requirement: &Requirement) -> io::Result<Signa
         let key = unsafe { kSecGuestAttributeAudit };
         CFDictionary::<CFString, CFType>::from_slices(&[key], &[token.as_ref()])
     } else {
-        let pid = i32::try_from(process.id()).map_err(io::Error::other)?;
-        let pid = CFNumber::new_i32(pid);
+        let pid = CFNumber::new_i32(system_process_id(process.id())?.get());
         // SAFETY: the key is the Security framework's own constant.
         let key = unsafe { kSecGuestAttributePid };
         CFDictionary::<CFString, CFType>::from_slices(&[key], &[pid.as_ref()])
@@ -241,7 +242,8 @@ mod tests {
 
     use super::{DesktopClientRequirement, compile, signed_by_team};
     use crate::code_signature::{CodeSignatureError, SignatureCheck};
-    use crate::macos::caller_process::{pinned, read_peer_process};
+    use crate::macos::caller_process::read_peer_process;
+    use crate::macos::pinned_process::pinned;
 
     /// The requirement `nc` meets as the helper and `sleep` as the app: two programs the system
     /// signs.

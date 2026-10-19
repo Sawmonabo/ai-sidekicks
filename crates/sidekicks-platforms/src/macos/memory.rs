@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 #[cfg(any(test, feature = "test-support"))]
 use crate::footprint::ProcessFootprint;
 use crate::posix::memory::page_bytes;
+use crate::posix::process::id::system_process_id;
 
 // The program that prints the process's footprint, by its full path so no `PATH` entry stands in
 // for it.
@@ -21,7 +22,11 @@ static HOST_PORT: OnceLock<libc::host_t> = OnceLock::new();
 /// counts it; `None` when no process has the id or it runs as another user. Blocks on the read;
 /// fails with the system's error on any other refusal.
 pub fn read_process_peak_bytes(process_id: u32) -> io::Result<Option<u64>> {
-    match read_resource_usage(process_id) {
+    // An id the system cannot hold names no process; 0 would reach the kernel's own.
+    let Ok(id) = system_process_id(process_id) else {
+        return Ok(None);
+    };
+    match read_resource_usage(id.get()) {
         Ok(usage) => Ok(Some(usage.ri_lifetime_max_phys_footprint)),
         Err(error) if matches!(error.raw_os_error(), Some(libc::ESRCH | libc::EPERM)) => Ok(None),
         Err(error) => Err(error),
@@ -68,7 +73,7 @@ pub fn turn_off_transparent_huge_pages() -> io::Result<()> {
 /// This process's footprint. Fails with the system's error when macOS refuses the read.
 #[cfg(any(test, feature = "test-support"))]
 pub fn process_footprint() -> io::Result<ProcessFootprint> {
-    let process = std::process::id();
+    let process = nix::unistd::getpid().as_raw();
     let usage = read_resource_usage(process)?;
     let tool_line = match std::process::Command::new(FOOTPRINT_PROGRAM)
         .arg("-p")
@@ -91,9 +96,8 @@ pub fn process_footprint() -> io::Result<ProcessFootprint> {
     })
 }
 
-// The resource usage `proc_pid_rusage` reports for a process, or the system's error.
-fn read_resource_usage(process_id: u32) -> io::Result<libc::rusage_info_v4> {
-    let pid = libc::pid_t::try_from(process_id).map_err(io::Error::other)?;
+// The resource usage `proc_pid_rusage` reports for system id `pid`; fails with the system's error.
+fn read_resource_usage(pid: libc::pid_t) -> io::Result<libc::rusage_info_v4> {
     // SAFETY: `rusage_info_v4` is a C struct of integers, for which all zero bytes are valid.
     let mut usage: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
     let buffer = (&raw mut usage).cast::<libc::rusage_info_t>();

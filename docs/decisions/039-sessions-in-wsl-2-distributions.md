@@ -129,7 +129,7 @@ We will run one background service per Windows computer, the native Windows daem
 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
-| WSL basic commands | Documentation | `--exec` runs without the default Linux shell; `--shutdown` stops every distribution and the VM; `--unregister` loses all data; `Sysnative` for a 32-bit caller | https://learn.microsoft.com/en-us/windows/wsl/basic-commands |
+| WSL basic commands | Documentation | `--exec` runs without the default Linux shell; `--shutdown` stops every distribution and the VM; `--unregister` loses all data | https://learn.microsoft.com/en-us/windows/wsl/basic-commands |
 | WSL configuration | Documentation | `instanceIdleTimeout` 15000, `vmIdleTimeout` 60000; automount off still allows a manual mount; `metadata` off by default | https://learn.microsoft.com/en-us/windows/wsl/wsl-config |
 | WSL file systems | Documentation | Store files in the WSL file system when working in a Linux command line | https://learn.microsoft.com/en-us/windows/wsl/filesystems |
 | WSL networking | Documentation | Mirrored mode shares loopback; NAT keeps Windows loopback from Linux; `ignoredPorts` | https://learn.microsoft.com/en-us/windows/wsl/networking |

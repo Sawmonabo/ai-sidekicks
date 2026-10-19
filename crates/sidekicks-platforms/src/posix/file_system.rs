@@ -32,9 +32,9 @@ pub fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
 /// and a pipe or a socket inside goes without being opened. A path already gone is `Ok`; fails with
 /// the first other error of the stat or the removal.
 pub fn remove_tree(path: &Path) -> io::Result<()> {
-    // std's folder removal opens each folder with `O_NOFOLLOW | O_DIRECTORY` and unlinks every other
-    // entry unopened; an entry of unknown type gets that same open, which a non-folder refuses at
-    // once, before it is unlinked.
+    // std's folder removal opens each folder with `O_NOFOLLOW | O_DIRECTORY` and unlinks every
+    // other entry unopened; an entry of unknown type gets that same open, which a non-folder
+    // refuses at once, before it is unlinked.
     let removed = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path),
         Ok(_) => fs::remove_file(path),

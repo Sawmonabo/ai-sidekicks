@@ -156,6 +156,8 @@ async fn writes_from_two_connections_and_the_screen_s_answers_reach_the_program_
                 arguments: program.arguments,
                 environment: vec![("TERM".to_owned(), "xterm-256color".to_owned())],
                 working_directory: folder.path().to_owned(),
+                shell_folder: folder.path().to_owned(),
+                raw_command_tail: None,
                 rows: 24,
                 columns: 80,
                 shell_start: CommandLine {

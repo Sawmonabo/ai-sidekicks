@@ -101,7 +101,7 @@ mod tests {
 
     use super::{ClaudeProcessEnvironmentRequest, compose_claude_process_environment};
     use crate::provider::spawn_environment::{
-        ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError, read_environment_value,
+        ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
     };
 
     fn request<'a>(
@@ -134,7 +134,7 @@ mod tests {
                 .expect("the environment builds");
 
         assert_eq!(
-            read_environment_value(&environment, "CLAUDE_CODE_TMPDIR", PathRules::Posix),
+            PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_TMPDIR"),
             Some("/data/claude-scratch/own-home")
         );
         assert_eq!(

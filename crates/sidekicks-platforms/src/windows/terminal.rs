@@ -3,12 +3,13 @@
 //! calls.
 
 use std::collections::HashMap;
-use std::env;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, ErrorKind, Read, Write};
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
+#[cfg(any(test, feature = "test-support"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::ptr;
 use std::time::Instant;
@@ -35,6 +36,8 @@ use windows_sys::core::BOOL;
 use windows_sys::w;
 
 #[cfg(any(test, feature = "test-support"))]
+use crate::shell_folder_start::windows::quote_powershell_literal;
+#[cfg(any(test, feature = "test-support"))]
 use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
@@ -45,6 +48,7 @@ use crate::terminal::{
     read_waiting_input_line, waiting_input_line,
 };
 use crate::windows::child_command::prepare_child_command;
+use crate::windows::known_folder::system_folder;
 
 /// How many process ids the first console process list read makes room for.
 const CONSOLE_PROCESS_LIST_START_LENGTH: usize = 16;
@@ -84,24 +88,14 @@ pub fn send_signal(_pid: u32, _signal: TerminalSignal) -> io::Result<()> {
     ))
 }
 
-/// Ends the process `pid` and every process it started with `taskkill.exe /T /F`, from the
-/// system's own folder, started on `spawner`'s thread. Fails with `NotFound` when `SystemRoot` is
-/// unset, `TimedOut` past [`HELPER_PROGRAM_TIME_LIMIT`], and an error naming the exit code
+/// Ends the process `pid` and every process it started with `taskkill.exe /T /F`, from the system
+/// folder, started on `spawner`'s thread. Fails with `NotFound` when `taskkill.exe` is not in the
+/// system folder, `TimedOut` past [`HELPER_PROGRAM_TIME_LIMIT`], and an error naming the exit code
 /// `taskkill.exe` answers with other than 0 (ended) or 128 (no such process,
 /// [`ProcessTreeEnd::AlreadyGone`]).
 pub async fn end_process_tree(spawner: &Spawner, pid: u32) -> io::Result<ProcessTreeEnd> {
     // Read at each call and never looked up on `PATH`, so no other `taskkill.exe` can run.
-    let system_root = env::var_os("SystemRoot").ok_or_else(|| {
-        io::Error::new(
-            ErrorKind::NotFound,
-            "SystemRoot is unset, so taskkill.exe has no path",
-        )
-    })?;
-    let mut command = hidden_command(
-        Path::new(&system_root)
-            .join("System32")
-            .join("taskkill.exe"),
-    );
+    let mut command = hidden_command(system_folder().join("taskkill.exe"));
     // `/T` walks the tree from the one root and `/F` ends each process outright.
     command.args(["/T", "/F", "/PID", &pid.to_string()]);
     let status = run_bounded(spawner, command).await?;
@@ -230,21 +224,28 @@ pub fn restrict_library_search() -> io::Result<()> {
     Ok(())
 }
 
-/// The options `alacritty_terminal` opens a shell's terminal with: `shell` started in
-/// `working_directory` with `environment` added, its output not drained once it exits, and each
-/// argument quoted by the C runtime's rules, since each is its own string.
+/// The options `alacritty_terminal` opens a shell's terminal with: `program` with `arguments`
+/// started in `working_directory` with `environment` added, its output not drained once it exits,
+/// and each argument quoted by the C runtime's rules, since each is its own string. The program is
+/// written as given, so one holding a space is put in double quotes, which a path never holds.
 #[expect(
     clippy::implicit_hasher,
     reason = "the map goes straight into alacritty_terminal's options, which take the default \
               hasher"
 )]
 pub fn terminal_options(
-    shell: tty::Shell,
+    program: String,
+    arguments: Vec<String>,
     working_directory: Option<PathBuf>,
     environment: HashMap<String, String>,
 ) -> tty::Options {
+    let program = if program.contains([' ', '\t']) {
+        format!("\"{program}\"")
+    } else {
+        program
+    };
     tty::Options {
-        shell: Some(shell),
+        shell: Some(tty::Shell::new(program, arguments)),
         working_directory,
         drain_on_exit: false,
         env: environment,
@@ -255,11 +256,6 @@ pub fn terminal_options(
 /// The process id of the program running in `pty`, when Windows reported one.
 pub fn child_process_id(pty: &Pty) -> Option<u32> {
     pty.child_watcher().pid().map(NonZeroU32::get)
-}
-
-/// The signal that ended a process: always `None`, since a Windows exit carries no POSIX signal.
-pub fn exit_signal(_status: &ExitStatus) -> Option<i32> {
-    None
 }
 
 /// Runs a terminal's read loop for the shell's life on a thread of its own named `name`, driven by
@@ -605,13 +601,30 @@ extern "system" fn ignore_console_control(_control_type: u32) -> BOOL {
     TRUE
 }
 
-/// The `shell` mode's stand-in tests open shells through: `cmd.exe /d /c`, which runs the program
-/// after it with the environment it was given.
+/// The `shell` mode's stand-in tests open shells through: `cmd.exe`, which reads its own command
+/// line, runs the program after the mode's ` -- ` with the environment it was given, and ignores
+/// the rest of the line. It stays in the folder it was spawned in and passes on no raw tail, so a
+/// test spawns it in the shell's folder. Each word holds no space, so none is quoted, and the
+/// caret keeps the line's own ` -- ` out of the pattern that finds the mode's.
 #[cfg(any(test, feature = "test-support"))]
 pub fn pass_through_start() -> TestProgram {
     TestProgram {
         program: "cmd.exe".to_owned(),
-        arguments: vec!["/d".to_owned(), "/c".to_owned()],
+        arguments: [
+            "/d",
+            "/v:on",
+            "/c",
+            "set",
+            "rest=!CMDCMDLINE:*",
+            "-^-",
+            "=!",
+            "&",
+            "!rest!",
+            "&",
+            "rem",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
     }
 }
 
@@ -673,7 +686,7 @@ pub fn echoing_line_reader() -> TestProgram {
 /// prints `ready`, copies the next `byte_count` input bytes to the file `path`, then prints `done`.
 #[cfg(any(test, feature = "test-support"))]
 pub fn input_recorder(path: &Path, byte_count: usize) -> TestProgram {
-    let path = path.display().to_string().replace('\'', "''");
+    let path = quote_powershell_literal(&path.display().to_string());
     TestProgram {
         program: "powershell.exe".to_owned(),
         arguments: vec![
@@ -684,7 +697,7 @@ pub fn input_recorder(path: &Path, byte_count: usize) -> TestProgram {
                  'ready'; $in = [Console]::OpenStandardInput(); $bytes = New-Object byte[] \
                  {byte_count}; $read = 0; while ($read -lt {byte_count}) {{ $count = \
                  $in.Read($bytes, $read, {byte_count} - $read); if ($count -le 0) {{ break }}; \
-                 $read += $count }}; [IO.File]::WriteAllBytes('{path}', $bytes); 'done'"
+                 $read += $count }}; [IO.File]::WriteAllBytes({path}, $bytes); 'done'"
             ),
         ],
     }

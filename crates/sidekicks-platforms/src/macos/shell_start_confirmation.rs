@@ -330,9 +330,10 @@ mod tests {
         assert!(!was_received(&start_confirmed(
             &Writer::ThisProcessNamingTheChild
         )));
-        let (has_passed, output) = run_test_as_own_root(
-            "macos::shell_start_confirmation::tests::an_own_root_parent_confirms_only_the_process_it_started",
-        );
+        let (has_passed, output) = run_test_as_own_root(concat!(
+            "macos::shell_start_confirmation::tests::",
+            "an_own_root_parent_confirms_only_the_process_it_started",
+        ));
         assert!(
             has_passed && output.contains(PARENT_CHECKED),
             "the own-root parent's checks pass: {output}"

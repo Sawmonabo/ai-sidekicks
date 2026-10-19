@@ -10,7 +10,6 @@ use std::future::{pending, ready};
 use std::io::{self, ErrorKind, Read, Write};
 use std::mem::MaybeUninit;
 use std::os::fd::AsRawFd;
-use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::ptr;
@@ -19,13 +18,15 @@ use std::time::{Duration, Instant};
 
 use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
 use nix::errno::Errno;
-use nix::sys::signal::{Signal, kill, killpg};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
-use crate::posix::process_exit::wait_for_exit;
+use crate::posix::process::exit::wait_for_exit;
+use crate::posix::process::group::signal_group;
+use crate::posix::process::id::system_process_id;
 #[cfg(any(test, feature = "test-support"))]
 use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
@@ -48,9 +49,13 @@ pub fn terminal_ending_route(signal: TerminalSignal) -> TerminalSignalRoute {
 }
 
 /// Sends `signal` to the process `pid` alone; a process already gone is not an error. Fails with
-/// `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the send is refused.
+/// `InvalidInput` for a pid of 0 or past `i32::MAX`, and with the system's error when the send is
+/// refused.
 pub fn send_signal(pid: u32, signal: TerminalSignal) -> io::Result<()> {
-    match kill(process_id(pid)?, posix_signal(signal)) {
+    match kill(
+        Pid::from_raw(system_process_id(pid)?.get()),
+        posix_signal(signal),
+    ) {
         Ok(()) | Err(Errno::ESRCH) => Ok(()),
         Err(errno) => Err(io::Error::from(errno)),
     }
@@ -64,16 +69,15 @@ pub const DOES_PAUSED_READ_HOLD_INPUT: bool = false;
 /// reads: no on macOS and Linux, which have no console.
 pub const DOES_CONSOLE_COUNT_WAITING_INPUT: bool = false;
 
-/// Ends the process group `pid` leads with `SIGKILL`; no stop takes this route on macOS or Linux,
-/// and a job an interactive shell moved into a group of its own is outside it. Fails with
-/// `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the kill is refused;
-/// a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
-pub fn end_process_tree(
-    _spawner: &Spawner,
-    pid: u32,
-) -> impl Future<Output = io::Result<ProcessTreeEnd>> + Send {
-    // The kill is one system call, so the future is ready at once.
-    ready(signal_process_group(pid, TerminalSignal::Kill))
+/// Ends the process group `pid` leads with `SIGKILL`, on a blocking thread; no stop takes this
+/// route on macOS or Linux, and a job an interactive shell moved into a group of its own is
+/// outside it. Fails with `InvalidInput` for a pid of 0 or past `i32::MAX`, and with the system's
+/// error when the kill is refused; a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
+pub async fn end_process_tree(_spawner: &Spawner, pid: u32) -> io::Result<ProcessTreeEnd> {
+    // A group whose kill macOS refuses is listed, which waits, so the kill leaves the runtime.
+    tokio::task::spawn_blocking(move || signal_process_group(pid, TerminalSignal::Kill))
+        .await
+        .map_err(io::Error::other)?
 }
 
 /// Runs the console helper, which only Windows has: always fails with `Unsupported`.
@@ -135,20 +139,21 @@ pub fn restrict_library_search() -> io::Result<()> {
     Ok(())
 }
 
-/// The options `alacritty_terminal` opens a shell's terminal with: `shell` started in
-/// `working_directory` with `environment` added, its output not drained once it exits.
+/// The options `alacritty_terminal` opens a shell's terminal with: `program` with `arguments`
+/// started in `working_directory` with `environment` added, its output not drained once it exits.
 #[expect(
     clippy::implicit_hasher,
     reason = "the map goes straight into alacritty_terminal's options, which take the default \
               hasher"
 )]
 pub fn terminal_options(
-    shell: tty::Shell,
+    program: String,
+    arguments: Vec<String>,
     working_directory: Option<PathBuf>,
     environment: HashMap<String, String>,
 ) -> tty::Options {
     tty::Options {
-        shell: Some(shell),
+        shell: Some(tty::Shell::new(program, arguments)),
         working_directory,
         drain_on_exit: false,
         env: environment,
@@ -158,11 +163,6 @@ pub fn terminal_options(
 /// The process id of the program running in `pty`; always known on macOS and Linux.
 pub fn child_process_id(pty: &Pty) -> Option<u32> {
     Some(pty.child().id())
-}
-
-/// The signal that ended a process, when a signal ended it.
-pub fn exit_signal(status: &ExitStatus) -> Option<i32> {
-    status.signal()
 }
 
 /// Runs a terminal's read loop for the shell's life as a task on `runtime`; `name` names the loop
@@ -580,21 +580,14 @@ fn is_hang_up(error: &io::Error) -> bool {
 }
 
 /// Sends `signal` to the process group `pid` leads, answering whether the group was still there.
-/// Fails with `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the send
-/// is refused.
+/// Fails with `InvalidInput` for a pid of 0 or past `i32::MAX`, and with the system's error when
+/// the send is refused.
 fn signal_process_group(pid: u32, signal: TerminalSignal) -> io::Result<ProcessTreeEnd> {
-    match killpg(process_id(pid)?, posix_signal(signal)) {
-        Ok(()) => Ok(ProcessTreeEnd::Ended),
-        Err(Errno::ESRCH) => Ok(ProcessTreeEnd::AlreadyGone),
-        Err(errno) => Err(io::Error::from(errno)),
-    }
-}
-
-/// The POSIX pid for `pid`; fails with `InvalidInput` past `i32::MAX`.
-fn process_id(pid: u32) -> io::Result<Pid> {
-    i32::try_from(pid)
-        .map(Pid::from_raw)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))
+    Ok(if signal_group(pid, posix_signal(signal))? {
+        ProcessTreeEnd::Ended
+    } else {
+        ProcessTreeEnd::AlreadyGone
+    })
 }
 
 fn posix_signal(signal: TerminalSignal) -> Signal {
@@ -606,13 +599,18 @@ fn posix_signal(signal: TerminalSignal) -> Signal {
     }
 }
 
-/// The `shell` mode's stand-in tests open shells through: `/usr/bin/env`, which ends its options at
-/// `--` and runs the program after it with the environment it was given.
+/// The `shell` mode's stand-in tests open shells through: `/bin/sh`, which enters the folder
+/// after the mode's `--folder`, then runs the program after the mode's `--` with the environment it
+/// was given.
 #[cfg(any(test, feature = "test-support"))]
 pub fn pass_through_start() -> TestProgram {
     TestProgram {
-        program: "/usr/bin/env".to_owned(),
-        arguments: vec!["--".to_owned()],
+        program: "/bin/sh".to_owned(),
+        arguments: vec![
+            "-c".to_owned(),
+            r#"cd "$2" && shift 3 && exec "$@""#.to_owned(),
+            "shell-stand-in".to_owned(),
+        ],
     }
 }
 

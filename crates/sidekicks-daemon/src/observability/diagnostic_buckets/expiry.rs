@@ -1,8 +1,10 @@
-//! The diagnostic-log expiry: each pass deletes whole every service log file last written longer
-//! ago than the bound, so a log is kept as long as its newest line is young enough. The file the
-//! service log holds open is never deleted, and a file in the folder that is no service log file
-//! is never touched. A file that cannot be read or deleted is told in the service log and
-//! the pass goes on.
+//! The diagnostic-log expiry: each pass deletes whole every diagnostic log last written longer ago
+//! than the bound, the daemon's service log files and each provider service's log and kept tail,
+//! so a log is kept as long as its newest line is young enough. A file still being written, the
+//! one the service log holds open or a running provider service's log, is never deleted, and a
+//! running service's log past its cap is cut instead. A file in the folder that is no diagnostic
+//! log is never touched. A file that cannot be read, cut or deleted is told in the service log
+//! and the pass goes on.
 
 use std::error::Error;
 use std::ffi::OsStr;
@@ -12,16 +14,20 @@ use std::time::{Duration, SystemTime};
 
 use crate::daemon::service_log::is_service_log_file_name;
 use crate::missing_entry::MissingEntry;
+use crate::provider::service_log::{
+    SERVICE_LOG_CAP_BYTES, cap_provider_service_log, is_provider_service_log_file_name,
+};
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
 
-/// Deletes each service log file in `logs_folder` last written before `now` less `keep`, except
-/// `live_file`, the one the service log holds open. Never fails: a missing folder or file is
-/// skipped, and any other failure is written to the service log and the pass goes on.
+/// Deletes each diagnostic log in `logs_folder` last written before `now` less `keep`, except
+/// `live_files`, the one the service log holds open and the log of each provider service still
+/// running, each of the latter cut instead once past its cap. Never fails: a missing folder or
+/// file is skipped, and any other failure is written to the service log and the pass goes on.
 pub(crate) async fn expire_diagnostic_logs(
     logs_folder: &Path,
-    live_file: Option<&Path>,
+    live_files: &[&Path],
     keep: Duration,
     now: SystemTime,
 ) {
@@ -41,12 +47,24 @@ pub(crate) async fn expire_diagnostic_logs(
         return;
     };
     // Compared by name, so the folder may be spelled differently by the caller and the log.
-    let live_file_name = live_file.and_then(Path::file_name);
+    let live_file_names: Vec<&OsStr> = live_files
+        .iter()
+        .filter_map(|file| file.file_name())
+        .collect();
     for name in names {
-        if live_file_name == Some(OsStr::new(&name)) {
+        let path = logs_folder.join(&name);
+        if live_file_names.contains(&OsStr::new(&name)) {
+            if is_provider_service_log_file_name(&name)
+                && let Err(failure) = cap_provider_service_log(&path, SERVICE_LOG_CAP_BYTES).await
+            {
+                tracing::warn!(
+                    file = %path.display(),
+                    error = &failure as &(dyn Error + 'static),
+                    "A running provider service's log could not be cut"
+                );
+            }
             continue;
         }
-        let path = logs_folder.join(name);
         // A file deleted since the listing is already gone.
         if let Err(failure) = delete_if_written_before(&path, cutoff)
             .await
@@ -65,9 +83,9 @@ async fn list_service_log_names(logs_folder: &Path) -> io::Result<Vec<String>> {
     let mut entries = tokio::fs::read_dir(logs_folder).await?;
     let mut names = Vec::new();
     while let Some(entry) = entries.next_entry().await? {
-        // A name that is not UTF-8 is no service log file's.
+        // A name that is not UTF-8 is no diagnostic log's.
         if let Ok(name) = entry.file_name().into_string()
-            && is_service_log_file_name(&name)
+            && (is_service_log_file_name(&name) || is_provider_service_log_file_name(&name))
         {
             names.push(name);
         }

@@ -4,19 +4,26 @@
 
 use std::ffi::OsString;
 use std::io;
+use std::path::PathBuf;
 
 /// The environment variable that carries the number of the `shell` mode's end of the daemon's
 /// confirmation of its start.
 #[cfg(any(target_os = "macos", test, feature = "test-support"))]
 pub(crate) const SHELL_START_CONFIRMATION: &str = "SIDEKICKS_SHELL_START_CONFIRMATION";
 
-/// One shell the `shell` mode starts: the program, its arguments and exactly its
-/// environment. It derives no `Debug`, since the environment may hold secrets.
+/// One shell the `shell` mode starts: the program, its arguments, the folder it starts in and
+/// exactly its environment. It derives no `Debug`, since the environment may hold secrets.
 pub struct ShellStart {
     /// The shell's program: an absolute path, or a bare name looked up on the environment's `PATH`.
     pub program: OsString,
     /// The arguments the program starts with, in order, as the mode read them after `--`.
     pub arguments: Vec<OsString>,
+    /// Text the program parses itself, written after the arguments exactly as given on Windows;
+    /// macOS and Linux, which hand a program its arguments unparsed, pass it as one last argument.
+    pub raw_command_tail: Option<OsString>,
+    /// The folder the shell starts in: on macOS and Linux the mode enters it before its exec, and
+    /// on Windows the shell is started in it while the mode keeps the folder it was spawned in.
+    pub folder: PathBuf,
     /// Exactly the shell's environment, in order, one entry per name; a name is never empty and
     /// holds no `=`, and no name or value holds a NUL.
     pub environment: Vec<(String, String)>,
@@ -32,6 +39,10 @@ pub enum ShellStartError {
     /// The system refused to arm the parent-death signal or clear the huge-page switch.
     #[error("the system refused to arm the shell's process")]
     ArmingRefused(#[source] io::Error),
+    /// The system refused to enter the shell's folder: it is gone, not a folder, or not open to
+    /// the user.
+    #[error("the system refused to enter the shell's folder")]
+    FolderRefused(#[source] io::Error),
     /// The system refused to set `SIGPIPE` back to its default.
     #[error("the system refused to set SIGPIPE back to its default")]
     SignalResetRefused(#[source] io::Error),

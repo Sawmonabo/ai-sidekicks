@@ -30,7 +30,7 @@ pub(crate) fn wait_for_exit(pid: u32, bound: Option<Duration>) -> io::Result<boo
 fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
     use polling::Event;
 
-    use crate::linux::caller_process::open_process_descriptor;
+    use crate::linux::pinned_process::open_process_descriptor;
 
     // Declared before the poller, so it outlives the poller and the registration in it.
     let descriptor = match open_process_descriptor(pid) {
@@ -53,15 +53,12 @@ fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
 /// filter reports only an exit after it is attached, so an exit before it is not missed.
 #[cfg(target_os = "macos")]
 fn watch_exit_event(pid: u32, give_up_at: Instant) -> io::Result<bool> {
-    use std::num::NonZeroI32;
-
     use polling::PollMode;
     use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
 
-    let raw_pid = i32::try_from(pid)
-        .ok()
-        .and_then(NonZeroI32::new)
-        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no child has this process id"))?;
+    use crate::posix::process::id::system_process_id;
+
+    let raw_pid = system_process_id(pid)?;
     let poller = Poller::new()?;
     // SAFETY: the id is the caller's own child, left unreaped until this wait returns, so no other
     // process takes it while the filter is registered.

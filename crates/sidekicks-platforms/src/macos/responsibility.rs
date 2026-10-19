@@ -15,8 +15,10 @@ use std::os::unix::ffi::OsStringExt as _;
 use std::sync::OnceLock;
 
 use crate::ResponsibleProcess;
-use crate::macos::caller_process::{pinned, read_program_path, read_responsible_process};
+use crate::macos::caller_process::{read_program_path, read_responsible_process};
+use crate::macos::pinned_process::pinned;
 use crate::own_root::OwnRootError;
+use crate::posix::process::id::system_process_id;
 
 /// The environment variable a program re-run as its own responsible process starts with, holding
 /// the id of the process that set it, which the re-run keeps, so the re-run never repeats; removed
@@ -111,32 +113,34 @@ fn look_up(name: &std::ffi::CStr) -> Option<*mut libc::c_void> {
     (!symbol.is_null()).then_some(symbol)
 }
 
-/// The unique id of the process responsible for process `id`; `None` once no process has the id.
-/// Fails with the system's error, and with `Unsupported` on a macOS without the call.
+/// The unique id of the process responsible for process `id`; `None` for an id of 0 or past
+/// `i32::MAX`, or once no process has the id. Fails with the system's error, and with
+/// `Unsupported` on a macOS without the call.
 pub(crate) fn read_responsible_unique_id(id: u32) -> io::Result<Option<u64>> {
     let calls = responsibility_calls()?;
-    let Ok(pid) = libc::pid_t::try_from(id) else {
+    let Ok(pid) = system_process_id(id) else {
         return Ok(None);
     };
     clear_errno();
     // SAFETY: the call takes any process id and only reads the kernel's records.
-    let unique_id = unsafe { (calls.responsible_unique_id)(pid) };
+    let unique_id = unsafe { (calls.responsible_unique_id)(pid.get()) };
     if unique_id != u64::MAX {
         return Ok(Some(unique_id));
     }
     failure_reading(id)
 }
 
-/// The id of the process responsible for process `id`; `None` once no process has the id. Fails
-/// with the system's error, and with `Unsupported` on a macOS without the call.
+/// The id of the process responsible for process `id`; `None` for an id of 0 or past `i32::MAX`,
+/// or once no process has the id. Fails with the system's error, and with `Unsupported` on a
+/// macOS without the call.
 pub(crate) fn read_responsible_id(id: u32) -> io::Result<Option<u32>> {
     let calls = responsibility_calls()?;
-    let Ok(pid) = libc::pid_t::try_from(id) else {
+    let Ok(pid) = system_process_id(id) else {
         return Ok(None);
     };
     clear_errno();
     // SAFETY: the call takes any process id and only reads the kernel's records.
-    let responsible = unsafe { (calls.responsible_id)(pid) };
+    let responsible = unsafe { (calls.responsible_id)(pid.get()) };
     if let Ok(responsible) = u32::try_from(responsible) {
         return Ok(Some(responsible));
     }
@@ -368,7 +372,7 @@ fn c_string(text: OsString) -> io::Result<CString> {
 
 /// How many threads this process runs. Fails with the system's error.
 fn read_thread_count() -> io::Result<i32> {
-    let pid = libc::pid_t::try_from(std::process::id()).map_err(io::Error::other)?;
+    let pid = nix::unistd::getpid().as_raw();
     // SAFETY: `proc_taskinfo` is a C struct of integers, for which all zero bytes are valid.
     let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
     let length = c_int::try_from(size_of::<libc::proc_taskinfo>())
@@ -483,7 +487,8 @@ mod tests {
         read_own_root_step, read_responsible_id, run_test_as_own_root, this_test_program,
     };
     use crate::ResponsibleProcess;
-    use crate::macos::caller_process::{pinned, read_responsible_process};
+    use crate::macos::caller_process::read_responsible_process;
+    use crate::macos::pinned_process::pinned;
 
     /// What the stand-in started under an own-root instance of this program prints once it found
     /// it stays under that instance.
@@ -522,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "the running daemon's stand-in, which the test starts as its own responsible process"]
+    #[ignore = "the daemon's stand-in, which the test starts as its own responsible process"]
     fn an_own_root_instance_of_this_program_keeps_what_it_starts_under_it() {
         let own_id = std::process::id();
         assert_eq!(
@@ -530,9 +535,10 @@ mod tests {
             Some(own_id),
             "the stand-in started as its own responsible process"
         );
-        let child = this_test_program(
-            "macos::responsibility::tests::the_start_under_an_own_root_instance_of_this_program_stays_under_it",
-        )
+        let child = this_test_program(concat!(
+            "macos::responsibility::tests::",
+            "the_start_under_an_own_root_instance_of_this_program_stays_under_it",
+        ))
         .output()
         .expect("the child runs");
         assert!(
@@ -551,9 +557,10 @@ mod tests {
             read_own_root_step(std::process::id(), false).expect("the step reads"),
             OwnRootStep::ReRun
         );
-        let (has_passed, output) = run_test_as_own_root(
-            "macos::responsibility::tests::an_own_root_instance_of_this_program_keeps_what_it_starts_under_it",
-        );
+        let (has_passed, output) = run_test_as_own_root(concat!(
+            "macos::responsibility::tests::",
+            "an_own_root_instance_of_this_program_keeps_what_it_starts_under_it",
+        ));
         assert!(has_passed && output.contains(INSTANCE_CHECKED), "{output}");
     }
 

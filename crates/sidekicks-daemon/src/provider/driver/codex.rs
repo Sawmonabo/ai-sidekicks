@@ -2,11 +2,14 @@
 
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::voice::VoiceKind;
-use sidekicks_platforms::SystemFolderBase;
+use sidekicks_platforms::{
+    LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
+    WindowsSystemFolder,
+};
 
 use crate::provider::driver::{
-    InstallFolder, InstallFolderBase, ManagedSettingsFolder, ManagedSettingsFolders,
-    ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
+    CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup,
+    ProviderDescriptor, ProviderMemoryEstimates,
 };
 
 mod ask_option_sets;
@@ -14,6 +17,7 @@ mod capability_probe;
 mod delivery;
 mod input_limit;
 mod intervention;
+mod native_program;
 mod permission_level;
 mod rules;
 mod service;
@@ -62,19 +66,48 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         }),
     },
     // Where its system `config.toml` and `requirements.toml` sit; macOS reads the Unix folder.
-    managed_settings_folders: ManagedSettingsFolders {
-        macos: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::Etc,
+    managed_settings_folders: SystemFolders {
+        macos: Some(SystemFolder {
+            base: MacosSystemFolder::Etc,
             components: &["codex"],
         }),
-        linux: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::Etc,
+        linux: Some(SystemFolder {
+            base: LinuxSystemFolder::Etc,
             components: &["codex"],
         }),
-        windows: Some(ManagedSettingsFolder {
-            base: SystemFolderBase::ProgramData,
+        windows: Some(SystemFolder {
+            base: WindowsSystemFolder::ProgramData,
             components: &["OpenAI", "Codex"],
         }),
+    },
+    // It sandboxes its commands on every system with helpers of its own, its own bubblewrap among
+    // them, which on Linux makes a user namespace.
+    command_sandbox: PerSystem {
+        macos: true,
+        linux: true,
+        windows: true,
+    },
+    command_sandbox_needs: PerSystem {
+        macos: CommandSandboxNeeds::NOTHING,
+        linux: CommandSandboxNeeds {
+            programs: &[],
+            user_namespace: true,
+            service_readiness: false,
+        },
+        // On Windows its sandbox needs a setup the service reports: the driver asks the service's
+        // `windowsSandbox/readiness` over its connection, and offers the sandbox only on `Ready`,
+        // never on `NotConfigured` or `UpdateRequired`.
+        windows: CommandSandboxNeeds {
+            programs: &[],
+            user_namespace: false,
+            service_readiness: true,
+        },
+    },
+    // The whole service measured at 53 to 61 MB, and each conversation on a running service at
+    // 1.8 to 3.0 MB more.
+    memory: ProviderMemoryEstimates {
+        process_bytes: 61_000_000,
+        conversation_bytes: Some(3_000_000),
     },
     // Listed first on every model that publishes a tier, and requested by clearing the thread's.
     standard_output_speed: "default",
@@ -82,8 +115,10 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     output_speed_levels: None,
     // It documents no update switch; the driver runs one exact build path instead.
     process_environment: &[],
-    // Carries the app-server binary's path into the launch prelude, which never interpolates it.
-    launch_environment_names: &["CODEX_APP_SERVER_BIN"],
+    // Carries the app-server binary's path into the launch prelude, which never interpolates it;
+    // and opens the shutdown request on the lasting service's control socket, which Codex reads on
+    // Windows alone.
+    launch_environment_names: &["CODEX_APP_SERVER_BIN", "CODEX_DAEMON_SHUTDOWN_SOCKET"],
     // The account's own `CODEX_HOME`.
     credential_home_environment_names: &["CODEX_HOME"],
     withheld_environment_names: &[],

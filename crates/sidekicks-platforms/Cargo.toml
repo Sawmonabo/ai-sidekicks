@@ -21,8 +21,6 @@ ignored = [
   # The wake helper's status, read through the system's service management.
   "objc2-foundation",
   "objc2-service-management",
-  # Windows notifications.
-  "windows",
 ]
 
 [dependencies]
@@ -32,7 +30,10 @@ keepawake.workspace = true
 keyring-core.workspace = true
 polling.workspace = true
 process-wrap = { workspace = true, features = ["creation-flags", "process-session"] }
+regex.workspace = true
 secrecy.workspace = true
+serde.workspace = true
+sidekicks-contracts.workspace = true
 sysinfo.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
@@ -70,11 +71,12 @@ security-framework.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 async-io.workspace = true
+getrandom.workspace = true
 junction.workspace = true
 tokio-util = { workspace = true, features = ["compat"] }
 uds_windows.workspace = true
 walkdir.workspace = true
-windows = { workspace = true, features = ["UI_Notifications"] }
+windows = { workspace = true, features = ["UI_Notifications", "Win32_System_Threading"] }
 windows-native-keyring-store.workspace = true
 windows-sys = {
   workspace = true,
@@ -84,7 +86,9 @@ windows-sys = {
     "Win32_Foundation",
     "Win32_Networking_WinSock",
     "Win32_Security",
+    "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
+    "Win32_System_Com",
     "Win32_System_Console",
     "Win32_System_IO",
     "Win32_System_JobObjects",
@@ -94,6 +98,7 @@ windows-sys = {
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
   ]
 }

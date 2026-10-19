@@ -2,13 +2,16 @@
 //! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
 //! process's files under `/proc` and the fields of its stat file, a local connection's caller
 //! pinned, the bound on a program's argument, a process's memory and the machine's available
-//! memory, no list of one user's processes, the machine's wakes from sleep, a wall-clock timer and
-//! the Secret Service.
+//! memory, no list of one user's processes, the machine's wakes from sleep, a wall-clock timer, the
+//! Secret Service and the shells the live test opens on a folder.
 
 pub(crate) mod caller_process;
 pub(crate) mod credential_store;
 pub(crate) mod memory;
+pub(crate) mod pinned_process;
 pub(crate) mod processes;
+pub(crate) mod user_namespace;
+pub(crate) mod user_scope;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 
@@ -21,6 +24,10 @@ use std::path::PathBuf;
 use crate::footprint::ProcessFootprint;
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::posix::memory::page_bytes;
+#[cfg(any(test, feature = "test-support"))]
+use crate::posix::shell_folder_start::BASH_SHELL_FOLDER_PROBE;
+#[cfg(any(test, feature = "test-support"))]
+use crate::shell_folder_start::ShellFolderProbe;
 use crate::spawner::Spawner;
 
 // The environment-style file systemd keeps the pretty host name in.
@@ -95,39 +102,52 @@ pub fn read_command_argument_limit() -> io::Result<usize> {
         .ok_or_else(|| io::Error::other("32 pages pass the largest size"))
 }
 
-/// Field `field` of `/proc/<process_id>/stat`, numbered from 1 as proc(5) numbers them and counted
-/// after the last `)`, since the name before it may hold spaces and parentheses; `None` when no
-/// process has the id, its file gone before the open or ending during the read (`ESRCH`). Fails
-/// with `InvalidInput` for a field before the third, `InvalidData` when the file lacks the field,
-/// and with the read's error otherwise.
-pub(crate) fn read_process_stat_field(process_id: u32, field: usize) -> io::Result<Option<String>> {
-    let index = field.checked_sub(FIRST_FIELD_AFTER_NAME).ok_or_else(|| {
-        io::Error::new(
-            ErrorKind::InvalidInput,
-            format!("field {field} of a stat file comes before the name's end"),
-        )
-    })?;
+/// Fields `fields` of `/proc/<process_id>/stat`, in their order, numbered from 1 as proc(5)
+/// numbers them and counted after the last `)`, since the name before it may hold spaces and
+/// parentheses; `None` when no process has the id, its file gone before the open or ending during
+/// the read (`ESRCH`). Fails with `InvalidInput` for a field before the third, `InvalidData` when
+/// the file lacks a field, and with the read's error otherwise.
+pub(crate) fn read_process_stat_fields<const COUNT: usize>(
+    process_id: u32,
+    fields: [usize; COUNT],
+) -> io::Result<Option<[String; COUNT]>> {
     let Some(stat) = read_process_file(process_id, "stat")? else {
         return Ok(None);
     };
-    let missing_field = || {
+    let missing = |what: String| {
         io::Error::new(
             ErrorKind::InvalidData,
-            format!("/proc/{process_id}/stat has no field {field}"),
+            format!("/proc/{process_id}/stat has no {what}"),
         )
     };
     let name_end = stat
         .iter()
         .rposition(|byte| *byte == b')')
-        .ok_or_else(missing_field)?;
-    let value = stat[name_end + 1..]
+        .ok_or_else(|| missing("name's end".to_owned()))?;
+    let values: Vec<&[u8]> = stat[name_end + 1..]
         .split(u8::is_ascii_whitespace)
         .filter(|value| !value.is_empty())
-        .nth(index)
-        .ok_or_else(missing_field)?;
-    String::from_utf8(value.to_vec())
-        .map(Some)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
+        .collect();
+    let read = fields
+        .iter()
+        .map(|&field| {
+            let index = field.checked_sub(FIRST_FIELD_AFTER_NAME).ok_or_else(|| {
+                io::Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("field {field} of a stat file comes before the name's end"),
+                )
+            })?;
+            let value = values
+                .get(index)
+                .ok_or_else(|| missing(format!("field {field}")))?;
+            String::from_utf8(value.to_vec())
+                .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
+        })
+        .collect::<io::Result<Vec<String>>>()?;
+    Ok(Some(
+        read.try_into()
+            .expect("one value is read for each field asked"),
+    ))
 }
 
 /// The bytes of `/proc/<process_id>/<file>`; `None` when no process has the id, its folder gone
@@ -153,6 +173,11 @@ pub fn process_footprint() -> io::Result<ProcessFootprint> {
         "only macOS reports a process's footprint",
     ))
 }
+
+/// The shells the live test opens here, with no startup files and a prompt of its folder: Linux
+/// removes a folder a process sits in, so none leaves it first.
+#[cfg(any(test, feature = "test-support"))]
+pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[BASH_SHELL_FOLDER_PROBE];
 
 // The value of the first `PRETTY_HOSTNAME=` line in an environment-style file: `KEY=VALUE` lines,
 // `#` comments, and values that may be quoted, with backslash escapes inside double quotes.

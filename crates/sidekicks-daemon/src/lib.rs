@@ -40,7 +40,6 @@ pub mod recovery;
 pub mod retry_waits;
 pub mod session;
 pub mod settle_all;
-pub mod shell_quoting;
 pub mod text_cut;
 pub mod transcript;
 pub mod uuid_v7;

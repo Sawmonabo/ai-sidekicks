@@ -15,7 +15,8 @@ const GIBIBYTE: u64 = 1024 * MEBIBYTE;
 /// The headroom of a machine with under 5 GiB of physical memory.
 const HEADROOM: u64 = GIBIBYTE;
 const PROVIDER_START: ProviderStartEstimate = ProviderStartEstimate {
-    kind: "provider",
+    provider_id: "provider",
+    is_conversation: false,
     starting_bytes: 288 * MEBIBYTE,
 };
 

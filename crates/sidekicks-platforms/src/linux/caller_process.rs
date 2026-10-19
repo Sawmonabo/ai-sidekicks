@@ -1,38 +1,19 @@
 //! The process at the other end of a local connection on Linux, pinned by a process descriptor the
-//! kernel recorded at the connect, and a pinned process's parent, pinned the same way. A process
-//! id can be taken by a new process once its holder is reaped; a descriptor never moves to another
-//! process, so each read is checked against it.
+//! kernel recorded at the connect, and a pinned process's parent, pinned the same way, each read
+//! checked against the pinned process's descriptor, so a reused process id is never read.
 
 use std::io::{self, ErrorKind};
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 use std::sync::Arc;
 
 use interprocess::local_socket::tokio::Stream;
 
 use crate::caller_process::{PARENT_READ_ATTEMPTS, ParentProcess};
-use crate::linux::read_process_stat_field;
+use crate::linux::pinned_process::{PinnedProcess, descriptor_process_id, open_process_descriptor};
+use crate::linux::read_process_stat_fields;
 
 // The stat file's field holding the parent's id.
 const PARENT_FIELD: usize = 4;
-
-// The line of a process descriptor's fdinfo file naming its process: `-1` once it is reaped, `0`
-// when it lies outside this process's pid namespace.
-const FDINFO_PROCESS_PREFIX: &str = "Pid:";
-
-/// A process held by its process descriptor, so a read made through it names that process or
-/// finds it ended, never another process given its id.
-#[derive(Clone, Debug)]
-pub struct PinnedProcess {
-    id: u32,
-    descriptor: Arc<OwnedFd>,
-}
-
-impl PinnedProcess {
-    /// The process's id, as this process's pid namespace numbers it.
-    pub fn id(&self) -> u32 {
-        self.id
-    }
-}
 
 /// The process at the other end of `stream`, the one that connected (or listened, on a socket the
 /// daemon dialed), pinned by the descriptor the kernel took at the connect. `None` when that
@@ -107,22 +88,10 @@ pub fn read_parent_process(process: &PinnedProcess) -> io::Result<ParentProcess>
     ))
 }
 
-/// This process, pinned.
-#[cfg(any(test, feature = "test-support"))]
-pub fn this_process() -> PinnedProcess {
-    let id = std::process::id();
-    PinnedProcess {
-        id,
-        descriptor: Arc::new(
-            open_process_descriptor(id).expect("this process opens its own descriptor"),
-        ),
-    }
-}
-
 /// `process`'s parent's id from its stat file, `None` once it has been reaped. The read names
 /// `process` only if its descriptor still names a live process after it, so that is checked.
 fn read_parent_id(process: &PinnedProcess) -> io::Result<Option<u32>> {
-    let Some(parent) = read_process_stat_field(process.id, PARENT_FIELD)? else {
+    let Some([parent]) = read_process_stat_fields(process.id, [PARENT_FIELD])? else {
         return Ok(None);
     };
     if descriptor_process_id(process.descriptor.as_raw_fd())?.is_none() {
@@ -134,49 +103,6 @@ fn read_parent_id(process: &PinnedProcess) -> io::Result<Option<u32>> {
         .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
 }
 
-/// The id of the process `descriptor` holds, from its fdinfo file; `None` once it is reaped. Fails
-/// with `Other` for a process outside this pid namespace, and `InvalidData` for a file with no id.
-fn descriptor_process_id(descriptor: RawFd) -> io::Result<Option<u32>> {
-    let fdinfo = std::fs::read_to_string(format!("/proc/self/fdinfo/{descriptor}"))?;
-    let invalid = || {
-        io::Error::new(
-            ErrorKind::InvalidData,
-            "a process descriptor's fdinfo names no process",
-        )
-    };
-    let id: i64 = fdinfo
-        .lines()
-        .find_map(|line| line.strip_prefix(FDINFO_PROCESS_PREFIX))
-        .ok_or_else(invalid)?
-        .trim()
-        .parse()
-        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
-    match id {
-        -1 => Ok(None),
-        0 => Err(io::Error::other(
-            "the process lies outside this pid namespace",
-        )),
-        id => u32::try_from(id)
-            .map(Some)
-            .map_err(|error| io::Error::new(ErrorKind::InvalidData, error)),
-    }
-}
-
-/// A new descriptor holding process `id`. Fails with `ESRCH` when no process has the id, and with
-/// `InvalidInput` for an id past `i32::MAX`, which no process has.
-pub(crate) fn open_process_descriptor(id: u32) -> io::Result<OwnedFd> {
-    let pid = libc::pid_t::try_from(id)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
-    // SAFETY: `pidfd_open` takes a pid and no flags and returns a new descriptor or -1.
-    let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
-    if descriptor < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let descriptor = RawFd::try_from(descriptor).map_err(io::Error::other)?;
-    // SAFETY: the call succeeded, so `descriptor` is a new open descriptor nothing else owns.
-    Ok(unsafe { OwnedFd::from_raw_fd(descriptor) })
-}
-
 #[cfg(test)]
 mod tests {
     use interprocess::local_socket::tokio::Stream;
@@ -184,8 +110,9 @@ mod tests {
 
     use std::sync::Arc;
 
-    use super::{PinnedProcess, open_process_descriptor, read_parent_process, read_peer_process};
+    use super::{read_parent_process, read_peer_process};
     use crate::caller_process::ParentProcess;
+    use crate::linux::pinned_process::{PinnedProcess, open_process_descriptor};
 
     #[test]
     fn pins_this_process_as_its_own_peer_and_its_parent_until_each_ends() {

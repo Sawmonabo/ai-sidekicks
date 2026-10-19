@@ -59,11 +59,14 @@ pub(crate) fn terminals() -> Terminals {
 /// pass-through start.
 pub(crate) fn request(program: TestProgram) -> SpawnRequest {
     let start = sidekicks_platforms::pass_through_start();
+    let folder = std::env::current_dir().expect("the test runs in a folder");
     SpawnRequest {
         program: program.program,
         arguments: program.arguments,
         environment: vec![("TERM".to_owned(), "xterm-256color".to_owned())],
-        working_directory: std::env::current_dir().expect("the test runs in a folder"),
+        working_directory: folder.clone(),
+        shell_folder: folder,
+        raw_command_tail: None,
         rows: 24,
         columns: 80,
         shell_start: CommandLine {
