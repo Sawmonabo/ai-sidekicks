@@ -1,4 +1,4 @@
-//! The WebSocket a Codex service is reached over, on the AF_UNIX socket the service listens on.
+//! The WebSocket a Codex service is reached over, on the `AF_UNIX` socket the service listens on.
 //! The advertised socket path is a link to the real socket, and macOS refuses a socket path past
 //! 104 bytes, so the link's target is dialed, and the process serving it is held for the daemon's
 //! caller check while the socket lives. A service the daemon just started is dialed once it
@@ -26,8 +26,15 @@ use crate::error_description::describe_error;
 use crate::ipc::caller_process::provider_services::{
     ProviderServiceHold, ProviderServiceProcesses,
 };
-use crate::provider::driver::codex::server_requests::CODEX_MAX_RECEIVED_MESSAGE_BYTES;
 use crate::provider::driver::codex::session::errors::CodexError;
+
+/// The largest frame and message the daemon reads from the Codex service, in bytes: Codex's own
+/// client's figure, so nothing Codex's own tools read is refused here.
+const CODEX_MAX_RECEIVED_MESSAGE_BYTES: usize = 128 * 1024 * 1024;
+
+/// The largest message the daemon sends a service that names no limit of its own, in bytes: the
+/// frame size a WebSocket server takes by default, which Codex names as its own limit.
+const CODEX_DEFAULT_SENT_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// The address the service answers its app-server WebSocket at, over its socket.
 const CODEX_SOCKET_ADDRESS: &str = "ws://localhost/";
@@ -75,8 +82,8 @@ pub(crate) enum CodexSocketEvent {
 pub(crate) struct CodexServiceSocketSender {
     /// The socket's sending half.
     sink: SplitSink<WebSocketStream<UnixDomainStream>, Message>,
-    /// The largest message the service takes, in UTF-8 bytes; `None` when it named none.
-    sent_message_byte_limit: Option<usize>,
+    /// The largest message the service takes, in UTF-8 bytes.
+    sent_message_byte_limit: usize,
     /// The serving process, held until both halves drop.
     _hold: Arc<ProviderServiceHold>,
 }
@@ -91,8 +98,8 @@ pub(crate) struct CodexServiceSocketReceiver {
 
 impl CodexServiceSocketSender {
     /// The largest message the service takes, in UTF-8 bytes, as it named it when the socket
-    /// opened; `None` when it named none.
-    pub(crate) fn sent_message_byte_limit(&self) -> Option<usize> {
+    /// opened, or 16 MiB when it named none.
+    pub(crate) fn sent_message_byte_limit(&self) -> usize {
         self.sent_message_byte_limit
     }
 
@@ -288,10 +295,10 @@ fn classify_dial_failure(error: io::Error) -> DialAttemptError {
 
 // Upgrades `stream` to the service's WebSocket: the receive caps at what Codex's own client takes,
 // no compression offered (tungstenite offers none), and the service's own limit on sent messages
-// read from its upgrade answer, a positive whole number or none.
+// read from its upgrade answer, a positive whole number, or 16 MiB where it names none.
 async fn open_codex_web_socket<Stream>(
     stream: Stream,
-) -> Result<(WebSocketStream<Stream>, Option<usize>), CodexError>
+) -> Result<(WebSocketStream<Stream>, usize), CodexError>
 where
     Stream: AsyncRead + AsyncWrite + Unpin,
 {
@@ -309,7 +316,8 @@ where
         .get(CODEX_MAX_UNFRAGMENTED_MESSAGE_BYTES_HEADER)
         .and_then(|named| named.to_str().ok())
         .and_then(|named| named.trim().parse::<usize>().ok())
-        .filter(|&limit| limit > 0);
+        .filter(|&limit| limit > 0)
+        .unwrap_or(CODEX_DEFAULT_SENT_MESSAGE_BYTES);
     Ok((web_socket, sent_message_byte_limit))
 }
 
@@ -317,16 +325,14 @@ where
 // socket on a larger message, and a message is never split into frames.
 async fn send_within_limit<Stream>(
     sink: &mut SplitSink<WebSocketStream<Stream>, Message>,
-    limit: Option<usize>,
+    limit: usize,
     method: &str,
     text: String,
 ) -> Result<(), CodexError>
 where
     Stream: AsyncRead + AsyncWrite + Unpin,
 {
-    if let Some(limit) = limit
-        && text.len() > limit
-    {
+    if text.len() > limit {
         return Err(CodexError::RequestTooLarge {
             method: method.to_owned(),
             encoded_bytes: text.len(),
@@ -471,8 +477,8 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     use super::{
-        CODEX_MAX_UNFRAGMENTED_MESSAGE_BYTES_HEADER, CodexSocketEvent, open_codex_web_socket,
-        receive_event, send_within_limit,
+        CODEX_DEFAULT_SENT_MESSAGE_BYTES, CODEX_MAX_UNFRAGMENTED_MESSAGE_BYTES_HEADER,
+        CodexSocketEvent, open_codex_web_socket, receive_event, send_within_limit,
     };
     use crate::provider::driver::codex::session::errors::CodexError;
     use crate::provider::inbound_json::decode_inbound_json;
@@ -507,9 +513,13 @@ mod tests {
                 .await
                 .expect("the frame is sent");
         });
-        let (web_socket, _limit) = open_codex_web_socket(client_side)
+        let (web_socket, limit) = open_codex_web_socket(client_side)
             .await
             .expect("the upgrade succeeds");
+        assert_eq!(
+            limit, CODEX_DEFAULT_SENT_MESSAGE_BYTES,
+            "a service naming no limit"
+        );
         let (_sink, mut frames) = web_socket.split();
         let CodexSocketEvent::Message(received) =
             receive_event(&mut frames).await.expect("the frame reads")
@@ -525,6 +535,10 @@ mod tests {
     async fn a_message_past_the_named_limit_is_refused_unsent_and_the_close_reads() {
         let (client_side, server_side) = tokio::io::duplex(64 * 1024);
         let server = tokio::spawn(async move {
+            #[expect(
+                clippy::result_large_err,
+                reason = "tungstenite's upgrade callback fixes its error type"
+            )]
             let name_limit =
                 |_request: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
                     response.headers_mut().insert(
@@ -553,7 +567,7 @@ mod tests {
         let (web_socket, limit) = open_codex_web_socket(client_side)
             .await
             .expect("the upgrade succeeds");
-        assert_eq!(limit, Some(8));
+        assert_eq!(limit, 8);
         let (mut sink, mut frames) = web_socket.split();
         let refused = send_within_limit(&mut sink, limit, "turn/start", "123456789".to_owned())
             .await

@@ -44,6 +44,10 @@ pub(super) struct HeldServerRequest {
 
 // The members of a held ask's params that name its conversation and turn; an older approval
 // names its conversation `conversationId`.
+#[expect(
+    clippy::struct_field_names,
+    reason = "each member is the id of what it names"
+)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AskConversation {
@@ -87,7 +91,7 @@ impl CodexAppServerConnection {
                 .get(request_id)
                 .filter(|_| !state.answering.contains(request_id))
                 .ok_or_else(|| CodexError::Transport {
-                    detail: format!("No Codex request \"{request_id}\" is waiting for an answer."),
+                    detail: format!("No Codex request {request_id} is waiting for an answer."),
                     cause: None,
                 })?;
             let result = held
@@ -95,8 +99,7 @@ impl CodexAppServerConnection {
                 .compose_answer_result(&held.params, answer)
                 .ok_or_else(|| CodexError::Transport {
                     detail: format!(
-                        "The answer does not fit the Codex request \"{request_id}\", which stays \
-                         held."
+                        "The answer does not fit the Codex request {request_id}, which stays held."
                     ),
                     cause: None,
                 })?;
@@ -208,7 +211,8 @@ impl ConnectionShared {
         method: CodexRoutedMethod,
         params: Box<RawValue>,
     ) {
-        let request_id = read_request_id_text(&id);
+        // Keyed by its JSON, so a string id and a number with the same digits stay apart.
+        let request_id = id.get().to_owned();
         let result = match &self.responder {
             None => {
                 CodexTransportDiagnostic::UnroutedServerRequestRefused {
@@ -267,7 +271,7 @@ impl ConnectionShared {
 
     // Sends one answer within the largest message the service takes, measured on its encoded
     // bytes. An answer past it becomes the method's refusal, never a cut answer, and a refusal
-    // past it too sends nothing; a service that named no limit takes every answer.
+    // past it too sends nothing.
     async fn send_answer(
         &self,
         id: &RawValue,
@@ -275,12 +279,10 @@ impl ConnectionShared {
         result: &Value,
     ) -> Result<(), CodexError> {
         let text = encode_answer(id, result)?;
-        let Some(limit) = self
-            .sent_message_byte_limit
-            .filter(|&limit| text.len() > limit)
-        else {
+        let limit = self.sent_message_byte_limit;
+        if text.len() <= limit {
             return self.send_text(method.method(), text).await;
-        };
+        }
         report_oversized_answer(method, text.len(), limit);
         let refusal = encode_answer(
             id,
@@ -308,12 +310,6 @@ pub(super) fn read_dropped_request(
         ask_kind: held.method.classify_ask(&held.params),
         thread_id: thread_id.filter(|thread_id| !thread_id.is_empty()),
     }
-}
-
-// A server request's id as the text a held ask is known by: a string id's own text, any other
-// id's JSON.
-fn read_request_id_text(id: &RawValue) -> String {
-    read_member::<String>(Some(id)).unwrap_or_else(|| id.get().to_owned())
 }
 
 // The method's refusal for an ask its responder did not decide, the failure reported and its

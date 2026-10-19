@@ -1,8 +1,9 @@
 //! Compiles SQLite's shell, vendored byte for byte, into the static library the `database shell`
 //! mode runs, once the file's hash and its release are checked against the SQLite `libsqlite3-sys`
 //! bundles, so the shell and the library always run the same SQLite. Generates Codex's app-server
-//! protocol types the daemon sends, and the notification methods the protocol names, from the
-//! schema bundle of one Codex release, vendored byte for byte and checked by its hash.
+//! protocol types the daemon sends, and the notification and server request methods the protocol
+//! names, from the schema bundle of one Codex release, vendored byte for byte and checked by its
+//! hash.
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -34,8 +35,9 @@ const CODEX_PROTOCOL_BUNDLE: &str =
 const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
     "4edb2d126ff9eba4cb3de19454c88c207e0e26066e6d67c95a1c0c5b8e8594b1";
 
-/// The Codex release tag [`CODEX_PROTOCOL_BUNDLE`] comes from; a newer release moves the file
-/// whole.
+/// The Codex release tag [`CODEX_PROTOCOL_BUNDLE`] comes from, named in a hash mismatch. The
+/// bundle names no version of its own, so its hash is the build's one check of the release; a
+/// newer release moves the file and its hash whole.
 const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.163.0";
 
 /// The protocol types the daemon sends, generated with every type they reach.
@@ -131,8 +133,8 @@ fn sha3_256_hex(bytes: &[u8]) -> String {
         })
 }
 
-/// Writes to `output` the protocol types the daemon sends and the notification methods the
-/// protocol names, once the bundle's hash is the release's.
+/// Writes to `output` the protocol types the daemon sends and the notification and server request
+/// methods the protocol names, once the bundle's hash is the release's.
 fn write_codex_protocol(output: &Path) -> Result<(), Box<dyn Error>> {
     let compressed = fs::read(CODEX_PROTOCOL_BUNDLE)?;
     let bundle_hash = sha3_256_hex(&compressed);
@@ -173,24 +175,34 @@ fn write_codex_protocol(output: &Path) -> Result<(), Box<dyn Error>> {
     }
     type_space.add_ref_types(sent_types)?;
 
-    let notifications = read_schema_file(schemas, "ServerNotification.json")?;
-    let mut methods = String::new();
-    for arm in notifications["oneOf"]
-        .as_array()
-        .ok_or("ServerNotification.json has no oneOf list")?
-    {
-        let method = arm["properties"]["method"]["enum"][0]
-            .as_str()
-            .ok_or("a ServerNotification.json arm names no method")?;
-        write!(methods, "{method:?}, ")?;
-    }
     let generated = format!(
         "{}\n/// Every notification method the protocol names, in its schema's order.\n\
-         pub(crate) const SERVER_NOTIFICATION_METHODS: &[&str] = &[{methods}];\n",
-        type_space.to_stream()
+         pub(crate) const SERVER_NOTIFICATION_METHODS: &[&str] = &[{}];\n\
+         /// Every request method the service may send, in its schema's order.\n\
+         pub(crate) const SERVER_REQUEST_METHODS: &[&str] = &[{}];\n",
+        type_space.to_stream(),
+        read_methods(schemas, "ServerNotification.json")?,
+        read_methods(schemas, "ServerRequest.json")?,
     );
     fs::write(output, generated)?;
     Ok(())
+}
+
+/// The methods the arms of the bundle's message schema file `name` name, in order, each a quoted
+/// Rust string followed by a comma.
+fn read_methods(schemas: &Value, name: &str) -> Result<String, Box<dyn Error>> {
+    let messages = read_schema_file(schemas, name)?;
+    let mut methods = String::new();
+    for arm in messages["oneOf"]
+        .as_array()
+        .ok_or_else(|| format!("{name} has no oneOf list"))?
+    {
+        let method = arm["properties"]["method"]["enum"][0]
+            .as_str()
+            .ok_or_else(|| format!("a {name} arm names no method"))?;
+        write!(methods, "{method:?}, ")?;
+    }
+    Ok(methods)
 }
 
 /// Points each generated sent type's service tier member at one definition that the hand-written

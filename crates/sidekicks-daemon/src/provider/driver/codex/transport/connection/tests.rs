@@ -56,11 +56,11 @@ impl ScriptedService {
 
 struct ScriptedWriter {
     sent: mpsc::UnboundedSender<String>,
-    limit: Option<usize>,
+    limit: usize,
 }
 
 impl ServiceMessageWriter for ScriptedWriter {
-    fn sent_message_byte_limit(&self) -> Option<usize> {
+    fn sent_message_byte_limit(&self) -> usize {
         self.limit
     }
 
@@ -164,7 +164,7 @@ impl CodexServerRequestResponder for TestResponder {
 }
 
 fn connect(
-    limit: Option<usize>,
+    limit: usize,
     responder: Option<Arc<dyn CodexServerRequestResponder>>,
 ) -> (
     CodexAppServerConnection,
@@ -192,13 +192,13 @@ fn connect(
 
 #[tokio::test(start_paused = true)]
 async fn a_request_fails_at_its_deadline_and_an_answer_before_it_settles_it() {
-    let (connection, mut service, _events) = connect(None, None);
+    let (connection, mut service, _events) = connect(usize::MAX, None);
     let params = json!({});
 
     let unanswered = connection.request("thread/read", &params);
     tokio::pin!(unanswered);
     assert!(poll!(unanswered.as_mut()).is_pending());
-    tokio::time::advance(CODEX_REQUEST_TIMEOUT - Duration::from_millis(1)).await;
+    tokio::time::advance(CODEX_REQUEST_TIMEOUT.saturating_sub(Duration::from_millis(1))).await;
     assert!(poll!(unanswered.as_mut()).is_pending());
     tokio::time::advance(Duration::from_millis(1)).await;
     assert!(matches!(
@@ -236,8 +236,10 @@ async fn a_request_fails_at_its_deadline_and_an_answer_before_it_settles_it() {
 #[tokio::test(start_paused = true)]
 async fn a_dropped_socket_fails_every_pending_request_and_withdraws_the_held_asks() {
     let held = Arc::new(Notify::new());
-    let (connection, service, events) =
-        connect(None, Some(Arc::new(TestResponder::Hold(Arc::clone(&held)))));
+    let (connection, service, events) = connect(
+        usize::MAX,
+        Some(Arc::new(TestResponder::Hold(Arc::clone(&held)))),
+    );
     service.send(&json!({
         "jsonrpc": "2.0",
         "id": 7,
@@ -303,7 +305,7 @@ async fn a_server_request_nothing_decides_is_refused(
 ) {
     let responder =
         responder.map(|responder| Arc::new(responder) as Arc<dyn CodexServerRequestResponder>);
-    let (_connection, mut service, _events) = connect(None, responder);
+    let (_connection, mut service, _events) = connect(usize::MAX, responder);
 
     service.send(&json!({
         "jsonrpc": "2.0",
@@ -318,7 +320,7 @@ async fn a_server_request_nothing_decides_is_refused(
 #[tokio::test]
 async fn an_answer_past_the_limit_is_refused_and_a_refusal_past_it_sends_nothing() {
     let responder = TestResponder::AllowToolCall("x".repeat(400));
-    let (_connection, mut service, _events) = connect(Some(300), Some(Arc::new(responder)));
+    let (_connection, mut service, _events) = connect(300, Some(Arc::new(responder)));
 
     service.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "item/tool/call", "params": {} }));
     assert_eq!(

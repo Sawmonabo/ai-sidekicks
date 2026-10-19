@@ -43,7 +43,7 @@ const JSON_RPC_VERSION: &str = "2.0";
 /// A held ask the connection let go of, so its card is withdrawn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexForgottenRequest {
-    /// The service's request id, as text.
+    /// The service's request id, as its JSON.
     pub(crate) request_id: String,
     /// Who the ask was for.
     pub(crate) ask_kind: CodexAskKind,
@@ -78,8 +78,8 @@ pub(crate) struct CodexConnectionHandlers {
 
 /// The sending half of the socket a connection writes to.
 trait ServiceMessageWriter: Send {
-    /// The largest message the service takes, in UTF-8 bytes; `None` when it named none.
-    fn sent_message_byte_limit(&self) -> Option<usize>;
+    /// The largest message the service takes, in UTF-8 bytes.
+    fn sent_message_byte_limit(&self) -> usize;
 
     /// Sends `text`, the encoded message of `method`; refused unsent past the limit.
     fn send_text<'call>(
@@ -99,7 +99,7 @@ trait ServiceMessageReader: Send {
 }
 
 impl ServiceMessageWriter for CodexServiceSocketSender {
-    fn sent_message_byte_limit(&self) -> Option<usize> {
+    fn sent_message_byte_limit(&self) -> usize {
         CodexServiceSocketSender::sent_message_byte_limit(self)
     }
 
@@ -175,8 +175,8 @@ struct ConnectionShared {
     state: Mutex<ConnectionState>,
     /// The socket's sending half; `None` once closed.
     writer: AsyncMutex<Option<Box<dyn ServiceMessageWriter>>>,
-    /// The largest message the service takes, in UTF-8 bytes; `None` when it named none.
-    sent_message_byte_limit: Option<usize>,
+    /// The largest message the service takes, in UTF-8 bytes.
+    sent_message_byte_limit: usize,
     /// Where notifications, the drop and the held asks let go of go.
     events: Arc<dyn CodexConnectionEvents>,
     /// Answers or holds each routed ask.
@@ -189,7 +189,7 @@ struct ConnectionState {
     next_request_id: u64,
     /// Each request waiting for its answer, by its id.
     pending: HashMap<u64, oneshot::Sender<RequestAnswer>>,
-    /// Each ask the responder held for the person, by its request id as text.
+    /// Each ask the responder held for the person, by its request id as its JSON.
     held: HashMap<String, HeldServerRequest>,
     /// Held asks whose answer is being sent, so a second answer cannot send another.
     answering: HashSet<String>,

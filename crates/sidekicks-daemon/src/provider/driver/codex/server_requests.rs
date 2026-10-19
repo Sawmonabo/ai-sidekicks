@@ -12,6 +12,7 @@ use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::provider::driver::codex::app_server_protocol::SERVER_REQUEST_METHODS;
 use crate::provider::driver::codex::ask_option_sets::ProviderAskOption;
 use crate::provider::driver::codex::delivery::elicitation_form::compose_codex_elicitation_content;
 use crate::provider::driver::codex::delivery::question_answers::compose_codex_user_input_answers;
@@ -19,10 +20,6 @@ use crate::provider::driver::codex::event_normalizer::is_codex_tool_call_approva
 use crate::provider::driver::contract::DriverError;
 use crate::provider::inbound_json::decode_inbound_json;
 use crate::text_cut::cut_to_code_points;
-
-/// The largest frame and message the daemon reads from the Codex service, in bytes: Codex's own
-/// client's figure, so nothing Codex's own tools read is refused here.
-pub(crate) const CODEX_MAX_RECEIVED_MESSAGE_BYTES: usize = 128 * 1024 * 1024;
 
 /// The refusal reason that stands in for an answer larger than the service takes, past which it
 /// would close the socket: the answer is refused, never cut, since a cut tool output reads as
@@ -321,11 +318,7 @@ pub(crate) fn compose_unrouted_request_error() -> Value {
 /// Whether `method` is one of the server requests the service's protocol names, routed or not,
 /// so a report of an unhandled one tells a known method from one a newer build added.
 pub(crate) fn is_codex_server_request_method(method: &str) -> bool {
-    CodexRoutedMethod::from_method(method).is_some()
-        || matches!(
-            method,
-            "account/chatgptAuthTokens/refresh" | "attestation/generate" | "currentTime/read"
-        )
+    SERVER_REQUEST_METHODS.contains(&method)
 }
 
 /// The daemon's answer to one routed ask.
@@ -383,8 +376,8 @@ pub(crate) enum CodexServerRequestDecision {
 )]
 #[derive(Debug)]
 pub(crate) struct CodexInboundServerRequest {
-    /// The service's own request id, as text, unique on one connection; a held ask is answered
-    /// under it.
+    /// The service's own request id, as its JSON, unique on one connection; a held ask is
+    /// answered under it.
     pub(crate) request_id: String,
     /// The routed method.
     pub(crate) method: CodexRoutedMethod,
