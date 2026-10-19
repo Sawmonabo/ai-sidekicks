@@ -38,7 +38,7 @@ use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::event_emitter::WorkspaceEventEmitter;
 use crate::workspace::projector::{HealthProjectionError, RepoMountHealthRow};
 use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::repo::mount_health::{MountHealthProbeError, probe_repo_mount_health};
+use crate::workspace::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health};
 use crate::workspace::repo::root_resolver::RepoRootResolver;
 use crate::workspace::row_guards::COMMON_DIR_METADATA_PATH;
 use crate::workspace::schema::MountOrigin;

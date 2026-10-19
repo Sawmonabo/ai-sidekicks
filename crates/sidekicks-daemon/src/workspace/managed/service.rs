@@ -17,7 +17,7 @@ use sidekicks_platforms::remove_tree;
 use crate::cleanup_failures::CleanupFailures;
 use crate::file::real_location::resolve_real_path;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
-use crate::workspace::repo::mount_service::{RepoMountService, RepoMountServiceError};
+use crate::workspace::repo::mount::service::{RepoMountService, RepoMountServiceError};
 
 const MANAGED_WORKSPACES_FOLDER_NAME: &str = "workspaces";
 
