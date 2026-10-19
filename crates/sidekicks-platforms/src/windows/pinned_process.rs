@@ -12,7 +12,10 @@ use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_PARAMETER, FALSE, FILETIME, HANDLE,
     WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
-use windows_sys::Win32::System::JobObjects::{IsProcessInJob, OpenJobObjectW, TerminateJobObject};
+use windows_sys::Win32::System::JobObjects::{
+    IsProcessInJob, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,
+    OpenJobObjectW, QueryInformationJobObject, TerminateJobObject,
+};
 use windows_sys::Win32::System::SystemServices::{JOB_OBJECT_QUERY, JOB_OBJECT_TERMINATE};
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetProcessTimes, INFINITE, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -86,13 +89,13 @@ impl PinnedProcess {
         ))
     }
 
-    /// Ends the job of the process's own, every process in it, through the handle held with it;
+    /// Ends every process still in the job of the process's own, through the handle held with it;
     /// `false` when it runs in none. Fails with the system's error.
     pub(crate) fn terminate_job(&self) -> io::Result<bool> {
         let Some(job) = &self.job_handle else {
             return Ok(false);
         };
-        terminate_job_object(job)?;
+        end_job_processes(job)?;
         Ok(true)
     }
 
@@ -188,8 +191,8 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 }
 
 /// Ends what is left of the tree `record` names once its process has ended: every process still
-/// in the job a lasting child ran in; `false` when the record names no job or no job has its
-/// name. Fails with `InvalidData` for a job name no lasting child is given, else with the
+/// in the job a lasting child ran in; `false` when the record names no job, no job has its name
+/// or the job holds no process. Fails with `InvalidData` for a job name no lasting child is given, else with the
 /// system's error.
 pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
     let Some(name) = &record.job else {
@@ -198,8 +201,7 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
     let Some(job) = open_recorded_job(record, name)? else {
         return Ok(false);
     };
-    terminate_job_object(&job)?;
-    Ok(true)
+    end_job_processes(&job)
 }
 
 // The job `record` names `name`, opened with the rights to ask what it holds and to end it; `None`
@@ -236,13 +238,33 @@ fn open_recorded_job(record: &ProcessRecord, name: &str) -> io::Result<Option<Ow
     Ok(Some(unsafe { OwnedHandle::from_raw_handle(raw_job) }))
 }
 
-// Ends every process in `job`, which is open with the right to end it.
-fn terminate_job_object(job: &OwnedHandle) -> io::Result<()> {
+// Ends every process still in `job`, which is open with the rights to ask what it holds and to
+// end it; `false` when it holds none, which no end is asked for.
+fn end_job_processes(job: &OwnedHandle) -> io::Result<bool> {
+    let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+    // SAFETY: the job's handle is open with the right to query it, and the call writes the live
+    // record of the length given and no returned length.
+    let is_read = unsafe {
+        QueryInformationJobObject(
+            job.as_raw_handle(),
+            JobObjectBasicAccountingInformation,
+            (&raw mut accounting).cast(),
+            u32::try_from(size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>())
+                .expect("the accounting record's size fits a u32"),
+            std::ptr::null_mut(),
+        )
+    };
+    if is_read == FALSE {
+        return Err(io::Error::last_os_error());
+    }
+    if accounting.ActiveProcesses == 0 {
+        return Ok(false);
+    }
     // SAFETY: the job's handle is open and carries the right to end it.
     if unsafe { TerminateJobObject(job.as_raw_handle(), KILLED_EXIT_CODE) } == FALSE {
         return Err(io::Error::last_os_error());
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Whether `process` runs in `job`, or in any job when `job` is null; both handles carry the
@@ -421,10 +443,36 @@ mod tests {
         );
     }
 
+    // Fails when a stop or a record ends a job that holds no process, which Windows does not
+    // promise to allow, or a record answers that it ended something there.
+    #[test]
+    fn pinned_process_job_holding_nothing_is_not_ended() {
+        let child = spawn_shell(&["/d", "/c", "exit 0"]);
+        assert!(
+            child
+                .process
+                .wait_for_exit(KILL_WAIT_BOUND)
+                .expect("the child's wait reads")
+        );
+
+        let end = child.process.stop(Duration::ZERO).expect("the stop reads");
+        let is_ended = child.record.end_survivors().expect("the survivors read");
+
+        assert_eq!(end, ChildEnd::Stop);
+        assert!(!is_ended);
+    }
+
     // A lasting child of the command shell running `arguments`, and the first child it starts.
     fn start_lasting_child(arguments: &[&str]) -> (LastingChild, PinnedProcess) {
+        let child = spawn_shell(arguments);
+        let grandchild = find_child_of(child.process.id());
+        (child, grandchild)
+    }
+
+    // A lasting child of the command shell running `arguments`.
+    fn spawn_shell(arguments: &[&str]) -> LastingChild {
         let shell = std::env::var_os("ComSpec").expect("Windows names its command shell");
-        let child = spawn_lasting_child(LastingCommand {
+        spawn_lasting_child(LastingCommand {
             program: shell.into(),
             arguments: arguments
                 .iter()
@@ -434,9 +482,7 @@ mod tests {
             working_folder: std::env::temp_dir(),
             error_output: tempfile::tempfile().expect("the error output file is made"),
         })
-        .expect("the lasting child starts");
-        let grandchild = find_child_of(child.process.id());
-        (child, grandchild)
+        .expect("the lasting child starts")
     }
 
     // A child of process `parent`, pinned, once one has started; fails the test after ten seconds.
