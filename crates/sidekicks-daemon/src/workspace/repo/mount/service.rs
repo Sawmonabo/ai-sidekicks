@@ -274,10 +274,7 @@ pub(crate) struct RepoMountService {
     pub(crate) running_read_pause: PausePoint,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the repository mount methods' handlers")
-)]
+#[expect(dead_code, reason = "the repository mount methods' handlers")]
 impl RepoMountService {
     /// The mounts of `machine_id`'s daemon, written through `writer`, read through `reads`, roots
     /// resolved by `resolver` and a detach's archivals appended through `events`.

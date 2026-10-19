@@ -26,18 +26,12 @@ pub(crate) const COMMON_DIR_METADATA_PATH: &str = "$.commonDir";
 
 /// The JSON path in `workspaces.metadata` of why a `rootLost` workspace's last preparation failed,
 /// the one metadata key that reaches the wire.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace service's bind and preparation")
-)]
+#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) const LAST_ERROR_METADATA_PATH: &str = "$.lastError";
 
 /// The JSON path in `workspaces.metadata` of the folder the bind admitted, where a `boundRoot` run
 /// works. The bind writes it and nothing clears it.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace service's bind and preparation")
-)]
+#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) const BOUND_ROOT_METADATA_PATH: &str = "$.boundRoot";
 
 /// The JSON path in `workspaces.metadata` of the top level of the working tree the workspace works
@@ -81,10 +75,7 @@ pub(crate) async fn probe_filesystem_path(
 /// relative path, `~`, or a Windows root with no drive (`\repos\app`). Fails with
 /// [`WorkspaceServiceInvariantKind::NonAbsoluteExecutionRoot`], whose message does not echo the
 /// candidate.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace service's bind and preparation")
-)]
+#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) fn assert_absolute_execution_root(
     candidate: &Path,
     workspace_id: WorkspaceId,
@@ -104,10 +95,7 @@ pub(crate) fn assert_absolute_execution_root(
 
 /// Refuses a worktree on a chat's managed mount, the one mode rule: a chat works only in its own
 /// folder. Fails with [`WorkspaceRefusal::ModeUnsupported`].
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace service's bind and preparation")
-)]
+#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) fn assert_mode_offered(
     execution_mode: ExecutionMode,
     is_managed_mount: bool,
@@ -121,10 +109,7 @@ pub(crate) fn assert_mode_offered(
 }
 
 /// Why a write that expected to change one workspace row was not kept.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace service's bind and preparation")
-)]
+#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SingleRowWriteError {
     /// The row left the state the write expected before it committed, so neither the write nor
@@ -141,10 +126,7 @@ pub(crate) enum SingleRowWriteError {
 /// [`WorkspaceServiceInvariantKind::IllegalStateTransition`], naming `moved_subject` (the row
 /// that failed the guard, such as the repo mount for a bind's conditional insert) and keeping the
 /// refusal as its cause. Any other failure passes through as [`SingleRowWriteError::Write`].
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace service's bind and preparation")
-)]
+#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) fn expect_single_row_changed<Written>(
     written: Result<Written, WriteError>,
     workspace_id: WorkspaceId,
@@ -171,10 +153,7 @@ pub(crate) fn expect_single_row_changed<Written>(
 /// The `lastError` a workspace row's `metadata` holds, `None` when it holds none or a value that
 /// is not text. Fails with [`StoredJsonFault`] when the blob is no JSON object: only SQLite's JSON
 /// functions write it, so that is a corrupt row.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace service's bind and preparation")
-)]
+#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) fn read_last_error(metadata: &str) -> Result<Option<String>, StoredJsonFault> {
     let members = parse_stored_json_object(metadata)?;
     Ok(members
