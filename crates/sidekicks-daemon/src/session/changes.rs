@@ -146,6 +146,10 @@ pub(crate) struct SessionChanges {
     providers: Arc<ProviderRegistry>,
     /// The session-wide transition lock; see [`SessionChanges::transition_lock`].
     lock: Arc<KeyedLock<SessionId>>,
+    /// Orders the pushes of one session's name, apart from the transition lock so no archive or
+    /// close waits on a provider; each push reads the name under it, so the last carries the
+    /// newest.
+    name_push_lock: Arc<KeyedLock<SessionId>>,
     /// Every push of a person's new name to the session's providers, so the stop waits for each.
     name_pushes: TaskTracker,
 }
@@ -171,6 +175,7 @@ impl SessionChanges {
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
             providers,
             lock: Arc::new(KeyedLock::new()),
+            name_push_lock: Arc::new(KeyedLock::new()),
             name_pushes: TaskTracker::new(),
         }
     }
@@ -203,9 +208,9 @@ impl SessionChanges {
 
     /// The person's rename: `None` clears the name, which the session's self-naming then names
     /// again and tells its providers, and a rename to the name the session holds appends nothing.
-    /// It answers once the name is written; a written name is then told to each provider that
-    /// ran the session on a task of its own, a failed telling logged once and never failing the
-    /// rename. Refused as [`SessionChangeError::Refused`] says; fails with the read or
+    /// It answers once the name is written; the session's name as it then reads is told to each
+    /// provider that ran the session on a task of its own, a failed telling logged once and never
+    /// failing the rename. Refused as [`SessionChangeError::Refused`] says; fails with the read or
     /// append that failed.
     #[cfg_attr(
         not(test),
@@ -232,13 +237,14 @@ impl SessionChanges {
                 }))
             })
             .await?;
-        if is_written && let Some(name) = &name {
-            // The person's answer waits on no provider: the name is pushed on a task of its own.
+        // The person's answer waits on no provider: the name is pushed on a task of its own. A
+        // cleared name is pushed by the naming pass that names the session again.
+        if is_written && name.is_some() {
             let pool = Arc::clone(&self.pool);
             let providers = Arc::clone(&self.providers);
-            let name = name.clone();
+            let name_push_lock = Arc::clone(&self.name_push_lock);
             self.name_pushes.spawn(async move {
-                tell_providers_name(&pool, &providers, session_id, &name).await;
+                push_current_name(&pool, &providers, &name_push_lock, session_id).await;
             });
         }
         Ok(SessionRenameResponse { session_id, name })
@@ -287,7 +293,13 @@ impl SessionChanges {
             })
             .await?;
         if is_written {
-            tell_providers_name(&self.pool, &self.providers, session_id, &name).await;
+            push_current_name(
+                &self.pool,
+                &self.providers,
+                &self.name_push_lock,
+                session_id,
+            )
+            .await;
         }
         Ok(is_written)
     }
@@ -511,26 +523,33 @@ impl SessionChanges {
     }
 
     async fn read_facts(&self, session_id: SessionId) -> Result<SessionFacts, SessionChangeError> {
-        self.pool
-            .read(
-                ReadLength::Short,
-                move |reader| -> Result<_, SessionChangeError> {
-                    reader
-                        .prepare_cached(SELECT_FACTS_SQL)?
-                        .query_row([session_id.text().as_str()], |row| {
-                            Ok(SessionFacts {
-                                state: text_column(row, 0, closed_word)?,
-                                name: optional_text_column(row, 1, FreeFormText::new)?,
-                                pinned_at: row.get(2)?,
-                                muted_at: row.get(3)?,
-                            })
-                        })
-                        .optional()?
-                        .ok_or_else(|| session_not_found(&session_id).into())
-                },
-            )
-            .await
+        read_session_facts(&self.pool, session_id).await
     }
+}
+
+// The session's facts as they read now; refused `session.notFound` for an unknown session.
+async fn read_session_facts(
+    pool: &DatabaseReadPool,
+    session_id: SessionId,
+) -> Result<SessionFacts, SessionChangeError> {
+    pool.read(
+        ReadLength::Short,
+        move |reader| -> Result<_, SessionChangeError> {
+            reader
+                .prepare_cached(SELECT_FACTS_SQL)?
+                .query_row([session_id.text().as_str()], |row| {
+                    Ok(SessionFacts {
+                        state: text_column(row, 0, closed_word)?,
+                        name: optional_text_column(row, 1, FreeFormText::new)?,
+                        pinned_at: row.get(2)?,
+                        muted_at: row.get(3)?,
+                    })
+                })
+                .optional()?
+                .ok_or_else(|| session_not_found(&session_id).into())
+        },
+    )
+    .await
 }
 
 // The providers that ran one of the session's runs, each once, in the order first met.
@@ -542,6 +561,33 @@ async fn session_providers(
         Ok::<_, SessionChangeError>(read_session_providers(reader, &session_id)?)
     })
     .await
+}
+
+// Pushes the session's name as it reads under the session's push lock to each provider that ran
+// it, so pushes run one at a time and the last carries the newest name; a session with no name
+// pushes nothing, since no provider takes an empty one and the naming pass pushes the next.
+async fn push_current_name(
+    pool: &DatabaseReadPool,
+    providers: &ProviderRegistry,
+    name_push_lock: &KeyedLock<SessionId>,
+    session_id: SessionId,
+) {
+    let _hold = name_push_lock.acquire(session_id).await;
+    let name = match read_session_facts(pool, session_id).await {
+        Ok(SessionFacts {
+            name: Some(name), ..
+        }) => name,
+        Ok(SessionFacts { name: None, .. }) => return,
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                session_id = session_id.text().as_str(),
+                "the session's name was told to no provider: the session did not read"
+            );
+            return;
+        }
+    };
+    tell_providers_name(pool, providers, session_id, &name).await;
 }
 
 // Tells each provider that ran the session its new name. The name is already written, so a
