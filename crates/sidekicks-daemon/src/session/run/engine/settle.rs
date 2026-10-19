@@ -82,7 +82,7 @@ impl RunEngine {
         not(test),
         expect(
             dead_code,
-            reason = "the interventions service ends the run of each interrupt it applies with it"
+            reason = "the run queue ends the run of each interrupt the service applies"
         )
     )]
     pub(crate) async fn end_run_for_interrupt(
