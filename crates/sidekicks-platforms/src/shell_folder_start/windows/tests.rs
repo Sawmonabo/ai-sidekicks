@@ -13,8 +13,9 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 // system folder; a complete script path or standard input's `-` drops pwsh's folder switch, as
 // a user command would; a folder quote other than `'` is left single, which ends the string
 // and runs the rest of the name; Windows PowerShell gets its folder statement beside an
-// argument not known to leave it free, a switch only pwsh has (`-cwa` among them) or a switch
-// missing its value, or loses it beside one of its own format, version or quiet switches; the
+// argument not known to leave it free, a switch only pwsh has (`-cwa` among them), a switch
+// missing its value or a `-Version` after another switch, or loses it beside its `-Version`
+// first or its own format or quiet switches; the
 // statement goes anywhere but in front of the command's first value, in front of standard
 // input's `-`, or in front of a command opening, past a blank first value, with `using`, `param`,
 // an attribute list and `param`, a named block, `#` or `<#`, or is kept from a command opening
@@ -266,18 +267,52 @@ const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 )]
 #[case::windows_powershell_with_a_command_of_several_arguments(
     "powershell.exe",
-    &["-NonInteractive", "-Version", "2.0", "-NoExit", "-Command", "Get-ChildItem", "-Force"],
-    r"C:\wt",
     &[
-        "-NonInteractive",
         "-Version",
         "2.0",
+        "-NonInteractive",
+        "-InputFormat",
+        "Text",
+        "-OutputFormat",
+        "XML",
+        "-NoExit",
+        "-Command",
+        "Get-ChildItem",
+        "-Force",
+    ],
+    r"C:\wt",
+    &[
+        "-Version",
+        "2.0",
+        "-NonInteractive",
+        "-InputFormat",
+        "Text",
+        "-OutputFormat",
+        "XML",
         "-NoExit",
         "-Command",
         r"Set-Location -LiteralPath 'C:\wt'; Get-ChildItem",
         "-Force",
     ],
     SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_version_first(
+    "powershell.exe",
+    &["-Version", "2.0"],
+    r"C:\wt",
+    &["-Version", "2.0", "-NoLogo", "-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\wt'"],
+    SYSTEM_FOLDER,
+    &[],
+    None
+)]
+#[case::windows_powershell_with_its_version_after_another_switch(
+    "powershell.exe",
+    &["-NoLogo", "-Version", "5.1"],
+    r"C:\wt",
+    &["-NoLogo", "-Version", "5.1"],
+    r"C:\wt",
     &[],
     None
 )]

@@ -125,13 +125,13 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 32] = [
         SwitchOperand::Nothing,
         AllowingPowerShells::PwshOnly,
     ),
-    // pwsh reads it with no operand and stops reading; Windows PowerShell takes the version to
-    // start. Only its whole name is matched, since no source shows Windows PowerShell taking less.
+    // pwsh reads it with no operand and stops reading; Windows PowerShell reads its own `-Version`
+    // only as its first argument, apart from this table.
     powershell_switch(
         "version",
-        "version",
-        SwitchOperand::One,
-        AllowingPowerShells::Both,
+        "v",
+        SwitchOperand::Nothing,
+        AllowingPowerShells::PwshOnly,
     ),
     powershell_switch(
         "executionpolicy",
@@ -383,7 +383,7 @@ fn is_resolved_without_folder(script: &str) -> bool {
 
 // Windows PowerShell's arguments that move it to `folder`, `None` where an argument leaves no room:
 // every user argument before its command must be a switch it takes the folder start beside, with
-// its value. A command given as text, after `-Command` or as a bare word, gets the `Set-Location`
+// its value, `-Version` only first. A command given as text, after `-Command` or as a bare word, gets the `Set-Location`
 // in front of its first value, unless the command must open the script; with no command the
 // `Set-Location` follows the arguments as its start command.
 fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Option<Vec<String>> {
@@ -401,6 +401,13 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
         Some(started)
     };
     let mut index = 0;
+    if arguments
+        .first()
+        .is_some_and(|argument| is_windows_powershell_version_switch(argument))
+    {
+        arguments.get(1)?;
+        index = 2;
+    }
     while let Some(argument) = arguments.get(index) {
         let Some(key) = powershell_switch_key(argument) else {
             // A bare word begins the command; an empty argument is refused.
@@ -439,6 +446,20 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
             ])
             .collect(),
     )
+}
+
+// Whether `argument` is Windows PowerShell's `-Version`, which its native entry reads only as the
+// first argument: one dash, then a prefix of the name from `v`, compared without case.
+fn is_windows_powershell_version_switch(argument: &str) -> bool {
+    let mut characters = argument.chars();
+    let name = match characters.next() {
+        Some(first) if POWERSHELL_DASHES.contains(&first) => characters.as_str(),
+        _ => return false,
+    };
+    !name.is_empty()
+        && "version"
+            .get(..name.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(name))
 }
 
 // Whether `command` opens with what PowerShell takes only at a script's start, so no statement can
