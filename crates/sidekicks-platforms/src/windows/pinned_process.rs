@@ -27,6 +27,7 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::child_command::ChildEnd;
 use crate::pinned_process::{KILL_WAIT_BOUND, ProcessRecord};
+use crate::windows::ctrl_c::CTRL_C_EXIT_CODE;
 use crate::windows::error_codes::win32_code;
 use crate::windows::lasting_child::is_lasting_job_name;
 use crate::windows::wide_text::wide_text;
@@ -34,7 +35,7 @@ use crate::windows::wide_text::wide_text;
 /// The exit code a killed process, or every process of a killed job, is given:
 /// `STATUS_CONTROL_C_EXIT`, the code Windows gives a console program ended by a control event,
 /// which the daemon never sends a lasting child, so after the daemon's kill it marks that kill.
-pub(crate) const KILLED_EXIT_CODE: u32 = 0xC000_013A;
+pub(crate) const KILLED_EXIT_CODE: u32 = CTRL_C_EXIT_CODE;
 
 /// A process, held by its id and an open handle, which keeps its id from passing to another
 /// process while the handle lives; this process is held by its id alone.

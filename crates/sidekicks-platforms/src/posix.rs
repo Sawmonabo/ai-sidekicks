@@ -5,6 +5,7 @@
 pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod child_command;
+pub(crate) mod ctrl_c;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
 pub(crate) mod error_codes;
@@ -25,6 +26,21 @@ pub(crate) mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod uptime;
 pub(crate) mod xdg_data_folders;
+
+/// This test program, run with only the test `name`, ignored ones included, its output kept.
+#[cfg(test)]
+pub(crate) fn this_test_program(name: &str) -> std::process::Command {
+    let mut command =
+        std::process::Command::new(std::env::current_exe().expect("the test program names itself"));
+    command.args(this_test_arguments(name));
+    command
+}
+
+/// The arguments that run only the test `name`, ignored ones included, its output kept.
+#[cfg(test)]
+pub(crate) fn this_test_arguments(name: &str) -> [&str; 4] {
+    ["--exact", name, "--include-ignored", "--nocapture"]
+}
 
 #[cfg(test)]
 mod tests {

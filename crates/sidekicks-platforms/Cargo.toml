@@ -107,6 +107,7 @@ windows-sys = {
 command-fds.workspace = true
 libc.workspace = true
 nix.workspace = true
+signal-hook.workspace = true
 
 [features]
 # Helpers other crates' tests use: the per-platform programs a test runs in a terminal, the

@@ -399,21 +399,6 @@ fn read_thread_count() -> io::Result<i32> {
     Err(io::Error::last_os_error())
 }
 
-/// This test program, run with only the test `name`, ignored ones included, its output kept.
-#[cfg(test)]
-pub(crate) fn this_test_program(name: &str) -> std::process::Command {
-    let mut command =
-        std::process::Command::new(std::env::current_exe().expect("the test program names itself"));
-    command.args(this_test_arguments(name));
-    command
-}
-
-/// The arguments that run only the test `name`, ignored ones included, its output kept.
-#[cfg(test)]
-fn this_test_arguments(name: &str) -> [&str; 4] {
-    ["--exact", name, "--include-ignored", "--nocapture"]
-}
-
 /// Runs this test program's test `name` as its own responsible process, a child of this one, and
 /// answers whether it passed and what it wrote to its output.
 #[cfg(test)]
@@ -425,7 +410,11 @@ pub(crate) fn run_test_as_own_root(name: &str) -> (bool, String) {
     let program = std::env::current_exe().expect("the test program names itself");
     let c_string = |text: OsString| CString::new(text.into_vec()).expect("no NUL");
     let arguments = std::iter::once(program.clone().into_os_string())
-        .chain(this_test_arguments(name).into_iter().map(OsString::from))
+        .chain(
+            crate::posix::this_test_arguments(name)
+                .into_iter()
+                .map(OsString::from),
+        )
         .map(c_string)
         .collect();
     let environment = std::env::vars_os()
@@ -484,11 +473,12 @@ mod tests {
 
     use super::{
         OwnRootStart, OwnRootStep, StartResponsibility, is_own_marker, own_root_step,
-        read_own_root_step, read_responsible_id, run_test_as_own_root, this_test_program,
+        read_own_root_step, read_responsible_id, run_test_as_own_root,
     };
     use crate::ResponsibleProcess;
     use crate::macos::caller_process::read_responsible_process;
     use crate::macos::pinned_process::pinned;
+    use crate::posix::this_test_program;
 
     /// What the stand-in started under an own-root instance of this program prints once it found
     /// it stays under that instance.

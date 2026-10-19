@@ -31,7 +31,8 @@
               exit event's registration), mimalloc's `mi_collect`, tree-sitter's \
               `set_allocator`, and the power notifications and wall-clock timers of macOS and \
               Windows are C interfaces, and tokio's watch of the Linux timer's and the terminal \
-              poller's descriptors trusts each to stay open while it watches"
+              poller's descriptors trusts each to stay open while it watches, and the Windows \
+              Ctrl-C ending's `ExitProcess` is a C interface too"
 )]
 
 mod atomic_replace;
@@ -167,6 +168,8 @@ pub use posix::child_command::{
     spawn_lasting_child, wrap_child_command,
 };
 #[cfg(unix)]
+pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, read_exact_at, volume_free_bytes,
 };
@@ -261,6 +264,8 @@ pub use windows::child_command::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
+#[cfg(target_os = "windows")]
+pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
     FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,
