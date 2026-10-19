@@ -192,10 +192,66 @@ fn is_admitted(user: &ProcessUser, sid: PSID) -> bool {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
 
     use serde_json::Value;
 
-    use super::resolve_daemon_run_folder;
+    use super::{check_private_run_folder, resolve_daemon_run_folder};
+    use crate::run_folder::RunFolderRefused;
+    use crate::windows::process_user::read_user_sid_text;
+
+    // Runs `icacls` on `folder` with `arguments`, which change its access list.
+    fn change_access_list(folder: &Path, arguments: &[&str]) {
+        let status = Command::new("icacls")
+            .arg(folder)
+            .args(arguments)
+            .stdout(Stdio::null())
+            .status()
+            .expect("icacls starts");
+        assert!(status.success(), "icacls {arguments:?} exits with {status}");
+    }
+
+    #[test]
+    fn admits_a_private_folder_and_refuses_a_junction_to_it_and_one_open_to_everyone() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let folder = scratch.path().join("run");
+        std::fs::create_dir(&folder).expect("the folder is made");
+        // Only this user, its inherited entries removed, as the daemon makes the folder.
+        let user = read_user_sid_text().expect("this user's id reads");
+        change_access_list(
+            &folder,
+            &["/inheritance:r", "/grant:r", &format!("*{user}:(OI)(CI)F")],
+        );
+        let junction = scratch.path().join("junction");
+        let status = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&folder)
+            .stdout(Stdio::null())
+            .status()
+            .expect("cmd starts");
+        assert!(status.success(), "mklink exits with {status}");
+
+        check_private_run_folder(&folder).expect("a private folder is admitted");
+        let junction_refusal =
+            check_private_run_folder(&junction).expect_err("a junction is refused");
+        // Everyone (`S-1-1-0`) may read the folder.
+        change_access_list(&folder, &["/grant", "*S-1-1-0:(R)"]);
+        let open_refusal =
+            check_private_run_folder(&folder).expect_err("a folder open to everyone is refused");
+
+        assert!(
+            matches!(junction_refusal, RunFolderRefused::NotOwnFolder { .. }),
+            "{junction_refusal:?}"
+        );
+        assert!(
+            matches!(
+                &open_refusal,
+                RunFolderRefused::OpenToAccount { account, .. } if account == "S-1-1-0"
+            ),
+            "{open_refusal:?}"
+        );
+    }
 
     // The case table desktop main's resolver runs too, so the two cannot drift.
     const CASES: &str = include_str!(concat!(

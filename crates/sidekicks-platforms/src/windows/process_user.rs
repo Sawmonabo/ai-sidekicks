@@ -9,6 +9,10 @@ use std::os::windows::io::{
 
 use windows_sys::Win32::Foundation::{FALSE, HANDLE, LocalFree};
 use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+#[cfg(test)]
+use windows_sys::Win32::Security::{
+    CreateWellKnownSid, SECURITY_MAX_SID_SIZE, WELL_KNOWN_SID_TYPE,
+};
 use windows_sys::Win32::Security::{
     EqualSid, GetTokenInformation, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
@@ -84,6 +88,30 @@ impl ProcessUser {
     pub(crate) fn sid(&self) -> PSID {
         // SAFETY: the call filled the aligned record with a `TOKEN_USER` and the id it points at.
         unsafe { (*self.record.as_ptr().cast::<TOKEN_USER>()).User.Sid }
+    }
+
+    /// The well-known account `kind` (`WinLocalSystemSid` and the like), built as a token's
+    /// record holds a user, for a test that needs a user no process of this account runs as.
+    #[cfg(test)]
+    pub(crate) fn of_well_known_account(kind: WELL_KNOWN_SID_TYPE) -> Self {
+        let header_words = size_of::<TOKEN_USER>().div_ceil(8);
+        let sid_words = usize::try_from(SECURITY_MAX_SID_SIZE)
+            .expect("the size fits")
+            .div_ceil(8);
+        let mut record = vec![0_u64; header_words + sid_words];
+        let base = record.as_mut_ptr();
+        // SAFETY: the id's room starts past the header, inside the record.
+        let sid: PSID = unsafe { base.add(header_words) }.cast();
+        let mut length = SECURITY_MAX_SID_SIZE;
+        // SAFETY: the room is `SECURITY_MAX_SID_SIZE` bytes long, as `length` says, and a
+        // well-known account needs no domain.
+        let is_made =
+            unsafe { CreateWellKnownSid(kind, std::ptr::null_mut(), sid, &raw mut length) };
+        assert_ne!(is_made, FALSE, "the well-known account {kind} is made");
+        // SAFETY: the record starts with room for a `TOKEN_USER`, aligned for its pointer; the id
+        // it points at lives in the record's own heap buffer, which moves with the record.
+        unsafe { (*base.cast::<TOKEN_USER>()).User.Sid = sid };
+        Self { record }
     }
 
     /// Whether `sid` is this user's id.
