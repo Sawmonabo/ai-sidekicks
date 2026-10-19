@@ -3,7 +3,6 @@
 //! calls.
 
 use std::collections::HashMap;
-use std::env;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, ErrorKind, Read, Write};
@@ -45,6 +44,7 @@ use crate::terminal::{
     read_waiting_input_line, waiting_input_line,
 };
 use crate::windows::child_command::prepare_child_command;
+use crate::windows::known_folder::system_folder;
 
 /// How many process ids the first console process list read makes room for.
 const CONSOLE_PROCESS_LIST_START_LENGTH: usize = 16;
@@ -84,24 +84,14 @@ pub fn send_signal(_pid: u32, _signal: TerminalSignal) -> io::Result<()> {
     ))
 }
 
-/// Ends the process `pid` and every process it started with `taskkill.exe /T /F`, from the
-/// system's own folder, started on `spawner`'s thread. Fails with `NotFound` when `SystemRoot` is
-/// unset, `TimedOut` past [`HELPER_PROGRAM_TIME_LIMIT`], and an error naming the exit code
+/// Ends the process `pid` and every process it started with `taskkill.exe /T /F`, from the system
+/// folder, started on `spawner`'s thread. Fails with `NotFound` when `taskkill.exe` is not in the
+/// system folder, `TimedOut` past [`HELPER_PROGRAM_TIME_LIMIT`], and an error naming the exit code
 /// `taskkill.exe` answers with other than 0 (ended) or 128 (no such process,
 /// [`ProcessTreeEnd::AlreadyGone`]).
 pub async fn end_process_tree(spawner: &Spawner, pid: u32) -> io::Result<ProcessTreeEnd> {
     // Read at each call and never looked up on `PATH`, so no other `taskkill.exe` can run.
-    let system_root = env::var_os("SystemRoot").ok_or_else(|| {
-        io::Error::new(
-            ErrorKind::NotFound,
-            "SystemRoot is unset, so taskkill.exe has no path",
-        )
-    })?;
-    let mut command = hidden_command(
-        Path::new(&system_root)
-            .join("System32")
-            .join("taskkill.exe"),
-    );
+    let mut command = hidden_command(system_folder().join("taskkill.exe"));
     // `/T` walks the tree from the one root and `/F` ends each process outright.
     command.args(["/T", "/F", "/PID", &pid.to_string()]);
     let status = run_bounded(spawner, command).await?;

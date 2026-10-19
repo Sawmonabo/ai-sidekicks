@@ -1,4 +1,5 @@
-//! The path of a Windows known folder, as the system reports it for this account.
+//! The path of a Windows known folder, as the system reports it for this account, and the system
+//! folder read through it.
 
 use std::ffi::OsString;
 use std::io;
@@ -6,8 +7,13 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use windows_sys::Win32::System::Com::CoTaskMemFree;
-use windows_sys::Win32::UI::Shell::{KF_FLAG_DEFAULT, SHGetKnownFolderPath};
+use windows_sys::Win32::UI::Shell::{FOLDERID_System, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
 use windows_sys::core::{GUID, PWSTR};
+
+use crate::system_folder::read_known_folder;
+
+/// Where the system folder usually is, used when the system cannot report it.
+const SYSTEM_FOLDER_USUAL_PATH: &str = r"C:\Windows\System32";
 
 /// The path of the known folder `folder` names (a `FOLDERID_*` constant), read through
 /// `SHGetKnownFolderPath`. Fails with the system's error when the folder cannot be read.
@@ -33,6 +39,12 @@ pub(crate) fn known_folder(folder: &GUID) -> io::Result<PathBuf> {
     // a null pointer, which a failure may leave, is no work for `CoTaskMemFree`.
     unsafe { CoTaskMemFree(path.cast_const().cast()) };
     read
+}
+
+/// The system folder (`System32`) as the system reports it, its usual path where that read fails
+/// (logged); never fails.
+pub(crate) fn system_folder() -> PathBuf {
+    read_known_folder(&FOLDERID_System, SYSTEM_FOLDER_USUAL_PATH)
 }
 
 // The NUL-terminated wide string at `text`, copied without its NUL.

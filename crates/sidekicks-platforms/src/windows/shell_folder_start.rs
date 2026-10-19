@@ -2,14 +2,9 @@
 
 use std::path::Path;
 
-use windows_sys::Win32::UI::Shell::FOLDERID_System;
-
 use crate::shell_folder_start::ShellFolderStart;
 use crate::shell_folder_start::windows::compose_shell_folder_start;
-use crate::system_folder::read_known_folder;
-
-/// Where the system folder usually is, used when the system cannot report it.
-const SYSTEM_FOLDER_USUAL_PATH: &str = r"C:\Windows\System32";
+use crate::windows::known_folder::system_folder;
 
 /// How `program` with `arguments` starts in `folder`: the `shell` mode is spawned in the system
 /// folder, where Windows Terminal keeps itself; PowerShell, `wsl.exe` and `cmd.exe` on a share
@@ -23,6 +18,5 @@ pub fn shell_folder_start(
     folder: &str,
     _stable_folder: &Path,
 ) -> ShellFolderStart {
-    let system_folder = read_known_folder(&FOLDERID_System, SYSTEM_FOLDER_USUAL_PATH);
-    compose_shell_folder_start(program, arguments, folder, &system_folder)
+    compose_shell_folder_start(program, arguments, folder, &system_folder())
 }
