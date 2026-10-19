@@ -322,10 +322,7 @@ impl RunEngine {
             (count.turn_number, stop)
         };
         let stopped = self.stop_at_limit(run_id, stop).await;
-        if let Err(
-            error @ (RunEngineError::LimitInterrupterGone { .. }
-            | RunEngineError::LimitInterrupt { .. }),
-        ) = &stopped
+        if let Err(error) = &stopped
             && let Some(count) = lock(&self.live)
                 .step_counts
                 .get_mut(&run_id)
