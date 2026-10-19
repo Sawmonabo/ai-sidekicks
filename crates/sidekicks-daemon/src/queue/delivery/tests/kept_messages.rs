@@ -5,11 +5,10 @@
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
-use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 
 use super::{
-    FIRST_PROCESS, Fixture, HANDS_AT_ONCE, count_steers, driver_handing, fixture, hand,
+    FIRST_PROCESS, HANDS_AT_ONCE, continued_ids, count_steers, driver_handing, fixture, hand,
     insert_item, set_run_state, settle, stored_item,
 };
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
@@ -68,15 +67,6 @@ async fn a_message_kept_by_a_process_no_longer_the_sessions_waits_unhanded(
     assert_eq!(steers.load(Ordering::SeqCst), 1);
 }
 
-async fn continued_ids(fixture: &Fixture) -> Vec<QueueItemId> {
-    ContinuedMessages::read(&fixture.delivery, fixture.run_id)
-        .await
-        .expect("the continue reads the waiting messages")
-        .iter()
-        .map(|message| message.id)
-        .collect()
-}
-
 // A message a resume read and kept, its outcome unknown, is read by no later continue, and a
 // later resume's release leaves it kept, until its settle gives it back. Killed by reading a kept
 // message again.
@@ -89,9 +79,12 @@ async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
     let first_read = continued_ids(&fixture).await;
     fixture.delivery.keep_continued(fixture.run_id);
     let second_read = continued_ids(&fixture).await;
-    ContinuedMessages::release(&fixture.delivery, fixture.session_id, fixture.run_id)
-        .await
-        .expect("the release answers");
+    {
+        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        ContinuedMessages::release(&fixture.delivery, &hold, fixture.run_id)
+            .await
+            .expect("the release answers");
+    }
     let read_after_a_release = continued_ids(&fixture).await;
     fixture
         .delivery

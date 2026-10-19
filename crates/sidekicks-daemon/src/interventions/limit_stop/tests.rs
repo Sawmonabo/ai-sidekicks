@@ -36,6 +36,7 @@ use crate::database::statement::DATABASE_NOW_SQL;
 use crate::events::session::appender::SessionEventDraft;
 use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
+use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
 use crate::session::run::engine::tests::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
@@ -571,12 +572,17 @@ enum ReturnToRunning {
     RefusedPause,
 }
 
-/// No messages wait for the run.
-struct NoWaitingMessages;
+/// No messages wait for the run; the lock is the queue's on each session.
+struct NoWaitingMessages(KeyedLock<SessionId>);
 
 impl ContinuedMessages for NoWaitingMessages {
+    fn session_lock(&self) -> &KeyedLock<SessionId> {
+        &self.0
+    }
+
     fn read(
         &self,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
     ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
         async { Ok(Vec::new()) }.boxed()
@@ -584,7 +590,7 @@ impl ContinuedMessages for NoWaitingMessages {
 
     fn admit(
         &self,
-        _session_id: SessionId,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         async { Ok(()) }.boxed()
@@ -592,13 +598,13 @@ impl ContinuedMessages for NoWaitingMessages {
 
     fn release(
         &self,
-        _session_id: SessionId,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         async { Ok(()) }.boxed()
     }
 
-    fn keep(&self, _run_id: RunId) {}
+    fn keep(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) {}
 }
 
 // A limit owed through a pause is handed again once its provider runs: a resume, from `paused` or
@@ -695,7 +701,7 @@ async fn a_limit_owed_through_a_pause_is_handed_once_the_provider_runs(
                     target_run_id: harness.run_id,
                     expected_run_version,
                 },
-                &NoWaitingMessages,
+                &NoWaitingMessages(KeyedLock::new()),
             )
             .await;
         assert!(resumed.is_ok(), "{resumed:?}");
@@ -748,7 +754,11 @@ async fn a_refused_resume_leaves_the_owed_limit_to_the_providers_own_report() {
 
     let resuming = {
         let control = Arc::clone(&control);
-        tokio::spawn(async move { control.resume(&request, &NoWaitingMessages).await })
+        tokio::spawn(async move {
+            control
+                .resume(&request, &NoWaitingMessages(KeyedLock::new()))
+                .await
+        })
     };
     tokio::time::timeout(SETTLE_WAIT, has_started)
         .await

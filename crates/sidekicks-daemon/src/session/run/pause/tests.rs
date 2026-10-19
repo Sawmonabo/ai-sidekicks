@@ -25,6 +25,7 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
+use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::error_causes::RequestUnanswered;
@@ -168,7 +169,6 @@ fn waiting_message() -> WaitingMessage {
 
 /// The waiting messages as the queue keeps them: read until taken, given back or kept, and a
 /// kept one read by no later resume.
-#[derive(Default)]
 struct WaitingMessages {
     waiting: Mutex<Vec<WaitingMessage>>,
     kept: Mutex<Vec<WaitingMessage>>,
@@ -176,6 +176,20 @@ struct WaitingMessages {
     admissions: AtomicUsize,
     // A read the test holds: it signals when it starts, then waits for the test to let it go.
     held_read: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
+    session_lock: KeyedLock<SessionId>,
+}
+
+impl Default for WaitingMessages {
+    fn default() -> Self {
+        Self {
+            waiting: Mutex::default(),
+            kept: Mutex::default(),
+            releases: AtomicUsize::default(),
+            admissions: AtomicUsize::default(),
+            held_read: Mutex::default(),
+            session_lock: KeyedLock::new(),
+        }
+    }
 }
 
 impl WaitingMessages {
@@ -192,8 +206,13 @@ impl WaitingMessages {
 }
 
 impl ContinuedMessages for WaitingMessages {
+    fn session_lock(&self) -> &KeyedLock<SessionId> {
+        &self.session_lock
+    }
+
     fn read(
         &self,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
     ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
         let waiting = self.waiting.lock().expect("the messages read").clone();
@@ -210,7 +229,7 @@ impl ContinuedMessages for WaitingMessages {
 
     fn admit(
         &self,
-        _session_id: SessionId,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         self.waiting.lock().expect("the messages read").clear();
@@ -220,14 +239,14 @@ impl ContinuedMessages for WaitingMessages {
 
     fn release(
         &self,
-        _session_id: SessionId,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         self.releases.fetch_add(1, Ordering::SeqCst);
         async { Ok(()) }.boxed()
     }
 
-    fn keep(&self, _run_id: RunId) {
+    fn keep(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) {
         let mut waiting = self.waiting.lock().expect("the messages read");
         self.kept
             .lock()

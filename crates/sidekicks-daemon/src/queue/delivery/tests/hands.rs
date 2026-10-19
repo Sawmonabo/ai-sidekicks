@@ -14,15 +14,15 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use super::{
-    HANDS_AT_ONCE, HANDS_AT_TOOL_BOUNDARY, WAIT, applied, count_steers, driver_handing, fixture,
-    hand, hold_chain, insert_item, release_chain, set_run_state, settle, steered_item, stored_item,
+    HANDS_AT_ONCE, HANDS_AT_TOOL_BOUNDARY, WAIT, applied, continued_ids, count_steers,
+    driver_handing, fixture, hand, hold_chain, insert_item, release_chain, set_run_state, settle,
+    steered_item, stored_item,
 };
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::RunToolBoundary;
 use crate::queue::delivery::DeliveryError;
 use crate::queue::store::RecordedQueueItemState;
-use crate::session::run::pause::ContinuedMessages;
 
 // Killed by a hand that joins the chain from a task of its own: a gate joined as soon as the
 // hand's call returns then runs ahead of the hand.
@@ -157,19 +157,11 @@ async fn a_tool_boundary_to_a_run_held_for_an_interrupt_leaves_the_message_for_t
     settle(&fixture).await;
     let is_handed = fixture.delivery.is_handed(&item.id);
     set_run_state(&fixture, RunState::Interrupted);
-    let continued = ContinuedMessages::read(&fixture.delivery, fixture.run_id)
-        .await
-        .expect("the continue reads the waiting messages");
+    let continued = continued_ids(&fixture).await;
 
     assert_eq!(steers.load(Ordering::SeqCst), 0);
     assert!(!is_handed);
-    assert_eq!(
-        continued
-            .iter()
-            .map(|message| message.id)
-            .collect::<Vec<_>>(),
-        vec![item.id]
-    );
+    assert_eq!(continued, vec![item.id]);
 }
 
 // An interrupt's hold waits out a hand already inside its driver call, a tool boundary's included,

@@ -24,7 +24,7 @@ use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool
 use crate::interventions::store::run_at_version_statement;
 use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::ipc::registry::HandlerError;
-use crate::keyed_lock::KeyedLock;
+use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{PauseRunParams, ResumeRunParams, WaitingMessage};
@@ -48,32 +48,39 @@ pub(crate) type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
 
 /// The messages waiting for a paused run that its resume delivers: read once the resume is sure to
 /// go, taken once the driver continued the run with them, given back when it did not, and kept
-/// when the driver sent them and no answer came.
+/// when the driver sent them and no answer came. Each call runs under the queue's own lock on the
+/// session, held from the read until they are taken, given back or kept, so no change to them
+/// lands between the read and the driver.
 pub(crate) trait ContinuedMessages: Send + Sync {
-    /// The messages waiting for `run_id`, in send order.
+    /// The queue's own per-session lock, which every hand and take-back of a session's waiting
+    /// messages runs under.
+    fn session_lock(&self) -> &KeyedLock<SessionId>;
+
+    /// The messages waiting for `run_id`, in send order. Called under `hold`.
     fn read(
         &self,
+        hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>>;
 
-    /// Marks the messages read for `run_id` as delivered with its resume.
+    /// Marks the messages read for `run_id` as delivered with its resume. Called under `hold`.
     fn admit(
         &self,
-        session_id: SessionId,
+        hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>>;
 
-    /// Gives the messages read for `run_id` back to wait for its next turn.
+    /// Gives the messages read for `run_id` back to wait for its next turn. Called under `hold`.
     fn release(
         &self,
-        session_id: SessionId,
+        hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>>;
 
     /// Keeps the messages read for `run_id`, which a resume sent with no answer back: no later
     /// resume reads them until the provider's own record says whether it took them, so none is
-    /// sent twice.
-    fn keep(&self, run_id: RunId);
+    /// sent twice. Called under `hold`.
+    fn keep(&self, hold: &KeyHold<'_, SessionId>, run_id: RunId);
 }
 
 /// Why a pause or a resume did not finish; each refusal left the run exactly as it was.
@@ -244,8 +251,9 @@ impl RunPauseControl {
     /// the messages waiting for it in send order, and moves the run to `running` once the driver
     /// took the resume; the interrupt of every limit the run owes is then handed again, the
     /// messages' mark of delivery failed or not, so none reaches the provider before it runs.
-    /// The run is held as being resumed before it is checked and its messages read, so a report
-    /// from its provider waits for the resume. Refuses, nothing read, as a pause does for an
+    /// The queue's lock on the session is taken, then the run is held as being resumed before it
+    /// is checked and its messages read, so a change to the messages and a report from its
+    /// provider both wait for the resume; the caller holds no lock of the queue's. Refuses, nothing read, as a pause does for an
     /// unknown run, a stale version and a run in any other state, then with
     /// [`RunPauseError::NoDriver`]. A resume the driver refuses moves nothing, gives the messages
     /// back and fails with [`RunPauseError::Driver`], as does one whose answer never came, which
@@ -261,7 +269,8 @@ impl RunPauseControl {
         let expected_run_version = request.expected_run_version;
         let _run_hold = self.run_lock.acquire(run_id).await;
         let (run, bound) = self.read_run(run_id).await?;
-        let session_id = run.session_id;
+        let hold = continued.session_lock().acquire(run.session_id).await;
+        let hold = &hold;
         let resumed = self
             .engine
             .resume_run(
@@ -271,7 +280,7 @@ impl RunPauseControl {
                 move |run| async move {
                     let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
                     let messages = continued
-                        .read(run_id)
+                        .read(hold, run_id)
                         .await
                         .map_err(RunPauseError::WaitingMessagesUnread)?;
                     let params = ResumeRunParams {
@@ -284,12 +293,12 @@ impl RunPauseControl {
                         Err(unanswered @ DriverError::Unanswered(_)) => {
                             // The provider may have taken the messages; its own record settles
                             // them.
-                            continued.keep(run_id);
+                            continued.keep(hold, run_id);
                             Err(RunPauseError::Driver(unanswered))
                         }
                         Err(driver_error) => {
                             let failure = RunPauseError::Driver(driver_error);
-                            Err(release(continued, run.session_id, run_id, failure).await)
+                            Err(release(continued, hold, run_id, failure).await)
                         }
                     }
                 },
@@ -308,10 +317,10 @@ impl RunPauseControl {
                 let failure = self
                     .refusal_of_move(run_id, expected_run_version, change)
                     .await;
-                return Err(release(continued, session_id, run_id, failure).await);
+                return Err(release(continued, hold, run_id, failure).await);
             }
         };
-        let admitted = continued.admit(session_id, run_id).await;
+        let admitted = continued.admit(hold, run_id).await;
         self.engine.hand_owed_limit_interrupts(run_id);
         admitted.map_err(RunPauseError::MessagesNotAdmitted)?;
         Ok(run_control_response(run_id, &running))
@@ -439,11 +448,11 @@ fn version_guard(run_id: RunId, expected_run_version: SafeInt<0>) -> RunStateCha
 // beside it.
 async fn release(
     continued: &dyn ContinuedMessages,
-    session_id: SessionId,
+    hold: &KeyHold<'_, SessionId>,
     run_id: RunId,
     failure: RunPauseError,
 ) -> RunPauseError {
-    match continued.release(session_id, run_id).await {
+    match continued.release(hold, run_id).await {
         Ok(()) => failure,
         Err(release) => RunPauseError::MessagesNotReleased {
             resume: Box::new(failure),

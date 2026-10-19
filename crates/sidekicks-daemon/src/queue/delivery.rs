@@ -723,13 +723,15 @@ impl QueueDelivery {
         Ok(())
     }
 
-    // The unhanded lead messages waiting for `run_id`, a continue that did not go read again (one a
-    // resume keeps excepted), each marked handed by the continue, in the queue's order.
-    async fn read_continued(&self, run_id: RunId) -> Result<Vec<WaitingMessage>, DeliveryError> {
+    // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go
+    // read again (one a resume keeps excepted), each marked handed by the continue, in the queue's
+    // order.
+    async fn read_continued(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> Result<Vec<WaitingMessage>, DeliveryError> {
         let lead_waiting = self.lead_waiting(self.read_waiting(run_id).await?, false);
-        let Some(session_id) = lead_waiting.first().map(|item| item.session_id) else {
-            return Ok(Vec::new());
-        };
         let process = self.shared.deps.processes.process_identity(&session_id);
         let items = {
             let mut state = self.lock_state();
@@ -763,16 +765,22 @@ impl QueueDelivery {
 }
 
 impl ContinuedMessages for QueueDelivery {
+    fn session_lock(&self) -> &KeyedLock<SessionId> {
+        &self.shared.deps.session_lock
+    }
+
     fn read(
         &self,
+        hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
-        Box::pin(async move { Ok(self.read_continued(run_id).await?) })
+        let session_id = *hold.key();
+        Box::pin(async move { Ok(self.read_continued(session_id, run_id).await?) })
     }
 
     fn admit(
         &self,
-        _session_id: SessionId,
+        _hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         Box::pin(async move { Ok(self.admit_continued(run_id).await?) })
@@ -780,7 +788,7 @@ impl ContinuedMessages for QueueDelivery {
 
     fn release(
         &self,
-        _session_id: SessionId,
+        _hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         // A message an earlier resume keeps stays kept until its own settle.
@@ -791,7 +799,7 @@ impl ContinuedMessages for QueueDelivery {
         Box::pin(async { Ok(()) })
     }
 
-    fn keep(&self, run_id: RunId) {
+    fn keep(&self, _hold: &KeyHold<'_, SessionId>, run_id: RunId) {
         self.keep_continued(run_id);
     }
 }
