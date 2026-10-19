@@ -2,26 +2,11 @@
 
 Part of [API Payload Contracts](./api-payload-contracts.md), which holds the shared types, the error envelope and the conventions every shape here uses.
 
-What a session's provider reports beside its turns: the live state of a run that a provider's safety check holds, and each kind of `session.notice.posted`, a notice the daemon records on a session about its provider or the place the provider runs. The driver interface they come through is in [Provider Driver Payload Contracts](./provider-driver-payloads.md).
+Each kind of `session.notice.posted`, a notice the daemon records on a session about its provider or the place the provider runs. The driver interface they come through is in [Provider Driver Payload Contracts](./provider-driver-payloads.md).
 
-**Two Codex signals that draw no flow row.** The Codex driver maps a safety check that holds a turn, and Codex's warnings and deprecations, onto the first two shapes below; neither is a row in the flow, and a Claude Code session carries neither, because Claude Code sends neither signal. The names and their categories are [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
+**Codex's warnings draw no flow row.** The Codex driver maps Codex's warnings and deprecations onto the first shape below; it is no row in the flow, and a Claude Code session carries none, because Claude Code sends no such signal. The names and their categories are [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
 ```ts
-// agent.run.safetyBuffering.updated — Codex's `model/safetyBuffering/updated`, its
-// `showBufferingUi` carried as `active` (Spec-005 §Run Lifecycle). A LIVE event on the run's own
-// state stream, `agent.run.subscribe`, outside the session-event union: the daemon never appends
-// it, so it has no sequence, is not kept in the session's history and is not resent; a re-opened
-// session does not show it. While `active` is true the working line's action words read Codex's own
-// sentence in place of the verb, and when Codex clears the flag or the reply starts, the verb
-// returns.
-interface RunSafetyBufferingUpdatedPayload {
-  sessionId: SessionId;
-  runId: RunId;
-  turnId: string;
-  active: boolean;
-  fasterModel?: string; // the faster model Codex names, carried as sent
-}
-
 // session.notice.posted of kind `providerWarning` (Spec-005 §Session Lifecycle): Codex's `warning`,
 // whose `message` becomes `text`, or its `deprecationNotice`, whose `summary` becomes `text` and
 // whose `details` are kept beside it. Recorded so the working line's warnings count and its list
