@@ -343,6 +343,21 @@ impl RunEngine {
         }
     }
 
+    /// The end the daemon writes for `turn_number` of `run_id` with no provider frame: `outcome`,
+    /// or interrupted with the limit where a limit stop cut that turn.
+    pub(super) fn daemon_turn_end(
+        &self,
+        run_id: &RunId,
+        turn_number: SafeInt<1>,
+        outcome: TurnOutcome,
+    ) -> TurnEnd {
+        TurnEnd {
+            turn_number,
+            origin: TurnEndOrigin::Daemon,
+            outcome: self.cut_outcome(run_id, turn_number, outcome),
+        }
+    }
+
     // How `turn_number` of `run_id` ends: interrupted with the limit of a stop that cut it, else
     // `outcome`.
     fn cut_outcome(
@@ -355,6 +370,28 @@ impl RunEngine {
             Some(cut) => TurnOutcome::Interrupted(Some(limit_turn_cause(cut.limit))),
             None => outcome,
         }
+    }
+
+    /// Ends every turn in `open_turns`, oldest first, the daemon's end as
+    /// [`RunEngine::daemon_turn_end`] gives it: each older one written on its own with `older`,
+    /// and the newest returned with `newest` for the run's end to carry in its own write. Fails
+    /// with the first write that fails, the ends before it kept.
+    pub(super) async fn end_open_turns(
+        &self,
+        run_id: RunId,
+        run: &RunRead,
+        open_turns: &[SafeInt<1>],
+        older: TurnOutcome,
+        newest: TurnOutcome,
+    ) -> Result<Option<TurnEnd>, RunEngineError> {
+        let Some((newest_turn, older_turns)) = open_turns.split_last() else {
+            return Ok(None);
+        };
+        for &turn_number in older_turns {
+            let turn_end = self.daemon_turn_end(&run_id, turn_number, older);
+            self.record_turn_end_alone(run_id, run, turn_end).await?;
+        }
+        Ok(Some(self.daemon_turn_end(&run_id, *newest_turn, newest)))
     }
 
     /// Writes `turn_end` on its own, guarded on the turn holding no end, and returns whether it

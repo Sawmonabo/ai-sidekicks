@@ -1,6 +1,7 @@
 //! How a run ends outside its provider's own report: for an interrupt accepted earlier, when the
 //! provider process under it exits on its own, and when a restart left it live and recovery could
-//! not resume it. Each run's end carries the end of its open turn in the same write.
+//! not resume it. Each run's end carries the end of its open turn in the same write; a process's
+//! exit and a restart's settle end every older open turn on its own first, oldest first.
 
 use std::borrow::Cow;
 use std::iter;
@@ -143,10 +144,11 @@ impl RunEngine {
         }
     }
 
-    /// Ends the turn a provider process left when it ended on its own: the run, and each live run
+    /// Ends the turns a provider process left when it ended on its own: the run, and each live run
     /// the provider dispatched beneath it as its own subagent, each in its own write, ends `failed`
-    /// with `process_exit`, its open turn `agent.turn.failed` with the process's exit as its cause.
-    /// Every run is ended before the failures return, together.
+    /// with `process_exit`, every open turn of it `agent.turn.failed` with the process's exit as
+    /// its cause, or interrupted with the limit of a stop that cut it. Every run is ended before
+    /// the failures return, together.
     #[expect(
         dead_code,
         reason = "the provider's event delivery, when a provider process exits"
@@ -174,14 +176,15 @@ impl RunEngine {
         )
     }
 
-    // One run's end when its provider process exited, with its open turn's end in the same write.
+    // One run's end when its provider process exited, with its newest open turn's end in the same
+    // write and every older one's before it.
     async fn fail_on_process_exit(
         &self,
         run_id: RunId,
         process_exit: &ProcessExit,
     ) -> Result<(), RunEngineError> {
         let run = self.require_run(run_id).await?;
-        let open_turn = self.read_open_turn(run_id, None).await?;
+        let open_turns = self.read_open_turns(run_id).await?;
         let failed = RunStateChange {
             failure_category: Some(RunFailureCategory::ProviderFailure),
             ..RunStateChange::new(
@@ -194,21 +197,21 @@ impl RunEngine {
                 },
             )
         };
-        let turn_end = open_turn.map(|turn_number| TurnEnd {
-            turn_number,
-            origin: TurnEndOrigin::Daemon,
-            outcome: TurnOutcome::Failed(Some(TurnEndCause::ProcessExit)),
-        });
+        let process_exited = TurnOutcome::Failed(Some(TurnEndCause::ProcessExit));
+        let turn_end = self
+            .end_open_turns(run_id, &run, &open_turns, process_exited, process_exited)
+            .await?;
         self.change_with_turn_end(failed, RunStateChangeCompanions::default(), &run, turn_end)
             .await
             .map(drop)
     }
 
     /// Settles one run a restart left live that recovery could not resume, without calling any
-    /// driver, as [`decide_restart_settlement`] decides: its end and its open turn's end in one
-    /// write, a pending interrupt moved to `applied` in that write, otherwise guarded on no
-    /// interrupt having appeared since; a `failed` end carries `failure_detail`. A run the decision
-    /// leaves is returned as it is. Fails as [`RunEngine::transition`] does.
+    /// driver, as [`decide_restart_settlement`] decides: its end and its newest open turn's end in
+    /// one write, every older open turn ended `daemonRestart` on its own before it, a pending
+    /// interrupt moved to `applied` in that write, otherwise guarded on no interrupt having
+    /// appeared since; a `failed` end carries `failure_detail`. A run the decision leaves is
+    /// returned as it is. Fails as [`RunEngine::transition`] does.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's recovery pass at start")
@@ -287,21 +290,24 @@ impl RunEngine {
                 .statements
                 .push(no_waiting_item_statement(&run_id));
         }
-        let open_turn = match decision.open_turn_end {
-            Some(_) => self.read_open_turn(run_id, None).await?,
+        let turn_end = match decision.open_turn_end {
+            Some(turn_end) => {
+                let (older, newest) = match turn_end {
+                    RestartTurnEnd::Interrupted { cause } => (
+                        TurnOutcome::Interrupted(Some(TurnEndCause::DaemonRestart)),
+                        TurnOutcome::Interrupted(Some(cause)),
+                    ),
+                    RestartTurnEnd::Failed { cause } => (
+                        TurnOutcome::Failed(Some(TurnEndCause::DaemonRestart)),
+                        TurnOutcome::Failed(Some(cause)),
+                    ),
+                };
+                let open_turns = self.read_open_turns(run_id).await?;
+                self.end_open_turns(run_id, &run.run, &open_turns, older, newest)
+                    .await?
+            }
             None => None,
         };
-        let turn_end = decision
-            .open_turn_end
-            .zip(open_turn)
-            .map(|(turn_end, turn_number)| TurnEnd {
-                turn_number,
-                origin: TurnEndOrigin::Daemon,
-                outcome: match turn_end {
-                    RestartTurnEnd::Interrupted { cause } => TurnOutcome::Interrupted(Some(cause)),
-                    RestartTurnEnd::Failed { cause } => TurnOutcome::Failed(Some(cause)),
-                },
-            });
         match self
             .change_with_turn_end(change, companions, &run.run, turn_end)
             .await
