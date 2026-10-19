@@ -553,8 +553,8 @@ async fn a_fresh_file_not_this_build_s_or_not_sound_is_refused(#[case] fault: Fr
     }
 }
 
-// A stop before the ready marker ends the repair at once: the damaged file stays as it was, no
-// copy aside, fresh file or marker is left, and the next start repairs it again.
+// A stop before the damaged file is copied aside ends the repair at once: the damaged file stays
+// as it was, no copy aside, fresh file or marker is left, and the next start repairs it again.
 #[tokio::test]
 async fn a_stop_before_the_ready_marker_leaves_the_damaged_file_as_it_was() {
     let data_folder = tempfile::tempdir().expect("a data folder");
