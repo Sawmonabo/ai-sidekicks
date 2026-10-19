@@ -62,6 +62,7 @@ pub(crate) fn environment_locale(
     let category_variable = match category {
         LocaleCategory::Number => "LC_NUMERIC",
         LocaleCategory::Time => "LC_TIME",
+        LocaleCategory::Messages => "LC_MESSAGES",
     };
     let Some(value) = ["LC_ALL", category_variable, "LANG"]
         .into_iter()

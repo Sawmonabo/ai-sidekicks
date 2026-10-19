@@ -14,8 +14,8 @@ use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, E
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_platforms::real_path;
 
+use crate::file::real_location::resolve_real_path;
 use crate::session::run::setup_gates::{
     RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
@@ -302,9 +302,7 @@ async fn canonical_writable_root(
         root: root.clone(),
         cause,
     };
-    let resolved = resolve_real_path(path.to_path_buf())
-        .await
-        .map_err(unresolvable)?;
+    let resolved = resolve_real_path(path).await.map_err(unresolvable)?;
     FilesystemPath::new(resolved.to_string_lossy().into_owned())
         .map_err(|refusal| unresolvable(io::Error::other(refusal)))
 }
@@ -312,7 +310,7 @@ async fn canonical_writable_root(
 async fn canonical_deny_path(
     entry: &CredentialDenyPath,
 ) -> Result<CredentialDenyPath, CredentialPolicyResolveError> {
-    let path = match resolve_real_path(entry.path.clone()).await {
+    let path = match resolve_real_path(&entry.path).await {
         Ok(path) => path,
         // An absent path has no link to follow; it is still denied should it appear later.
         Err(cause) if cause.kind() == io::ErrorKind::NotFound => entry.path.clone(),
@@ -329,15 +327,10 @@ async fn canonical_deny_path(
     })
 }
 
-// One blocking resolve; a resolve whose task ended before it answered fails with that cause.
-async fn resolve_real_path(path: PathBuf) -> io::Result<PathBuf> {
-    tokio::task::spawn_blocking(move || real_path(&path))
-        .await
-        .map_err(io::Error::other)?
-}
-
 #[cfg(test)]
 mod tests {
+    use sidekicks_platforms::real_path;
+
     use super::*;
 
     fn filesystem_path(path: &Path) -> FilesystemPath {

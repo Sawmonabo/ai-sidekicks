@@ -11,6 +11,8 @@ use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_platforms::ChildExit;
 use unicode_segmentation::GraphemeCursor;
 
+use crate::utf8_stream::Utf8StreamDecoder;
+
 // What a tail reads when the process printed nothing but whitespace, since the wire refuses blank.
 const NO_OUTPUT: &str = "(no output)";
 
@@ -22,8 +24,7 @@ pub(crate) struct OutputTail<const CAP: usize> {
     text: String,
     // Code points in `text`.
     text_len: usize,
-    // The start of a UTF-8 sequence the last chunk cut off, at most three bytes.
-    pending: Vec<u8>,
+    decoder: Utf8StreamDecoder,
 }
 
 impl<const CAP: usize> OutputTail<CAP> {
@@ -38,45 +39,22 @@ impl<const CAP: usize> OutputTail<CAP> {
         Self {
             text: String::new(),
             text_len: 0,
-            pending: Vec::new(),
+            decoder: Utf8StreamDecoder::default(),
         }
     }
 
     /// Adds one chunk of output.
     pub(crate) fn push(&mut self, chunk: &[u8]) {
-        let mut bytes = mem::take(&mut self.pending);
-        bytes.extend_from_slice(chunk);
-        let mut rest = bytes.as_slice();
-        loop {
-            match std::str::from_utf8(rest) {
-                Ok(text) => {
-                    self.push_text(text);
-                    break;
-                }
-                Err(error) => {
-                    let (valid, after) = rest.split_at(error.valid_up_to());
-                    self.push_text(
-                        std::str::from_utf8(valid).expect("the bytes before the error are UTF-8"),
-                    );
-                    let Some(invalid_len) = error.error_len() else {
-                        // A sequence the chunk cut off waits for the next chunk.
-                        self.pending = after.to_vec();
-                        break;
-                    };
-                    self.push_text("\u{FFFD}");
-                    rest = &after[invalid_len..];
-                }
-            }
-        }
+        let mut decoder = mem::take(&mut self.decoder);
+        decoder.push(chunk, |text| self.push_text(text));
+        self.decoder = decoder;
     }
 
     /// The tail as the wire carries it: the last `CAP` code points, moved forward to the next
     /// grapheme boundary so no character is split from its marks, each NUL read as U+FFFD, and
     /// `(no output)` for output that was empty or only whitespace.
     pub(crate) fn into_text(mut self) -> String {
-        if !self.pending.is_empty() {
-            self.push_text("\u{FFFD}");
-        }
+        mem::take(&mut self.decoder).finish(|text| self.push_text(text));
         let cut = self
             .text
             .char_indices()

@@ -92,6 +92,7 @@ methods! {
             params: MachineFolderListRequest,
             result: MachineFolderListResponse,
             refusals: [
+                RepoMountRootResolutionFailed,
                 RepoMountDistributionNeedsWsl2,
                 RepoMountDistributionNotFound,
                 MachineFolderTopLevelNotOffered,

@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use rusqlite::types::Value;
+use sidekicks_contracts::place::Place;
 
 /// The database clock's current time as a SQL expression, in the same ISO 8601 form as every
 /// stored time.
@@ -46,6 +47,14 @@ pub(crate) fn nullable_text_binding(
         Cow::Borrowed(name),
         text.map_or(Value::Null, |text| Value::Text(text.to_owned())),
     )
+}
+
+/// A `place` column's value: the place as its wire JSON (`"windows"` or `{"distro":…}`), `NULL` on
+/// macOS and Linux, so a stored place compares as text.
+pub(crate) fn place_value(place: Option<&Place>) -> Value {
+    Value::from(place.map(|place| {
+        serde_json::to_string(place).expect("a place is a string or a one-member object")
+    }))
 }
 
 /// One SQL statement for the writer to run.

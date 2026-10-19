@@ -153,6 +153,68 @@ impl UnremovableFile {
     }
 }
 
+/// Whether this process reads a folder whatever its access list says: never on Windows, since a
+/// deny entry binds an administrator too unless a read asks for backup rights, which none here
+/// does.
+#[cfg(any(test, feature = "test-support"))]
+pub fn is_superuser() -> bool {
+    false
+}
+
+/// Makes `link` a symbolic link to the folder `target`, which needs the person's developer mode or
+/// the right to make links. Fails with the system's error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
+/// The access-list entry that denies everyone (`S-1-1-0`) the listing and reading of a folder.
+#[cfg(any(test, feature = "test-support"))]
+const EVERYONE_READ_DENIAL: &str = "*S-1-1-0:(RD,R)";
+
+/// Whether a path inside a folder [`make_folder_unreadable`] made unreadable still opens, to name
+/// what is or is not there: every account holds the bypass-traverse right, so a deny of listing
+/// and reading stops no open through the folder.
+#[cfg(any(test, feature = "test-support"))]
+pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = true;
+
+/// A folder no one may read or list until this is dropped, when its deny entry is removed.
+#[cfg(any(test, feature = "test-support"))]
+pub struct UnreadableFolder {
+    path: std::path::PathBuf,
+}
+
+/// Makes the folder at `path` unreadable until the returned guard drops, through `icacls`, which
+/// adds a deny entry for everyone. Fails when `icacls` cannot start or refuses.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_folder_unreadable(path: &Path) -> io::Result<UnreadableFolder> {
+    run_icacls(path, &["/deny", EVERYONE_READ_DENIAL])?;
+    Ok(UnreadableFolder {
+        path: path.to_path_buf(),
+    })
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for UnreadableFolder {
+    fn drop(&mut self) {
+        run_icacls(&self.path, &["/remove:d", "*S-1-1-0"]).expect("the deny entry is removed");
+    }
+}
+
+// Runs `icacls <path> <arguments>`; fails when it cannot start or exits with a failure.
+#[cfg(any(test, feature = "test-support"))]
+fn run_icacls(path: &Path, arguments: &[&str]) -> io::Result<()> {
+    let status = std::process::Command::new("icacls")
+        .arg(path)
+        .args(arguments)
+        .stdout(std::process::Stdio::null())
+        .status()?;
+    if status.success() {
+        return Ok(());
+    }
+    Err(io::Error::other(format!("icacls exited with {status}")))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;

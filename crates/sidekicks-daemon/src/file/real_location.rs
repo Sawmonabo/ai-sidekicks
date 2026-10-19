@@ -6,14 +6,26 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::real_path;
 
+use crate::file::bounded_read::read_within_ceiling;
+use crate::missing_entry::is_missing_entry;
+
+/// `path` with every link resolved through `real_path`, read within the bounded read's ceiling.
+/// Fails with the system's error, `NotFound` when the path is missing, and `TimedOut` when the file
+/// system gives no answer in time.
+pub(crate) async fn resolve_real_path(path: &Path) -> io::Result<PathBuf> {
+    read_within_ceiling(path, real_path).await
+}
+
 /// `path` with its deepest existing folder (the file itself where it exists) resolved through
-/// `real_path` and the names below it kept as written. Fails with a resolve's failure other than
-/// a missing entry, or where no part of the path exists.
+/// `real_path` and the names below it kept as written; `path` as given where not even its root
+/// exists (a drive unplugged), so its folders still compare. A part that names nothing, a file
+/// standing where a folder would be among them, is passed over as missing. The walk is read within
+/// the bounded read's ceiling. Fails with any other resolve's failure, and `TimedOut` when the file
+/// system gives no answer in time.
 pub(crate) async fn resolve_real_location(path: &Path) -> io::Result<PathBuf> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    read_within_ceiling(path, |path| {
         let mut missing_names = Vec::new();
-        let mut existing = path.as_path();
+        let mut existing = path;
         loop {
             match real_path(existing) {
                 Ok(resolved) => {
@@ -22,10 +34,10 @@ pub(crate) async fn resolve_real_location(path: &Path) -> io::Result<PathBuf> {
                         .rev()
                         .fold(resolved, |resolved, name| resolved.join(name)));
                 }
-                Err(failure) if failure.kind() == io::ErrorKind::NotFound => {
+                Err(failure) if is_missing_entry(&failure) => {
                     let (Some(parent), Some(name)) = (existing.parent(), existing.file_name())
                     else {
-                        return Err(failure);
+                        return Ok(path.to_path_buf());
                     };
                     missing_names.push(name.to_os_string());
                     existing = parent;
@@ -35,5 +47,4 @@ pub(crate) async fn resolve_real_location(path: &Path) -> io::Result<PathBuf> {
         }
     })
     .await
-    .map_err(io::Error::other)?
 }

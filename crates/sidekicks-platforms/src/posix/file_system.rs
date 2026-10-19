@@ -97,6 +97,53 @@ impl Drop for UnremovableFile {
     }
 }
 
+/// Whether this process runs as root, which reads and lists a folder whatever its mode, so a test
+/// of an unreadable folder has nothing to show.
+#[cfg(any(test, feature = "test-support"))]
+pub fn is_superuser() -> bool {
+    nix::unistd::geteuid().is_root()
+}
+
+/// Makes `link` a symbolic link to the folder `target`. Fails with the system's error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+/// Whether a path inside a folder [`make_folder_unreadable`] made unreadable still opens, to name
+/// what is or is not there: a mode-000 folder lets no path through it.
+#[cfg(any(test, feature = "test-support"))]
+pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = false;
+
+/// A folder no one but root may read or list until this is dropped, when it gets its mode back.
+#[cfg(any(test, feature = "test-support"))]
+pub struct UnreadableFolder {
+    path: std::path::PathBuf,
+    permissions: fs::Permissions,
+}
+
+/// Makes the folder at `path` unreadable (mode `0o000`) until the returned guard drops. Fails with
+/// the stat's or the mode change's error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_folder_unreadable(path: &Path) -> io::Result<UnreadableFolder> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let permissions = fs::metadata(path)?.permissions();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o000))?;
+    Ok(UnreadableFolder {
+        path: path.to_path_buf(),
+        permissions,
+    })
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for UnreadableFolder {
+    fn drop(&mut self) {
+        fs::set_permissions(&self.path, self.permissions.clone())
+            .expect("the folder's mode is given back");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;

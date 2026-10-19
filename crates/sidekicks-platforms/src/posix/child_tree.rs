@@ -28,6 +28,19 @@ pub(crate) fn spawn_child_tree_process(
     Ok(Box::new(command.spawn()?))
 }
 
+/// Sends `SIGTERM` to every process in the child's group, in a blocking task, since a macOS signal
+/// to a group may list its members and wait between tries; a group already gone is no failure.
+/// Fails as `signal_group` does, or when the task cannot run.
+pub(crate) async fn ask_child_tree_to_stop(process: &mut dyn ChildWrapper) -> io::Result<()> {
+    let Some(id) = process.id() else {
+        return Ok(());
+    };
+    tokio::task::spawn_blocking(move || signal_group(id, Signal::SIGTERM))
+        .await
+        .map_err(io::Error::other)??;
+    Ok(())
+}
+
 /// Kills every process in the child's group, in a blocking task, since a macOS kill repeats until
 /// no member is left. Fails as `signal_group` does, or when the task cannot run.
 pub(crate) async fn end_child_tree(process: &mut dyn ChildWrapper) -> io::Result<()> {

@@ -16,13 +16,19 @@ use crate::place::{Place, WslPlace};
 use crate::project::{ProjectId, ProjectName};
 use crate::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId};
 use crate::session::id::SessionId;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::FreeFormText;
 use crate::wire::{Never, NullableSchema, True, nullable};
 use crate::worktree::lifecycle::WorktreeId;
+
+ts_constants! {
+    /// The longest system reason a `repoMount.rootResolutionFailed` refusal carries, in code
+    /// points: room for any system's own message, which is a sentence.
+    pub const ROOT_RESOLUTION_DETAIL_MAX_LEN: usize = 1024;
+}
 
 /// Where a folder the service can reach came from, carrying the ids its removal act takes: a
 /// project's folder the person attached (removed by the project's detach); a chat's own workspace,
@@ -165,8 +171,8 @@ pub enum MachineFolderListRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MachineFolderListEntry {
-    /// Its name.
-    pub name: FreeFormText<FILE_PATH_MAX_LEN>,
+    /// Its name, which may be only spaces.
+    pub name: FilesystemPath,
     /// Its path.
     pub path: FilesystemPath,
     /// Whether it is a git repository.
@@ -188,8 +194,8 @@ pub enum MachineFolderPathSegment {
     Top {},
     /// A folder.
     Folder {
-        /// Its name.
-        name: FreeFormText<FILE_PATH_MAX_LEN>,
+        /// Its name, which may be only spaces.
+        name: FilesystemPath,
         /// Its path.
         path: FilesystemPath,
     },
@@ -462,13 +468,22 @@ pub enum RepoMountRootResolutionReason {
     NotARepository,
 }
 
-/// The details of a `repoMount.rootResolutionFailed` refusal: its reason and no path, since the
-/// message never echoes the path tried.
+/// The details of a `repoMount.rootResolutionFailed` refusal: its reason, the system's own words
+/// for it where the system gave any, and no path, since the message never echoes the path tried.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoMountRootResolutionFailedDetails {
     /// Why.
     pub reason: RepoMountRootResolutionReason,
+    /// The system's own reason a folder could not be read (`Permission denied`), shown beside it;
+    /// absent where the system gave none. Never a path.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<ROOT_RESOLUTION_DETAIL_MAX_LEN>")]
+    pub detail: Option<FreeFormText<ROOT_RESOLUTION_DETAIL_MAX_LEN>>,
 }
 
 /// The details of a `repoMount.alreadyAttached` refusal: the mount that holds the repository and
@@ -551,6 +566,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoMountReattachRefusedDetails>(),
         Definition::read::<RepoMountReattachConflictDetails>(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[],
 };

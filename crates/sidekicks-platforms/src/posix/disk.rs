@@ -1,6 +1,6 @@
-//! The disk on macOS and Linux: the free room on a folder's volume, a read at a file offset, and a
-//! written file (by path, or through a handle already open with `flush_open_file`) or a changed
-//! folder flushed so it survives a power loss.
+//! The disk on macOS and Linux: the free room on a folder's volume, whether that volume is a
+//! network file system, a read at a file offset, and a written file (by path, or through a handle
+//! already open with `flush_open_file`) or a changed folder flushed so it survives a power loss.
 
 use std::fs::File;
 use std::io;
@@ -14,6 +14,88 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
     available_blocks
         .checked_mul(block_bytes)
         .ok_or_else(|| io::Error::other("the volume's free room passes 64 bits"))
+}
+
+/// Whether `path` sits on a network file system (NFS, SMB, 9p, a FUSE mount on Linux; NFS, SMB,
+/// AFP, FTP, web folders on macOS), where a change another computer makes raises no file event.
+/// Reads the volume's type with `statfs`, which waits on a hung network mount; a FUSE volume that is
+/// a virtual machine's shared folder (virtiofs), which tells its changes, is not one. Fails with the
+/// system's error.
+#[cfg(target_os = "linux")]
+pub fn is_on_network_file_system(path: &Path) -> io::Result<bool> {
+    use nix::sys::statfs::{FUSE_SUPER_MAGIC, FsType, NFS_SUPER_MAGIC, SMB_SUPER_MAGIC, statfs};
+
+    // The kernel's numbers for CIFS, SMB2 and 9p, which nix does not name.
+    const UNNAMED_NETWORK_TYPES: [u32; 3] = [0xFF53_4D42, 0xFE53_4D42, 0x0102_1997];
+    let volume_type = statfs(path)?.filesystem_type();
+    if volume_type == FUSE_SUPER_MAGIC {
+        let mounts = std::fs::read_to_string("/proc/self/mountinfo")?;
+        return Ok(mount_type_holding(&mounts, path) != Some("virtiofs"));
+    }
+    Ok([NFS_SUPER_MAGIC, SMB_SUPER_MAGIC].contains(&volume_type)
+        || UNNAMED_NETWORK_TYPES
+            .iter()
+            .any(|network_type| volume_type == FsType((*network_type).into())))
+}
+
+// The file-system type of the mount in `mountinfo` (the text of `/proc/self/mountinfo`) whose
+// mount point holds `path` most closely, `None` when no line reads. A line is `<id> <parent>
+// <device> <root> <mount point> <options> [<optional fields>] - <type> <source> <options>`, its
+// mount point with a space, tab, newline or backslash written as an octal escape.
+#[cfg(target_os = "linux")]
+fn mount_type_holding<'a>(mountinfo: &'a str, path: &Path) -> Option<&'a str> {
+    mountinfo
+        .lines()
+        .filter_map(|line| {
+            let (mount_fields, type_fields) = line.split_once(" - ")?;
+            let mount_point = unescape_mount_point(mount_fields.split(' ').nth(4)?);
+            let mount_type = type_fields.split(' ').next()?;
+            path.starts_with(&mount_point)
+                .then(|| (mount_point.components().count(), mount_type))
+        })
+        // A later line mounted over the same point wins, as the kernel resolves it.
+        .max_by_key(|(depth, _)| *depth)
+        .map(|(_, mount_type)| mount_type)
+}
+
+// A mount point as `mountinfo` writes it, each `\ooo` octal escape read back to its byte.
+#[cfg(target_os = "linux")]
+fn unescape_mount_point(written: &str) -> std::path::PathBuf {
+    use std::os::unix::ffi::OsStringExt;
+
+    let bytes = written.as_bytes();
+    let mut unescaped = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let escaped = bytes
+            .get(index + 1..index + 4)
+            .filter(|digits| {
+                bytes[index] == b'\\' && digits.iter().all(|digit| (b'0'..=b'7').contains(digit))
+            })
+            .and_then(|digits| u8::from_str_radix(std::str::from_utf8(digits).ok()?, 8).ok());
+        match escaped {
+            Some(byte) => {
+                unescaped.push(byte);
+                index += 4;
+            }
+            None => {
+                unescaped.push(bytes[index]);
+                index += 1;
+            }
+        }
+    }
+    std::ffi::OsString::from_vec(unescaped).into()
+}
+
+/// Whether `path` sits on a network file system (NFS, SMB, 9p, a FUSE mount on Linux; NFS, SMB,
+/// AFP, FTP, web folders on macOS), where a change another computer makes raises no file event.
+/// Reads the volume's type name with `statfs`, which waits on a hung network mount. Fails with the
+/// system's error.
+#[cfg(target_os = "macos")]
+pub fn is_on_network_file_system(path: &Path) -> io::Result<bool> {
+    const NETWORK_TYPE_NAMES: [&str; 6] = ["nfs", "smbfs", "cifs", "afpfs", "webdav", "ftp"];
+    let volume = nix::sys::statfs::statfs(path)?;
+    Ok(NETWORK_TYPE_NAMES.contains(&volume.filesystem_type_name()))
 }
 
 /// Fills `buffer` from `file` at byte `offset`; each read names its own offset, so threads sharing

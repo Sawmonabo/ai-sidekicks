@@ -171,13 +171,14 @@ impl StagedChangesWorktrees {
             let folder = self.folder.join(name);
             // The daemon's own folder is on this computer, never in a WSL 2 distribution. Read
             // before the folder goes, since its `.git` file is what names the repository.
-            let common_git_folder = match read_git_common_folder(&self.git, None, &folder).await {
-                Ok(common_git_folder) => Some(common_git_folder),
-                Err(failure) => {
-                    failures.push(failure.into());
-                    None
-                }
-            };
+            let common_git_folder =
+                match read_git_common_folder(&self.git, None, &folder, None).await {
+                    Ok(common_git_folder) => Some(common_git_folder),
+                    Err(failure) => {
+                        failures.push(failure.into());
+                        None
+                    }
+                };
             if let Err(failure) = remove_folder(folder).await {
                 failures.push(failure);
             }

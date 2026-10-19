@@ -16,7 +16,8 @@
               check and end), a lasting child's start on Windows (`CreateProcessW` with its \
               attribute list, its job's creation and access list, the handles it inherits and \
               the wait for its exit), the user-namespace check's `unshare` and map writes, the \
-              boot id's `sysctl`, the Windows host-name, free-room and file-information calls, \
+              boot id's `sysctl`, the Windows host-name, free-room, volume-root \
+              (`GetVolumePathNameW`, `GetDriveTypeW`) and file-information calls, \
               the Windows replacing rename's `MoveFileExW`, the caller reads (Linux's peer \
               process descriptor and `pidfd_open`, macOS's audit token, checked process reads \
               and responsible-process reads), macOS's code-signature checks, the start as its \
@@ -59,8 +60,10 @@ mod credential_store;
 mod entry_identity;
 mod executable_search;
 mod file_facts;
+mod file_watch;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
+mod hidden_entry;
 mod lasting_child;
 #[cfg(target_os = "linux")]
 mod linux;
@@ -106,7 +109,9 @@ pub use caller_process::{ParentProcess, ResponsibleProcess};
 #[cfg(not(target_os = "linux"))]
 pub use child_command::leave_daemon_scope;
 pub use child_command::{ChildEnd, ChildExit, read_child_exit};
-pub use child_tree::{ChildTree, ChildTreeOutput, ChildTreeOutputError, start_child_tree};
+pub use child_tree::{
+    ChildTree, ChildTreeOutput, ChildTreeOutputError, read_stderr_left_at_exit, start_child_tree,
+};
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
@@ -116,8 +121,10 @@ pub use credential_store::{CredentialStore, CredentialStoreError};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use executable_search::{find_executables, user_programs_folder};
 pub use file_facts::FileFacts;
+pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
+pub use hidden_entry::is_hidden_entry;
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::SHELL_FOLDER_PROBES;
@@ -197,19 +204,23 @@ pub use posix::child_command::{
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(unix)]
 pub use posix::disk::{
-    flush_file, flush_folder, flush_open_file, read_exact_at, volume_free_bytes,
+    flush_file, flush_folder, flush_open_file, is_on_network_file_system, read_exact_at,
+    volume_free_bytes,
 };
 #[cfg(unix)]
 pub use posix::entry_identity::entry_identity;
 #[cfg(unix)]
 pub use posix::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_no_such_process, is_out_of_open_files,
-    is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_no_such_process,
+    is_out_of_open_files, is_resource_busy,
 };
 #[cfg(unix)]
-pub use posix::file_facts::file_facts;
+pub use posix::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::file_system::UnremovableFile;
+pub use posix::file_system::{
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
+    make_folder_link, make_folder_unreadable,
+};
 #[cfg(unix)]
 pub use posix::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
@@ -321,19 +332,22 @@ pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
     FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,
-    read_exact_at, volume_free_bytes, windows_drive_mounts,
+    is_on_network_file_system, read_exact_at, volume_free_bytes, windows_drive_mounts,
 };
 #[cfg(target_os = "windows")]
 pub use windows::entry_identity::entry_identity;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_no_such_process, is_out_of_open_files,
-    is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_no_such_process,
+    is_out_of_open_files, is_resource_busy,
 };
 #[cfg(target_os = "windows")]
-pub use windows::file_facts::file_facts;
+pub use windows::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
-pub use windows::file_system::UnremovableFile;
+pub use windows::file_system::{
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
+    make_folder_link, make_folder_unreadable,
+};
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,

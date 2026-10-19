@@ -9,6 +9,7 @@ pub(crate) mod event_emitter;
 pub(crate) mod flush;
 pub(crate) mod folder_names;
 pub(crate) mod projector;
+pub(crate) mod reads;
 pub(crate) mod risks;
 pub(crate) mod rows;
 pub(crate) mod schema;

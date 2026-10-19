@@ -1,13 +1,13 @@
 //! What a failed file or process call on Windows means, read from its system error code: out of
-//! open files, a busy entry, a volume with no hard links, a rename a held file stops, a kill that
-//! found no process.
+//! open files, a busy entry, a volume with no hard links, a rename a held file stops, a link that
+//! loops, a kill that found no process.
 
 use std::io::{self, ErrorKind};
 
 use windows_sys::Win32::Foundation::{
-    ERROR_ACCESS_DENIED, ERROR_CANT_ACCESS_FILE, ERROR_ELEVATION_REQUIRED, ERROR_INVALID_FUNCTION,
-    ERROR_LOCK_VIOLATION, ERROR_NOT_SUPPORTED, ERROR_PIPE_BUSY, ERROR_PRIVILEGE_NOT_HELD,
-    ERROR_SHARING_VIOLATION, ERROR_TOO_MANY_OPEN_FILES,
+    ERROR_ACCESS_DENIED, ERROR_CANT_ACCESS_FILE, ERROR_CANT_RESOLVE_FILENAME,
+    ERROR_ELEVATION_REQUIRED, ERROR_INVALID_FUNCTION, ERROR_LOCK_VIOLATION, ERROR_NOT_SUPPORTED,
+    ERROR_PIPE_BUSY, ERROR_PRIVILEGE_NOT_HELD, ERROR_SHARING_VIOLATION, ERROR_TOO_MANY_OPEN_FILES,
 };
 use windows_sys::Win32::Networking::WinSock::{WSAEACCES, WSAEMFILE};
 
@@ -16,6 +16,12 @@ use windows_sys::Win32::Networking::WinSock::{WSAEACCES, WSAEMFILE};
 pub fn is_out_of_open_files(error: &io::Error) -> bool {
     let code = win32_code(error);
     code == Some(ERROR_TOO_MANY_OPEN_FILES) || error.raw_os_error() == Some(WSAEMFILE)
+}
+
+/// Whether `error` says a path ran through more links than the system follows, a loop among
+/// them (`ERROR_CANT_RESOLVE_FILENAME`), which std reads as a kind that is not yet stable.
+pub fn is_link_loop(error: &io::Error) -> bool {
+    win32_code(error) == Some(ERROR_CANT_RESOLVE_FILENAME)
 }
 
 /// Whether `error` says the entry is busy: `ERROR_BUSY`, or a sharing, lock or pipe-busy refusal,
