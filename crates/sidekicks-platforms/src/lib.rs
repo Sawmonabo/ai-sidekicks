@@ -36,8 +36,9 @@
               `GetLocaleInfoEx`, macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a \
               process's user read from its token (`OpenProcess`, `OpenProcessToken`, \
               `GetTokenInformation`, `EqualSid`, `ConvertSidToStringSidW`), the named pipe's \
-              server read (`GetNamedPipeServerProcessId`) and the run folder's owner and access \
-              list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`) are C interfaces too"
+              server read (`GetNamedPipeServerProcessId`), the run folder's owner and access \
+              list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`) and a Windows child's output \
+              read at its exit (`CancelIoEx`, `PeekNamedPipe`) are C interfaces too"
 )]
 
 mod atomic_replace;

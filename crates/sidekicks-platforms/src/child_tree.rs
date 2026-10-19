@@ -16,11 +16,11 @@ use crate::posix::child_tree::{
 };
 #[cfg(windows)]
 use crate::windows::child_tree::{
-    OUTPUT_READ_AFTER_EXIT, end_child_tree_now, spawn_child_tree_process,
+    end_child_tree_now, read_output_left_at_exit, spawn_child_tree_process,
 };
 
-/// How much room one read of a child's output makes before it reads.
-const OUTPUT_READ_CHUNK: usize = 64 * 1024;
+/// The most one read of a child's output takes.
+pub(crate) const OUTPUT_READ_CHUNK: usize = 64 * 1024;
 
 /// A started child leading a tree of its own: its standard streams as the command set them, its
 /// wait on the child alone, and an end that reaches its whole tree. Dropped before the child is
@@ -71,10 +71,9 @@ impl ChildTree {
     /// Writes `input` to the child's standard input, if the command piped it, and closes it; reads
     /// its standard output and error, each up to `bound` bytes; and waits for the child alone. The
     /// reads end at the child's exit with what it wrote, so a process it left holding a stream
-    /// stretches nothing; on Windows they keep reading for a short while after the exit, since a
-    /// read there cannot ask what the pipe holds. An input the child exits without reading is no
-    /// failure: the exit tells it. Fails with `TooLarge` when a stream passes `bound`, else with
-    /// the write's, a read's or the wait's error; the tree is left running either way.
+    /// stretches nothing. An input the child exits without reading is no failure: the exit tells
+    /// it. Fails with `TooLarge` when a stream passes `bound`, else with the write's, a read's or
+    /// the wait's error; the tree is left running either way.
     pub async fn wait_with_output(
         &mut self,
         input: Option<Vec<u8>>,
@@ -85,7 +84,7 @@ impl ChildTree {
         let mut stderr = self.process.stderr().take();
         let mut stdout_bytes = Vec::new();
         let mut stderr_bytes = Vec::new();
-        let (status, read_after_exit) = {
+        let (status, is_output_read_to_end) = {
             let output = async {
                 let (written, read) = tokio::join!(write_input(stdin, input), async {
                     tokio::try_join!(
@@ -102,28 +101,25 @@ impl ChildTree {
                 biased;
                 read = &mut output => {
                     read?;
-                    (waiting.await.map_err(ChildTreeOutputError::Io)?, Ok(()))
+                    (waiting.await.map_err(ChildTreeOutputError::Io)?, true)
                 }
-                status = &mut waiting => {
-                    let status = status.map_err(ChildTreeOutputError::Io)?;
-                    #[cfg(windows)]
-                    let read_after_exit = tokio::time::timeout(OUTPUT_READ_AFTER_EXIT, &mut output)
-                        .await
-                        .unwrap_or(Ok(()));
-                    #[cfg(unix)]
-                    let read_after_exit = Ok(());
-                    (status, read_after_exit)
-                }
+                status = &mut waiting => (status.map_err(ChildTreeOutputError::Io)?, false),
             }
         };
         self.is_reaped = true;
-        read_after_exit?;
         // What the child wrote before its exit is in the pipes now; read it without waiting for
         // an end of file a process it left behind can hold off.
-        #[cfg(unix)]
-        {
-            read_ready_output(stdout.as_ref(), &mut stdout_bytes, bound)?;
-            read_ready_output(stderr.as_ref(), &mut stderr_bytes, bound)?;
+        if !is_output_read_to_end {
+            #[cfg(unix)]
+            {
+                read_ready_output(stdout.as_ref(), &mut stdout_bytes, bound)?;
+                read_ready_output(stderr.as_ref(), &mut stderr_bytes, bound)?;
+            }
+            #[cfg(windows)]
+            {
+                read_output_left_at_exit(stdout.as_mut(), &mut stdout_bytes, bound).await?;
+                read_output_left_at_exit(stderr.as_mut(), &mut stderr_bytes, bound).await?;
+            }
         }
         Ok(ChildTreeOutput {
             status,
@@ -171,8 +167,8 @@ async fn write_input(stdin: Option<ChildStdin>, input: Option<Vec<u8>>) -> io::R
     }
 }
 
-// Reads `stream` to its end into `into`, failing once it passes `bound`; a dropped read keeps
-// what it read in `into`.
+// Reads `stream` to its end into `into`, one chunk at most per read, failing once it passes
+// `bound`; a dropped read keeps what it read in `into`.
 async fn read_bounded(
     stream: Option<&mut (impl AsyncRead + Unpin)>,
     into: &mut Vec<u8>,
@@ -183,7 +179,8 @@ async fn read_bounded(
     };
     loop {
         into.reserve(OUTPUT_READ_CHUNK);
-        let count = stream
+        let count = (&mut *stream)
+            .take(u64::try_from(OUTPUT_READ_CHUNK).expect("a chunk's size fits in 64 bits"))
             .read_buf(into)
             .await
             .map_err(ChildTreeOutputError::Io)?;
