@@ -1,6 +1,6 @@
 //! A run's turns: each start numbered its run's newest start plus one inside its write, each end
 //! written once, riding the run change it ends with or on its own, and the steps of a turn counted
-//! on a run whose provider does not bound them.
+//! against its step bound.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -116,14 +116,14 @@ static SELECT_OPEN_TURNS_SQL: LazyLock<String> =
 pub(crate) struct ProviderTurnEnd {
     /// The turn's number within its run, as its start was numbered.
     pub(crate) turn_number: SafeInt<1>,
-    /// How it ended, with the cause the delivery knows from the frame, such as the step limit of a
-    /// provider that bounds a turn's steps itself; a limit stop's cut of the turn replaces it.
+    /// How it ended, with the cause the delivery knows from the frame; a limit stop's cut of the
+    /// turn replaces it.
     pub(crate) outcome: TurnOutcome,
 }
 
-/// The steps of a run's open turn, counted on a run whose provider does not bound them, and
-/// whether the turn has reached its step limit: its reached event being written or landed, or
-/// the limit's interrupt handed on it.
+/// The steps of a run's open turn, counted against its step bound, and whether the turn has
+/// reached its step limit: its reached event being written or landed, or the limit's interrupt
+/// handed on it.
 pub(super) struct StepCount {
     turn_number: SafeInt<1>,
     bound: SafeInt<1>,
@@ -252,11 +252,9 @@ impl RunEngine {
     /// Opens a turn on the live run `run_id`, numbered its newest start plus one inside the write,
     /// a start that lost its number to another numbered again, and returns its number; `None` with
     /// nothing written once the run has ended. `step_bound` is the turn's effective `Max steps per
-    /// turn`, which the caller resolves when the turn opens; on a run whose provider does not bound
-    /// a turn's steps itself the engine counts them against it. Fails with
-    /// `RunRefusal::NotFound` for an unknown run and with the append's failure; with a bound, also
-    /// with [`RunEngineError::ProviderUnknown`] when no provider is known for the run and with
-    /// [`RunEngineError::Provider`] when no registered driver answers its provider.
+    /// turn`, which the caller resolves when the turn opens; the engine counts the turn's steps
+    /// against it, whatever the provider. Fails with `RunRefusal::NotFound` for an unknown run and
+    /// with the append's failure.
     #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn start_turn(
         &self,
@@ -264,17 +262,6 @@ impl RunEngine {
         position: Option<SourcePosition>,
         step_bound: Option<SafeInt<1>>,
     ) -> Result<Option<SafeInt<1>>, RunEngineError> {
-        let counted_bound = match step_bound {
-            Some(bound) => {
-                let provider = self.provider_of(run_id).await?;
-                let descriptor = self
-                    .providers
-                    .descriptor(&provider)
-                    .map_err(RunEngineError::Provider)?;
-                (!descriptor.bounds_turn_steps).then_some(bound)
-            }
-            None => None,
-        };
         self.wait_while_continuing(&run_id).await;
         let mut attempt = 1;
         let turn_number = loop {
@@ -310,7 +297,7 @@ impl RunEngine {
             attempt += 1;
         };
         let mut live = lock(&self.live);
-        match counted_bound {
+        match step_bound {
             Some(bound) => {
                 live.step_counts
                     .insert(run_id, StepCount::new(turn_number, bound));
@@ -322,13 +309,13 @@ impl RunEngine {
         Ok(Some(turn_number))
     }
 
-    /// Counts one step of the open turn on `run_id`, which the driver's delivery reports for a run
-    /// whose provider does not bound a turn's steps: the step that reaches the turn's bound writes
-    /// the turn's step limit reached event and stops the run at the step limit, and while that
-    /// stop's interrupt is not yet handed, a later step of any turn hands it again unless a hand
-    /// of it is in flight or it is pending. A run with no count armed is left as it is. Fails as
-    /// the stop fails; a failed stop is tried again at the next step or turn end, the interrupt
-    /// alone once the turn's reached event has landed.
+    /// Counts one step of the open turn on `run_id`, which the driver's delivery reports, whatever
+    /// the provider: the step that reaches the turn's bound writes the turn's step limit reached
+    /// event and stops the run at the step limit, and while that stop's interrupt is not yet
+    /// handed, a later step of any turn hands it again unless a hand of it is in flight or it is
+    /// pending. A run with no count armed is left as it is. Fails as the stop fails; a failed stop
+    /// is tried again at the next step or turn end, the interrupt alone once the turn's reached
+    /// event has landed.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(self: &Arc<Self>, run_id: RunId) -> Result<(), RunEngineError> {
         let stop = {

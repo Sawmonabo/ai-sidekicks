@@ -59,6 +59,15 @@ pub(crate) struct InterruptEnd {
         )
     )]
     pub(crate) is_degraded: bool,
+    /// The waiting messages the provider gave back with the interrupt, which none of it runs.
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the test queue holds no messages a provider gives back"
+        )
+    )]
+    pub(crate) cancelled: Vec<QueueItemId>,
     /// The interrupt's row move and its event, which the run's end commits.
     pub(crate) verdict: RunStateChangeCompanions,
 }

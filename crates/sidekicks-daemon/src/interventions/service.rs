@@ -31,6 +31,7 @@ use sidekicks_contracts::run::intervention::{
     AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionId, InterventionState,
     InterventionType,
 };
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -43,7 +44,7 @@ use self::request::{
     interrupt_choice_of, interrupt_keys, interrupt_reason, intervention_type_of, request_guards,
     stored_payload_of,
 };
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::WriteStatement;
 use crate::error_description::describe_error;
 use crate::events::log_service::EventLogService;
@@ -61,9 +62,9 @@ use crate::interventions::store::{
     read_intervention_by_idempotency_key, run_at_version_statement, run_in_states_statement,
 };
 use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::resolve_run_driver;
+use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::contract::{DriverError, ProviderDriver, bound_failure_detail};
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
     ApplyInterventionParams, FasterModelRetryOutcome, FasterModelRetryParams, InterruptPayload,
@@ -71,7 +72,7 @@ use crate::provider::driver::run_control::{
 };
 use crate::session::run::engine::{InterruptRoute, RunEngine, RunEngineError};
 use crate::session::run::projection::advance_run_version_statement;
-use crate::session::run::read::{RunRead, read_run_provider, read_run_through};
+use crate::session::run::read::{RunRead, read_run_through};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChangeCompanions, refused_statement_index};
 use crate::session::run::transitions::states_that_may_enter;
@@ -143,12 +144,21 @@ pub(super) struct InterventionTarget {
     pub(super) actor: InterventionActor,
 }
 
-/// What carrying out an intervention did.
+/// What carrying out an intervention did, with the waiting messages an interrupt took back from
+/// the provider, which none of it runs.
 pub(super) enum Verdict {
     /// Carried out as asked.
-    Applied,
+    Applied {
+        /// The messages taken back.
+        cancelled: Vec<QueueItemId>,
+    },
     /// Carried out through the fallback the driver names, where it named one.
-    Degraded(Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>),
+    Degraded {
+        /// The fallback taken.
+        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
+        /// The messages taken back.
+        cancelled: Vec<QueueItemId>,
+    },
 }
 
 // An outcome that applies nothing.
@@ -181,7 +191,7 @@ pub(crate) enum DispatchError {
     /// A refusal with a code: the run has no row or no driver, or its provider answers no
     /// driver.
     #[error(transparent)]
-    Refused(DomainError),
+    Refused(#[from] DomainError),
     /// The driver failed.
     #[error(transparent)]
     Driver(DriverError),
@@ -197,6 +207,20 @@ pub(crate) enum DispatchError {
     RunContinued,
 }
 
+impl From<rusqlite::Error> for DispatchError {
+    /// A read the run engine would have made, kept whole as its failure.
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Engine(error.into())
+    }
+}
+
+impl From<DatabaseReadError> for DispatchError {
+    /// A read the pool did not run, kept whole as the run engine's failure.
+    fn from(error: DatabaseReadError) -> Self {
+        Self::Engine(error.into())
+    }
+}
+
 impl From<RunEngineError> for DispatchError {
     /// A refusal keeps its code; any other engine failure is kept whole.
     fn from(error: RunEngineError) -> Self {
@@ -210,7 +234,6 @@ impl From<RunEngineError> for DispatchError {
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
             | RunEngineError::LimitInterrupt { .. }
-            | RunEngineError::ProviderUnknown { .. }
             | RunEngineError::DaemonTurn { .. }
             | RunEngineError::Agent { .. }
             | RunEngineError::Draft { .. }
@@ -497,7 +520,9 @@ impl InterventionService {
                 model,
                 ..
             } => {
-                let driver = self.run_driver(*target_run_id).await?;
+                let driver =
+                    read_run_driver::<DispatchError>(&self.pool, &self.providers, *target_run_id)
+                        .await?;
                 let retried = driver
                     .retry_turn_on_faster_model(FasterModelRetryParams {
                         session_id,
@@ -509,7 +534,9 @@ impl InterventionService {
                     .map_err(DispatchError::Driver)?;
                 match retried {
                     FasterModelRetryOutcome::Applied {} => {
-                        Ok(DispatchOutcome::Carried(Verdict::Applied))
+                        Ok(DispatchOutcome::Carried(Verdict::Applied {
+                            cancelled: Vec::new(),
+                        }))
                     }
                     FasterModelRetryOutcome::Rejected { rejection_reason } => {
                         let reason =
@@ -524,7 +551,9 @@ impl InterventionService {
                 let (run_id, expected_run_version, key) = interrupt_keys(interrupt);
                 // A stop never reaches a driver that does not have the run.
                 match self.engine.route_interrupt(run_id).await? {
-                    InterruptRoute::Claimed => Ok(DispatchOutcome::Carried(Verdict::Applied)),
+                    InterruptRoute::Claimed => Ok(DispatchOutcome::Carried(Verdict::Applied {
+                        cancelled: Vec::new(),
+                    })),
                     InterruptRoute::Ended => Ok(DispatchOutcome::Unapplied(Resolution::Expired)),
                     InterruptRoute::Driver => self
                         .interrupt_through_driver(
@@ -552,8 +581,7 @@ impl InterventionService {
         client_idempotency_key: ClientUuid,
         payload: InterruptPayload,
     ) -> Result<Verdict, DispatchError> {
-        let answered = self
-            .run_driver(run_id)
+        let answered = read_run_driver::<DispatchError>(&self.pool, &self.providers, run_id)
             .await?
             .apply_intervention(ApplyInterventionParams::Interrupt {
                 target_run_id: run_id,
@@ -563,47 +591,43 @@ impl InterventionService {
             })
             .await
             .map_err(DispatchError::Driver)?;
+        let cancelled = answered.cancelled;
         Ok(match answered.status {
-            InterventionResultStatus::Applied => Verdict::Applied,
-            InterventionResultStatus::Degraded => Verdict::Degraded(answered.fallback_action),
+            InterventionResultStatus::Applied => Verdict::Applied { cancelled },
+            InterventionResultStatus::Degraded => Verdict::Degraded {
+                fallback_action: answered.fallback_action,
+                cancelled,
+            },
         })
     }
 
-    // The driver of the provider `run_id` runs on.
-    async fn run_driver(&self, run_id: RunId) -> Result<Arc<dyn ProviderDriver>, DispatchError> {
-        let bound = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(read_run_provider(reader, &run_id)?)
-            })
-            .await?;
-        resolve_run_driver(&self.providers, run_id, bound)
-            .map(|resolved| resolved.driver)
-            .map_err(DispatchError::Refused)
-    }
-
     /// Records an applied or degraded verdict from `accepted`: an interrupt's in the write that
-    /// ends its run through the run queue as `end` says, and alone where the run ended since; a
-    /// retry's with the run's version advanced. Answers the state reached. Fails as the run
-    /// queue or the write fails.
+    /// ends its run through the run queue as `end` says, handing it the messages the provider gave
+    /// back, and alone where the run ended since; a retry's with the run's version advanced.
+    /// Answers the state reached. Fails as the run queue or the write fails.
     pub(super) async fn record_verdict(
         &self,
         target: &InterventionTarget,
         verdict: Verdict,
         end: Option<RunEndOfVerdict>,
     ) -> Result<ReachedState, InterventionError> {
-        let (transition, state, is_degraded) = match verdict {
-            Verdict::Degraded(fallback_action) => (
+        let (transition, state, is_degraded, cancelled) = match verdict {
+            Verdict::Degraded {
+                fallback_action,
+                cancelled,
+            } => (
                 InterventionTransition::Degrade { fallback_action },
                 ReachedState::Degraded,
                 true,
+                cancelled,
             ),
-            Verdict::Applied => (
+            Verdict::Applied { cancelled } => (
                 InterventionTransition::Apply {
                     from: UnresolvedInterventionState::Accepted,
                 },
                 ReachedState::Applied,
                 false,
+                cancelled,
             ),
         };
         let row_move = move_intervention_statement(&target.intervention_id, &transition);
@@ -619,6 +643,7 @@ impl InterventionService {
                     accepted_run_version,
                     cause,
                     is_degraded,
+                    cancelled,
                     verdict: RunStateChangeCompanions {
                         statements: vec![row_move.clone()],
                         preceding_events: vec![event.clone()],

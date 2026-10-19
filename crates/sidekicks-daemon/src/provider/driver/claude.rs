@@ -130,6 +130,4 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
     mcp_config_members: &[],
     skill_name_max_length: None,
-    // `--max-turns` ends the turn at the bound.
-    bounds_turn_steps: true,
 };

@@ -50,6 +50,7 @@ use crate::provider::capability::probe::CapabilityProbeError;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
+use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
@@ -220,6 +221,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
         &self,
         params: WithdrawQueuedMessageParams,
     ) -> BoxFuture<'_, Result<WithdrawQueuedMessageResult, DriverError>>;
+
+    /// How the provider takes the messages the run queue hands a running turn: a fixed fact of
+    /// the driver, which the queue reads instead of naming the provider.
+    fn message_handing(&self) -> MessageHanding;
 
     /// Answers a choice the provider holds the run on; a provider that never asks one answers
     /// `NotPending`.

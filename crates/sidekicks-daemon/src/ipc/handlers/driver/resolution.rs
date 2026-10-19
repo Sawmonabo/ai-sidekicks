@@ -8,19 +8,13 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::not_found::session_not_found;
+use crate::session::run::read::read_run_provider;
 use crate::session::run::refusals::RunRefusal;
-
-/// A driver as a handler found it, with the provider it answers.
-pub(crate) struct ResolvedDriver {
-    /// The provider the run or session is bound to.
-    pub(crate) provider: ProviderId,
-    /// That provider's driver.
-    pub(crate) driver: Arc<dyn ProviderDriver>,
-}
 
 /// The driver of the provider `bound` names, which the caller read once from the run's live
 /// binding (`None` for a run unknown or not live). Refused `agent.run.notFound` for `None`, then
@@ -29,9 +23,27 @@ pub(crate) fn resolve_run_driver(
     providers: &ProviderRegistry,
     run_id: RunId,
     bound: Option<ProviderId>,
-) -> Result<ResolvedDriver, DomainError> {
+) -> Result<Arc<dyn ProviderDriver>, DomainError> {
     let provider = bound.ok_or(RunRefusal::NotFound { run_id })?;
-    resolved(providers, provider)
+    providers.lookup(&provider)
+}
+
+/// The driver of the provider `run_id` runs on, its binding read through `pool`. Refused as
+/// [`resolve_run_driver`] refuses; fails as the pool and the read do.
+pub(crate) async fn read_run_driver<Failure>(
+    pool: &DatabaseReadPool,
+    providers: &ProviderRegistry,
+    run_id: RunId,
+) -> Result<Arc<dyn ProviderDriver>, Failure>
+where
+    Failure: From<DatabaseReadError> + From<rusqlite::Error> + From<DomainError> + Send + 'static,
+{
+    let bound = pool
+        .read(ReadLength::Short, move |reader| -> Result<_, Failure> {
+            Ok(read_run_provider(reader, &run_id)?)
+        })
+        .await?;
+    Ok(resolve_run_driver(providers, run_id, bound)?)
 }
 
 /// The driver of the provider `bound` names, which the caller read once from the session's
@@ -42,15 +54,7 @@ pub(crate) fn resolve_session_driver(
     providers: &ProviderRegistry,
     session_id: &SessionId,
     bound: Option<ProviderId>,
-) -> Result<ResolvedDriver, DomainError> {
+) -> Result<Arc<dyn ProviderDriver>, DomainError> {
     let provider = bound.ok_or_else(|| session_not_found(session_id))?;
-    resolved(providers, provider)
-}
-
-fn resolved(
-    providers: &ProviderRegistry,
-    provider: ProviderId,
-) -> Result<ResolvedDriver, DomainError> {
-    let driver = providers.lookup(&provider)?;
-    Ok(ResolvedDriver { provider, driver })
+    providers.lookup(&provider)
 }

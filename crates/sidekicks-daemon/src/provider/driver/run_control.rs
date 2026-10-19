@@ -85,6 +85,8 @@ pub(crate) enum InterruptPendingChoice {
     NextTurn,
     /// They return to the draft.
     ReturnToDraft,
+    /// They keep waiting, and none starts a turn of its own: the daemon's interrupt at a limit.
+    KeepWaiting,
 }
 
 /// Payload of a driver's interrupt: what becomes of the waiting messages, and why.
@@ -117,7 +119,7 @@ pub(crate) enum InterventionResultStatus {
 
 /// What a driver answers an intervention with. `fallback_action` names the fallback of a
 /// `Degraded` result; `delivered_run_id` names the run a delivered message went to when that is
-/// not its target.
+/// not its target; `cancelled` names the waiting messages an interrupt took back from the provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ApplyInterventionResponse {
     /// Whether it landed as asked.
@@ -126,6 +128,9 @@ pub(crate) struct ApplyInterventionResponse {
     pub(crate) fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     /// The run a delivered message went to, when not the target.
     pub(crate) delivered_run_id: Option<RunId>,
+    /// The messages the provider held that an interrupt took back, none of which runs: the ids of
+    /// its receipt that read as queue items, the driver dropping any other it does not recognize.
+    pub(crate) cancelled: Vec<QueueItemId>,
 }
 
 /// A driver's steer that was not sent because the turn it was handed for had ended first: nothing

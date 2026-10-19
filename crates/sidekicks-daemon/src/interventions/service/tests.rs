@@ -1,8 +1,6 @@
 //! A person's interventions through the service, over a test database with a stand-in driver and
 //! a run queue that hands each end straight to the run engine; the limit's tests share it.
 
-use std::cell::RefCell;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -21,9 +19,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::Spawner;
 use tempfile::TempDir;
-use tokio::runtime::Handle;
 
 use super::{
     INTERVENTION_SERVICE_STATEMENT_CAPACITY, InterventionError, InterventionService,
@@ -36,27 +32,16 @@ use crate::interventions::interrupt_queue::{
     InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError,
 };
 use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderDriver};
-use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::run_control::{
     ApplyInterventionResponse, FasterModelRetryOutcome, InterventionResultStatus,
 };
-use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use crate::provider::driver::test_registry::{
+    bind_run_to_first_provider, registry_of_first_provider,
+};
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
 use crate::uuid_v7::mint_uuid_v7;
-
-thread_local! {
-    // The driver the next registry this thread builds registers for the table's first provider.
-    static NEXT_DRIVER: RefCell<Option<Arc<dyn ProviderDriver>>> = const { RefCell::new(None) };
-}
-
-// Hands the registry the driver the test put in the slot.
-fn take_next_driver(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
-    NEXT_DRIVER
-        .with_borrow_mut(Option::take)
-        .expect("the test sets its driver before the registry is built")
-}
 
 /// A run queue that holds nothing but counts each hold it takes, and hands each end straight to
 /// the run engine.
@@ -134,28 +119,9 @@ pub(crate) async fn harness(driver: MockProviderDriver) -> Harness {
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_running_run(&database, session_id, run_id);
-    database
-        .reader()
-        .execute(
-            "INSERT INTO runtime_bindings (id, run_id, provider_name, contract_version,
-               cli_version_raw, created_at, updated_at)
-             VALUES ('binding', ?1, ?2, '1.0.0', '1.0.0', '', '')",
-            params![run_id.text().as_str(), PROVIDERS[0].id],
-        )
-        .expect("the test binds the run to its provider");
+    bind_run_to_first_provider(&database, run_id);
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
-    NEXT_DRIVER.with_borrow_mut(|next| *next = Some(Arc::new(driver)));
-    let services = DriverServices {
-        spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        data_folder: PathBuf::from("data"),
-    };
-    let providers = ProviderRegistry::register_from(
-        &[ProviderRegistration {
-            descriptor: PROVIDERS[0],
-            build: take_next_driver,
-        }],
-        &services,
-    );
+    let providers = registry_of_first_provider(Arc::new(driver));
     let holds_taken = Arc::new(AtomicUsize::new(0));
     let service = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool: Arc::new(DatabaseReadPool::new(
@@ -267,6 +233,7 @@ pub(crate) fn applied() -> ApplyInterventionResponse {
         status: InterventionResultStatus::Applied,
         fallback_action: None,
         delivered_run_id: None,
+        cancelled: Vec::new(),
     }
 }
 

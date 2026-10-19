@@ -2,9 +2,9 @@
 //! written with the run's row, and each terminal followed by the terminal hooks of the setup gates.
 //! It also starts the runs of the turns the daemon starts on a session itself and of a provider's
 //! own subagents, continues an interrupted run on its next turn, numbers and ends each turn, counts
-//! a turn's steps where the run's provider does not bound them, stops a run at a limit, records the
-//! markers a provider reports on a live run, and tells a session when a run's provider does not run
-//! it at the fast output level it carried.
+//! a turn's steps against its step bound, stops a run at a limit, records the markers a provider
+//! reports on a live run, and tells a session when a run's provider does not run it at the fast
+//! output level it carried.
 
 mod limits;
 mod live;
@@ -34,7 +34,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::{SetOnce, SetOnceError};
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use crate::database::statement::WriteStatement;
 use crate::events::log_service::{EventLogAppendReceipt, EventLogService};
 use crate::events::session::appender::{
@@ -55,7 +55,7 @@ use crate::session::run::engine::live::{
 };
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::read::{RunRead, read_run_provider, read_run_through, safe_run_version};
+use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::session::run::setup_gates::{
     RunSetupGate, RunSetupGateError, RunSetupGates, RunTerminalContext, RunTerminalReleaseError,
@@ -212,13 +212,6 @@ pub(crate) enum RunEngineError {
     /// No registered driver answers the run's provider (`provider.notFound`).
     #[error(transparent)]
     Provider(DomainError),
-    /// Neither the run nor a parent whose provider process it runs in has a runtime binding, so
-    /// no provider is known for it.
-    #[error("no provider is known for run {run_id}, which has no runtime binding")]
-    ProviderUnknown {
-        /// The run.
-        run_id: RunId,
-    },
     /// The daemon turn's run was not queued.
     #[error(transparent)]
     DaemonTurn(#[from] DaemonTurnQueueError),
@@ -679,17 +672,6 @@ impl RunEngine {
         live.reached_limits
             .retain(|(reached_run_id, _)| reached_run_id != run_id);
         live.mark_starting_run_ended(run_id);
-    }
-
-    // The provider the run runs on, from the newest runtime binding of the run or of the nearest
-    // parent whose provider process it runs in.
-    async fn provider_of(&self, run_id: RunId) -> Result<ProviderId, RunEngineError> {
-        self.pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(read_run_provider(reader, &run_id)?)
-            })
-            .await?
-            .ok_or(RunEngineError::ProviderUnknown { run_id })
     }
 
     // A run being continued reads ended until its continue is written. The wait ends when the
