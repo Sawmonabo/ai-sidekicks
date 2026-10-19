@@ -12,7 +12,7 @@ use tokio::process::{ChildStdin, Command};
 
 #[cfg(unix)]
 use crate::posix::child_tree::{
-    end_child_tree, end_child_tree_now, read_ready_output, spawn_child_tree_process,
+    end_child_tree, end_dropped_child_tree, read_ready_output, spawn_child_tree_process,
 };
 #[cfg(windows)]
 use crate::windows::child_tree::{
@@ -26,7 +26,8 @@ pub(crate) const OUTPUT_READ_CHUNK: usize = 64 * 1024;
 /// wait on the child alone, and an end that reaches its whole tree. Dropped before the child is
 /// reaped, it ends the tree.
 pub struct ChildTree {
-    process: Box<dyn ChildWrapper>,
+    // Held until the drop, which on macOS and Linux hands it to the end of its tree.
+    process: Option<Box<dyn ChildWrapper>>,
     is_reaped: bool,
 }
 
@@ -62,7 +63,7 @@ pub enum ChildTreeOutputError {
 /// with the spawn's error, or on Windows the job's.
 pub fn start_child_tree(command: Command, daemon_pid: u32) -> io::Result<ChildTree> {
     Ok(ChildTree {
-        process: spawn_child_tree_process(command, daemon_pid)?,
+        process: Some(spawn_child_tree_process(command, daemon_pid)?),
         is_reaped: false,
     })
 }
@@ -79,9 +80,10 @@ impl ChildTree {
         input: Option<Vec<u8>>,
         bound: usize,
     ) -> Result<ChildTreeOutput, ChildTreeOutputError> {
-        let stdin = self.process.stdin().take();
-        let mut stdout = self.process.stdout().take();
-        let mut stderr = self.process.stderr().take();
+        let process = self.process();
+        let stdin = process.stdin().take();
+        let mut stdout = process.stdout().take();
+        let mut stderr = process.stderr().take();
         let mut stdout_bytes = Vec::new();
         let mut stderr_bytes = Vec::new();
         let (status, is_output_read_to_end) = {
@@ -95,7 +97,7 @@ impl ChildTree {
                 written.map_err(ChildTreeOutputError::Io)?;
                 read.map(|((), ())| ())
             };
-            let waiting = self.process.inner_mut().wait();
+            let waiting = self.process().inner_mut().wait();
             tokio::pin!(output, waiting);
             tokio::select! {
                 biased;
@@ -132,12 +134,18 @@ impl ChildTree {
     /// and reaps the child. Fails with the system's error from the end or the wait.
     pub async fn end_tree(&mut self) -> io::Result<()> {
         #[cfg(unix)]
-        end_child_tree(self.process.as_mut()).await?;
+        end_child_tree(self.process()).await?;
         #[cfg(windows)]
-        end_child_tree_now(self.process.as_mut())?;
-        self.process.inner_mut().wait().await?;
+        end_child_tree_now(self.process())?;
+        self.process().inner_mut().wait().await?;
         self.is_reaped = true;
         Ok(())
+    }
+
+    fn process(&mut self) -> &mut dyn ChildWrapper {
+        self.process
+            .as_deref_mut()
+            .expect("a child tree holds its process until it drops")
     }
 }
 
@@ -146,7 +154,11 @@ impl Drop for ChildTree {
         if self.is_reaped {
             return;
         }
-        if let Err(error) = end_child_tree_now(self.process.as_mut()) {
+        #[cfg(unix)]
+        let ended = self.process.take().map_or(Ok(()), end_dropped_child_tree);
+        #[cfg(windows)]
+        let ended = end_child_tree_now(self.process());
+        if let Err(error) = ended {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 "a dropped child's tree could not be ended"

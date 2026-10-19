@@ -40,11 +40,13 @@ pub(crate) async fn end_child_tree(process: &mut dyn ChildWrapper) -> io::Result
     Ok(())
 }
 
-/// Kills every process in the child's group from a drop without sleeping on an async worker: one
-/// kill on this thread, then, where a kill repeats until no member is left, the repeat on a
-/// blocking thread when a runtime is current, else on this thread. Fails as `signal_group` does;
-/// a repeat on a blocking thread logs its failure.
-pub(crate) fn end_child_tree_now(process: &mut dyn ChildWrapper) -> io::Result<()> {
+/// Kills every process in the dropped child's group without sleeping on an async worker: one kill
+/// on this thread, then, where a kill repeats until no member is left, the repeat on a blocking
+/// thread when a runtime is current, else on this thread. The repeat holds the leader unreaped and
+/// drops it only once done: an unreaped leader keeps its id, so no other group can take that id
+/// and receive a repeated kill. Fails as `signal_group` does; a repeat on a blocking thread logs
+/// its failure.
+pub(crate) fn end_dropped_child_tree(process: Box<dyn ChildWrapper>) -> io::Result<()> {
     let Some(id) = process.id() else {
         return Ok(());
     };
@@ -61,7 +63,10 @@ pub(crate) fn end_child_tree_now(process: &mut dyn ChildWrapper) -> io::Result<(
     match tokio::runtime::Handle::try_current() {
         Ok(runtime) => {
             drop(runtime.spawn_blocking(move || {
-                if let Err(error) = signal_group(id, Signal::SIGKILL) {
+                let repeated = signal_group(id, Signal::SIGKILL);
+                // Reaped from here on, once the repeat can reach no other group.
+                drop(process);
+                if let Err(error) = repeated {
                     tracing::warn!(
                         error = &error as &(dyn Error + 'static),
                         "a dropped child's tree could not be ended"
