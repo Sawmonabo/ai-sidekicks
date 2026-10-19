@@ -1,20 +1,17 @@
-//! The command line a Codex service on an account home the app manages starts with: the listener
-//! and the `-c` switches every conversation on it shares, and the daemon's hook programs those
-//! switches name. Each `-c` value is TOML, whose integers are 64-bit, so the largest holds below
-//! exceed what a JSON number keeps.
+//! The command line a Codex service the daemon starts runs: the listener and the `-c` switches
+//! every conversation on it shares; and the two command hooks the terminal service on the person's
+//! own Codex folder runs, which run the daemon's own program. Each `-c` value is TOML, whose
+//! integers are 64-bit, so the holds below exceed what a JSON number keeps exactly.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use serde::Serialize;
 use sidekicks_platforms::{PathRules, RunningProgramPath, ShellWordRefused};
 
-/// The hook `timeout`: the largest 64-bit integer divided by 1000 in seconds, so the same hold
-/// also fits the code-mode yield in milliseconds. It lies past any wall-clock instant, so a caller
-/// adds it with `checked_add`, where a failure means no deadline.
-pub(crate) const CODEX_HOOK_TIMEOUT: Duration =
-    Duration::from_secs(i64::MAX.cast_unsigned() / 1000);
+/// The hook `timeout`, 10^12 seconds, a hold no call outlasts and one Codex runs without fault;
+/// the code-mode yield takes the same hold in milliseconds, 10^15.
+pub(crate) const CODEX_HOOK_TIMEOUT: Duration = Duration::from_secs(1_000_000_000_000);
 
 /// How long a conversation no client holds stays loaded, so a moved one is free to resume soon.
 const CODEX_THREAD_UNLOAD_DELAY: Duration = Duration::from_secs(5);
@@ -25,10 +22,11 @@ const PRE_TOOL_USE_EVENT: &str = "PreToolUse";
 /// The hook event after each tool call.
 const POST_TOOL_USE_EVENT: &str = "PostToolUse";
 
-/// The daemon's two hook programs, as the command lines Codex runs for each tool call.
+/// The terminal service's two command hooks, as the command lines Codex runs for each tool call;
+/// each runs the daemon's program, which asks the daemon for the answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexHookCommands {
-    /// Runs before each tool call; it holds a paused helper and answers the deadline's denial.
+    /// Runs before each tool call; the daemon may hold or deny the call.
     pub(crate) pre_tool_use: String,
     /// Runs after each tool call.
     pub(crate) post_tool_use: String,
@@ -41,6 +39,20 @@ impl CodexHookCommands {
             (PRE_TOOL_USE_EVENT, &self.pre_tool_use),
             (POST_TOOL_USE_EVENT, &self.post_tool_use),
         ]
+    }
+
+    /// The `-c` switches, one per event, that the terminal service starts with beside the ones
+    /// [`compose_codex_service_arguments`] composes.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start runs the terminal service with the daemon's two hooks"
+        )
+    )]
+    pub(crate) fn config_overrides(&self) -> [String; 2] {
+        self.events()
+            .map(|(event_name, command)| compose_hook_override(event_name, command))
     }
 }
 
@@ -82,16 +94,16 @@ pub(crate) enum HookCommandError {
     Word(#[from] ShellWordRefused),
 }
 
-/// The hook commands that run `daemon_program`, the daemon's own program as it started, in its
-/// hidden `hook provider` mode for each tool event: the quoted program and its arguments alone,
-/// which Codex runs through `$SHELL -lc`, falling back to `/bin/sh`, or on Windows through
-/// `%COMSPEC% /C`, in the folder it sets. Fails
-/// when the path is not UTF-8 text or a word cannot be written for the system's command shell.
+/// The terminal service's hook commands that run `daemon_program`, the daemon's own program as it
+/// started, in its hidden `hook provider` mode for each tool event: the quoted program and its
+/// arguments alone, which Codex runs through `$SHELL -lc`, falling back to `/bin/sh`, or on
+/// Windows through `%COMSPEC% /C`, in the folder it sets. Fails when the path is not UTF-8 text or
+/// a word cannot be written for the system's command shell.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the daemon's start composes the hooks every Codex service it starts runs"
+        reason = "the daemon's start composes the terminal service's hooks from its own program"
     )
 )]
 pub(crate) fn compose_daemon_hook_commands(
@@ -155,25 +167,14 @@ fn compose_daemon_hook_command(
     Ok(words.join(" "))
 }
 
-/// The daemon's hooks a managed service starts with, and the socket their programs reach.
-pub(crate) trait CodexDaemonHooks: Send + Sync {
-    /// The hook programs' command lines.
-    fn commands(&self) -> &CodexHookCommands;
-
-    /// Starts listening for the hook programs, once; awaited before a service that runs them. It
-    /// fails when the socket cannot be opened.
-    fn listen(&self) -> BoxFuture<'_, std::io::Result<()>>;
-}
-
-/// What one service start carries beyond the switches every managed service shares.
+/// What one service start carries beyond the switches every service the daemon starts shares.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexServiceCommandLineInput {
     /// `unix://` for the home's own control socket, or `unix://<path>` for a second service that
     /// starts beside the first on one home.
     pub(crate) listen_address: String,
-    /// The daemon's hook programs, inline; `None` starts the service with no daemon hooks.
-    pub(crate) hook_commands: Option<CodexHookCommands>,
-    /// More `key=value` switches another part of the daemon adds, such as the telemetry export.
+    /// More `key=value` switches another part of the daemon adds, such as the telemetry export or
+    /// the terminal service's hooks.
     pub(crate) additional_config_overrides: Vec<String>,
 }
 
@@ -193,13 +194,9 @@ struct CodexCommandHook<'command> {
     timeout: i64,
 }
 
-/// The arguments after the Codex command for one managed service.
+/// The arguments after the Codex command for one service the daemon starts. A conversation on a
+/// managed account home gets its hooks from its own start, so no hook switch is composed here.
 pub(crate) fn compose_codex_service_arguments(input: &CodexServiceCommandLineInput) -> Vec<String> {
-    let hook_overrides = input.hook_commands.iter().flat_map(|commands| {
-        commands
-            .events()
-            .map(|(event_name, command)| compose_hook_override(event_name, command))
-    });
     let shared_overrides = [
         format!(
             "features.code_mode.default_exec_yield_time_ms={}",
@@ -215,8 +212,8 @@ pub(crate) fn compose_codex_service_arguments(input: &CodexServiceCommandLineInp
         // the prefix.
         "model_auto_compact_token_limit_scope=\"total\"".to_owned(),
     ];
-    let overrides = hook_overrides
-        .chain(shared_overrides)
+    let overrides = shared_overrides
+        .into_iter()
         .chain(input.additional_config_overrides.iter().cloned());
     [
         "app-server".to_owned(),
@@ -237,7 +234,7 @@ fn compose_hook_override(event_name: &str, command: &str) -> String {
             hook_type: "command",
             command,
             timeout: i64::try_from(CODEX_HOOK_TIMEOUT.as_secs())
-                .expect("the hook timeout is a 64-bit integer divided by 1000"),
+                .expect("10^12 seconds is a 64-bit integer"),
         }],
     }];
     let mut value = String::new();
@@ -308,29 +305,38 @@ mod tests {
         assert_eq!(verdict, expected);
     }
 
+    // Fails when a command's text changes on its way through TOML, when either hold moves off the
+    // fixed 10^12 seconds and 10^15 milliseconds, or when a service's own line gains a hook.
     #[test]
     fn the_hook_override_reads_back_its_command_and_timeout_unchanged() {
         let command = "/opt/hooks/run \"quoted\" C:\\hooks\\run.exe \u{7f}end";
+        let overrides = CodexHookCommands {
+            pre_tool_use: command.to_owned(),
+            post_tool_use: "/opt/hooks/after".to_owned(),
+        }
+        .config_overrides();
         let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
             listen_address: "unix://".to_owned(),
-            hook_commands: Some(CodexHookCommands {
-                pre_tool_use: command.to_owned(),
-                post_tool_use: "/opt/hooks/after".to_owned(),
-            }),
             additional_config_overrides: Vec::new(),
         });
-        let pre_tool_use = arguments
+        let pre_tool_use = overrides
             .iter()
             .find(|argument| argument.starts_with("hooks.PreToolUse="))
-            .unwrap();
+            .expect("the pre-tool hook has its switch");
 
-        let config: toml::Table = toml::from_str(pre_tool_use).unwrap();
+        let config: toml::Table = toml::from_str(pre_tool_use).expect("the switch is TOML");
         let hook = &config["hooks"]["PreToolUse"][0]["hooks"][0];
 
         assert_eq!(hook["command"].as_str(), Some(command));
-        assert_eq!(hook["timeout"].as_integer(), Some(9_223_372_036_854_775));
+        assert_eq!(hook["timeout"].as_integer(), Some(1_000_000_000_000));
         assert!(arguments.contains(
-            &"features.code_mode.default_exec_yield_time_ms=9223372036854775000".to_owned()
+            &"features.code_mode.default_exec_yield_time_ms=1000000000000000".to_owned()
         ));
+        assert!(
+            !arguments
+                .iter()
+                .any(|argument| argument.starts_with("hooks.")),
+            "{arguments:?}"
+        );
     }
 }
