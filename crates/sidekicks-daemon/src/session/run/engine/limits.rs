@@ -66,6 +66,9 @@ pub(super) enum LimitStop {
         /// The bound reached.
         count: SafeInt<1>,
     },
+    /// A step stop whose reached event landed before its interrupt failed: the interrupt alone
+    /// goes again.
+    StepInterrupt,
     /// The session reached its spend limit.
     Spend,
     /// The run passed its token limit.
@@ -78,13 +81,13 @@ pub(super) enum LimitStop {
 impl LimitStop {
     fn limit(self) -> RunLimit {
         match self {
-            Self::Step { .. } => RunLimit::StepLimit,
+            Self::Step { .. } | Self::StepInterrupt => RunLimit::StepLimit,
             Self::Spend => RunLimit::SpendLimit,
             Self::Token { .. } => RunLimit::TokenLimit,
         }
     }
 
-    // The run's own reached event, which spend has none of.
+    // The run's own reached event, which spend has none of and a step stop's retry has written.
     fn reached_event(self, run: &RunRead, run_id: RunId) -> Option<SessionEvent> {
         let session_id = run.session_id;
         match self {
@@ -102,7 +105,7 @@ impl LimitStop {
                     token_limit,
                 },
             )),
-            Self::Spend => None,
+            Self::Spend | Self::StepInterrupt => None,
         }
     }
 }
@@ -158,10 +161,10 @@ impl RunEngine {
     /// The daemon's own stop of a live run at a limit. The turn the stop cuts is remembered
     /// before the limit's reached event is written, so an end its provider reports from then on
     /// is written interrupted with the limit; the reached event is written while the run is live,
-    /// a token limit's once per run; then the interrupt goes to the interventions service. A run
-    /// that has ended is left as it is, and so is a run that already reached its token limit, the
-    /// cut forgotten; one the limit's end may not leave its state from is refused with nothing
-    /// written. Fails with [`RunEngineError::LimitInterrupterGone`], nothing written, when the
+    /// a token limit's once per run and none for a step stop's retry; then the interrupt goes to
+    /// the interventions service. A run that has ended is left as it is, and so is a run that
+    /// already reached its token limit, the cut forgotten but for a step stop's retry; one the
+    /// limit's end may not leave its state from is refused with nothing written. Fails with [`RunEngineError::LimitInterrupterGone`], nothing written, when the
     /// engine holds no live interventions service, and with [`RunEngineError::LimitInterrupt`]
     /// when the service fails, the reached event and the cut kept for the stop's retry.
     pub(super) async fn stop_at_limit(
@@ -183,8 +186,11 @@ impl RunEngine {
         }
         let reached = self.record_limit_reached(run_id, stop).await;
         if !matches!(reached, Ok(true)) {
-            // A stop that reached no live run cut no turn.
-            if let Some(turn_number) = open_turn {
+            // A stop that reached no live run cut no turn, unless its reached event landed before:
+            // then the cut stands for the turn's end, which a person's interrupt can leave open.
+            if let Some(turn_number) = open_turn
+                && !matches!(stop, LimitStop::StepInterrupt)
+            {
                 self.forget_cut_turn(&run_id, turn_number);
             }
             return reached.map(drop);
@@ -195,8 +201,9 @@ impl RunEngine {
             .map_err(|source| RunEngineError::LimitInterrupt { run_id, source })
     }
 
-    // Records that the live run `run_id` reached the limit of `stop`, and returns whether the run
-    // was live and had not reached its token limit before.
+    // Records that the live run `run_id` reached the limit of `stop`, where the stop has its
+    // reached event still to write, and returns whether the run was live and had not reached its
+    // token limit before.
     async fn record_limit_reached(
         &self,
         run_id: RunId,
@@ -204,7 +211,7 @@ impl RunEngine {
     ) -> Result<bool, RunEngineError> {
         let to_state = limit_run_end(stop.limit()).state();
         match stop {
-            LimitStop::Spend => {
+            LimitStop::Spend | LimitStop::StepInterrupt => {
                 let run = self.require_run(run_id).await?;
                 if run.state.is_terminal() {
                     return Ok(false);
@@ -223,7 +230,9 @@ impl RunEngine {
                             LimitStop::Token { .. } => {
                                 vec![no_token_limit_reached_statement(&run_id)]
                             }
-                            LimitStop::Step { .. } | LimitStop::Spend => Vec::new(),
+                            LimitStop::Step { .. }
+                            | LimitStop::Spend
+                            | LimitStop::StepInterrupt => Vec::new(),
                         };
                         Ok(LiveAppend {
                             draft: SessionEventDraft::of_session(run.session_id, &reached)?,

@@ -193,7 +193,9 @@ pub(crate) enum RunEngineError {
         /// The run.
         run_id: RunId,
     },
-    /// The interventions service did not interrupt the run the daemon stopped at a limit.
+    /// The interventions service did not interrupt the run the daemon stopped at a limit; the
+    /// limit's reached event and the cut of the run's turn stand, so a step stop's retry sends
+    /// the interrupt alone.
     #[error("run {run_id}, stopped at a limit, was not interrupted")]
     LimitInterrupt {
         /// The run.

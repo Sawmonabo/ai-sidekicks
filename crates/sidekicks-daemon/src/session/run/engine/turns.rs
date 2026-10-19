@@ -141,6 +141,7 @@ pub(super) struct StepCount {
     bound: SafeInt<1>,
     steps: u64,
     is_stopping: bool,
+    is_reached_recorded: bool,
 }
 
 /// A turn's end as the log records it: the turn, who reported the end, and how it ended.
@@ -281,6 +282,7 @@ impl RunEngine {
                         bound,
                         steps: 0,
                         is_stopping: false,
+                        is_reached_recorded: false,
                     },
                 );
             }
@@ -298,7 +300,7 @@ impl RunEngine {
     /// step.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(&self, run_id: RunId) -> Result<(), RunEngineError> {
-        let (turn_number, reached) = {
+        let (turn_number, stop) = {
             let mut live = lock(&self.live);
             let Some(count) = live.step_counts.get_mut(&run_id) else {
                 return Ok(());
@@ -311,20 +313,30 @@ impl RunEngine {
                 return Ok(());
             }
             count.is_stopping = true;
-            (count.turn_number, count.bound)
+            // The turn's reached event lands once; a retry sends the interrupt alone.
+            let stop = if count.is_reached_recorded {
+                LimitStop::StepInterrupt
+            } else {
+                LimitStop::Step { count: count.bound }
+            };
+            (count.turn_number, stop)
         };
-        let stopped = self
-            .stop_at_limit(run_id, LimitStop::Step { count: reached })
-            .await;
-        if matches!(
-            stopped,
-            Err(RunEngineError::LimitInterrupterGone { .. } | RunEngineError::LimitInterrupt { .. })
-        ) && let Some(count) = lock(&self.live)
-            .step_counts
-            .get_mut(&run_id)
-            .filter(|count| count.turn_number == turn_number)
+        let stopped = self.stop_at_limit(run_id, stop).await;
+        if let Err(
+            error @ (RunEngineError::LimitInterrupterGone { .. }
+            | RunEngineError::LimitInterrupt { .. }),
+        ) = &stopped
+            && let Some(count) = lock(&self.live)
+                .step_counts
+                .get_mut(&run_id)
+                .filter(|count| count.turn_number == turn_number)
         {
             count.is_stopping = false;
+            // The interrupt is the stop's last step, so its failure comes after the reached event
+            // landed.
+            if matches!(error, RunEngineError::LimitInterrupt { .. }) {
+                count.is_reached_recorded = true;
+            }
         }
         stopped
     }
@@ -677,6 +689,7 @@ mod tests {
                 bound: turn(1),
                 steps: 0,
                 is_stopping: false,
+                is_reached_recorded: false,
             },
         );
         for step in 1..=2 {
