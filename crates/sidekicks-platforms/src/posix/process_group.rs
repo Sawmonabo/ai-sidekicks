@@ -40,16 +40,15 @@ pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
         match killpg(group, signal) {
             Ok(()) => is_signaled = true,
             Err(Errno::ESRCH) => return Ok(is_signaled),
-            // macOS refuses a group whose members have all exited but are not yet reaped, and
-            // one whose only running member is still being made, which the kill skips.
+            // macOS refuses a group whose members have all exited but are not yet reaped, which
+            // has ended, and one whose running members all refuse this sender, which no repeat
+            // changes.
             #[cfg(target_os = "macos")]
             Err(Errno::EPERM) => {
                 if live_group_members(id)?.is_empty() {
                     return Ok(is_signaled);
                 }
-                if !is_repeated {
-                    return Err(io::Error::from(Errno::EPERM));
-                }
+                return Err(io::Error::from(Errno::EPERM));
             }
             Err(errno) => return Err(io::Error::from(errno)),
         }
