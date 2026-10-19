@@ -69,6 +69,33 @@ impl ScrollbackWindow {
         window
     }
 
+    /// How many bytes the window holds.
+    pub(crate) fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    /// At most `max` of the window's bytes, starting `skip` bytes in; empty when `skip` reaches
+    /// its end. Copies only the bytes it returns.
+    pub(crate) fn read_range(&self, skip: usize, max: usize) -> Vec<u8> {
+        let mut range = Vec::with_capacity(max.min(self.byte_count.saturating_sub(skip)));
+        let mut to_skip = skip;
+        for chunk in &self.chunks {
+            if range.len() == max {
+                break;
+            }
+            let bytes = &chunk.bytes[..];
+            if to_skip >= bytes.len() {
+                to_skip -= bytes.len();
+                continue;
+            }
+            let taken = &bytes[to_skip..];
+            to_skip = 0;
+            let room = max - range.len();
+            range.extend_from_slice(&taken[..taken.len().min(room)]);
+        }
+        range
+    }
+
     /// Drops `excess` bytes from the front, then, unless they ended a line, on through the end of
     /// the line they cut into.
     fn drop_oldest(&mut self, excess: usize) {

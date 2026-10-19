@@ -1,11 +1,12 @@
 //! The macOS and Linux pieces of the `shell` mode: the default shell, the parent check that
-//! keeps a shell from outliving the daemon, and the exec on the program's resolved path, on macOS
-//! as its own responsible process once the daemon confirms it started the mode.
+//! keeps a shell from outliving the daemon, the launch the daemon confirms it started the mode
+//! with, the exec on the program's resolved path, on macOS as its own responsible process, and the
+//! plain words a failed exec reads as.
 
 use std::convert::Infallible;
 use std::ffi::{CString, OsStr};
 use std::io;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 
 use nix::errno::Errno;
@@ -18,11 +19,10 @@ use nix::unistd::{Pid, chdir, getppid};
 
 #[cfg(target_os = "macos")]
 use crate::macos::responsibility::OwnRootStart;
-#[cfg(target_os = "macos")]
-use crate::macos::shell_start_confirmation::receive_confirmation;
 use crate::posix::executable_file::is_executable_file;
 use crate::posix::process::id::system_process_id;
-use crate::shell_start::{ShellStart, ShellStartError};
+use crate::posix::shell_start_confirmation::{WriterCheck, receive_launch};
+use crate::shell_start::{ShellLaunch, ShellStart, ShellStartError};
 
 // zsh, the system's own shell on macOS.
 #[cfg(target_os = "macos")]
@@ -66,22 +66,46 @@ pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
     })
 }
 
-/// Prepares the `shell` mode's own process for its exec: arms it as [`arm_parent_death`]
-/// does; on macOS waits for the daemon's confirmation that it started this process, without which
-/// no program starts as its own responsible process; enters `folder`, which the shell inherits
-/// across the exec; then sets `SIGPIPE` back to its default, since an ignored signal survives
-/// `execve`. Fails with [`ShellStartError::DaemonGone`] when the daemon is no longer the parent,
-/// [`ShellStartError::Unconfirmed`] when the confirmation does not come,
+/// Prepares the `shell` mode's own process for its exec and answers the launch the daemon sent:
+/// arms it as [`arm_parent_death`] does; reads the daemon's confirmation that it started this
+/// process and the shell's launch after it, written by the daemon `daemon_pid` (on macOS also its
+/// own responsible process, without which no program starts as its own responsible process);
+/// enters the shell's folder, which the shell inherits across the exec; then sets `SIGPIPE` back to
+/// its default, since an ignored signal survives `execve`. Fails with
+/// [`ShellStartError::DaemonGone`] when the daemon is no longer the parent,
+/// [`ShellStartError::Unconfirmed`] when the confirmation or the launch does not come from it,
 /// [`ShellStartError::FolderRefused`] when the folder cannot be entered, and with the variant
 /// naming the call the system refused.
-pub fn prepare_shell_start(daemon_pid: u32, folder: &Path) -> Result<(), ShellStartError> {
+pub fn prepare_shell_start(daemon_pid: u32) -> Result<ShellLaunch, ShellStartError> {
     arm(daemon_pid).map_err(|failure| match failure {
         ArmingFailure::DaemonGone => ShellStartError::DaemonGone,
         #[cfg(target_os = "linux")]
         ArmingFailure::Refused(errno) => ShellStartError::ArmingRefused(io::Error::from(errno)),
     })?;
-    #[cfg(target_os = "macos")]
-    receive_confirmation().map_err(ShellStartError::Unconfirmed)?;
+    let launch =
+        receive_launch(daemon_pid, WriterCheck::Daemon).map_err(ShellStartError::Unconfirmed)?;
+    enter_folder_with_default_sigpipe(&launch.shell.folder)?;
+    Ok(launch)
+}
+
+/// The `shell` mode's stand-in tests start shells through: reads the launch its parent wrote, as
+/// the mode does but with no parent-death signal and no responsible-process check, enters the
+/// shell's folder and starts the shell. Returns only on failure, with the error that stopped it.
+#[cfg(any(test, feature = "test-support"))]
+pub fn run_shell_start_stand_in() -> io::Error {
+    let parent = std::os::unix::process::parent_id();
+    let launch = match receive_launch(parent, WriterCheck::Parent) {
+        Ok(launch) => launch,
+        Err(error) => return error,
+    };
+    if let Err(error) = enter_folder_with_default_sigpipe(&launch.shell.folder) {
+        return io::Error::other(error);
+    }
+    start_program(&launch.shell)
+}
+
+// Enters `folder`, then sets `SIGPIPE` back to its default.
+fn enter_folder_with_default_sigpipe(folder: &Path) -> Result<(), ShellStartError> {
     chdir(folder).map_err(|errno| ShellStartError::FolderRefused(io::Error::from(errno)))?;
     // SAFETY: the default disposition installs no handler, so no code of this program can run
     // inside a signal.
@@ -108,7 +132,7 @@ fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
     let mut argv = Vec::with_capacity(start.arguments.len() + 2);
     argv.push(CString::new(program)?);
     for argument in start.arguments.iter().chain(&start.raw_command_tail) {
-        argv.push(CString::new(argument.as_bytes())?);
+        argv.push(CString::new(argument.as_str())?);
     }
     let envp = start
         .environment
@@ -118,13 +142,44 @@ fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
     let path = if program.contains(&b'/') {
         CString::new(program)?
     } else {
-        let resolved = find_program(&start.program, search_path(start))?;
+        let resolved = find_program(OsStr::new(&start.program), search_path(start))?;
         CString::new(resolved.into_os_string().into_vec())?
     };
     #[cfg(target_os = "linux")]
     return execve(&path, &argv, &envp).map_err(io::Error::from);
     #[cfg(target_os = "macos")]
     return Err(OwnRootStart::new(path, argv, envp)?.exec());
+}
+
+// The plain words a failed exec's error reads as, where the system's own text is not shown: a
+// missing file or interpreter, a refusal, a file the system cannot run, a path past the system's
+// limit and a disk that failed to read.
+const START_FAILURE_WORDS: &[(i32, &str)] = &[
+    (libc::ENOENT, "no such file"),
+    (libc::EACCES, "not allowed to run"),
+    (libc::EPERM, "not allowed to run"),
+    (libc::EISDIR, "not allowed to run"),
+    (libc::ENOEXEC, "not a program for this computer"),
+    #[cfg(target_os = "macos")]
+    (libc::EBADARCH, "not a program for this computer"),
+    #[cfg(target_os = "macos")]
+    (libc::EBADEXEC, "not a program for this computer"),
+    #[cfg(target_os = "macos")]
+    (libc::EBADMACHO, "not a program for this computer"),
+    #[cfg(target_os = "macos")]
+    (libc::ESHLIBVERS, "not a program for this computer"),
+    #[cfg(target_os = "linux")]
+    (libc::ELIBBAD, "not a program for this computer"),
+    (libc::ENAMETOOLONG, "its path is too long"),
+    (libc::EIO, "the disk could not be read"),
+];
+
+/// The plain words a failed exec's error `code` reads as; `None` for an error shown in the
+/// system's own text.
+pub(crate) fn start_failure_words(code: i32) -> Option<&'static str> {
+    START_FAILURE_WORDS
+        .iter()
+        .find_map(|&(listed, words)| (listed == code).then_some(words))
 }
 
 fn search_path(start: &ShellStart) -> &str {

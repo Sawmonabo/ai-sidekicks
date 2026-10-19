@@ -51,7 +51,7 @@ mod tests {
     use nix::unistd::Pid;
 
     use super::{ctrl_c, end_as_ctrl_c};
-    use crate::posix::this_test_program;
+    use crate::test_program::this_test_program;
 
     /// The command stand-in's test.
     const COMMAND_STAND_IN: &str =

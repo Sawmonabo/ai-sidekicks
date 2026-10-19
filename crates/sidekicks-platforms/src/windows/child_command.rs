@@ -17,9 +17,9 @@ use crate::windows::pinned_process::KILLED_EXIT_CODE;
 pub const CAN_SIGNAL_A_STOP: bool = false;
 
 /// Prepares `command` to start a child of the daemon: it opens no console window, which a daemon
-/// with no console of its own would otherwise show for each child. Nothing here ties the child to
-/// the daemon: it ends when its handle drops with `kill_on_drop`, and a crash of the daemon leaves
-/// it running, so `daemon_pid` is not read. Replaces any creation flags set before.
+/// with no console of its own would otherwise show for each child. The child joins the daemon's
+/// own job, which ends it at the daemon's end, a crash included, so `daemon_pid` is not read.
+/// Replaces any creation flags set before.
 pub fn prepare_child_command(command: &mut Command, _daemon_pid: u32) {
     command.creation_flags(CREATE_NO_WINDOW);
 }
@@ -35,6 +35,12 @@ pub fn wrap_child_command(command: Command, _daemon_pid: u32) -> CommandWrap {
         .wrap(JobObject)
         .wrap(KillOnDrop);
     wrap
+}
+
+/// Wraps `command` as a child that ends with the daemon, with what it starts: as
+/// [`wrap_child_command`] wraps it, since its job already holds its whole tree.
+pub fn wrap_session_child_command(command: Command, daemon_pid: u32) -> CommandWrap {
+    wrap_child_command(command, daemon_pid)
 }
 
 /// Asks `child` to stop by ending its job, its whole tree, since no signal a process answers

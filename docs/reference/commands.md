@@ -50,7 +50,7 @@ Nobody types these. One program, `sidekicks-daemon`, is signed and shipped; the 
 | `hook git <hook name>` | git | The commit hook that stamps `Agent-Run`. |
 | `wsl` | The service, through `wsl.exe` | The WSL server, one per WSL 2 distribution that has work. |
 | `banners` | The service, in the person's Windows desktop session | Shows and withdraws Windows notifications while the service runs signed out. |
-| `shell <daemon-pid>` | The service | Starts each terminal shell inside the service's process containment, reading the shell's program, arguments, folder and any text the shell parses itself from its start confirmation. |
+| `shell <daemon-pid>` | The service | Starts each terminal shell inside the service's process containment, reading the shell's program, arguments, folder, environment and any text the shell parses itself, and the fallback shell's launch, from its start confirmation. |
 | `console <pid>` | The service, on Windows | Sends a shell the hard stop (`CTRL_BREAK_EVENT`) and checks whether a console is waiting. |
 | `console input <pid>` | The service, on Windows | Writes how many input events wait unread on a shell's console, so the screen's answers stop while its program reads none of them. |
 | `minidump` | The service | Writes the service's own crash reports. |

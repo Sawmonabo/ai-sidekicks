@@ -175,7 +175,7 @@ where
 /// Runs `release` on a thread of its own, since it may wait for a program that has not exited;
 /// when no thread can start, it runs here, its wait bounded by the release's own grace and kill,
 /// so the program still ends and nothing is left held.
-pub(super) fn release_off_runtime(name: &str, release: Release) {
+pub(crate) fn release_off_runtime(name: &str, release: Release) {
     let slot = Arc::new(Mutex::new(Some(release)));
     let thread_slot = Arc::clone(&slot);
     let started = thread::Builder::new()

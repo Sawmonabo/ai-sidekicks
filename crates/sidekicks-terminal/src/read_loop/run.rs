@@ -10,16 +10,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use sidekicks_platforms::{
-    ShellStartConfirmation, TerminalInputRefusal, TerminalWake, TerminalWatch,
-};
+use sidekicks_platforms::{TerminalInputRefusal, TerminalWake, TerminalWatch};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use vte::ansi::Processor;
 
 use crate::exit::TerminalExit;
 use crate::input::queue::{QueuedWrite, WriteQueue};
 use crate::osc_limit::OscPayloadLimit;
-use crate::pty::OpenedPty;
+use crate::pty::{OpenedPty, ShellHold};
 use crate::read_loop::control::{ResizeCommand, SignalKey, TerminalControl};
 use crate::read_loop::output::{OutputChunk, OutputFilter};
 use crate::read_loop::pause::PausedRead;
@@ -79,10 +77,7 @@ where
     F: OutputFilter,
 {
     pub(super) async fn run(mut self, mut pty_slot: PtySlot) {
-        let OpenedPty {
-            pty,
-            start_confirmation,
-        } = pty_slot.take();
+        let OpenedPty { pty, hold } = pty_slot.take();
         let watch = match TerminalWatch::new(pty, &self.control.waker, &self.input_refusal) {
             Ok(watch) => watch,
             Err((error, pty)) => {
@@ -93,10 +88,7 @@ where
                 self.control.report_exit(TerminalExit::unconfirmed());
                 self.end_output();
                 let control = Arc::clone(&self.control);
-                let opened = OpenedPty {
-                    pty: *pty,
-                    start_confirmation,
-                };
+                let opened = OpenedPty { pty: *pty, hold };
                 release_off_runtime(
                     &self.name,
                     Box::new(move || opened.release(|| control.mark_exited())),
@@ -107,7 +99,7 @@ where
         // Released as it drops, at the loop's end or when the runtime drops the loop midway.
         let mut held = HeldWatch {
             watch: Some(watch),
-            start_confirmation: Some(start_confirmation),
+            hold: Some(hold),
             name: self.name.clone(),
             control: Arc::clone(&self.control),
         };
@@ -403,13 +395,13 @@ where
     }
 }
 
-/// The loop's watch, released as it drops with its shell start's confirmation closed after it: in
+/// The loop's watch, released as it drops with its hold on the shell dropped after it: in
 /// place once the program was reaped, otherwise on a thread of its own, since the release waits
 /// for the program; so a loop the runtime drops midway still ends its program without blocking a
 /// worker.
 struct HeldWatch {
     watch: Option<TerminalWatch>,
-    start_confirmation: Option<ShellStartConfirmation>,
+    hold: Option<ShellHold>,
     name: String,
     control: Arc<TerminalControl>,
 }
@@ -419,11 +411,11 @@ impl Drop for HeldWatch {
         let Some(watch) = self.watch.take() else {
             return;
         };
-        let start_confirmation = self.start_confirmation.take();
+        let hold = self.hold.take();
         let control = Arc::clone(&self.control);
         let release = move || {
             watch.release(|| control.mark_exited());
-            drop(start_confirmation);
+            drop(hold);
         };
         if self.control.has_child_exited() {
             release();

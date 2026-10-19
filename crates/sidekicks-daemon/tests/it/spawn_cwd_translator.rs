@@ -8,10 +8,12 @@ use std::time::Duration;
 use alacritty_terminal::event::EventListener;
 use bytes::Bytes;
 use sidekicks_daemon::session::spawn_cwd_translator::{SpawnCwdStrategy, translate_spawn_cwd};
-use sidekicks_platforms::{SHELL_FOLDER_PROBES, ShellFolderProbe, Spawner, real_path};
+use sidekicks_platforms::{
+    SHELL_FOLDER_PROBES, ShellFolderProbe, Spawner, default_shell, real_path, run_test_as_own_root,
+};
 use sidekicks_terminal::{
-    CommandLine, OutputFilter, ScreenListener, SpawnRequest, TerminalEvent, TerminalOutput,
-    Terminals,
+    CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalEvent,
+    TerminalOutput, Terminals,
 };
 use tokio::runtime::Handle;
 
@@ -75,15 +77,29 @@ async fn read_to_prompt(
 // rather than to the shell, or PowerShell started in it instead of being told it; macOS and Linux
 // remove a folder a process sits in, so there the removal cannot fail. Every probe runs, and their
 // failures are asserted together, so one shell's failure hides no other's.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_worktree_is_removable_while_its_shell_is_open() {
-    let mut failures = Vec::new();
-    for probe in SHELL_FOLDER_PROBES {
-        if let Err(failure) = open_and_remove_worktree(probe).await {
-            failures.push(failure);
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+// The test's own name in the binary, which runs again as its own responsible process on macOS.
+const WORKTREE_REMOVAL_TEST: &str =
+    "spawn_cwd_translator::a_worktree_is_removable_while_its_shell_is_open";
+
+#[test]
+fn a_worktree_is_removable_while_its_shell_is_open() {
+    // The `shell` mode starts a shell only for a parent that is its own responsible process, as
+    // the daemon is.
+    run_test_as_own_root(WORKTREE_REMOVAL_TEST, || {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("the test's runtime builds");
+        runtime.block_on(async {
+            let mut failures = Vec::new();
+            for probe in SHELL_FOLDER_PROBES {
+                if let Err(failure) = open_and_remove_worktree(probe).await {
+                    failures.push(failure);
+                }
+            }
+            assert!(failures.is_empty(), "{}", failures.join("\n"));
+        });
+    });
 }
 
 // Opens `probe`'s shell on a fresh worktree, waits for its prompt there (and, where it holds the
@@ -99,7 +115,7 @@ async fn open_and_remove_worktree(probe: &ShellFolderProbe) -> Result<(), String
     let worktree = scratch_folder.join(probe.folder_name);
     std::fs::create_dir(&worktree)
         .map_err(|error| format!("{program}'s worktree is not made: {error:?}"))?;
-    let environment = std::env::vars()
+    let environment: Vec<(String, String)> = std::env::vars()
         .filter(|(name, _)| !probe.environment.iter().any(|(probed, _)| probed == name))
         .chain(
             probe
@@ -108,17 +124,27 @@ async fn open_and_remove_worktree(probe: &ShellFolderProbe) -> Result<(), String
                 .map(|&(name, value)| (name.to_owned(), value.to_owned())),
         )
         .collect();
+    let arguments: Vec<String> = probe
+        .arguments
+        .iter()
+        .map(|&argument| argument.to_owned())
+        .collect();
     let request = SpawnRequest {
-        program: program.to_owned(),
-        arguments: probe
-            .arguments
-            .iter()
-            .map(|&argument| argument.to_owned())
-            .collect(),
-        environment,
+        shell: ShellCommand {
+            program: program.to_owned(),
+            arguments,
+            environment: environment.clone(),
+            folder: worktree.clone(),
+            raw_command_tail: None,
+        },
+        fallback: ShellCommand {
+            program: default_shell().to_string_lossy().into_owned(),
+            arguments: Vec::new(),
+            environment,
+            folder: worktree.clone(),
+            raw_command_tail: None,
+        },
         working_directory: worktree.clone(),
-        shell_folder: worktree.clone(),
-        raw_command_tail: None,
         rows: 24,
         columns: 160,
         shell_start: CommandLine {

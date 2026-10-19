@@ -36,10 +36,7 @@ pub use exit::TerminalExit;
 pub use input::answers::{ANSWER_BYTES_LIMIT, TerminalAnswers};
 pub use input::queue::TerminalWriteError;
 pub use kill::KillError;
-pub use pty::{
-    CommandLine, END_OF_SHELL_SWITCHES, RAW_COMMAND_TAIL_SWITCH, SHELL_FOLDER_SWITCH,
-    ShellEnvironmentError, SpawnRequest, shell_environment,
-};
+pub use pty::{CommandLine, ShellCommand, SpawnRequest};
 pub use read_loop::control::WriteTaken;
 pub use read_loop::output::{OutputFilter, TerminalEvent, TerminalOutput};
 pub use screen::{ScreenListener, ScrollbackRead, TerminalScreen};
@@ -152,11 +149,12 @@ impl Terminals {
         }
     }
 
-    /// Starts a shell on the spawner thread and its read loop on the current runtime. `listen`
-    /// makes, from the shell's answers, the listener that hears the screen copy under its lock and
-    /// must not block; `filter` takes each chunk of output first. Refused while draining; fails
-    /// with `InvalidInput` for a size the terminal cannot take or an environment `open` refuses,
-    /// and when the shell or its loop cannot start.
+    /// Starts a shell's `shell` mode on the spawner thread, writes it the shell's launch from a
+    /// task on the current runtime and starts its read loop there. `listen` makes, from the
+    /// shell's answers, the listener that hears the screen copy under its lock and must not block;
+    /// `filter` takes each chunk of output first. Refused while draining; fails with
+    /// `InvalidInput` for a size the terminal cannot take or a launch the frame cannot carry, and
+    /// when the mode, its launch's write or its loop cannot start.
     pub async fn spawn<L, F>(
         &self,
         request: SpawnRequest,
@@ -172,18 +170,28 @@ impl Terminals {
         }
         let (rows, columns) = (request.rows, request.columns);
         screen::check_screen_size(rows, columns).map_err(TerminalError::Spawn)?;
-        let opened = self
+        let frame = request.launch_frame().map_err(TerminalError::Spawn)?;
+        let runtime = Handle::current();
+        let spawn_runtime = runtime.clone();
+        let mut opened = self
             .spawner
-            .run(move || pty::open_pty(&request))
+            .run(move || pty::open_pty(&request, &spawn_runtime))
             .await
             .and_then(|opened| opened)
             .map_err(TerminalError::Spawn)?;
+        if let Err(error) = opened.hold.write_launch(&runtime, frame) {
+            read_loop::release_off_runtime(
+                "unlaunched shell",
+                Box::new(move || opened.release(|| {})),
+            );
+            return Err(TerminalError::Spawn(error));
+        }
         let handle = TerminalHandle::mint();
         let console_read = sidekicks_platforms::child_process_id(&opened.pty)
             .filter(|_| sidekicks_platforms::DOES_CONSOLE_COUNT_WAITING_INPUT)
             .map(|process_id| self.console_input_read(process_id));
         let started = read_loop::start_read_loop(
-            &Handle::current(),
+            &runtime,
             &format!("terminal {handle}"),
             opened,
             console_read,
