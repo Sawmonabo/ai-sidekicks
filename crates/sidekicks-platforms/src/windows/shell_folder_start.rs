@@ -8,8 +8,6 @@
 
 use std::path::{Path, PathBuf};
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use windows_sys::Win32::UI::Shell::FOLDERID_System;
 
 use crate::path::rules::PathRules;
@@ -22,9 +20,98 @@ const SYSTEM_FOLDER_USUAL_PATH: &str = r"C:\Windows\System32";
 /// The variable that keeps an MSYS bash login in the folder it starts in, not the home folder.
 const STAY_IN_FOLDER_ENVIRONMENT_NAME: &str = "CHERE_INVOKING";
 
-/// The PowerShell switches after which the rest of the line is the user's command or script,
-/// compared without case, as PowerShell reads them.
-const POWERSHELL_COMMAND_SWITCHES: [&str; 4] = ["-Command", "-c", "-File", "-f"];
+/// The characters PowerShell reads as a dash before a switch's name.
+const POWERSHELL_DASHES: [char; 4] = ['-', '\u{2013}', '\u{2014}', '\u{2015}'];
+
+/// The characters PowerShell reads as a single quote, each doubled inside a single-quoted string.
+const POWERSHELL_SINGLE_QUOTES: [char; 5] = ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
+
+/// What follows a PowerShell switch on its command line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SwitchOperand {
+    /// Nothing: the next argument is read on its own.
+    Nothing,
+    /// The next argument, the switch's value.
+    One,
+    /// The rest of the line, a script path and its arguments.
+    Script,
+    /// The rest of the line, a command.
+    Command,
+}
+
+/// A switch PowerShell reads at start: its name, the shortest prefix of it PowerShell takes, what
+/// follows it, and whether Windows PowerShell's folder command can still follow it.
+struct PowerShellSwitch {
+    name: &'static str,
+    shortest: &'static str,
+    operand: SwitchOperand,
+    allows_folder_command: bool,
+}
+
+const fn powershell_switch(
+    name: &'static str,
+    shortest: &'static str,
+    operand: SwitchOperand,
+    allows_folder_command: bool,
+) -> PowerShellSwitch {
+    PowerShellSwitch {
+        name,
+        shortest,
+        operand,
+        allows_folder_command,
+    }
+}
+
+/// The switches whose operand or effect decides the folder start, each at its shortest spelling
+/// PowerShell takes. No spelling names two different switches, so the first match is PowerShell's
+/// reading; a switch missing here takes no operand.
+const POWERSHELL_SWITCHES: [PowerShellSwitch; 30] = [
+    powershell_switch("nologo", "nol", SwitchOperand::Nothing, true),
+    powershell_switch("noprofile", "nop", SwitchOperand::Nothing, true),
+    powershell_switch("noexit", "noe", SwitchOperand::Nothing, true),
+    powershell_switch("login", "l", SwitchOperand::Nothing, true),
+    powershell_switch("mta", "mta", SwitchOperand::Nothing, true),
+    powershell_switch("sta", "sta", SwitchOperand::Nothing, true),
+    powershell_switch(
+        "noprofileloadtime",
+        "noprofileloadtime",
+        SwitchOperand::Nothing,
+        true,
+    ),
+    powershell_switch("executionpolicy", "ex", SwitchOperand::One, true),
+    powershell_switch("ep", "ep", SwitchOperand::One, true),
+    powershell_switch("windowstyle", "w", SwitchOperand::One, true),
+    powershell_switch("file", "f", SwitchOperand::Script, false),
+    powershell_switch("command", "c", SwitchOperand::Command, false),
+    powershell_switch(
+        "commandwithargs",
+        "commandwithargs",
+        SwitchOperand::Command,
+        false,
+    ),
+    powershell_switch("cwa", "cwa", SwitchOperand::Command, false),
+    powershell_switch("encodedcommand", "e", SwitchOperand::One, false),
+    powershell_switch("ec", "e", SwitchOperand::One, false),
+    powershell_switch("encodedarguments", "encodeda", SwitchOperand::One, false),
+    powershell_switch("ea", "ea", SwitchOperand::One, false),
+    powershell_switch("workingdirectory", "wo", SwitchOperand::One, false),
+    powershell_switch("wd", "wd", SwitchOperand::One, false),
+    powershell_switch("configurationname", "config", SwitchOperand::One, false),
+    powershell_switch(
+        "configurationfile",
+        "configurationfile",
+        SwitchOperand::One,
+        false,
+    ),
+    powershell_switch("custompipename", "cus", SwitchOperand::One, false),
+    powershell_switch("settingsfile", "settings", SwitchOperand::One, false),
+    powershell_switch("inputformat", "inp", SwitchOperand::One, false),
+    powershell_switch("if", "if", SwitchOperand::One, false),
+    powershell_switch("outputformat", "o", SwitchOperand::One, false),
+    powershell_switch("of", "o", SwitchOperand::One, false),
+    powershell_switch("token", "to", SwitchOperand::One, false),
+    powershell_switch("utctimestamp", "utc", SwitchOperand::One, false),
+];
 
 /// How `program` with `arguments` starts in `folder`: the `shell` mode is spawned in the system
 /// folder, where Windows Terminal keeps itself; PowerShell, `wsl.exe` and `cmd.exe` on a share
@@ -69,23 +156,33 @@ fn compose_shell_folder_start(
         )
     };
     match program_name(program).as_str() {
-        // A folder switch cannot share a line with the user's own command, so the shell starts in
-        // the folder with the user's arguments, as every terminal starts it.
-        "pwsh" | "powershell" if has_powershell_command_switch(arguments) => in_folder(),
         // Its switch runs before the profile scripts, as a `Set-Location`, so the process's own
-        // folder stays the system folder.
-        "pwsh" => told_by_switch(vec![
+        // folder stays the system folder. A script, which pwsh resolves against its process folder,
+        // starts in the folder with the user's arguments, as every terminal starts it.
+        "pwsh" if can_pwsh_take_folder_switch(arguments) => told_by_switch(vec![
             "-NoLogo".to_owned(),
             "-WorkingDirectory".to_owned(),
             strip_trailing_separators(folder).to_owned(),
         ]),
-        // It has no folder switch; the encoded command carries the path with no quoting hazard.
-        "powershell" => told_by_switch(vec![
-            "-NoLogo".to_owned(),
-            "-NoExit".to_owned(),
-            "-EncodedCommand".to_owned(),
-            encode_set_location(folder),
-        ]),
+        // It has no folder switch, so its start command moves it, after the user's arguments since
+        // it takes the rest of the line; any argument not known to leave that command free starts
+        // the shell in the folder with the user's arguments, as every terminal starts it.
+        "powershell" if can_windows_powershell_take_folder_command(arguments) => start(
+            arguments
+                .iter()
+                .cloned()
+                .chain([
+                    "-NoLogo".to_owned(),
+                    "-NoExit".to_owned(),
+                    "-Command".to_owned(),
+                    format!(
+                        "Set-Location -LiteralPath {}",
+                        quote_powershell_literal(folder)
+                    ),
+                ])
+                .collect(),
+            system_folder.to_path_buf(),
+        ),
         // cmd parses the text after `/K` itself, so the folder is written in its own quoting and
         // reaches it unchanged.
         "cmd" if is_share_path(folder) => ShellFolderStart {
@@ -138,12 +235,67 @@ fn is_in_folder(program: &str, folder: &Path) -> bool {
         .eq_ignore_ascii_case(folder.replace('/', "\\").trim_end_matches('\\'))
 }
 
-// Whether the user's arguments carry a switch whose rest is their own command or script.
-fn has_powershell_command_switch(arguments: &[String]) -> bool {
-    arguments.iter().any(|argument| {
-        POWERSHELL_COMMAND_SWITCHES
-            .iter()
-            .any(|switch| argument.eq_ignore_ascii_case(switch))
+// Whether pwsh can take `-WorkingDirectory` ahead of the user's arguments: always, unless they
+// run a script, by a `-File` form or a bare path, read as pwsh reads its command line.
+fn can_pwsh_take_folder_switch(arguments: &[String]) -> bool {
+    let mut arguments = arguments.iter();
+    while let Some(argument) = arguments.next() {
+        let Some(key) = powershell_switch_key(argument) else {
+            return false;
+        };
+        match find_powershell_switch(key).map(|switch| switch.operand) {
+            Some(SwitchOperand::Script) => return false,
+            Some(SwitchOperand::Command) => return true,
+            Some(SwitchOperand::One) => {
+                arguments.next();
+            }
+            Some(SwitchOperand::Nothing) | None => {}
+        }
+    }
+    true
+}
+
+// Whether every user argument is a switch, with its value, that leaves Windows PowerShell's start
+// command free, so the folder's `-Command` can follow them.
+fn can_windows_powershell_take_folder_command(arguments: &[String]) -> bool {
+    let mut arguments = arguments.iter();
+    while let Some(argument) = arguments.next() {
+        let Some(switch) = powershell_switch_key(argument).and_then(find_powershell_switch) else {
+            return false;
+        };
+        let is_value_missing = switch.operand == SwitchOperand::One && arguments.next().is_none();
+        if !switch.allows_folder_command || is_value_missing {
+            return false;
+        }
+    }
+    true
+}
+
+// The name an argument gives after its switch character (`/`, a dash, or a dash doubled), trimmed
+// as PowerShell trims it; `None` for an empty argument or a bare word.
+fn powershell_switch_key(argument: &str) -> Option<&str> {
+    let mut characters = argument.trim().chars();
+    let first = characters.next()?;
+    let rest = characters.as_str();
+    if first == '/' {
+        Some(rest)
+    } else if POWERSHELL_DASHES.contains(&first) {
+        Some(rest.strip_prefix(first).unwrap_or(rest))
+    } else {
+        None
+    }
+}
+
+// The switch `key` names: a prefix of its name, no shorter than its shortest spelling, compared
+// without case.
+fn find_powershell_switch(key: &str) -> Option<&'static PowerShellSwitch> {
+    let length = key.chars().count();
+    POWERSHELL_SWITCHES.iter().find(|switch| {
+        (switch.shortest.len()..=switch.name.len()).contains(&length)
+            && key
+                .chars()
+                .zip(switch.name.chars())
+                .all(|(typed, named)| typed.to_uppercase().eq(named.to_uppercase()))
     })
 }
 
@@ -163,11 +315,19 @@ fn strip_trailing_separators(folder: &str) -> &str {
     }
 }
 
-// The base64 of the UTF-16LE command `Set-Location -LiteralPath '<folder>'`, each `'` doubled.
-fn encode_set_location(folder: &str) -> String {
-    let command = format!("Set-Location -LiteralPath '{}'", folder.replace('\'', "''"));
-    let bytes: Vec<u8> = command.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    STANDARD.encode(bytes)
+// `text` as a PowerShell single-quoted string: every character PowerShell reads as a single quote
+// doubled, so none ends the string.
+fn quote_powershell_literal(text: &str) -> String {
+    let mut quoted = String::with_capacity(text.len() + 2);
+    quoted.push('\'');
+    for character in text.chars() {
+        if POWERSHELL_SINGLE_QUOTES.contains(&character) {
+            quoted.push(character);
+        }
+        quoted.push(character);
+    }
+    quoted.push('\'');
+    quoted
 }
 
 #[cfg(test)]
@@ -182,16 +342,20 @@ mod tests {
     const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 
     // Mutations killed: PowerShell started in the worktree holds it for its life; a trailing `\`
-    // kept breaks pwsh's quoted switch; a folder switch put before the user's own command; cmd
+    // kept breaks pwsh's quoted switch; a switch's value read as pwsh's script, or a script given by
+    // a prefix, another switch character or a bare path started in the system folder; a user command
+    // dropping pwsh's folder switch; a folder quote other than `'` left single, which ends the string
+    // and runs the rest of the name; Windows PowerShell given its folder command beside an argument
+    // not known to leave it free, or after a switch missing its value; cmd
     // started on a share starts in the Windows folder, and a share path with `&` or `%` left bare
     // runs a command; MSYS bash without its variable opens in the home folder, and WSL's launcher
     // given it goes through the MSYS arm; `--cd` added over the user's own `~`.
     #[rstest]
     #[case::pwsh_with_a_trailing_separator(
         r"C:\Program Files\PowerShell\7\pwsh.exe",
-        &["-Login"],
+        &["-Login", "-ep", "Bypass"],
         r"C:\wt\it's\",
-        &["-NoLogo", "-WorkingDirectory", r"C:\wt\it's", "-Login"],
+        &["-NoLogo", "-WorkingDirectory", r"C:\wt\it's", "-Login", "-ep", "Bypass"],
         SYSTEM_FOLDER,
         &[],
         None
@@ -200,32 +364,78 @@ mod tests {
         "pwsh",
         &["-COMMAND", "Get-Date"],
         r"C:\wt",
-        &["-COMMAND", "Get-Date"],
-        r"C:\wt",
+        &["-NoLogo", "-WorkingDirectory", r"C:\wt", "-COMMAND", "Get-Date"],
+        SYSTEM_FOLDER,
         &[],
         None
     )]
-    #[case::windows_powershell(
-        "POWERSHELL.EXE",
-        &["-Login"],
-        r"C:\wt\it's",
+    #[case::pwsh_as_the_developer_shell(
+        "pwsh.exe",
+        &["-NoExit", "-Command", r#"&{Import-Module "C:\VS\DevShell.dll"; Enter-VsDevShell 1a2b}"#],
+        r"C:\wt",
         &[
             "-NoLogo",
+            "-WorkingDirectory",
+            r"C:\wt",
             "-NoExit",
-            "-EncodedCommand",
-            "UwBlAHQALQBMAG8AYwBhAHQAaQBvAG4AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQA\
-             aAAgACcAQwA6AFwAdwB0AFwAaQB0ACcAJwBzACcA",
-            "-Login",
+            "-Command",
+            r#"&{Import-Module "C:\VS\DevShell.dll"; Enter-VsDevShell 1a2b}"#,
         ],
         SYSTEM_FOLDER,
         &[],
         None
     )]
-    #[case::windows_powershell_with_the_user_s_script(
-        "powershell.exe",
-        &["-f", "start.ps1"],
+    #[case::pwsh_with_the_user_s_script_by_a_prefix(
+        "pwsh",
+        &["-WindowStyle", "Hidden", "\u{2013}FI", "start.ps1"],
         r"C:\wt",
-        &["-f", "start.ps1"],
+        &["-WindowStyle", "Hidden", "\u{2013}FI", "start.ps1"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::pwsh_with_the_user_s_bare_script(
+        "pwsh",
+        &["/nop", "start.ps1"],
+        r"C:\wt",
+        &["/nop", "start.ps1"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_on_a_folder_named_to_break_its_quotes(
+        "POWERSHELL.EXE",
+        &["/nop", "--ExecutionPolicy", "Bypass", "\u{2014}noe"],
+        "C:\\wt\\it's \u{2018}\u{201A}\u{201B}\\a\u{2019};calc;\u{2019}",
+        &[
+            "/nop",
+            "--ExecutionPolicy",
+            "Bypass",
+            "\u{2014}noe",
+            "-NoLogo",
+            "-NoExit",
+            "-Command",
+            "Set-Location -LiteralPath \
+             'C:\\wt\\it''s \u{2018}\u{2018}\u{201A}\u{201A}\u{201B}\u{201B}\\a\u{2019}\u{2019};calc;\u{2019}\u{2019}'",
+        ],
+        SYSTEM_FOLDER,
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_the_user_s_command_by_a_prefix(
+        "powershell.exe",
+        &["-Comm", "Get-Date"],
+        r"C:\wt",
+        &["-Comm", "Get-Date"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_switch_missing_its_value(
+        "powershell",
+        &["-nol", "-WindowStyle"],
+        r"C:\wt",
+        &["-nol", "-WindowStyle"],
         r"C:\wt",
         &[],
         None
