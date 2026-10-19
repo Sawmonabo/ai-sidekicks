@@ -35,6 +35,7 @@ pub fn read_peer_process(_stream: &Stream) -> io::Result<Option<PinnedProcess>> 
 pub fn unix_domain_peer_process(stream: &UnixDomainStream) -> io::Result<Option<PinnedProcess>> {
     let mut process_id = 0_u32;
     let mut written = 0_u32;
+    // `SOCKET` is pointer-sized, so on the 64-bit Windows the daemon builds for every handle fits.
     let socket = SOCKET::try_from(stream.as_raw_socket())
         .expect("a socket handle fits in the system's socket type");
     // SAFETY: the socket is open for the call; the output buffer is a live `u32` of the size
