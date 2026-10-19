@@ -218,36 +218,37 @@ impl RunEngine {
             return Err(gone);
         }
         let engine = Arc::clone(self);
-        // The receiver lives in this future and drops with it, which tells the task whether its
-        // caller still waits for the result.
-        let (sender, _receiver) = oneshot::channel::<()>();
+        // The task sends the stop's result to this future's receiver, whose guard logs an error
+        // its caller's drop leaves unread.
+        let (sender, receiver) = oneshot::channel::<Result<(), RunEngineError>>();
+        let mut answer = LimitStopAnswer {
+            receiver,
+            run_id,
+            limit: stop.limit(),
+        };
         let stopping = tokio::spawn(
             async move {
                 let stopped = engine.run_limit_stop(run_id, stop).await;
-                // A caller gone returns the error to no one, so the task logs it. A caller
-                // dropped after this check and before it reads the result still loses it, and so
-                // does a panic after the caller dropped, which only a test meets: the daemon's
-                // panic hook aborts.
-                if let Err(error) = &stopped
-                    && sender.is_closed()
-                {
-                    tracing::warn!(
-                        run_id = %run_id,
-                        limit = <&'static str>::from(stop.limit()),
-                        error = error as &(dyn Error + 'static),
-                        "run_limit_stop_failed"
-                    );
+                // A caller gone has closed its receiver, so the send hands the result back and the
+                // task logs it. Only a panic after the caller dropped goes unlogged, which only a
+                // test meets: the daemon's panic hook aborts.
+                if let Err(Err(error)) = sender.send(stopped) {
+                    log_unread_limit_stop_failure(run_id, stop.limit(), error);
                 }
-                stopped
             }
             .in_current_span(),
         );
-        match stopping.await {
+        match (&mut answer.receiver).await {
             Ok(stopped) => stopped,
-            Err(error) => match error.try_into_panic() {
-                Ok(panic) => std::panic::resume_unwind(panic),
-                // Only the runtime's shutdown cancels the task, and no caller then waits on it.
-                Err(_canceled) => Err(RunEngineError::LimitInterrupterGone { run_id }),
+            // The task sends before it returns, so it ended without sending only by a panic or a
+            // cancel.
+            Err(_unsent) => match stopping.await {
+                Ok(()) => unreachable!("the task sends before it returns"),
+                Err(error) => match error.try_into_panic() {
+                    Ok(panic) => std::panic::resume_unwind(panic),
+                    // Only the runtime's shutdown cancels the task, and no caller then waits on it.
+                    Err(_canceled) => Err(RunEngineError::LimitInterrupterGone { run_id }),
+                },
             },
         }
     }
@@ -542,6 +543,33 @@ impl RunEngine {
             }
         }
     }
+}
+
+// The receiving end of a limit stop's result, held by the stop's caller: dropped before it reads
+// the result, it logs an error the task sent before its close went in.
+struct LimitStopAnswer {
+    receiver: oneshot::Receiver<Result<(), RunEngineError>>,
+    run_id: RunId,
+    limit: RunLimit,
+}
+
+impl Drop for LimitStopAnswer {
+    fn drop(&mut self) {
+        self.receiver.close();
+        if let Ok(Err(error)) = self.receiver.try_recv() {
+            log_unread_limit_stop_failure(self.run_id, self.limit, error);
+        }
+    }
+}
+
+// Logs a limit stop's error that no caller reads.
+fn log_unread_limit_stop_failure(run_id: RunId, limit: RunLimit, error: RunEngineError) {
+    tracing::warn!(
+        run_id = %run_id,
+        limit = <&'static str>::from(limit),
+        error = &error as &(dyn Error + 'static),
+        "run_limit_stop_failed"
+    );
 }
 
 // What a limit stop found when it reached its limit.
