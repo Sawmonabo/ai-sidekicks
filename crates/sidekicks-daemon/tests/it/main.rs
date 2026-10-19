@@ -6,5 +6,6 @@ static GLOBAL_ALLOCATOR: sidekicks_platforms::GlobalAllocator =
 
 mod helpers;
 mod recovery;
+mod search_index_build;
 mod shell_mode;
 mod spawn_cwd_translator;
