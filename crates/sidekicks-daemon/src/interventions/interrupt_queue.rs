@@ -39,7 +39,10 @@ pub(crate) enum InterruptCause {
 }
 
 /// An interrupt that applied, as the write that ends its run takes it.
-#[expect(dead_code, reason = "the run queue, which reads the interrupt's end")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the run queue, which reads the interrupt's end")
+)]
 pub(crate) struct InterruptEnd {
     /// The run interrupted.
     pub(crate) run_id: RunId,
@@ -48,6 +51,13 @@ pub(crate) struct InterruptEnd {
     /// Whose interrupt it is.
     pub(crate) cause: InterruptCause,
     /// Whether the provider answered `degraded`, so it may still hold the messages it was handed.
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the test queue holds no messages a provider may still hold"
+        )
+    )]
     pub(crate) is_degraded: bool,
     /// The interrupt's row move and its event, which the run's end commits.
     pub(crate) verdict: RunStateChangeCompanions,
