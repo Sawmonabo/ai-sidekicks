@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
 use std::marker::PhantomData;
@@ -61,6 +62,10 @@ const JOB_NAME_RANDOM_BYTES: usize = 16;
 /// system's error from the start, a refused breakaway among them, never retried inside the
 /// daemon's job; with `AlreadyExists` when a job of the drawn name exists; or from the pin, which
 /// ends the job first.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every system takes the command by value, and the macOS and Linux start consumes it"
+)]
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
     let (job, job_name) = create_named_job()?;
     let null_device = OpenOptions::new().read(true).write(true).open("NUL")?;
@@ -178,7 +183,7 @@ fn create_named_job() -> io::Result<(OwnedHandle, String)> {
     getrandom::fill(&mut random).map_err(io::Error::other)?;
     let mut name = JOB_NAME_PREFIX.to_owned();
     for byte in random {
-        name.push_str(&format!("{byte:02x}"));
+        write!(name, "{byte:02x}").expect("a string takes any text written to it");
     }
     let descriptor = UserOnlyDescriptor::new()?;
     let attributes = SECURITY_ATTRIBUTES {
@@ -303,7 +308,10 @@ fn read_user_sid_text() -> io::Result<String> {
     }
     // SAFETY: the call answered a NUL-ended UTF-16 string, read up to its NUL.
     let units = unsafe {
-        let length = (0..).take_while(|&i| *text.add(i) != 0).count();
+        let mut length = 0;
+        while *text.add(length) != 0 {
+            length += 1;
+        }
         std::slice::from_raw_parts(text, length)
     };
     let read =
