@@ -443,8 +443,7 @@ async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_inter
 }
 
 // Killed by a repeated spend stop sending its interrupt while the spend limit's interrupt of the
-// run is pending, and by the check counting a failed one, which leaves the run past the limit; and
-// by a stop of a run with no open turn naming a turn in its row.
+// run is pending, and by the check counting a failed one, which leaves the run past the limit.
 #[rstest]
 #[case::pending("accepted", 0)]
 #[case::failed("failed", 1)]
@@ -478,13 +477,6 @@ async fn a_spend_stop_waits_on_the_spend_limits_pending_interrupt(
         .expect("the next usage report's stop is left or sends the interrupt");
 
     assert_eq!(interventions.calls.load(Ordering::SeqCst), expected_calls);
-    assert_eq!(
-        *interventions
-            .cut_turns
-            .lock()
-            .expect("the stand-in's turns are not poisoned"),
-        vec![None; expected_calls]
-    );
 }
 
 // Killed by a turn cut twice keeping the later cut whatever its rank, which ends it `stepLimit`

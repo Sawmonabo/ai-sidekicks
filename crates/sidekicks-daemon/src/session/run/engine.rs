@@ -44,6 +44,8 @@ use crate::events::session::appender::{
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::interventions::store::run_at_version_statement;
 use crate::ipc::domain_error::DomainError;
+#[cfg(test)]
+use crate::pause_point::PausePoint;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
@@ -300,6 +302,10 @@ pub(crate) struct RunEngine {
     // engine, so the engine holds it weakly.
     limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
     live: Mutex<LiveRuns>,
+    // Where a test holds a limit stop once its cut is in and before it reads whether its turn is
+    // still open.
+    #[cfg(test)]
+    cut_pause: PausePoint,
 }
 
 impl RunEngine {
@@ -327,6 +333,8 @@ impl RunEngine {
             providers,
             limit_interrupter: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
+            #[cfg(test)]
+            cut_pause: PausePoint::default(),
         }
     }
 

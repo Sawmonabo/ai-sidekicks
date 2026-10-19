@@ -254,6 +254,8 @@ impl RunEngine {
             });
             (stop, own_cut, cut, is_memory_own)
         };
+        #[cfg(test)]
+        self.cut_pause.pass().await;
         let mut reached = match cut {
             Some(key) => match self.read_open_turns(run_id).await {
                 Ok(open_turns) if open_turns.contains(&key.1) => {

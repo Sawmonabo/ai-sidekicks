@@ -1,14 +1,16 @@
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use tokio::sync::oneshot;
 
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
+use crate::pause_point::ArmedPause;
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    HeldHand, SETTLE_WAIT, append, hand_limit_interrupter, insert_running_run, test_engine,
-    token_limit, turn, turn_started_at,
+    SETTLE_WAIT, append, hand_limit_interrupter, insert_running_run, test_engine, token_limit,
+    turn, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::uuid_v7::mint_uuid_v7;
@@ -61,16 +63,14 @@ async fn two_stops_whose_hands_fail_leave_their_turn_no_cut() {
         &turn_started_at(session_id, run_id, 1, 1),
     )
     .await;
-    let [
-        HeldHand {
-            handed: spend_handed,
-            is_refused: spend_answer,
-        },
-        HeldHand {
-            handed: token_handed,
-            is_refused: token_answer,
-        },
-    ] = interventions.hold_hands();
+    let ArmedPause {
+        reached: spend_handed,
+        release: spend_answer,
+    } = interventions.held_hands.arm();
+    let ArmedPause {
+        reached: token_handed,
+        release: token_answer,
+    } = interventions.held_hands.arm();
     let (spend_ended, spend_end) = oneshot::channel();
     let (token_ended, token_end) = oneshot::channel();
     let spend = LimitStop::Interrupt {
@@ -125,20 +125,18 @@ async fn a_turn_keeps_the_cut_of_its_one_handed_stop_after_two_later_stops_fail(
         &turn_started_at(session_id, run_id, 1, 1),
     )
     .await;
-    let [
-        HeldHand {
-            handed: spend_handed,
-            is_refused: spend_answer,
-        },
-        HeldHand {
-            handed: first_token_handed,
-            is_refused: first_token_answer,
-        },
-        HeldHand {
-            handed: second_token_handed,
-            is_refused: second_token_answer,
-        },
-    ] = interventions.hold_hands();
+    let ArmedPause {
+        reached: spend_handed,
+        release: spend_answer,
+    } = interventions.held_hands.arm();
+    let ArmedPause {
+        reached: first_token_handed,
+        release: first_token_answer,
+    } = interventions.held_hands.arm();
+    let ArmedPause {
+        reached: second_token_handed,
+        release: second_token_answer,
+    } = interventions.held_hands.arm();
     let (spend_ended, spend_end) = oneshot::channel();
     let (first_token_ended, first_token_end) = oneshot::channel();
     let (second_token_ended, second_token_end) = oneshot::channel();
@@ -197,4 +195,62 @@ async fn a_turn_keeps_the_cut_of_its_one_handed_stop_after_two_later_stops_fail(
         .map(|cuts| cuts.iter().map(|cut| cut.limit).collect());
     assert_eq!(limits, Some(vec![RunLimit::SpendLimit]));
     assert_eq!(live.current_limit(&key), Some(RunLimit::SpendLimit));
+}
+
+// Killed by a stop whose turn ends as its cut goes in still naming that turn in its row, though
+// it cut none, and by one that leaves its cut in place, which no later turn end clears.
+#[tokio::test]
+async fn a_stop_whose_turn_ends_as_its_cut_goes_in_names_no_turn() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 0);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    let ArmedPause { reached, release } = engine.cut_pause.arm();
+    // Turn 1's end lands while the stop is held with its cut in, written beside the engine so
+    // that no end reads the cut.
+    let turn_ends = async {
+        reached.await.expect("the stop holds its cut");
+        database
+            .reader()
+            .execute(
+                &format!(
+                    "INSERT INTO session_events (id, session_id, sequence, occurred_at,
+                       monotonic_ns, category, type, payload, run_id, run_version, turn_number)
+                     SELECT ?1, session_id, sequence + 1, occurred_at, monotonic_ns, category,
+                       '{}', payload, run_id, run_version, turn_number
+                       FROM session_events WHERE run_id = ?2 AND type = '{}'",
+                    SessionEventType::AgentTurnCompleted.as_str(),
+                    SessionEventType::AgentTurnStarted.as_str()
+                ),
+                [mint_uuid_v7().to_string().as_str(), run_id.text().as_str()],
+            )
+            .expect("the test ends turn 1");
+        release.send(()).expect("the stop waits at its cut");
+    };
+
+    let (stopped, ()) = tokio::time::timeout(SETTLE_WAIT, async {
+        tokio::join!(engine.stop_at_spend_limit(run_id), turn_ends)
+    })
+    .await
+    .expect("the stop settles");
+
+    stopped.expect("the spend limit's interrupt is accepted");
+    assert_eq!(
+        *interventions
+            .cut_turns
+            .lock()
+            .expect("the stand-in's turns are not poisoned"),
+        vec![None]
+    );
+    assert!(lock(&engine.live).cut_turns.is_empty());
 }

@@ -1,7 +1,6 @@
 //! What the engine's tests share: an engine over a test database with a stand-in interventions
 //! service, the runs and events they seed, and reads of what a run stored.
 
-use std::collections::VecDeque;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -30,6 +29,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::SessionEventDraft;
+use crate::pause_point::PausePoint;
 use crate::policy::execution_posture_service::{
     ExecutionPostureService, compose_execution_posture,
 };
@@ -86,37 +86,16 @@ pub(super) struct TestLimitInterrupter {
     refusals_left: AtomicUsize,
     is_refused_row_pending: AtomicBool,
     row_database: OnceLock<PathBuf>,
-    held_hands: Mutex<VecDeque<(oneshot::Sender<()>, oneshot::Receiver<bool>)>>,
+    /// Where a hand the test armed a hold for waits, in the order the hands arrive, for the test's
+    /// answer: whether the stand-in refuses it, leaving no row.
+    pub(super) held_hands: PausePoint<bool>,
     /// How many interrupts it was handed.
     pub(super) calls: AtomicUsize,
     /// The turn each interrupt it was handed names, in order.
     pub(super) cut_turns: Mutex<Vec<Option<SafeInt<1>>>>,
 }
 
-/// A hand the stand-in holds until the test answers it.
-pub(super) struct HeldHand {
-    /// Answers once the hand has reached the stand-in.
-    pub(super) handed: oneshot::Receiver<()>,
-    /// Takes whether the stand-in refuses the hand, leaving no row, or accepts it.
-    pub(super) is_refused: oneshot::Sender<bool>,
-}
-
 impl TestLimitInterrupter {
-    /// Holds the next `COUNT` hands, in the order they reach the stand-in, each until the test
-    /// answers it.
-    pub(super) fn hold_hands<const COUNT: usize>(&self) -> [HeldHand; COUNT] {
-        let mut held_hands = self
-            .held_hands
-            .lock()
-            .expect("the stand-in's held hands are not poisoned");
-        std::array::from_fn(|_| {
-            let (reached, handed) = oneshot::channel();
-            let (is_refused, answer) = oneshot::channel();
-            held_hands.push_back((reached, answer));
-            HeldHand { handed, is_refused }
-        })
-    }
-
     /// Has every later refusal leave its row pending.
     pub(super) fn refuse_with_row_pending(&self) {
         self.is_refused_row_pending.store(true, Ordering::SeqCst);
@@ -167,20 +146,9 @@ impl LimitInterrupter for TestLimitInterrupter {
             .lock()
             .expect("the stand-in's turns are not poisoned")
             .push(cut_turn);
-        let held = self
-            .held_hands
-            .lock()
-            .expect("the stand-in's held hands are not poisoned")
-            .pop_front();
         async move {
-            let (is_refused, is_row_pending) = match held {
-                Some((reached, answer)) => {
-                    reached
-                        .send(())
-                        .expect("the test waits for the hand it holds");
-                    let is_refused = answer.await.expect("the test answers the hand it holds");
-                    (is_refused, false)
-                }
+            let (is_refused, is_row_pending) = match self.held_hands.pass().await {
+                Some(is_refused) => (is_refused, false),
                 None => (
                     self.refusals_left
                         .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
@@ -214,7 +182,7 @@ pub(super) fn hand_limit_interrupter(
         refusals_left: AtomicUsize::new(refusals),
         is_refused_row_pending: AtomicBool::new(false),
         row_database: OnceLock::new(),
-        held_hands: Mutex::new(VecDeque::new()),
+        held_hands: PausePoint::default(),
         calls: AtomicUsize::new(0),
         cut_turns: Mutex::new(Vec::new()),
     });
