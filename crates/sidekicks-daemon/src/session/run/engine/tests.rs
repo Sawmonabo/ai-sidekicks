@@ -41,7 +41,6 @@ use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
 use crate::uuid_v7::mint_uuid_v7;
 
@@ -197,37 +196,9 @@ pub(super) fn hand_limit_interrupter(
     interrupter
 }
 
-/// The interventions table in the stored shape: the closed type and state words, the columns a
-/// request must carry, and one row per requester's key on a run.
-pub(super) const INTERVENTIONS_TABLE_SQL: &str = "
-CREATE TABLE interventions (
-  id                      TEXT PRIMARY KEY,
-  target_run_id           TEXT NOT NULL,
-  type                    TEXT NOT NULL CHECK(type IN ('interrupt', 'fasterModelRetry')),
-  state                   TEXT NOT NULL DEFAULT 'requested'
-                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected',
-                                          'degraded', 'expired', 'failed')),
-  payload                 TEXT NOT NULL DEFAULT '{}',
-  expected_run_version    INTEGER NOT NULL,
-  client_idempotency_key  TEXT NOT NULL,
-  device_id               TEXT,
-  rejection_reason        TEXT,
-  fallback_action         TEXT,
-  failure_reason          TEXT,
-  created_at              TEXT NOT NULL,
-  resolved_at             TEXT,
-  UNIQUE (target_run_id, client_idempotency_key)
-) STRICT;
-";
-
-/// Makes the runs and interventions tables and writes `run_id` of `session_id` running at
-/// version 1.
+/// Writes `run_id` of `session_id` running at version 1.
 pub(super) fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
     let connection = database.reader();
-    connection
-        .execute_batch(RUNS_TABLE_SQL)
-        .and_then(|()| connection.execute_batch(INTERVENTIONS_TABLE_SQL))
-        .expect("the test makes the runs and interventions tables");
     connection
         .execute(
             "INSERT INTO runs (run_id, session_id, state, run_version)

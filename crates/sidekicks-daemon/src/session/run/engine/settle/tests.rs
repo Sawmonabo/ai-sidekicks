@@ -18,10 +18,9 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    INTERVENTIONS_TABLE_SQL, STEP_BOUND, append, provider_end, run_version, stored_events,
-    stored_run_state, test_engine, token_limit, turn, turn_started_at,
+    STEP_BOUND, append, provider_end, run_version, stored_events, stored_run_state, test_engine,
+    token_limit, turn, turn_started_at,
 };
-use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::read::{LiveRun, RunRead};
 use crate::session::run::state_change::RunStateChangeCompanions;
 use crate::uuid_v7::mint_uuid_v7;
@@ -139,10 +138,6 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
     let turn_one = turn(1);
     // Interrupted at version 3, continued at 4, and running turn 1 at 5.
     let connection = database.reader();
-    connection
-        .execute_batch(RUNS_TABLE_SQL)
-        .and_then(|()| connection.execute_batch(INTERVENTIONS_TABLE_SQL))
-        .expect("the test makes the runs and interventions tables");
     connection
         .execute(
             "INSERT INTO runs (run_id, session_id, state, run_version)

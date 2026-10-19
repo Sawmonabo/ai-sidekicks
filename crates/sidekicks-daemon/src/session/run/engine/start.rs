@@ -652,7 +652,6 @@ mod tests {
     use crate::session::run::engine::tests::{
         DRIVER_HOLD, SETTLE_WAIT, held_driver, test_engine, turn_start,
     };
-    use crate::session::run::projection::RUNS_TABLE_SQL;
     use crate::session::run::start_request::RunStartRequest;
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
     use crate::uuid_v7::mint_uuid_v7;
@@ -668,9 +667,6 @@ mod tests {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         {
             let connection = database.reader();
-            connection
-                .execute_batch(RUNS_TABLE_SQL)
-                .expect("the test makes the runs table");
             connection
                 .execute(
                     "INSERT INTO runs (run_id, session_id, state, run_version)

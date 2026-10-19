@@ -43,24 +43,6 @@ pub(crate) struct RunStateSwap {
     pub(crate) new_state: RunStateChangeState,
 }
 
-/// The `runs` table as the daemon's schema declares it, for a test's database file.
-#[cfg(test)]
-pub(crate) const RUNS_TABLE_SQL: &str = "
-CREATE TABLE runs (
-  run_id         TEXT NOT NULL PRIMARY KEY,
-  session_id     TEXT NOT NULL,
-  parent_run_id  TEXT,
-  reached_by     TEXT
-                 CHECK(reached_by IS NULL
-                   OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
-  is_apart       INTEGER NOT NULL DEFAULT 0 CHECK(is_apart IN (0, 1)),
-  state          TEXT NOT NULL
-    CHECK(state IN ('queued', 'starting', 'running', 'waitingForApproval', 'waitingForInput',
-                    'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
-  run_version    INTEGER NOT NULL CHECK(run_version >= 0)
-) STRICT;
-";
-
 const INSERT_QUEUED_RUN_SQL: &str = "INSERT INTO runs
     (run_id, session_id, parent_run_id, reached_by, is_apart, state, run_version)
   VALUES (@run_id, @session_id, @parent_run_id, @reached_by, @is_apart, @state, @run_version)";

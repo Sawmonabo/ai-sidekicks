@@ -509,25 +509,5 @@ pub(crate) fn applied_pending_interrupts_of(
     Ok(companions)
 }
 
-/// The queue table with the columns the queue's reads name, for a test's database file.
-#[cfg(test)]
-pub(crate) const QUEUE_ITEMS_TABLE_SQL: &str = "
-CREATE TABLE queue_items (
-  id                    TEXT PRIMARY KEY,
-  session_id            TEXT NOT NULL,
-  state                 TEXT NOT NULL DEFAULT 'queued'
-                        CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled',
-                                        'notDelivered')),
-  not_delivered_reason  TEXT,
-  payload               TEXT NOT NULL DEFAULT '{}',
-  target_run_id         TEXT,
-  child_handle          TEXT,
-  position              INTEGER NOT NULL DEFAULT 0,
-  client_idempotency_key TEXT,
-  created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL
-) STRICT;
-";
-
 #[cfg(test)]
 mod tests;

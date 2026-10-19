@@ -9,8 +9,8 @@ use sidekicks_contracts::run::intervention::{
 use sidekicks_contracts::run::state::RunState;
 
 use super::{
-    PendingInterrupt, QUEUE_ITEMS_TABLE_SQL, RestartDecision, RestartFacts, RestartSettlement,
-    RestartTurnEnd, decide_restart_settlement, no_waiting_item_statement,
+    PendingInterrupt, RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
+    decide_restart_settlement, no_waiting_item_statement,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
@@ -249,13 +249,10 @@ async fn the_waiting_item_guard_holds_only_while_a_queued_message_targets_the_ru
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let connection = database.reader();
     connection
-        .execute_batch(QUEUE_ITEMS_TABLE_SQL)
-        .expect("the test makes the queue table");
-    connection
         .execute(
-            "INSERT INTO queue_items (id, session_id, state, target_run_id, created_at,
-               updated_at)
-             VALUES ('item', 'session', 'queued', ?1, '', '')",
+            "INSERT INTO queue_items (id, session_id, state, target_run_id, position,
+               created_at, updated_at)
+             VALUES ('item', 'session', 'queued', ?1, 0, '', '')",
             [run_id.text().as_str()],
         )
         .expect("the test queues a message for the run");

@@ -19,13 +19,11 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::tests::{
-    INTERVENTIONS_TABLE_SQL, append, continue_request, events, hand_limit_interrupter,
-    insert_running_run, started_turn, stored_events, stored_run_state, test_engine, token_limit,
-    turn_completed_at, turn_started_at,
+    append, continue_request, events, hand_limit_interrupter, insert_running_run, started_turn,
+    stored_events, stored_run_state, test_engine, token_limit, turn_completed_at, turn_started_at,
 };
-use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::read::{LiveRun, RunRead};
-use crate::session::run::restart::{QUEUE_ITEMS_TABLE_SQL, RestartFacts, read_restart_facts};
+use crate::session::run::restart::{RestartFacts, read_restart_facts};
 use crate::session::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
 use crate::uuid_v7::mint_uuid_v7;
 
@@ -513,11 +511,6 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let connection = database.reader();
     connection
-        .execute_batch(RUNS_TABLE_SQL)
-        .and_then(|()| connection.execute_batch(QUEUE_ITEMS_TABLE_SQL))
-        .and_then(|()| connection.execute_batch(INTERVENTIONS_TABLE_SQL))
-        .expect("the test makes its tables");
-    connection
         .execute(
             "INSERT INTO runs (run_id, session_id, state, run_version)
              VALUES (?1, ?2, 'queued', 0)",
@@ -527,9 +520,9 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
     // Queued after the settle read the run had no message waiting.
     connection
         .execute(
-            "INSERT INTO queue_items (id, session_id, state, target_run_id, created_at,
-               updated_at)
-             VALUES ('item', ?1, 'queued', ?2, '', '')",
+            "INSERT INTO queue_items (id, session_id, state, target_run_id, position,
+               created_at, updated_at)
+             VALUES ('item', ?1, 'queued', ?2, 0, '', '')",
             params![session_id.text().as_str(), run_id.text().as_str()],
         )
         .expect("the test queues a message for the run");

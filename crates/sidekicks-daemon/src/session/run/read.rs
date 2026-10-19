@@ -234,28 +234,10 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
 
     use super::read_run_provider;
+    use crate::database::schema::DAEMON_SCHEMA_SQL;
     use crate::database::writer::test_file::test_session_id;
     use crate::provider::driver::registry::test_provider;
-    use crate::session::run::projection::RUNS_TABLE_SQL;
     use crate::uuid_v7::mint_uuid_v7;
-
-    // The runtime bindings table as the daemon's schema declares it, its checks and its index left
-    // out.
-    const RUNTIME_BINDINGS_TABLE_SQL: &str = "
-CREATE TABLE runtime_bindings (
-  id                  TEXT PRIMARY KEY,
-  run_id              TEXT NOT NULL,
-  provider_name       TEXT NOT NULL,
-  contract_version    TEXT NOT NULL,
-  cli_version_raw     TEXT NOT NULL,
-  cli_version_semver  TEXT,
-  resume_handle       TEXT,
-  spawn_config        TEXT NOT NULL DEFAULT '{}',
-  runtime_metadata    TEXT NOT NULL DEFAULT '{}',
-  created_at          TEXT NOT NULL,
-  updated_at          TEXT NOT NULL
-) STRICT;
-";
 
     // Killed by reading the run's own binding alone, which finds none for a subagent, by climbing
     // only one level, or by climbing from a child reached any other way, which runs on a provider
@@ -264,9 +246,8 @@ CREATE TABLE runtime_bindings (
     fn a_provider_subagent_runs_on_the_provider_of_the_nearest_parent_with_a_binding() {
         let connection = Connection::open_in_memory().expect("the test opens a database");
         connection
-            .execute_batch(RUNS_TABLE_SQL)
-            .and_then(|()| connection.execute_batch(RUNTIME_BINDINGS_TABLE_SQL))
-            .expect("the test makes its tables");
+            .execute_batch(&DAEMON_SCHEMA_SQL)
+            .expect("the test makes the daemon's tables");
         let session_id = test_session_id();
         let new_run = |parent: Option<&RunId>, reached_by: Option<&str>| {
             let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
