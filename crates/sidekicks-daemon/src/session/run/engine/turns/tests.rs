@@ -680,8 +680,9 @@ async fn a_step_stop_whose_turn_has_ended_writes_nothing_and_keeps_an_owed_inter
 }
 
 // Killed by the hand of the step limit's interrupt going while another is in flight, which sends
-// the run two interrupts, and by a resend left to that hand keeping its own cut in place of the
-// stop's.
+// the run two interrupts; by a resend left to that hand keeping its own cut in place of the
+// stop's; and by that resend reading the run before it finds the hand in flight, which reads the
+// run ended and forgets the limit, so no resend goes once the run runs again.
 #[tokio::test]
 async fn a_step_interrupt_resend_waits_for_the_hand_in_flight() {
     let database = TestDatabase::new();
@@ -705,16 +706,33 @@ async fn a_step_interrupt_resend_waits_for_the_hand_in_flight() {
         "the stop answers {refused:?}"
     );
     let stop_cuts = lock(&engine.live).cut_turns.clone();
-    // Another resend of the interrupt is in flight.
+    let set_state = |state: &str| {
+        database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = ?1 WHERE run_id = ?2",
+                [state, run_id.text().as_str()],
+            )
+            .expect("the test moves the run");
+    };
+    // Another resend of the interrupt is in flight, and the run reads ended while it is.
     lock(&engine.live).step_interrupts_in_flight.insert(run_id);
+    set_state("completed");
 
     engine
         .hand_owed_step_interrupt(run_id)
         .await
         .expect("the resend is left to the hand in flight");
     assert_eq!(interventions.calls.load(Ordering::SeqCst), 1);
-    assert_eq!(lock(&engine.live).cut_turns, stop_cuts);
+    let live = lock(&engine.live);
+    assert_eq!(live.cut_turns, stop_cuts);
+    assert!(
+        live.reached_limits.contains(&(run_id, RunLimit::StepLimit)),
+        "the resend read nothing, so the limit stays owed"
+    );
+    drop(live);
 
+    set_state("running");
     lock(&engine.live).step_interrupts_in_flight.remove(&run_id);
     engine
         .hand_owed_step_interrupt(run_id)

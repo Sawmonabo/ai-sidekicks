@@ -188,11 +188,12 @@ impl RunEngine {
     /// reached event is written while the run is live (a token limit's once per run, none for the
     /// spend limit or a stop retried at a limit whose reached event landed), then the interrupt
     /// goes to the interventions service; the step limit's goes one hand at a time, and a stop
-    /// that finds one in flight leaves the run to it. The stop waits out a continue of the run. A
-    /// run that has ended, a step stop whose turn ended before its cut went in, and a token stop
-    /// whose once-per-run guard refused while the token limit's own interrupt is still pending are
-    /// left with the cuts as they were and nothing written; a run the limit's end may not leave
-    /// its state from is refused with nothing written. Fails with
+    /// that finds one in flight leaves the run to it, a resend at once with nothing read or cut.
+    /// The stop waits out a continue of the run. A run that has ended, a step stop whose turn
+    /// ended before its cut went in, and a token stop whose once-per-run guard refused while the
+    /// token limit's own interrupt is still pending are left with the cuts as they were and
+    /// nothing written; a run the limit's end may not leave its state from is refused with
+    /// nothing written. Fails with
     /// [`RunEngineError::LimitInterrupterGone`], nothing written, when the engine holds no live
     /// interventions service, and with [`RunEngineError::LimitInterrupt`] when the service fails,
     /// the reached event, the cut and the memory kept for the stop's retry.
@@ -201,6 +202,15 @@ impl RunEngine {
         run_id: RunId,
         stop: LimitStop,
     ) -> Result<(), RunEngineError> {
+        // A resend of the step limit's interrupt another hand has in flight is left to it before
+        // it reads or cuts anything.
+        if let LimitStop::Interrupt {
+            limit: RunLimit::StepLimit,
+        } = stop
+            && lock(&self.live).step_interrupts_in_flight.contains(&run_id)
+        {
+            return Ok(());
+        }
         self.live_limit_interrupter(run_id)?;
         let limit = stop.limit();
         self.wait_while_continuing(&run_id).await;
