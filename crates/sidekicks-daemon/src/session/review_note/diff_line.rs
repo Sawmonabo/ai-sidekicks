@@ -26,6 +26,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{PathRules, resolve_path, resolve_path_against};
 
 use crate::git::process::{GIT_OUTPUT_MAX_BYTES, GitCall, GitError, GitRunner, background_read};
+use crate::missing_entry::is_gone;
 
 /// A diff marks every line, so its output can run to twice the file; a quarter of git's output
 /// bound leaves room for that and the headers.
@@ -309,14 +310,7 @@ impl NotedLineReader {
         let metadata = match tokio::fs::symlink_metadata(contained_path).await {
             Ok(metadata) => metadata,
             // A listed file deleted since, or a folder on its path replaced by a file.
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
-                ) =>
-            {
-                return Ok(None);
-            }
+            Err(error) if is_gone(&error) => return Ok(None),
             Err(error) => return Err(NotedLineError::File(error)),
         };
         // A folder (a submodule's checkout) or a special file such as a pipe has no lines to read.
@@ -334,6 +328,23 @@ impl NotedLineReader {
         {
             // No difference from no file is an empty file.
             Ok(_) => Ok(Some(Vec::new())),
+            // git exits 1 both for a difference and for a file it could not read; only the second
+            // prints nothing and names its failure, then a file gone since the check has no lines.
+            Err(GitError::Exited {
+                code: Some(DIFFERENCE_EXIT_CODE),
+                stdout,
+                stderr,
+            }) if stdout.is_empty() && !stderr.is_empty() => {
+                match tokio::fs::symlink_metadata(contained_path).await {
+                    Err(error) if is_gone(&error) => Ok(None),
+                    Ok(_) | Err(_) => Err(GitError::Exited {
+                        code: Some(DIFFERENCE_EXIT_CODE),
+                        stdout,
+                        stderr,
+                    }
+                    .into()),
+                }
+            }
             Err(GitError::Exited {
                 code: Some(DIFFERENCE_EXIT_CODE),
                 stdout,
