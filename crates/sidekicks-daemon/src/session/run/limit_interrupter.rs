@@ -17,8 +17,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 /// [`RunEngine::end_run_for_interrupt`]: crate::session::run::engine::RunEngine::end_run_for_interrupt
 pub(crate) trait LimitInterrupter: Send + Sync {
     /// Interrupts `run_id` because it reached `limit`, its row naming `cut_turn`, the turn the
-    /// stop cut. A row this returns `Ok` for ends `applied` or `degraded`; a failure says whether
-    /// the row is still `requested` or `accepted`, since that row alone marks the cut.
+    /// stop cut, and answers within its own bound, since the stop's task runs until it answers and
+    /// holds the run's step resends meanwhile. A row this returns `Ok` for ends `applied` or
+    /// `degraded`; a failure, a hand it cannot finish among them, says whether the row is still
+    /// `requested` or `accepted`, since that row alone marks the cut.
     fn interrupt_for_limit(
         &self,
         run_id: RunId,

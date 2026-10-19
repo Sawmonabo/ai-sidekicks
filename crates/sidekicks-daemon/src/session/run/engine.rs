@@ -665,7 +665,8 @@ impl RunEngine {
             .ok_or(RunEngineError::ProviderUnknown { run_id })
     }
 
-    // A run being continued reads ended until its continue is written.
+    // A run being continued reads ended until its continue is written. The wait ends when the
+    // continue's guard settles, which it does on every exit of the continue, its drop included.
     async fn wait_while_continuing(&self, run_id: &RunId) {
         let continuing = lock(&self.live).continuing.get(run_id).cloned();
         if let Some(continuing) = continuing {
