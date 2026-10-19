@@ -187,13 +187,15 @@ impl PinnedProcess {
         let descendants = list_descendants(self);
         let is_running = self.send_checked_signal(signal);
         let group_end = self.kill_rest_of_own_group();
-        let descendant_ends = descendants
-            .iter()
-            .map(|descendant| descendant.send_checked_signal(signal).map(|_| ()))
-            .collect::<io::Result<()>>();
+        // Every descendant is signaled, and the first refusal is kept.
+        let mut descendant_end = Ok(());
+        for descendant in &descendants {
+            let end = descendant.send_checked_signal(signal).map(drop);
+            descendant_end = descendant_end.and(end);
+        }
         let is_running = is_running?;
         group_end?;
-        descendant_ends?;
+        descendant_end?;
         Ok(is_running)
     }
 
