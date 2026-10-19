@@ -12,11 +12,12 @@ use std::time::Duration;
 
 use nix::errno::Errno;
 use nix::sys::signal::Signal;
+use nix::unistd::{Pid, getsid};
 use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
 use polling::{PollMode, Poller};
 
 use crate::child_command::ChildEnd;
-use crate::macos::processes::list_child_process_ids;
+use crate::macos::processes::{list_child_process_ids, list_group_process_ids};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process_stop::{kill_rest_of_group, stop_pinned_process, wait_for_event};
 
@@ -283,6 +284,46 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
             audit_token: None,
         }),
     )
+}
+
+/// Ends what is left of the group the process `record` names led, once that process has ended: on
+/// the boot it was recorded in, only while no process holds its id and every member of the group
+/// is in its session and started after it, its unique id above the recorded one; `false` when
+/// nothing was ended. Fails with the system's error, and with `Unsupported` on a macOS without the
+/// checked read.
+pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
+    if record.boot.as_deref() != Some(current_boot()?.as_str()) {
+        return Ok(false);
+    }
+    // A process holding the id is the recorded one, or a later one, which took the id only once
+    // the group's last member had ended.
+    if pinned(record.id)?.is_some() {
+        return Ok(false);
+    }
+    let mut has_members = false;
+    for member_id in list_group_process_ids(record.id)? {
+        let member = libc::pid_t::try_from(member_id)
+            .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
+        // A member that ends between the list and its reads is no survivor.
+        let session = match getsid(Some(Pid::from_raw(member))) {
+            Ok(session) => session,
+            Err(Errno::ESRCH) => continue,
+            Err(errno) => return Err(io::Error::from(errno)),
+        };
+        let Some(member) = pinned(member_id)? else {
+            continue;
+        };
+        if u32::try_from(session.as_raw()).ok() != Some(record.id)
+            || member.unique_id <= record.start
+        {
+            return Ok(false);
+        }
+        has_members = true;
+    }
+    if !has_members {
+        return Ok(false);
+    }
+    kill_rest_of_group(record.id)
 }
 
 // The start time of process `id` in microseconds since the epoch, read only while `unique_id`

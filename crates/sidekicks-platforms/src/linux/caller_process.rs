@@ -10,7 +10,7 @@ use interprocess::local_socket::tokio::Stream;
 
 use crate::caller_process::{PARENT_READ_ATTEMPTS, ParentProcess};
 use crate::linux::pinned_process::{PinnedProcess, descriptor_process_id, open_process_descriptor};
-use crate::linux::read_process_stat_field;
+use crate::linux::read_process_stat_fields;
 
 // The stat file's field holding the parent's id.
 const PARENT_FIELD: usize = 4;
@@ -91,7 +91,7 @@ pub fn read_parent_process(process: &PinnedProcess) -> io::Result<ParentProcess>
 /// `process`'s parent's id from its stat file, `None` once it has been reaped. The read names
 /// `process` only if its descriptor still names a live process after it, so that is checked.
 fn read_parent_id(process: &PinnedProcess) -> io::Result<Option<u32>> {
-    let Some(parent) = read_process_stat_field(process.id, PARENT_FIELD)? else {
+    let Some([parent]) = read_process_stat_fields(process.id, [PARENT_FIELD])? else {
         return Ok(None);
     };
     if descriptor_process_id(process.descriptor.as_raw_fd())?.is_none() {

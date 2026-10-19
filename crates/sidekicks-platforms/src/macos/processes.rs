@@ -9,6 +9,9 @@ use std::sync::OnceLock;
 const PROC_UID_ONLY: u32 = 4;
 const PROC_PPID_ONLY: u32 = 6;
 
+// `<sys/proc_info.h>`'s `PROC_PGRP_ONLY`, which `libc` does not bind: list one process group.
+const PROC_PGRP_ONLY: u32 = 2;
+
 // The bytes of one process id in `proc_listpids`' answer.
 const PROCESS_ID_BYTES: usize = size_of::<libc::pid_t>();
 
@@ -28,6 +31,12 @@ pub fn list_user_process_ids(user_id: u32) -> io::Result<Vec<u32>> {
 /// read; fails with the system's error when macOS refuses the list.
 pub(crate) fn list_child_process_ids(parent_id: u32) -> io::Result<Vec<u32>> {
     list_process_ids(PROC_PPID_ONLY, parent_id)
+}
+
+/// The ids of the processes in group `group_id`. Blocks on the read; fails with the system's error
+/// when macOS refuses the list.
+pub(crate) fn list_group_process_ids(group_id: u32) -> io::Result<Vec<u32>> {
+    list_process_ids(PROC_PGRP_ONLY, group_id)
 }
 
 // The ids of the processes `kind` and `value` select.

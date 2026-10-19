@@ -187,6 +187,21 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
     Ok(Some(process))
 }
 
+/// Ends what is left of the tree `record` names once its process has ended: every process still
+/// in the job a lasting child ran in; `false` when the record names no job or no job has its
+/// name. Fails with `InvalidData` for a job name no lasting child is given, else with the
+/// system's error.
+pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
+    let Some(name) = &record.job else {
+        return Ok(false);
+    };
+    let Some(job) = open_recorded_job(record, name)? else {
+        return Ok(false);
+    };
+    terminate_job_object(&job)?;
+    Ok(true)
+}
+
 // The job `record` names `name`, opened with the rights to ask what it holds and to end it; `None`
 // when no job has the name. Fails with `InvalidData` for a name of another shape than a lasting
 // child's job is given, else with the system's error.
@@ -297,24 +312,24 @@ fn read_creation_time(process: HANDLE) -> io::Result<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::ErrorKind;
     use std::time::{Duration, Instant};
 
+    use rstest::rstest;
     use sysinfo::{Pid, ProcessesToUpdate, System};
 
     use super::PinnedProcess;
     use crate::child_command::ChildEnd;
-    use crate::lasting_child::LastingCommand;
-    use crate::pin_child_process;
+    use crate::lasting_child::{LastingChild, LastingCommand};
     use crate::pinned_process::KILL_WAIT_BOUND;
     use crate::windows::lasting_child::spawn_lasting_child;
+    use crate::{ProcessRecord, pin_child_process};
 
-    // Fails when the stop ends the process alone, or re-pins it without its job's name, which
-    // leaves its own child running.
+    // Fails when the stop ends the process alone, or re-pins it without its job; or when a record
+    // naming a job of another shape, or one that does not hold its running process, re-pins it.
     #[test]
     fn pinned_process_stop_ends_a_re_pinned_lasting_child_and_its_child() {
-        let shell = std::env::var_os("ComSpec").expect("Windows names its command shell");
-        let folder = tempfile::tempdir().expect("a scratch folder is made");
-        let arguments = [
+        let (child, grandchild) = start_lasting_child(&[
             "/d",
             "/c",
             "start",
@@ -328,16 +343,25 @@ mod tests {
             "-n",
             "60",
             "127.0.0.1",
-        ];
-        let child = spawn_lasting_child(LastingCommand {
-            program: shell.into(),
-            arguments: arguments.map(str::to_owned).to_vec(),
-            environment: std::env::vars().collect(),
-            working_folder: folder.path().to_owned(),
-            error_output: tempfile::tempfile().expect("the error output file is made"),
-        })
-        .expect("the lasting child starts");
-        let grandchild = find_child_of(child.process.id());
+        ]);
+        let job_name = child
+            .record
+            .job
+            .clone()
+            .expect("a lasting child records its job");
+        let refusals = [
+            format!("{job_name}0"),
+            format!("ai-sidekicks-lasting-{}", "0".repeat(32)),
+        ]
+        .map(|job| {
+            ProcessRecord {
+                job: Some(job),
+                ..child.record.clone()
+            }
+            .pin()
+            .map(|_| ())
+            .map_err(|error| error.kind())
+        });
         let re_pinned = child
             .record
             .pin()
@@ -348,6 +372,10 @@ mod tests {
             .stop(Duration::ZERO)
             .expect("the stop ends the child");
 
+        assert_eq!(
+            refusals,
+            [Err(ErrorKind::InvalidData), Err(ErrorKind::InvalidData)]
+        );
         assert_eq!(end, ChildEnd::Kill);
         assert!(
             child
@@ -360,6 +388,55 @@ mod tests {
                 .wait_for_exit(KILL_WAIT_BOUND)
                 .expect("the grandchild's wait reads")
         );
+    }
+
+    // Fails when a stop returns on the process's own exit without ending its job, or when a
+    // record whose process has ended leaves its job running; either leaves the child it started
+    // running.
+    #[rstest]
+    #[case::by_the_stop(true)]
+    #[case::by_the_record(false)]
+    fn pinned_process_job_ends_after_a_lasting_child_exits(#[case] is_by_the_stop: bool) {
+        let (child, grandchild) =
+            start_lasting_child(&["/d", "/c", "start", "/b", "ping", "-n", "60", "127.0.0.1"]);
+        assert!(
+            child
+                .process
+                .wait_for_exit(KILL_WAIT_BOUND)
+                .expect("the child's wait reads")
+        );
+
+        let ended = if is_by_the_stop {
+            child.process.stop(Duration::ZERO).expect("the stop reads") == ChildEnd::Stop
+        } else {
+            child.record.pin().expect("the re-pin reads").is_none()
+                && child.record.end_survivors().expect("the survivors end")
+        };
+
+        assert!(ended);
+        assert!(
+            grandchild
+                .wait_for_exit(KILL_WAIT_BOUND)
+                .expect("the grandchild's wait reads")
+        );
+    }
+
+    // A lasting child of the command shell running `arguments`, and the first child it starts.
+    fn start_lasting_child(arguments: &[&str]) -> (LastingChild, PinnedProcess) {
+        let shell = std::env::var_os("ComSpec").expect("Windows names its command shell");
+        let child = spawn_lasting_child(LastingCommand {
+            program: shell.into(),
+            arguments: arguments
+                .iter()
+                .map(|&argument| argument.to_owned())
+                .collect(),
+            environment: std::env::vars().collect(),
+            working_folder: std::env::temp_dir(),
+            error_output: tempfile::tempfile().expect("the error output file is made"),
+        })
+        .expect("the lasting child starts");
+        let grandchild = find_child_of(child.process.id());
+        (child, grandchild)
     }
 
     // A child of process `parent`, pinned, once one has started; fails the test after ten seconds.

@@ -12,9 +12,13 @@ use nix::sys::signal::Signal;
 use polling::{Event, Poller};
 
 use crate::child_command::ChildEnd;
-use crate::linux::{read_process_file, read_process_stat_field};
+use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process_stop::{kill_rest_of_group, stop_pinned_process, wait_for_event};
+
+// The stat file's fields holding the process's group and session.
+const GROUP_FIELD: usize = 5;
+const SESSION_FIELD: usize = 6;
 
 // The stat file's field holding the process's start, in clock ticks since boot.
 const START_FIELD: usize = 22;
@@ -48,19 +52,16 @@ impl PinnedProcess {
     /// The record a later process re-pins this one from; `None` once it has been reaped. Fails
     /// with the system's error, and with `InvalidData` for a stat file whose start does not read.
     pub fn record(&self) -> io::Result<Option<ProcessRecord>> {
-        let Some(start) = read_process_stat_field(self.id, START_FIELD)? else {
+        let Some([start]) = read_process_stat_fields(self.id, [START_FIELD])? else {
             return Ok(None);
         };
         // The stat file names this process only if its descriptor still names a live one after it.
         if descriptor_process_id(self.descriptor.as_raw_fd())?.is_none() {
             return Ok(None);
         }
-        let start = start
-            .parse()
-            .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
         Ok(Some(ProcessRecord {
             id: self.id,
-            start,
+            start: parse_stat_number(&start)?,
             started_at: None,
             boot: Some(current_boot()?),
             job: None,
@@ -168,6 +169,54 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
         .record()?
         .filter(|read| read == record)
         .map(|_| process))
+}
+
+/// Ends what is left of the group the process `record` names led, once that process has ended: on
+/// the boot it was recorded in, only while no process holds its id and every member of the group
+/// is in its session and started no earlier than it; `false` when nothing was ended. Fails with
+/// the system's error, and with `InvalidData` for a stat file whose fields do not read.
+pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
+    if record.boot.as_deref() != Some(current_boot()?.as_str()) {
+        return Ok(false);
+    }
+    // A process holding the id is the recorded one, or a later one, which took the id only once
+    // the group's last member had ended.
+    if read_process_file(record.id, "stat")?.is_some() {
+        return Ok(false);
+    }
+    let mut has_members = false;
+    for entry in std::fs::read_dir("/proc")? {
+        let Ok(id) = entry?.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        let Some([group, session, start]) =
+            read_process_stat_fields(id, [GROUP_FIELD, SESSION_FIELD, START_FIELD])?
+        else {
+            continue;
+        };
+        if parse_stat_number::<i64>(&group)? != i64::from(record.id) {
+            continue;
+        }
+        if parse_stat_number::<i64>(&session)? != i64::from(record.id)
+            || parse_stat_number::<u64>(&start)? < record.start
+        {
+            return Ok(false);
+        }
+        has_members = true;
+    }
+    if !has_members {
+        return Ok(false);
+    }
+    kill_rest_of_group(record.id)
+}
+
+// A stat file's number field read as `Number`; fails with `InvalidData` when it is not one.
+fn parse_stat_number<Number: std::str::FromStr<Err = std::num::ParseIntError>>(
+    field: &str,
+) -> io::Result<Number> {
+    field
+        .parse()
+        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
 }
 
 // The machine's current boot, the kernel's boot id.

@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::PinnedProcess;
 #[cfg(target_os = "linux")]
-use crate::linux::pinned_process::pin_recorded;
+use crate::linux::pinned_process::{end_recorded_survivors, pin_recorded};
 #[cfg(target_os = "macos")]
-use crate::macos::pinned_process::pin_recorded;
+use crate::macos::pinned_process::{end_recorded_survivors, pin_recorded};
 #[cfg(target_os = "windows")]
-use crate::windows::pinned_process::pin_recorded;
+use crate::windows::pinned_process::{end_recorded_survivors, pin_recorded};
 
 /// How long a pinned process's stop waits for it to end once it is killed, before the stop fails.
 pub(crate) const KILL_WAIT_BOUND: Duration = Duration::from_secs(10);
@@ -21,7 +21,8 @@ pub(crate) const KILL_WAIT_BOUND: Duration = Duration::from_secs(10);
 /// that process's start, which no later process given the same id carries. On macOS its unique id
 /// and start time and the boot's UUID; on Linux its start in clock ticks since boot and the boot's
 /// id; on Windows its creation time and the name of the job it runs in, a creation time naming one
-/// instant across boots.
+/// instant across boots. The process's exit never ends the group it leads or the job it runs in,
+/// so what it started is ended by its stop, or through the record once it is gone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProcessRecord {
@@ -48,10 +49,24 @@ impl ProcessRecord {
     }
 
     /// The process this record names, pinned; `None` when the machine has started again since,
-    /// the process has ended, or its id now names another process. Fails with the system's error,
-    /// and on macOS with `Unsupported` where the system has no id-checked process read.
+    /// the process has ended, or its id now names another process, and then what it started may
+    /// still run, which [`Self::end_survivors`] ends. Fails with the system's error, on macOS with
+    /// `Unsupported` where the system has no id-checked process read, and on Windows with
+    /// `InvalidData` for a job name no lasting child is given or a job that does not hold its
+    /// running process.
     pub fn pin(&self) -> io::Result<Option<PinnedProcess>> {
         pin_recorded(self)
+    }
+
+    /// Ends what the record's process started that outlived it, for a record [`Self::pin`]
+    /// answered `None` for; `true` when something was ended. On Windows the job the record names;
+    /// on macOS and Linux, on the boot it was recorded in, the group the process led, only while
+    /// no process holds its id and every member is in its session and started no earlier than it.
+    /// Fails with the system's error, on macOS with `Unsupported` where the system has no
+    /// id-checked process read, and on Windows with `InvalidData` for a job name no lasting child
+    /// is given.
+    pub fn end_survivors(&self) -> io::Result<bool> {
+        end_recorded_survivors(self)
     }
 }
 
@@ -101,6 +116,61 @@ mod tests {
         child.wait().expect("the child is reaped");
         assert_eq!(re_pinned.map(|process| process.id()), Some(child.id()));
         assert_eq!(re_pinned_others, [false, false, false]);
+    }
+
+    // Fails when a record ends a group without checking each member's start, which kills a group
+    // the record does not name, or leaves the group of its ended process running, whose child then
+    // prints.
+    #[cfg(unix)]
+    #[test]
+    fn pinned_process_record_ends_the_survivors_of_its_ended_process() {
+        use std::io::{BufRead as _, BufReader};
+        use std::process::Stdio;
+
+        use crate::posix::child_command::prepare_lasting_child_command;
+
+        let mut command = tokio::process::Command::new("/bin/sh");
+        command
+            .args([
+                "-c",
+                "(/bin/sleep 10; echo outlived) & echo ready; read never",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        prepare_lasting_child_command(&mut command);
+        let mut child = command.as_std_mut().spawn().expect("the child starts");
+        let mut output = BufReader::new(child.stdout.take().expect("the child's output is piped"));
+        let mut ready = String::new();
+        output
+            .read_line(&mut ready)
+            .expect("the child's line reads");
+        let record = pin_child_process(child.id())
+            .expect("the child pins")
+            .record()
+            .expect("the record reads")
+            .expect("the child runs");
+        drop(child.stdin.take());
+        child.wait().expect("the child is reaped");
+
+        let later_record = ProcessRecord {
+            start: u64::MAX,
+            ..record.clone()
+        };
+        let is_later_group_ended = later_record
+            .end_survivors()
+            .expect("the later record's survivors read");
+        let is_re_pinned = record.pin().expect("the re-pin reads").is_some();
+        let is_group_ended = record.end_survivors().expect("the survivors end");
+        let mut rest = String::new();
+        output
+            .read_line(&mut rest)
+            .expect("the output reads to its end");
+
+        assert_eq!(ready, "ready\n");
+        assert!(!is_later_group_ended);
+        assert!(!is_re_pinned);
+        assert!(is_group_ended);
+        assert_eq!(rest, "");
     }
 
     #[cfg(unix)]
