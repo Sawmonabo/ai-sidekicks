@@ -216,55 +216,76 @@ mod tests {
             .to_owned()
     }
 
+    // One row a case stores.
+    type TestRow = Box<dyn Fn(&Connection) -> rusqlite::Result<()>>;
+
+    // The row an insert statement stores.
+    fn statement_row(sql: String) -> TestRow {
+        Box::new(move |connection| connection.execute_batch(&sql))
+    }
+
     // A run context in the shape its mode asks for, the mode written in serde's spelling.
-    fn run_context_in_shape(run_id: &str, mode: ExecutionMode) -> String {
+    fn run_context_in_shape(run_id: String, mode: ExecutionMode) -> TestRow {
         let worktree_id = match mode {
             ExecutionMode::BoundRoot => None,
             ExecutionMode::ProvisionedWorktree => Some(PARENT_WORKTREE_ID),
         };
-        RunContextRow {
-            run_id,
-            execution_mode: &serde_text(&mode),
-            worktree_id,
-            ..RunContextRow::BOUND_ROOT
-        }
-        .insert_sql()
+        let execution_mode = serde_text(&mode);
+        Box::new(move |connection| {
+            RunContextRow {
+                run_id: &run_id,
+                execution_mode: &execution_mode,
+                worktree_id,
+                ..RunContextRow::BOUND_ROOT
+            }
+            .insert(connection)
+        })
     }
 
     // The bound-root run with `change` made to it, as a case's one row.
-    fn bound_root_row(change: fn(&mut RunContextRow<'static>)) -> Vec<String> {
-        let mut row = RunContextRow::BOUND_ROOT;
-        change(&mut row);
-        vec![row.insert_sql()]
+    fn bound_root_row(change: fn(&mut RunContextRow<'static>)) -> Vec<TestRow> {
+        vec![Box::new(move |connection| {
+            let mut row = RunContextRow::BOUND_ROOT;
+            change(&mut row);
+            row.insert(connection)
+        })]
     }
 
-    fn live_and_then(first: WorktreeState, second: WorktreeState) -> Vec<String> {
+    fn live_and_then(first: WorktreeState, second: WorktreeState) -> Vec<TestRow> {
         vec![
-            worktree_row("first", "feature", <&'static str>::from(first)),
-            worktree_row("second", "feature", <&'static str>::from(second)),
+            statement_row(worktree_row(
+                "first",
+                "feature",
+                <&'static str>::from(first),
+            )),
+            statement_row(worktree_row(
+                "second",
+                "feature",
+                <&'static str>::from(second),
+            )),
         ]
     }
 
     // One tree per state, each on its own branch, since two live trees cannot share one.
-    fn one_row_per_state() -> Vec<String> {
+    fn one_row_per_state() -> Vec<TestRow> {
         WorktreeState::VARIANTS
             .iter()
             .enumerate()
             .map(|(index, state)| {
-                worktree_row(
+                statement_row(worktree_row(
                     &format!("state-{index}"),
                     &format!("branch-{index}"),
                     &serde_text(state),
-                )
+                ))
             })
             .collect()
     }
 
-    fn one_row_per_mode() -> Vec<String> {
+    fn one_row_per_mode() -> Vec<TestRow> {
         ExecutionMode::VARIANTS
             .iter()
             .enumerate()
-            .map(|(index, &mode)| run_context_in_shape(&format!("run-{index}"), mode))
+            .map(|(index, &mode)| run_context_in_shape(format!("run-{index}"), mode))
             .collect()
     }
 
@@ -293,13 +314,16 @@ mod tests {
     #[case::without_a_git_common_dir(bound_root_row(|row| row.git_common_dir = None), false)]
     #[case::every_state_admitted(one_row_per_state(), true)]
     #[case::every_mode_admitted(one_row_per_mode(), true)]
-    #[case::a_state_outside_the_set(vec![worktree_row("tree", "feature", "archived")], false)]
+    #[case::a_state_outside_the_set(
+        vec![statement_row(worktree_row("tree", "feature", "archived"))],
+        false
+    )]
     #[case::a_mode_outside_the_set(
         bound_root_row(|row| row.execution_mode = "worktree"),
         false
     )]
     fn admits_only_rows_the_worktree_tables_allow(
-        #[case] rows: Vec<String>,
+        #[case] rows: Vec<TestRow>,
         #[case] is_last_admitted: bool,
     ) {
         let connection = Connection::open_in_memory().expect("an in-memory database opens");
@@ -307,12 +331,10 @@ mod tests {
         insert_worktree_rows(&connection);
         let (last, earlier) = rows.split_last().expect("each case writes a row");
         for row in earlier {
-            connection
-                .execute_batch(row)
-                .expect("each row before the last is admitted");
+            row(&connection).expect("each row before the last is admitted");
         }
         // `None` is a failure other than a constraint's, such as a mistyped statement.
-        let outcome = match connection.execute_batch(last) {
+        let outcome = match last(&connection) {
             Ok(()) => Some(true),
             Err(error) => {
                 (error.sqlite_error_code() == Some(ErrorCode::ConstraintViolation)).then_some(false)

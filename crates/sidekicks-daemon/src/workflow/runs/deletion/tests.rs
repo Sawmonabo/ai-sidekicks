@@ -138,14 +138,12 @@ async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() 
             },
         );
     }
-    rows.execute_batch(
-        &RunContextRow {
-            run_id: &ended,
-            git_common_dir: Some(GIT_COMMON_DIR),
-            ..RunContextRow::BOUND_ROOT
-        }
-        .insert_sql(),
-    )
+    RunContextRow {
+        run_id: &ended,
+        git_common_dir: Some(GIT_COMMON_DIR),
+        ..RunContextRow::BOUND_ROOT
+    }
+    .insert(&rows)
     .expect("the test stores the run's context");
 
     let refused = deletion

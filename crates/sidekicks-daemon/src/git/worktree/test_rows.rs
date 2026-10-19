@@ -2,7 +2,7 @@
 //! rows, a live worktree on their mount and that worktree's branch context, and a run's execution
 //! context on it.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, named_params};
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 
 use crate::git::worktree::schema::WORKTREE_SCHEMA_SQL;
@@ -79,28 +79,26 @@ impl RunContextRow<'_> {
         released_at: None,
     };
 
-    /// The row's insert, each text quoted for SQL.
-    pub(crate) fn insert_sql(&self) -> String {
-        format!(
-            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
-             execution_mode, execution_root, checkout_root, git_common_dir, worktree_id, \
-             branch_context_id, created_at, released_at) VALUES ({}, 'session', 'workspace', \
-             {}, {}, {}, {}, {}, 'branch-context', '{PARENT_ROWS_AT}', {})",
-            sql_text(Some(self.run_id)),
-            sql_text(Some(self.execution_mode)),
-            sql_text(Some(self.execution_root)),
-            sql_text(self.checkout_root),
-            sql_text(self.git_common_dir),
-            sql_text(self.worktree_id),
-            sql_text(self.released_at),
-        )
+    /// Stores the row. Fails as SQLite does, a constraint's refusal among them.
+    pub(crate) fn insert(&self, connection: &Connection) -> rusqlite::Result<()> {
+        connection
+            .execute(
+                "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+                 execution_mode, execution_root, checkout_root, git_common_dir, worktree_id, \
+                 branch_context_id, created_at, released_at) VALUES (:run_id, 'session', \
+                 'workspace', :execution_mode, :execution_root, :checkout_root, :git_common_dir, \
+                 :worktree_id, 'branch-context', :created_at, :released_at)",
+                named_params! {
+                    ":run_id": self.run_id,
+                    ":execution_mode": self.execution_mode,
+                    ":execution_root": self.execution_root,
+                    ":checkout_root": self.checkout_root,
+                    ":git_common_dir": self.git_common_dir,
+                    ":worktree_id": self.worktree_id,
+                    ":created_at": PARENT_ROWS_AT,
+                    ":released_at": self.released_at,
+                },
+            )
+            .map(drop)
     }
-}
-
-// `value` as an SQL literal: quoted with each quote doubled, or `NULL`.
-fn sql_text(value: Option<&str>) -> String {
-    value.map_or_else(
-        || "NULL".to_owned(),
-        |value| format!("'{}'", value.replace('\'', "''")),
-    )
 }

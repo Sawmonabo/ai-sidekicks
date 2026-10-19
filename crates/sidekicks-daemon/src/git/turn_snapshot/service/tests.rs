@@ -184,17 +184,15 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_and_nothing_else(
     let rows = database.reader();
     insert_worktree_rows(&rows);
     let run_id = run_key.to_string();
-    rows.execute_batch(
-        &RunContextRow {
-            run_id: &run_id,
-            execution_root: utf8(&repository),
-            checkout_root: Some(utf8(&repository)),
-            git_common_dir: Some(utf8(&git_common_dir)),
-            released_at,
-            ..RunContextRow::BOUND_ROOT
-        }
-        .insert_sql(),
-    )
+    RunContextRow {
+        run_id: &run_id,
+        execution_root: utf8(&repository),
+        checkout_root: Some(utf8(&repository)),
+        git_common_dir: Some(utf8(&git_common_dir)),
+        released_at,
+        ..RunContextRow::BOUND_ROOT
+    }
+    .insert(&rows)
     .expect("the test stores the run's context");
     let service = service_reading(git.clone(), &database, root.path());
 
