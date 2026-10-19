@@ -197,6 +197,7 @@ async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event()
         ("interrupted".to_owned(), 2)
     );
 }
+
 // Killed by a step stop refused on the run's state leaving the count stopping: the step that tries
 // again once the run can be stopped then sends no interrupt.
 #[tokio::test]
