@@ -1,7 +1,7 @@
 //! The event log's part of the daemon's schema: `session_events`, the append-only truth every
-//! session projection is rebuilt from, its indexes and the triggers that hold a terminal row to its
-//! key, and `session_snapshots`, a cache of a session's state at a sequence that the log can always
-//! rebuild.
+//! session projection is rebuilt from, its indexes and the triggers that hold a terminal row and a
+//! turn end to their keys, and `session_snapshots`, a cache of a session's state at a sequence that
+//! the log can always rebuild.
 
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -85,7 +85,7 @@ CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version)
   WHERE category = '{run_lifecycle}' AND type IN ({terminal_types});
 -- Every started turn gets exactly one end; a late turn end is the one row a run's log takes after
--- its terminal row.
+-- its terminal row. A NULL key would pass a UNIQUE index, so the trigger below refuses one.
 CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number)
   WHERE category = '{run_lifecycle}' AND type IN ({turn_end_types});
 
@@ -119,6 +119,15 @@ WHEN NOT (OLD.category = '{run_lifecycle}' AND OLD.type IN ({terminal_types}))
 BEGIN
   SELECT RAISE(ABORT, 'a row cannot become a terminal run row by UPDATE; terminal rows are \
          insert-only');
+END;
+
+-- A turn-end insert must carry its turn's key.
+CREATE TRIGGER trg_turn_end_key_insert BEFORE INSERT ON session_events
+WHEN NEW.category = '{run_lifecycle}'
+  AND NEW.type IN ({turn_end_types})
+  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'a turn end row requires a run_id and a turn_number');
 END;
 
 CREATE TABLE session_snapshots (
