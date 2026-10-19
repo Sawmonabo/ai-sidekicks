@@ -44,7 +44,7 @@ use crate::session::run::state_change::{
 };
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 // The version guard is the one companion of a pause's or a resume's move.
 const VERSION_GUARD_COMPANION_INDEX: usize = 0;

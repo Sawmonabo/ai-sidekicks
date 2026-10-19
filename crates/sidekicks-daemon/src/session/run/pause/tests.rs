@@ -153,7 +153,7 @@ fn safe(version: u64) -> SafeInt<0> {
 }
 
 /// The driver's answer when the request went out and no answer came.
-fn unanswered() -> DriverError {
+pub(crate) fn unanswered() -> DriverError {
     DriverError::Unanswered(RequestUnanswered {
         refusal: DomainError::new("the provider did not answer", RefusalCode::ProviderTimeout),
     })

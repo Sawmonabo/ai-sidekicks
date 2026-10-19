@@ -12,6 +12,7 @@ use crate::interventions::interrupt_queue::InterruptQueueError;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::error_causes::RequestUnanswered;
 use crate::session::run::engine::RunEngineError;
 use crate::settle_all::SettleFailures;
 
@@ -176,9 +177,10 @@ impl From<InterventionError> for HandlerError {
 /// What a dispatch failure records: a refusal's code, else its description.
 pub(super) fn failure_text_of(error: &DispatchError) -> String {
     match error {
-        DispatchError::Refused(refusal) | DispatchError::Driver(DriverError::Refused(refusal)) => {
-            refusal.code.as_str().to_owned()
-        }
+        DispatchError::Refused(refusal)
+        | DispatchError::Driver(
+            DriverError::Refused(refusal) | DriverError::Unanswered(RequestUnanswered { refusal }),
+        ) => refusal.code.as_str().to_owned(),
         DispatchError::Driver(_)
         | DispatchError::Engine(_)
         | DispatchError::RejectionReason(_)

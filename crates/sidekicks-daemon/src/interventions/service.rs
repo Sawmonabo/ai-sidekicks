@@ -8,7 +8,8 @@
 //! the driver's verdict is recorded whatever the run did meanwhile. An interrupt holds the run
 //! queue's hands to its run from before its accept until it settles, and its applied or degraded
 //! verdict is written with the run's end; a retry's verdict advances the run's version. A dispatch
-//! that throws ends the request `failed`. Retries on one run take turns under a per-run lock, and
+//! that throws ends the request `failed`; one the provider got with no answer back leaves its row
+//! `accepted`, its outcome unknown, until the run's end settles it. Retries on one run take turns under a per-run lock, and
 //! interrupts, the daemon's own at a limit among them, under another, so a stop never waits behind
 //! a retry and a retry still queued when it lands meets the advanced version and expires.
 
@@ -18,7 +19,8 @@ mod request;
 #[cfg(test)]
 pub(super) mod tests;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -62,7 +64,7 @@ use crate::interventions::store::{
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::contract::bound_failure_detail;
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
     ApplyInterventionParams, FasterModelRetryOutcome, FasterModelRetryParams, InterruptPayload,
@@ -125,6 +127,9 @@ pub(crate) struct InterventionService {
     pub(super) interrupt_lock: Arc<KeyedLock<RunId>>,
     // Orders each run's retries.
     retry_lock: Arc<KeyedLock<RunId>>,
+    // Each run's interventions the provider got with no answer back, their rows left `accepted`
+    // until the run's end settles them; never locked across an await.
+    unanswered: Arc<Mutex<HashMap<RunId, Vec<InterventionTarget>>>>,
 }
 
 /// What one intervention's writes and events name.
@@ -204,6 +209,7 @@ impl InterventionService {
             queue,
             interrupt_lock: Arc::new(KeyedLock::new()),
             retry_lock: Arc::new(KeyedLock::new()),
+            unanswered: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -211,7 +217,9 @@ impl InterventionService {
     /// in a state its type acts on, dispatches it once and answers with the state it reached. A
     /// reused key answers the saved result and dispatches nothing. Refuses `agent.run.notFound`
     /// for an unknown run and `agent.intervention.idempotencyConflict` for a reused key whose
-    /// request differs; a dispatch that throws answers `failed` with its reason.
+    /// request differs; a dispatch that throws answers `failed` with its reason, and one the
+    /// provider got with no answer back answers `accepted`, its outcome left for
+    /// [`InterventionService::settle_unanswered`].
     pub(crate) async fn apply_intervention(
         &self,
         request: AgentRunInterveneRequest,
@@ -357,6 +365,19 @@ impl InterventionService {
         }
         let outcome = match self.dispatch(target.session_id, request).await {
             Ok(outcome) => outcome,
+            Err(DispatchError::Driver(DriverError::Unanswered(unanswered))) => {
+                // The provider may still carry it out, so the row keeps its outcome open.
+                tracing::info!(
+                    intervention_id = %target.intervention_id,
+                    error = %unanswered,
+                    "the provider got the intervention with no answer back"
+                );
+                lock_unanswered(&self.unanswered)
+                    .entry(target.target_run_id)
+                    .or_default()
+                    .push(target.clone());
+                return self.answer(target, &ReachedState::Accepted).await;
+            }
             Err(dispatch) => {
                 let failure = self.record_failure(target, dispatch).await?;
                 return self
@@ -381,6 +402,58 @@ impl InterventionService {
                     .await
             }
         }
+    }
+
+    /// Settles each intervention on `run_id` the provider got with no answer back, once the
+    /// provider reports the run in `reported`: an interrupt is applied when the run ended
+    /// `interrupted` and expires at any other end, a retry expires at the run's end, since nothing
+    /// shows it applied, and a report of a run still live leaves each open. Fails as a settle's
+    /// write fails, leaving the rest open.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
+    pub(crate) async fn settle_unanswered(
+        &self,
+        run_id: RunId,
+        reported: RunState,
+    ) -> Result<(), InterventionError> {
+        if !reported.is_terminal() {
+            return Ok(());
+        }
+        let _interrupts = self.interrupt_lock.acquire(run_id).await;
+        let _retries = self.retry_lock.acquire(run_id).await;
+        let mut open = lock_unanswered(&self.unanswered)
+            .remove(&run_id)
+            .unwrap_or_default();
+        while let Some(target) = open.pop() {
+            let settled = match target.intervention_type {
+                InterventionType::Interrupt if reported == RunState::Interrupted => self
+                    .record_verdict(
+                        &target,
+                        Verdict::Applied {
+                            cancelled: Vec::new(),
+                        },
+                        None,
+                    )
+                    .await
+                    .map(drop),
+                InterventionType::Interrupt | InterventionType::FasterModelRetry => self
+                    .resolve(
+                        &target,
+                        UnresolvedInterventionState::Accepted,
+                        Resolution::Expired,
+                    )
+                    .await
+                    .map(drop),
+            };
+            if let Err(failure) = settled {
+                open.push(target);
+                lock_unanswered(&self.unanswered)
+                    .entry(run_id)
+                    .or_default()
+                    .append(&mut open);
+                return Err(failure);
+            }
+        }
+        Ok(())
     }
 
     // Sends a person's request to whatever carries it out, exactly once.
@@ -719,6 +792,14 @@ pub(super) struct RunEndOfVerdict {
     pub(super) accepted_run_version: i64,
     /// Whose interrupt it is.
     pub(super) cause: InterruptCause,
+}
+
+// The interventions with no answer back. No holder awaits or panics while it changes the map, so
+// a poisoned lock still guards a whole map.
+fn lock_unanswered(
+    unanswered: &Mutex<HashMap<RunId, Vec<InterventionTarget>>>,
+) -> MutexGuard<'_, HashMap<RunId, Vec<InterventionTarget>>> {
+    unanswered.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // The refusal of a request that reuses the key of `run_id`'s intervention `saved` and asks for

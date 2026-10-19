@@ -14,6 +14,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
     AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionInterruptRequest,
 };
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
@@ -41,6 +42,7 @@ use crate::provider::driver::test_registry::{
 };
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::session::run::pause::tests::unanswered;
 use crate::uuid_v7::mint_uuid_v7;
 
 /// A run queue that holds nothing but counts each hold it takes, and hands each end straight to
@@ -416,5 +418,75 @@ async fn a_dispatch_that_throws_ends_the_request_failed_once(#[case] is_refusal:
     assert_eq!(
         stored_run_state(&harness.database, &harness.run_id),
         ("running".to_owned(), 1)
+    );
+}
+
+// A dispatch the provider got with no answer back answers and leaves its row `accepted`, never
+// `failed`, through any report of a live run, and the run's end settles it once: an interrupt is
+// applied when the run ended `interrupted` and expires at any other end, a retry expires. Killed
+// by recording the failure, settling on a live report, applying an interrupt at another end or
+// settling one row twice.
+#[rstest]
+#[case::interrupt_the_run_took(true, RunState::Interrupted, "applied")]
+#[case::interrupt_at_another_end(true, RunState::Completed, "expired")]
+#[case::retry(false, RunState::Failed, "expired")]
+#[tokio::test]
+async fn an_unanswered_dispatch_stays_open_until_the_runs_end_settles_it(
+    #[case] is_interrupt: bool,
+    #[case] end: RunState,
+    #[case] outcome: &str,
+) {
+    let mut driver = MockProviderDriver::new();
+    if is_interrupt {
+        driver
+            .expect_apply_intervention()
+            .times(1)
+            .returning(|_| async { Err(unanswered()) }.boxed());
+    } else {
+        driver
+            .expect_retry_turn_on_faster_model()
+            .times(1)
+            .returning(|_| async { Err(unanswered()) }.boxed());
+    }
+    let harness = harness(driver).await;
+    let request = if is_interrupt {
+        interrupt(harness.run_id, 1, "stop")
+    } else {
+        retry(harness.run_id, 1)
+    };
+
+    let answer = harness
+        .service
+        .apply_intervention(request, device())
+        .await
+        .expect("the service answers");
+    harness
+        .service
+        .settle_unanswered(harness.run_id, RunState::Running)
+        .await
+        .expect("a live report settles nothing");
+    let open = harness.stored_rows()[0].0.clone();
+    harness.set_run(<&'static str>::from(end), 2);
+    for _ in 0..2 {
+        harness
+            .service
+            .settle_unanswered(harness.run_id, end)
+            .await
+            .expect("the run's end settles the row");
+    }
+
+    assert!(
+        matches!(answer, AgentRunInterveneResponse::Accepted { .. }),
+        "{answer:?}"
+    );
+    assert_eq!(open, "accepted");
+    assert_eq!(harness.stored_rows()[0].0, outcome);
+    assert_eq!(
+        harness.stored_event_types(),
+        [
+            "agent.intervention.requested".to_owned(),
+            "agent.intervention.accepted".to_owned(),
+            format!("agent.intervention.{outcome}")
+        ]
     );
 }
