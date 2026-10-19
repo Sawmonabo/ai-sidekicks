@@ -348,7 +348,8 @@ mod tests {
     use crate::{ProcessRecord, pin_child_process};
 
     // Fails when the stop ends the process alone, or re-pins it without its job; or when a record
-    // naming a job of another shape, or one that does not hold its running process, re-pins it.
+    // naming a job of another shape, one no job has, or another lasting child's job, which does
+    // not hold its running process, re-pins it.
     #[test]
     fn pinned_process_stop_ends_a_re_pinned_lasting_child_and_its_child() {
         let (child, grandchild) = start_lasting_child(&[
@@ -371,9 +372,15 @@ mod tests {
             .job
             .clone()
             .expect("a lasting child records its job");
+        let other = spawn_shell(&["/d", "/c", "ping", "-n", "60", "127.0.0.1"]);
         let refusals = [
             format!("{job_name}0"),
             format!("ai-sidekicks-lasting-{}", "0".repeat(32)),
+            other
+                .record
+                .job
+                .clone()
+                .expect("a lasting child records its job"),
         ]
         .map(|job| {
             ProcessRecord {
@@ -393,11 +400,20 @@ mod tests {
         let end = re_pinned
             .stop(Duration::ZERO)
             .expect("the stop ends the child");
+        let other_end = other
+            .process
+            .stop(Duration::ZERO)
+            .expect("the stop ends the other child");
 
         assert_eq!(
             refusals,
-            [Err(ErrorKind::InvalidData), Err(ErrorKind::InvalidData)]
+            [
+                Err(ErrorKind::InvalidData),
+                Err(ErrorKind::InvalidData),
+                Err(ErrorKind::InvalidData)
+            ]
         );
+        assert_eq!(other_end, ChildEnd::Kill);
         assert_eq!(end, ChildEnd::Kill);
         assert!(
             child
