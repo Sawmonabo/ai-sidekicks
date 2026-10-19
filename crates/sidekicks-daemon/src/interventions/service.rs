@@ -533,7 +533,7 @@ impl InterventionService {
                             key.clone(),
                             InterruptPayload {
                                 pending: interrupt_choice_of(interrupt).pending,
-                                reason: interrupt_reason(interrupt).clone(),
+                                reason: interrupt_reason(interrupt).cloned(),
                             },
                         )
                         .await

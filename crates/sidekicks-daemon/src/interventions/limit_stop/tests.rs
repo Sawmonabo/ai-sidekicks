@@ -208,7 +208,7 @@ async fn a_second_interrupt_of_one_limit_is_refused_while_one_is_pending() {
         "{handed:?}"
     );
     assert_eq!(harness.stored_rows().len(), 1);
-    assert!(harness.stored_event_types().is_empty());
+    assert_eq!(harness.stored_event_types(), Vec::<String>::new());
 }
 
 /// What the driver answers a hand past its bound.

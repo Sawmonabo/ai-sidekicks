@@ -607,10 +607,11 @@ mod tests {
             harness.stored_event_types(),
             ["agent.intervention.expired", "agent.intervention.failed"]
         );
-        assert!(
+        assert_eq!(
             read_pending_retries(&harness.database.reader())
                 .expect("the pending retries read")
-                .is_empty()
+                .len(),
+            0
         );
     }
 }

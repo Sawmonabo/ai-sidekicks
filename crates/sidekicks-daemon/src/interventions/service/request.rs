@@ -66,10 +66,10 @@ pub(super) fn interrupt_keys(
 /// The person's reason for `interrupt`.
 pub(super) fn interrupt_reason(
     interrupt: &InterventionInterruptRequest,
-) -> &Option<FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>> {
+) -> Option<&FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>> {
     match interrupt {
         InterventionInterruptRequest::NextTurn { reason, .. }
-        | InterventionInterruptRequest::ReturnToDraft { reason, .. } => reason,
+        | InterventionInterruptRequest::ReturnToDraft { reason, .. } => reason.as_ref(),
     }
 }
 
