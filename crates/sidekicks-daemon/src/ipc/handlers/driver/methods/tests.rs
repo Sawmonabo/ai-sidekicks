@@ -1,6 +1,6 @@
 //! The driver methods over a test database holding one session and the table's first two
-//! providers, each answered by a stand-in driver: one provider's failed catalog beside the
-//! other's, and every binding admitted before any command list is read.
+//! providers, each answered by a stand-in driver: one provider's failed models and modes beside
+//! the other's, and every binding admitted before any command list is read.
 
 use std::io;
 use std::sync::Arc;
@@ -11,17 +11,17 @@ use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, ProviderModel};
 use sidekicks_contracts::provider::driver::methods::{
-    ProviderCommandListRequest, ProviderModelListFailure, ProviderModelReport,
-    ProviderModelsFailed, ProviderModelsListed,
+    ProviderCommandListRequest, ProviderModeReport, ProviderModelReport, ProviderModelsFailed,
+    ProviderModelsListed, ProviderModesFailed, ProviderModesListed, ProviderReadFailure,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use super::{DriverMethodSources, list_models, list_provider_commands};
+use super::{DriverMethodSources, list_models, list_modes, list_provider_commands};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::ipc::domain_error::DomainError;
@@ -89,10 +89,10 @@ fn model(id: &str) -> ProviderModel {
     .expect("the test's model reads")
 }
 
-/// How the second provider's catalog read ends.
+/// How the second provider's reads of its models and modes end.
 #[derive(Clone, Copy, Debug)]
-enum SecondCatalog {
-    /// The provider refused it, saying why.
+enum SecondRead {
+    /// The provider refused them, saying why.
     Fails,
     /// The provider's bare command name names no build: it is not installed.
     NotInstalled,
@@ -100,38 +100,21 @@ enum SecondCatalog {
     TypedPathNotRunnable,
 }
 
-// One provider's failed catalog read shows under its own heading as its failure while the other's
-// models still list, a typed command path with nothing runnable at it among the failures, and a
-// provider that is not installed is left out. Killed by failing the whole list on one provider's
-// failure, by listing a provider that is not installed, or by leaving out a typed path that does
-// not run.
-#[rstest]
-#[case::fails(SecondCatalog::Fails)]
-#[case::not_installed(SecondCatalog::NotInstalled)]
-#[case::typed_path_not_runnable(SecondCatalog::TypedPathNotRunnable)]
-#[tokio::test]
-async fn one_providers_failed_catalog_never_hides_the_others(#[case] second: SecondCatalog) {
-    let mut first = MockProviderDriver::new();
-    first
-        .expect_list_models()
-        .times(1)
-        .returning(|_| async { Ok(vec![model("model-a")]) }.boxed());
-    let mut failing = MockProviderDriver::new();
-    failing.expect_list_models().times(1).returning(move |_| {
-        let failed = match second {
-            SecondCatalog::Fails => DriverError::Refused(
-                DomainError::new("the catalog did not answer", RefusalCode::ProviderTimeout)
-                    .with_detail(json!({ "providerFailureDetail": "catalog down" })),
+impl SecondRead {
+    /// What the second provider's driver answers each read.
+    fn error(self) -> DriverError {
+        match self {
+            Self::Fails => DriverError::Refused(
+                DomainError::new("the provider did not answer", RefusalCode::ProviderTimeout)
+                    .with_detail(json!({ "providerFailureDetail": "provider down" })),
             ),
-            SecondCatalog::NotInstalled => {
-                DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
-                    provider: provider(1),
-                    requested_command: "missing".to_owned(),
-                    is_typed_path: false,
-                    cause: io::Error::from(io::ErrorKind::NotFound),
-                })
-            }
-            SecondCatalog::TypedPathNotRunnable => {
+            Self::NotInstalled => DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
+                provider: provider(1),
+                requested_command: "missing".to_owned(),
+                is_typed_path: false,
+                cause: io::Error::from(io::ErrorKind::NotFound),
+            }),
+            Self::TypedPathNotRunnable => {
                 DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
                     provider: provider(1),
                     requested_command: "/opt/provider/missing".to_owned(),
@@ -139,43 +122,98 @@ async fn one_providers_failed_catalog_never_hides_the_others(#[case] second: Sec
                     cause: io::Error::from(io::ErrorKind::NotFound),
                 })
             }
-        };
+        }
+    }
+
+    /// The failure the second provider's heading shows, `None` where it is left out.
+    fn failure(self) -> Option<ProviderReadFailure> {
+        match self {
+            Self::Fails => Some(ProviderReadFailure {
+                code: RefusalCode::ProviderTimeout.as_str().to_owned(),
+                provider_failure_detail: Some(
+                    FreeFormText::new("provider down".to_owned()).expect("the detail is text"),
+                ),
+            }),
+            Self::NotInstalled => None,
+            Self::TypedPathNotRunnable => Some(ProviderReadFailure {
+                code: RefusalCode::ProviderCommandPathNotRunnable
+                    .as_str()
+                    .to_owned(),
+                provider_failure_detail: None,
+            }),
+        }
+    }
+}
+
+fn mode(id: &str) -> ProviderMode {
+    ProviderMode {
+        id: FreeFormText::new(id.to_owned()).expect("a mode id"),
+        name: FreeFormText::new(id.to_owned()).expect("a mode name"),
+    }
+}
+
+// One provider's failed read of its models, and of its modes, shows under its own heading as its
+// failure while the other's still list, a typed command path with nothing runnable at it among the
+// failures, and a provider that is not installed is left out of both. Killed by failing a whole
+// list on one provider's failure, by listing a provider that is not installed, or by leaving out a
+// typed path that does not run.
+#[rstest]
+#[case::fails(SecondRead::Fails)]
+#[case::not_installed(SecondRead::NotInstalled)]
+#[case::typed_path_not_runnable(SecondRead::TypedPathNotRunnable)]
+#[tokio::test]
+async fn one_providers_failed_read_never_hides_the_others(#[case] second: SecondRead) {
+    let mut first = MockProviderDriver::new();
+    first
+        .expect_list_models()
+        .times(1)
+        .returning(|_| async { Ok(vec![model("model-a")]) }.boxed());
+    first
+        .expect_list_modes()
+        .times(1)
+        .returning(|| async { Ok(vec![mode("mode-a")]) }.boxed());
+    let mut failing = MockProviderDriver::new();
+    failing.expect_list_models().times(1).returning(move |_| {
+        let failed = second.error();
+        async move { Err(failed) }.boxed()
+    });
+    failing.expect_list_modes().times(1).returning(move || {
+        let failed = second.error();
         async move { Err(failed) }.boxed()
     });
     let fixture = fixture(vec![first, failing]);
 
-    let listed = list_models(&fixture.sources, fixture.session_id)
+    let models = list_models(&fixture.sources, fixture.session_id)
         .await
-        .expect("the list answers");
+        .expect("the model list answers");
+    let modes = list_modes(&fixture.sources.providers)
+        .await
+        .expect("the mode list answers");
 
-    let mut expected = vec![ProviderModelReport::Listed(ProviderModelsListed {
+    let mut expected_models = vec![ProviderModelReport::Listed(ProviderModelsListed {
         provider_name: provider(0),
         models: vec![model("model-a")],
         failure: None,
     })];
-    let failure = match second {
-        SecondCatalog::Fails => Some(ProviderModelListFailure {
-            code: RefusalCode::ProviderTimeout.as_str().to_owned(),
-            provider_failure_detail: Some(
-                FreeFormText::new("catalog down".to_owned()).expect("the detail is text"),
-            ),
-        }),
-        SecondCatalog::NotInstalled => None,
-        SecondCatalog::TypedPathNotRunnable => Some(ProviderModelListFailure {
-            code: RefusalCode::ProviderCommandPathNotRunnable
-                .as_str()
-                .to_owned(),
-            provider_failure_detail: None,
-        }),
-    };
-    if let Some(failure) = failure {
-        expected.push(ProviderModelReport::Failed(ProviderModelsFailed {
+    let mut expected_modes = vec![ProviderModeReport::Listed(ProviderModesListed {
+        provider_name: provider(0),
+        modes: vec![mode("mode-a")],
+        failure: None,
+    })];
+    if let Some(failure) = second.failure() {
+        expected_models.push(ProviderModelReport::Failed(ProviderModelsFailed {
             provider_name: provider(1),
-            failure,
+            failure: failure.clone(),
             models: None,
         }));
+        expected_modes.push(ProviderModeReport::Failed(ProviderModesFailed {
+            provider_name: provider(1),
+            failure,
+            modes: None,
+        }));
     }
-    assert_eq!(listed.providers, expected);
+    assert_eq!(models.providers, expected_models);
+    assert_eq!(modes.providers, expected_modes);
 }
 
 // An agent live on two bindings, the second's driver without the command list, is refused at the

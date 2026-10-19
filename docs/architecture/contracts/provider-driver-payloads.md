@@ -231,21 +231,36 @@ interface ListModelsParams {
   providerAccountId: ProviderAccountId | null;
 }
 
+// Why one provider's models or modes could not be read. `code` is the refusal the read answered
+// (`provider.timeout`, `provider.unavailable`, `provider.commandPath.notRunnable` for a command
+// path the person typed with nothing runnable at it, ...); `providerFailureDetail` is the
+// provider's own words, where it gave any.
+interface ProviderReadFailure {
+  code: string;
+  providerFailureDetail?: string;
+}
+
 // `provider.model.list {sessionId}` answers one outcome per installed provider, the session's own
-// provider first and then the provider table's order; a provider whose command is not installed
-// has no entry. Each entry is its catalog or the failure its read answered, so one provider's
-// outage never hides another's models and a failure never reads as an empty catalog.
+// provider first and then the provider table's order; a provider whose bare command name no search
+// found is not installed and has no entry. Each entry is its catalog or the failure its read
+// answered, so one provider's outage never hides another's models and a failure never reads as an
+// empty catalog.
 type ProviderModelReport =
   | { providerName: ProviderId; models: ProviderModel[] }
-  | {
-      providerName: ProviderId;
-      // `code` is the refusal the read answered (`provider.timeout`, `provider.unavailable`, ...);
-      // `providerFailureDetail` is the provider's own words, where it gave any.
-      failure: { code: string; providerFailureDetail?: string };
-    };
+  | { providerName: ProviderId; failure: ProviderReadFailure };
 
 interface ProviderModelListResponse {
   providers: ProviderModelReport[];
+}
+
+// `provider.mode.list` answers the same way: one outcome per installed provider in the provider
+// table's order, its modes or the failure their read answered, a provider not installed left out.
+type ProviderModeReport =
+  | { providerName: ProviderId; modes: ProviderMode[] }
+  | { providerName: ProviderId; failure: ProviderReadFailure };
+
+interface ProviderModeListResponse {
+  providers: ProviderModeReport[];
 }
 
 // One enumerated provider command, skill or tool-server prompt. `binding` is not decoration: it is

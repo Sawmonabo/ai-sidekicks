@@ -17,8 +17,8 @@ use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactRes
 use sidekicks_contracts::provider::driver::methods::{
     AgentRunContextCompact, AgentRunContextCompactRequest, ProviderCommandList,
     ProviderCommandListRequest, ProviderModeList, ProviderModeListResponse, ProviderModeReport,
-    ProviderModelList, ProviderModelListFailure, ProviderModelListResponse, ProviderModelReport,
-    ProviderModelsFailed, ProviderModelsListed,
+    ProviderModelList, ProviderModelListResponse, ProviderModelReport, ProviderModelsFailed,
+    ProviderModelsListed, ProviderModesFailed, ProviderModesListed, ProviderReadFailure,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
@@ -150,39 +150,66 @@ async fn list_models(
     let providers = join_all(reads)
         .await
         .into_iter()
-        .filter_map(|(provider_name, read)| match read {
-            Ok(models) => Some(ProviderModelReport::Listed(ProviderModelsListed {
+        .filter_map(|(provider_name, read)| {
+            provider_outcome(
                 provider_name,
-                models,
-                failure: None,
-            })),
-            Err(DriverError::ExecutableUnresolvable(unresolvable))
-                if unresolvable.is_not_installed() =>
-            {
-                None
-            }
-            Err(
-                failed @ (DriverError::Refused(_)
-                | DriverError::ExecutableUnresolvable(_)
-                | DriverError::Unanswered(_)
-                | DriverError::SteerTurnEnded(_)
-                | DriverError::CapabilityProbe(_)
-                | DriverError::Internal(_)),
-            ) => Some(ProviderModelReport::Failed(ProviderModelsFailed {
-                failure: model_list_failure(&provider_name, failed),
-                provider_name,
-                models: None,
-            })),
+                read,
+                |provider_name, models| {
+                    ProviderModelReport::Listed(ProviderModelsListed {
+                        provider_name,
+                        models,
+                        failure: None,
+                    })
+                },
+                |provider_name, failure| {
+                    ProviderModelReport::Failed(ProviderModelsFailed {
+                        provider_name,
+                        failure,
+                        models: None,
+                    })
+                },
+            )
         })
         .collect();
     Ok(ProviderModelListResponse { providers })
 }
 
-// What one provider's failed catalog read shows: its refusal's code and the provider's words, or
-// `provider.unavailable` for a fault inside the driver, which the service log keeps.
-fn model_list_failure(provider: &ProviderId, failed: DriverError) -> ProviderModelListFailure {
+// One provider's outcome of a read of its models or modes: `listed` with what it read, or `failed`
+// with why the read failed; `None` for a provider whose bare command name no search found, which
+// is not installed.
+fn provider_outcome<Read, Report>(
+    provider_name: ProviderId,
+    read: Result<Read, DriverError>,
+    listed: impl FnOnce(ProviderId, Read) -> Report,
+    failed: impl FnOnce(ProviderId, ProviderReadFailure) -> Report,
+) -> Option<Report> {
+    match read {
+        Ok(read) => Some(listed(provider_name, read)),
+        Err(DriverError::ExecutableUnresolvable(unresolvable))
+            if unresolvable.is_not_installed() =>
+        {
+            None
+        }
+        Err(
+            failure @ (DriverError::Refused(_)
+            | DriverError::ExecutableUnresolvable(_)
+            | DriverError::Unanswered(_)
+            | DriverError::SteerTurnEnded(_)
+            | DriverError::CapabilityProbe(_)
+            | DriverError::Internal(_)),
+        ) => {
+            let failure = read_failure(&provider_name, failure);
+            Some(failed(provider_name, failure))
+        }
+    }
+}
+
+// What one provider's failed read of its models or modes shows: its refusal's code and the
+// provider's words, or `provider.unavailable` for a fault inside the driver, which the service log
+// keeps.
+fn read_failure(provider: &ProviderId, failed: DriverError) -> ProviderReadFailure {
     match HandlerError::from(failed) {
-        HandlerError::Refused(refusal) => ProviderModelListFailure {
+        HandlerError::Refused(refusal) => ProviderReadFailure {
             code: refusal.code.as_str().to_owned(),
             provider_failure_detail: refusal
                 .detail
@@ -195,9 +222,9 @@ fn model_list_failure(provider: &ProviderId, failed: DriverError) -> ProviderMod
             tracing::warn!(
                 provider = provider.as_str(),
                 error = &fault as &(dyn std::error::Error + 'static),
-                "a provider's model catalog could not be read"
+                "a provider's models or modes could not be read"
             );
-            ProviderModelListFailure {
+            ProviderReadFailure {
                 code: RefusalCode::ProviderUnavailable.as_str().to_owned(),
                 provider_failure_detail: None,
             }
@@ -206,7 +233,7 @@ fn model_list_failure(provider: &ProviderId, failed: DriverError) -> ProviderMod
 }
 
 // Each installed provider's modes in the table's order; a provider whose bare command name no
-// search found is left out, and any other failed read fails the list.
+// search found is not installed and is left out, and one whose read failed carries its failure.
 async fn list_modes(
     providers: &ProviderRegistry,
 ) -> Result<ProviderModeListResponse, HandlerError> {
@@ -214,26 +241,31 @@ async fn list_modes(
         let read = driver.list_modes();
         async move { (provider.clone(), read.await) }
     });
-    let mut reports = Vec::new();
-    for (provider_name, read) in join_all(reads).await {
-        match read {
-            Ok(modes) => reports.push(ProviderModeReport {
+    let providers = join_all(reads)
+        .await
+        .into_iter()
+        .filter_map(|(provider_name, read)| {
+            provider_outcome(
                 provider_name,
-                modes,
-            }),
-            Err(DriverError::ExecutableUnresolvable(unresolvable))
-                if unresolvable.is_not_installed() => {}
-            Err(
-                failed @ (DriverError::Refused(_)
-                | DriverError::ExecutableUnresolvable(_)
-                | DriverError::Unanswered(_)
-                | DriverError::SteerTurnEnded(_)
-                | DriverError::CapabilityProbe(_)
-                | DriverError::Internal(_)),
-            ) => return Err(failed.into()),
-        }
-    }
-    Ok(ProviderModeListResponse { providers: reports })
+                read,
+                |provider_name, modes| {
+                    ProviderModeReport::Listed(ProviderModesListed {
+                        provider_name,
+                        modes,
+                        failure: None,
+                    })
+                },
+                |provider_name, failure| {
+                    ProviderModeReport::Failed(ProviderModesFailed {
+                        provider_name,
+                        failure,
+                        modes: None,
+                    })
+                },
+            )
+        })
+        .collect();
+    Ok(ProviderModeListResponse { providers })
 }
 
 // Refused in order: the session, then the run, then a run with no live binding, then a provider

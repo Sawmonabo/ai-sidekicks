@@ -46,11 +46,11 @@ pub struct ProviderModelListRequest {
     pub session_id: SessionId,
 }
 
-/// Why one provider's catalog could not be read: the refusal its read answered with, and the
-/// provider's own words where it gave any.
+/// Why one provider's models or modes could not be read: the refusal its read answered with, and
+/// the provider's own words where it gave any.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderModelListFailure {
+pub struct ProviderReadFailure {
     /// The refusal's code, as a JSON-RPC error's `data.type` carries it.
     pub code: String,
     /// What the provider said, where it said anything.
@@ -63,9 +63,9 @@ pub struct ProviderModelListFailure {
     pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
-/// Declares one arm of a provider's outcome in the `provider.model.list` reply, the provider it
-/// names written once.
-macro_rules! provider_model_report_arm {
+/// Declares one arm of a provider's outcome in the `provider.model.list` or `provider.mode.list`
+/// reply, the provider it names written once.
+macro_rules! provider_report_arm {
     ($(#[doc = $doc:literal])+ $name:ident { $($arm_member:tt)* }) => {
         $(#[doc = $doc])+
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -79,7 +79,7 @@ macro_rules! provider_model_report_arm {
     };
 }
 
-provider_model_report_arm! {
+provider_report_arm! {
     /// A provider whose catalog was read: its models.
     ProviderModelsListed {
         /// Its models.
@@ -95,11 +95,11 @@ provider_model_report_arm! {
     }
 }
 
-provider_model_report_arm! {
+provider_report_arm! {
     /// A provider whose catalog could not be read: why, never an empty catalog.
     ProviderModelsFailed {
         /// Why the read failed.
-        pub failure: ProviderModelListFailure,
+        pub failure: ProviderReadFailure,
         /// Only a read catalog carries models.
         #[serde(
             default,
@@ -132,17 +132,51 @@ pub struct ProviderModelListResponse {
     pub providers: Vec<ProviderModelReport>,
 }
 
-/// One provider's modes in the `provider.mode.list` reply.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderModeReport {
-    /// The provider.
-    pub provider_name: ProviderId,
-    /// Its modes.
-    pub modes: Vec<ProviderMode>,
+provider_report_arm! {
+    /// A provider whose modes were read: its modes.
+    ProviderModesListed {
+        /// Its modes.
+        pub modes: Vec<ProviderMode>,
+        /// Only a failed read carries a failure.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub failure: Option<Never>,
+    }
 }
 
-/// The reply of `provider.mode.list`: one group per provider.
+provider_report_arm! {
+    /// A provider whose modes could not be read: why, never an empty list.
+    ProviderModesFailed {
+        /// Why the read failed.
+        pub failure: ProviderReadFailure,
+        /// Only a read list carries modes.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub modes: Option<Never>,
+    }
+}
+
+/// One installed provider's outcome in the `provider.mode.list` reply: its modes, or the failure
+/// their read answered, so one provider's outage never hides another's modes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ProviderModeReport {
+    /// The modes were read.
+    Listed(ProviderModesListed),
+    /// The modes' read failed.
+    Failed(ProviderModesFailed),
+}
+
+/// The reply of `provider.mode.list`: one outcome per installed provider, in the provider table's
+/// order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -231,11 +265,13 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           grouped by provider.",
     definitions: &[
         Definition::read::<ProviderModelListRequest>(),
-        Definition::read::<ProviderModelListFailure>(),
+        Definition::read::<ProviderReadFailure>(),
         Definition::read::<ProviderModelsListed>(),
         Definition::read::<ProviderModelsFailed>(),
         Definition::read::<ProviderModelReport>(),
         Definition::read::<ProviderModelListResponse>(),
+        Definition::read::<ProviderModesListed>(),
+        Definition::read::<ProviderModesFailed>(),
         Definition::read::<ProviderModeReport>(),
         Definition::read::<ProviderModeListResponse>(),
         Definition::read::<AgentRunContextCompactRequest>(),
