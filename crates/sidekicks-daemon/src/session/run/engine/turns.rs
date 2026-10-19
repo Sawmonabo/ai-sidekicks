@@ -77,8 +77,8 @@ static SELECT_TURN_START_FROM_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The three turn ends, in the order the unique index on turn ends spells them.
-static TURN_END_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
+/// The three turn ends as an SQL list, in the order the unique index on turn ends spells them.
+pub(crate) static TURN_END_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "'{}', '{}', '{}'",
         SessionEventType::AgentTurnCompleted.as_str(),

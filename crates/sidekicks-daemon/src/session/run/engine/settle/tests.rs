@@ -5,8 +5,8 @@ use rusqlite::params;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::events::{
     AgentInterventionRequestedPayload, AgentInterventionRequestedState,
-    AgentRunInterruptedNewState, AgentRunInterruptedPayload, DaemonInterventionActor,
-    InterventionActor,
+    AgentRunInterruptedNewState, AgentRunInterruptedPayload, AgentTurnCompletedPayload,
+    DaemonInterventionActor, InterventionActor,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionId, InterventionType, RunLimit};
@@ -326,12 +326,68 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     assert_eq!(person_interrupt_state, "applied");
 }
 
-// Killed by the owed read keeping a step limit a later interrupt of the run discharged, which
-// stops a run that never reached its bound again, and by giving the limit's cause to the
-// newest open turn rather than the one its stop cut.
+// One record of a run's log before a restart.
+#[derive(Clone, Copy, Debug)]
+enum Logged {
+    TurnStarted(u64),
+    TurnCompleted(u64),
+    StepReached,
+    TokenReached,
+    RunInterrupted,
+}
+
+// Killed by the owed read keeping only the newest reached event of the limit, which gives turn 1
+// `daemonRestart` though its own stop cut it (`two_steps_on_overlapping_turns`); by reading the
+// turn a reached event reached as the newest started before it, ended or not, which cuts turn 3
+// (`reached_after_turn_two_ended`); by giving the cause to the turn a reached event reached once
+// it has closed rather than to the newest open turn (`reaching_turn_closed`); by giving it to the
+// newest open turn over the one the stop cut (`step_cut_on_an_older_turn`); and by keeping a step
+// limit a later interrupt of the run discharged (`step_discharged_by_an_interrupt`).
 #[rstest]
+#[case::two_steps_on_overlapping_turns(
+    &[
+        Logged::TurnStarted(1),
+        Logged::StepReached,
+        Logged::TurnStarted(2),
+        Logged::StepReached,
+    ],
+    "interrupted",
+    &[
+        ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
+        ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
+        ("agent.run.interrupted", None, None),
+    ]
+)]
+#[case::reached_after_turn_two_ended(
+    &[
+        Logged::TurnStarted(1),
+        Logged::TurnStarted(2),
+        Logged::TurnCompleted(2),
+        Logged::TokenReached,
+        Logged::TurnStarted(3),
+    ],
+    "stopped",
+    &[
+        ("agent.turn.interrupted", Some("tokenLimit"), Some("daemon")),
+        ("agent.turn.interrupted", Some("daemonRestart"), Some("daemon")),
+        ("agent.run.stopped", None, None),
+    ]
+)]
+#[case::reaching_turn_closed(
+    &[
+        Logged::TurnStarted(1),
+        Logged::StepReached,
+        Logged::TurnCompleted(1),
+        Logged::TurnStarted(2),
+    ],
+    "interrupted",
+    &[
+        ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
+        ("agent.run.interrupted", None, None),
+    ]
+)]
 #[case::step_cut_on_an_older_turn(
-    false,
+    &[Logged::TurnStarted(1), Logged::StepReached, Logged::TurnStarted(2)],
     "interrupted",
     &[
         ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
@@ -339,8 +395,13 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
         ("agent.run.interrupted", None, None),
     ]
 )]
-#[case::step_discharged_by_a_persons_interrupt(
-    true,
+#[case::step_discharged_by_an_interrupt(
+    &[
+        Logged::TurnStarted(1),
+        Logged::StepReached,
+        Logged::RunInterrupted,
+        Logged::TurnStarted(2),
+    ],
     "failed",
     &[
         ("agent.turn.failed", Some("daemonRestart"), Some("daemon")),
@@ -349,8 +410,8 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     ]
 )]
 #[tokio::test]
-async fn a_restart_settles_a_step_limit_by_whether_the_run_was_interrupted_since(
-    #[case] is_interrupted_since: bool,
+async fn a_restart_ends_the_turns_its_owed_limit_reached_with_the_limit(
+    #[case] logged: &[Logged],
     #[case] settled_state: &str,
     #[case] settled_events: &[(&str, Option<&str>, Option<&str>)],
 ) {
@@ -361,30 +422,38 @@ async fn a_restart_settles_a_step_limit_by_whether_the_run_was_interrupted_since
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_running_run(&database, session_id, run_id);
     let engine = test_engine(&database, log.service, home.path());
-    // Turn 1 reached its step bound; a person's interrupt ended the run and a continue ran it
-    // again, or the run went on with turn 1 open; turn 2 started.
-    append(
-        &engine,
-        session_id,
-        &turn_started_at(session_id, run_id, 1, 1),
-    )
-    .await;
-    append(&engine, session_id, &step_limit_reached(session_id, run_id)).await;
-    let mut expected = vec![
-        ("agent.turn.started", None, None),
-        ("agent.run.stepLimit.reached", None, None),
-    ];
-    if is_interrupted_since {
-        append(&engine, session_id, &interrupted_at(session_id, run_id, 1)).await;
-        expected.push(("agent.run.interrupted", None, None));
+    let mut expected = Vec::new();
+    for &record in logged {
+        let (event, event_type) = match record {
+            Logged::TurnStarted(turn_number) => (
+                turn_started_at(session_id, run_id, turn_number, 1),
+                "agent.turn.started",
+            ),
+            Logged::TurnCompleted(turn_number) => (
+                SessionEvent::AgentTurnCompleted(AgentTurnCompletedPayload {
+                    session_id,
+                    run_id,
+                    run_version: run_version(1),
+                    turn_number: SafeInt::new(turn_number).expect("the test's turns count from 1"),
+                }),
+                "agent.turn.completed",
+            ),
+            Logged::StepReached => (
+                step_limit_reached(session_id, run_id),
+                "agent.run.stepLimit.reached",
+            ),
+            Logged::TokenReached => (
+                token_limit_reached(session_id, run_id),
+                "agent.run.tokenLimit.reached",
+            ),
+            Logged::RunInterrupted => (
+                interrupted_at(session_id, run_id, 1),
+                "agent.run.interrupted",
+            ),
+        };
+        append(&engine, session_id, &event).await;
+        expected.push((event_type, None, None));
     }
-    append(
-        &engine,
-        session_id,
-        &turn_started_at(session_id, run_id, 2, 1),
-    )
-    .await;
-    expected.push(("agent.turn.started", None, None));
     expected.extend_from_slice(settled_events);
 
     engine

@@ -209,7 +209,7 @@ impl RunEngine {
 
     /// Settles one run a restart left live that recovery could not resume, without calling any
     /// driver, as [`decide_restart_settlement`] decides: its end and its newest open turn's end in
-    /// one write, every older open turn ended on its own before it, the turn a limit cut with the
+    /// one write, every older open turn ended on its own before it, the turns a limit cut with the
     /// limit's cause and every other with `daemonRestart`, a pending interrupt moved to `applied`
     /// in that write, otherwise guarded on no interrupt having appeared since; a `failed` end
     /// carries `failure_detail`. A run the decision leaves is returned as it is. Fails as
@@ -300,9 +300,19 @@ impl RunEngine {
                     RestartTurnEnd::Failed { cause } => (TurnOutcome::Failed, cause),
                 };
                 let open_turns = self.read_open_turns(run_id).await?;
-                let cause_turn = decision.cut_turn.or_else(|| open_turns.last().copied());
+                // The turns the limit cut that are still open take the cause, and where none is,
+                // the newest open turn, which the limit's interrupt would cut.
+                let mut cause_turns: Vec<_> = decision
+                    .cut_turns
+                    .iter()
+                    .copied()
+                    .filter(|turn_number| open_turns.contains(turn_number))
+                    .collect();
+                if cause_turns.is_empty() {
+                    cause_turns.extend(open_turns.last().copied());
+                }
                 self.end_open_turns(run_id, &run.run, &open_turns, |turn_number| {
-                    ended_as(Some(if Some(turn_number) == cause_turn {
+                    ended_as(Some(if cause_turns.contains(&turn_number) {
                         cause
                     } else {
                         TurnEndCause::DaemonRestart
