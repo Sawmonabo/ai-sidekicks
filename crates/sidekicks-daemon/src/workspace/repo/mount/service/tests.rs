@@ -91,11 +91,8 @@ fn detach_request() -> DetachRepoMount {
     }
 }
 
-#[tokio::test]
-async fn a_detach_while_an_agent_runs_in_the_project_names_its_session() {
-    // Catches a refused running check read as a plain write failure instead of the conflict.
-    let database = TestDatabase::new();
-    let (service, rows) = open_service(&database).await;
+/// Stores a run of the mount's session in its workspace, unreleased, as an agent running there.
+fn insert_running_run(rows: &Connection) {
     rows.execute_batch(&format!(
         "INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, created_at, \
          updated_at) VALUES ('branch-context', '{WORKSPACE_ID}', 'main', 'main', \
@@ -106,6 +103,14 @@ async fn a_detach_while_an_agent_runs_in_the_project_names_its_session() {
          '/repos/app/.git', 'branch-context', '{PARENT_ROWS_AT}')"
     ))
     .expect("the running run's rows are admitted");
+}
+
+#[tokio::test]
+async fn a_detach_while_an_agent_runs_in_the_project_names_its_session() {
+    // Catches a refused running check read as a plain write failure instead of the conflict.
+    let database = TestDatabase::new();
+    let (service, rows) = open_service(&database).await;
+    insert_running_run(&rows);
 
     let refusal = service
         .detach(detach_request(), Vec::new())
@@ -233,4 +238,71 @@ async fn an_attach_whose_root_resolves_past_the_path_cap_is_refused_before_any_w
             .is_some_and(|message| message.contains(&length)),
         "{issue}"
     );
+}
+
+#[tokio::test]
+async fn a_detach_whose_run_ends_before_its_session_is_read_detaches_on_its_retry() {
+    // Catches a run that ended between the running check and the read of its session answered as
+    // the write's failure instead of tried again.
+    let database = TestDatabase::new();
+    let (service, rows) = open_service(&database).await;
+    insert_running_run(&rows);
+    let paused = service.running_read_pause.arm();
+    let detaching = tokio::spawn({
+        let service = Arc::clone(&service);
+        async move { service.detach(detach_request(), Vec::new()).await }
+    });
+    paused
+        .reached
+        .await
+        .expect("the running check refused the detach");
+
+    rows.execute_batch(&format!(
+        "UPDATE run_execution_contexts SET released_at = '{PARENT_ROWS_AT}' WHERE run_id = 'run'"
+    ))
+    .expect("the run ends");
+    paused
+        .release
+        .send(())
+        .expect("the detach waits at its pause");
+    let outcome = detaching
+        .await
+        .expect("the detach's task ends")
+        .expect("the detach tried again finds no run");
+
+    assert_eq!(outcome.state, RepoMountState::Detached);
+    assert_eq!(
+        outcome.archived_workspace_ids,
+        [WorkspaceId::new(WORKSPACE_ID).expect("the id is a UUID")]
+    );
+}
+
+#[tokio::test]
+async fn a_detach_whose_archived_workspace_does_not_read_reports_it_committed() {
+    // Catches a committed detach whose archived rows do not read reported as a failed row read,
+    // which tells the caller nothing was written.
+    let database = TestDatabase::new();
+    let (service, rows) = open_service(&database).await;
+    let bound_root = <&'static str>::from(ExecutionMode::BoundRoot);
+    rows.execute_batch(&format!(
+        "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, created_at, \
+         updated_at) VALUES ('no-uuid', '0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e63', '{MOUNT_ID}', \
+         '{bound_root}', '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}')"
+    ))
+    .expect("a workspace whose id the contracts refuse is stored");
+
+    let failure = service
+        .detach(detach_request(), Vec::new())
+        .await
+        .expect_err("the archived workspace does not read");
+
+    assert!(
+        matches!(failure, RepoMountServiceError::DetachArchivalsUnread { .. }),
+        "{failure:?}"
+    );
+    let mount = service
+        .read_row(RepoMountId::new(MOUNT_ID).expect("the id is a UUID"))
+        .await
+        .expect("the mount reads");
+    assert_eq!(mount.state, RepoMountState::Detached);
 }

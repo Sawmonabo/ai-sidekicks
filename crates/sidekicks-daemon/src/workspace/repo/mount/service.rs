@@ -168,6 +168,19 @@ pub(crate) enum RepoMountServiceError {
         #[source]
         source: SettleFailures<SessionEventEmitError>,
     },
+    /// The detach committed, but a workspace it archived could not be read into its typed facts,
+    /// so none was announced; the rows are the truth and a rerun is a no-op.
+    #[error(
+        "repo mount {repo_mount_id} detached and archived its workspaces, but they could not be \
+         read to announce them; the rows are committed"
+    )]
+    DetachArchivalsUnread {
+        /// The detached mount.
+        repo_mount_id: RepoMountId,
+        /// Why a workspace row did not read.
+        #[source]
+        source: rusqlite::Error,
+    },
 }
 
 /// A path resolved for attach and found unattached, which
@@ -248,6 +261,9 @@ pub(crate) struct RepoMountService {
     /// Where a test holds a detach between its row read and its write.
     #[cfg(test)]
     pub(crate) detach_pause: PausePoint,
+    /// Where a test holds a detach the running check refused, before it reads the running session.
+    #[cfg(test)]
+    pub(crate) running_read_pause: PausePoint,
 }
 
 impl RepoMountService {
@@ -268,6 +284,8 @@ impl RepoMountService {
             machine_id,
             #[cfg(test)]
             detach_pause: PausePoint::default(),
+            #[cfg(test)]
+            running_read_pause: PausePoint::default(),
         }
     }
 

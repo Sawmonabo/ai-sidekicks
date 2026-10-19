@@ -100,6 +100,14 @@ pub(crate) struct RepoMountDetachOutcome {
     pub(crate) archived_workspace_ids: Vec<WorkspaceId>,
 }
 
+// How one try of a detach's write ended.
+enum DetachTry {
+    // The detach's answer.
+    Answered(RepoMountDetachOutcome),
+    // The running check refused, and the run it found ended before its session was read.
+    RunEnded(WriteError),
+}
+
 /// A detach: the mount, who asked, and the linkage every cascaded `workspace.archived` carries.
 #[derive(Clone, Debug)]
 pub(crate) struct DetachRepoMount {
@@ -116,14 +124,38 @@ impl RepoMountService {
     /// running `following_statements` (the project writer's forgetting of the record) in the same
     /// write after the flip. Refuses `repoMount.managed` for a chat's managed mount,
     /// `repoMount.detachConflict` naming the running session while an agent runs anywhere in its
-    /// project, and `repoMount.notFound`; fails with
+    /// project, and `repoMount.notFound`. A run that ends between the running check and the read
+    /// of its session is no conflict, so the detach is tried once more, and a second such race
+    /// fails with the write's refusal. Fails with
     /// [`RepoMountServiceError::DetachNotificationIncomplete`] when it committed but an event
-    /// append failed.
+    /// append failed, and [`RepoMountServiceError::DetachArchivalsUnread`] when it committed but
+    /// an archived workspace did not read.
     pub(crate) async fn detach(
         &self,
         request: DetachRepoMount,
         following_statements: Vec<WriteStatement>,
     ) -> Result<RepoMountDetachOutcome, RepoMountServiceError> {
+        match self
+            .try_detach(&request, following_statements.clone())
+            .await?
+        {
+            DetachTry::Answered(outcome) => Ok(outcome),
+            DetachTry::RunEnded(_refused) => {
+                match self.try_detach(&request, following_statements).await? {
+                    DetachTry::Answered(outcome) => Ok(outcome),
+                    DetachTry::RunEnded(refused) => Err(refused.into()),
+                }
+            }
+        }
+    }
+
+    // One try of the detach; a running check whose run ended before its session was read is
+    // handed back for the caller to try again.
+    async fn try_detach(
+        &self,
+        request: &DetachRepoMount,
+        following_statements: Vec<WriteStatement>,
+    ) -> Result<DetachTry, RepoMountServiceError> {
         let repo_mount_id = request.repo_mount_id;
         let row = self.read_row(repo_mount_id).await?;
         // A chat's managed workspace goes only with its chat's purge; the origin never changes, so
@@ -132,7 +164,10 @@ impl RepoMountService {
             return Err(RepoRefusal::MountManaged { repo_mount_id }.into());
         }
         if row.state != RepoMountState::Attached {
-            return Ok(unchanged_outcome(repo_mount_id, row.state));
+            return Ok(DetachTry::Answered(unchanged_outcome(
+                repo_mount_id,
+                row.state,
+            )));
         }
         #[cfg(test)]
         self.detach_pause.pass().await;
@@ -168,7 +203,11 @@ impl RepoMountService {
             Ok(results) => results,
             Err(error) => return self.outcome_of_refused_detach(repo_mount_id, error).await,
         };
-        let archived = archived_workspaces(&results[ARCHIVABLE_DEPENDENTS_STATEMENT].rows)?;
+        let archived = archived_workspaces(&results[ARCHIVABLE_DEPENDENTS_STATEMENT].rows)
+            .map_err(|source| RepoMountServiceError::DetachArchivalsUnread {
+                repo_mount_id,
+                source,
+            })?;
 
         // After the commit, so a crash cannot log archivals for rows that never moved. Every append
         // is tried even after one fails.
@@ -192,40 +231,49 @@ impl RepoMountService {
                 source,
             }
         })?;
-        Ok(RepoMountDetachOutcome {
+        Ok(DetachTry::Answered(RepoMountDetachOutcome {
             repo_mount_id,
             state: RepoMountState::Detached,
             archived_workspace_ids: archived
                 .into_iter()
                 .map(|(workspace_id, _)| workspace_id)
                 .collect(),
-        })
+        }))
     }
 
-    // A refused detach write: a run in the project refuses it naming its session; a flip another
-    // detach or re-attach won changed nothing, so the mount's state now is the answer; anything
-    // else is the write's failure.
+    // A refused detach write: a run in the project refuses it naming its session, and a run that
+    // ended before its session was read is handed back to try again; a flip another detach or
+    // re-attach won changed nothing, so the mount's state now is the answer; anything else is the
+    // write's failure.
     async fn outcome_of_refused_detach(
         &self,
         repo_mount_id: RepoMountId,
         error: WriteError,
-    ) -> Result<RepoMountDetachOutcome, RepoMountServiceError> {
+    ) -> Result<DetachTry, RepoMountServiceError> {
         match error.refused_statement_index() {
             Some(RUNNING_SESSION_STATEMENT) => {
+                #[cfg(test)]
+                self.running_read_pause.pass().await;
                 let running = self
                     .reads
                     .read(ReadLength::Short, move |connection| {
                         read_running_session(connection, repo_mount_id)
                     })
                     .await?;
-                if let Some(running_session_id) = running {
-                    return Err(RepoRefusal::DetachConflict { running_session_id }.into());
-                }
+                return match running {
+                    Some(running_session_id) => {
+                        Err(RepoRefusal::DetachConflict { running_session_id }.into())
+                    }
+                    None => Ok(DetachTry::RunEnded(error)),
+                };
             }
             Some(DETACH_MOUNT_STATEMENT) => {
                 let current = self.read_row(repo_mount_id).await?;
                 if current.state != RepoMountState::Attached {
-                    return Ok(unchanged_outcome(repo_mount_id, current.state));
+                    return Ok(DetachTry::Answered(unchanged_outcome(
+                        repo_mount_id,
+                        current.state,
+                    )));
                 }
             }
             Some(_) | None => {}
