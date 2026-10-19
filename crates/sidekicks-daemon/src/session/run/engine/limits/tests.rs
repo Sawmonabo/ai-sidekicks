@@ -432,3 +432,40 @@ async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_inter
 
     assert_eq!(interventions.calls.load(Ordering::SeqCst), expected_calls);
 }
+
+// Killed by a repeated spend stop sending its interrupt while the spend limit's interrupt of the
+// run is pending, and by the check counting a failed one, which leaves the run past the limit.
+#[rstest]
+#[case::pending("accepted", 0)]
+#[case::failed("failed", 1)]
+#[tokio::test]
+async fn a_spend_stop_waits_on_the_spend_limits_pending_interrupt(
+    #[case] state: &str,
+    #[case] expected_calls: usize,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 0);
+    database
+        .reader()
+        .execute(
+            "INSERT INTO interventions (id, target_run_id, type, state, payload,
+               expected_run_version, client_idempotency_key, created_at)
+             VALUES ('interrupt', ?1, 'interrupt', ?2, json_object('limit', 'spendLimit'), 1,
+               'interrupt', '2026-01-01T00:00:00.000Z')",
+            [run_id.text().as_str(), state],
+        )
+        .expect("the test records the run's interrupt");
+
+    engine
+        .stop_at_spend_limit(run_id)
+        .await
+        .expect("the next usage report's stop is left or sends the interrupt");
+
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), expected_calls);
+}

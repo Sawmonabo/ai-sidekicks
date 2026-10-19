@@ -651,6 +651,102 @@ async fn a_turn_reaching_its_bound_while_a_resend_is_in_flight_writes_its_reache
     );
 }
 
+// Killed by a turn reaching its bound sending its interrupt while the step limit's interrupt of
+// the run is pending (`requested`, `accepted`), or by a resend that finds it pending once a hand
+// in flight let go of the run sending one (`accepted_after_a_hand_in_flight`): either sends the
+// run a second interrupt; by the pending check counting a failed interrupt (`failed`); by the stop
+// putting back its cut or its turn's reach, which ends turn 2 with no cause or writes its reached
+// event again; and by the stop keeping the limit owed, which reads the pending row at every step.
+#[rstest]
+#[case::requested("requested", false, 1)]
+#[case::accepted("accepted", false, 1)]
+#[case::failed("failed", false, 2)]
+#[case::accepted_after_a_hand_in_flight("accepted", true, 1)]
+#[tokio::test]
+async fn a_turn_reaching_its_bound_while_the_step_interrupt_is_pending_sends_none(
+    #[case] state: &str,
+    #[case] is_hand_in_flight: bool,
+    #[case] expected_calls: usize,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let interventions = hand_limit_interrupter(&engine, 0);
+    for turn_number in 1..=2 {
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, turn_number, 1),
+        )
+        .await;
+    }
+    arm_step_count(&engine, run_id, 1, 1);
+    engine
+        .count_step(run_id)
+        .await
+        .expect("turn 1's stop hands the interrupt");
+    arm_step_count(&engine, run_id, 2, 1);
+    // The interventions service records turn 1's interrupt.
+    let record_interrupt = || {
+        database
+            .reader()
+            .execute(
+                "INSERT INTO interventions (id, target_run_id, type, state, payload,
+                   expected_run_version, client_idempotency_key, created_at)
+                 VALUES ('interrupt', ?1, 'interrupt', ?2, json_object('limit', 'stepLimit'), 1,
+                   'interrupt', '2026-01-01T00:00:00.000Z')",
+                [run_id.text().as_str(), state],
+            )
+            .expect("the test records the run's interrupt");
+    };
+    if is_hand_in_flight {
+        // Turn 2 reaches its bound while a hand is in flight, before the interrupt is recorded.
+        lock(&engine.live).step_interrupts_in_flight.insert(run_id);
+        engine
+            .count_step(run_id)
+            .await
+            .expect("turn 2's stop leaves the run to the hand in flight");
+        record_interrupt();
+        lock(&engine.live).step_interrupts_in_flight.remove(&run_id);
+    } else {
+        record_interrupt();
+        engine
+            .count_step(run_id)
+            .await
+            .expect("turn 2's step is counted");
+    }
+    engine
+        .count_step(run_id)
+        .await
+        .expect("turn 2's next step is counted");
+    engine
+        .hand_owed_step_interrupt(run_id)
+        .await
+        .expect("a resend finds nothing owed");
+
+    assert_eq!(interventions.calls.load(Ordering::SeqCst), expected_calls);
+    let live = lock(&engine.live);
+    assert!(live.reached_limits.is_empty());
+    assert!(
+        live.cut_turns.contains_key(&(run_id, turn(2))),
+        "turn 2 keeps its stop's cut"
+    );
+    drop(live);
+    assert_eq!(
+        stored_events(&database, &run_id),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.turn.started", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+        ])
+    );
+}
+
 // Killed by a step stop writing its reached event and sending its interrupt for a turn that
 // ended before its cut went in, which rests the run at a step limit no running turn reached, and by
 // that stop forgetting the step limit's interrupt an earlier stop of the run could not hand.

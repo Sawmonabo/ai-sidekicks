@@ -145,7 +145,7 @@ pub(super) fn limit_run_end(limit: RunLimit) -> RunStateEntry {
 impl RunEngine {
     /// Stops `run_id` at the session's spend limit, the interrupt handed to the interventions
     /// service. Fails as the stop fails; the caller calls again at the next usage report, which
-    /// sends the interrupt again.
+    /// sends the interrupt again unless the spend limit's interrupt of the run is still pending.
     #[cfg_attr(
         not(test),
         expect(
@@ -193,10 +193,13 @@ impl RunEngine {
     /// ended before its cut went in, and a token stop whose once-per-run guard refused while the
     /// token limit's own interrupt is still pending are left with the cuts as they were and
     /// nothing written; a run the limit's end may not leave its state from is refused with
-    /// nothing written. Fails with
+    /// nothing written. While the step or spend limit's own interrupt of the run is still pending,
+    /// no stop at that limit sends another: a step stop keeps its reached event, its cut and its
+    /// turn's reach, so the turn ends with the limit. Fails with
     /// [`RunEngineError::LimitInterrupterGone`], nothing written, when the engine holds no live
-    /// interventions service, and with [`RunEngineError::LimitInterrupt`] when the service fails,
-    /// the reached event, the cut and the memory kept for the stop's retry.
+    /// interventions service, with [`RunEngineError::LimitInterrupt`] when the service fails and
+    /// as the pending read fails, the reached event, the cut and the memory kept for the stop's
+    /// retry either way.
     pub(super) async fn stop_at_limit(
         &self,
         run_id: RunId,
@@ -257,7 +260,7 @@ impl RunEngine {
             });
             (stop, own_cut, cut, is_memory_own)
         };
-        let reached = match cut {
+        let mut reached = match cut {
             Some((key, earlier)) => match self.read_open_turns(run_id).await {
                 Ok(open_turns) if open_turns.contains(&key.1) => {
                     self.reach_limit(run_id, stop).await
@@ -276,18 +279,43 @@ impl RunEngine {
             },
             None => self.reach_limit(run_id, stop).await,
         };
+        // The step or spend limit's own interrupt still pending ends the run, so this stop sends
+        // none; a failed read keeps what the stop wrote and took for its retry, as a failed hand
+        // does.
+        if matches!(reached, Ok(LimitReach::Live))
+            && matches!(
+                stop,
+                LimitStop::Step { .. }
+                    | LimitStop::Interrupt {
+                        limit: RunLimit::StepLimit | RunLimit::SpendLimit,
+                    }
+            )
+            && self.has_pending_limit_interrupt(run_id, limit).await?
+        {
+            reached = Ok(LimitReach::InterruptPending);
+        }
         if !matches!(reached, Ok(LimitReach::Live)) {
             // A stop that stops nothing puts back what it took: the cut it made, where no turn's
             // end or later stop changed it since, its turn's reach and the memory it added; a run
-            // that reads ended forgets the limit whichever stop added it.
+            // that reads ended, or whose limit's interrupt is pending, forgets the limit whichever
+            // stop added it. A step stop whose reached event landed beside that pending interrupt
+            // keeps its cut and its turn's reach, so the turn ends with the limit.
+            let is_step_reach_kept = matches!(
+                (stop, &reached),
+                (LimitStop::Step { .. }, Ok(LimitReach::InterruptPending))
+            );
             let mut live = lock(&self.live);
-            if let Some((key, earlier)) = cut {
+            if !is_step_reach_kept && let Some((key, earlier)) = cut {
                 live.restore_cut(key, own_cut, earlier);
             }
             if let LimitStop::Step { turn_number, .. } = stop {
-                set_step_limit_reached(&mut live, &run_id, turn_number, false);
+                set_step_limit_reached(&mut live, &run_id, turn_number, is_step_reach_kept);
             }
-            if matches!(reached, Ok(LimitReach::Ended)) || is_memory_own {
+            if matches!(
+                reached,
+                Ok(LimitReach::Ended | LimitReach::InterruptPending)
+            ) || is_memory_own
+            {
                 live.reached_limits.remove(&(run_id, limit));
             }
             return reached.map(drop);
@@ -347,6 +375,19 @@ impl RunEngine {
             set_step_limit_reached(&mut live, &run_id, turn_number, true);
         }
         Ok(true)
+    }
+
+    // Whether the interrupt of `run_id` at `limit` has no outcome yet. Fails as the read fails.
+    async fn has_pending_limit_interrupt(
+        &self,
+        run_id: RunId,
+        limit: RunLimit,
+    ) -> Result<bool, RunEngineError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(is_limit_interrupt_pending(reader, &run_id, limit)?)
+            })
+            .await
     }
 
     // The interventions service the engine was handed, while it runs. Fails with
@@ -412,14 +453,8 @@ impl RunEngine {
                         // before: that reached event stands, and the interrupt goes alone unless
                         // the token limit's own interrupt of the run is still pending, which ends
                         // it.
-                        let limit = stop.limit();
                         let is_pending = self
-                            .pool
-                            .read(ReadLength::Short, move |reader| {
-                                Ok::<_, RunEngineError>(is_limit_interrupt_pending(
-                                    reader, &run_id, limit,
-                                )?)
-                            })
+                            .has_pending_limit_interrupt(run_id, stop.limit())
                             .await?;
                         Ok(if is_pending {
                             LimitReach::InterruptPending
