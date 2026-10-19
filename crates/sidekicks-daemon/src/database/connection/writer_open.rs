@@ -34,7 +34,8 @@ pub(crate) enum DatabaseOpenError {
 }
 
 /// Opens the daemon's database at `database_path` for its one writer, creating the file and its
-/// schema when they are missing. Fails as SQLite does, or with
+/// schema when they are missing. Fails as SQLite does, with [`DatabaseOpenError::PragmaNotTaken`]
+/// for a durability pragma that reads back other than it was set, or with
 /// [`DatabaseOpenError::SchemaFromAnotherBuild`] for a file whose schema is not this build's; the
 /// connection is closed first, with the close's own failure beside the original when that fails.
 #[cfg_attr(
@@ -59,12 +60,11 @@ pub(crate) fn open_database(
 
 // The writer's pragmas, set before any transaction, since the journal mode and foreign keys do not
 // change inside one. The busy wait comes first, so a second daemon opening the same fresh file
-// waits out the first one's switch to WAL rather than failing busy. A commit syncs the log
-// (`synchronous = FULL`), and a checkpoint syncs with the drive's full flush on macOS
-// (`checkpoint_fullfsync`), whose plain `fsync` lets the drive reorder writes, so a power loss
-// cannot damage the file; foreign keys hold at every write; a deleted row's page is overwritten with zeros, so a
-// purged session leaves no readable freed page. Each is read back, since SQLite answers a mode it
-// cannot take with the one it keeps and a build flag can change a default.
+// waits out the first one's switch to WAL rather than failing busy. A commit syncs the log, and a
+// checkpoint syncs with the drive's full flush on macOS, so a power loss cannot damage the file.
+// Foreign keys hold at every write, and a deleted row is overwritten with zeros, so a purge leaves
+// nothing readable. Each is read back, since SQLite keeps its mode when it cannot take one and a
+// build flag can change a default.
 fn apply_writer_pragmas(connection: &Connection) -> Result<(), DatabaseOpenError> {
     connection.pragma_update(None, "busy_timeout", 5000)?;
     connection.pragma_update(None, "journal_mode", "WAL")?;

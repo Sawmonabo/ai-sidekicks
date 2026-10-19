@@ -57,7 +57,8 @@ CREATE TABLE provider_accounts (
   -- The mode the provider's own status surface reports, never assumed; unknown is a mode this
   -- daemon does not recognize.
   observed_auth_mode        TEXT
-                            CHECK(observed_auth_mode IS NULL OR observed_auth_mode IN ({auth_modes})),
+                            CHECK(observed_auth_mode IS NULL
+                              OR observed_auth_mode IN ({auth_modes})),
   last_refresh_observed_at  TEXT,               -- NULL means not observed, never fine
   -- When the credential was issued: the observed sign-in, or a token's issuance time. Never the
   -- registration time. NULL renders the re-login estimate as unknown.
@@ -75,7 +76,7 @@ CREATE TABLE provider_accounts (
   -- Opt-out for the background health observer only; the probe verb and spawn validation still
   -- write the pair.
   probe_enabled             INTEGER NOT NULL DEFAULT 1 CHECK(probe_enabled IN (0, 1)),
-  -- A Codex account's redeemable limit resets from its last limits read; NULL where the read
+  -- An account's redeemable limit resets from its last limits read; NULL where the read
   -- carried none.
   reset_credits_available   INTEGER
                             CHECK(reset_credits_available IS NULL OR reset_credits_available >= 0),

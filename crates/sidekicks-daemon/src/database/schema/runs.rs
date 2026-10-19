@@ -56,7 +56,8 @@ CREATE TABLE queue_items (
   target_run_id          TEXT,
   -- The device a person's send came from, found from the connection; NULL on the system's own.
   device_id              TEXT,
-  child_handle           TEXT,                  -- the child whose queue holds it; NULL on the lead's
+  -- The child whose queue holds it; NULL on the lead's.
+  child_handle           TEXT,
   -- The item's place in its queue's order, lowest first: send order until a reorder replaces it,
   -- and an edit takes the place of the item it supersedes.
   position               INTEGER NOT NULL CHECK(position >= 0),

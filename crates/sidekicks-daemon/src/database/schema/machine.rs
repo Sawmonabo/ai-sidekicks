@@ -10,7 +10,8 @@ pub(super) const MACHINE_SCHEMA_SQL: &str = "
 CREATE TABLE local_machine (
   singleton      INTEGER PRIMARY KEY CHECK (singleton = 1),
   machine_id     TEXT NOT NULL,
-  owner_user_id  TEXT NOT NULL,                 -- a hosted account signed in to later attaches to it
+  -- A hosted account signed in to later attaches to it.
+  owner_user_id  TEXT NOT NULL,
   name           TEXT NOT NULL,
   minted_at      TEXT NOT NULL                  -- RFC 3339 UTC, ms precision
 ) STRICT;
