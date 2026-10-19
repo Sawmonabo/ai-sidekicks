@@ -562,6 +562,7 @@ CREATE TABLE interventions (
                 &run,
                 &RestartFacts {
                     pending_interrupt: None,
+                    reached_limit: None,
                     has_queued_item: false,
                 },
                 "the run could not be resumed",
