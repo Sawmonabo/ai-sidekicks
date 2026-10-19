@@ -176,7 +176,7 @@ async fn an_interrupt_that_keeps_waiting_leaves_the_messages_for_the_continue() 
 
     assert!(writes.statements.is_empty());
     assert!(writes.preceding_events.is_empty());
-    assert!(writes.changed.is_empty());
+    assert_eq!(writes.changed, []);
     assert_eq!(
         stored_item(&fixture, given_back.id).state,
         RecordedQueueItemState::Queued

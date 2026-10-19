@@ -155,17 +155,18 @@ impl QueueDelivery {
         };
         self.push(session_id, ChainJob::Withdraw(job));
         // A job the chain dropped unanswered was not reached either.
-        let answered = match wait_within(Pin::new(&mut reply), WITHDRAW_DEADLINE, None).await {
-            Some(answered) => answered.ok(),
-            None => {
-                let is_started = {
-                    let is_started = lock_flag(&has_started);
-                    deadline.cancel();
-                    *is_started
-                };
-                // Started withdraws are bounded by the same deadline, so they answer at once.
-                if is_started { reply.await.ok() } else { None }
-            }
+        let answered = if let Some(answered) =
+            wait_within(Pin::new(&mut reply), WITHDRAW_DEADLINE, None).await
+        {
+            answered.ok()
+        } else {
+            let is_started = {
+                let is_started = lock_flag(&has_started);
+                deadline.cancel();
+                *is_started
+            };
+            // Started withdraws are bounded by the same deadline, so they answer at once.
+            if is_started { reply.await.ok() } else { None }
         };
         if let Some(answer) = answered {
             return answer;

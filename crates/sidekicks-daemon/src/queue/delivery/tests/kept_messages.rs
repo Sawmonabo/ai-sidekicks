@@ -101,7 +101,7 @@ async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
     let read_after_the_settle = continued_ids(&fixture).await;
 
     assert_eq!(first_read, vec![item.id]);
-    assert!(second_read.is_empty());
-    assert!(read_after_a_release.is_empty());
+    assert_eq!(second_read, []);
+    assert_eq!(read_after_a_release, []);
     assert_eq!(read_after_the_settle, vec![item.id]);
 }
