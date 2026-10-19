@@ -10,6 +10,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
 use crate::provider::port::permission_ask::ProviderAskAction;
@@ -51,6 +52,27 @@ pub(crate) struct ApprovalResourceDescriptor {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub(crate) prompt: Option<NonEmptyText>,
+}
+
+impl ApprovalResourceDescriptor {
+    /// The descriptor as the `approval.requested` event and the card carry it, a record of its
+    /// members.
+    pub(crate) fn to_record(&self) -> JsonRecord {
+        let members = serde_json::to_value(self)
+            .expect("a descriptor of text, flags and string-keyed members always serializes");
+        serde_json::from_value(members)
+            .expect("a descriptor serializes to an object with no member __proto__")
+    }
+}
+
+impl TryFrom<&JsonRecord> for ApprovalResourceDescriptor {
+    type Error = serde_json::Error;
+
+    /// Reads the descriptor back from the record an `approval.requested` event carries; fails for
+    /// a record that holds another member or breaks a member's rule.
+    fn try_from(record: &JsonRecord) -> Result<Self, Self::Error> {
+        serde_json::to_value(record).and_then(serde_json::from_value)
+    }
 }
 
 /// One ask to raise for a person's answer; the approval service's create takes it and answers the
