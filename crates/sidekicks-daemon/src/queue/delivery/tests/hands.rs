@@ -1,5 +1,6 @@
-//! Hands: they reach the driver in call order, a tool boundary never makes the provider's reader
-//! wait, and an interrupt's hold stops every hand queued behind it and waits out one in flight.
+//! Hands: each takes its place on the chain before its call returns, a tool boundary never makes
+//! the provider's reader wait, and an interrupt's hold stops every hand queued behind it and waits
+//! out one in flight.
 
 use std::pin::pin;
 use std::sync::atomic::Ordering;
@@ -7,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
+use rstest::rstest;
 use sidekicks_contracts::run::state::RunState;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
@@ -16,15 +18,16 @@ use super::{
     hand, hold_chain, insert_item, release_chain, set_run_state, settle, steered_item, stored_item,
 };
 use crate::ipc::handlers::driver::resolution::read_run_driver;
+use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::RunToolBoundary;
 use crate::queue::delivery::DeliveryError;
 use crate::queue::store::RecordedQueueItemState;
 use crate::session::run::pause::ContinuedMessages;
 
-// Killed by spawning a task per hand that takes the session's keyed lock: the worker's last-woken
-// task runs first, so the second message is steered first.
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn hands_reach_the_driver_in_call_order() {
+// Killed by a hand that joins the chain from a task of its own: a gate joined as soon as the
+// hand's call returns then runs ahead of the hand.
+#[tokio::test]
+async fn a_hand_takes_its_place_on_the_chain_before_its_call_returns() {
     let steered = Arc::new(Mutex::new(Vec::new()));
     let recorded = Arc::clone(&steered);
     let mut driver = driver_handing(HANDS_AT_ONCE);
@@ -35,28 +38,24 @@ async fn hands_reach_the_driver_in_call_order() {
             .push(steered_item(&params));
         async { Ok(applied()) }.boxed()
     });
-    let fixture = Arc::new(fixture(driver).await);
+    let fixture = fixture(driver).await;
+    let item = insert_item(&fixture).await;
     let (release, holder) = hold_chain(&fixture).await;
 
-    let sender = Arc::clone(&fixture);
-    let sent = tokio::spawn(async move {
-        let first = insert_item(&sender).await;
-        hand(&sender).await;
-        let second = insert_item(&sender).await;
-        hand(&sender).await;
-        [first.id, second.id]
-    });
-    let sent = timeout(WAIT, sent)
-        .await
-        .expect("both hands join the chain")
-        .expect("the sending task does not panic");
-    release_chain(release, holder).await;
-    settle(&fixture).await;
-
-    assert_eq!(
-        *steered.lock().expect("the steers are readable"),
-        sent.to_vec()
+    hand(&fixture).await;
+    let seen = Arc::clone(&steered);
+    let mut gate = pin!(
+        fixture
+            .delivery
+            .run_between_hands(fixture.session_id, async move {
+                seen.lock().expect("the steers are readable").clone()
+            })
     );
+    assert!(futures::poll!(&mut gate).is_pending());
+    release_chain(release, holder).await;
+    let steered_before_the_gate = timeout(WAIT, gate).await.expect("the gate gets its turn");
+
+    assert_eq!(steered_before_the_gate, vec![item.id]);
 }
 
 // A provider's event reader asking for a tool boundary's hand is answered while the session lock
@@ -173,14 +172,20 @@ async fn a_tool_boundary_to_a_run_held_for_an_interrupt_leaves_the_message_for_t
     );
 }
 
-// An interrupt's hold waits out a hand already inside its driver call and answers once that call
-// returns. Killed by not waiting for the hand in flight.
+// An interrupt's hold waits out a hand already inside its driver call, a tool boundary's included,
+// and answers once that call returns. Killed by not waiting for the hand in flight, or by a hand
+// that never marks its run in flight.
+#[rstest]
+#[case::a_hand(HANDS_AT_ONCE)]
+#[case::a_tool_boundary(HANDS_AT_TOOL_BOUNDARY)]
 #[tokio::test]
-async fn an_interrupt_hold_waits_out_a_hand_inside_its_driver_call() {
+async fn an_interrupt_hold_waits_out_a_hand_inside_its_driver_call(
+    #[case] handing: MessageHanding,
+) {
     let (called, mut steered) = mpsc::unbounded_channel();
     let (release_steer, steer_released) = oneshot::channel::<()>();
     let steer_released = Mutex::new(Some(steer_released));
-    let mut driver = driver_handing(HANDS_AT_ONCE);
+    let mut driver = driver_handing(handing);
     driver.expect_apply_intervention().returning(move |params| {
         called
             .send(steered_item(&params))
@@ -199,7 +204,17 @@ async fn an_interrupt_hold_waits_out_a_hand_inside_its_driver_call() {
     });
     let fixture = fixture(driver).await;
     insert_item(&fixture).await;
-    hand(&fixture).await;
+    match handing.hands_at {
+        HandMoment::AtOnce => hand(&fixture).await,
+        HandMoment::AtToolBoundary => fixture
+            .delivery
+            .on_tool_boundary(RunToolBoundary {
+                session_id: fixture.session_id,
+                run_id: fixture.run_id,
+            })
+            .await
+            .expect("the boundary's driver is read"),
+    }
     timeout(WAIT, steered.recv())
         .await
         .expect("the hand steers");
