@@ -17,6 +17,7 @@ use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::session::not_found::session_not_found;
+use crate::workspace::schema::MountOrigin;
 
 /// The states of a session that has ended, closed or being purged, as a SQL list of quoted words
 /// for a `state IN (…)` condition: such a session takes no message, ask or rule.
@@ -28,13 +29,14 @@ pub(crate) static ENDED_SESSION_STATES_SQL: LazyLock<String> = LazyLock::new(|| 
 /// parameter such as `@sessionId`, or a column such as `s.id`), or NULL for a chat, a session whose
 /// project was forgotten, or one not bound to a project yet.
 pub(crate) fn session_project_sql(session_id_sql: &str) -> String {
+    let attached = <&'static str>::from(MountOrigin::Attached);
     format!(
         "(SELECT project.id FROM projects AS project
     WHERE project.id = COALESCE(
       (SELECT mount.project_id
          FROM workspaces AS workspace
          JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
-        WHERE workspace.session_id = {session_id_sql} AND mount.origin = 'attached'
+        WHERE workspace.session_id = {session_id_sql} AND mount.origin = '{attached}'
         ORDER BY workspace.created_at DESC, workspace.id DESC
         LIMIT 1),
       (SELECT request.project_id

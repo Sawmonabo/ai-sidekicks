@@ -100,9 +100,15 @@ pub(crate) static LIVE_WORKTREE_STATE_PREDICATE: LazyLock<String> =
     LazyLock::new(|| live_worktree_state_predicate("worktrees"));
 
 /// `creating -> ready`, the one transition both a new tree and a put-back tree take.
-pub(crate) const MARK_READY_SQL: &str = "UPDATE worktrees
-    SET state = 'ready', updated_at = @now
-  WHERE id = @worktree_id AND state = 'creating'";
+pub(crate) static MARK_READY_SQL: LazyLock<String> = LazyLock::new(|| {
+    let ready = <&'static str>::from(WorktreeState::Ready);
+    let creating = <&'static str>::from(WorktreeState::Creating);
+    format!(
+        "UPDATE worktrees
+    SET state = '{ready}', updated_at = @now
+  WHERE id = @worktree_id AND state = '{creating}'"
+    )
+});
 
 // `state` is left to the column DEFAULT ('creating'); naming it would copy that fact.
 const INSERT_WORKTREE_SQL: &str = "INSERT INTO worktrees (

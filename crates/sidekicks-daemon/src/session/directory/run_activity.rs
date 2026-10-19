@@ -190,9 +190,11 @@ pub(crate) fn session_activity_sql(session_id_sql: &str, last_run_outcome_sql: &
             sql_list_of(states.iter().map(<&'static str>::from))
         )
     };
+    let waiting = <&'static str>::from(SessionActivity::Waiting);
+    let running = <&'static str>::from(SessionActivity::Running);
     format!(
-        "CASE WHEN {} THEN 'waiting'
-               WHEN {} THEN 'running'
+        "CASE WHEN {} THEN '{waiting}'
+               WHEN {} THEN '{running}'
                ELSE {last_run_outcome_sql} END",
         is_any_run_in(&WAITING_RUN_STATES),
         is_any_run_in(&WORKING_RUN_STATES),

@@ -3,6 +3,7 @@
 //! change inside the event's own write, so the `sessions` row and a rebuild cannot drift.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
 use rusqlite::types::Value as SqlValue;
 use serde::de::DeserializeOwned;
@@ -512,10 +513,15 @@ pub(crate) fn fold_directory_row(
     Ok(next)
 }
 
-const INSERT_CREATED_ROW_SQL: &str = "INSERT INTO sessions
+static INSERT_CREATED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
+    let provisioning = <&'static str>::from(SessionState::Provisioning);
+    format!(
+        "INSERT INTO sessions
         (id, shape, state, scratch_for_definition_id, parent_session_id, place,
          created_at, updated_at, last_activity_at)
-      VALUES (?, ?, 'provisioning', ?, ?, ?, ?, ?, ?)";
+      VALUES (?, ?, '{provisioning}', ?, ?, ?, ?, ?, ?)"
+    )
+});
 
 /// The statements that apply one event's change to the `sessions` row, run in the event's own
 /// write before its row. Each is relative to the event alone. The update expects its one row, so
@@ -538,7 +544,7 @@ pub(crate) fn directory_statements_for(
             place,
         }) => {
             return Ok(vec![WriteStatement {
-                sql: Cow::Borrowed(INSERT_CREATED_ROW_SQL),
+                sql: Cow::Borrowed(INSERT_CREATED_ROW_SQL.as_str()),
                 bindings: StatementBindings::Positional(vec![
                     SqlValue::Text(event.session_id.to_string()),
                     SqlValue::Text(<&'static str>::from(shape).to_owned()),
