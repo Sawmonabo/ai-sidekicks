@@ -346,7 +346,6 @@ impl QueueRecorder {
     /// Moves `item` out of `queued` to `outcome` with its event in one write. Fails as
     /// [`QueueRecordError`] says, refused when the item has already left `queued`; nothing is
     /// written then.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's delivery"))]
     pub(crate) async fn record_outcome(
         &self,
         item: &QueueItemRecord,
@@ -362,7 +361,6 @@ impl QueueRecorder {
     /// Admits `item`, which reads not delivered, into `run_id`, the run whose turn took it after
     /// all, with its event in one write. Fails as [`QueueRecordError`] says, refused when the item
     /// no longer reads not delivered; nothing is written then.
-    #[expect(dead_code, reason = "the run queue's delivery")]
     pub(crate) async fn record_late_admission(
         &self,
         item: &QueueItemRecord,

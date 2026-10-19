@@ -412,13 +412,6 @@ impl Drop for ProviderCommandsSubscription {
 /// How a provider takes a message sent while its run's turn runs; each fact drives one path of
 /// the run queue on its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each driver's answer to how its provider takes a message"
-    )
-)]
 pub(crate) struct MessageHanding {
     /// When the queue hands a waiting message to the running turn.
     pub(crate) hands_at: HandMoment,
