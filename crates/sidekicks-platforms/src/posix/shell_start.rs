@@ -121,17 +121,10 @@ fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
         let resolved = find_program(&start.program, search_path(start))?;
         CString::new(resolved.into_os_string().into_vec())?
     };
-    exec(path, argv, envp)
-}
-
-#[cfg(target_os = "linux")]
-fn exec(path: CString, argv: Vec<CString>, envp: Vec<CString>) -> io::Result<Infallible> {
-    execve(&path, &argv, &envp).map_err(io::Error::from)
-}
-
-#[cfg(target_os = "macos")]
-fn exec(path: CString, argv: Vec<CString>, envp: Vec<CString>) -> io::Result<Infallible> {
-    Err(OwnRootStart::new(path, argv, envp)?.exec())
+    #[cfg(target_os = "linux")]
+    return execve(&path, &argv, &envp).map_err(io::Error::from);
+    #[cfg(target_os = "macos")]
+    return Err(OwnRootStart::new(path, argv, envp)?.exec());
 }
 
 fn search_path(start: &ShellStart) -> &str {
