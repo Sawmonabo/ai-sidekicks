@@ -98,7 +98,7 @@ pub use code_signature::{CodeSignatureError, SignatureCheck};
 pub use credential_store::blocking::BlockingCredentialStore;
 pub use credential_store::{CredentialStore, CredentialStoreError};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
-pub use executable_search::{find_executables, user_programs_folder};
+pub use executable_search::{find_executables, is_path_command, user_programs_folder};
 pub use file_facts::FileFacts;
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;

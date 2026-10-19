@@ -10,7 +10,8 @@ use regex::Regex;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::{
-    PathRules, ProgramFolder, ProgramStart, find_executables, program_start, real_path,
+    PathRules, ProgramFolder, ProgramStart, find_executables, is_path_command, program_start,
+    real_path,
 };
 
 use crate::provider::command_search::ProviderCommandSearch;
@@ -261,6 +262,7 @@ fn resolve_along_search_path(
 fn unresolvable(provider: &ProviderId, requested_command: String, cause: io::Error) -> DriverError {
     DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
         provider: provider.clone(),
+        is_typed_path: is_path_command(&requested_command),
         requested_command,
         cause,
     })

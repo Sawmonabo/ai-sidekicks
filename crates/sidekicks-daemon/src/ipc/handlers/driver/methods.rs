@@ -106,8 +106,9 @@ pub(crate) fn register_driver_methods(
 }
 
 // Each installed provider's catalog, the session's own provider first and read against its bound
-// account, every other one against its default account; a provider whose command names no build
-// is not installed and is left out, and one whose read failed carries its failure.
+// account, every other one against its default account; a provider whose bare command name no
+// search found is not installed and is left out, and one whose read failed, a typed command path
+// with nothing runnable at it among them, carries its failure.
 async fn list_models(
     sources: &DriverMethodSources,
     session_id: SessionId,
@@ -159,9 +160,14 @@ async fn list_models(
                 models,
                 failure: None,
             })),
-            Err(DriverError::ExecutableUnresolvable(_)) => None,
+            Err(DriverError::ExecutableUnresolvable(unresolvable))
+                if unresolvable.is_not_installed() =>
+            {
+                None
+            }
             Err(
                 failed @ (DriverError::Refused(_)
+                | DriverError::ExecutableUnresolvable(_)
                 | DriverError::Unanswered(_)
                 | DriverError::SteerTurnEnded(_)
                 | DriverError::CapabilityProbe(_)
@@ -203,8 +209,8 @@ fn model_list_failure(provider: &ProviderId, failed: DriverError) -> ProviderMod
     }
 }
 
-// Each installed provider's modes in the table's order; a provider whose command names no build is
-// left out, and any other failed read fails the list.
+// Each installed provider's modes in the table's order; a provider whose bare command name no
+// search found is left out, and any other failed read fails the list.
 async fn list_modes(
     providers: &ProviderRegistry,
 ) -> Result<ProviderModeListResponse, HandlerError> {
@@ -219,9 +225,11 @@ async fn list_modes(
                 provider_name,
                 modes,
             }),
-            Err(DriverError::ExecutableUnresolvable(_)) => {}
+            Err(DriverError::ExecutableUnresolvable(unresolvable))
+                if unresolvable.is_not_installed() => {}
             Err(
                 failed @ (DriverError::Refused(_)
+                | DriverError::ExecutableUnresolvable(_)
                 | DriverError::Unanswered(_)
                 | DriverError::SteerTurnEnded(_)
                 | DriverError::CapabilityProbe(_)

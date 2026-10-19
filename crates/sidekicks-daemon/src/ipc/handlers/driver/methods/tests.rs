@@ -94,16 +94,21 @@ fn model(id: &str) -> ProviderModel {
 enum SecondCatalog {
     /// The provider refused it, saying why.
     Fails,
-    /// The provider's command names no build: it is not installed.
+    /// The provider's bare command name names no build: it is not installed.
     NotInstalled,
+    /// Nothing runnable sits at the command path the person typed.
+    TypedPathNotRunnable,
 }
 
 // One provider's failed catalog read shows under its own heading as its failure while the other's
-// models still list, and a provider that is not installed is left out. Killed by failing the whole
-// list on one provider's failure, or by listing a provider that is not installed.
+// models still list, a typed command path with nothing runnable at it among the failures, and a
+// provider that is not installed is left out. Killed by failing the whole list on one provider's
+// failure, by listing a provider that is not installed, or by leaving out a typed path that does
+// not run.
 #[rstest]
 #[case::fails(SecondCatalog::Fails)]
 #[case::not_installed(SecondCatalog::NotInstalled)]
+#[case::typed_path_not_runnable(SecondCatalog::TypedPathNotRunnable)]
 #[tokio::test]
 async fn one_providers_failed_catalog_never_hides_the_others(#[case] second: SecondCatalog) {
     let mut first = MockProviderDriver::new();
@@ -122,6 +127,15 @@ async fn one_providers_failed_catalog_never_hides_the_others(#[case] second: Sec
                 DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
                     provider: provider(1),
                     requested_command: "missing".to_owned(),
+                    is_typed_path: false,
+                    cause: io::Error::from(io::ErrorKind::NotFound),
+                })
+            }
+            SecondCatalog::TypedPathNotRunnable => {
+                DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
+                    provider: provider(1),
+                    requested_command: "/opt/provider/missing".to_owned(),
+                    is_typed_path: true,
                     cause: io::Error::from(io::ErrorKind::NotFound),
                 })
             }
@@ -139,15 +153,25 @@ async fn one_providers_failed_catalog_never_hides_the_others(#[case] second: Sec
         models: vec![model("model-a")],
         failure: None,
     })];
-    if let SecondCatalog::Fails = second {
+    let failure = match second {
+        SecondCatalog::Fails => Some(ProviderModelListFailure {
+            code: RefusalCode::ProviderTimeout.as_str().to_owned(),
+            provider_failure_detail: Some(
+                FreeFormText::new("catalog down".to_owned()).expect("the detail is text"),
+            ),
+        }),
+        SecondCatalog::NotInstalled => None,
+        SecondCatalog::TypedPathNotRunnable => Some(ProviderModelListFailure {
+            code: RefusalCode::ProviderCommandPathNotRunnable
+                .as_str()
+                .to_owned(),
+            provider_failure_detail: None,
+        }),
+    };
+    if let Some(failure) = failure {
         expected.push(ProviderModelReport::Failed(ProviderModelsFailed {
             provider_name: provider(1),
-            failure: ProviderModelListFailure {
-                code: RefusalCode::ProviderTimeout.as_str().to_owned(),
-                provider_failure_detail: Some(
-                    FreeFormText::new("catalog down".to_owned()).expect("the detail is text"),
-                ),
-            },
+            failure,
             models: None,
         }));
     }

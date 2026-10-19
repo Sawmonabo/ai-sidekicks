@@ -109,9 +109,9 @@ pub(crate) enum DriverError {
 
 impl From<DriverError> for HandlerError {
     /// A driver's refusal, and a request that got no answer, answer the call by the refusal's
-    /// code; a failed capability probe and a command that names no runnable build answer
-    /// `provider.unavailable`, the latter naming the command as configured; a steer whose turn
-    /// ended, reaching a handler, is a fault in the daemon, as is the driver's own failure.
+    /// code; a failed capability probe answers `provider.unavailable`, a command that names no
+    /// runnable build as [`ExecutableUnresolvable::into_refusal`] says; a steer whose turn ended,
+    /// reaching a handler, is a fault in the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal)
@@ -124,17 +124,9 @@ impl From<DriverError> for HandlerError {
                 .with_detail(json!({ "providerFailureDetail": probe.to_string() }))
                 .with_source(probe),
             ),
-            DriverError::ExecutableUnresolvable(unresolvable) => Self::Refused(
-                DomainError::new(
-                    "The provider's command names no runnable build",
-                    RefusalCode::ProviderUnavailable,
-                )
-                .with_detail(json!({
-                    "providerId": unresolvable.provider.as_str(),
-                    "requestedCommand": unresolvable.requested_command,
-                }))
-                .with_source(unresolvable),
-            ),
+            DriverError::ExecutableUnresolvable(unresolvable) => {
+                Self::Refused(unresolvable.into_refusal())
+            }
             DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
             DriverError::Internal(fault) => Self::Internal(fault),
         }
