@@ -13,6 +13,7 @@ use crate::provider::driver::{
 };
 
 mod ask_option_sets;
+mod capabilities;
 mod capability_probe;
 mod delivery;
 mod input_limit;
@@ -22,6 +23,7 @@ mod permission_level;
 mod rules;
 mod service;
 mod tools;
+mod turn_evidence;
 mod usage_limit_signal;
 mod version;
 

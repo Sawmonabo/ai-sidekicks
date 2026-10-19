@@ -120,7 +120,7 @@ pub(crate) enum RunStateEntry {
     #[expect(dead_code, reason = "the provider's event delivery")]
     Paused,
     /// Into `completed`.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     Completed {
         /// Set only on a terminal the daemon itself closed.
         intended_close: Option<True>,

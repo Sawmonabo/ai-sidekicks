@@ -7,7 +7,6 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -37,7 +36,6 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::{ProviderToolMetadata, SessionCallbackTool};
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -49,6 +47,9 @@ use crate::ipc::registry::HandlerError;
 use crate::provider::capability::probe::CapabilityProbeError;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
+use crate::provider::driver::error_causes::{
+    ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid,
+};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
@@ -91,30 +92,23 @@ pub(crate) enum DriverError {
     /// The configured provider command names no runnable build.
     #[error(transparent)]
     ExecutableUnresolvable(ExecutableUnresolvable),
+    /// The provider's model catalog reply could not be read, so no catalog is declared from it.
+    #[error(transparent)]
+    ModelCatalogUnreadable(ModelCatalogUnreadable),
+    /// A provider axis the request set holds a value the provider does not offer now.
+    #[error(transparent)]
+    ProviderAxisInvalid(ProviderAxisInvalid),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
 }
 
-/// The configured provider command names no runnable build, or one whose real path cannot be
-/// read. It carries the command as the person configured it, never a path they did not type.
-#[derive(Debug, thiserror::Error)]
-#[error("the provider command {requested_command:?} names no runnable build")]
-pub(crate) struct ExecutableUnresolvable {
-    /// The provider.
-    pub(crate) provider: ProviderId,
-    /// The command as configured: a bare name or a path.
-    pub(crate) requested_command: String,
-    /// Why it resolves to no build: none was found, or its real path could not be read.
-    #[source]
-    pub(crate) cause: io::Error,
-}
-
 impl From<DriverError> for HandlerError {
-    /// A driver's refusal answers the call by its code; a failed capability probe and a command
-    /// that names no runnable build answer `provider.unavailable`, the latter naming the command
-    /// as configured; a steer whose turn ended, reaching a handler, is a fault in the daemon, as is
-    /// the driver's own failure.
+    /// A driver's refusal answers the call by its code; a failed capability probe, a command that
+    /// names no runnable build and an unreadable model catalog answer `provider.unavailable`, the
+    /// command named as configured and the catalog's fault as the provider failure's detail; a
+    /// provider axis the provider does not offer answers `agent.providerAxisInvalid`; a steer whose
+    /// turn ended, reaching a handler, is a fault in the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal) => Self::Refused(refusal),
@@ -136,6 +130,27 @@ impl From<DriverError> for HandlerError {
                     "requestedCommand": unresolvable.requested_command,
                 }))
                 .with_source(unresolvable),
+            ),
+            DriverError::ModelCatalogUnreadable(unreadable) => Self::Refused(
+                DomainError::new(
+                    "The provider's model catalog could not be read",
+                    RefusalCode::ProviderUnavailable,
+                )
+                .with_detail(json!({
+                    "providerId": unreadable.provider.as_str(),
+                    "providerFailureDetail": unreadable.to_string(),
+                }))
+                .with_source(unreadable),
+            ),
+            DriverError::ProviderAxisInvalid(invalid) => Self::Refused(
+                DomainError::new(
+                    "The provider does not offer this value now",
+                    RefusalCode::AgentProviderAxisInvalid,
+                )
+                .with_detail(json!({
+                    "axis": <&str>::from(invalid.axis),
+                    "value": invalid.value,
+                })),
             ),
             DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
             DriverError::Internal(fault) => Self::Internal(fault),

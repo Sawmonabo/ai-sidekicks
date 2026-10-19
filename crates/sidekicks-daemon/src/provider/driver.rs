@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
-use sidekicks_contracts::provider::id::is_provider_id;
+use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_platforms::{
     PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
@@ -23,6 +23,7 @@ mod claude;
 mod codex;
 pub(crate) mod contract;
 pub(crate) mod diagnostics;
+pub(crate) mod error_causes;
 pub(crate) mod mcp_server_status;
 pub(crate) mod plan_record;
 pub(crate) mod question_answers;
@@ -100,6 +101,11 @@ pub(crate) struct ProviderDescriptor {
 }
 
 impl ProviderDescriptor {
+    /// The provider's id as the wire carries it; the table's build check holds its pattern.
+    pub(crate) fn provider_id(&self) -> ProviderId {
+        ProviderId::new(self.id.to_owned()).expect("a table id matches the provider id pattern")
+    }
+
     /// How the provider's command is found on a system that follows `rules`; `None` where the
     /// provider ships no build for that system.
     pub(crate) fn command_lookup(&self, rules: PathRules) -> Option<&ProviderCommandLookup> {
