@@ -330,6 +330,22 @@ pub(crate) fn read_intervention_by_idempotency_key(
         .optional()
 }
 
+/// A guard that refuses its write while an interrupt of `run_id` at `limit` is `requested` or
+/// `accepted`, so one limit's interrupt of a run is pending once at a time.
+pub(crate) fn no_pending_limit_interrupt_statement(
+    run_id: &RunId,
+    limit: RunLimit,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(PENDING_LIMIT_INTERRUPT_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@run_id", run_id.text().as_str()),
+            text_binding("@limit", <&'static str>::from(limit)),
+        ]),
+        expected_row_count: Some(0),
+    }
+}
+
 /// Whether an interrupt of `run_id` at `limit` is `requested` or `accepted`, read on `reader`.
 /// Fails as the read fails.
 pub(crate) fn is_limit_interrupt_pending(

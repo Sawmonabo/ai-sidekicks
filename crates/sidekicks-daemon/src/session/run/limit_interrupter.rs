@@ -35,10 +35,6 @@ pub(crate) trait LimitInterrupter: Send + Sync {
 /// Why the interventions service did not carry out a limit's interrupt, by what it left of the
 /// interrupt's row.
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the interventions service's interrupt at a limit")
-)]
 pub(crate) enum LimitInterruptFailure {
     /// Nothing of this interrupt is left `requested` or `accepted`, so the stop cut no turn.
     #[error("the limit's interrupt failed and left no pending row")]
