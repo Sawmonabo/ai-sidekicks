@@ -4,7 +4,6 @@ use std::sync::Arc;
 use rusqlite::Connection;
 use sidekicks_contracts::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::repo::folders::RepoMountAttachRequest;
 use sidekicks_contracts::repo::mount::{
     ExecutionMode, RepoMountHealth, RepoMountId, RepoMountState, WorkspaceId,
@@ -12,18 +11,11 @@ use sidekicks_contracts::repo::mount::{
 use sidekicks_contracts::session::id::SessionId;
 
 use super::detach::DetachRepoMount;
-use super::{REPO_MOUNT_SERVICE_STATEMENT_CAPACITY, RepoMountService, RepoMountServiceError};
-use crate::database::connection::read_pool::DatabaseReadPool;
+use super::{RepoMountService, RepoMountServiceError};
 use crate::database::writer::test_file::TestDatabase;
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::log_service::{
-    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
-};
-use crate::events::session::followers::SessionEventFollowers;
 use crate::file::bounded_read::stall_reads_of;
 use crate::git::process::test_git_runner;
 use crate::ipc::domain_error::DomainError;
-use crate::workspace::event_emitter::WorkspaceEventEmitter;
 use crate::workspace::repo::errors::RepoRefusal;
 use crate::workspace::repo::root_resolver::{RepoRootResolution, RepoRootResolver};
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
