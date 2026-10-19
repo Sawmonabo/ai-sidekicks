@@ -15,8 +15,9 @@ use crate::macos::pinned_process::pinned;
 use crate::macos::processes::list_group_process_ids;
 use crate::posix::process_id::system_process_id;
 
-/// How long a group listing that found no live member waits before it lists again, so a member
-/// still being made, which reads as no process, is seen.
+/// How long a group listing that found no live member waits before it lists again. It narrows the
+/// one case the first listing cannot see: a spawned child still being made whose parent died
+/// mid-spawn, which leaves the kill refused with no live member listed.
 #[cfg(target_os = "macos")]
 const LISTING_GAP: Duration = Duration::from_millis(10);
 
