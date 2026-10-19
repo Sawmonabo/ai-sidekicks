@@ -108,9 +108,12 @@ pub(crate) fn compose_codex_thread_start_params(
 
 /// The `thread/resume` params that resume `thread_id` under `settings`, without the output speed,
 /// which the caller sets per request.
-#[expect(
-    dead_code,
-    reason = "the Codex session's resume brings a conversation back with these"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex session's resume brings a conversation back with these"
+    )
 )]
 pub(crate) fn compose_codex_thread_resume_params(
     settings: &CodexThreadSettings,
@@ -142,9 +145,12 @@ pub(crate) fn compose_codex_thread_resume_params(
 
 /// The `thread/fork` params that fork `thread_id` under `settings`, without the output speed,
 /// which the caller sets per request, or the turn the fork keeps up to.
-#[expect(
-    dead_code,
-    reason = "the Codex session's fork and rewind move a conversation with these"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex session's fork and rewind move a conversation with these"
+    )
 )]
 pub(crate) fn compose_codex_thread_fork_params(
     settings: &CodexThreadSettings,
@@ -230,6 +236,10 @@ pub(crate) struct CodexTurnStartParams {
         skip_serializing_if = "Option::is_none",
         with = "serde_with::rust::double_option"
     )]
+    #[expect(
+        clippy::option_option,
+        reason = "absent, `null` and a tier are three meanings the wire keeps apart"
+    )]
     pub(crate) service_tier: Option<Option<String>>,
     /// The service tier of this turn alone, leaving the thread's as it is; `default` is standard.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -268,6 +278,10 @@ pub(crate) struct CodexThreadSettingsUpdateParams {
         default,
         skip_serializing_if = "Option::is_none",
         with = "serde_with::rust::double_option"
+    )]
+    #[expect(
+        clippy::option_option,
+        reason = "absent, `null` and a tier are three meanings the wire keeps apart"
     )]
     pub(crate) service_tier: Option<Option<String>>,
 }
@@ -451,7 +465,9 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{
-        CodexThreadSettings, CodexThreadSettingsUpdateParams, compose_codex_thread_start_params,
+        CodexServiceTierChange, CodexThreadSettings, CodexThreadSettingsUpdateParams,
+        ThreadForkParams, ThreadResumeParams, ThreadStartParams, compose_codex_thread_fork_params,
+        compose_codex_thread_resume_params, compose_codex_thread_start_params,
     };
     use crate::provider::driver::codex::permission_level::CodexProfileFolders;
     use crate::provider::driver::contract::SubagentPolicy;
@@ -477,24 +493,24 @@ mod tests {
         }
     }
 
-    fn enabled(helpers_at_once: Option<u64>) -> Option<SubagentPolicy> {
-        Some(SubagentPolicy::Enabled {
+    fn enabled(helpers_at_once: Option<u64>) -> SubagentPolicy {
+        SubagentPolicy::Enabled {
             helpers_at_once: helpers_at_once
                 .map(|count| SafeInt::new(count).expect("a positive safe integer")),
             definitions: Vec::new(),
-        })
+        }
     }
 
     #[rstest]
     #[case::no_policy(None, json!(false), Some(json!(false)))]
     #[case::helpers_off(Some(SubagentPolicy::Disabled {}), json!(false), Some(json!(false)))]
     #[case::unlimited(
-        enabled(None),
+        Some(enabled(None)),
         json!({ "enabled": true, "max_concurrent_threads_per_session": i64::MAX }),
         None
     )]
     #[case::two_at_once(
-        enabled(Some(2)),
+        Some(enabled(Some(2))),
         json!({ "enabled": true, "max_concurrent_threads_per_session": 3 }),
         None
     )]
@@ -509,28 +525,72 @@ mod tests {
         assert_eq!(config.get("agents.enabled"), agents_enabled.as_ref());
     }
 
-    #[rstest]
-    #[case::absent(None, json!({ "threadId": "thread" }))]
-    #[case::null(Some(None), json!({ "threadId": "thread", "serviceTier": null }))]
-    #[case::value(
-        Some(Some("fast".to_owned())),
-        json!({ "threadId": "thread", "serviceTier": "fast" })
+    /// A thread request that carries a service tier.
+    #[derive(Clone, Copy, Debug)]
+    enum TierRequest {
+        Start,
+        Resume,
+        Fork,
+        SettingsUpdate,
+    }
+
+    // `request`'s params with `service_tier` set, as their serialized `serviceTier` member.
+    #[expect(
+        clippy::option_option,
+        reason = "absent, `null` and a tier are the three states under test"
     )]
-    fn the_service_tier_keeps_absent_null_and_a_value_apart(
-        #[case] service_tier: Option<Option<String>>,
-        #[case] expected: Value,
-    ) {
-        let params = CodexThreadSettingsUpdateParams {
-            thread_id: "thread".to_owned(),
-            collaboration_mode: None,
-            permissions: None,
-            approval_policy: None,
-            approvals_reviewer: None,
-            service_tier,
+    fn serialized_service_tier(
+        request: TierRequest,
+        service_tier: Option<Option<String>>,
+    ) -> Option<Value> {
+        let settings = settings_with(None);
+        let change = service_tier.clone().map(CodexServiceTierChange);
+        let params = match request {
+            TierRequest::Start => serde_json::to_value(ThreadStartParams {
+                service_tier: change,
+                ..compose_codex_thread_start_params(&settings, None)
+            }),
+            TierRequest::Resume => serde_json::to_value(ThreadResumeParams {
+                service_tier: change,
+                ..compose_codex_thread_resume_params(&settings, None, "thread".to_owned())
+            }),
+            TierRequest::Fork => serde_json::to_value(ThreadForkParams {
+                service_tier: change,
+                ..compose_codex_thread_fork_params(&settings, None, "thread".to_owned())
+            }),
+            TierRequest::SettingsUpdate => serde_json::to_value(CodexThreadSettingsUpdateParams {
+                thread_id: "thread".to_owned(),
+                collaboration_mode: None,
+                permissions: None,
+                approval_policy: None,
+                approvals_reviewer: None,
+                service_tier,
+            }),
         };
+        params
+            .expect("the params serialize")
+            .get("serviceTier")
+            .cloned()
+    }
+
+    #[rstest]
+    fn the_service_tier_keeps_absent_null_and_a_value_apart(
+        #[values(
+            TierRequest::Start,
+            TierRequest::Resume,
+            TierRequest::Fork,
+            TierRequest::SettingsUpdate
+        )]
+        request: TierRequest,
+    ) {
+        assert_eq!(serialized_service_tier(request, None), None);
         assert_eq!(
-            serde_json::to_value(&params).expect("the params serialize"),
-            expected
+            serialized_service_tier(request, Some(None)),
+            Some(Value::Null)
+        );
+        assert_eq!(
+            serialized_service_tier(request, Some(Some("fast".to_owned()))),
+            Some(json!("fast"))
         );
     }
 }
