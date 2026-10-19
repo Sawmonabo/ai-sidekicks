@@ -448,8 +448,8 @@ fn windows_powershell_folder_arguments(arguments: &[String], folder: &str) -> Op
     let put_before_command = |first: usize| {
         let mut started = arguments[..first].to_vec();
         let text = arguments[first..].join(" ");
-        // Rust's `White_Space` set is wider than PowerShell's, but a text of any whitespace runs
-        // nothing either way, so leaving it out changes nothing.
+        // `trim()` removes the Unicode `White_Space` set, the characters PowerShell's tokenizer
+        // skips as whitespace and line ends, so a text of only those runs nothing on both sides.
         started.push(if text.trim().is_empty() {
             set_location.clone()
         } else {
