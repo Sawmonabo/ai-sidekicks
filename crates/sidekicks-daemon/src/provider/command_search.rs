@@ -1,8 +1,9 @@
 //! Finds a provider's command in the folders its own installer, the system's package manager, npm
 //! and the Node version and package managers put it, for a spawn whose search path holds none.
-//! Where more than one build is found, the newest runs: each build's `--version` is read once per
-//! build, under a deadline. A build runs with the folder it was found in first on its search path,
-//! where a Node manager keeps the `node` its script's `#!/usr/bin/env node` names.
+//! Where more than one build is found, the newest runs: each build's `--version` is read under a
+//! deadline, and a read that printed is kept for that build. A build runs with the folder it was
+//! found in first on its search path, where a Node manager keeps the `node` its script's
+//! `#!/usr/bin/env node` names.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -35,13 +36,13 @@ const VERSION_READ_DEADLINE: Duration = Duration::from_secs(5);
 const VERSION_OUTPUT_BOUND: usize = 64 * 1024;
 
 /// The search a provider's command falls back to once the spawn environment's `PATH` holds none.
-/// It keeps each build's version for the daemon's life, read once per build: a build replaced at
-/// the same path, with another modification time or length, is read again.
+/// It keeps each build's version for the daemon's life once a read of it printed: a build replaced
+/// at the same path, with another modification time or length, is read again, and so is one whose
+/// read timed out or could not start.
 pub(crate) struct ProviderCommandSearch {
     spawner: Spawner,
-    // Per canonical path, the build's stamp and its version, `None` for a build that printed no
-    // version it could be ranked by; one entry per path, so a replaced build takes its place.
-    versions: Mutex<HashMap<PathBuf, (BuildStamp, Arc<OnceCell<Option<Version>>>)>>,
+    // Per canonical path, one entry, so a replaced build takes its place.
+    versions: Mutex<HashMap<PathBuf, FoundBuildVersion>>,
 }
 
 /// One build the search found: its resolved path and the folder its command was found in.
@@ -52,6 +53,13 @@ pub(crate) struct ProviderCommandSearchHit {
     /// a script deep in its packages, beside no `node`. Put first on the build's search path.
     pub(crate) folder: String,
     stamp: BuildStamp,
+}
+
+// A build's stamp and its version, set once a read of it printed: `None` for a build that printed
+// no version it could be ranked by.
+struct FoundBuildVersion {
+    stamp: BuildStamp,
+    version: Arc<OnceCell<Option<Version>>>,
 }
 
 // Which build sits at a canonical path: its modification time and length.
@@ -128,60 +136,66 @@ impl ProviderCommandSearch {
         Ok(hits.into_iter().nth(newest))
     }
 
-    // The build's version, read once per build.
+    // The build's version, kept once a read of it printed; a read that failed is tried again by
+    // the next search.
     async fn read_version(
         &self,
         hit: &ProviderCommandSearchHit,
         spawn_environment: &[(String, String)],
     ) -> Option<Version> {
-        let reading = {
+        let version = {
             let mut versions = self.versions.lock().unwrap_or_else(PoisonError::into_inner);
             match versions.get(&hit.build) {
-                Some((stamp, reading)) if *stamp == hit.stamp => Arc::clone(reading),
+                Some(found) if found.stamp == hit.stamp => Arc::clone(&found.version),
                 Some(_) | None => {
-                    let reading = Arc::new(OnceCell::new());
-                    versions.insert(hit.build.clone(), (hit.stamp, Arc::clone(&reading)));
-                    reading
+                    let version = Arc::new(OnceCell::new());
+                    versions.insert(
+                        hit.build.clone(),
+                        FoundBuildVersion {
+                            stamp: hit.stamp,
+                            version: Arc::clone(&version),
+                        },
+                    );
+                    version
                 }
             }
         };
-        reading
-            .get_or_init(|| self.read_build_version(hit, spawn_environment))
+        match version
+            .get_or_try_init(|| self.read_build_version(hit, spawn_environment))
             .await
-            .clone()
-    }
-
-    // Starts the build for its `--version` and parses what it printed; a build that prints no
-    // version it can be ranked by is logged and answers `None`.
-    async fn read_build_version(
-        &self,
-        hit: &ProviderCommandSearchHit,
-        spawn_environment: &[(String, String)],
-    ) -> Option<Version> {
-        match self.read_version_output(hit, spawn_environment).await {
-            Ok(output) => {
-                let parsed = parse_cli_version_report(&String::from_utf8_lossy(&output))
-                    .parsed_version
-                    .and_then(|parsed| Version::parse(&parsed).ok());
-                if parsed.is_none() {
-                    tracing::warn!(
-                        build = %hit.build.display(),
-                        "a provider build printed no version it could be ranked by, so it runs \
-                         only where no build that did is found"
-                    );
-                }
-                parsed
-            }
+        {
+            Ok(version) => version.clone(),
             Err(error) => {
                 tracing::warn!(
                     build = %hit.build.display(),
                     error = &error as &(dyn Error + 'static),
                     "a provider build did not print its version, so it runs only where no build \
-                     that did is found"
+                     that did is found, and is read again by the next search"
                 );
                 None
             }
         }
+    }
+
+    // Starts the build for its `--version` and parses what it printed; a build that prints no
+    // version it can be ranked by is logged and answers `None`. Fails as the read does.
+    async fn read_build_version(
+        &self,
+        hit: &ProviderCommandSearchHit,
+        spawn_environment: &[(String, String)],
+    ) -> Result<Option<Version>, VersionReadError> {
+        let output = self.read_version_output(hit, spawn_environment).await?;
+        let parsed = parse_cli_version_report(&String::from_utf8_lossy(&output))
+            .parsed_version
+            .and_then(|parsed| Version::parse(&parsed).ok());
+        if parsed.is_none() {
+            tracing::warn!(
+                build = %hit.build.display(),
+                "a provider build printed no version it could be ranked by, so it runs only where \
+                 no build that did is found"
+            );
+        }
+        Ok(parsed)
     }
 
     // What the build printed for `--version`, started from the spawner's thread with its folder
@@ -419,29 +433,35 @@ mod tests {
     use super::ProviderCommandSearch;
     use crate::file::atomic_write::write_file_atomically;
 
+    // A build whose first version read sleeps past its deadline and whose later ones print 2.0.0.
+    const SLOW_ON_FIRST_READ: &str = "marker=\"$(dirname \"$0\")/read\"
+if [ -e \"$marker\" ]; then echo 'tool 2.0.0'; else touch \"$marker\"; sleep 30; fi";
+
     // Fails when an older build beats a newer one (by folder order or by text order of versions),
-    // when a build that prints no version beats one that does, or when the later of two builds of
-    // equal version wins.
+    // when a build that prints no version beats one that does, when the later of two builds of
+    // equal version wins, or when a read that timed out is kept, so no later search reads that
+    // build again. Each build runs its script; each search in turn finds the build `winners` names.
     #[rstest]
-    #[case::newest_last(&["1.2.3", "1.10.0"], 1)]
-    #[case::newest_first(&["2.0.0", "1.9.9"], 0)]
-    #[case::unreadable_first(&["", "0.0.1"], 1)]
-    #[case::equal_versions(&["1.2.3", "1.2.3"], 0)]
+    #[case::newest_last(&["echo 'tool 1.2.3'", "echo 'tool 1.10.0'"], &[1])]
+    #[case::newest_first(&["echo 'tool 2.0.0'", "echo 'tool 1.9.9'"], &[0])]
+    #[case::unreadable_first(&["echo 'tool '", "echo 'tool 0.0.1'"], &[1])]
+    #[case::equal_versions(&["echo 'tool 1.2.3'", "echo 'tool 1.2.3'"], &[0])]
+    #[case::timed_out_read_again(&[SLOW_ON_FIRST_READ, "echo 'tool 1.0.0'"], &[1, 0])]
     #[tokio::test]
     async fn the_newest_readable_build_wins_and_ties_keep_the_earlier_folder(
-        #[case] printed_versions: &[&str],
-        #[case] winner: usize,
+        #[case] scripts: &[&str],
+        #[case] winners: &[usize],
     ) {
         let root = tempfile::tempdir().expect("the temporary folder is made");
         let mut folders = Vec::new();
-        for (index, version) in printed_versions.iter().enumerate() {
+        for (index, script) in scripts.iter().enumerate() {
             let folder = root.path().join(index.to_string());
             tokio::fs::create_dir(&folder)
                 .await
                 .expect("the folder is made");
             write_file_atomically(
                 &folder.join("tool"),
-                format!("#!/bin/sh\necho 'tool {version}'\n"),
+                format!("#!/bin/sh\n{script}\n"),
                 0o755,
             )
             .await
@@ -453,20 +473,22 @@ mod tests {
         );
         let environment = vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())];
 
-        let hit = search
-            .find(
-                "tool",
-                folders.iter().cloned().map(ProgramFolder::Folder).collect(),
-                &environment,
-            )
-            .await
-            .expect("the search runs")
-            .expect("a build is found");
+        for &winner in winners {
+            let hit = search
+                .find(
+                    "tool",
+                    folders.iter().cloned().map(ProgramFolder::Folder).collect(),
+                    &environment,
+                )
+                .await
+                .expect("the search runs")
+                .expect("a build is found");
 
-        assert_eq!(
-            Some(hit.folder.as_str()),
-            folders[winner].to_str(),
-            "{printed_versions:?}"
-        );
+            assert_eq!(
+                Some(hit.folder.as_str()),
+                folders[winner].to_str(),
+                "{scripts:?}"
+            );
+        }
     }
 }
