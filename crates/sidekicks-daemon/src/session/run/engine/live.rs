@@ -164,34 +164,37 @@ pub(super) struct EndingGuard<'engine> {
     pub(super) entry: Arc<EndingWrite>,
 }
 
-impl Drop for EndingGuard<'_> {
-    fn drop(&mut self) {
+impl EndingGuard<'_> {
+    // Lands the write and steps the run's entry back, under the held lock `live`, so a newer
+    // write's guard walking back never puts this one back once this guard has run.
+    fn land(&self, live: &mut LiveRuns) {
+        settle(&self.entry.landed, ());
+        if live
+            .ending
+            .get(&self.run_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &self.entry))
         {
-            let mut live = lock(self.live);
-            // Landed under the lock, so a newer write's guard walking back never puts this one
-            // back once this guard has run.
-            settle(&self.entry.landed, ());
-            if live
-                .ending
-                .get(&self.run_id)
-                .is_some_and(|current| Arc::ptr_eq(current, &self.entry))
-            {
-                // An older write still in flight stays for a waiter: the newest that has not
-                // landed takes this one's place, and its own guard clears it once it lands.
-                let mut pending = self.entry.previous.clone();
-                while let Some(write) = pending.clone().filter(|write| write.landed.initialized()) {
-                    pending = write.previous.clone();
+            // An older write still in flight stays for a waiter: the newest that has not landed
+            // takes this one's place, and its own guard clears it once it lands.
+            let mut pending = self.entry.previous.clone();
+            while let Some(write) = pending.clone().filter(|write| write.landed.initialized()) {
+                pending = write.previous.clone();
+            }
+            match pending {
+                Some(write) => {
+                    live.ending.insert(self.run_id, write);
                 }
-                match pending {
-                    Some(write) => {
-                        live.ending.insert(self.run_id, write);
-                    }
-                    None => {
-                        live.ending.remove(&self.run_id);
-                    }
+                None => {
+                    live.ending.remove(&self.run_id);
                 }
             }
         }
+    }
+}
+
+impl Drop for EndingGuard<'_> {
+    fn drop(&mut self) {
+        self.land(&mut lock(self.live));
     }
 }
 
