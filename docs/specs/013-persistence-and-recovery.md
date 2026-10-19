@@ -153,14 +153,21 @@ V1 pins **`rusqlite` 0.40.2** exact, with its `bundled` feature, as the local SQ
 The writer thread sets the following pragmas on first connection:
 
 ```sql
+PRAGMA busy_timeout = 5000;     -- first, so a second daemon opening the same fresh file
+                                -- waits out the first one's switch to WAL rather than
+                                -- failing busy
 PRAGMA journal_mode = WAL;      -- concurrent readers during writes
 PRAGMA synchronous = FULL;      -- set and read back for chain-of-custody durability
 PRAGMA checkpoint_fullfsync = ON; -- on macOS a checkpoint syncs with the drive's full
                                   -- flush (F_FULLFSYNC); no effect elsewhere
 PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
 PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so a deleted
                                 -- session leaves no readable freed page
+PRAGMA cache_size = -2000;      -- on every connection, read-only ones included: SQLite's
+                                -- own 2,000 KiB page cache
+PRAGMA cell_size_check = ON;    -- on every connection: each b-tree page is checked as it is
+                                -- first read from disk, so a damaged page fails the read
+                                -- that meets it rather than spreading
 PRAGMA trusted_schema = OFF;    -- on every connection; the schema calls only built-ins
 PRAGMA optimize = 0x10002;      -- once at open, after the schema step
 ```
