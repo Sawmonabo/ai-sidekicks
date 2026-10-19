@@ -323,6 +323,12 @@ mod tests {
     use crate::session::run::state_change::RunStateChangeCompanions;
     use crate::uuid_v7::mint_uuid_v7;
 
+    fn step_stop() -> LimitStop {
+        LimitStop::Step {
+            count: SafeInt::new(40).expect("40 is a step bound"),
+        }
+    }
+
     // Killed by the run's end forgetting the cut before the cut turn's end is written, which its
     // provider then reports with no cause.
     #[tokio::test]
@@ -344,12 +350,7 @@ mod tests {
         .await;
 
         engine
-            .stop_at_limit(
-                run_id,
-                LimitStop::Step {
-                    count: SafeInt::new(40).expect("40 is a step bound"),
-                },
-            )
+            .stop_at_limit(run_id, step_stop())
             .await
             .expect("the limit's interrupt is accepted");
         // A person's interrupt, accepted while the limit's is pending, ends the run first.
@@ -386,6 +387,67 @@ mod tests {
         assert!(
             lock(&engine.live).cut_turns.is_empty(),
             "the cut leaves with its turn's end"
+        );
+    }
+
+    // Killed by the cuts keyed by run alone, where turn 2's cut replaces turn 1's, which its
+    // provider then ends with no cause.
+    #[tokio::test]
+    async fn a_later_turns_cut_keeps_the_limit_of_an_earlier_cut_turn() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let home = tempfile::tempdir().expect("the test makes a home folder");
+        let session_id = test_session_id();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let turn = |number| SafeInt::new(number).expect("the test's turn numbers count from 1");
+        insert_running_run(&database, session_id, run_id);
+        let engine = test_engine(&database, log.service, home.path());
+        let _interventions = hand_limit_interrupter(&engine, 0);
+
+        // Turn 1 is cut and waits for its provider's end while turn 2 opens and is cut too.
+        for turn_number in 1..=2 {
+            append(
+                &engine,
+                session_id,
+                &turn_started_at(session_id, run_id, turn_number, 1),
+            )
+            .await;
+            engine
+                .stop_at_limit(run_id, step_stop())
+                .await
+                .expect("the limit's interrupt is accepted");
+        }
+        let turn_ended = engine
+            .record_turn_end(
+                run_id,
+                ProviderTurnEnd {
+                    turn_number: turn(1),
+                    outcome: TurnOutcome::Interrupted(None),
+                },
+            )
+            .await
+            .expect("the provider's end of turn 1 is written");
+
+        assert!(turn_ended);
+        assert_eq!(
+            stored_events(&database, &run_id),
+            [
+                ("agent.turn.started".to_owned(), None, None),
+                ("agent.run.stepLimit.reached".to_owned(), None, None),
+                ("agent.turn.started".to_owned(), None, None),
+                ("agent.run.stepLimit.reached".to_owned(), None, None),
+                (
+                    "agent.turn.interrupted".to_owned(),
+                    Some("stepLimit".to_owned()),
+                    Some("provider".to_owned())
+                ),
+            ]
+        );
+        let cuts: Vec<_> = lock(&engine.live).cut_turns.keys().copied().collect();
+        assert_eq!(
+            cuts,
+            [(run_id, turn(2))],
+            "turn 2's cut waits for its own end"
         );
     }
 }
