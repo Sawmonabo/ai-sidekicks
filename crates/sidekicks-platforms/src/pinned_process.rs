@@ -174,18 +174,16 @@ mod tests {
     fn pinned_process_record_leaves_a_group_of_another_session() {
         use std::time::Duration;
 
-        use nix::sys::signal::{Signal, killpg};
-        use nix::unistd::Pid;
+        use nix::sys::signal::Signal;
 
-        use crate::posix::process_group::read_group_output_to_end;
+        use crate::posix::process_group::{read_group_output_to_end, signal_group};
 
         let (mut child, mut output, record) = start_group_leader(false);
         drop(child.stdin.take());
         child.wait().expect("the child is reaped");
 
         let is_group_ended = record.end_survivors().expect("the survivors read");
-        let group = Pid::from_raw(i32::try_from(record.id).expect("a process id fits"));
-        killpg(group, Signal::SIGKILL).expect("the test ends its own child's group");
+        signal_group(record.id, Signal::SIGKILL).expect("the test ends its own child's group");
         let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
 
         assert!(!is_group_ended);
