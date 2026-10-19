@@ -46,6 +46,7 @@ mod tests {
     use std::os::unix::process::ExitStatusExt as _;
     use std::process::Stdio;
 
+    use nix::fcntl::{FcntlArg, OFlag, fcntl};
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
@@ -59,8 +60,14 @@ mod tests {
     /// What the command stand-in prints once it listens for Ctrl-C.
     const LISTENING: &str = "listening for Ctrl-C";
 
-    /// What the command stand-in prints once its listener caught the Ctrl-C.
+    /// What the test writes to the command stand-in just before it sends the Ctrl-C.
+    const GO: &str = "go";
+
+    /// What the command stand-in prints when its listener answers after the Ctrl-C was sent.
     const CAUGHT: &str = "caught Ctrl-C";
+
+    /// What the command stand-in prints when its listener answers before the Ctrl-C was sent.
+    const EARLY: &str = "answered before Ctrl-C";
 
     #[test]
     #[ignore = "the command stand-in, which the Ctrl-C test starts as its child"]
@@ -69,11 +76,18 @@ mod tests {
             .enable_all()
             .build()
             .expect("the runtime starts");
+        // A read that finds nothing answers at once, so the line below tells whether the test had
+        // written `GO`, and so sent the Ctrl-C, by the time the listener answered.
+        fcntl(std::io::stdin(), FcntlArg::F_SETFL(OFlag::O_NONBLOCK))
+            .expect("the stand-in's input stops blocking");
         runtime.block_on(async {
             let mut listener = ctrl_c().expect("the listener starts");
             writeln!(std::io::stdout(), "{LISTENING}").expect("the line is written");
             listener.recv().await.expect("a Ctrl-C arrives");
-            writeln!(std::io::stdout(), "{CAUGHT}").expect("the line is written");
+            let mut line = String::new();
+            let is_sent = std::io::stdin().read_line(&mut line).is_ok() && line.trim_end() == GO;
+            let marker = if is_sent { CAUGHT } else { EARLY };
+            writeln!(std::io::stdout(), "{marker}").expect("the line is written");
         });
         let failure = end_as_ctrl_c();
         Err::<(), _>(failure).expect("the Ctrl-C ending ends the process");
@@ -82,10 +96,12 @@ mod tests {
     #[test]
     fn a_ctrl_c_ends_the_command_as_sigint_does() {
         let mut child = this_test_program(COMMAND_STAND_IN)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .expect("the stand-in starts");
+        let mut stdin = child.stdin.take().expect("the stand-in's input is piped");
         let stdout = child.stdout.take().expect("the stand-in's output is piped");
         let mut lines = BufReader::new(stdout).lines().map_while(Result::ok);
         // libtest may print the test's name on the marker's line.
@@ -95,22 +111,17 @@ mod tests {
             child.wait().expect("the stand-in is reaped");
         }
         assert!(is_listening, "the stand-in never listened for Ctrl-C");
-        // Still running, so the listener waits for the Ctrl-C rather than answering at once.
-        let early_end = child.try_wait().expect("the stand-in's state reads");
-        assert!(
-            early_end.is_none(),
-            "the stand-in ended before the Ctrl-C: {early_end:?}"
-        );
         let child_id = i32::try_from(child.id()).expect("a process id fits a pid");
 
+        writeln!(stdin, "{GO}").expect("the line is written");
         kill(Pid::from_raw(child_id), Signal::SIGINT).expect("the signal is sent");
         // The listener caught the Ctrl-C, so the death below is the ending's, not SIGINT's own.
-        let has_caught = lines.any(|line| line.ends_with(CAUGHT));
+        let answer = lines.find(|line| line.ends_with(CAUGHT) || line.ends_with(EARLY));
         let status = child.wait().expect("the stand-in is reaped");
 
         assert!(
-            has_caught,
-            "the stand-in's listener never caught the Ctrl-C"
+            answer.as_deref().is_some_and(|line| line.ends_with(CAUGHT)),
+            "the stand-in's listener did not wait for the Ctrl-C: {answer:?}"
         );
         assert_eq!(status.signal(), Some(libc::SIGINT), "{status:?}");
     }
