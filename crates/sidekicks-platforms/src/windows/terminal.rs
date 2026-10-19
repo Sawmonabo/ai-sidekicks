@@ -7,7 +7,9 @@ use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, ErrorKind, Read, Write};
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
+#[cfg(any(test, feature = "test-support"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::ptr;
 use std::time::Instant;
