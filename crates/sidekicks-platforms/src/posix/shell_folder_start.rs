@@ -3,7 +3,21 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::shell_folder_start::ShellFolderProbe;
 use crate::shell_folder_start::ShellFolderStart;
+
+/// The `bash` the live test opens on macOS and Linux, with no startup files and a prompt of its
+/// folder; neither system holds the folder against removal, so it does not leave it first.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) const BASH_SHELL_FOLDER_PROBE: ShellFolderProbe = ShellFolderProbe {
+    program: "bash",
+    arguments: &["--norc", "--noprofile"],
+    environment: &[("PS1", "$PWD>")],
+    prompt_prefix: "",
+    leaves_the_folder_first: false,
+    folder_name: "worktree",
+};
 
 /// How `program` with `arguments` starts in `folder`: unchanged, the `shell` mode spawned in
 /// `stable_folder` and handing the shell `folder`, which it enters before its exec.

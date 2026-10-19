@@ -26,6 +26,8 @@ use tokio::process::Command;
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::posix::child_command::prepare_child_command;
 #[cfg(any(test, feature = "test-support"))]
+use crate::posix::shell_folder_start::BASH_SHELL_FOLDER_PROBE;
+#[cfg(any(test, feature = "test-support"))]
 use crate::shell_folder_start::ShellFolderProbe;
 use crate::spawner::Spawner;
 
@@ -101,12 +103,5 @@ pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[
         leaves_the_folder_first: false,
         folder_name: "worktree",
     },
-    ShellFolderProbe {
-        program: "bash",
-        arguments: &["--norc", "--noprofile"],
-        environment: &[("PS1", "$PWD>")],
-        prompt_prefix: "",
-        leaves_the_folder_first: false,
-        folder_name: "worktree",
-    },
+    BASH_SHELL_FOLDER_PROBE,
 ];
