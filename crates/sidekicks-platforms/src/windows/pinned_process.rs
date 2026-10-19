@@ -334,9 +334,9 @@ pub(crate) fn current_process() -> BorrowedHandle<'static> {
     unsafe { BorrowedHandle::borrow_raw(GetCurrentProcess()) }
 }
 
-/// The caller's own child `id`, held open with the rights to read its times, wait on it and end
-/// it; the caller's handle to the child keeps its id from passing to another process meanwhile.
-/// Fails with the system's error, `ERROR_INVALID_PARAMETER` when no process has the id.
+/// Process `id`, held open with the rights to read its times, wait on it and end it; when it is
+/// the caller's own child, the caller's handle keeps its id from passing to another process
+/// meanwhile. Fails with the system's error, `ERROR_INVALID_PARAMETER` when no process has the id.
 pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
     let process = open_process(
         id,

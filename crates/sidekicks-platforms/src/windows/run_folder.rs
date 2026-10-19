@@ -59,8 +59,8 @@ pub(crate) fn resolve_daemon_run_folder(local_app_data: &Path, user_sid: &str) -
 /// folder, owned by this process's user, SYSTEM or the Administrators (who own what an elevated
 /// process makes), whose access list lets in no account but those three. Fails with
 /// [`RunFolderRefused::Read`] when it cannot be read, [`RunFolderRefused::NotOwnFolder`] for a
-/// link, a file or another account's folder, and [`RunFolderRefused::OpenToAccount`] for one that
-/// lets another account in.
+/// link, a file or a folder owned by an account that may not hold it, and
+/// [`RunFolderRefused::OpenToAccount`] for one that lets another account in.
 pub fn check_private_run_folder(folder: &Path) -> Result<(), RunFolderRefused> {
     let read_error = |source: io::Error| RunFolderRefused::Read {
         folder: folder.to_path_buf(),
