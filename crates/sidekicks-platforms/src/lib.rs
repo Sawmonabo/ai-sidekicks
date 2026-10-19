@@ -66,8 +66,7 @@ mod run_folder;
 mod running_program;
 mod shell_folder_start;
 mod shell_start;
-mod socket_listener;
-mod socket_path;
+mod socket;
 mod spawner;
 mod system_folder;
 mod system_locale;
@@ -207,11 +206,11 @@ pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(unix)]
-pub use posix::socket_connection::connect_socket;
+pub use posix::socket::connection::connect_socket;
 #[cfg(unix)]
-pub use posix::socket_listener::bind_socket_listener;
+pub use posix::socket::listener::bind_socket_listener;
 #[cfg(unix)]
-pub use posix::socket_path::check_socket_path;
+pub use posix::socket::path::check_socket_path;
 #[cfg(unix)]
 pub use posix::system_locale::{system_hour_cycle, system_locale};
 #[cfg(unix)]
@@ -241,8 +240,8 @@ pub use shell_folder_start::ShellFolderStart;
 #[cfg(not(target_os = "macos"))]
 pub use shell_start::ShellStartConfirmation;
 pub use shell_start::{ShellStart, ShellStartError};
-pub use socket_listener::ExistingSocket;
-pub use socket_path::SocketPathRefused;
+pub use socket::listener::ExistingSocket;
+pub use socket::path::SocketPathRefused;
 pub use spawner::Spawner;
 pub use system_folder::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
@@ -328,11 +327,11 @@ pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(target_os = "windows")]
-pub use windows::socket_connection::connect_socket;
+pub use windows::socket::connection::connect_socket;
 #[cfg(target_os = "windows")]
-pub use windows::socket_listener::bind_socket_listener;
+pub use windows::socket::listener::bind_socket_listener;
 #[cfg(target_os = "windows")]
-pub use windows::socket_path::check_socket_path;
+pub use windows::socket::path::check_socket_path;
 #[cfg(target_os = "windows")]
 pub use windows::system_locale::{system_hour_cycle, system_locale};
 #[cfg(target_os = "windows")]
