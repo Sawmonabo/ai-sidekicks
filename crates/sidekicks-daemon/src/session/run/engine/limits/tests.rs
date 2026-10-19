@@ -682,3 +682,43 @@ async fn a_failed_stop_keeps_its_cut_only_while_its_row_is_pending(
         "a step stop's limit stays owed for its retry"
     );
 }
+
+// Killed by a stop whose future is dropped once its cut is in leaving that cut, which no row
+// names, for its turn's end to read.
+#[tokio::test]
+async fn a_dropped_stop_withdraws_its_cut() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    let _interventions = hand_limit_interrupter(&engine, 0);
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    let paused = engine.cut_pause.arm();
+    let mut stopping = Box::pin(engine.stop_at_spend_limit(run_id));
+
+    let held = tokio::time::timeout(SETTLE_WAIT, async {
+        tokio::select! {
+            stopped = &mut stopping => Err(stopped),
+            reached = paused.reached => Ok(reached),
+        }
+    })
+    .await
+    .expect("the stop reaches its cut or ends");
+    assert!(matches!(held, Ok(Ok(()))), "the stop answers {held:?}");
+    assert!(
+        lock(&engine.live)
+            .cut_turns
+            .contains_key(&(run_id, turn(1)))
+    );
+    drop(stopping);
+
+    assert!(lock(&engine.live).cut_turns.is_empty());
+}

@@ -182,6 +182,39 @@ impl Drop for StepInterruptGuard<'_> {
     }
 }
 
+/// Holds a limit stop's cut of a turn until the stop keeps it for the row that names it, and
+/// withdraws it on every other exit path, the stop's future dropped included.
+pub(super) struct CutGuard<'engine> {
+    /// The engine's live runs.
+    pub(super) live: &'engine Mutex<LiveRuns>,
+    /// The turn the stop cut, by run and turn number, while the guard still holds its cut; `None`
+    /// where the stop cut no turn.
+    pub(super) key: Option<(RunId, SafeInt<1>)>,
+    /// The stop that made the cut.
+    pub(super) stop_id: u64,
+}
+
+impl CutGuard<'_> {
+    /// Keeps the cut past the stop, since a pending row names it.
+    pub(super) fn keep(mut self) {
+        self.key = None;
+    }
+
+    /// Withdraws the cut now, where the stop goes on naming no turn. Never called while the live
+    /// runs are locked.
+    pub(super) fn withdraw(&mut self) {
+        if let Some(key) = self.key.take() {
+            lock(self.live).withdraw_cut(key, self.stop_id);
+        }
+    }
+}
+
+impl Drop for CutGuard<'_> {
+    fn drop(&mut self) {
+        self.withdraw();
+    }
+}
+
 /// Settles a start's entry on every exit path of the start, its future dropped included: the entry
 /// leaves once the driver has the run or the run ended, and stays claimable otherwise.
 pub(super) struct StartingGuard<'engine> {
