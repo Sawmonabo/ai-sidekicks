@@ -235,15 +235,17 @@ pub async fn repair_damaged_file(
             sessions_from_backup
         }
         Err(ReadyingEnd::Failed(failure)) if !stop.is_cancelled() => {
-            all_removed(remove_beside(database_path, FRESH_FILE_SUFFIXES).await)?;
+            // The log names why and where the copy aside is before any removal can fail.
             warn!(
                 error = &failure as &(dyn Error + 'static),
                 aside_folder = %aside_folder.display(),
                 "the database file could not be repaired"
             );
+            let mut cleanup_failures = backup_copy_removal;
+            cleanup_failures.extend(remove_beside(database_path, FRESH_FILE_SUFFIXES).await);
             return Ok(DatabaseFileRepair::Unrepaired {
                 aside_folder,
-                failure: CleanupFailures::new(failure, backup_copy_removal, REPAIRING),
+                failure: CleanupFailures::new(failure, cleanup_failures, REPAIRING),
             });
         }
         // The fresh file is left for the next repair to remove, and nothing reads it without the
