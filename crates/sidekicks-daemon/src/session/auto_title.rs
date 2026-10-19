@@ -18,6 +18,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::events::SessionRenamedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
@@ -52,9 +53,6 @@ const FALLBACK_NAME_MAX_CODE_POINTS: usize = 40;
 
 /// How long one naming pass may run before it counts as having returned nothing.
 const NAMING_PASS_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The `session.renamed` payload member holding the new name, `null` when the person cleared it.
-const RENAMED_NAME_MEMBER: &str = "name";
 
 /// What joins one reply message to the next in the reply the pass reads.
 const REPLY_MESSAGE_SEPARATOR: &str = "\n\n";
@@ -209,11 +207,10 @@ impl SessionAutoTitle {
             } else if event_type == SessionEventType::SessionRenamed {
                 auto_title.cancel_pass(session_id);
                 // A cleared name is named again from the first exchange, as an unnamed session is.
-                let is_cleared = event
-                    .envelope
-                    .payload()
-                    .get(RENAMED_NAME_MEMBER)
-                    .is_some_and(Value::is_null);
+                let is_cleared = serde_json::from_value::<SessionRenamedPayload>(Value::Object(
+                    event.envelope.payload().clone(),
+                ))
+                .is_ok_and(|renamed| renamed.name.is_none());
                 if is_cleared {
                     auto_title.spawn_pass(session_id, None, &follower_runtime);
                 }
