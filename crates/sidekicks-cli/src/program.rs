@@ -183,8 +183,9 @@ fn write_repairing_line(parts: Vec<DaemonRepairingLinePart>, locale: Option<&Loc
 
 /// Ends the process as `ending` asks, answering the exit code for `main` to return: an exit's own
 /// code, and for the Ctrl-C ending, once both streams are flushed (since nothing runs after it),
-/// the process ends as a Ctrl-C ends it. Answers only when that ending fails or a flush fails for
-/// a reason other than a reader gone away, with the failure's line on stderr and 70.
+/// the process ends as a Ctrl-C ends it, a flush that failed for a reason other than a reader gone
+/// away written to stderr first. Answers only when that ending fails, with its line on stderr and
+/// 70.
 pub(crate) fn end_process<Output: Write, ErrorOutput: Write>(
     ending: ProcessEnding,
     context: &mut CommandContext<Output, ErrorOutput>,
@@ -193,12 +194,14 @@ pub(crate) fn end_process<Output: Write, ErrorOutput: Write>(
         ProcessEnding::Exit(code) => code,
         ProcessEnding::CtrlC => {
             let flushed = context.stdout.flush().and_then(|()| context.stderr.flush());
-            let failure = match flushed {
-                // A reader gone away loses only output no one is left to read.
-                Ok(()) => end_as_ctrl_c(),
-                Err(error) if error.kind() == io::ErrorKind::BrokenPipe => end_as_ctrl_c(),
-                Err(error) => error,
-            };
+            // A reader gone away loses only output no one is left to read; any other lost output
+            // is named, and the command still ends as a Ctrl-C does, so a script running it stops.
+            if let Err(error) = flushed
+                && error.kind() != io::ErrorKind::BrokenPipe
+            {
+                write_error_lines(&format!("error: {error}\n"), ExitCode::Software, context);
+            }
+            let failure = end_as_ctrl_c();
             let lines = format!("error: the command could not end as a Ctrl-C does: {failure}\n");
             write_error_lines(&lines, ExitCode::Software, context)
         }
