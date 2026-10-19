@@ -174,7 +174,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | I2 | `SessionEventSubscribe yields events in sequence ASC across reconnect` | reconnect ordering by canonical key | AC3, AC7 |
 | I3 | `Reconnect after lost stream restores from snapshot, not client cache` | snapshot authority | AC6 |
 | I4 | `Terminal drain at the service's stop: each shell's hard stop escalating to a kill (SIGKILL, taskkill /T /F on Windows) at DAEMON_STOP_TERMINAL_DRAIN_MS; a spawn during the drain refused; the app's quit drains nothing` | verifies obligation CP-001-1 (also verifies inherited Plan-021 I-021-4) — file: `crates/sidekicks-daemon/tests/it/terminal_drain.rs` | (no AC; verifies CP-001-1) |
-| I5 | `A shell on a worktree starts through the shell mode, which the PTY spawns in the stable folder and which starts the shell as the platforms crate's folder start for its program, and an agent program that reads CWD starts in the stable folder with CWD set; a cmd.exe, a pwsh.exe and a powershell.exe opened on Windows CI leave their worktree removable while they are open (no ERROR_SHARING_VIOLATION)` | verifies obligation CP-001-2 (also verifies inherited Plan-021 I-021-5) — files: `crates/sidekicks-daemon/src/session/spawn_cwd_translator.rs` (its unit tests), `crates/sidekicks-platforms/src/shell_folder_start/windows.rs` and `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` (on the Windows leg) | (no AC; verifies CP-001-2) |
+| I5 | `A shell on a worktree starts through the shell mode, which the PTY spawns in the stable folder and which starts the shell as the platforms crate's folder start for its program, and an agent program that reads CWD starts in the stable folder with CWD set; each shell in the platforms crate's SHELL_FOLDER_PROBES for its host (bash on Linux; zsh and bash on macOS; cmd.exe, pwsh.exe and powershell.exe on Windows, the last on a folder whose name holds ’), opened on every host, leaves its worktree removable while it is open (on Windows no ERROR_SHARING_VIOLATION)` | verifies obligation CP-001-2 (also verifies inherited Plan-021 I-021-5) — files: `crates/sidekicks-daemon/src/session/spawn_cwd_translator.rs` (its unit tests), `crates/sidekicks-platforms/src/shell_folder_start/windows.rs` and `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` (on every host) | (no AC; verifies CP-001-2) |
 
 ### Verification
 
@@ -319,7 +319,7 @@ Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies
 
 ##### T5.3 — `spawn_cwd_translator.rs` daemon-layer cwd-translator
 
-**Files:** `crates/sidekicks-daemon/src/session/spawn_cwd_translator.rs` with its `#[cfg(test)] mod tests` (Linux/Mac unit-only) + `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` (Windows CI integration — verifies I5 / CP-001-2) **Spec coverage:** none (daemon-internal wrapper) **Verifies invariant:** none (verifies obligation CP-001-2; verifies inherited Plan-021 I-021-5)
+**Files:** `crates/sidekicks-daemon/src/session/spawn_cwd_translator.rs` with its `#[cfg(test)] mod tests` (unit tests) + `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` (integration on every host — verifies I5 / CP-001-2) **Spec coverage:** none (daemon-internal wrapper) **Verifies invariant:** none (verifies obligation CP-001-2; verifies inherited Plan-021 I-021-5)
 
 ### Phase 6 — The Session Directory And Lifecycle
 
