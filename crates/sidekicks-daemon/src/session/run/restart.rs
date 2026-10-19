@@ -158,8 +158,8 @@ pub(crate) struct TurnCut {
 
 /// What a restart reads of a live run to decide how it settles: its pending interrupts, the limit
 /// it still owes, every open turn a limit's interrupt row names as cut, and whether a message
-/// still waits in the queue for it. A turn's cause is its cut's, and the row is a cut's one mark,
-/// so a restart ends each turn with the limit the live path ends it with.
+/// still waits in the queue for it. A turn's cause is its cut's and the row is a cut's one mark,
+/// so a restart ends each turn with the live path's limit but where its end races its stop's row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RestartFacts {
     /// The run's interrupts with no outcome yet, in the order they were asked for.
@@ -275,8 +275,8 @@ fn read_owed_limit(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Opti
 
 /// Every open turn of `run_id` a limit's interrupt row names as cut, read on `reader`, oldest
 /// first, each with the highest-ranked limit whose row names it: the row is a cut's one mark, so a
-/// turn end resolved from the log takes the limit the live path's cut gives it. Fails when SQLite
-/// refuses the read or a stored turn number or limit is not one.
+/// turn end resolved from the log takes the live path's limit but where it races its stop's row.
+/// Fails when SQLite refuses the read or a stored turn number or limit is not one.
 pub(crate) fn read_turn_cuts(
     reader: &Connection,
     run_id: &RunId,

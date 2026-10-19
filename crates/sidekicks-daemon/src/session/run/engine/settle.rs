@@ -4,7 +4,7 @@
 //! end carries the end of its open turn in the same write; a process's exit and a restart's settle
 //! end every older open turn on its own first, oldest first. A turn a limit cut ends with that
 //! limit, read from the engine's own cut first, then from the limit's intervention row, the cut's
-//! one mark in the log.
+//! one mark in the log, so both give a turn one cause but where its end races its stop's row.
 
 use std::borrow::Cow;
 use std::iter;
@@ -70,16 +70,12 @@ static SELECT_TERMINAL_SINCE_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 impl RunEngine {
-    /// Ends the run for an applied or degraded interrupt accepted at `accepted_run_version`,
-    /// committing `verdict`, the interrupt's row move and its event, in the same write, and returns
-    /// `true`: `interrupted` for a person's interrupt, and the end the limit gives its run for the
-    /// daemon's own at `limit`, with the end of `cut_turn`, the turn the limit's row names, in the
-    /// same write, so the provider's later end of that turn is dropped: `agent.turn.interrupted`
-    /// with the limit of that turn's cut, the engine's own first, then the log's rows, else
-    /// `limit`. Returns `false` with no change of the run written when the run has ended since
-    /// that version, even if it was continued after, which is what the interrupt asked for; the
-    /// caller then records the verdict alone. On a run that reads ended, that turn still takes the
-    /// limit's end, written on its own. Fails as the reads and [`RunEngine::transition`] do.
+    /// Ends the run for an applied or degraded interrupt accepted at `accepted_run_version`, with
+    /// `verdict` in the same write: `interrupted` for a person's, and for the daemon's own the end
+    /// `limit` gives, with `cut_turn`, the turn its row names, ended interrupted with the limit of
+    /// its cuts the engine holds, else of the log's rows, else `limit`. Returns `true`, or `false`
+    /// with no change of the run written when it ended since that version, the caller then
+    /// recording the verdict alone; fails as the reads and [`RunEngine::transition`] do.
     #[cfg_attr(
         not(test),
         expect(
@@ -256,13 +252,11 @@ impl RunEngine {
         }
     }
 
-    /// Settles one run a restart left live that recovery could not resume, without calling any
-    /// driver, as [`decide_restart_settlement`] decides: its end and its newest open turn's end in
-    /// one write, every older open turn ended on its own before it, each turn a limit's
-    /// intervention row names with that limit's cause and every other with `daemonRestart`, every
-    /// pending interrupt moved to `applied` in that write, guarded on no other interrupt having
-    /// appeared since; a `failed` end carries `failure_detail`. A run the decision leaves is
-    /// returned as it is. Fails as [`RunEngine::transition`] does.
+    /// Settles a run a restart left live that recovery could not resume, without a driver, as
+    /// [`decide_restart_settlement`] decides, a run it leaves returned as it is: its end, every
+    /// pending interrupt applied, and its open turns' ends, each a limit's row names with that
+    /// limit and every other with `daemonRestart`, guarded on no interrupt appearing since, a
+    /// `failed` end carrying `failure_detail`. Fails as [`RunEngine::transition`] does.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's recovery pass at start")
@@ -351,13 +345,10 @@ impl RunEngine {
         }
     }
 
-    /// Ends, after a restart, every open turn of each run in `run_ids`, the runs that had already
-    /// ended, oldest first, each written on its own as the daemon's report and held to its run's
-    /// version: `agent.turn.interrupted` with the limit of a row that names it, else
-    /// `daemonRestart`, the run's row left as it is. A run that reads live is left to its own
-    /// ends. A provider's end of such a turn that arrives after is a duplicate and is dropped.
-    /// Every run is tried before the failures return, together; one fails as the reads and the
-    /// turn ends' writes fail, a run moved since among them.
+    /// Ends after a restart every open turn of each ended run in `run_ids`, oldest first, each on
+    /// its own as the daemon's report held to its run's version, interrupted with the limit of a
+    /// row naming it else `daemonRestart`, a run that reads live left to its own ends. Every run
+    /// is tried before the failures, from the reads and the writes, return together.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's recovery pass at start")
