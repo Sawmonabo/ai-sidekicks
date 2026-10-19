@@ -27,17 +27,17 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
-    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
-    GetExitCodeProcess, INFINITE, InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-    OpenProcessToken, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST,
-    PROCESS_INFORMATION, RegisterWaitForSingleObject, STARTF_USESTDHANDLES, STARTUPINFOEXW,
-    UnregisterWaitEx, UpdateProcThreadAttribute, WT_EXECUTEONLYONCE,
+    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, INFINITE,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcessToken,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION,
+    RegisterWaitForSingleObject, STARTF_USESTDHANDLES, STARTUPINFOEXW, UnregisterWaitEx,
+    UpdateProcThreadAttribute, WT_EXECUTEONLYONCE,
 };
 
 use crate::lasting_child::{LastingChild, LastingCommand};
 use crate::path::rules::PathRules;
 use crate::path::rules::windows::command_line::compose_command_line;
-use crate::windows::pinned_process::{PinnedProcess, is_process_in_job};
+use crate::windows::pinned_process::{PinnedProcess, is_process_in_job, read_exit_code};
 use crate::windows::wide_text::{refuse_nul, wide_text};
 
 // The start of every lasting child's job name; random bytes follow it.
@@ -436,12 +436,9 @@ async fn wait_for_exit(process: Arc<OwnedHandle>) -> io::Result<ExitStatus> {
     let registration = ExitRegistration::register(&process, Arc::clone(&exited))?;
     exited.notified().await;
     drop(registration);
-    let mut code = 0_u32;
-    // SAFETY: the handle is open while `process` lives and carries the right to read its exit.
-    if unsafe { GetExitCodeProcess(process.as_raw_handle(), &raw mut code) } == FALSE {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(ExitStatus::from_raw(code))
+    Ok(ExitStatus::from_raw(read_exit_code(
+        process.as_raw_handle(),
+    )?))
 }
 
 /// A one-shot wait the system's thread pool runs on a process handle, which notifies once the

@@ -18,8 +18,9 @@ use windows_sys::Win32::System::JobObjects::{
 };
 use windows_sys::Win32::System::SystemServices::{JOB_OBJECT_QUERY, JOB_OBJECT_TERMINATE};
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetProcessTimes, INFINITE, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
+    GetCurrentProcess, GetExitCodeProcess, GetProcessTimes, INFINITE, OpenProcess,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess,
+    WaitForSingleObject,
 };
 
 use crate::child_command::ChildEnd;
@@ -28,8 +29,10 @@ use crate::windows::error_codes::win32_code;
 use crate::windows::lasting_child::is_lasting_job_name;
 use crate::windows::wide_text::wide_text;
 
-/// The exit code a killed process, or every process of a killed job, is given.
-pub(crate) const KILLED_EXIT_CODE: u32 = 1;
+/// The exit code a killed process, or every process of a killed job, is given:
+/// `STATUS_CONTROL_C_EXIT`, the code Windows gives a console program ended by a control event,
+/// which a lasting child never receives from the daemon, so it marks the daemon's kill.
+pub(crate) const KILLED_EXIT_CODE: u32 = 0xC000_013A;
 
 /// A process, held by its id and an open handle, which keeps its id from passing to another
 /// process while the handle lives; this process is held by its id alone.
@@ -70,11 +73,11 @@ impl PinnedProcess {
     /// Ends the process, which the caller has already asked to stop by the program's own means:
     /// waits up to `grace` for its exit, then kills it, and ends what is left of a job of its own
     /// whatever the process did, since its exit ends nothing else in the job. Blocking, so it runs
-    /// in `spawn_blocking`; answers the end that took effect, and fails with `TimedOut` when it
-    /// outlives the kill's bound, else with the system's error.
+    /// in `spawn_blocking`; answers the end that took effect, after a kill the one its exit code
+    /// tells, and fails with `TimedOut` when it outlives the kill's bound, else with the system's
+    /// error.
     pub fn stop(&self, grace: Duration) -> io::Result<ChildEnd> {
-        // A process that ends between the grace and the kill ended on the stop it was asked.
-        if self.wait_for_exit(grace)? || self.wait_for_exit(Duration::ZERO)? {
+        if self.wait_for_exit(grace)? {
             self.terminate_job()?;
             return Ok(ChildEnd::Stop);
         }
@@ -82,7 +85,7 @@ impl PinnedProcess {
             self.terminate_process()?;
         }
         if self.wait_for_exit(KILL_WAIT_BOUND)? {
-            return Ok(ChildEnd::Kill);
+            return self.read_end();
         }
         Err(io::Error::new(
             ErrorKind::TimedOut,
@@ -98,6 +101,16 @@ impl PinnedProcess {
         };
         end_job_processes(job)?;
         Ok(true)
+    }
+
+    // The end that took effect on the exited process, read from its exit code: `Kill` on the kill's
+    // code, `Stop` on any other, which the process's own exit set before the kill reached it.
+    fn read_end(&self) -> io::Result<ChildEnd> {
+        Ok(if read_exit_code(self.handle())? == KILLED_EXIT_CODE {
+            ChildEnd::Kill
+        } else {
+            ChildEnd::Stop
+        })
     }
 
     // Ends the process alone.
@@ -280,6 +293,18 @@ fn end_job_processes(job: &OwnedHandle) -> io::Result<bool> {
     Ok(true)
 }
 
+/// The exit code of `process`, open with the right to read it; final once the process has exited.
+/// Fails with the system's error.
+pub(crate) fn read_exit_code(process: HANDLE) -> io::Result<u32> {
+    let mut code = 0_u32;
+    // SAFETY: the handle is open with the right to read the process's exit, and the code points at
+    // a live `u32` the call writes.
+    if unsafe { GetExitCodeProcess(process, &raw mut code) } == FALSE {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(code)
+}
+
 /// Whether `process` runs in `job`, or in any job when `job` is null; both handles carry the
 /// right to query them. Fails with the system's error.
 pub(crate) fn is_process_in_job(process: HANDLE, job: HANDLE) -> io::Result<bool> {
@@ -353,16 +378,16 @@ mod tests {
     use rstest::rstest;
     use sysinfo::{Pid, ProcessesToUpdate, System};
 
-    use super::PinnedProcess;
+    use super::{PinnedProcess, read_exit_code};
     use crate::child_command::ChildEnd;
     use crate::lasting_child::{LastingChild, LastingCommand};
     use crate::pinned_process::KILL_WAIT_BOUND;
     use crate::windows::lasting_child::spawn_lasting_child;
     use crate::{ProcessRecord, pin_child_process};
 
-    // Fails when the stop ends the process alone, or re-pins it without its job; or when a record
-    // naming a job of another shape, one no job has, or another lasting child's job, which does
-    // not hold its running process, re-pins it.
+    // Fails when the stop ends the process alone, or re-pins it without its job, or its kill does
+    // not read as one; or when a record naming a job of another shape, one no job has, or another
+    // lasting child's job, which does not hold its running process, re-pins it.
     #[test]
     fn pinned_process_stop_ends_a_re_pinned_lasting_child_and_its_child() {
         let (child, grandchild) = start_lasting_child(&[
@@ -434,6 +459,10 @@ mod tests {
                 .wait_for_exit(KILL_WAIT_BOUND)
                 .expect("the child's wait reads")
         );
+        assert_eq!(
+            read_exit_code(child.process.handle()).expect("the child's exit code reads"),
+            0xC000_013A
+        );
         assert!(
             grandchild
                 .wait_for_exit(KILL_WAIT_BOUND)
@@ -473,10 +502,11 @@ mod tests {
     }
 
     // Fails when a stop or a record ends a job that holds no process, which Windows does not
-    // promise to allow, or a record answers that it ended something there.
+    // promise to allow, or a record answers that it ended something there; or when an exit code
+    // other than the kill's reads as a kill.
     #[test]
     fn pinned_process_job_holding_nothing_is_not_ended() {
-        let child = spawn_shell(&["/d", "/c", "exit 0"]);
+        let child = spawn_shell(&["/d", "/c", "exit 1"]);
         assert!(
             child
                 .process
@@ -486,9 +516,11 @@ mod tests {
 
         let end = child.process.stop(Duration::ZERO).expect("the stop reads");
         let is_ended = child.record.end_survivors().expect("the survivors read");
+        let read_end = child.process.read_end().expect("the exit code reads");
 
         assert_eq!(end, ChildEnd::Stop);
         assert!(!is_ended);
+        assert_eq!(read_end, ChildEnd::Stop);
     }
 
     // A lasting child of the command shell running `arguments`, and the first child it starts.
