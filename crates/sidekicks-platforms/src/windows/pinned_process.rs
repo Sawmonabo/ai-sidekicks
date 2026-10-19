@@ -31,7 +31,7 @@ use crate::windows::wide_text::wide_text;
 
 /// The exit code a killed process, or every process of a killed job, is given:
 /// `STATUS_CONTROL_C_EXIT`, the code Windows gives a console program ended by a control event,
-/// which a lasting child never receives from the daemon, so it marks the daemon's kill.
+/// which the daemon never sends a lasting child, so after the daemon's kill it marks that kill.
 pub(crate) const KILLED_EXIT_CODE: u32 = 0xC000_013A;
 
 /// A process, held by its id and an open handle, which keeps its id from passing to another
