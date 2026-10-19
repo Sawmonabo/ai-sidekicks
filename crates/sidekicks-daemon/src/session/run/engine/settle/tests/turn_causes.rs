@@ -8,7 +8,7 @@ use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
-use super::running_at;
+use super::{limit_record, record_interrupt, running_at};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::EventLogService;
 use crate::events::log_service::tests::open_log;
@@ -289,8 +289,8 @@ async fn a_restart_ends_the_open_turns_of_runs_that_had_ended() {
 }
 
 // Killed by the sweep stopping at its first failure, which leaves the ended run after an unknown
-// one open; and by dropping the run-at-version guard from a turn end it writes, which ends a turn
-// of a run that ran again since its read.
+// one open; and by dropping the run-at-version guard from a turn end it writes, the newest or an
+// older one, which ends a turn of a run that ran again since its read.
 #[tokio::test]
 async fn the_ended_runs_sweep_collects_its_failures_and_ends_no_turn_of_a_run_that_moved() {
     let database = TestDatabase::new();
@@ -316,11 +316,11 @@ async fn the_ended_runs_sweep_collects_its_failures_and_ends_no_turn_of_a_run_th
         )
         .expect("the test ends the run");
     let engine = test_engine(&database, log.service, home.path());
-    for run_id in [ended_run_id, moved_run_id] {
+    for (run_id, turn_number) in [(ended_run_id, 1), (moved_run_id, 1), (moved_run_id, 2)] {
         append(
             &engine,
             session_id,
-            &turn_started_at(session_id, run_id, 1, 1),
+            &turn_started_at(session_id, run_id, turn_number, 1),
         )
         .await;
     }
@@ -359,6 +359,63 @@ async fn the_ended_runs_sweep_collects_its_failures_and_ends_no_turn_of_a_run_th
     assert!(moved.is_err(), "the moved run's sweep answers {moved:?}");
     assert_eq!(
         stored_events(&database, &moved_run_id),
-        events(&[("agent.turn.started", None, None)])
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.turn.started", None, None),
+        ])
+    );
+}
+
+// Killed by a late provider end on a run that reads ended resolving its turn's cause from the
+// engine's empty memory alone, as a live run's does, which after a restart ends the turn a step
+// limit's row names with no cause.
+#[tokio::test]
+async fn a_late_turn_end_after_a_restart_takes_the_limit_its_row_names() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let before_restart = test_engine(&database, Arc::clone(&log.service), home.path());
+    append(
+        &before_restart,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    drop(before_restart);
+    record_interrupt(
+        &database,
+        run_id,
+        &limit_record("stepLimit", 1),
+        "accepted",
+        false,
+    );
+    database
+        .reader()
+        .execute(
+            "UPDATE runs SET state = 'interrupted', run_version = 2 WHERE run_id = ?1",
+            params![run_id.text().as_str()],
+        )
+        .expect("the test rests the run");
+    let restarted = test_engine(&database, log.service, home.path());
+
+    let late_end = restarted
+        .record_turn_end(run_id, provider_end(1))
+        .await
+        .expect("the provider's late end is written");
+
+    assert!(late_end.written);
+    assert_eq!(
+        stored_events(&database, &run_id),
+        events(&[
+            ("agent.turn.started", None, None),
+            (
+                "agent.turn.interrupted",
+                Some("stepLimit"),
+                Some("provider")
+            ),
+        ])
     );
 }

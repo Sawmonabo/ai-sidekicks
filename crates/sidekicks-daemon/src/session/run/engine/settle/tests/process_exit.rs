@@ -4,7 +4,8 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 
 use super::{
-    interrupt_state, limit_record, record_interrupt, step_limit_reached, token_limit_reached,
+    PERSON_INTERRUPT_ID, interrupt_state, limit_record, record_interrupt, step_limit_reached,
+    token_limit_reached,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
@@ -239,4 +240,75 @@ async fn a_process_exit_keeps_a_run_that_is_not_live_and_ends_its_open_turns(#[c
     );
     assert_eq!(stored_run_state(&database, &run_id), (state.to_owned(), 1));
     assert_eq!(interrupt_state(&database, &step_row), "accepted");
+}
+
+// Killed by a process exit that returns its first refusal, which leaves the run running with the
+// step limit's row pending, and by one that decides again from its first read, which the guard
+// refuses once more since the person's interrupt that turn 1's end brought is still unread.
+#[tokio::test]
+async fn a_process_exit_refused_by_an_interrupt_asked_for_since_its_read_reads_again_once() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    for turn_number in 1..=2 {
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, turn_number, 1),
+        )
+        .await;
+    }
+    let step_row = record_interrupt(
+        &database,
+        run_id,
+        &limit_record("stepLimit", 1),
+        "accepted",
+        false,
+    );
+    // A person asks for an interrupt once turn 1's end, written before the run's, lands.
+    database
+        .reader()
+        .execute_batch(&format!(
+            "CREATE TRIGGER person_interrupt_after_turn_one AFTER INSERT ON session_events
+               WHEN NEW.type = 'agent.turn.interrupted' AND NEW.turn_number = 1
+             BEGIN
+               INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
+                 expected_run_version, client_idempotency_key, created_at)
+               VALUES ('{PERSON_INTERRUPT_ID}', NEW.run_id, 'interrupt', 'requested',
+                 '{{\"pending\":\"nextTurn\"}}', 'phone', 1, '{PERSON_INTERRUPT_ID}',
+                 '2026-01-01T00:00:00.000Z');
+             END;"
+        ))
+        .expect("the test makes the person's interrupt follow turn 1's end");
+
+    engine
+        .end_turn_on_process_exit(run_id, process_exit())
+        .await
+        .expect("the exit reads the run again and ends it");
+
+    assert_eq!(
+        stored_events(&database, &run_id),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.turn.started", None, None),
+            ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
+            ("agent.turn.failed", Some("processExit"), Some("daemon")),
+            ("agent.run.interrupted", None, None),
+        ])
+    );
+    assert_eq!(
+        end_trigger(&database, &run_id, "agent.run.interrupted"),
+        None
+    );
+    assert_eq!(
+        stored_run_state(&database, &run_id),
+        ("interrupted".to_owned(), 2)
+    );
+    for row in [step_row.as_str(), PERSON_INTERRUPT_ID] {
+        assert_eq!(interrupt_state(&database, row), "applied");
+    }
 }

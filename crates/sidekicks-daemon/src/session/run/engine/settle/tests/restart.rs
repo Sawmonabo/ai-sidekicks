@@ -10,7 +10,6 @@ use sidekicks_contracts::run::events::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionId, InterventionType};
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{
     LIMIT_INTERRUPT_ID, PERSON_INTERRUPT_ID, STEP_INTERRUPT_ID, interrupt_state, interrupted_at,
@@ -22,7 +21,7 @@ use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::tests::{
     INTERVENTIONS_TABLE_SQL, append, continue_request, events, hand_limit_interrupter,
     insert_running_run, run_version, started_turn, stored_events, stored_run_state, test_engine,
-    token_limit, turn_started_at,
+    token_limit, turn, turn_started_at,
 };
 use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::read::{LiveRun, RunRead};
@@ -399,7 +398,7 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
                     session_id,
                     run_id,
                     run_version: run_version(1),
-                    turn_number: SafeInt::new(turn_number).expect("the test's turns count from 1"),
+                    turn_number: turn(turn_number),
                 }),
                 "agent.turn.completed",
             ),
