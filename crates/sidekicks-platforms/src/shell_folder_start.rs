@@ -5,6 +5,9 @@
 
 use std::path::PathBuf;
 
+#[cfg(any(target_os = "windows", test))]
+pub(crate) mod windows;
+
 /// How one shell is started so that it opens in its folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellFolderStart {
