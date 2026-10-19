@@ -402,26 +402,29 @@ impl RunEngine {
         }
     }
 
-    /// Ends every turn in `open_turns`, oldest first, the daemon's end as
-    /// [`RunEngine::daemon_turn_end`] gives it: each older one written on its own with `older`,
-    /// and the newest returned with `newest` for the run's end to carry in its own write. Fails
-    /// with the first write that fails, the ends before it kept.
+    /// Ends every turn in `open_turns`, oldest first, each with the outcome `outcome_of` gives its
+    /// number as [`RunEngine::daemon_turn_end`] reports it: each older one written on its own, and
+    /// the newest returned for the run's end to carry in its own write. Fails with the first write
+    /// that fails, the ends before it kept.
     pub(super) async fn end_open_turns(
         &self,
         run_id: RunId,
         run: &RunRead,
         open_turns: &[SafeInt<1>],
-        older: TurnOutcome,
-        newest: TurnOutcome,
+        outcome_of: impl Fn(SafeInt<1>) -> TurnOutcome,
     ) -> Result<Option<TurnEnd>, RunEngineError> {
-        let Some((newest_turn, older_turns)) = open_turns.split_last() else {
+        let Some((&newest_turn, older_turns)) = open_turns.split_last() else {
             return Ok(None);
         };
         for &turn_number in older_turns {
-            let turn_end = self.daemon_turn_end(&run_id, turn_number, older);
+            let turn_end = self.daemon_turn_end(&run_id, turn_number, outcome_of(turn_number));
             self.record_turn_end_alone(run_id, run, turn_end).await?;
         }
-        Ok(Some(self.daemon_turn_end(&run_id, *newest_turn, newest)))
+        Ok(Some(self.daemon_turn_end(
+            &run_id,
+            newest_turn,
+            outcome_of(newest_turn),
+        )))
     }
 
     /// Writes `turn_end` on its own, guarded on the turn holding no end, and returns whether it
@@ -630,8 +633,9 @@ fn open_turns_sql(tail: &str) -> String {
     )
 }
 
-// A turn number the log stored, which the engine wrote from a turn number.
-fn stored_turn_number(stored: i64) -> SafeInt<1> {
+/// A turn number the log stored, which the engine wrote from a turn number; one that is not
+/// breaks that invariant and panics.
+pub(crate) fn stored_turn_number(stored: i64) -> SafeInt<1> {
     u64::try_from(stored)
         .ok()
         .and_then(SafeInt::new)

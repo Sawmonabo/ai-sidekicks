@@ -197,9 +197,10 @@ impl RunEngine {
                 },
             )
         };
-        let process_exited = TurnOutcome::Failed(Some(TurnEndCause::ProcessExit));
         let turn_end = self
-            .end_open_turns(run_id, &run, &open_turns, process_exited, process_exited)
+            .end_open_turns(run_id, &run, &open_turns, |_turn_number| {
+                TurnOutcome::Failed(Some(TurnEndCause::ProcessExit))
+            })
             .await?;
         self.change_with_turn_end(failed, RunStateChangeCompanions::default(), &run, turn_end)
             .await
@@ -208,10 +209,11 @@ impl RunEngine {
 
     /// Settles one run a restart left live that recovery could not resume, without calling any
     /// driver, as [`decide_restart_settlement`] decides: its end and its newest open turn's end in
-    /// one write, every older open turn ended `daemonRestart` on its own before it, a pending
-    /// interrupt moved to `applied` in that write, otherwise guarded on no interrupt having
-    /// appeared since; a `failed` end carries `failure_detail`. A run the decision leaves is
-    /// returned as it is. Fails as [`RunEngine::transition`] does.
+    /// one write, every older open turn ended on its own before it, the turn a limit cut with the
+    /// limit's cause and every other with `daemonRestart`, a pending interrupt moved to `applied`
+    /// in that write, otherwise guarded on no interrupt having appeared since; a `failed` end
+    /// carries `failure_detail`. A run the decision leaves is returned as it is. Fails as
+    /// [`RunEngine::transition`] does.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's recovery pass at start")
@@ -292,19 +294,21 @@ impl RunEngine {
         }
         let turn_end = match decision.open_turn_end {
             Some(turn_end) => {
-                let (older, newest) = match turn_end {
-                    RestartTurnEnd::Interrupted { cause } => (
-                        TurnOutcome::Interrupted(Some(TurnEndCause::DaemonRestart)),
-                        TurnOutcome::Interrupted(Some(cause)),
-                    ),
-                    RestartTurnEnd::Failed { cause } => (
-                        TurnOutcome::Failed(Some(TurnEndCause::DaemonRestart)),
-                        TurnOutcome::Failed(Some(cause)),
-                    ),
+                let (ended_as, cause): (fn(Option<TurnEndCause>) -> TurnOutcome, _) = match turn_end
+                {
+                    RestartTurnEnd::Interrupted { cause } => (TurnOutcome::Interrupted, cause),
+                    RestartTurnEnd::Failed { cause } => (TurnOutcome::Failed, cause),
                 };
                 let open_turns = self.read_open_turns(run_id).await?;
-                self.end_open_turns(run_id, &run.run, &open_turns, older, newest)
-                    .await?
+                let cause_turn = decision.cut_turn.or_else(|| open_turns.last().copied());
+                self.end_open_turns(run_id, &run.run, &open_turns, |turn_number| {
+                    ended_as(Some(if Some(turn_number) == cause_turn {
+                        cause
+                    } else {
+                        TurnEndCause::DaemonRestart
+                    }))
+                })
+                .await?
             }
             None => None,
         };
@@ -336,16 +340,22 @@ fn no_terminal_since_statement(run_id: &RunId, run_version: i64) -> WriteStateme
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use rstest::rstest;
     use rusqlite::params;
     use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::run::events::{
-        AgentRunInterruptedNewState, AgentRunInterruptedPayload,
+        AgentInterventionRequestedPayload, AgentInterventionRequestedState,
+        AgentRunInterruptedNewState, AgentRunInterruptedPayload, DaemonInterventionActor,
+        InterventionActor,
     };
     use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::run::intervention::RunLimit;
+    use sidekicks_contracts::run::intervention::{InterventionId, InterventionType, RunLimit};
     use sidekicks_contracts::run::state::RunState;
-    use sidekicks_contracts::session::controls::events::AgentRunTokenLimitReachedPayload;
-    use sidekicks_contracts::session::cost::TokensPerRun;
+    use sidekicks_contracts::session::controls::events::{
+        AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
+    };
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
 
@@ -353,8 +363,9 @@ mod tests {
     use crate::events::log_service::tests::open_log;
     use crate::session::run::engine::live::lock;
     use crate::session::run::engine::tests::{
-        INTERVENTIONS_TABLE_SQL, append, insert_running_run, run_version, stored_events,
-        stored_run_state, test_engine, turn_started_at,
+        INTERVENTIONS_TABLE_SQL, append, continue_request, events, hand_limit_interrupter,
+        insert_running_run, run_version, started_turn, stored_events, stored_run_state,
+        test_engine, token_limit, turn_started_at,
     };
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::projection::RUNS_TABLE_SQL;
@@ -362,6 +373,40 @@ mod tests {
     use crate::session::run::restart::{QUEUE_ITEMS_TABLE_SQL, RestartFacts};
     use crate::session::run::state_change::RunStateChangeCompanions;
     use crate::uuid_v7::mint_uuid_v7;
+
+    // The test's interrupt rows: the daemon's own at the token limit, and a person's.
+    const LIMIT_INTERRUPT_ID: &str = "0199f3a0-0000-7000-8000-000000000001";
+    const PERSON_INTERRUPT_ID: &str = "0199f3a0-0000-7000-8000-000000000002";
+
+    fn token_limit_reached(session_id: SessionId, run_id: RunId) -> SessionEvent {
+        SessionEvent::AgentRunTokenLimitReached(AgentRunTokenLimitReachedPayload {
+            session_id,
+            run_id,
+            token_limit: token_limit(),
+        })
+    }
+
+    fn step_limit_reached(session_id: SessionId, run_id: RunId) -> SessionEvent {
+        SessionEvent::AgentRunStepLimitReached(AgentRunStepLimitReachedPayload {
+            session_id,
+            run_id,
+            count: SafeInt::new(40).expect("40 is a step bound"),
+        })
+    }
+
+    // `run_id` as a restart finds it, running at `version`.
+    fn running_at(session_id: SessionId, run_id: RunId, version: i64) -> LiveRun {
+        LiveRun {
+            run_id,
+            run: RunRead {
+                version,
+                session_id,
+                state: RunState::Running,
+            },
+            parent_run_id: None,
+            reached_by: None,
+        }
+    }
 
     fn interrupted_at(session_id: SessionId, run_id: RunId, version: u64) -> SessionEvent {
         SessionEvent::AgentRunInterrupted(AgentRunInterruptedPayload {
@@ -514,11 +559,12 @@ mod tests {
         );
     }
 
-    // Killed by a restart reading only a pending interrupt, which fails a run the daemon was
-    // stopping at its token limit when no interrupt of it was recorded, and by ending only the
-    // newest open turn, which leaves an older one open for good.
+    // Killed by the owed read joining the interventions, where the failed token interrupt and its
+    // requested event read as discharging the limit; by the person's pending interrupt or the
+    // newer step limit winning over the owed token limit; by ending only the newest open turn; and
+    // by giving the limit's cause to the newest turn rather than the one its stop cut.
     #[tokio::test]
-    async fn a_restart_stops_a_run_at_a_token_limit_no_interrupt_was_recorded_for() {
+    async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
         let database = TestDatabase::new();
         let log = open_log(&database, None).await;
         let home = tempfile::tempdir().expect("the test makes a home folder");
@@ -526,8 +572,9 @@ mod tests {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         insert_running_run(&database, session_id, run_id);
         let engine = test_engine(&database, log.service, home.path());
-        // Turn 1 was left open when turn 2 started; the token stop wrote its reached event and
-        // the daemon went down before its interrupt was recorded.
+        // Turn 1 was left open when turn 2 started; the token stop wrote its reached event on
+        // turn 2 and its interrupt failed, a person's interrupt is still pending, a step stop
+        // reached its bound, and turn 3 started before the daemon went down.
         for turn_number in 1..=2 {
             append(
                 &engine,
@@ -536,56 +583,230 @@ mod tests {
             )
             .await;
         }
-        let token_limit = TokensPerRun(SafeInt::new(500_000).expect("the limit is a safe integer"));
         append(
             &engine,
             session_id,
-            &SessionEvent::AgentRunTokenLimitReached(AgentRunTokenLimitReachedPayload {
+            &token_limit_reached(session_id, run_id),
+        )
+        .await;
+        let connection = database.reader();
+        connection
+            .execute(
+                "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id)
+                 VALUES (?1, ?2, 'interrupt', 'failed', '{\"limit\":\"tokenLimit\"}', NULL),
+                        (?3, ?2, 'interrupt', 'accepted', '{\"pending\":\"nextTurn\"}',
+                         'phone')",
+                params![
+                    LIMIT_INTERRUPT_ID,
+                    run_id.text().as_str(),
+                    PERSON_INTERRUPT_ID,
+                ],
+            )
+            .expect("the test records the run's interrupts");
+        append(
+            &engine,
+            session_id,
+            &SessionEvent::AgentInterventionRequested(AgentInterventionRequestedPayload {
                 session_id,
-                run_id,
-                token_limit,
+                intervention_id: InterventionId::new(LIMIT_INTERRUPT_ID)
+                    .expect("the test's id is an intervention id"),
+                target_run_id: run_id,
+                intervention_type: InterventionType::Interrupt,
+                state: AgentInterventionRequestedState::Value,
+                actor: InterventionActor::Daemon(DaemonInterventionActor::Value),
             }),
+        )
+        .await;
+        append(&engine, session_id, &step_limit_reached(session_id, run_id)).await;
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 3, 1),
         )
         .await;
 
         engine
-            .settle_run_after_restart(
-                &LiveRun {
-                    run_id,
-                    run: RunRead {
-                        version: 1,
-                        session_id,
-                        state: RunState::Running,
-                    },
-                    parent_run_id: None,
-                    reached_by: None,
-                },
-                "the run could not be resumed",
-            )
+            .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed")
             .await
             .expect("the restart settles the run");
 
-        let interrupted = |cause: &str| {
-            (
-                "agent.turn.interrupted".to_owned(),
-                Some(cause.to_owned()),
-                Some("daemon".to_owned()),
-            )
-        };
         assert_eq!(
             stored_events(&database, &run_id),
-            [
-                ("agent.turn.started".to_owned(), None, None),
-                ("agent.turn.started".to_owned(), None, None),
-                ("agent.run.tokenLimit.reached".to_owned(), None, None),
-                interrupted("daemonRestart"),
-                interrupted("tokenLimit"),
-                ("agent.run.stopped".to_owned(), None, None),
-            ]
+            events(&[
+                ("agent.turn.started", None, None),
+                ("agent.turn.started", None, None),
+                ("agent.run.tokenLimit.reached", None, None),
+                ("agent.run.stepLimit.reached", None, None),
+                ("agent.turn.started", None, None),
+                (
+                    "agent.turn.interrupted",
+                    Some("daemonRestart"),
+                    Some("daemon")
+                ),
+                ("agent.turn.interrupted", Some("tokenLimit"), Some("daemon")),
+                (
+                    "agent.turn.interrupted",
+                    Some("daemonRestart"),
+                    Some("daemon")
+                ),
+                ("agent.run.stopped", None, None),
+            ])
         );
         assert_eq!(
             stored_run_state(&database, &run_id),
             ("stopped".to_owned(), 2)
+        );
+        let person_interrupt_state: String = connection
+            .query_row(
+                "SELECT state FROM interventions WHERE id = ?1",
+                [PERSON_INTERRUPT_ID],
+                |row| row.get(0),
+            )
+            .expect("the test reads the person's interrupt");
+        assert_eq!(person_interrupt_state, "applied");
+    }
+
+    // Killed by the owed read keeping a step limit a later interrupt of the run discharged, which
+    // stops a run that never reached its bound again, and by giving the limit's cause to the
+    // newest open turn rather than the one its stop cut.
+    #[rstest]
+    #[case::step_cut_on_an_older_turn(
+        false,
+        "interrupted",
+        &[
+            ("agent.turn.interrupted", Some("stepLimit"), Some("daemon")),
+            ("agent.turn.interrupted", Some("daemonRestart"), Some("daemon")),
+            ("agent.run.interrupted", None, None),
+        ]
+    )]
+    #[case::step_discharged_by_a_persons_interrupt(
+        true,
+        "failed",
+        &[
+            ("agent.turn.failed", Some("daemonRestart"), Some("daemon")),
+            ("agent.turn.failed", Some("daemonRestart"), Some("daemon")),
+            ("agent.run.failed", None, None),
+        ]
+    )]
+    #[tokio::test]
+    async fn a_restart_settles_a_step_limit_by_whether_the_run_was_interrupted_since(
+        #[case] is_interrupted_since: bool,
+        #[case] settled_state: &str,
+        #[case] settled_events: &[(&str, Option<&str>, Option<&str>)],
+    ) {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let home = tempfile::tempdir().expect("the test makes a home folder");
+        let session_id = test_session_id();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        insert_running_run(&database, session_id, run_id);
+        let engine = test_engine(&database, log.service, home.path());
+        // Turn 1 reached its step bound; a person's interrupt ended the run and a continue ran it
+        // again, or the run went on with turn 1 open; turn 2 started.
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 1, 1),
+        )
+        .await;
+        append(&engine, session_id, &step_limit_reached(session_id, run_id)).await;
+        let mut expected = vec![
+            ("agent.turn.started", None, None),
+            ("agent.run.stepLimit.reached", None, None),
+        ];
+        if is_interrupted_since {
+            append(&engine, session_id, &interrupted_at(session_id, run_id, 1)).await;
+            expected.push(("agent.run.interrupted", None, None));
+        }
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 2, 1),
+        )
+        .await;
+        expected.push(("agent.turn.started", None, None));
+        expected.extend_from_slice(settled_events);
+
+        engine
+            .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed")
+            .await
+            .expect("the restart settles the run");
+
+        assert_eq!(stored_events(&database, &run_id), events(&expected));
+        assert_eq!(
+            stored_run_state(&database, &run_id),
+            (settled_state.to_owned(), 2)
+        );
+    }
+
+    // Killed by the owed read taking the overtaken token interrupt as the limit's discharge, which
+    // fails a run the live path would stop at its token limit, and by giving the limit's cause to
+    // turn 2, which the continue started after the stop cut turn 1.
+    #[tokio::test]
+    async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let home = tempfile::tempdir().expect("the test makes a home folder");
+        let session_id = test_session_id();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        insert_running_run(&database, session_id, run_id);
+        let engine = test_engine(&database, Arc::clone(&log.service), home.path());
+        let _interventions = hand_limit_interrupter(&engine, 0);
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 1, 1),
+        )
+        .await;
+        engine
+            .stop_at_token_limit(run_id, token_limit())
+            .await
+            .expect("the limit's interrupt is accepted");
+        // A person's interrupt ends the run before the limit's end, a continue runs turn 2, and
+        // the daemon goes down before turn 1's provider end.
+        let ended = engine
+            .end_run_for_interrupt(run_id, 1, None, RunStateChangeCompanions::default())
+            .await
+            .expect("the person's interrupt ends the run");
+        assert!(ended);
+        engine
+            .continue_run(continue_request(run_id, started_turn))
+            .await
+            .expect("the continue runs the run again");
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 2, 3),
+        )
+        .await;
+        drop(engine);
+        let restarted = test_engine(&database, log.service, home.path());
+
+        restarted
+            .settle_run_after_restart(&running_at(session_id, run_id, 3), "not resumed")
+            .await
+            .expect("the restart settles the run");
+
+        assert_eq!(
+            stored_events(&database, &run_id),
+            events(&[
+                ("agent.turn.started", None, None),
+                ("agent.run.tokenLimit.reached", None, None),
+                ("agent.run.interrupted", None, None),
+                ("agent.run.running", None, None),
+                ("agent.turn.started", None, None),
+                ("agent.turn.interrupted", Some("tokenLimit"), Some("daemon")),
+                (
+                    "agent.turn.interrupted",
+                    Some("daemonRestart"),
+                    Some("daemon")
+                ),
+                ("agent.run.stopped", None, None),
+            ])
+        );
+        assert_eq!(
+            stored_run_state(&database, &run_id),
+            ("stopped".to_owned(), 4)
         );
     }
 
@@ -637,7 +858,7 @@ mod tests {
                 &run,
                 &RestartFacts {
                     pending_interrupt: None,
-                    reached_limit: None,
+                    owed_limit: None,
                     has_queued_item: false,
                 },
                 "the run could not be resumed",

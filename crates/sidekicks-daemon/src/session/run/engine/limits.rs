@@ -398,7 +398,6 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::intervention::RunLimit;
-    use sidekicks_contracts::session::cost::TokensPerRun;
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::LimitStop;
@@ -406,9 +405,9 @@ mod tests {
     use crate::events::log_service::tests::open_log;
     use crate::session::run::engine::live::lock;
     use crate::session::run::engine::tests::{
-        DRIVER_HOLD, SETTLE_WAIT, append, continue_request, hand_limit_interrupter, held_driver,
-        insert_running_run, started_turn, stored_events, stored_run_state, test_engine,
-        turn_started_at,
+        DRIVER_HOLD, SETTLE_WAIT, append, continue_request, events, hand_limit_interrupter,
+        held_driver, insert_running_run, started_turn, stored_events, stored_run_state,
+        test_engine, token_limit, turn_started_at,
     };
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::engine::{RunEngine, RunEngineError};
@@ -421,27 +420,8 @@ mod tests {
         }
     }
 
-    fn token_limit() -> TokensPerRun {
-        TokensPerRun(SafeInt::new(500_000).expect("the test's limit is a safe integer"))
-    }
-
     fn turn(number: u64) -> SafeInt<1> {
         SafeInt::new(number).expect("the test's turn numbers count from 1")
-    }
-
-    fn events(
-        expected: &[(&str, Option<&str>, Option<&str>)],
-    ) -> Vec<(String, Option<String>, Option<String>)> {
-        expected
-            .iter()
-            .map(|(event_type, cause, origin)| {
-                (
-                    (*event_type).to_owned(),
-                    cause.map(str::to_owned),
-                    origin.map(str::to_owned),
-                )
-            })
-            .collect()
     }
 
     // A person's interrupt accepted at `accepted_run_version` ends the run, and a continue runs it

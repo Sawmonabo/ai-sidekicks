@@ -18,6 +18,7 @@ use sidekicks_contracts::run::events::AgentTurnStartedPayload;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::Spawner;
@@ -123,7 +124,8 @@ pub(super) fn hand_limit_interrupter(
     interrupter
 }
 
-/// The interventions table with the columns the engine's reads and a settle's guard read.
+/// The interventions table with the columns the engine's reads, a settle's guard and its move of
+/// a pending interrupt name.
 pub(super) const INTERVENTIONS_TABLE_SQL: &str = "
 CREATE TABLE interventions (
   id             TEXT PRIMARY KEY,
@@ -131,7 +133,11 @@ CREATE TABLE interventions (
   type           TEXT NOT NULL,
   state          TEXT NOT NULL DEFAULT 'requested',
   payload        TEXT NOT NULL DEFAULT '{}',
-  device_id      TEXT
+  device_id      TEXT,
+  rejection_reason TEXT,
+  failure_reason TEXT,
+  fallback_action TEXT,
+  resolved_at    TEXT
 ) STRICT;
 ";
 
@@ -203,6 +209,27 @@ pub(super) fn stored_events(
         .expect("the run's events read")
         .collect::<Result<_, _>>()
         .expect("each event reads")
+}
+
+/// `expected` in the form [`stored_events`] reads.
+pub(super) fn events(
+    expected: &[(&str, Option<&str>, Option<&str>)],
+) -> Vec<(String, Option<String>, Option<String>)> {
+    expected
+        .iter()
+        .map(|(event_type, cause, origin)| {
+            (
+                (*event_type).to_owned(),
+                cause.map(str::to_owned),
+                origin.map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+/// A test's token limit.
+pub(super) fn token_limit() -> TokensPerRun {
+    TokensPerRun(SafeInt::new(500_000).expect("the test's limit is a safe integer"))
 }
 
 /// The run's stored state and version.

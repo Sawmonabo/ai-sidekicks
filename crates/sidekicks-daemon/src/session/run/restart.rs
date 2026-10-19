@@ -1,8 +1,8 @@
 //! How a run a restart left live ends when recovery cannot resume it: interrupted when the person
 //! had asked to stop it or it was a child held when the daemon went down, interrupted or stopped
-//! with its limit when the daemon itself was stopping it at one, left alone when it is queued
-//! behind a message still waiting to start it, failed otherwise. A run with open turns ends them
-//! as the daemon's own report, the newest in the run's own write.
+//! with its limit when its log still owes one, left alone when it is queued behind a message
+//! still waiting to start it, failed otherwise. A run with open turns ends them as the daemon's
+//! own report, the turn a limit cut with the limit's cause, the newest in the run's own write.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -22,6 +22,7 @@ use sidekicks_contracts::run::intervention::{
     InterruptInterventionRecord, InterventionId, InterventionState, InterventionType, RunLimit,
 };
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
@@ -31,6 +32,7 @@ use crate::interventions::store::{
     move_intervention_statement,
 };
 use crate::queue::store::{QueueItemReader, SELECT_WAITING_FOR_RUN_SQL};
+use crate::session::run::engine::turns::stored_turn_number;
 use crate::session::run::read::LiveRun;
 use crate::session::run::state_change::RunStateChangeCompanions;
 
@@ -49,48 +51,56 @@ static SELECT_PENDING_INTERRUPT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The run's newest limit reached event with no interrupt at that limit recorded after it: a token
-// limit's, reached once per run, or a step limit's on the run's newest turn. A recorded interrupt
-// is the `agent.intervention.requested` event of the run's `interventions` row at that limit.
-static SELECT_UNHANDED_REACHED_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| {
+// The limit the run still owes: its newest reached event that no end of the run by that limit
+// followed, with the run's newest turn started before it, the turn its stop cut. A token limit is
+// discharged only by `agent.run.stopped` with its trigger, since a stopped run is never live
+// again; a step limit by any later `agent.run.interrupted`, after which a continue counts the
+// steps afresh. A token limit comes first, since its end is final.
+static SELECT_OWED_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| {
     let step = SessionEventType::AgentRunStepLimitReached;
     let token = SessionEventType::AgentRunTokenLimitReached;
+    let interrupted = SessionEventType::AgentRunInterrupted;
+    let stopped = SessionEventType::AgentRunStopped;
     let started = SessionEventType::AgentTurnStarted;
-    let requested = SessionEventType::AgentInterventionRequested;
+    let token_trigger =
+        serde_json::to_value(StopTrigger::TokenLimit).expect("a closed word serializes");
     format!(
-        "SELECT reached.type FROM session_events AS reached
+        "SELECT reached.type, (
+    SELECT MAX(started.turn_number) FROM session_events AS started
+     WHERE started.category = '{started_category}'
+       AND started.type = '{started}'
+       AND started.run_id = @run_id
+       AND started.sequence < reached.sequence)
+  FROM session_events AS reached
   WHERE reached.run_id = @run_id
     AND ((reached.category = '{token_category}' AND reached.type = '{token}')
-      OR (reached.category = '{step_category}' AND reached.type = '{step}'
-        AND reached.sequence > (
-          SELECT COALESCE(MAX(started.sequence), -1) FROM session_events AS started
-           WHERE started.category = '{started_category}'
-             AND started.type = '{started}'
-             AND started.run_id = @run_id)))
+      OR (reached.category = '{step_category}' AND reached.type = '{step}'))
     AND NOT EXISTS (
-      SELECT 1 FROM session_events AS requested
-        JOIN interventions ON interventions.id = json_extract(requested.payload, '$.interventionId')
-       WHERE requested.session_id = reached.session_id
-         AND requested.category = '{requested_category}'
-         AND requested.type = '{requested}'
-         AND requested.sequence > reached.sequence
-         AND interventions.target_run_id = @run_id
-         AND interventions.type = '{interrupt}'
-         AND json_extract(interventions.payload, '$.limit')
-           = CASE reached.type WHEN '{token}' THEN '{token_limit}' ELSE '{step_limit}' END)
-  ORDER BY reached.sequence DESC
+      SELECT 1 FROM session_events AS ended
+       WHERE ended.run_id = @run_id
+         AND ended.sequence > reached.sequence
+         AND ((reached.type = '{token}'
+             AND ended.category = '{stopped_category}'
+             AND ended.type = '{stopped}'
+             AND json_extract(ended.payload, '$.trigger') = '{token_trigger}')
+           OR (reached.type = '{step}'
+             AND ended.category = '{interrupted_category}'
+             AND ended.type = '{interrupted}')))
+  ORDER BY CASE reached.type WHEN '{token}' THEN 0 ELSE 1 END, reached.sequence DESC
   LIMIT 1",
         token = token.as_str(),
         token_category = token.category().as_str(),
         step = step.as_str(),
         step_category = step.category().as_str(),
+        interrupted = interrupted.as_str(),
+        interrupted_category = interrupted.category().as_str(),
+        stopped = stopped.as_str(),
+        stopped_category = stopped.category().as_str(),
         started = started.as_str(),
         started_category = started.category().as_str(),
-        requested = requested.as_str(),
-        requested_category = requested.category().as_str(),
-        interrupt = <&'static str>::from(InterventionType::Interrupt),
-        token_limit = <&'static str>::from(RunLimit::TokenLimit),
-        step_limit = <&'static str>::from(RunLimit::StepLimit),
+        token_trigger = token_trigger
+            .as_str()
+            .expect("a closed word serializes as text"),
     )
 });
 
@@ -108,16 +118,25 @@ pub(crate) struct PendingInterrupt {
     pub(crate) record: InterruptInterventionRecord,
 }
 
+/// A limit a run still owes, read from its log alone: the limit, and the turn its stop cut, the
+/// run's newest turn started before the limit's reached event, where one had started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OwedLimit {
+    /// The limit the run reached and was not yet ended by.
+    pub(crate) limit: RunLimit,
+    /// The turn the limit's stop cut; `None` where no turn had started before it.
+    pub(crate) cut_turn: Option<SafeInt<1>>,
+}
+
 /// What a restart reads of a live run to decide how it settles: its pending interrupt, the limit
-/// the daemon was stopping it at with no interrupt recorded, and whether a message still waits in
-/// the queue for it.
+/// it still owes, and whether a message still waits in the queue for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RestartFacts {
     /// The run's interrupt with no outcome yet, if one is.
     pub(crate) pending_interrupt: Option<PendingInterrupt>,
-    /// The limit whose reached event the run holds with no interrupt at that limit recorded since,
-    /// read only when no interrupt is pending: the daemon was stopping the run at it.
-    pub(crate) reached_limit: Option<RunLimit>,
+    /// The limit the run reached and no end of it by that limit followed, read whether or not an
+    /// interrupt is pending: the daemon was stopping the run at it.
+    pub(crate) owed_limit: Option<OwedLimit>,
     /// Whether a queued message targets the run, which starts it when its queue reaches it.
     pub(crate) has_queued_item: bool,
 }
@@ -154,20 +173,22 @@ pub(crate) enum RestartTurnEnd {
     },
 }
 
-/// How a restart settles one live run: its end, and the end its open turn takes where it has one.
+/// How a restart settles one live run: its end, and the end its open turns take where it has any.
 /// A queued run never started a turn, so its end carries none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RestartDecision {
     /// The run's end.
     pub(crate) settlement: RestartSettlement,
-    /// The end of the run's open turn; `None` where the run started none.
+    /// The end of the run's open turn that takes its cause; `None` where the run started none.
     pub(crate) open_turn_end: Option<RestartTurnEnd>,
+    /// The open turn that takes `open_turn_end`'s cause, the one a limit's stop cut; the newest
+    /// open turn where `None`. Every other open turn ends the same way with `daemonRestart`.
+    pub(crate) cut_turn: Option<SafeInt<1>>,
 }
 
 /// Reads what [`decide_restart_settlement`] needs of `run` on `reader`: a queued run's waiting
-/// messages, any other run's pending interrupt, else the limit it reached with no interrupt
-/// recorded since. Fails when SQLite refuses a read or a stored row does not read as its type, an
-/// interrupt's record among them.
+/// messages, any other run's pending interrupt and the limit it still owes. Fails when SQLite
+/// refuses a read or a stored row does not read as its type, an interrupt's record among them.
 pub(crate) fn read_restart_facts(
     reader: &Connection,
     run: &LiveRun,
@@ -178,47 +199,49 @@ pub(crate) fn read_restart_facts(
             .is_empty();
         return Ok(RestartFacts {
             pending_interrupt: None,
-            reached_limit: None,
+            owed_limit: None,
             has_queued_item,
         });
     }
-    let pending_interrupt = read_pending_interrupt(reader, &run.run_id)?;
-    let reached_limit = match pending_interrupt {
-        Some(_) => None,
-        None => read_unhanded_reached_limit(reader, &run.run_id)?,
-    };
     Ok(RestartFacts {
-        pending_interrupt,
-        reached_limit,
+        pending_interrupt: read_pending_interrupt(reader, &run.run_id)?,
+        owed_limit: read_owed_limit(reader, &run.run_id)?,
         has_queued_item: false,
     })
 }
 
-// The limit `run_id` reached with no interrupt at it recorded since, read on `reader`.
-fn read_unhanded_reached_limit(
+/// The limit `run_id` still owes, read on `reader` from its log alone: its newest limit reached
+/// event that no end of the run by that limit followed, a token limit's before a step limit's,
+/// with the turn its stop cut. Whether an interrupt was recorded, is pending or failed since does
+/// not decide it. Fails when SQLite refuses the read.
+pub(crate) fn read_owed_limit(
     reader: &Connection,
     run_id: &RunId,
-) -> rusqlite::Result<Option<RunLimit>> {
-    let reached_type: Option<String> = reader
-        .prepare_cached(&SELECT_UNHANDED_REACHED_LIMIT_SQL)?
+) -> rusqlite::Result<Option<OwedLimit>> {
+    reader
+        .prepare_cached(&SELECT_OWED_LIMIT_SQL)?
         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
-            row.get(0)
+            let reached_type: String = row.get(0)?;
+            let cut_turn: Option<i64> = row.get(1)?;
+            Ok(OwedLimit {
+                // The read selects only the two reached types.
+                limit: if reached_type == SessionEventType::AgentRunTokenLimitReached.as_str() {
+                    RunLimit::TokenLimit
+                } else {
+                    RunLimit::StepLimit
+                },
+                cut_turn: cut_turn.map(stored_turn_number),
+            })
         })
-        .optional()?;
-    Ok(reached_type.map(|reached_type| {
-        if reached_type == SessionEventType::AgentRunTokenLimitReached.as_str() {
-            RunLimit::TokenLimit
-        } else {
-            RunLimit::StepLimit
-        }
-    }))
+        .optional()
 }
 
 /// Decides how `run` settles, or `None` for a run left as it is. A queued run is left while a
-/// message waits to start it and fails otherwise, since nothing else will; a pending interrupt
-/// settles by its limit, or as the person's own, and a limit reached with no interrupt recorded
-/// by that limit; a child held in a pause the restart orphaned reads interrupted and continues
-/// from its own box; any other run fails.
+/// message waits to start it and fails otherwise, since nothing else will. An owed token limit
+/// stops the run whatever else is pending, its end being final; a pending interrupt settles by
+/// its limit, or as the person's own; an owed step limit interrupts the run with it; a limit's
+/// cause goes to the turn its stop cut. A child held in a pause the restart orphaned reads
+/// interrupted and continues from its own box; any other run fails.
 pub(crate) fn decide_restart_settlement(
     run: &LiveRun,
     facts: &RestartFacts,
@@ -227,6 +250,7 @@ pub(crate) fn decide_restart_settlement(
         return (!facts.has_queued_item).then_some(RestartDecision {
             settlement: RestartSettlement::Failed,
             open_turn_end: None,
+            cut_turn: None,
         });
     }
     let interrupted_by_restart = RestartDecision {
@@ -236,8 +260,46 @@ pub(crate) fn decide_restart_settlement(
         open_turn_end: Some(RestartTurnEnd::Interrupted {
             cause: TurnEndCause::DaemonRestart,
         }),
+        cut_turn: None,
     };
-    let stopped_at_limit = |limit| RestartDecision {
+    let owed_limit = facts.owed_limit;
+    // The person's pending interrupt, if any, is applied by the token limit's end in its write.
+    if let Some(owed) = owed_limit.filter(|owed| owed.limit == RunLimit::TokenLimit) {
+        return Some(owed_limit_end(owed));
+    }
+    if let Some(pending) = &facts.pending_interrupt {
+        return Some(match pending.record.limit() {
+            Some(limit) => match owed_limit.filter(|owed| owed.limit == limit) {
+                Some(owed) => owed_limit_end(owed),
+                None => limit_end(limit, None),
+            },
+            // The person's interrupt stays theirs: the run carries no trigger of the daemon's.
+            None => RestartDecision {
+                settlement: RestartSettlement::Interrupted { trigger: None },
+                ..interrupted_by_restart
+            },
+        });
+    }
+    if let Some(owed) = owed_limit {
+        return Some(owed_limit_end(owed));
+    }
+    if run.parent_run_id.is_some() && matches!(run.run.state, RunState::Paused | RunState::Pausing)
+    {
+        return Some(interrupted_by_restart);
+    }
+    Some(RestartDecision {
+        settlement: RestartSettlement::Failed,
+        open_turn_end: Some(RestartTurnEnd::Failed {
+            cause: TurnEndCause::DaemonRestart,
+        }),
+        cut_turn: None,
+    })
+}
+
+// The end `limit` gives its run, the limit's cause on `cut_turn`, the newest open turn where none
+// is named.
+fn limit_end(limit: RunLimit, cut_turn: Option<SafeInt<1>>) -> RestartDecision {
+    RestartDecision {
         settlement: match limit {
             RunLimit::StepLimit => RestartSettlement::Interrupted {
                 trigger: Some(InterruptReason::StepLimit),
@@ -252,30 +314,22 @@ pub(crate) fn decide_restart_settlement(
         open_turn_end: Some(RestartTurnEnd::Interrupted {
             cause: limit_turn_cause(limit),
         }),
-    };
-    if let Some(pending) = &facts.pending_interrupt {
-        return Some(match pending.record.limit() {
-            Some(limit) => stopped_at_limit(limit),
-            // The person's interrupt stays theirs: the run carries no trigger of the daemon's.
-            None => RestartDecision {
-                settlement: RestartSettlement::Interrupted { trigger: None },
-                ..interrupted_by_restart
-            },
-        });
+        cut_turn,
     }
-    if let Some(limit) = facts.reached_limit {
-        return Some(stopped_at_limit(limit));
+}
+
+// The end an owed limit gives its run: the limit's cause on the turn its stop cut, and on no turn
+// where none had started before it.
+fn owed_limit_end(owed: OwedLimit) -> RestartDecision {
+    match owed.cut_turn {
+        Some(cut_turn) => limit_end(owed.limit, Some(cut_turn)),
+        None => RestartDecision {
+            open_turn_end: Some(RestartTurnEnd::Interrupted {
+                cause: TurnEndCause::DaemonRestart,
+            }),
+            ..limit_end(owed.limit, None)
+        },
     }
-    if run.parent_run_id.is_some() && matches!(run.run.state, RunState::Paused | RunState::Pausing)
-    {
-        return Some(interrupted_by_restart);
-    }
-    Some(RestartDecision {
-        settlement: RestartSettlement::Failed,
-        open_turn_end: Some(RestartTurnEnd::Failed {
-            cause: TurnEndCause::DaemonRestart,
-        }),
-    })
 }
 
 /// The turn end cause a limit cuts a turn with.
@@ -416,10 +470,11 @@ mod tests {
         InterruptInterventionRecord, InterventionId, RunLimit,
     };
     use sidekicks_contracts::run::state::RunState;
+    use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{
-        PendingInterrupt, QUEUE_ITEMS_TABLE_SQL, RestartDecision, RestartFacts, RestartSettlement,
-        RestartTurnEnd, decide_restart_settlement, no_waiting_item_statement,
+        OwedLimit, PendingInterrupt, QUEUE_ITEMS_TABLE_SQL, RestartDecision, RestartFacts,
+        RestartSettlement, RestartTurnEnd, decide_restart_settlement, no_waiting_item_statement,
     };
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
@@ -431,7 +486,36 @@ mod tests {
         Some(RestartDecision {
             settlement,
             open_turn_end: Some(turn_end),
+            cut_turn: None,
         })
+    }
+
+    // `decision` with its cause on turn `turn_number`.
+    fn on_turn(decision: Option<RestartDecision>, turn_number: u64) -> Option<RestartDecision> {
+        decision.map(|decision| RestartDecision {
+            cut_turn: Some(SafeInt::new(turn_number).expect("the test's turns count from 1")),
+            ..decision
+        })
+    }
+
+    fn owed(limit: RunLimit, cut_turn: Option<u64>) -> Option<OwedLimit> {
+        Some(OwedLimit {
+            limit,
+            cut_turn: cut_turn.map(|turn_number| {
+                SafeInt::new(turn_number).expect("the test's turns count from 1")
+            }),
+        })
+    }
+
+    fn stopped_at_token_limit() -> Option<RestartDecision> {
+        ends(
+            RestartSettlement::Stopped {
+                trigger: StopTrigger::TokenLimit,
+            },
+            RestartTurnEnd::Interrupted {
+                cause: TurnEndCause::TokenLimit,
+            },
+        )
     }
 
     fn interrupted(
@@ -456,9 +540,11 @@ mod tests {
     // Killed by leaving every queued run alone or failing one a message still waits to start
     // (`queued_*`), by reading a limit from the person's reason text (`person_naming_step_limit`),
     // by settling a limit stop as the person's or another limit's (`*_limit`), by failing a run
-    // that reached a limit no interrupt was recorded for (`reached_step_limit_unhanded`), by
-    // dropping the held child's rule (`held_child_*`), and by giving a run the wrong turn end or
-    // none.
+    // whose log still owes a limit (`step_limit_owed*`), by letting a pending interrupt win over an
+    // owed token limit (`*_beside_an_owed_token_limit`), by giving the cause to the newest turn
+    // rather than the cut one (`*_owed`, `*_and_owed`) or to any turn where none was cut
+    // (`step_limit_owed_before_any_turn`), by dropping the held child's rule (`held_child_*`), and
+    // by giving a run the wrong turn end or none.
     #[rstest]
     #[case::queued_behind_a_message(RunState::Queued, false, None, None, true, None)]
     #[case::queued_with_nothing_to_start_it(
@@ -467,7 +553,11 @@ mod tests {
         None,
         None,
         false,
-        Some(RestartDecision { settlement: RestartSettlement::Failed, open_turn_end: None })
+        Some(RestartDecision {
+            settlement: RestartSettlement::Failed,
+            open_turn_end: None,
+            cut_turn: None,
+        })
     )]
     #[case::person_interrupt(
         RunState::Running,
@@ -493,6 +583,17 @@ mod tests {
         false,
         interrupted(Some(InterruptReason::StepLimit), TurnEndCause::StepLimit)
     )]
+    #[case::step_limit_pending_and_owed(
+        RunState::Running,
+        false,
+        Some(r#"{"limit":"stepLimit"}"#),
+        owed(RunLimit::StepLimit, Some(1)),
+        false,
+        on_turn(
+            interrupted(Some(InterruptReason::StepLimit), TurnEndCause::StepLimit),
+            1
+        )
+    )]
     #[case::spend_limit(
         RunState::WaitingForApproval,
         false,
@@ -507,10 +608,31 @@ mod tests {
         Some(r#"{"limit":"tokenLimit"}"#),
         None,
         false,
-        ends(
-            RestartSettlement::Stopped { trigger: StopTrigger::TokenLimit },
-            RestartTurnEnd::Interrupted { cause: TurnEndCause::TokenLimit },
-        )
+        stopped_at_token_limit()
+    )]
+    #[case::person_interrupt_beside_an_owed_token_limit(
+        RunState::Running,
+        false,
+        Some(r#"{"pending":"nextTurn"}"#),
+        owed(RunLimit::TokenLimit, Some(2)),
+        false,
+        on_turn(stopped_at_token_limit(), 2)
+    )]
+    #[case::spend_limit_beside_an_owed_token_limit(
+        RunState::Running,
+        false,
+        Some(r#"{"limit":"spendLimit"}"#),
+        owed(RunLimit::TokenLimit, Some(1)),
+        false,
+        on_turn(stopped_at_token_limit(), 1)
+    )]
+    #[case::person_interrupt_beside_an_owed_step_limit(
+        RunState::Running,
+        false,
+        Some(r#"{"pending":"nextTurn"}"#),
+        owed(RunLimit::StepLimit, Some(1)),
+        false,
+        interrupted(None, TurnEndCause::DaemonRestart)
     )]
     #[case::held_child_paused(
         RunState::Paused,
@@ -530,20 +652,31 @@ mod tests {
     )]
     #[case::paused_lead(RunState::Paused, false, None, None, false, failed_with_its_turn())]
     #[case::running_child(RunState::Running, true, None, None, false, failed_with_its_turn())]
-    #[case::reached_step_limit_unhanded(
+    #[case::step_limit_owed(
         RunState::Running,
         false,
         None,
-        Some(RunLimit::StepLimit),
+        owed(RunLimit::StepLimit, Some(1)),
         false,
-        interrupted(Some(InterruptReason::StepLimit), TurnEndCause::StepLimit)
+        on_turn(
+            interrupted(Some(InterruptReason::StepLimit), TurnEndCause::StepLimit),
+            1
+        )
+    )]
+    #[case::step_limit_owed_before_any_turn(
+        RunState::Running,
+        false,
+        None,
+        owed(RunLimit::StepLimit, None),
+        false,
+        interrupted(Some(InterruptReason::StepLimit), TurnEndCause::DaemonRestart)
     )]
     #[case::running(RunState::Running, false, None, None, false, failed_with_its_turn())]
     fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
         #[case] state: RunState,
         #[case] has_parent: bool,
         #[case] pending_record: Option<&str>,
-        #[case] reached_limit: Option<RunLimit>,
+        #[case] owed_limit: Option<OwedLimit>,
         #[case] has_queued_item: bool,
         #[case] expected: Option<RestartDecision>,
     ) {
@@ -568,7 +701,7 @@ mod tests {
         });
         let facts = RestartFacts {
             pending_interrupt,
-            reached_limit,
+            owed_limit,
             has_queued_item,
         };
 
