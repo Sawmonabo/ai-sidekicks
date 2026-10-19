@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 /// [`RunEngine::end_run_for_interrupt`]. The service holds the engine, and the engine holds it
 /// weakly.
 ///
-/// [`RunEngine::end_run_for_interrupt`]: crate::session::run::engine::RunEngine::end_run_for_interrupt
+/// [`RunEngine::end_run_for_interrupt`]: super::engine::RunEngine::end_run_for_interrupt
 pub(crate) trait LimitInterrupter: Send + Sync {
     /// Interrupts `run_id` because it reached `limit`, its row naming `cut_turn`, the turn the
     /// stop cut, and answers within its own bound, since the stop's task runs until it answers and
