@@ -39,7 +39,7 @@ use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::runtime_binding::live_runs::{
     AgentBindingResolution, RunBindingResolution, resolve_agent_bindings, resolve_run_binding,
 };
-use crate::session::directory::lookups::SESSION_EXISTS_SQL;
+use crate::session::directory::lookups::session_exists;
 use crate::session::not_found::session_not_found;
 use crate::session::run::agent::read_lead_binding;
 use crate::session::run::refusals::RunRefusal;
@@ -389,13 +389,6 @@ async fn list_provider_commands(
     Ok(ProviderCommandListResponse {
         bindings: BoundedVec::new(groups).expect("an agent with a live binding has a group"),
     })
-}
-
-// Whether the daemon holds the session.
-fn session_exists(reader: &rusqlite::Connection, session_id: &SessionId) -> rusqlite::Result<bool> {
-    reader
-        .prepare_cached(SESSION_EXISTS_SQL)?
-        .exists(rusqlite::named_params! { "@sessionId": session_id.text().as_str() })
 }
 
 // The refusal of a call whose run or agent has no live binding: none was started, or its process

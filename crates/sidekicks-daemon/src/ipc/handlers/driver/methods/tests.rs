@@ -1,9 +1,10 @@
 //! The driver methods over a test database holding one session and the table's first two
 //! providers, each answered by a stand-in driver: one provider's failed models and modes beside
-//! the other's, and every binding admitted before any command list is read.
+//! the other's, the session's own provider listed first, and every binding admitted before any
+//! command list is read.
 
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use rstest::rstest;
@@ -11,6 +12,7 @@ use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, ProviderModel};
 use sidekicks_contracts::provider::driver::methods::{
     ProviderCommandListRequest, ProviderModeReport, ProviderModelReport, ProviderModelsFailed,
@@ -33,7 +35,9 @@ use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
-use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderDriver};
+use crate::provider::driver::contract::{
+    DriverError, ListModelsParams, MockProviderDriver, ProviderDriver,
+};
 use crate::provider::driver::error_causes::ExecutableUnresolvable;
 use crate::provider::driver::test_registry::registry_of_first_providers;
 use crate::session::directory::test_rows::insert_session_row;
@@ -214,6 +218,92 @@ async fn one_providers_failed_read_never_hides_the_others(#[case] second: Second
     }
     assert_eq!(models.providers, expected_models);
     assert_eq!(modes.providers, expected_modes);
+}
+
+// The session's own provider lists first, read against the session and its bound account, while
+// every other provider reads its default account with no session, in the table's order. Killed by
+// keeping the table's order, or by passing the session or the account to another provider.
+#[tokio::test]
+async fn the_sessions_own_provider_lists_first_on_its_own_account() {
+    let reads: Arc<Mutex<Vec<(usize, ListModelsParams)>>> = Arc::default();
+    let drivers = (0..2)
+        .map(|index| {
+            let reads = Arc::clone(&reads);
+            let mut driver = MockProviderDriver::new();
+            driver
+                .expect_list_models()
+                .times(1)
+                .returning(move |params| {
+                    reads
+                        .lock()
+                        .expect("the reads are not poisoned")
+                        .push((index, params));
+                    async move { Ok(vec![model(&format!("model-{index}"))]) }.boxed()
+                });
+            driver
+        })
+        .collect();
+    let fixture = fixture(drivers);
+    let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+    fixture
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO session_events
+               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
+             VALUES (?1, ?2, 0, ?3, 0, 'sessionLifecycle', 'session.created', ?4)",
+            params![
+                mint_uuid_v7().to_string(),
+                fixture.session_id.text().as_str(),
+                AT,
+                json!({
+                    "mainAgent": {
+                        "agentId": mint_uuid_v7().to_string(),
+                        "binding": {
+                            "providerName": PROVIDERS[1].id,
+                            "providerAccountId": account,
+                        },
+                    },
+                })
+                .to_string(),
+            ],
+        )
+        .expect("the test creates the session's lead");
+
+    let listed = list_models(&fixture.sources, fixture.session_id)
+        .await
+        .expect("the list answers");
+
+    let names: Vec<ProviderId> = listed
+        .providers
+        .iter()
+        .map(|report| match report {
+            ProviderModelReport::Listed(listed) => listed.provider_name.clone(),
+            ProviderModelReport::Failed(failed) => failed.provider_name.clone(),
+        })
+        .collect();
+    assert_eq!(names, [provider(1), provider(0)]);
+    let mut reads = reads.lock().expect("the reads are not poisoned").clone();
+    reads.sort_by_key(|(index, _)| *index);
+    assert_eq!(
+        reads,
+        [
+            (
+                0,
+                ListModelsParams {
+                    session_id: None,
+                    provider_account_id: None,
+                }
+            ),
+            (
+                1,
+                ListModelsParams {
+                    session_id: Some(fixture.session_id),
+                    provider_account_id: Some(account),
+                }
+            ),
+        ]
+    );
 }
 
 // An agent live on two bindings, the second's driver without the command list, is refused at the

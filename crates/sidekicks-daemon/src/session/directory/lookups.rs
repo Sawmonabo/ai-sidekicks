@@ -8,6 +8,7 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use rusqlite::{Connection, named_params};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 
@@ -45,8 +46,18 @@ pub(crate) fn session_project_sql(session_id_sql: &str) -> String {
     )
 }
 
-/// Reads a row only while the session the `@sessionId` parameter names has a directory row.
-pub(crate) const SESSION_EXISTS_SQL: &str = "SELECT 1 FROM sessions WHERE id = @sessionId";
+// Reads a row only while the session the `@sessionId` parameter names has a directory row.
+const SESSION_EXISTS_SQL: &str = "SELECT 1 FROM sessions WHERE id = @sessionId";
+
+/// Whether the session has a directory row, read on `reader`. Fails when SQLite refuses the read.
+pub(crate) fn session_exists(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<bool> {
+    reader
+        .prepare_cached(SESSION_EXISTS_SQL)?
+        .exists(named_params! { "@sessionId": session_id.text().as_str() })
+}
 
 /// Holds only while the session has a directory row: the write refuses and rolls back otherwise.
 pub(crate) fn session_exists_statement(session_id: &SessionId) -> WriteStatement {

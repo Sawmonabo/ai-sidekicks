@@ -1,6 +1,7 @@
 //! Answers to a provider's choice over a test database holding one run waiting on its
 //! switch-or-credits choice, bound to the table's first provider, whose driver is a stand-in: an
-//! answer the provider got with no reply back, settled by the provider's word.
+//! answer the provider got with no reply back, settled by the provider's word, and the order an
+//! answer is refused in.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -32,6 +33,7 @@ use crate::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::run_control::AnswerProviderChoiceResult;
 use crate::provider::driver::test_registry::{
@@ -40,6 +42,7 @@ use crate::provider::driver::test_registry::{
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
 use crate::session::run::pause::tests::unanswered;
+use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 use crate::uuid_v7::mint_uuid_v7;
 
@@ -57,12 +60,18 @@ struct Fixture {
 impl Fixture {
     /// Answers the run's choice with `choice` from a device.
     async fn answer(&self, choice: RunUsageCreditsChoice) -> Result<RunState, ProviderChoiceError> {
+        self.answer_run(self.run_id, choice).await
+    }
+
+    /// Answers the choice of `run_id` with `choice` from a device.
+    async fn answer_run(
+        &self,
+        run_id: RunId,
+        choice: RunUsageCreditsChoice,
+    ) -> Result<RunState, ProviderChoiceError> {
         self.resolver
             .resolve_usage_credits_choice(
-                &AgentRunUsageCreditsChoiceResolveRequest {
-                    run_id: self.run_id,
-                    choice,
-                },
+                &AgentRunUsageCreditsChoiceResolveRequest { run_id, choice },
                 ProviderChoiceAnswerOrigin {
                     device_id: DeviceId::new("device".to_owned()).expect("a device id"),
                 },
@@ -92,21 +101,43 @@ impl Fixture {
     }
 }
 
-async fn fixture(driver: MockProviderDriver) -> Fixture {
+/// How the fixture's run stands before an answer.
+#[derive(Clone, Copy, Debug)]
+struct ChoiceRun {
+    /// Whether the run is bound to the table's first provider.
+    is_bound: bool,
+    /// Whether the run waits on input, rather than running.
+    is_waiting: bool,
+    /// Whether the provider asked the choice in the log.
+    is_asked: bool,
+}
+
+/// A bound run waiting on the choice the provider asked.
+const WAITING_ON_THE_CHOICE: ChoiceRun = ChoiceRun {
+    is_bound: true,
+    is_waiting: true,
+    is_asked: true,
+};
+
+async fn fixture(driver: MockProviderDriver, setup: ChoiceRun) -> Fixture {
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id: SessionId = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_running_run(&database, session_id, run_id);
-    bind_run_to_first_provider(&database, run_id);
-    database
-        .reader()
-        .execute(
-            "UPDATE runs SET state = 'waitingForInput' WHERE run_id = ?1",
-            [run_id.text().as_str()],
-        )
-        .expect("the test holds the run on its choice");
+    if setup.is_bound {
+        bind_run_to_first_provider(&database, run_id);
+    }
+    if setup.is_waiting {
+        database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = 'waitingForInput' WHERE run_id = ?1",
+                [run_id.text().as_str()],
+            )
+            .expect("the test holds the run on its choice");
+    }
     let requested = SessionEvent::AgentRunUsageCreditsChoiceRequested(
         AgentRunUsageCreditsChoiceRequestedPayload {
             session_id,
@@ -118,14 +149,16 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
             fallback_model: None,
         },
     );
-    SessionEventAppender::new(Arc::clone(&log.service), SESSION_EVENT_VERSION.clone())
-        .append(
-            SessionEventDraft::of_session(session_id, &requested)
-                .expect("the choice's request drafts"),
-            SessionEventLinkage::default(),
-        )
-        .await
-        .expect("the provider asks the choice");
+    if setup.is_asked {
+        SessionEventAppender::new(Arc::clone(&log.service), SESSION_EVENT_VERSION.clone())
+            .append(
+                SessionEventDraft::of_session(session_id, &requested)
+                    .expect("the choice's request drafts"),
+                SessionEventLinkage::default(),
+            )
+            .await
+            .expect("the provider asks the choice");
+    }
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
     let resolver = ProviderChoiceResolver::new(
         Arc::new(DatabaseReadPool::new(
@@ -178,7 +211,7 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
         }
         .boxed()
     });
-    let fixture = fixture(driver).await;
+    let fixture = fixture(driver, WAITING_ON_THE_CHOICE).await;
 
     let first = fixture.answer(RunUsageCreditsChoice::Consent).await;
     let after_first = (fixture.state(), fixture.settlements());
@@ -223,4 +256,58 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
         (fixture.state(), fixture.settlements()),
         ("running".to_owned(), 1)
     );
+}
+
+/// Why an answer is refused before its driver.
+#[derive(Clone, Copy, Debug)]
+enum Refusal {
+    /// The run is unknown.
+    UnknownRun,
+    /// The run does not wait on input.
+    NotWaiting,
+    /// The run waits on input, but the provider asked no such choice.
+    NeverAsked,
+    /// The run waits on the choice, but no binding names its provider.
+    Unbound,
+}
+
+// An answer is refused by the run, then the choice it waits on, then its driver, and none reaches
+// the driver, whose stand-in fails any call. Every refused run is unbound, so a driver looked up
+// before the run or its choice answers the wrong refusal. Killed by resolving the driver before
+// the run's read or the choice's, or by sending to the driver before the choice is read.
+#[rstest]
+#[case::unknown_run(Refusal::UnknownRun)]
+#[case::not_waiting(Refusal::NotWaiting)]
+#[case::never_asked(Refusal::NeverAsked)]
+#[case::unbound(Refusal::Unbound)]
+#[tokio::test]
+async fn an_answer_is_refused_by_the_run_then_its_choice_then_its_driver(#[case] refusal: Refusal) {
+    let setup = ChoiceRun {
+        is_bound: false,
+        is_waiting: !matches!(refusal, Refusal::NotWaiting),
+        is_asked: !matches!(refusal, Refusal::NeverAsked),
+    };
+    let fixture = fixture(MockProviderDriver::new(), setup).await;
+    let run_id = match refusal {
+        Refusal::UnknownRun => RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        Refusal::NotWaiting | Refusal::NeverAsked | Refusal::Unbound => fixture.run_id,
+    };
+
+    let answered = fixture
+        .answer_run(run_id, RunUsageCreditsChoice::Consent)
+        .await;
+
+    match (refusal, &answered) {
+        (Refusal::UnknownRun, Err(ProviderChoiceError::Refused(RunRefusal::NotFound { .. })))
+        | (
+            Refusal::NotWaiting | Refusal::NeverAsked,
+            Err(ProviderChoiceError::Refused(RunRefusal::InvalidTransition { .. })),
+        )
+        | (
+            Refusal::Unbound,
+            Err(ProviderChoiceError::NoDriver(LiveRunDriverError::Unbound { .. })),
+        ) => {}
+        _ => panic!("expected {refusal:?}, got {answered:?}"),
+    }
+    assert_eq!(fixture.settlements(), 0);
 }

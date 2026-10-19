@@ -1,7 +1,7 @@
-//! Reads a run's current state and version from its `runs` row, the runs not yet ended in every
-//! session and in one with each run's agent, the ended runs that hold a turn with no end, the live provider subagents beneath one run, and the provider
-//! a run runs on, from its runtime binding or the binding of the parent whose provider process it
-//! runs in.
+//! Reads a run's current state and version from its `runs` row; the runs not yet ended across
+//! every session, and those of one session with the agent each runs for; the ended runs that hold
+//! a turn with no end; the live provider subagents beneath one run; and the provider a run runs on,
+//! from its runtime binding or the binding of the parent whose provider process it runs in.
 
 use std::sync::LazyLock;
 

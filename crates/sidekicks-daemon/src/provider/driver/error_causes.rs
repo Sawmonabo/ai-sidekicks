@@ -61,7 +61,7 @@ impl ExecutableUnresolvable {
 /// written; a caller holding what the request carried keeps it until the provider's own record
 /// says what became of it, and never sends it again blind.
 #[derive(Debug, thiserror::Error)]
-#[error("the provider got the request and no answer came: {refusal}")]
+#[error("the provider got the request and no answer came")]
 pub(crate) struct RequestUnanswered {
     /// The refusal the call answers with, `provider.timeout` or `provider.unavailable`.
     #[source]

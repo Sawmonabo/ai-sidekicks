@@ -37,7 +37,7 @@ use crate::events::session::pending::PendingSessions;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::retry_waits::retry_wait;
-use crate::session::directory::lookups::SESSION_EXISTS_SQL;
+use crate::session::directory::lookups::session_exists;
 use crate::session::not_found::session_not_found;
 use crate::session::related::score::{
     SessionLinkEnd, score_related_sessions, session_link_kind_weight, session_link_weight,
@@ -226,10 +226,7 @@ impl SessionRelatedRanking {
                 ReadLength::Short,
                 move |connection| -> Result<SessionRelatedListUpdate, SessionRelatedReadError> {
                     let snapshot = connection.unchecked_transaction()?;
-                    let is_known = snapshot
-                        .prepare_cached(SESSION_EXISTS_SQL)?
-                        .exists(named_params! { "@sessionId": session_id.text().as_str() })?;
-                    if !is_known {
+                    if !session_exists(&snapshot, &session_id)? {
                         return Err(session_not_found(&session_id).into());
                     }
                     let update = read_stored(&snapshot, session_id, jiff::Timestamp::now())?;

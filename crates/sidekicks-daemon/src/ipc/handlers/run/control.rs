@@ -1,7 +1,9 @@
 //! A person's controls on a run: an intervention, a pause and a resume, and the answers to the
-//! choices a provider holds a run on. Each call is refused by the run, then its version, then its
-//! state, and only then by its driver; an intervention and each answer record the device the call
-//! came from, and a pause or a resume records none.
+//! choices a provider holds a run on. A pause or a resume is refused by the run, then its version,
+//! then its state, and only then by its driver; an answer by the run, then the choice it waits on,
+//! then its driver. An intervention is refused only for an unknown run or a reused key: a guard it
+//! fails ends it expired or rejected, and a dispatch that throws ends it failed. An intervention
+//! and each answer record the device the call came from, and a pause or a resume records none.
 
 use std::sync::Arc;
 

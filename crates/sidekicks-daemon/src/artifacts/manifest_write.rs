@@ -37,7 +37,7 @@ use crate::database::stored_column::{
 };
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
-use crate::session::directory::lookups::{SESSION_EXISTS_SQL, session_exists_statement};
+use crate::session::directory::lookups::{session_exists, session_exists_statement};
 use crate::session::not_found::session_not_found;
 use crate::session::run::ids::{RUN_IN_SESSION_SQL, run_in_session_statement};
 use crate::session::run::refusals::RunRefusal;
@@ -115,18 +115,14 @@ fn read_artifact_owner(
     session_id: &SessionId,
     run_id: Option<&RunId>,
 ) -> Result<(), ArtifactError> {
-    let session_text = session_id.text();
-    let is_session_present = connection
-        .prepare_cached(SESSION_EXISTS_SQL)?
-        .exists(named_params! { "@sessionId": session_text.as_str() })?;
-    if !is_session_present {
+    if !session_exists(connection, session_id)? {
         return Err(session_not_found(session_id).into());
     }
     let Some(run_id) = run_id else {
         return Ok(());
     };
     let is_run_of_session = connection.prepare_cached(RUN_IN_SESSION_SQL)?.exists(
-        named_params! { "@sessionId": session_text.as_str(), "@runId": run_id.text().as_str() },
+        named_params! { "@sessionId": session_id.text().as_str(), "@runId": run_id.text().as_str() },
     )?;
     if is_run_of_session {
         Ok(())

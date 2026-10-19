@@ -390,10 +390,12 @@ impl RunEngine {
             queue_item,
         } = request;
         let run = self.require_run(run_id).await?;
-        let entry = (run.state == RunState::Interrupted)
-            .then(|| lock(&self.live).insert_continuing(run_id, false))
-            .flatten()
-            .ok_or_else(|| continue_refusal(run_id, &run))?;
+        if run.state != RunState::Interrupted {
+            return Err(continue_refusal(run_id, &run, false));
+        }
+        let entry = lock(&self.live)
+            .insert_continuing(run_id, false)
+            .ok_or_else(|| continue_refusal(run_id, &run, true))?;
         let _settles_on_exit = ContinuingGuard {
             live: &self.live,
             run_id,
@@ -481,7 +483,9 @@ impl RunEngine {
                 .require_run(run_id)
                 .await
                 .map_err(RunResumeError::Unstarted)?;
-            return Err(RunResumeError::Unstarted(continue_refusal(run_id, &run)));
+            return Err(RunResumeError::Unstarted(continue_refusal(
+                run_id, &run, true,
+            )));
         };
         let _settles_on_exit = ContinuingGuard {
             live: &self.live,
@@ -495,7 +499,9 @@ impl RunEngine {
         require_expected_version(run_id, &run, expected_run_version)
             .map_err(|stale| RunResumeError::Unstarted(stale.into()))?;
         if !RESUMABLE_STATES.contains(&run.state) {
-            return Err(RunResumeError::Unstarted(continue_refusal(run_id, &run)));
+            return Err(RunResumeError::Unstarted(continue_refusal(
+                run_id, &run, false,
+            )));
         }
         resume(run).await.map_err(RunResumeError::Driver)?;
         entry.is_turn_started.store(true, Ordering::Release);
@@ -684,14 +690,20 @@ fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
     }
 }
 
-// The refusal of a continue or a resume of `run`, which reads no state it moves from or is held
-// by another continue or resume already.
-fn continue_refusal(run_id: RunId, run: &RunRead) -> RunEngineError {
+// The cause of a continue or a resume refused while another of the run is in flight, whose state
+// alone would allow the move.
+#[derive(Debug, thiserror::Error)]
+#[error("another continue or resume of the run is in flight")]
+struct ContinueHeld;
+
+// The refusal of a continue or a resume of `run`, which reads no state it moves from, or, where
+// `is_held`, is held by another continue or resume already, which it names as its cause.
+fn continue_refusal(run_id: RunId, run: &RunRead, is_held: bool) -> RunEngineError {
     RunRefusal::InvalidTransition {
         run_id,
         from_state: run.state,
         to_state: RunStateChangeState::Running,
-        source: None,
+        source: is_held.then(|| Box::new(ContinueHeld) as Box<dyn Error + Send + Sync>),
     }
     .into()
 }
