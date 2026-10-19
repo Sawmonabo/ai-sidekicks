@@ -3,6 +3,7 @@
 
 pub(crate) mod callback_tools;
 pub(crate) mod capability;
+pub(crate) mod command_search;
 pub(crate) mod compaction_wait;
 pub(crate) mod conversation_purge;
 pub(crate) mod declared_output_speed;
