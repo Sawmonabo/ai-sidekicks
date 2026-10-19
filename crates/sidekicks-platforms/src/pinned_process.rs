@@ -59,9 +59,10 @@ impl ProcessRecord {
     }
 
     /// Ends what the record's process started that outlived it, for a record [`Self::pin`]
-    /// answered `None` for: on Windows what is left in the job the record names, on macOS and
-    /// Linux the group the process led, on its boot, while no process holds its id and every
-    /// member is in its session and started no earlier than it; `true` when something was ended.
+    /// answered `None` for, before a fresh lasting child is started: on Windows what is left in the
+    /// job the record names, on macOS and Linux the group the process led, on its boot, while no
+    /// process holds its id and every member is in its session and started no earlier than it;
+    /// `true` when something was ended.
     /// Fails with the system's error, on macOS with `Unsupported` where the system has no
     /// id-checked process read, and on Windows with `InvalidData` for a job name no lasting child
     /// is given.
