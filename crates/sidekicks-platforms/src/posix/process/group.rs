@@ -26,9 +26,11 @@ const LISTING_GAP: Duration = Duration::from_millis(10);
 const GROUP_KILL_BOUND: Duration = Duration::from_secs(1);
 
 /// Sends `signal` to every member of the group process `id` leads, a `SIGKILL` on macOS again
-/// until no member is left; `false` when the group had already ended. Fails with `InvalidInput`
-/// for an id of 0 or past `i32::MAX`, with `TimedOut` naming the members a macOS kill leaves past
-/// its bound, else with the system's error.
+/// until no member is left; `false` when the group had already ended, its members all exited.
+/// Fails with `EPERM` when a refused send leaves members running, for a repeated kill only once
+/// two refused kills list no new member, with `InvalidInput` for an id of 0 or past `i32::MAX`,
+/// with `TimedOut` naming the members a macOS kill leaves past its bound, else with the system's
+/// error.
 pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
     let group = Pid::from_raw(system_process_id(id)?.get());
     // macOS's kill reaches only the members fully made as it lists them, so a child forked
@@ -36,20 +38,36 @@ pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
     let is_repeated = cfg!(target_os = "macos") && signal == Signal::SIGKILL;
     #[cfg(target_os = "macos")]
     let give_up_at = Instant::now() + GROUP_KILL_BOUND;
+    // The live members the last refused kill listed, kept across the kills that reach some.
+    #[cfg(target_os = "macos")]
+    let mut refused_members: Vec<u32> = Vec::new();
     let mut is_signaled = false;
     loop {
         match killpg(group, signal) {
             Ok(()) => is_signaled = true,
             Err(Errno::ESRCH) => return Ok(is_signaled),
             // macOS refuses a group whose members have all exited but are not yet reaped, which
-            // has ended, and one whose running members all refuse this sender, which no repeat
-            // changes.
+            // has ended, and one whose running members all refuse this sender. A kill refused
+            // twice with no new member listed refuses this sender; a new member, a child made
+            // visible since the listing before, is killed again.
             #[cfg(target_os = "macos")]
             Err(Errno::EPERM) => {
-                if live_group_members(id)?.is_empty() {
+                let members = live_group_members(id)?;
+                if members.is_empty() {
                     return Ok(is_signaled);
                 }
-                return Err(io::Error::from(Errno::EPERM));
+                if !is_repeated
+                    || members
+                        .iter()
+                        .all(|member| refused_members.contains(member))
+                {
+                    return Err(io::Error::from(Errno::EPERM));
+                }
+                if Instant::now() >= give_up_at {
+                    return Err(members_left_error(id, &members));
+                }
+                refused_members = members;
+                continue;
             }
             Err(errno) => return Err(io::Error::from(errno)),
         }
@@ -62,12 +80,18 @@ pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
             if members.is_empty() {
                 return Ok(is_signaled);
             }
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                format!("process group {id} keeps members {members:?} after its kill"),
-            ));
+            return Err(members_left_error(id, &members));
         }
     }
+}
+
+// The failure of a kill of group `id` that leaves `members` running past its bound.
+#[cfg(target_os = "macos")]
+fn members_left_error(id: u32, members: &[u32]) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!("process group {id} keeps members {members:?} after its kill"),
+    )
 }
 
 /// The members of group `id` that still run, listed again after [`LISTING_GAP`] when the first
