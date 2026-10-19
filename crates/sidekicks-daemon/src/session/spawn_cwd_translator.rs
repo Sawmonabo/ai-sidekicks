@@ -11,14 +11,13 @@ use sidekicks_terminal::SpawnRequest;
 /// How the worktree path is carried to a start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpawnCwdStrategy {
-    /// For starts that are themselves shells: the platforms crate's folder start for the shell's
-    /// program. The `shell` mode is spawned in the stable folder on macOS and Linux and in the
-    /// system folder on Windows, and starts the shell in the worktree, except PowerShell, WSL and
-    /// `cmd.exe` on a share on Windows, which start in the system folder and are told the worktree
-    /// by their own switch or command; every other shell lets go of the worktree once it leaves.
-    /// A Windows folder start is taken only where the shell's own command line fits the system's
-    /// bound of 32,767 UTF-16 units. Past it the shell starts in the worktree with its arguments
-    /// unchanged.
+    /// For starts that are themselves shells, the platforms crate's folder start: the `shell` mode
+    /// is spawned in the stable folder on macOS and Linux and in the system folder on Windows, and
+    /// starts the shell in the worktree, except PowerShell, WSL and `cmd.exe` on a share on
+    /// Windows, which start in the system folder and are told the worktree by their own switch or
+    /// command. A Windows folder start is taken only where the shell's own command line fits
+    /// 32,767 UTF-16 units with its NUL; past that bound the shell starts in the worktree with its
+    /// arguments unchanged.
     ShellFolder,
     /// Adds a `CWD` entry last, so it wins over an earlier one, and starts the mode and the
     /// program in the stable folder; for agent programs that read `CWD`.
