@@ -16,8 +16,8 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
     CAN_SIGNAL_A_STOP, ChildEnd, LastingChild, LastingCommand, PinnedProcess, ProcessRecord,
-    Spawner, ask_child_to_stop, lasting_child_asked_end, leave_daemon_scope, read_child_exit,
-    spawn_lasting_child, wrap_child_command,
+    Spawner, ask_child_to_stop, connect_unix_domain_socket, lasting_child_asked_end,
+    leave_daemon_scope, read_child_exit, spawn_lasting_child, wrap_child_command,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::process::{ChildStderr, ChildStdout, Command};
@@ -283,19 +283,16 @@ impl LastingCodexService {
 
     /// Stops the service and answers how it ended: on macOS and Linux `SIGTERM`, then `SIGKILL`
     /// once `grace` passes; on Windows first Codex's own shutdown request over the service's
-    /// control socket, which `control_connection` opens, so a running reply finishes, then the
-    /// forced end after `grace`. A failed shutdown request is logged and the stop goes on. Fails
-    /// when the process could not be ended or its blocking stop failed to run.
-    pub(crate) async fn stop<Connection>(
+    /// control socket at `control_socket`, so a running reply finishes, then the forced end after
+    /// `grace`. A failed shutdown request is logged and the stop goes on. Fails when the process
+    /// could not be ended or its blocking stop failed to run.
+    pub(crate) async fn stop(
         &self,
         grace: Duration,
-        control_connection: impl Future<Output = io::Result<Connection>>,
-    ) -> io::Result<ChildEnd>
-    where
-        Connection: AsyncRead + AsyncWrite + Unpin,
-    {
+        control_socket: &Path,
+    ) -> io::Result<ChildEnd> {
         if !CAN_SIGNAL_A_STOP {
-            let requested = match control_connection.await {
+            let requested = match connect_unix_domain_socket(control_socket).await {
                 Ok(connection) => {
                     request_codex_service_shutdown(connection, self.process.id()).await
                 }

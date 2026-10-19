@@ -69,8 +69,7 @@ impl ProviderRegistry {
             drivers: table
                 .iter()
                 .map(|registration| RegisteredDriver {
-                    provider: ProviderId::new(registration.descriptor.id.to_owned())
-                        .expect("a table id matches the provider id pattern"),
+                    provider: registration.descriptor.provider_id(),
                     descriptor: registration.descriptor,
                     driver: (registration.build)(services),
                     capabilities: RwLock::new(None),

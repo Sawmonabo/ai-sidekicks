@@ -321,9 +321,7 @@ mod tests {
         let check = CallerCheck::new(
             Arc::clone(&reader) as Arc<dyn CallerProcessReader>,
             Arc::new(move || terminals.clone()),
-            Arc::new(ProviderServiceProcesses::new(
-                Arc::clone(&reader) as Arc<dyn CallerProcessReader>
-            )),
+            Arc::new(ProviderServiceProcesses::default()),
         );
         let admit = check.admission_check();
 

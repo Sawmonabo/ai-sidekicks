@@ -12,16 +12,25 @@ use crate::provider::driver::{
     ProviderDescriptor, ProviderMemoryEstimates,
 };
 
+mod app_server_protocol;
 mod ask_option_sets;
+mod capabilities;
 mod capability_probe;
 mod delivery;
+mod event_normalizer;
+mod hooks;
 mod input_limit;
 mod intervention;
 mod native_program;
 mod permission_level;
 mod rules;
+mod server_requests;
 mod service;
+mod session;
+mod thread;
 mod tools;
+mod transport;
+mod turn_evidence;
 mod usage_limit_signal;
 mod version;
 

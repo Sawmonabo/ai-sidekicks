@@ -7,9 +7,7 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use interprocess::local_socket::tokio::Stream;
-
-use crate::ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_platforms::{UnixDomainStream, unix_domain_peer_process};
 
 /// Each serving process with the number of connections held to it.
 type HoldCounts = Arc<Mutex<HashMap<u32, usize>>>;
@@ -26,34 +24,27 @@ pub(crate) enum HoldServingError {
 }
 
 /// The processes serving the provider service connections the daemon holds now.
+#[derive(Default)]
 pub(crate) struct ProviderServiceProcesses {
-    /// Reads the process at the other end of a connection.
-    reader: Arc<dyn CallerProcessReader>,
     /// Each serving process with its held connections; an entry goes with its last hold.
     holds: HoldCounts,
 }
 
 impl ProviderServiceProcesses {
-    /// Processes known through `reader`, none held yet.
-    pub(crate) fn new(reader: Arc<dyn CallerProcessReader>) -> Self {
-        Self {
-            reader,
-            holds: Arc::default(),
-        }
-    }
-
     /// Holds the process serving the dialed `stream` until the returned hold drops, handing the
-    /// stream back beside it. An error when the system cannot name the process, the service having
-    /// closed its end included.
+    /// stream back beside it. The system names the process from the socket, a read that can touch
+    /// the process table, so it runs on the blocking pool. An error when the system cannot name
+    /// the process, the service having closed its end included.
     pub(crate) async fn hold_serving(
         &self,
-        stream: Stream,
-    ) -> Result<(Stream, ProviderServiceHold), HoldServingError> {
-        let (stream, read) = self
-            .reader
-            .read_peer_process(stream)
-            .await
-            .map_err(HoldServingError::Read)?;
+        stream: UnixDomainStream,
+    ) -> Result<(UnixDomainStream, ProviderServiceHold), HoldServingError> {
+        let (stream, read) = tokio::task::spawn_blocking(move || {
+            let read = unix_domain_peer_process(&stream);
+            (stream, read)
+        })
+        .await
+        .map_err(|join_error| HoldServingError::Read(io::Error::other(join_error)))?;
         let process_id = read
             .map_err(HoldServingError::Read)?
             .ok_or(HoldServingError::PeerClosed)?

@@ -112,7 +112,6 @@ static SELECT_OPEN_TURNS_SQL: LazyLock<String> =
 
 /// A turn's end its provider's end frame reported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
 pub(crate) struct ProviderTurnEnd {
     /// The turn's number within its run, as its start was numbered.
     pub(crate) turn_number: SafeInt<1>,
@@ -200,7 +199,7 @@ pub(super) struct TurnEnd {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TurnOutcome {
     /// `agent.turn.completed`.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     Completed,
     /// `agent.turn.interrupted`.
     Interrupted(Option<TurnEndCause>),
