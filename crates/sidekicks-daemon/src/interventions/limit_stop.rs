@@ -206,7 +206,7 @@ impl InterventionService {
         } = accepted;
         let run_id = target.target_run_id;
         let dispatch = match self
-            .limit_dispatch(run_id, *limit, *accepted_run_version)
+            .decide_limit_dispatch(run_id, *limit, *accepted_run_version)
             .await
         {
             Ok(dispatch) => dispatch,
@@ -244,7 +244,7 @@ impl InterventionService {
     // the run ended since the accepted version or a person's end discharged a step limit and the
     // run's continue counts afresh, the continued run's own stop when a token or spend limit's run
     // ended and continued since, else the cut of the run at the accepted version.
-    async fn limit_dispatch(
+    async fn decide_limit_dispatch(
         &self,
         run_id: RunId,
         limit: RunLimit,
