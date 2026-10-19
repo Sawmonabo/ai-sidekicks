@@ -313,13 +313,19 @@ async fn a_stop_its_caller_drops_mid_hand_keeps_the_cut_its_row_names(#[case] is
     release
         .send(false)
         .expect("the stop's hand outlives its caller");
+    // The asserts below hold on either runtime flavor once this wait ends: the cut has been held
+    // since the stop put it in and keeping it leaves it there, the row is written before the hand
+    // returns, and no step hand is in flight once the step stop's hand has returned, while a
+    // spend stop's hand never enters that set.
     tokio::time::timeout(SETTLE_WAIT, async {
-        while limit_rows(&database, &run_id).is_empty() {
+        while limit_rows(&database, &run_id).is_empty()
+            || (is_step && !lock(&engine.live).step_interrupts_in_flight.is_empty())
+        {
             tokio::task::yield_now().await;
         }
     })
     .await
-    .expect("the stop's hand records its row");
+    .expect("the stop's hand records its row and returns");
 
     assert_eq!(
         limit_rows(&database, &run_id),
