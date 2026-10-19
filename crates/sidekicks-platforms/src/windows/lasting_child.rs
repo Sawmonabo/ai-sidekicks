@@ -75,11 +75,8 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     let mut working_folder = wide_text(command.working_folder.as_os_str())?;
     working_folder.push(0);
 
-    let jobs = [job.as_raw_handle()];
-    let inherited = [
-        standard_stream.as_raw_handle(),
-        error_output.as_raw_handle(),
-    ];
+    let jobs = [job.as_handle()];
+    let inherited = [standard_stream.as_handle(), error_output.as_handle()];
     let mut attributes = AttributeList::new(2)?;
     attributes.update(PROC_THREAD_ATTRIBUTE_JOB_LIST, &jobs)?;
     attributes.update(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &inherited)?;
@@ -119,6 +116,8 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
             &raw mut information,
         )
     };
+    // Deleted here, since `job`, whose handle it borrows, moves into the pinned process below.
+    drop(attributes);
     if created == FALSE {
         return Err(io::Error::last_os_error());
     }
@@ -338,13 +337,13 @@ fn duplicate_inheritable(handle: BorrowedHandle<'_>) -> io::Result<OwnedHandle> 
     Ok(unsafe { OwnedHandle::from_raw_handle(duplicate) })
 }
 
-/// A process start's attribute list, deleted on drop; the handle arrays it points at live for
-/// `'handles`, which outlasts the list.
+/// A process start's attribute list, deleted on drop; the arrays of borrowed handles it points at,
+/// and the handles' owners, live for `'handles`, which outlasts the list.
 struct AttributeList<'handles> {
     list: LPPROC_THREAD_ATTRIBUTE_LIST,
     // The list's storage, in eight-byte words for its alignment.
     _storage: Vec<u64>,
-    handles: PhantomData<&'handles [HANDLE]>,
+    handles: PhantomData<&'handles [BorrowedHandle<'handles>]>,
 }
 
 impl<'handles> AttributeList<'handles> {
@@ -367,9 +366,15 @@ impl<'handles> AttributeList<'handles> {
         })
     }
 
-    // Sets `attribute` to `handles`, which the lifetime keeps alive until the list is deleted.
-    fn update(&mut self, attribute: u32, handles: &'handles [HANDLE]) -> io::Result<()> {
-        // SAFETY: the list is initialized, and `handles` is a live array of the size given.
+    // Sets `attribute` to the borrowed `handles`, which the lifetime keeps open until the list is
+    // deleted.
+    fn update(
+        &mut self,
+        attribute: u32,
+        handles: &'handles [BorrowedHandle<'handles>],
+    ) -> io::Result<()> {
+        // SAFETY: the list is initialized, and `handles` is a live array of the size given, laid
+        // out as the `HANDLE` array the call reads, since `BorrowedHandle` is one `HANDLE`.
         if unsafe {
             UpdateProcThreadAttribute(
                 self.list,
