@@ -19,13 +19,14 @@ Seven areas keep their tables in files of their own, beside this one:
 ## Pragmas
 
 ```sql
+PRAGMA busy_timeout = 5000;     -- first, so a second daemon opening the same fresh file waits out the first one's switch to WAL rather than failing busy
 PRAGMA journal_mode = WAL;      -- concurrent readers during writes
 PRAGMA synchronous = FULL;      -- set explicitly, for durability (see Spec-013 §Pragmas)
 PRAGMA checkpoint_fullfsync = ON; -- on macOS a checkpoint syncs with the drive's full flush (F_FULLFSYNC), so a power cut cannot damage the file; no effect elsewhere
 PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
 PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so a deleted session leaves no readable freed page
 PRAGMA cache_size = -2000;      -- on every connection, read-only ones included: SQLite's own 2,000 KiB page cache
+PRAGMA cell_size_check = ON;    -- on every connection: each b-tree page is checked as it is first read from disk, so a damaged page fails the read that meets it rather than spreading
 PRAGMA trusted_schema = OFF;    -- on every connection: the schema calls only SQLite's own built-in functions
 PRAGMA optimize = 0x10002;      -- on the writer, once at open after the schema step; the daily PRAGMA optimize is a scheduler job
 ```
@@ -65,6 +66,8 @@ CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type = 'session.damagedEvents.skipped';
 -- One run's events of one type in log order, for the reads that seed a run's turns and that find a live run's agent and newest touch.
 CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence) WHERE run_id IS NOT NULL;
+-- One run's events that name an actor, in log order, for the read that finds who acts for a run.
+CREATE INDEX idx_session_events_run_actor ON session_events(session_id, run_id, sequence) WHERE run_id IS NOT NULL AND actor IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version) WHERE category = 'runLifecycle' AND type IN ('agent.run.completed', 'agent.run.failed', 'agent.run.interrupted', 'agent.run.stopped');
 -- Every started turn gets exactly one end (Spec-005 §Run Lifecycle).
@@ -94,11 +97,20 @@ WHEN NOT (OLD.category = 'runLifecycle' AND OLD.type IN ('agent.run.completed', 
 BEGIN
   SELECT RAISE(ABORT, 'session_events rows cannot be promoted to terminal runLifecycle by UPDATE — terminal rows are INSERT-only');
 END;
+
+-- A turn end's NULL run_id or turn_number would pass idx_session_events_turn_end_once, so the insert is refused.
+CREATE TRIGGER trg_turn_end_key_insert BEFORE INSERT ON session_events
+WHEN NEW.category = 'runLifecycle'
+  AND NEW.type IN ('agent.turn.completed', 'agent.turn.interrupted', 'agent.turn.failed')
+  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'a turn end row requires a run_id and a turn_number');
+END;
 ```
 
 **Terminal-exactly-once backstop.** The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-004): a duplicate terminal `runLifecycle` row for the same `(run_id, run_version)` epoch fails loud with a `UNIQUE` violation; rows with a NULL `run_id` or `run_version` bypass it (SQLite NULL-distinctness), so the Plan-002 terminal emitter enforces the non-null-key precondition this index backstops. The run keys are real columns the append writes from the typed event, so the index, the triggers and the run reads (`idx_session_events_run`) read columns and no write parses its payload for them, and `STRICT` typing holds `run_id` to text and `run_version` to an integer, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle). The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'runLifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint) and [STRICT tables](https://www.sqlite.org/stricttables.html). Beside it the schema carries the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `runLifecycle` writes whose `run_id` or `run_version` is NULL. The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF run_id, run_version, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — an UPDATE rewriting `(R,7)` to another non-null pair would otherwise free the index entry for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape). The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-004 schema work).
 
-**Turn-end once backstop.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle)).
+**Turn-end once backstop.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A row with a NULL `run_id` or `turn_number` would pass the index, as a NULL run key would pass the terminal one, so `trg_turn_end_key_insert` refuses a turn-end insert missing either. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle)).
 
 **Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the agent message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with zstd at level 3 before it is written, and the encoding is recorded in the payload as `contentEncoding`, so every reader decodes it through the daemon's one codec (`crates/sidekicks-daemon/src/events/content/codec.rs`); a smaller body is stored as its UTF-8 bytes.
 
@@ -130,7 +142,7 @@ CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_o
 
 ## Session Directory (Plan-001)
 
-The daemon keeps one row per session it hosts in `sessions`, the directory that `session.subscribe` and `session.read` answer from. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) owns the row; some of its columns are fixed here because other services read them:
+The daemon keeps one row per session it hosts in `sessions`, the directory that `session.subscribe` and `session.read` answer from. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) owns the row, and the `CREATE TABLE sessions` block below declares every column. Other services read these of them:
 
 - `shape TEXT NOT NULL CHECK (shape IN ('chat', 'project'))` — whether the session is a chat, bound to its own managed workspace, or a session in an attached project. It is set when the session is created and changes only when a chat is converted to a project. The sessions list groups by it, and it reaches clients as `shape` on `session.read` and `session.subscribe`.
 - `place TEXT` — where the session runs, the place's wire JSON (`"windows"` or `{"distro":"Ubuntu"}`) on a Windows computer, NULL on macOS and Linux, as `projects.place` and `repo_mounts.place` are stored ([Workspace and Git Tables](local-sqlite-workspace-and-git-tables.md)). Written from `session.created` and never changed, so a rebuild restores it from that event; it reaches clients as `place` on `session.read`, on `session.create`'s answer and on `session.created`.
@@ -155,7 +167,35 @@ CREATE TABLE session_groups (
 -- agent definition names follow.
 CREATE UNIQUE INDEX idx_session_groups_name_folded ON session_groups(project_id, name_folded);
 
+CREATE TABLE sessions (
+  id                         TEXT NOT NULL PRIMARY KEY,
+  shape                      TEXT NOT NULL CHECK (shape IN ('chat', 'project')),
+  state                      TEXT NOT NULL
+                             CHECK (state IN ('provisioning', 'active', 'archived', 'closed', 'purgeRequested')),
+  name                       TEXT,                  -- NULL while unnamed
+  first_message_preview      TEXT,                  -- the first user message's opening, cut to the session name's bound
+  branch                     TEXT,
+  pinned_at                  TEXT,                  -- NULL while not pinned; pinned rows sort by it
+  muted_at                   TEXT,                  -- NULL while not muted
+  scratch_for_definition_id  TEXT,                  -- the agent definition a scratch session tries
+  parent_session_id          TEXT,                  -- the session a fork was taken from
+  place                      TEXT,
+  -- How the session's most recent run to end its working time left it. The session reads waiting
+  -- while any of its runs waits, else running while any works, else this.
+  last_run_outcome           TEXT NOT NULL DEFAULT 'idle'
+                             CHECK (last_run_outcome IN ('done', 'failed', 'idle')),
+  created_at                 TEXT NOT NULL,         -- RFC 3339 UTC, ms precision
+  updated_at                 TEXT NOT NULL,
+  last_activity_at           TEXT NOT NULL,
+  group_id                   TEXT REFERENCES session_groups(id),
+  pending_working_folder     TEXT,
+  permission_level           TEXT NOT NULL DEFAULT 'yolo'
+                             CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))
+) STRICT;
+
 CREATE INDEX idx_sessions_group ON sessions(group_id);
+-- The list's shape grouping and the chats count.
+CREATE INDEX idx_sessions_shape_state ON sessions(shape, state);
 
 -- One row per pair of sessions and kind. The daemon writes or bumps a row when the event that makes it
 -- is recorded, never by a rescan. Rows name sessions by id, so a rename changes none. Only a 'related'
@@ -250,12 +290,20 @@ A conversion records each file as its copy lands without waiting for that record
 
 ## Session Console State (Plan-001)
 
-The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices; the draft's and the staged files' columns are defined with the verbs that write them: `session.draft.update` and `session.attachment.add` / `session.attachment.remove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The first block below holds the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor. The second holds the review notes, which `session.reviewNote.add` / `session.reviewNote.update` / `session.reviewNote.delete` write ([Gitflow Payload Contracts](../contracts/gitflow-payloads.md)).
+The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices. The staged files' columns are defined with the verbs that write them, `session.attachment.add` / `session.attachment.remove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The first block below holds the draft, which `session.draft.update` writes, and the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor. The second holds the review notes, which `session.reviewNote.add` / `session.reviewNote.update` / `session.reviewNote.delete` write ([Gitflow Payload Contracts](../contracts/gitflow-payloads.md)).
 
 It is **configuration, not session history**: it is not events-canonical and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
 
 ```sql
 -- Owner: Plan-001
+-- One row per session, so a half-typed message survives a restart and reaches the person's other
+-- devices. An empty draft is no row: Send deletes it.
+CREATE TABLE session_drafts (
+  session_id  TEXT PRIMARY KEY,
+  text        TEXT NOT NULL,
+  updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
+) STRICT;
+
 CREATE TABLE session_console_state (
   session_id          TEXT NOT NULL PRIMARY KEY,  -- one row per session: written at `session.create` for a Claude Code session (its advisor), and for any other session on the first press that needs it
   max_steps_per_turn  INTEGER
@@ -311,6 +359,8 @@ CREATE TABLE runs (
   reached_by     TEXT                           -- how a child run was reached; NULL on a lead run
                  CHECK(reached_by IS NULL
                    OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
+  is_apart       INTEGER NOT NULL DEFAULT 0     -- 1 on a run whose turn runs in a process of its own; such a run is never the lead run
+                 CHECK(is_apart IN (0, 1)),
   state          TEXT NOT NULL
     CHECK(state IN ('queued', 'starting', 'running', 'waitingForApproval', 'waitingForInput',
                     'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
@@ -502,8 +552,9 @@ CREATE TABLE driver_capabilities (
                       'callbackTools', 'subagents', 'contextCompaction',
                       'providerCommands', 'outputSpeed'
                     )),
-  supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
-                    -- The CHECK above lists every flag the capability union declares. Every provider_name holds one
+  supported         INTEGER NOT NULL DEFAULT 0
+                    CHECK(supported IN (0, 1)),
+                    -- The capability_flag CHECK lists every flag the capability union declares. Every provider_name holds one
                     -- row per flag, supported=0 where the driver does not declare it (undeclared = unsupported,
                     -- I-003-2), because the hydrator's exact-cardinality guard refuses a cache whose row count
                     -- differs from the union's. This CHECK lists every flag in the union.
@@ -604,6 +655,8 @@ CREATE TABLE artifact_manifests (
   artifact_type      TEXT NOT NULL
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design',
                                              'workflowOutput')),
+  state              TEXT NOT NULL DEFAULT 'pending'
+                     CHECK(state IN ('pending', 'published', 'superseded')),
   content_hash       TEXT NOT NULL,                -- the payload's SHA-256, 'sha256:<hex>'
   size_bytes         INTEGER NOT NULL,             -- the payload's length, measured by the daemon
   metadata           TEXT NOT NULL DEFAULT '{}',   -- JSON: the file name and the media type

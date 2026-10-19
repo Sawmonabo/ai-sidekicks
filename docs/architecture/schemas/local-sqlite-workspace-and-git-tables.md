@@ -29,7 +29,7 @@ CREATE TABLE projects (
   CHECK ((clone_staging_folder IS NULL) = (clone_staging_identity IS NULL)),
   CHECK (state = 'cloning' OR clone_staging_folder IS NULL),
   CHECK ((clone_outcome IS 'failed') = (clone_failure IS NOT NULL))
-);
+) STRICT;
 
 -- Owner: Plan-006
 CREATE TABLE repo_mounts (
@@ -38,6 +38,8 @@ CREATE TABLE repo_mounts (
   local_path          TEXT NOT NULL,          -- user-entered attach path (provenance)
   canonical_root      TEXT NOT NULL,          -- resolver output: absolute, symlink-resolved (envelope/dedupe key)
   place               TEXT,                   -- where the root is, fixed at attach, stored as projects.place stores it; both paths are in its form
+  vcs_type            TEXT NOT NULL DEFAULT 'git'
+                      CHECK(vcs_type IN ('git')),
   origin              TEXT NOT NULL DEFAULT 'attached'
                       CHECK(origin IN ('attached', 'managed')),
                                               -- 'attached' = a project's folder the person attached or cloned; 'managed' = a chat's
@@ -57,7 +59,7 @@ CREATE TABLE repo_mounts (
   CHECK ((origin = 'managed') = (managed_session_id IS NOT NULL)),
   CHECK (origin = 'attached' OR project_id IS NULL),
   CHECK (origin = 'managed' OR state <> 'attached' OR project_id IS NOT NULL)
-);
+) STRICT;
 
 -- Active-mount uniqueness binds the CANONICAL root per owning machine and place (Plan-006 D-006-7):
 -- two entered aliases resolving to one root in one place are one mount, whichever session asked,
@@ -87,7 +89,7 @@ CREATE TABLE workspaces (
   metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-007); boundRoot: admitted bind origin — the `boundRoot` mode's execution-root carrier, never cleared by a new preparation (Spec-007/Spec-008); checkoutRoot: the top level of the working tree boundRoot sits in, rewritten by every completed preparation, which a run's checkout_root and a worktree's occupancy read
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
-);
+) STRICT;
 
 CREATE INDEX idx_workspaces_session ON workspaces(session_id);
 CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
@@ -112,7 +114,7 @@ CREATE TABLE worktrees (
   retired_risk_digest   TEXT,                       -- digest of what the risk read showed when the daemon retired a tree it made and could not hand over; NULL for any other retirement, whose removal showed nothing to lose. The sweep deletes the folder only while a read shows nothing to lose or this same digest, and keeps any other tree aside as a kept copy
   cleanup_started_at    TEXT,                       -- set once the sweep has decided to delete the folder, before git's record of it goes, so a pass after a crash finishes the removal without reading a tree git no longer knows
   cleaned_at            TEXT                        -- async disk-cleanup stamp (retire records state; the sweep stamps the folder gone, kept aside or left on disk)
-);
+) STRICT;
 
 CREATE INDEX idx_worktrees_repo ON worktrees(repo_mount_id);
 -- At most one live checkout per (mount, branch): mirrors git's own constraint — a checkout existing
@@ -161,7 +163,7 @@ CREATE TABLE removed_worktrees (
   CHECK ((restoring_to IS NULL) = (restoring_record IS NULL)),
   CHECK ((restoring_branch IS NULL) = (restoring_branch_commit IS NULL)),
   CHECK (restoring_to IS NOT NULL OR restoring_branch IS NULL)
-);
+) STRICT;
 
 CREATE INDEX idx_removed_worktrees_project ON removed_worktrees(project_id);
 
@@ -177,7 +179,7 @@ CREATE TABLE branch_contexts (
   upstream_ref       TEXT,
   created_at         TEXT NOT NULL,
   updated_at         TEXT NOT NULL
-);
+) STRICT;
 
 CREATE INDEX idx_branch_contexts_workspace ON branch_contexts(workspace_id);
 CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(worktree_id, workspace_id) WHERE worktree_id IS NOT NULL;  -- one binding row per (workspace, worktree) — D-007-15 upsert; the worktree-keyed BranchContextRead resolves on the pair
@@ -211,7 +213,7 @@ CREATE TABLE run_execution_contexts (
     OR (execution_mode = 'provisionedWorktree'
         AND worktree_id IS NOT NULL AND branch_context_id IS NOT NULL)
   )
-);
+) STRICT;
 
 CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
 ```
