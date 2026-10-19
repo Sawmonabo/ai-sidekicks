@@ -164,8 +164,13 @@ async fn run_capture(
             ));
         }
     };
+    let Some(program_text) = program.to_str() else {
+        return CaptureOutcome::Failed(
+            "was not run, since the daemon's own program's path is not Unicode".to_owned(),
+        );
+    };
     let markers = CaptureMarkers::new(&token);
-    let launch = capture_launch(shell, &program.to_string_lossy(), &token);
+    let launch = capture_launch(shell, program_text, &token);
     let mut command = Command::new(shell);
     if launch.is_named_as_login {
         name_as_login_shell(&mut command, shell);
@@ -385,8 +390,9 @@ async fn read_capture(
     }
 }
 
-// The pairs `env -0` printed between the marker lines, or `None` until both have arrived. Entries
-// end in NUL, so a value may hold newlines; a name the capture leaves out is dropped.
+// The pairs the `environment` mode printed between the marker lines, or `None` until both have
+// arrived. Entries end in NUL, so a value may hold newlines; a name the capture leaves out is
+// dropped.
 fn read_between_markers(text: &[u8], markers: &CaptureMarkers) -> Option<Vec<(String, String)>> {
     let begin = format!("{}\n", markers.begin_line);
     let body_start = find(text, begin.as_bytes())? + begin.len();
