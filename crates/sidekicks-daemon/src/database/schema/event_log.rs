@@ -202,3 +202,127 @@ CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_o
 "
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use rusqlite::{Connection, ffi};
+    use sidekicks_contracts::event::envelope::EventCategory;
+    use sidekicks_contracts::transcript::run_facts::RunStateEventType;
+    use sidekicks_contracts::transcript::turn_attribution::{
+        TURN_END_EVENT_TYPES, TURN_STARTED_EVENT_TYPE,
+    };
+
+    use super::event_log_schema_sql;
+    use crate::database::schema::SESSION_EVENTS_TABLE;
+
+    // A unique index whose key the triggers hold, by the event type it covers and the key column
+    // beside `run_id`.
+    #[derive(Clone, Copy, Debug)]
+    enum KeyedIndex {
+        RunTerminal,
+        TurnStart,
+        TurnEnd,
+    }
+
+    impl KeyedIndex {
+        fn event_type(self) -> &'static str {
+            match self {
+                Self::RunTerminal => RunStateEventType::Completed.session_event_type().as_str(),
+                Self::TurnStart => TURN_STARTED_EVENT_TYPE,
+                Self::TurnEnd => TURN_END_EVENT_TYPES[0],
+            }
+        }
+
+        fn key_column(self) -> &'static str {
+            match self {
+                Self::RunTerminal => "run_version",
+                Self::TurnStart | Self::TurnEnd => "turn_number",
+            }
+        }
+    }
+
+    // A write against a log holding one keyed row of the index (`keyed`) and one run row outside
+    // it with no key (`unkeyed`).
+    #[derive(Clone, Copy, Debug)]
+    enum Write {
+        InsertWithNullKey,
+        UpdateNullingKey,
+        UpdateRekeying,
+        PromoteAnotherRow,
+        InsertWithKey,
+    }
+
+    fn insert_sql(index: KeyedIndex, id: &str, sequence: u32, key: &str) -> String {
+        format!(
+            "INSERT INTO {SESSION_EVENTS_TABLE}
+               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, run_id,
+                {column})
+             VALUES ('{id}', 'session-1', {sequence}, '2026-01-01T00:00:00.000Z', {sequence},
+               '{category}', '{event_type}', 'run-1', {key})",
+            column = index.key_column(),
+            category = EventCategory::RunLifecycle.as_str(),
+            event_type = index.event_type(),
+        )
+    }
+
+    fn write_sql(index: KeyedIndex, write: Write) -> String {
+        let column = index.key_column();
+        match write {
+            Write::InsertWithNullKey => insert_sql(index, "added", 3, "NULL"),
+            Write::UpdateNullingKey => {
+                format!("UPDATE {SESSION_EVENTS_TABLE} SET {column} = NULL WHERE id = 'keyed'")
+            }
+            Write::UpdateRekeying => {
+                format!("UPDATE {SESSION_EVENTS_TABLE} SET {column} = 2 WHERE id = 'keyed'")
+            }
+            Write::PromoteAnotherRow => format!(
+                "UPDATE {SESSION_EVENTS_TABLE} SET type = '{}' WHERE id = 'unkeyed'",
+                index.event_type()
+            ),
+            Write::InsertWithKey => insert_sql(index, "added", 3, "2"),
+        }
+    }
+
+    // Each refused write slips past the unique index without its trigger: a NULL key is distinct
+    // from every other, and a re-key or promote leaves no duplicate. So the refusal must be the
+    // trigger's own.
+    #[rstest]
+    #[case::insert_with_a_null_key(Write::InsertWithNullKey, false)]
+    #[case::update_nulling_a_committed_key(Write::UpdateNullingKey, false)]
+    #[case::update_rekeying_a_committed_row(Write::UpdateRekeying, false)]
+    #[case::promote_of_another_row(Write::PromoteAnotherRow, false)]
+    #[case::insert_with_its_key(Write::InsertWithKey, true)]
+    fn the_key_triggers_hold_each_unique_index_to_its_key(
+        #[values(KeyedIndex::RunTerminal, KeyedIndex::TurnStart, KeyedIndex::TurnEnd)]
+        index: KeyedIndex,
+        #[case] write: Write,
+        #[case] is_admitted: bool,
+    ) {
+        let connection = Connection::open_in_memory().expect("an in-memory database opens");
+        connection
+            .execute_batch(&event_log_schema_sql())
+            .expect("the event log's schema runs");
+        connection
+            .execute_batch(&insert_sql(index, "keyed", 1, "1"))
+            .expect("a keyed row is admitted");
+        connection
+            .execute_batch(&format!(
+                "INSERT INTO {SESSION_EVENTS_TABLE}
+                   (id, session_id, sequence, occurred_at, monotonic_ns, category, type)
+                 VALUES ('unkeyed', 'session-1', 2, '2026-01-01T00:00:00.000Z', 2, '{}', '{}')",
+                EventCategory::RunLifecycle.as_str(),
+                RunStateEventType::Queued.session_event_type().as_str(),
+            ))
+            .expect("a run row outside the index is admitted");
+        // `None` is any failure other than a trigger's refusal, such as a unique index's.
+        let outcome = match connection.execute_batch(&write_sql(index, write)) {
+            Ok(()) => Some(true),
+            Err(error) => error
+                .sqlite_error()
+                .is_some_and(|failure| failure.extended_code == ffi::SQLITE_CONSTRAINT_TRIGGER)
+                .then_some(false),
+        };
+        assert_eq!(outcome, Some(is_admitted));
+    }
+}
