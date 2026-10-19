@@ -91,11 +91,14 @@ async fn a_worktree_is_removable_while_its_shell_is_open() {
 // still open; fails naming the shell and what went wrong.
 async fn open_and_remove_worktree(probe: &ShellFolderProbe) -> Result<(), String> {
     let program = probe.program;
-    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let scratch = tempfile::tempdir()
+        .map_err(|error| format!("{program}'s scratch folder is not made: {error:?}"))?;
     // The shell's prompt shows the folder with its links resolved.
-    let scratch_folder = real_path(scratch.path()).expect("the scratch folder resolves");
+    let scratch_folder = real_path(scratch.path())
+        .map_err(|error| format!("{program}'s scratch folder does not resolve: {error:?}"))?;
     let worktree = scratch_folder.join(probe.folder_name);
-    std::fs::create_dir(&worktree).expect("the worktree is made");
+    std::fs::create_dir(&worktree)
+        .map_err(|error| format!("{program}'s worktree is not made: {error:?}"))?;
     let environment = std::env::vars()
         .filter(|(name, _)| !probe.environment.iter().any(|(probed, _)| probed == name))
         .chain(
@@ -124,9 +127,11 @@ async fn open_and_remove_worktree(probe: &ShellFolderProbe) -> Result<(), String
         },
     };
     let request = translate_spawn_cwd(request, SpawnCwdStrategy::ShellFolder, &scratch_folder)
-        .expect("the stable folder is set and the worktree path is text");
+        .map_err(|error| format!("{program}'s start is not translated: {error:?}"))?;
+    let spawner = Spawner::new(Handle::current())
+        .map_err(|error| format!("the spawner for {program} does not start: {error:?}"))?;
     let terminals = Terminals::new(
-        Spawner::new(Handle::current()).expect("the spawner starts"),
+        spawner,
         CommandLine {
             program: "console-helper".to_owned(),
             arguments: Vec::new(),
