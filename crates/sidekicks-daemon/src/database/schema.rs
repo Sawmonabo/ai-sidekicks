@@ -26,7 +26,7 @@ pub(crate) const SESSION_EVENTS_TABLE: &str = "session_events";
 
 /// Every table, index and trigger of the daemon's database, in foreign-key order; the search
 /// index's triggers follow the tables they watch.
-pub(crate) static DAEMON_SCHEMA_SQL: LazyLock<String> = LazyLock::new(|| {
+pub static DAEMON_SCHEMA_SQL: LazyLock<String> = LazyLock::new(|| {
     [
         event_log::event_log_schema_sql().as_str(),
         session_directory::session_directory_schema_sql().as_str(),
@@ -47,7 +47,7 @@ pub(crate) static DAEMON_SCHEMA_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// The schema's fingerprint, the first 31 bits of the BLAKE3 hash of [`DAEMON_SCHEMA_SQL`]: written
 /// into the file's `user_version` with the schema, so an open can tell a file another build made.
-pub(crate) static DAEMON_SCHEMA_FINGERPRINT: LazyLock<i32> = LazyLock::new(|| {
+pub static DAEMON_SCHEMA_FINGERPRINT: LazyLock<i32> = LazyLock::new(|| {
     let hash = blake3::hash(DAEMON_SCHEMA_SQL.as_bytes());
     let [first, second, third, fourth, ..] = *hash.as_bytes();
     let bits = u32::from_be_bytes([first, second, third, fourth]) >> 1;

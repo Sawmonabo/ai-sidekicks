@@ -348,9 +348,9 @@ async fn write_record(folder: &Path, record: &AsideCopyRecord) -> Result<(), Asi
         .map_err(AsideCopyError::RecordWrite)
 }
 
-// The database file's name, which the daemon gives in UTF-8. Fails with `InvalidInput` when the
-// path has no name or one that is not UTF-8.
-fn database_file_name(database_path: &Path) -> io::Result<&str> {
+/// The name of the database file, or a copy beside it, which the daemon gives in UTF-8. Fails with
+/// `InvalidInput` when the path has no name or one that is not UTF-8.
+pub(crate) fn database_file_name(database_path: &Path) -> io::Result<&str> {
     database_path
         .file_name()
         .and_then(OsStr::to_str)

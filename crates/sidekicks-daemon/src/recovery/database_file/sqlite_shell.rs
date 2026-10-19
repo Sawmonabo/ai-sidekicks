@@ -173,15 +173,18 @@ pub(crate) enum DamagedFileCountError {
     Answer(String),
 }
 
-/// How a script runs in the shell: what it is for and its output's form.
+/// How a script runs in the shell: what it is for, its output's form and the folder it runs in.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct SqliteShellScript {
+pub(crate) struct SqliteShellScript<'a> {
     /// What the script does, as the failure's message names it: `checking the fresh file`.
     pub(crate) step: &'static str,
     /// Opens the file read-only.
     pub(crate) is_read_only: bool,
     /// Writes every row as JSON rather than SQLite's list form.
     pub(crate) is_json: bool,
+    /// The shell's working folder, which a relative file name the script attaches is read
+    /// against; the daemon's own when `None`.
+    pub(crate) working_folder: Option<&'a Path>,
 }
 
 // Why the pump between the shells ended early.
@@ -198,9 +201,20 @@ pub struct SqliteShell {
 
 impl SqliteShell {
     /// A shell run as `program`, the daemon's own, in the `database shell` mode, started on
-    /// `spawner`'s thread.
+    /// `spawner`'s thread. `program` is absolute, so a script run in another working folder still
+    /// finds it.
     pub fn new(program: PathBuf, spawner: Spawner) -> Self {
         Self { program, spawner }
+    }
+
+    /// A shell run as the daemon's own running program, by its absolute path, started on
+    /// `spawner`'s thread. Fails when the system cannot name the running program.
+    #[expect(
+        dead_code,
+        reason = "the daemon's start, which builds the shell its repair runs in"
+    )]
+    pub(crate) fn of_running_program(spawner: Spawner) -> io::Result<Self> {
+        Ok(Self::new(std::env::current_exe()?, spawner))
     }
 
     /// Checks that the shell runs and has the page table its recovery reads through. Fails with
@@ -213,6 +227,7 @@ impl SqliteShell {
             .run(
                 CHECKING_STEP,
                 [OsStr::new(":memory:"), OsStr::new(PAGE_TABLE_OPTION_SQL)],
+                None,
                 None,
                 stop,
             )
@@ -354,6 +369,7 @@ impl SqliteShell {
                     OsStr::new(&count_sql),
                 ],
                 None,
+                None,
                 stop,
             )
             .await?;
@@ -368,14 +384,13 @@ impl SqliteShell {
 
     /// Runs `script` in the shell on the database at `database_path`, stopping at its first error,
     /// and answers what it wrote, whole, once it has exited, so a script's output must stay small.
-    /// Fails naming the script's step and the
-    /// shell's error output when the shell cannot start or fails, and once `stop` fires, when the
-    /// shell has exited.
+    /// Fails naming the script's step and the shell's error output when the shell cannot start or
+    /// fails, and once `stop` fires, when the shell has exited.
     pub(crate) async fn run_script(
         &self,
         database_path: &Path,
         script: &str,
-        options: SqliteShellScript,
+        options: SqliteShellScript<'_>,
         stop: &CancellationToken,
     ) -> Result<String, SqliteShellRunError> {
         let mut arguments = vec![OsStr::new("-bail")];
@@ -387,7 +402,13 @@ impl SqliteShell {
         }
         arguments.push(database_path.as_os_str());
         let output = self
-            .run(options.step, arguments, Some(script.as_bytes()), stop)
+            .run(
+                options.step,
+                arguments,
+                Some(script.as_bytes()),
+                options.working_folder,
+                stop,
+            )
             .await?;
         Ok(String::from_utf8_lossy(&output).into_owned())
     }
@@ -410,16 +431,20 @@ impl SqliteShell {
             .map_err(|source| SqliteShellRunError::Start { step, source })
     }
 
-    // Runs the shell with `arguments`, writing `input` to it, and answers its whole output once it
-    // has exited.
+    // Runs the shell with `arguments` in `working_folder`, the daemon's own when `None`, writing
+    // `input` to it, and answers its whole output once it has exited.
     async fn run<'a>(
         &self,
         step: &'static str,
         arguments: impl IntoIterator<Item = &'a OsStr>,
         input: Option<&[u8]>,
+        working_folder: Option<&Path>,
         stop: &CancellationToken,
     ) -> Result<Vec<u8>, SqliteShellRunError> {
         let mut command = self.command(arguments);
+        if let Some(working_folder) = working_folder {
+            command.current_dir(working_folder);
+        }
         command
             .stdin(if input.is_some() {
                 Stdio::piped()

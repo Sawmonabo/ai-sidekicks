@@ -1,11 +1,14 @@
-//! The database file's copies aside and its repair, each run through the daemon's own program in
-//! its `database copy` and `database shell` modes.
+//! The database file's copies aside, its repair and the readying of its fresh file, each run
+//! through the daemon's own program in its `database copy` and `database shell` modes.
 
 use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use rstest::rstest;
 use rusqlite::Connection;
+use rusqlite::config::DbConfig;
+use sidekicks_daemon::database::schema::{DAEMON_SCHEMA_FINGERPRINT, DAEMON_SCHEMA_SQL};
 use sidekicks_daemon::recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
 };
@@ -13,6 +16,9 @@ use sidekicks_daemon::recovery::database_file::check::{
     DatabaseFileCheck, DatabaseFileCheckAnswer,
 };
 use sidekicks_daemon::recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
+use sidekicks_daemon::recovery::database_file::fresh_file::{
+    FreshFileError, FreshFilePreparation, prepare_fresh_file,
+};
 use sidekicks_daemon::recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_platforms::{Spawner, physical_memory};
 use tokio::runtime::Handle;
@@ -267,4 +273,279 @@ async fn a_damaged_file_is_found_and_recovered_through_the_shell_mode() {
     assert!(events > 0 && events < WRITTEN_EVENTS, "{events}");
     assert_eq!(marks, WRITTEN_EVENTS);
     assert_eq!(raw_value.as_bytes(), RAW_VALUE.as_bytes());
+}
+
+// A database file with this build's whole schema and its fingerprint, as the daemon creates one.
+fn schema_file(path: &Path) -> Connection {
+    let connection = Connection::open(path).expect("the database opens");
+    connection
+        .execute_batch(&DAEMON_SCHEMA_SQL)
+        .expect("the schema is made");
+    connection
+        .pragma_update(None, "user_version", *DAEMON_SCHEMA_FINGERPRINT)
+        .expect("the fingerprint is written");
+    connection
+}
+
+// Writes `count` events of `session_id` from sequence 0, each in run `run-1` at its own run version
+// and turn, as the append stores them.
+fn write_events(connection: &Connection, session_id: &str, count: i64) {
+    for sequence in 0..count {
+        connection
+            .execute(
+                "INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
+                   category, type, payload, run_id, run_version, turn_number)
+                 VALUES (?1, ?2, ?3, '2026-10-19T09:00:00.000Z', ?3, 'session', 'session.pinned',
+                   '{}', 'run-1', ?3, ?3)",
+                (format!("{session_id}-{sequence}"), session_id, sequence),
+            )
+            .expect("the event is written");
+    }
+}
+
+fn session_events(connection: &Connection, session_id: &str) -> Vec<(i64, String, i64, i64)> {
+    let mut statement = connection
+        .prepare(
+            "SELECT sequence, run_id, run_version, turn_number FROM session_events
+              WHERE session_id = ? ORDER BY sequence",
+        )
+        .expect("the read prepares");
+    statement
+        .query_map([session_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("the events read")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("every event reads")
+}
+
+// The newest backup's copy beside the fresh file: this build's, another build's, or no database.
+#[derive(Clone, Copy, Debug)]
+enum BackupCopy {
+    ThisBuild,
+    AnotherBuild,
+    Unreadable,
+}
+
+// A session the backup holds more readable events of takes its events with their run columns, its
+// snapshots and its recovery checkpoints from it, and one the fresh file holds more of keeps its
+// own; a backup another build made, or one that does not read, is passed over and heals nothing.
+#[rstest]
+#[case::this_build_s(BackupCopy::ThisBuild, 1)]
+#[case::another_build_s(BackupCopy::AnotherBuild, 0)]
+#[case::unreadable(BackupCopy::Unreadable, 0)]
+#[tokio::test]
+async fn sessions_the_newest_backup_holds_more_of_come_from_it(
+    #[case] backup: BackupCopy,
+    #[case] sessions_from_backup: u64,
+) {
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let fresh_path = data_folder.path().join("daemon.db.recovered");
+    let backup_copy_path = data_folder.path().join("daemon.db.backup-read");
+    let fresh = schema_file(&fresh_path);
+    write_events(&fresh, "richer-in-backup", 1);
+    write_events(&fresh, "richer-in-fresh", 2);
+    drop(fresh);
+    if let BackupCopy::Unreadable = backup {
+        fs::write(&backup_copy_path, b"no database").expect("the copy is written");
+    } else {
+        let copy = schema_file(&backup_copy_path);
+        write_events(&copy, "richer-in-backup", 3);
+        write_events(&copy, "richer-in-fresh", 1);
+        copy.execute_batch(
+            "INSERT INTO session_snapshots (id, session_id, as_of_sequence, state_blob, created_at)
+               VALUES ('snapshot-1', 'richer-in-backup', 2, x'01', '2026-10-19T09:00:00.000Z');
+             INSERT INTO recovery_checkpoints
+               (id, session_id, checkpoint_type, as_of_sequence, state_blob, created_at)
+               VALUES ('checkpoint-1', 'richer-in-backup', 'full', 2, x'01',
+                       '2026-10-19T09:00:00.000Z');",
+        )
+        .expect("the snapshot and the checkpoint are written");
+        if let BackupCopy::AnotherBuild = backup {
+            copy.pragma_update(None, "user_version", *DAEMON_SCHEMA_FINGERPRINT ^ 1)
+                .expect("another build's fingerprint is written");
+        }
+    }
+    let shell = SqliteShell::new(daemon_program(), spawner());
+
+    let taken = prepare_fresh_file(
+        &FreshFilePreparation {
+            shell: &shell,
+            fresh_path: &fresh_path,
+            backup_copy_path: Some(&backup_copy_path),
+        },
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("the fresh file is readied");
+
+    assert_eq!(taken, sessions_from_backup);
+    let fresh = Connection::open(&fresh_path).expect("the fresh file opens");
+    let backup_events = if sessions_from_backup == 1 { 3 } else { 1 };
+    assert_eq!(
+        session_events(&fresh, "richer-in-backup"),
+        (0..backup_events)
+            .map(|sequence| (sequence, "run-1".to_owned(), sequence, sequence))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(session_events(&fresh, "richer-in-fresh").len(), 2);
+    assert_eq!(
+        row_count(&fresh_path, "session_snapshots"),
+        i64::from(sessions_from_backup == 1)
+    );
+    assert_eq!(
+        row_count(&fresh_path, "recovery_checkpoints"),
+        i64::from(sessions_from_backup == 1)
+    );
+}
+
+// The fresh file's readying drops the recovery's tables of lost rows, marks every session with
+// events for a rebuild, a session whose cursor the recovery lost included, and writes this build's
+// fingerprint over the one the recovery carried, so the next open takes the file.
+#[tokio::test]
+async fn a_readied_fresh_file_rebuilds_every_session_and_carries_the_fingerprint() {
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let fresh_path = data_folder.path().join("daemon.db.recovered");
+    let fresh = schema_file(&fresh_path);
+    fresh
+        .pragma_update(None, "user_version", 0)
+        .expect("a damaged header's fingerprint is lost");
+    write_events(&fresh, "with-cursor", 1);
+    write_events(&fresh, "without-cursor", 1);
+    fresh
+        .execute_batch(
+            "INSERT INTO projection_cursors (id, session_id, last_sequence, state, updated_at)
+               VALUES ('cursor-1', 'with-cursor', 0, 'current', '2026-10-19T09:00:00.000Z');
+             CREATE TABLE lost_and_found (rootpgno INTEGER, pgno INTEGER, nfield INTEGER,
+                                          id INTEGER, c0);
+             INSERT INTO lost_and_found VALUES (7, 7, 1, 1, 'a lost row');",
+        )
+        .expect("the recovery's rows are written");
+    drop(fresh);
+    let shell = SqliteShell::new(daemon_program(), spawner());
+
+    let taken = prepare_fresh_file(
+        &FreshFilePreparation {
+            shell: &shell,
+            fresh_path: &fresh_path,
+            backup_copy_path: None,
+        },
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("the fresh file is readied");
+
+    assert_eq!(taken, 0);
+    let fresh = Connection::open(&fresh_path).expect("the fresh file opens");
+    let lost_tables: i64 = fresh
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name = 'lost_and_found'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the schema reads");
+    assert_eq!(lost_tables, 0);
+    let mut cursors = fresh
+        .prepare("SELECT session_id, last_sequence, state FROM projection_cursors ORDER BY 1")
+        .expect("the read prepares");
+    let cursors = cursors
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .expect("the cursors read")
+        .collect::<rusqlite::Result<Vec<(String, i64, String)>>>()
+        .expect("every cursor reads");
+    assert_eq!(
+        cursors,
+        vec![
+            ("with-cursor".to_owned(), 0, "stale".to_owned()),
+            ("without-cursor".to_owned(), -1, "stale".to_owned()),
+        ]
+    );
+    let fingerprint: i32 = fresh
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("the fingerprint reads");
+    assert_eq!(fingerprint, *DAEMON_SCHEMA_FINGERPRINT);
+}
+
+// What breaks a fresh file: an object of the schema it lacks, one the schema does not hold, or an
+// index whose entries do not match its rows.
+#[derive(Clone, Copy, Debug)]
+enum FreshFileFault {
+    MissingIndex,
+    ExtraTable,
+    SwappedIndexes,
+}
+
+// A fresh file that is not this build's or not sound is refused, naming why.
+#[rstest]
+#[case::lacking_an_index(FreshFileFault::MissingIndex)]
+#[case::holding_another_table(FreshFileFault::ExtraTable)]
+#[case::failing_its_integrity_check(FreshFileFault::SwappedIndexes)]
+#[tokio::test]
+async fn a_fresh_file_not_this_build_s_or_not_sound_is_refused(#[case] fault: FreshFileFault) {
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let fresh_path = data_folder.path().join("daemon.db.recovered");
+    let fresh = schema_file(&fresh_path);
+    match fault {
+        FreshFileFault::MissingIndex => fresh
+            .execute_batch("DROP INDEX idx_session_events_type")
+            .expect("the index is dropped"),
+        FreshFileFault::ExtraTable => fresh
+            .execute_batch("CREATE TABLE stray (id INTEGER)")
+            .expect("the table is made"),
+        FreshFileFault::SwappedIndexes => {
+            write_events(&fresh, "session-1", 50);
+            // An index of the same shape with no entries takes the event index's name, and the
+            // index holding the entries is dropped, so the event index matches no row.
+            fresh
+                .execute_batch("CREATE INDEX spare ON session_events(session_id, type) WHERE 0")
+                .expect("the spare index is made");
+            fresh
+                .set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, false)
+                .expect("the test may write the schema");
+            fresh
+                .execute_batch(
+                    "PRAGMA writable_schema = ON;
+                     UPDATE sqlite_schema SET rootpage = CASE name
+                       WHEN 'idx_session_events_type' THEN
+                         (SELECT rootpage FROM sqlite_schema WHERE name = 'spare')
+                       ELSE (SELECT rootpage FROM sqlite_schema
+                              WHERE name = 'idx_session_events_type') END
+                      WHERE name IN ('idx_session_events_type', 'spare');
+                     PRAGMA writable_schema = OFF;",
+                )
+                .expect("the indexes' pages are swapped");
+        }
+    }
+    drop(fresh);
+    if let FreshFileFault::SwappedIndexes = fault {
+        // A connection opened after the swap reads the schema as it now stands.
+        Connection::open(&fresh_path)
+            .expect("the fresh file opens again")
+            .execute_batch("DROP INDEX spare")
+            .expect("the entries' index is dropped");
+    }
+    let shell = SqliteShell::new(daemon_program(), spawner());
+
+    let refused = prepare_fresh_file(
+        &FreshFilePreparation {
+            shell: &shell,
+            fresh_path: &fresh_path,
+            backup_copy_path: None,
+        },
+        &CancellationToken::new(),
+    )
+    .await;
+
+    match (fault, refused) {
+        (FreshFileFault::MissingIndex, Err(FreshFileError::SchemaDiffers { missing, extra })) => {
+            assert_eq!(missing, vec!["index idx_session_events_type".to_owned()]);
+            assert_eq!(extra, Vec::<String>::new());
+        }
+        (FreshFileFault::ExtraTable, Err(FreshFileError::SchemaDiffers { missing, extra })) => {
+            assert_eq!(missing, Vec::<String>::new());
+            assert_eq!(extra, vec!["table stray".to_owned()]);
+        }
+        (FreshFileFault::SwappedIndexes, Err(FreshFileError::Integrity(_))) => {}
+        (fault, refused) => panic!("{fault:?} was answered {refused:?}"),
+    }
 }
