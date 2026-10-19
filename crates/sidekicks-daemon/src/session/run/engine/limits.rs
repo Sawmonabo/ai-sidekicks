@@ -48,7 +48,8 @@ static SELECT_TOKEN_LIMIT_REACHED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The turn a limit stop cut, kept until that turn's end is written or the run ends.
+/// The turn a limit stop cut, kept until that turn's end is written, which may land after its
+/// run's end.
 pub(super) struct CutTurn {
     /// The limit that cut it.
     pub(super) limit: RunLimit,
@@ -154,14 +155,15 @@ impl RunEngine {
             .await
     }
 
-    /// The daemon's own stop of a live run at a limit. The limit's reached event is written while
-    /// the run is live, a token limit's once per run; the turn the stop cuts is remembered, so an
-    /// end its provider reports before the limit's end is written interrupted with the limit; then
-    /// the interrupt goes to the interventions service. A run that has ended is left as it is, and
-    /// so is a run that already reached its token limit; one the limit's end may not leave its
-    /// state from is refused with nothing written. Fails with
-    /// [`RunEngineError::LimitInterrupterGone`], nothing written, when the engine holds no live
-    /// interventions service, and with the service's failure, the cut forgotten.
+    /// The daemon's own stop of a live run at a limit. The turn the stop cuts is remembered
+    /// before the limit's reached event is written, so an end its provider reports from then on
+    /// is written interrupted with the limit; the reached event is written while the run is live,
+    /// a token limit's once per run; then the interrupt goes to the interventions service. A run
+    /// that has ended is left as it is, and so is a run that already reached its token limit, the
+    /// cut forgotten; one the limit's end may not leave its state from is refused with nothing
+    /// written. Fails with [`RunEngineError::LimitInterrupterGone`], nothing written, when the
+    /// engine holds no live interventions service, and with [`RunEngineError::LimitInterrupt`]
+    /// when the service fails, the reached event and the cut kept for the stop's retry.
     pub(super) async fn stop_at_limit(
         &self,
         run_id: RunId,
@@ -173,17 +175,42 @@ impl RunEngine {
             .and_then(Weak::upgrade)
             .ok_or(RunEngineError::LimitInterrupterGone { run_id })?;
         let limit = stop.limit();
-        let to_state = limit_run_end(limit).state();
         let open_turn = self.read_open_turn(run_id, None).await?;
-        let is_live = match stop {
+        if let Some(turn_number) = open_turn {
+            lock(&self.live)
+                .cut_turns
+                .insert(run_id, CutTurn { limit, turn_number });
+        }
+        let reached = self.record_limit_reached(run_id, stop).await;
+        if !matches!(reached, Ok(true)) {
+            // A stop that reached no live run cut no turn.
+            if let Some(turn_number) = open_turn {
+                self.forget_cut_turn(&run_id, turn_number);
+            }
+            return reached.map(drop);
+        }
+        limit_interrupter
+            .interrupt_for_limit(run_id, limit)
+            .await
+            .map_err(|source| RunEngineError::LimitInterrupt { run_id, source })
+    }
+
+    // Records that the live run `run_id` reached the limit of `stop`, and returns whether the run
+    // was live and had not reached its token limit before.
+    async fn record_limit_reached(
+        &self,
+        run_id: RunId,
+        stop: LimitStop,
+    ) -> Result<bool, RunEngineError> {
+        let to_state = limit_run_end(stop.limit()).state();
+        match stop {
             LimitStop::Spend => {
                 let run = self.require_run(run_id).await?;
                 if run.state.is_terminal() {
-                    false
-                } else {
-                    refuse_unless_allowed(run_id, &run, to_state)?;
-                    true
+                    return Ok(false);
                 }
+                refuse_unless_allowed(run_id, &run, to_state)?;
+                Ok(true)
             }
             LimitStop::Step { .. } | LimitStop::Token { .. } => {
                 let recorded = self
@@ -206,7 +233,7 @@ impl RunEngine {
                     })
                     .await;
                 match recorded {
-                    Ok(recorded) => recorded.is_some(),
+                    Ok(recorded) => Ok(recorded.is_some()),
                     Err(RunEngineError::Append(error))
                         if matches!(stop, LimitStop::Token { .. })
                             && refused_statement_index(&error)
@@ -214,28 +241,10 @@ impl RunEngine {
                     {
                         // The run reached its token limit before, and that stop is the one that
                         // stands.
-                        false
+                        Ok(false)
                     }
-                    Err(error) => return Err(error),
+                    Err(error) => Err(error),
                 }
-            }
-        };
-        if !is_live {
-            return Ok(());
-        }
-        if let Some(turn_number) = open_turn {
-            lock(&self.live)
-                .cut_turns
-                .insert(run_id, CutTurn { limit, turn_number });
-        }
-        match limit_interrupter.interrupt_for_limit(run_id, limit).await {
-            Ok(()) => Ok(()),
-            Err(source) => {
-                // The turn was not cut, so its provider's end is written as reported.
-                if let Some(turn_number) = open_turn {
-                    self.forget_cut_turn(&run_id, turn_number);
-                }
-                Err(RunEngineError::LimitInterrupt { run_id, source })
             }
         }
     }

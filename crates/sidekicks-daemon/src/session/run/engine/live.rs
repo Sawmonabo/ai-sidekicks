@@ -61,7 +61,9 @@ pub(super) struct EndingWrite {
 }
 
 /// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
-/// its write or its turn ends, on every exit path.
+/// its write or its turn ends, on every exit path. A cut leaves only when its turn's end is
+/// written, so it can outlive its run's end until then; a provider process's exit writes the end
+/// of the newest open turn of each of its runs.
 #[derive(Default)]
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.
@@ -75,7 +77,8 @@ pub(super) struct LiveRuns {
     pub(super) carried_output_speeds: HashMap<RunId, ProviderToken>,
     /// The open turn's steps on a run whose provider does not bound them.
     pub(super) step_counts: HashMap<RunId, StepCount>,
-    /// The turn a limit stop cut, until that turn's end is written or the run ends.
+    /// The turn a limit stop cut, from before its reached event is written until that turn's end
+    /// is written.
     pub(super) cut_turns: HashMap<RunId, CutTurn>,
 }
 

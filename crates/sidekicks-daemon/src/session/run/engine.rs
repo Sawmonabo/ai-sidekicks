@@ -597,13 +597,12 @@ impl RunEngine {
         }
     }
 
-    // What the engine held for a run that has ended. A limit's own end writes the end of the turn
-    // it cut, so no cut is needed past the run's end.
+    // What the engine held for a run that has ended. A cut stays until its turn's end is written,
+    // which its provider can report after the run's end.
     fn forget_ended_run(&self, run_id: &RunId) {
         let mut live = lock(&self.live);
         live.carried_output_speeds.remove(run_id);
         live.step_counts.remove(run_id);
-        live.cut_turns.remove(run_id);
         live.mark_starting_run_ended(run_id);
     }
 
