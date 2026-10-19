@@ -335,42 +335,16 @@ impl InterventionService {
             intervention_type: intervention_type_of(&request),
             actor,
         };
-        let payload = stored_payload_of(&request);
-        let (expected_run_version, key) = request_guards(&request);
-        let requested = RequestedIntervention {
-            intervention_id: target.intervention_id,
-            target_run_id: run_id,
-            intervention_type: target.intervention_type,
-            payload: payload.clone(),
-            expected_run_version,
-            client_idempotency_key: key.clone(),
-            device_id: device_of(&target.actor),
-        };
-        let inserted = self
-            .append(
-                draft(&target, &ReachedState::Requested)?,
-                vec![insert_requested_intervention_statement(&requested)],
-                Vec::new(),
-            )
-            .await;
-        if let Err(error) = inserted {
-            return match refused_statement_index(&error) {
-                Some(INSERT_STATEMENT_INDEX) => {
-                    self.answer_reused_key(&request, run_id, key, &payload)
-                        .await
-                }
-                _ => Err(error.into()),
-            };
-        }
         let AgentRunInterveneRequest::Interrupt(interrupt) = &request else {
-            return self.accept_and_apply(&target, &request).await;
+            return self.record_and_apply(&target, &request).await;
         };
+        // The queue's hold comes before the row, so a hold that fails leaves no row to apply.
         let choice = interrupt_choice_of(interrupt);
         self.queue
             .hold_for_interrupt(run_id, choice)
             .await
             .map_err(InterventionError::Queue)?;
-        let applied = self.accept_and_apply(&target, &request).await;
+        let applied = self.record_and_apply(&target, &request).await;
         let released = self
             .queue
             .release_interrupt(run_id, choice)
@@ -385,6 +359,43 @@ impl InterventionService {
             Err(many @ SettleFailures::Many { .. }) => {
                 Err(InterventionError::Several(Box::new(many)))
             }
+        }
+    }
+
+    // Records the request, then accepts, dispatches and settles it; a reused key answers what it
+    // saved instead.
+    async fn record_and_apply(
+        &self,
+        target: &InterventionTarget,
+        request: &AgentRunInterveneRequest,
+    ) -> Result<AgentRunInterveneResponse, InterventionError> {
+        let run_id = target.target_run_id;
+        let payload = stored_payload_of(request);
+        let (expected_run_version, key) = request_guards(request);
+        let requested = RequestedIntervention {
+            intervention_id: target.intervention_id,
+            target_run_id: run_id,
+            intervention_type: target.intervention_type,
+            payload: payload.clone(),
+            expected_run_version,
+            client_idempotency_key: key.clone(),
+            device_id: device_of(&target.actor),
+        };
+        let inserted = self
+            .append(
+                draft(target, &ReachedState::Requested)?,
+                vec![insert_requested_intervention_statement(&requested)],
+                Vec::new(),
+            )
+            .await;
+        match inserted {
+            Ok(()) => self.accept_and_apply(target, request).await,
+            Err(error) => match refused_statement_index(&error) {
+                Some(INSERT_STATEMENT_INDEX) => {
+                    self.answer_reused_key(request, run_id, key, &payload).await
+                }
+                _ => Err(error.into()),
+            },
         }
     }
 
