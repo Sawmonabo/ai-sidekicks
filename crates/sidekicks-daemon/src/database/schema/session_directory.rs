@@ -12,7 +12,6 @@ use sidekicks_contracts::session::convert::SessionConvertSkipReason;
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::links::SessionLinkKind;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
-
 use strum::{IntoStaticStr, VariantArray};
 
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
