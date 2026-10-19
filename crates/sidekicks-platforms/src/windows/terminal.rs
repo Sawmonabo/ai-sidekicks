@@ -36,6 +36,8 @@ use windows_sys::core::BOOL;
 use windows_sys::w;
 
 #[cfg(any(test, feature = "test-support"))]
+use crate::shell_folder_start::windows::quote_powershell_literal;
+#[cfg(any(test, feature = "test-support"))]
 use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
@@ -684,7 +686,7 @@ pub fn echoing_line_reader() -> TestProgram {
 /// prints `ready`, copies the next `byte_count` input bytes to the file `path`, then prints `done`.
 #[cfg(any(test, feature = "test-support"))]
 pub fn input_recorder(path: &Path, byte_count: usize) -> TestProgram {
-    let path = path.display().to_string().replace('\'', "''");
+    let path = quote_powershell_literal(&path.display().to_string());
     TestProgram {
         program: "powershell.exe".to_owned(),
         arguments: vec![
@@ -695,7 +697,7 @@ pub fn input_recorder(path: &Path, byte_count: usize) -> TestProgram {
                  'ready'; $in = [Console]::OpenStandardInput(); $bytes = New-Object byte[] \
                  {byte_count}; $read = 0; while ($read -lt {byte_count}) {{ $count = \
                  $in.Read($bytes, $read, {byte_count} - $read); if ($count -le 0) {{ break }}; \
-                 $read += $count }}; [IO.File]::WriteAllBytes('{path}', $bytes); 'done'"
+                 $read += $count }}; [IO.File]::WriteAllBytes({path}, $bytes); 'done'"
             ),
         ],
     }

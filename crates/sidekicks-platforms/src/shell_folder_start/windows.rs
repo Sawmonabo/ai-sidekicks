@@ -494,9 +494,9 @@ fn strip_trailing_separators(folder: &str) -> &str {
     }
 }
 
-// `text` as a PowerShell single-quoted string: every character PowerShell reads as a single quote
-// doubled, so none ends the string.
-fn quote_powershell_literal(text: &str) -> String {
+/// `text` as a PowerShell single-quoted string: every character PowerShell reads as a single quote
+/// doubled, so none ends the string.
+pub(crate) fn quote_powershell_literal(text: &str) -> String {
     let mut quoted = String::with_capacity(text.len() + 2);
     quoted.push('\'');
     for character in text.chars() {
