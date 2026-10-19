@@ -27,7 +27,7 @@ use crate::run_folder::{
     DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SESSION_TOKEN_FILE_NAME,
 };
 use crate::windows::known_folder::known_folder;
-use crate::windows::process_user::{ProcessUser, sid_text};
+use crate::windows::process_user::{ProcessUser, read_user_sid_text, sid_text};
 
 // The run folder's name inside the application's own folder.
 const RUN_SUBFOLDER_NAME: &str = "run";
@@ -36,15 +36,23 @@ const RUN_SUBFOLDER_NAME: &str = "run";
 /// user's own named pipe. Fails with the system's error when that folder or the user's id cannot
 /// be read.
 pub fn daemon_run_folder() -> io::Result<DaemonRunFolder> {
-    let folder_path = known_folder(&FOLDERID_LocalAppData)?
+    Ok(resolve_daemon_run_folder(
+        &known_folder(&FOLDERID_LocalAppData)?,
+        &read_user_sid_text()?,
+    ))
+}
+
+/// The run folder under the local application data folder `local_app_data`, and the named pipe of
+/// the user whose id, as SDDL text, is `user_sid`.
+pub(crate) fn resolve_daemon_run_folder(local_app_data: &Path, user_sid: &str) -> DaemonRunFolder {
+    let folder_path = local_app_data
         .join(RUN_FOLDER_NAME)
         .join(RUN_SUBFOLDER_NAME);
-    let user = ProcessUser::of_this_process()?.sid_text()?;
-    Ok(DaemonRunFolder {
-        socket_path: PathBuf::from(format!(r"\\.\pipe\{RUN_FOLDER_NAME}-{user}")),
+    DaemonRunFolder {
+        socket_path: PathBuf::from(format!(r"\\.\pipe\{RUN_FOLDER_NAME}-{user_sid}")),
         token_path: folder_path.join(SESSION_TOKEN_FILE_NAME),
         folder_path,
-    })
+    }
 }
 
 /// Checks that the run folder at `folder` is private: opened without following a link, it is a
@@ -179,4 +187,44 @@ fn is_admitted(user: &ProcessUser, sid: PSID) -> bool {
     user.has_sid(sid)
         || is_well_known(WinLocalSystemSid)
         || is_well_known(WinBuiltinAdministratorsSid)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use serde_json::Value;
+
+    use super::resolve_daemon_run_folder;
+
+    // The case table desktop main's resolver runs too, so the two cannot drift.
+    const CASES: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../sidekicks-contracts/tests/fixtures/run-folder.json"
+    ));
+
+    #[test]
+    fn resolves_every_windows_case_of_the_shared_table() {
+        let cases: Vec<Value> = serde_json::from_str(CASES).expect("the case table parses");
+        let windows_cases: Vec<&Value> = cases
+            .iter()
+            .filter(|case| case.get("userSid").is_some())
+            .collect();
+        assert_eq!(windows_cases.len(), 2, "the shared table's Windows cases");
+        for case in windows_cases {
+            let text = |name: &str| case[name].as_str().expect("a case's member is text");
+
+            let resolved =
+                resolve_daemon_run_folder(Path::new(text("localAppData")), text("userSid"));
+
+            assert_eq!(
+                resolved.folder_path,
+                PathBuf::from(text("folderPath")),
+                "{}",
+                case["case"]
+            );
+            assert_eq!(resolved.socket_path, PathBuf::from(text("socketPath")));
+            assert_eq!(resolved.token_path, PathBuf::from(text("tokenPath")));
+        }
+    }
 }

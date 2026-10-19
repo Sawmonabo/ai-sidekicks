@@ -8,11 +8,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveDaemonRunFolder } from "../run-folder.js";
 
-interface RunFolderCase {
+interface PosixRunFolderCase {
   readonly case: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly userId: number;
   readonly folderPath: string;
+}
+
+interface WindowsRunFolderCase {
+  readonly case: string;
+  readonly localAppData: string;
+  readonly userSid: string;
+  readonly folderPath: string;
+  readonly socketPath: string;
+  readonly tokenPath: string;
 }
 
 const CASES = JSON.parse(
@@ -23,17 +32,24 @@ const CASES = JSON.parse(
     ),
     "utf8",
   ),
-) as readonly RunFolderCase[];
+) as readonly (PosixRunFolderCase | WindowsRunFolderCase)[];
+
+const POSIX_CASES = CASES.filter(
+  (runFolderCase): runFolderCase is PosixRunFolderCase => !("userSid" in runFolderCase),
+);
+const WINDOWS_CASES = CASES.filter(
+  (runFolderCase): runFolderCase is WindowsRunFolderCase => "userSid" in runFolderCase,
+);
 
 // The variables either resolver reads; each case sets its own and unsets the rest.
 const READ_VARIABLES = ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"] as const;
 
-describe.skipIf(process.platform === "win32")("the run folder", () => {
+describe.skipIf(process.platform === "win32")("the run folder on macOS and Linux", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it.each(CASES.map((runFolderCase) => [runFolderCase.case, runFolderCase] as const))(
+  it.each(POSIX_CASES.map((runFolderCase) => [runFolderCase.case, runFolderCase] as const))(
     "resolves the shared case: %s",
     (_name, runFolderCase) => {
       for (const variable of READ_VARIABLES) {
@@ -47,6 +63,24 @@ describe.skipIf(process.platform === "win32")("the run folder", () => {
       });
 
       expect(resolved.folderPath).toBe(runFolderCase.folderPath);
+    },
+  );
+});
+
+describe("the run folder on Windows", () => {
+  it.each(WINDOWS_CASES.map((runFolderCase) => [runFolderCase.case, runFolderCase] as const))(
+    "resolves the shared case: %s",
+    (_name, runFolderCase) => {
+      const resolved = resolveDaemonRunFolder({
+        localAppDataDirectory: runFolderCase.localAppData,
+        userSid: runFolderCase.userSid,
+      });
+
+      expect(resolved).toEqual({
+        folderPath: runFolderCase.folderPath,
+        socketPath: runFolderCase.socketPath,
+        tokenPath: runFolderCase.tokenPath,
+      });
     },
   );
 });

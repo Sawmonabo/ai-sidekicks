@@ -119,8 +119,16 @@ mod tests {
     #[test]
     fn resolves_every_case_of_the_shared_table() {
         let cases: Vec<Value> = serde_json::from_str(CASES).expect("the case table parses");
-        assert_eq!(cases.len(), 7, "the shared table's cases");
-        for case in cases {
+        let posix_cases: Vec<&Value> = cases
+            .iter()
+            .filter(|case| case.get("userSid").is_none())
+            .collect();
+        assert_eq!(
+            posix_cases.len(),
+            7,
+            "the shared table's macOS and Linux cases"
+        );
+        for case in posix_cases {
             let environment: HashMap<String, OsString> = case["environment"]
                 .as_object()
                 .expect("a case's environment is an object")
