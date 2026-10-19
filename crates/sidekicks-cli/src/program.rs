@@ -12,6 +12,7 @@ use clap::{Parser, Subcommand};
 use icu_decimal::DecimalFormatter;
 use icu_decimal::input::Decimal;
 use icu_locale_core::Locale;
+use serde_json::Value;
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::recovery::{
     DaemonRepairingDetails, DaemonRepairingLinePart, describe_daemon_repairing_line,
@@ -156,8 +157,14 @@ fn repairing_line_parts(failure: &anyhow::Error) -> Option<Vec<DaemonRepairingLi
     let progress = data
         .fields
         .as_ref()
-        .and_then(|fields| serde_json::to_value(fields).ok())
-        .and_then(|fields| serde_json::from_value::<DaemonRepairingDetails>(fields).ok())
+        .and_then(|fields| {
+            let members = fields
+                .as_map()
+                .iter()
+                .map(|(name, value)| (name.clone(), value.0.clone()))
+                .collect();
+            serde_json::from_value::<DaemonRepairingDetails>(Value::Object(members)).ok()
+        })
         .and_then(|details| details.progress);
     Some(describe_daemon_repairing_line(progress))
 }
