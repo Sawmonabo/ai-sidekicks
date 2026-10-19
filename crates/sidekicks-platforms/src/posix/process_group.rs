@@ -12,6 +12,7 @@ use nix::unistd::Pid;
 use crate::macos::pinned_process::pinned;
 #[cfg(target_os = "macos")]
 use crate::macos::processes::list_group_process_ids;
+use crate::posix::process_id::system_process_id;
 
 /// How long a group listing that found no live member waits before it lists again, so a member
 /// still being made, which reads as no process, is seen.
@@ -23,13 +24,10 @@ const GROUP_KILL_BOUND: Duration = Duration::from_secs(1);
 
 /// Sends `signal` to every member of the group process `id` leads, a `SIGKILL` on macOS again
 /// until no member is left; `false` when the group had already ended. Fails with `InvalidInput`
-/// for an id past `i32::MAX`, with `TimedOut` naming the members a kill leaves past
+/// for an id of 0 or past `i32::MAX`, with `TimedOut` naming the members a kill leaves past
 /// [`GROUP_KILL_BOUND`], else with the system's error.
 pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
-    let group = Pid::from_raw(
-        libc::pid_t::try_from(id)
-            .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?,
-    );
+    let group = Pid::from_raw(system_process_id(id)?.get());
     // macOS's kill reaches only the members fully made as it lists them, so a child forked
     // meanwhile outlives it; Linux's reaches every member, a fork under way included.
     let is_repeated = cfg!(target_os = "macos") && signal == Signal::SIGKILL;

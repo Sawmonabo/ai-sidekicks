@@ -6,7 +6,6 @@
 
 use std::ffi::CStr;
 use std::io::{self, ErrorKind};
-use std::num::NonZeroI32;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -20,6 +19,7 @@ use crate::child_command::ChildEnd;
 use crate::macos::processes::{list_child_process_ids, list_group_process_ids};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process_group::signal_group;
+use crate::posix::process_id::system_process_id;
 use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
 
 // The key a stop registers the process's exit filter under, the only source its poller watches.
@@ -307,8 +307,7 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
         let Some(member) = pinned(member_id)? else {
             continue;
         };
-        let raw_member = libc::pid_t::try_from(member_id)
-            .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
+        let raw_member = system_process_id(member_id)?.get();
         let session = match getsid(Some(Pid::from_raw(raw_member))) {
             Ok(session) => session,
             Err(Errno::ESRCH) => continue,
@@ -391,12 +390,10 @@ struct ExitWatch {
 }
 
 impl ExitWatch {
-    /// Attaches the exit filter to process `id`. Fails with the system's error.
+    /// Attaches the exit filter to process `id`. Fails with `InvalidInput` for an id of 0 or past
+    /// `i32::MAX`, else with the system's error.
     fn attach(id: u32) -> io::Result<Self> {
-        let raw_pid = i32::try_from(id)
-            .ok()
-            .and_then(NonZeroI32::new)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no process has this id"))?;
+        let raw_pid = system_process_id(id)?;
         let poller = Poller::new()?;
         // SAFETY: the kernel's exit filter watches any process this user runs, not only a child;
         // a process given the id after the pinned one ended is never signaled, since each signal

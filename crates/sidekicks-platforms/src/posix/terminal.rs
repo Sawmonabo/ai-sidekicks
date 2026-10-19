@@ -26,6 +26,7 @@ use tokio::io::unix::AsyncFd;
 
 use crate::posix::process_exit::wait_for_exit;
 use crate::posix::process_group::signal_group;
+use crate::posix::process_id::system_process_id;
 #[cfg(any(test, feature = "test-support"))]
 use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
@@ -48,9 +49,13 @@ pub fn terminal_ending_route(signal: TerminalSignal) -> TerminalSignalRoute {
 }
 
 /// Sends `signal` to the process `pid` alone; a process already gone is not an error. Fails with
-/// `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the send is refused.
+/// `InvalidInput` for a pid of 0 or past `i32::MAX`, and with the system's error when the send is
+/// refused.
 pub fn send_signal(pid: u32, signal: TerminalSignal) -> io::Result<()> {
-    match kill(process_id(pid)?, posix_signal(signal)) {
+    match kill(
+        Pid::from_raw(system_process_id(pid)?.get()),
+        posix_signal(signal),
+    ) {
         Ok(()) | Err(Errno::ESRCH) => Ok(()),
         Err(errno) => Err(io::Error::from(errno)),
     }
@@ -66,8 +71,8 @@ pub const DOES_CONSOLE_COUNT_WAITING_INPUT: bool = false;
 
 /// Ends the process group `pid` leads with `SIGKILL`, on a blocking thread; no stop takes this
 /// route on macOS or Linux, and a job an interactive shell moved into a group of its own is
-/// outside it. Fails with `InvalidInput` for a pid past `i32::MAX`, and with the system's error
-/// when the kill is refused; a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
+/// outside it. Fails with `InvalidInput` for a pid of 0 or past `i32::MAX`, and with the system's
+/// error when the kill is refused; a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
 pub fn end_process_tree(
     _spawner: &Spawner,
     pid: u32,
@@ -580,21 +585,14 @@ fn is_hang_up(error: &io::Error) -> bool {
 }
 
 /// Sends `signal` to the process group `pid` leads, answering whether the group was still there.
-/// Fails with `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the send
-/// is refused.
+/// Fails with `InvalidInput` for a pid of 0 or past `i32::MAX`, and with the system's error when
+/// the send is refused.
 fn signal_process_group(pid: u32, signal: TerminalSignal) -> io::Result<ProcessTreeEnd> {
     Ok(if signal_group(pid, posix_signal(signal))? {
         ProcessTreeEnd::Ended
     } else {
         ProcessTreeEnd::AlreadyGone
     })
-}
-
-/// The POSIX pid for `pid`; fails with `InvalidInput` past `i32::MAX`.
-fn process_id(pid: u32) -> io::Result<Pid> {
-    i32::try_from(pid)
-        .map(Pid::from_raw)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))
 }
 
 fn posix_signal(signal: TerminalSignal) -> Signal {

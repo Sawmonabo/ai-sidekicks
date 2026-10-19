@@ -16,6 +16,7 @@ pub(crate) mod memory;
 pub(crate) mod private_folder;
 pub(crate) mod process_exit;
 pub(crate) mod process_group;
+pub(crate) mod process_id;
 pub(crate) mod process_stop;
 pub(crate) mod real_path;
 pub(crate) mod run_folder;

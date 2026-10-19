@@ -15,6 +15,7 @@ use crate::child_command::ChildEnd;
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process_group::signal_group;
+use crate::posix::process_id::system_process_id;
 use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
 
 // The stat file's fields holding the process's group and session.
@@ -287,10 +288,9 @@ pub(crate) fn descriptor_process_id(descriptor: RawFd) -> io::Result<Option<u32>
 }
 
 /// A new descriptor holding process `id`. Fails with `ESRCH` when no process has the id, and with
-/// `InvalidInput` for an id past `i32::MAX`, which no process has.
+/// `InvalidInput` for an id of 0 or past `i32::MAX`, which no process has.
 pub(crate) fn open_process_descriptor(id: u32) -> io::Result<OwnedFd> {
-    let pid = libc::pid_t::try_from(id)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
+    let pid = system_process_id(id)?.get();
     // SAFETY: `pidfd_open` takes a pid and no flags and returns a new descriptor or -1.
     let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
     if descriptor < 0 {
