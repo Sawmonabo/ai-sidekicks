@@ -1,5 +1,6 @@
 //! The capability flags a driver declares: the daemon's own gate on capability-bound calls, which
-//! no client reads. The daemon stores one row per flag, in this order.
+//! no client reads. The daemon stores one row per flag, in this order, through its writer, so a
+//! cold start answers without asking the driver.
 
 use std::collections::BTreeMap;
 
@@ -8,6 +9,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::{IntoStaticStr, VariantArray};
+
+pub(crate) mod writer;
 
 /// One driver capability flag. The stored list and every map over the flags follow this order.
 #[derive(

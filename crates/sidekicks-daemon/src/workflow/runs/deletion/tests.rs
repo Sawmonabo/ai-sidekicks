@@ -18,7 +18,7 @@ use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
 use crate::events::session::followers::SessionEventFollowers;
-use crate::git::worktree::test_rows::insert_worktree_rows;
+use crate::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
 use crate::workflow::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
@@ -138,13 +138,12 @@ async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() 
             },
         );
     }
-    rows.execute(
-        "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, execution_mode,
-           execution_root, checkout_root, git_common_dir, branch_context_id, created_at)
-         VALUES (?1, 'session', 'workspace', 'boundRoot', '/repos/app', '/repos/app', ?2,
-           'branch-context', ?3)",
-        params![ended, GIT_COMMON_DIR, OLD],
-    )
+    RunContextRow {
+        run_id: &ended,
+        git_common_dir: Some(GIT_COMMON_DIR),
+        ..RunContextRow::BOUND_ROOT
+    }
+    .insert(&rows)
     .expect("the test stores the run's context");
 
     let refused = deletion

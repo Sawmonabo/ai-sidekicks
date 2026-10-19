@@ -37,6 +37,7 @@ use crate::lasting_child::{LastingChild, LastingCommand};
 use crate::path::rules::PathRules;
 use crate::path::rules::windows::command_line::compose_command_line;
 use crate::windows::handle_wait::HandleWait;
+use crate::windows::null_device::NULL_DEVICE_PATH;
 use crate::windows::pinned_process::{
     PinnedProcess, current_process, is_process_in_job, read_exit_code,
 };
@@ -66,7 +67,10 @@ const JOB_NAME_RANDOM_BYTES: usize = 16;
 )]
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
     let (job, job_name) = create_named_job()?;
-    let null_device = OpenOptions::new().read(true).write(true).open("NUL")?;
+    let null_device = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(NULL_DEVICE_PATH)?;
     let standard_stream = duplicate_inheritable(null_device.as_handle())?;
     let error_output = duplicate_inheritable(command.error_output.as_handle())?;
     let mut program = wide_text(command.program.as_os_str())?;

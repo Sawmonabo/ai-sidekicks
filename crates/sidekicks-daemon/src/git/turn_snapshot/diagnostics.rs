@@ -102,7 +102,7 @@ pub(crate) enum TurnSnapshotDiagnostic {
         epoch: u64,
         /// The turn's ordinal within the epoch.
         turn_ordinal: u64,
-        /// The scratch index left behind.
+        /// The scratch index, or the lock file beside it, left behind.
         scratch_index_path: PathBuf,
         /// The removal's failure.
         detail: io::Error,

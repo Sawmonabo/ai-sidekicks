@@ -5,6 +5,7 @@
 pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod child_command;
+pub(crate) mod child_tree;
 pub(crate) mod ctrl_c;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
@@ -14,6 +15,7 @@ pub(crate) mod file_facts;
 pub(crate) mod file_system;
 pub(crate) mod login_shell;
 pub(crate) mod memory;
+pub(crate) mod null_device;
 pub(crate) mod private_folder;
 pub(crate) mod process;
 pub(crate) mod real_path;

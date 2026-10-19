@@ -1,5 +1,6 @@
 //! Reading a stored column into a typed value: TEXT through a parse or as a JSON object, a rowid as
-//! unsigned, an integer as a safe one, the failure kept as the read's cause.
+//! unsigned, an integer as a safe one, the failure kept as the read's cause, and a JSON one kept
+//! without the stored value.
 
 use std::error::Error;
 
@@ -51,12 +52,40 @@ pub(crate) fn optional_utf8_blob_column(
 }
 
 /// The TEXT column at `index` read as a JSON object, as every stored payload is; fails as
-/// [`text_column`] does.
+/// [`text_column`] does, keeping a [`StoredJsonFault`].
 pub(crate) fn json_object_column(
     row: &Row<'_>,
     index: usize,
 ) -> rusqlite::Result<Map<String, Value>> {
-    text_column(row, index, |text| serde_json::from_str(&text))
+    text_column(row, index, |text| parse_stored_json_object(&text))
+}
+
+/// Stored `text` read as a JSON object; fails with where and how it does not read.
+pub(crate) fn parse_stored_json_object(text: &str) -> Result<Map<String, Value>, StoredJsonFault> {
+    serde_json::from_str(text).map_err(StoredJsonFault::from)
+}
+
+/// Where and how a stored JSON value failed to read, without the parser's message, which can
+/// quote the stored value.
+#[derive(Debug, thiserror::Error)]
+#[error("{kind:?} fault at line {line}, column {column}")]
+pub(crate) struct StoredJsonFault {
+    /// Whether the text, its syntax or its data failed.
+    kind: serde_json::error::Category,
+    /// The line, from 1; 0 for a fault in data already parsed.
+    line: usize,
+    /// The column, from 1; 0 for a fault in data already parsed.
+    column: usize,
+}
+
+impl From<serde_json::Error> for StoredJsonFault {
+    fn from(error: serde_json::Error) -> Self {
+        Self {
+            kind: error.classify(),
+            line: error.line(),
+            column: error.column(),
+        }
+    }
 }
 
 /// A word of a closed set, read by its serde spelling; fails for text that names no member.

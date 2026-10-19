@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 use crate::free_form_string::FilesystemPath;
 use crate::mcp::server::config::{McpRequestText, McpServerAddress, McpServerConfigInput};
 use crate::mcp::server::inventory::{
-    McpRuntimeBindingId, McpServerInventoryEntry, McpServerLegStatus, McpToolOverride,
-    McpToolOverrideFacet,
+    McpServerInventoryEntry, McpServerLegStatus, McpToolOverride, McpToolOverrideFacet,
 };
 use crate::mcp::server::{McpApplicationGrade, McpToolName, binding_addressed};
 use crate::method::KeyedRequest;
 use crate::place::WslPlace;
+use crate::provider::driver::runtime_binding::RuntimeBindingId;
 use crate::session::id::SessionId;
 use crate::web_address::WebAddress;
 use crate::wire::id::ClientUuid;
@@ -171,8 +171,8 @@ binding_addressed! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "McpRuntimeBindingId")]
-        binding_id: Option<McpRuntimeBindingId>,
+        #[schemars(with = "RuntimeBindingId")]
+        binding_id: Option<RuntimeBindingId>,
     }
 }
 
@@ -230,7 +230,7 @@ pub struct McpLiveApplicationResult {
     /// The session.
     pub session_id: SessionId,
     /// The live leg.
-    pub binding_id: McpRuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// How it went.
     pub outcome: McpLiveApplicationOutcome,
     /// The provider's error code, on a failure.

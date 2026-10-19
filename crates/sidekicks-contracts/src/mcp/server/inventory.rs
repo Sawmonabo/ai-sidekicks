@@ -9,19 +9,12 @@ use strum::VariantArray;
 use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{McpApprovalMode, McpServerStatus, McpToolName, binding_addressed};
 use crate::place::PlacedPath;
-use crate::provider::driver::length_limits::PROVIDER_BINDING_ID_MAX_LEN;
+use crate::provider::driver::runtime_binding::RuntimeBindingId;
 use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
 use crate::wire::instant::WireInstant;
 use crate::wire::list::UniqueList;
-use crate::wire::text::branded_text;
 use crate::wire::{Never, True, literal};
-
-branded_text! {
-    /// The daemon-minted id of the runtime binding, one live session's leg, an observation came
-    /// from; not the config binding. Opaque to every client.
-    pub struct McpRuntimeBindingId(1..=PROVIDER_BINDING_ID_MAX_LEN);
-}
 
 /// One live session's observation of one binding, kept per session because two sessions'
 /// connections to one binding can disagree, and one verdict would hide a partial outage.
@@ -34,7 +27,7 @@ pub struct McpServerLegStatus {
     /// The session.
     pub session_id: SessionId,
     /// The runtime binding the observation came from.
-    pub binding_id: McpRuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// What the session saw.
     pub status: McpServerStatus,
     /// When it saw it.

@@ -12,7 +12,7 @@ ts_constants! {
     pub const PROVIDER_TOOL_DESCRIPTION_MAX_LEN: usize = 16384;
     /// The longest `fallbackAction` on an intervention's or a fork move's result.
     pub const PROVIDER_FALLBACK_ACTION_MAX_LEN: usize = 128;
-    /// The longest store-minted `bindingId`, such as the one on the resume result.
+    /// The longest runtime binding id, minted by the daemon's store or by a relaunching driver.
     pub const PROVIDER_BINDING_ID_MAX_LEN: usize = 256;
     /// The longest resume `providerFailureDetail`; generous because it may wrap an upstream stack
     /// trace, and a refusal would lose that signal.

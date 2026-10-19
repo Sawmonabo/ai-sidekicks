@@ -4,10 +4,10 @@
 use serde_json::Value;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 
-use crate::provider::capability_probe::ProbeAdmissibilityConjunct::{
+use crate::provider::capability::probe::ProbeAdmissibilityConjunct::{
     DecisiveAtConsumptionGranularity, NonMutating, ZeroTurn,
 };
-use crate::provider::capability_probe::{
+use crate::provider::capability::probe::{
     CapabilityDetection, CapabilityProbeRules, ProbeAnswer, assert_admissible_detection,
 };
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
@@ -138,7 +138,7 @@ mod tests {
     use serde_json::json;
 
     use super::classify_reply;
-    use crate::provider::capability_probe::ProbeAnswer;
+    use crate::provider::capability::probe::ProbeAnswer;
 
     #[rstest]
     #[case::method_not_found(-32_601, "Method not found", ProbeAnswer::UnknownName)]

@@ -1,0 +1,212 @@
+//! A child that leads a process tree of its own, so an end past its time limit reaches everything
+//! it started, a hook's processes among them, while its wait and its output read end at its own
+//! exit, whatever a process it left behind still holds.
+
+use std::error::Error;
+use std::io;
+use std::process::ExitStatus;
+
+use process_wrap::tokio::ChildWrapper;
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::process::{ChildStdin, Command};
+
+#[cfg(unix)]
+use crate::posix::child_tree::{
+    end_child_tree, end_dropped_child_tree, read_ready_output, spawn_child_tree_process,
+};
+#[cfg(windows)]
+use crate::windows::child_tree::{
+    end_child_tree_now, read_output_left_at_exit, spawn_child_tree_process,
+};
+
+/// The most one read of a child's output takes.
+pub(crate) const OUTPUT_READ_CHUNK: usize = 64 * 1024;
+
+/// A started child leading a tree of its own: its standard streams as the command set them, its
+/// wait on the child alone, and an end that reaches its whole tree. Dropped before the child is
+/// reaped, it ends the tree.
+pub struct ChildTree {
+    // Held until the drop, which on macOS and Linux hands it to the end of its tree.
+    process: Option<Box<dyn ChildWrapper>>,
+    is_reaped: bool,
+}
+
+/// What a child that ran to its exit printed, and how it exited.
+#[derive(Debug)]
+pub struct ChildTreeOutput {
+    /// How the child exited.
+    pub status: ExitStatus,
+    /// Its standard output, every byte as written.
+    pub stdout: Vec<u8>,
+    /// Its standard error, every byte as written.
+    pub stderr: Vec<u8>,
+}
+
+/// Why a child's output could not be read to its exit.
+#[derive(Debug, thiserror::Error)]
+pub enum ChildTreeOutputError {
+    /// One stream went past the bound the caller set; nothing read is kept.
+    #[error("the child's output went past {bound} bytes")]
+    TooLarge {
+        /// The bound, in bytes, one stream may reach.
+        bound: usize,
+    },
+    /// The write of its input, a read of its output or its wait failed.
+    #[error("the child's input, output or exit could not be read")]
+    Io(#[source] io::Error),
+}
+
+/// Starts `command` as a child of the daemon `daemon_pid` leading a tree of its own: on macOS and
+/// Linux the leader of a process group of its own, armed to end with the daemon as
+/// `prepare_child_command` arms it; on Windows in a job of its own that opens no console window
+/// and that closing the daemon's handle does not end. Runs on the daemon's spawner thread. Fails
+/// with the spawn's error, or on Windows the job's.
+pub fn start_child_tree(command: Command, daemon_pid: u32) -> io::Result<ChildTree> {
+    Ok(ChildTree {
+        process: Some(spawn_child_tree_process(command, daemon_pid)?),
+        is_reaped: false,
+    })
+}
+
+impl ChildTree {
+    /// Writes `input` to the child's standard input, if the command piped it, and closes it; reads
+    /// its standard output and error, each up to `bound` bytes; and waits for the child alone. The
+    /// reads end at the child's exit with what it wrote, so a process it left holding a stream
+    /// stretches nothing. An input the child exits without reading is no failure: the exit tells
+    /// it. Fails with `TooLarge` when a stream passes `bound`, else with the write's, a read's or
+    /// the wait's error; the tree is left running either way.
+    pub async fn wait_with_output(
+        &mut self,
+        input: Option<Vec<u8>>,
+        bound: usize,
+    ) -> Result<ChildTreeOutput, ChildTreeOutputError> {
+        let process = self.process();
+        let stdin = process.stdin().take();
+        let mut stdout = process.stdout().take();
+        let mut stderr = process.stderr().take();
+        let mut stdout_bytes = Vec::new();
+        let mut stderr_bytes = Vec::new();
+        let (status, is_output_read_to_end) = {
+            let output = async {
+                let (written, read) = tokio::join!(write_input(stdin, input), async {
+                    tokio::try_join!(
+                        read_bounded(stdout.as_mut(), &mut stdout_bytes, bound),
+                        read_bounded(stderr.as_mut(), &mut stderr_bytes, bound),
+                    )
+                });
+                written.map_err(ChildTreeOutputError::Io)?;
+                read.map(|((), ())| ())
+            };
+            let waiting = self.process().inner_mut().wait();
+            tokio::pin!(output, waiting);
+            tokio::select! {
+                biased;
+                read = &mut output => {
+                    read?;
+                    (waiting.await.map_err(ChildTreeOutputError::Io)?, true)
+                }
+                status = &mut waiting => (status.map_err(ChildTreeOutputError::Io)?, false),
+            }
+        };
+        self.is_reaped = true;
+        // What the child wrote before its exit is in the pipes now; read it without waiting for
+        // an end of file a process it left behind can hold off.
+        if !is_output_read_to_end {
+            #[cfg(unix)]
+            {
+                read_ready_output(stdout.as_ref(), &mut stdout_bytes, bound)?;
+                read_ready_output(stderr.as_ref(), &mut stderr_bytes, bound)?;
+            }
+            #[cfg(windows)]
+            {
+                read_output_left_at_exit(stdout.as_mut(), &mut stdout_bytes, bound).await?;
+                read_output_left_at_exit(stderr.as_mut(), &mut stderr_bytes, bound).await?;
+            }
+        }
+        Ok(ChildTreeOutput {
+            status,
+            stdout: stdout_bytes,
+            stderr: stderr_bytes,
+        })
+    }
+
+    /// Ends the child's whole tree, every process it started that is still in its group or job,
+    /// and reaps the child. Fails with the system's error from the end or the wait.
+    pub async fn end_tree(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        end_child_tree(self.process()).await?;
+        #[cfg(windows)]
+        end_child_tree_now(self.process())?;
+        self.process().inner_mut().wait().await?;
+        self.is_reaped = true;
+        Ok(())
+    }
+
+    fn process(&mut self) -> &mut dyn ChildWrapper {
+        self.process
+            .as_deref_mut()
+            .expect("a child tree holds its process until it drops")
+    }
+}
+
+impl Drop for ChildTree {
+    fn drop(&mut self) {
+        if self.is_reaped {
+            return;
+        }
+        #[cfg(unix)]
+        let ended = self.process.take().map_or(Ok(()), end_dropped_child_tree);
+        #[cfg(windows)]
+        let ended = end_child_tree_now(self.process());
+        if let Err(error) = ended {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a dropped child's tree could not be ended"
+            );
+        }
+    }
+}
+
+// Writes `input` to the child and closes its standard input. A child that exits without reading
+// it closes the pipe, which is no failure here.
+async fn write_input(stdin: Option<ChildStdin>, input: Option<Vec<u8>>) -> io::Result<()> {
+    let (Some(mut stdin), Some(input)) = (stdin, input) else {
+        return Ok(());
+    };
+    match stdin.write_all(&input).await {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        written => written,
+    }
+}
+
+// Reads `stream` to its end into `into`, one chunk at most per read, failing once it passes
+// `bound`; a dropped read keeps what it read in `into`.
+async fn read_bounded(
+    stream: Option<&mut (impl AsyncRead + Unpin)>,
+    into: &mut Vec<u8>,
+    bound: usize,
+) -> Result<(), ChildTreeOutputError> {
+    let Some(stream) = stream else {
+        return Ok(());
+    };
+    loop {
+        into.reserve(OUTPUT_READ_CHUNK);
+        let count = (&mut *stream)
+            .take(u64::try_from(OUTPUT_READ_CHUNK).expect("a chunk's size fits in 64 bits"))
+            .read_buf(into)
+            .await
+            .map_err(ChildTreeOutputError::Io)?;
+        if count == 0 {
+            return Ok(());
+        }
+        check_output_bound(into, bound)?;
+    }
+}
+
+/// Fails with `TooLarge` once `read` has passed `bound` bytes.
+pub(crate) fn check_output_bound(read: &[u8], bound: usize) -> Result<(), ChildTreeOutputError> {
+    if read.len() > bound {
+        return Err(ChildTreeOutputError::TooLarge { bound });
+    }
+    Ok(())
+}

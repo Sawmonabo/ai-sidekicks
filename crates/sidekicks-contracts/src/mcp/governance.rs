@@ -6,7 +6,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::refusal::RefusalCode;
-use crate::mcp::server::inventory::McpRuntimeBindingId;
 use crate::mcp::server::requests::{
     McpRegistrySearchRequest, McpRegistrySearchResponse, McpServerDeleteRequest,
     McpServerDeleteResponse, McpServerEnabledUpdateRequest, McpServerListRequest,
@@ -18,6 +17,7 @@ use crate::mcp::server::requests::{
 use crate::mcp::server::{McpBindingScope, McpServerBindingRef, McpServerName, McpServerStatus};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::provider::driver::runtime_binding::RuntimeBindingId;
 use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -84,7 +84,7 @@ status_notice! {
             /// The session.
             session_id: SessionId,
             /// The live leg.
-            binding_id: McpRuntimeBindingId,
+            binding_id: RuntimeBindingId,
         },
         /// The daemon's own probe saw the change.
         MachineProbe {

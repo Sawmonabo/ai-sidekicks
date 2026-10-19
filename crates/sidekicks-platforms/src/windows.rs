@@ -4,6 +4,7 @@ pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod caller_process;
 pub(crate) mod child_command;
+pub(crate) mod child_tree;
 pub(crate) mod command_argument_limit;
 pub(crate) mod credential_store;
 pub(crate) mod ctrl_c;
@@ -22,6 +23,7 @@ pub(crate) mod machine_name;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod measurement;
 pub(crate) mod memory;
+pub(crate) mod null_device;
 pub(crate) mod pinned_process;
 pub(crate) mod private_folder;
 pub(crate) mod process_user;

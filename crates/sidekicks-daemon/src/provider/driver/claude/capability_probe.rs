@@ -3,10 +3,10 @@
 
 use serde_json::Value;
 
-use crate::provider::capability_probe::ProbeAdmissibilityConjunct::{
+use crate::provider::capability::probe::ProbeAdmissibilityConjunct::{
     DecisiveAtConsumptionGranularity, NonMutating, ZeroTurn,
 };
-use crate::provider::capability_probe::{
+use crate::provider::capability::probe::{
     CapabilityDetection, CapabilityProbeRules, ProbeAnswer, assert_admissible_detection,
 };
 use crate::provider::driver::capabilities::DriverCapabilityFlag;

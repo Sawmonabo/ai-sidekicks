@@ -8,5 +8,6 @@ pub mod length_limits;
 pub mod methods;
 pub mod output_speed;
 pub mod recovery;
+pub mod runtime_binding;
 pub mod tools;
 pub mod usage_limit;

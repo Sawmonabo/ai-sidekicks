@@ -315,7 +315,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<config::McpTransport>(),
         Definition::read::<config::McpDeclaredConfigMember>(),
         Definition::read::<config::ProviderMcpDeclaration>(),
-        Definition::read::<inventory::McpRuntimeBindingId>().checked(),
         Definition::read::<inventory::McpServerLegStatus>(),
         Definition::read::<inventory::McpServerFailedReason>(),
         Definition::read::<inventory::McpAssignableIdempotencyClass>(),

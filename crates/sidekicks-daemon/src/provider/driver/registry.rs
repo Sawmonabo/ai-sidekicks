@@ -1,15 +1,17 @@
 //! The live drivers, one per registered provider in the table's order, and the capability gate. A
 //! provider id a request or a provider message brings in is checked here: one no driver answers is
-//! refused `provider.notFound`. The gate reads the capability snapshot the start-time provider
-//! check recorded, never the driver or the database, and fails closed: a flag is supported only
-//! when a recorded snapshot declares it. A steer is not gated here, since it is how the run queue
-//! delivers a held message.
+//! refused `provider.notFound`. The gate and the contract version read the capability snapshot the
+//! start or a refresh recorded, never the driver or the database, and the gate fails closed: a flag
+//! is supported only when a recorded snapshot declares it. A steer is not gated here, since it is
+//! how the run queue delivers a held message.
 
 use std::sync::{Arc, RwLock};
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
@@ -98,6 +100,25 @@ impl ProviderRegistry {
             .write()
             .expect("no snapshot writer panics holding the lock") = Some(capabilities);
         Ok(())
+    }
+
+    /// The contract version `provider`'s recorded snapshot declares, `None` until a snapshot is
+    /// recorded; refused `provider.notFound` when no driver answers it.
+    #[expect(
+        dead_code,
+        reason = "a provider session's opening records the contract version its binding runs under"
+    )]
+    pub(crate) fn contract_version(
+        &self,
+        provider: &ProviderId,
+    ) -> Result<Option<FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>>, DomainError> {
+        Ok(self
+            .entry(provider)?
+            .capabilities
+            .read()
+            .expect("no snapshot writer panics holding the lock")
+            .as_ref()
+            .map(|capabilities| capabilities.contract_version.clone()))
     }
 
     /// The driver for `provider`, refused `provider.notFound` when no driver answers it.
