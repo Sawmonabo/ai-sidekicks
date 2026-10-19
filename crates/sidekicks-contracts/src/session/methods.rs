@@ -561,7 +561,7 @@ pub enum SessionSearchResponse {
 }
 
 /// The `session.file.search` input: the text typed after `@` in a session's draft. An empty query
-/// lists the working folder's files; the list narrows as the name is typed.
+/// lists the working folder's files and folders; the list narrows as the name is typed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -726,7 +726,7 @@ methods! {
             result: SessionSearchResponse,
             refusals: [SessionSearchCursorUnresolvable],
         },
-        /// Lists a session's working-folder files matching what was typed after `@`.
+        /// Lists a session's working-folder files and folders matching what was typed after `@`.
         SessionFileSearch = query "session.file.search" {
             mutating: false,
             params: SessionFileSearchRequest,
