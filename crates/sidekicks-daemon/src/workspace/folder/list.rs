@@ -7,9 +7,13 @@
 //!   saying the filter would narrow further.
 //! - A read of the folder that fails in a way another moment can clear is tried once more; a read
 //!   that still fails is refused with the system's own reason.
+//! - Every file read is held to the bounded read's ceiling, off tokio's workers: the folder's own
+//!   read past it is refused `notReadable`, an entry's read past it leaves that entry out, and a
+//!   repository check whose resolve passes it lists its folder as no repository, each logged, so
+//!   one hung network folder inside the one in view never holds or empties the list.
 //! - Git is asked, one folder at a time and as many at once as the machine has processors, whether
 //!   a folder is a repository's top level; git's files are never read. A check that runs out of
-//!   time lists its folder as no repository, so one hung network folder never empties the list.
+//!   time lists its folder as no repository.
 //! - macOS and Linux have no top level above their folders and no WSL distribution, so both are
 //!   refused.
 
@@ -33,10 +37,11 @@ use sidekicks_contracts::repo::folders::{
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_platforms::{
-    LocaleCategory, PathRules, is_hidden_entry, is_link_loop, path_from_program_output,
-    resolve_path, system_locale,
+    LocaleCategory, PathRules, is_hidden_entry, path_from_program_output, resolve_path,
+    system_locale,
 };
 
+use crate::file::bounded_read::read_within_ceiling;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read, strip_line_end};
 use crate::missing_entry::is_missing_entry;
 use crate::processor_bound::map_with_processor_bound;
@@ -55,10 +60,6 @@ pub(crate) enum FolderListError {
     /// location, or a folder that cannot be read, with the system's reason.
     #[error(transparent)]
     Refused(#[from] RepoRefusal),
-    /// A link in the folder could not be followed for a reason other than leading nowhere,
-    /// looping or lacking access.
-    #[error("a link in the folder could not be followed")]
-    LinkRead(#[source] io::Error),
     /// The folder in view has a path the wire cannot carry.
     #[error("the folder's path is longer than the wire carries")]
     PathNotSendable(#[source] TextError),
@@ -79,14 +80,6 @@ pub(crate) enum RepositoryCheckError {
     Resolve(#[from] io::Error),
 }
 
-// Why the folder's read failed: the folder itself, which the person is told about, or a link in it
-// that could not be followed, which is the daemon's failure.
-#[derive(Debug)]
-enum FolderReadFailure {
-    Folder(io::Error),
-    Link(io::Error),
-}
-
 /// Lists the machine's folders for another device's folder chooser.
 pub(crate) struct FolderListService {
     home_folder: PathBuf,
@@ -105,8 +98,8 @@ impl FolderListService {
     /// `machine.folder.topLevel.notOffered` for the top level, `repoMount.distributionNotFound`
     /// for a WSL place, and `repoMount.rootResolutionFailed` with `notAbsolute` for a path naming
     /// no complete location or with `pathNotFound` or `notReadable` and the system's reason for a
-    /// folder that cannot be read after one retry; and with the other variants when a link cannot
-    /// be followed or git cannot check a folder.
+    /// folder that cannot be read after one retry or in time; and with the other variants when
+    /// the path cannot be sent or git cannot check a folder.
     pub(crate) async fn list(
         &self,
         request: MachineFolderListRequest,
@@ -130,20 +123,31 @@ impl FolderListService {
             .filter(|filter| !filter.is_empty());
         let is_hidden_shown = request.show_hidden == Some(true);
 
-        let mut names = read_with_one_retry(
-            || read_folder_names_off_workers(folder.clone(), is_hidden_shown, filter.clone()),
-            |failure| match failure {
-                FolderReadFailure::Folder(error) => is_retryable_read_failure(error),
-                FolderReadFailure::Link(_) => false,
+        let refused =
+            |error: &io::Error| FolderListError::Refused(refusal_of_filesystem_failure(error));
+        let candidate_names = read_with_one_retry(
+            || {
+                let filter = filter.clone();
+                read_within_ceiling(&folder, move |folder| {
+                    read_candidate_names(folder, filter.as_deref())
+                })
             },
+            is_retryable_read_failure,
         )
         .await
-        .map_err(|failure| match failure {
-            FolderReadFailure::Folder(error) => {
-                FolderListError::Refused(refusal_of_filesystem_failure(&error))
-            }
-            FolderReadFailure::Link(error) => FolderListError::LinkRead(error),
-        })?;
+        .map_err(|error| refused(&error))?;
+        let mut names: Vec<OsString> =
+            map_with_processor_bound(candidate_names, "reading the entries of a folder", |name| {
+                read_folder_entry(&folder, name, is_hidden_shown)
+            })
+            .await
+            .map_err(|failures| match failures {
+                SettleFailures::One(error) => refused(&error),
+                SettleFailures::Many { failures, .. } => refused(&failures[0]),
+            })?
+            .into_iter()
+            .flatten()
+            .collect();
         sort_folder_names(&mut names, &folder_name_collator());
 
         let candidates: Vec<(PathBuf, MachineFolderListEntry)> = names
@@ -245,75 +249,115 @@ impl FolderListService {
             path_from_program_output(strip_line_end(output.stdout)).map_err(GitError::PathText)?;
         // Both resolved and in the system's comparable form, since git prints the top level with
         // each link resolved, and with forward slashes on Windows.
-        Ok(canonical_folder_path(&top_level).await? == canonical_folder_path(folder).await?)
+        let keys = async {
+            Ok::<_, io::Error>(
+                canonical_folder_path(&top_level).await? == canonical_folder_path(folder).await?,
+            )
+        };
+        match keys.await {
+            Ok(is_top_level) => Ok(is_top_level),
+            Err(timed_out) if timed_out.kind() == io::ErrorKind::TimedOut => {
+                tracing::warn!(
+                    error = &timed_out as &(dyn Error + 'static),
+                    folder = %folder.display(),
+                    "a folder's repository check could not resolve it in time; it lists as no \
+                     repository"
+                );
+                Ok(false)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
-// The names of `folder`'s folders, off the async workers.
-async fn read_folder_names_off_workers(
-    folder: PathBuf,
-    is_hidden_shown: bool,
-    filter: Option<String>,
-) -> Result<Vec<OsString>, FolderReadFailure> {
-    tokio::task::spawn_blocking(move || {
-        read_folder_names(&folder, is_hidden_shown, filter.as_deref())
-    })
-    .await
-    .map_err(|error| FolderReadFailure::Folder(io::Error::other(error)))?
-}
-
-// The names of `folder`'s folders and links to folders, hidden ones only when `is_hidden_shown`,
-// and only those whose folded name holds `filter`.
-fn read_folder_names(
-    folder: &Path,
-    is_hidden_shown: bool,
-    filter: Option<&str>,
-) -> Result<Vec<OsString>, FolderReadFailure> {
+// The names in `folder` that may be folders, its folders and its links, by the type the listing
+// gives without reading each entry, and only those whose folded name holds `filter`.
+fn read_candidate_names(folder: &Path, filter: Option<&str>) -> io::Result<Vec<OsString>> {
     let mut names = Vec::new();
-    for entry in std::fs::read_dir(folder).map_err(FolderReadFailure::Folder)? {
-        let entry = entry.map_err(FolderReadFailure::Folder)?;
+    for entry in std::fs::read_dir(folder)? {
+        let entry = entry?;
         let name = entry.file_name();
-        // The entry's own facts, no link followed, so a link's hidden mark is its own.
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
-            // Gone since the listing named it.
-            Err(error) if is_missing_entry(&error) => continue,
-            Err(error) => return Err(FolderReadFailure::Folder(error)),
-        };
-        if !is_hidden_shown && is_hidden_entry(&name, &metadata) {
-            continue;
-        }
         if let Some(filter) = filter
             && !fold_name(&name.to_string_lossy()).contains(filter)
         {
             continue;
         }
-        if is_folder(&entry.path(), &metadata).map_err(FolderReadFailure::Link)? {
+        let entry_type = match entry.file_type() {
+            Ok(entry_type) => entry_type,
+            // Gone since the listing named it.
+            Err(error) if is_missing_entry(&error) => continue,
+            Err(error) => return Err(error),
+        };
+        if entry_type.is_dir() || entry_type.is_symlink() {
             names.push(name);
         }
     }
     Ok(names)
 }
 
-// A folder, or a link to one; a link that leads nowhere, loops or cannot be followed for want of
-// access is no folder, never the listing's failure.
-fn is_folder(path: &Path, metadata: &Metadata) -> io::Result<bool> {
-    if metadata.is_dir() {
-        return Ok(true);
-    }
-    if !metadata.is_symlink() {
-        return Ok(false);
-    }
-    match std::fs::metadata(path) {
-        Ok(target) => Ok(target.is_dir()),
-        Err(error)
-            if is_missing_entry(&error)
-                || is_link_loop(&error)
-                || error.kind() == io::ErrorKind::PermissionDenied =>
-        {
-            Ok(false)
+// `name` when `folder`'s entry of that name is a folder, or a link to one, that the listing shows:
+// hidden ones only when `is_hidden_shown`. Its read is held to the bounded read's ceiling; an
+// entry gone since the listing, or whose read gets no answer in time (logged), is left out. Fails
+// with the entry's read failure.
+async fn read_folder_entry(
+    folder: &Path,
+    name: OsString,
+    is_hidden_shown: bool,
+) -> io::Result<Option<OsString>> {
+    let path = folder.join(&name);
+    let read = read_with_one_retry(
+        || {
+            let name = name.clone();
+            read_within_ceiling(&path, move |path| {
+                // The entry's own facts, no link followed, so a link's hidden mark is its own.
+                let metadata = match std::fs::symlink_metadata(path) {
+                    Ok(metadata) => metadata,
+                    Err(error) if is_missing_entry(&error) => return Ok(false),
+                    Err(error) => return Err(error),
+                };
+                Ok((is_hidden_shown || !is_hidden_entry(&name, &metadata))
+                    && is_folder(path, &metadata))
+            })
+        },
+        is_retryable_read_failure,
+    )
+    .await;
+    match read {
+        Ok(is_shown) => Ok(is_shown.then_some(name)),
+        Err(timed_out) if timed_out.kind() == io::ErrorKind::TimedOut => {
+            tracing::warn!(
+                error = &timed_out as &(dyn Error + 'static),
+                entry = %path.display(),
+                "a folder entry's read got no answer in time; it is left out of the listing"
+            );
+            Ok(None)
         }
         Err(error) => Err(error),
+    }
+}
+
+// A folder, or a link to one; a link whose target cannot be read, whatever the reason (it leads
+// nowhere, loops, lacks access, or sits on a network folder that failed), is no folder, never the
+// listing's failure, and any reason but leading nowhere is logged.
+fn is_folder(path: &Path, metadata: &Metadata) -> bool {
+    if metadata.is_dir() {
+        return true;
+    }
+    if !metadata.is_symlink() {
+        return false;
+    }
+    match std::fs::metadata(path) {
+        Ok(target) => target.is_dir(),
+        Err(error) => {
+            if !is_missing_entry(&error) {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    link = %path.display(),
+                    "a link's target could not be read; it lists as no folder"
+                );
+            }
+            false
+        }
     }
 }
 
@@ -356,8 +400,8 @@ fn folder_name_order(collator: &CollatorBorrowed<'_>, left: &OsStr, right: &OsSt
         .then_with(|| left.cmp(right))
 }
 
-// The entry of `folder`'s folder `name`, with its path kept as bytes for git; `None`, logged, for
-// a path longer than the wire carries, which no program opens by that path either.
+// The entry of `folder`'s folder `name`, with its path kept as bytes for git; `None`, logged, for a
+// path the wire's cap refuses, longer than macOS and Linux open whole but one Windows still opens.
 fn entry_of(folder: &Path, name: &OsStr) -> Option<(PathBuf, MachineFolderListEntry)> {
     let path = folder.join(name);
     match (wire_path(name), wire_path(path.as_os_str())) {
@@ -410,13 +454,78 @@ fn wire_path(path: &OsStr) -> Result<FilesystemPath, TextError> {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
 
     use icu_collator::CollatorPreferences;
     use rstest::rstest;
-    use sidekicks_platforms::path_from_program_output;
+    use sidekicks_contracts::repo::folders::{
+        MachineFolderListFolderRequest, MachineFolderListRequest, MachineFolderListResponse,
+    };
+    use sidekicks_platforms::{path_from_program_output, real_path};
 
-    use super::{numeric_collator, sort_folder_names};
+    use super::{FolderListService, numeric_collator, sort_folder_names};
+    use crate::file::bounded_read::stall_reads_of;
+    use crate::git::process::{GitCall, test_git_runner};
+
+    // Which read of the held folder never answers.
+    #[derive(Clone, Copy, Debug)]
+    enum HeldRead {
+        // Its own entry's read.
+        Entry,
+        // A resolve its repository check makes, after its entry's read answered.
+        RepositoryCheck,
+    }
+
+    // Catches a read past the ceiling that holds the listing, keeps the held folder listed, or
+    // marks it a repository without its check.
+    #[rstest]
+    #[case::its_entry_read(HeldRead::Entry)]
+    #[case::its_repository_check(HeldRead::RepositoryCheck)]
+    #[tokio::test]
+    async fn a_folder_whose_read_never_answers_leaves_the_rest_of_the_listing(
+        #[case] held_read: HeldRead,
+    ) {
+        let git = test_git_runner();
+        let temporary = tempfile::tempdir().expect("the temporary folder is made");
+        let folder = real_path(temporary.path()).expect("the temporary folder resolves");
+        let held = folder.join("held");
+        std::fs::create_dir(folder.join("plain")).expect("the plain folder is made");
+        git.run(None, GitCall::read([OsStr::new("init"), held.as_os_str()]))
+            .await
+            .expect("the held folder is a repository");
+        let passed_reads = match held_read {
+            HeldRead::Entry => 0,
+            HeldRead::RepositoryCheck => 1,
+        };
+        let _held = stall_reads_of(&held, passed_reads);
+
+        let listing = FolderListService::new(folder, git)
+            .list(MachineFolderListRequest::Folder(
+                MachineFolderListFolderRequest {
+                    top: None,
+                    place: None,
+                    path: None,
+                    filter: None,
+                    show_hidden: None,
+                },
+            ))
+            .await
+            .expect("the listing answers");
+
+        let MachineFolderListResponse::Folder(listing) = listing else {
+            panic!("a folder's listing answers as a folder");
+        };
+        let entries: Vec<(&str, bool)> = listing
+            .entries
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.is_repository))
+            .collect();
+        let expected = match held_read {
+            HeldRead::Entry => vec![("plain", false)],
+            HeldRead::RepositoryCheck => vec![("held", false), ("plain", false)],
+        };
+        assert_eq!(entries, expected);
+    }
 
     // A name from its bytes, `None` where the system holds no name of them (Windows' names are
     // UTF-16, so bytes that are not UTF-8 name nothing there).

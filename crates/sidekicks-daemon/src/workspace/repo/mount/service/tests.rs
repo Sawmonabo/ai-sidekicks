@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use rusqlite::Connection;
 use sidekicks_contracts::machine::id::MachineId;
-use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, RepoMountState, WorkspaceId};
+use sidekicks_contracts::repo::mount::{
+    ExecutionMode, RepoMountHealth, RepoMountId, RepoMountState, WorkspaceId,
+};
 use sidekicks_contracts::session::id::SessionId;
 
 use super::detach::DetachRepoMount;
@@ -14,6 +16,7 @@ use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
 use crate::events::session::followers::SessionEventFollowers;
+use crate::file::bounded_read::stall_reads_of;
 use crate::git::process::test_git_runner;
 use crate::workspace::event_emitter::WorkspaceEventEmitter;
 use crate::workspace::repo::errors::RepoRefusal;
@@ -142,4 +145,39 @@ async fn a_detach_that_loses_its_flip_reports_the_state_the_winner_left() {
     );
     assert_eq!(lost.state, RepoMountState::Detached);
     assert!(lost.archived_workspace_ids.is_empty());
+}
+
+#[tokio::test]
+async fn a_read_whose_root_never_answers_reads_the_mount_unreachable() {
+    // Catches a root probe awaited past the ceiling, or a mount left healthy without its probe.
+    let database = TestDatabase::new();
+    let (service, rows) = open_service(&database).await;
+    let temporary = tempfile::tempdir().expect("the temporary folder is made");
+    let root = temporary.path().join("app");
+    std::fs::create_dir(&root).expect("the mount's root is made");
+    rows.execute(
+        "UPDATE repo_mounts SET canonical_root = ?1 WHERE id = ?2",
+        (root.to_string_lossy(), MOUNT_ID),
+    )
+    .expect("the mount's root is stored");
+    let mount_id = RepoMountId::new(MOUNT_ID).expect("the id is a UUID");
+    let answered = service
+        .read(mount_id.clone())
+        .await
+        .expect("the reachable mount reads");
+    assert!(
+        matches!(answered.health, RepoMountHealth::Healthy { .. }),
+        "{answered:?}"
+    );
+
+    let _held = stall_reads_of(&root, 0);
+    let held = service
+        .read(mount_id)
+        .await
+        .expect("a held root still reads");
+
+    assert!(
+        matches!(held.health, RepoMountHealth::Unreachable { .. }),
+        "{held:?}"
+    );
 }

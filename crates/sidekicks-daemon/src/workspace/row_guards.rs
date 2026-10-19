@@ -14,6 +14,7 @@ use sidekicks_platforms::PathRules;
 
 use crate::database::stored_column::{StoredJsonFault, parse_stored_json_object};
 use crate::database::writer::WriteError;
+use crate::file::bounded_read::read_within_ceiling;
 use crate::workspace::errors::{
     WorkspaceRefusal, WorkspaceServiceInvariantError, WorkspaceServiceInvariantKind,
 };
@@ -39,25 +40,27 @@ pub(crate) const CHECKOUT_ROOT_METADATA_PATH: &str = "$.checkoutRoot";
 const LAST_ERROR_METADATA_KEY: &str = LAST_ERROR_METADATA_PATH.split_at(2).1;
 
 /// Whether `path` can be reached in `place` now, read on this computer: the folder opens for
-/// listing, as running there needs. The instant is read first, so it is never newer than the
-/// observation it stamps, which a hung network folder can hold for seconds. The probe names
-/// `path` exactly as given, since the projector refuses a probe of any other spelling.
+/// listing, as running there needs, within the bounded read's ceiling, so a hung network folder
+/// reads as unreachable. The instant is read first, so it is never newer than the observation it
+/// stamps. The probe names `path` exactly as given, since the projector refuses a probe of any
+/// other spelling.
 pub(crate) async fn probe_filesystem_path(
     path: &Path,
     place: Option<&Place>,
 ) -> FilesystemPathProbe {
     let checked_at = WireInstant::now();
-    let is_reachable = match tokio::fs::read_dir(path).await {
-        Ok(_listing) => true,
-        // The failure is the verdict; its cause stays in the log for whoever looks into it.
-        Err(error) => {
-            tracing::debug!(
-                error = &error as &(dyn Error + 'static),
-                "a probed root could not be opened"
-            );
-            false
-        }
-    };
+    let is_reachable =
+        match read_within_ceiling(path, |path| std::fs::read_dir(path).map(drop)).await {
+            Ok(()) => true,
+            // The failure is the verdict; its cause stays in the log for whoever looks into it.
+            Err(error) => {
+                tracing::debug!(
+                    error = &error as &(dyn Error + 'static),
+                    "a probed root could not be opened"
+                );
+                false
+            }
+        };
     FilesystemPathProbe {
         probed_path: path.to_path_buf(),
         probed_place: place.cloned(),

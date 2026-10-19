@@ -22,6 +22,7 @@ use sidekicks_contracts::repo::folders::{
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{PathRules, path_from_program_output};
 
+use crate::file::bounded_read::read_within_ceiling;
 use crate::file::real_location::resolve_real_path;
 use crate::git::process::{
     GitCall, GitError, GitRunner, background_read, read_git_common_folder, strip_line_end,
@@ -32,8 +33,10 @@ use crate::text_cut::cut_to_code_points;
 use crate::workspace::repo::errors::RepoRefusal;
 use crate::workspace::trust_envelope::{components_equal, is_contained_within};
 
-/// How long one of the resolver's git calls may run: a hung network folder would otherwise hold
-/// a person's attach or pick for the runner's whole bound. A call past it reads `vcsError`.
+/// How long each one of the resolver's git calls may run, so one call a hung network folder holds
+/// ends long before the runner's own bound. It bounds each call, not an attach: an attach makes
+/// several calls in turn, and its file reads are held to the bounded read's ceiling apart from
+/// them. A call past it reads `vcsError`.
 pub(crate) const ROOT_RESOLUTION_GIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// git's exit code for a fatal error, half of its not-a-repository verdict.
@@ -84,8 +87,9 @@ impl RepoRootResolver {
     /// The repository `local_path` belongs to, both roots checked against git's answers. Fails
     /// with [`RepoRefusal::RootResolutionFailed`] on anything but a resolution: `notAbsolute` for
     /// a path naming no complete location, `pathNotFound` or `notReadable` from the path's own
-    /// read before git runs, `notARepository` on git's verdict alone, `rootMismatch` for a working
-    /// tree git does not name for the repository, and `vcsError` when git cannot answer.
+    /// read before git runs, `notReadable` for any file read past the bounded read's ceiling,
+    /// `notARepository` on git's verdict alone, `rootMismatch` for a working tree git does not
+    /// name for the repository, and `vcsError` when git cannot answer.
     pub(crate) async fn resolve_canonical_root(
         &self,
         local_path: &Path,
@@ -109,7 +113,7 @@ impl RepoRootResolver {
             ToplevelAnswer::NotARepository => {
                 // A `.git` entry contradicts git's verdict: a mode-000 `.git` folder, an empty
                 // one and a `gitdir:` file naming nothing all end with git's verdict too.
-                if has_visible_git_entry(&input).await {
+                if has_visible_git_entry(&input).await? {
                     return Err(root_resolution_refusal(
                         RepoMountRootResolutionReason::VcsError,
                         None,
@@ -390,7 +394,8 @@ fn path_of_output(stdout: Vec<u8>) -> Result<PathBuf, RepoRefusal> {
 }
 
 // A path git reported, as a complete location with each link resolved. An empty, driveless or
-// unresolvable answer is git's anomaly, not a bad path from the person: `vcsError`.
+// unresolvable answer is git's anomaly, not a bad path from the person: `vcsError`; a resolve the
+// file system did not answer in time is `notReadable`, as the person's own path would be.
 async fn resolve_reported_path(reported: &Path) -> Result<PathBuf, RepoRefusal> {
     if !PathRules::NATIVE.names_complete_location(&reported.to_string_lossy()) {
         return Err(root_resolution_refusal(
@@ -399,7 +404,12 @@ async fn resolve_reported_path(reported: &Path) -> Result<PathBuf, RepoRefusal> 
         ));
     }
     resolve_real_path(reported).await.map_err(|error| {
-        root_resolution_refusal(RepoMountRootResolutionReason::VcsError, Some(&error))
+        let reason = if error.kind() == io::ErrorKind::TimedOut {
+            RepoMountRootResolutionReason::NotReadable
+        } else {
+            RepoMountRootResolutionReason::VcsError
+        };
+        root_resolution_refusal(reason, Some(&error))
     })
 }
 
@@ -433,22 +443,27 @@ async fn resolve_listed_tree(record: &ListedWorktree) -> Result<Option<PathBuf>,
 
 // Whether `<folder>/.git` is visibly there, following a link: true on a read and on every failure
 // but `NotFound`, so a `.git` git cannot read still counts, and a dangling `.git` link counts as
-// none, as it does for git.
-async fn has_visible_git_entry(folder: &Path) -> bool {
-    match tokio::fs::metadata(folder.join(GIT_ENTRY_NAME)).await {
-        Ok(_) => true,
+// none, as it does for git. A look the file system does not answer in time is `notReadable`.
+async fn has_visible_git_entry(folder: &Path) -> Result<bool, RepoRefusal> {
+    let looked = read_within_ceiling(&folder.join(GIT_ENTRY_NAME), |entry| {
+        Ok(std::fs::metadata(entry).map(drop))
+    })
+    .await
+    .map_err(|error| refusal_of_filesystem_failure(&error))?;
+    Ok(match looked {
+        Ok(()) => true,
         Err(error) => error.kind() != io::ErrorKind::NotFound,
-    }
+    })
 }
 
-// The last gate before a root leaves: it opens for listing. `real_path` proves only that it can be
-// passed through (a mode-0111 root passes, and git answers there), and the root itself is opened,
-// so a readable folder inside an unreadable root is refused.
+// The last gate before a root leaves: it opens for listing within the bounded read's ceiling.
+// `real_path` proves only that it can be passed through (a mode-0111 root passes, and git answers
+// there), and the root itself is opened, so a readable folder inside an unreadable root is
+// refused.
 async fn require_readable_root(root: &Path) -> Result<(), RepoRefusal> {
-    match tokio::fs::read_dir(root).await {
-        Ok(_listing) => Ok(()),
-        Err(error) => Err(refusal_of_filesystem_failure(&error)),
-    }
+    read_within_ceiling(root, |root| std::fs::read_dir(root).map(drop))
+        .await
+        .map_err(|error| refusal_of_filesystem_failure(&error))
 }
 
 #[cfg(test)]
@@ -458,9 +473,12 @@ mod tests {
 
     use rstest::rstest;
     use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
-    use sidekicks_platforms::{Spawner, is_superuser, make_folder_unreadable, real_path};
+    use sidekicks_platforms::{
+        CAN_OPEN_INSIDE_UNREADABLE_FOLDER, Spawner, is_superuser, make_folder_unreadable, real_path,
+    };
 
     use super::{RepoRootResolution, RepoRootResolver};
+    use crate::file::bounded_read::stall_reads_of;
     use crate::git::process::{GitCall, GitLimits, GitRunner, test_git_runner};
     use crate::workspace::repo::errors::RepoRefusal;
 
@@ -473,8 +491,10 @@ mod tests {
         PlantedGitFile,
         // A path that names nothing, resolved by a runner that finds no git.
         MissingPath,
-        // A path under a mode-000 main checkout, resolved by a runner that finds no git.
+        // A path under a main checkout no one may read, resolved by a runner that finds no git.
         UnreadableRoot,
+        // The main checkout, whose reads never answer, resolved by a runner that finds no git.
+        HeldRead,
     }
 
     // A runner whose every call fails as no git found, so a case that answers otherwise never ran
@@ -488,12 +508,14 @@ mod tests {
         )
     }
 
-    // Catches a wrong main checkout, a planted `.git` admitted, git asked first, or a lost reason.
+    // Catches a wrong main checkout, a planted `.git` admitted, git asked first, a lost reason, or a
+    // read awaited past the ceiling.
     #[rstest]
     #[case::a_linked_worktree(Pick::LinkedWorktree)]
     #[case::a_planted_git_file(Pick::PlantedGitFile)]
     #[case::a_missing_path(Pick::MissingPath)]
     #[case::an_unreadable_root(Pick::UnreadableRoot)]
+    #[case::a_held_read(Pick::HeldRead)]
     #[tokio::test]
     async fn a_picked_path_resolves_to_its_main_checkout_or_is_refused_with_its_reason(
         #[case] pick: Pick,
@@ -543,6 +565,7 @@ mod tests {
         // Held to the test's end, then dropped before the temporary folder is removed.
         let _unreadable = matches!(pick, Pick::UnreadableRoot)
             .then(|| make_folder_unreadable(&main).expect("the root is made unreadable"));
+        let _held = matches!(pick, Pick::HeldRead).then(|| stall_reads_of(&main, 0));
         let (resolver, path, expected): (_, PathBuf, Result<_, (_, bool)>) = match pick {
             Pick::LinkedWorktree => (
                 RepoRootResolver::new(git),
@@ -573,9 +596,23 @@ mod tests {
                 outer.join("missing"),
                 Err((RepoMountRootResolutionReason::PathNotFound, true)),
             ),
+            // Where a path inside an unreadable folder still opens (Windows' bypass-traverse
+            // right), the missing `inner` is found missing rather than refused.
             Pick::UnreadableRoot => (
                 RepoRootResolver::new(runner_without_git()),
                 main.join("inner"),
+                Err((
+                    if CAN_OPEN_INSIDE_UNREADABLE_FOLDER {
+                        RepoMountRootResolutionReason::PathNotFound
+                    } else {
+                        RepoMountRootResolutionReason::NotReadable
+                    },
+                    true,
+                )),
+            ),
+            Pick::HeldRead => (
+                RepoRootResolver::new(runner_without_git()),
+                main.clone(),
                 Err((RepoMountRootResolutionReason::NotReadable, true)),
             ),
         };
