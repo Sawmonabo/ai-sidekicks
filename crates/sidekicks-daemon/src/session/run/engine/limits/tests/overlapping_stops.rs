@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use rstest::rstest;
-use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::run::events::AgentTurnCompletedPayload;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use tokio::sync::oneshot;
@@ -13,8 +14,8 @@ use crate::pause_point::ArmedPause;
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
-    SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, stored_events,
-    test_engine, token_limit, turn, turn_started_at,
+    SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, run_version,
+    stored_events, test_engine, token_limit, turn, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::uuid_v7::mint_uuid_v7;
@@ -220,25 +221,21 @@ async fn a_stop_whose_turn_ends_as_its_cut_goes_in_names_no_turn() {
     )
     .await;
     let ArmedPause { reached, release } = engine.cut_pause.arm();
-    // Turn 1's end lands while the stop is held with its cut in, written beside the engine so
-    // that no end reads the cut.
+    // Turn 1's end lands while the stop is held with its cut in, appended to the log beside the
+    // engine's turn ends so that no end reads the cut.
     let turn_ends = async {
         reached.await.expect("the stop holds its cut");
-        database
-            .reader()
-            .execute(
-                &format!(
-                    "INSERT INTO session_events (id, session_id, sequence, occurred_at,
-                       monotonic_ns, category, type, payload, run_id, run_version, turn_number)
-                     SELECT ?1, session_id, sequence + 1, occurred_at, monotonic_ns, category,
-                       '{}', payload, run_id, run_version, turn_number
-                       FROM session_events WHERE run_id = ?2 AND type = '{}'",
-                    SessionEventType::AgentTurnCompleted.as_str(),
-                    SessionEventType::AgentTurnStarted.as_str()
-                ),
-                [mint_uuid_v7().to_string().as_str(), run_id.text().as_str()],
-            )
-            .expect("the test ends turn 1");
+        append(
+            &engine,
+            session_id,
+            &SessionEvent::AgentTurnCompleted(AgentTurnCompletedPayload {
+                session_id,
+                run_id,
+                run_version: run_version(1),
+                turn_number: turn(1),
+            }),
+        )
+        .await;
         release.send(()).expect("the stop waits at its cut");
     };
 
