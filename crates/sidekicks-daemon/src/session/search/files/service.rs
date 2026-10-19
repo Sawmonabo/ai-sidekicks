@@ -3,8 +3,8 @@
 //! A row whose real location is not strictly inside the working folder is dropped, so no answer
 //! follows a link out of it or back to the folder itself. A folder is listed once, on a task of its
 //! own that runs to its end whether or not a search still waits, and every search shares that
-//! listing until the folder is reported changed; ranking and the real locations run off the
-//! runtime.
+//! listing until the folder is reported changed or no longer watched; ranking and the real
+//! locations run off the runtime.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -176,8 +176,9 @@ impl From<FileSearchError> for HandlerError {
 pub(crate) struct FileSearchService {
     pool: Arc<DatabaseReadPool>,
     git: GitRunner,
-    /// Each working folder's listing, kept until the folder is reported changed; one that ends
-    /// without a listing takes itself out, so the next search lists the folder again.
+    /// Each working folder's listing, kept until the folder is reported changed or no longer
+    /// watched; one that ends without a listing takes itself out, so the next search lists the
+    /// folder again.
     listings: Arc<Mutex<KeptListings>>,
     /// Every listing's task, so the stop waits for each.
     listing_tasks: TaskTracker,
@@ -200,12 +201,15 @@ impl FileSearchService {
     }
 
     /// Drops the kept listing of the working folder `root`, as the session stores the folder, so
-    /// the next search of it lists it again; a listing under way is no longer shared.
+    /// the next search lists it again; the working-folder watch calls it on each change it reports
+    /// and when it stops following the folder, so no listing outlives its watch. A listing under
+    /// way is no longer shared.
     #[cfg_attr(
         not(test),
         expect(
             dead_code,
-            reason = "the working-folder watch reports each change to a session's folder through it"
+            reason = "the working-folder watch reports each change to a session's folder, and its \
+                      end, through it"
         )
     )]
     pub(crate) fn invalidate(&self, root: &Path) {
