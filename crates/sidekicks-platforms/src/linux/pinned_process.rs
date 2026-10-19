@@ -14,7 +14,8 @@ use polling::{Event, Poller};
 use crate::child_command::ChildEnd;
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::pinned_process::ProcessRecord;
-use crate::posix::process_stop::{kill_rest_of_group, stop_pinned_process, wait_for_event};
+use crate::posix::process_group::signal_group;
+use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
 
 // The stat file's fields holding the process's group and session.
 const GROUP_FIELD: usize = 5;
@@ -113,7 +114,7 @@ impl PinnedProcess {
         if is_reaped && read_process_file(self.id, "stat")?.is_some() {
             return Ok(false);
         }
-        kill_rest_of_group(self.id)
+        signal_group(self.id, Signal::SIGKILL)
     }
 
     // Sends `signal` through the descriptor with `flags`; `false` when the process has ended.
@@ -207,7 +208,7 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
     if !has_members {
         return Ok(false);
     }
-    kill_rest_of_group(record.id)
+    signal_group(record.id, Signal::SIGKILL)
 }
 
 // A stat file's number field read as `Number`; fails with `InvalidData` when it is not one.

@@ -1,13 +1,10 @@
 //! The stop of a pinned process on macOS and Linux: `SIGTERM`, a grace for the process to answer
-//! it, then `SIGKILL`, each sent and awaited through the system's own pin of that process, and
-//! the kill of the rest of the process group the process leads, which its exit never ends.
+//! it, then `SIGKILL`, each sent and awaited through the system's own pin of that process.
 
 use std::io::{self, ErrorKind};
 use std::time::{Duration, Instant};
 
-use nix::errno::Errno;
-use nix::sys::signal::{Signal, killpg};
-use nix::unistd::Pid;
+use nix::sys::signal::Signal;
 use polling::{Events, Poller};
 
 use crate::child_command::ChildEnd;
@@ -37,19 +34,6 @@ pub(crate) fn stop_pinned_process(
         ErrorKind::TimedOut,
         "the process still runs after it was killed",
     ))
-}
-
-/// Sends `SIGKILL` to the group process `id` leads, which outlives its leader while any member
-/// runs and keeps the id from passing to another group meanwhile; `false` when the group has
-/// ended. Fails with `InvalidInput` for an id past `i32::MAX`, else with the system's error.
-pub(crate) fn kill_rest_of_group(id: u32) -> io::Result<bool> {
-    let group = libc::pid_t::try_from(id)
-        .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))?;
-    match killpg(Pid::from_raw(group), Signal::SIGKILL) {
-        Ok(()) => Ok(true),
-        Err(Errno::ESRCH) => Ok(false),
-        Err(errno) => Err(io::Error::from(errno)),
-    }
 }
 
 /// Waits up to `bound` for the one source `poller` watches to post its event; answers whether it
@@ -86,9 +70,9 @@ mod tests {
 
     // Fails when `SIGKILL` goes first, which ends the answering child by the kill and answers
     // `Kill`; when the `SIGKILL` is skipped, which leaves the trapping child running, so the stop
-    // times out; or when it goes to the leader alone, or a child that answers the stop leaves the
+    // times out; when it goes to the leader alone, or a child that answers the stop leaves the
     // rest of its group alone, either of which leaves the child's own child running, which then
-    // prints.
+    // prints; or when the kill of a group left with only its exited, unreaped leader fails.
     #[rstest]
     #[case::ignoring_the_stop(
         r#"trap "" TERM; (/bin/sleep 5; echo outlived) & echo ready; read never"#,
@@ -97,6 +81,11 @@ mod tests {
     )]
     #[case::answering_the_stop(
         "(/bin/sleep 5; echo outlived) & echo ready; read never",
+        ChildEnd::Stop,
+        Signal::SIGTERM
+    )]
+    #[case::answering_the_stop_alone(
+        "echo ready; exec /bin/sleep 30",
         ChildEnd::Stop,
         Signal::SIGTERM
     )]

@@ -19,7 +19,8 @@ use polling::{PollMode, Poller};
 use crate::child_command::ChildEnd;
 use crate::macos::processes::{list_child_process_ids, list_group_process_ids};
 use crate::pinned_process::ProcessRecord;
-use crate::posix::process_stop::{kill_rest_of_group, stop_pinned_process, wait_for_event};
+use crate::posix::process_group::signal_group;
+use crate::posix::process_stop::{stop_pinned_process, wait_for_event};
 
 // The key a stop registers the process's exit filter under, the only source its poller watches.
 const EXIT_KEY: usize = 0;
@@ -204,7 +205,7 @@ impl PinnedProcess {
         if pinned(self.id)?.is_some_and(|holder| holder.unique_id != self.unique_id) {
             return Ok(false);
         }
-        kill_rest_of_group(self.id)
+        signal_group(self.id, Signal::SIGKILL)
     }
 
     // Sends `signal` to the process the id still names, by the id version read in the same check
@@ -323,7 +324,7 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
     if !has_members {
         return Ok(false);
     }
-    kill_rest_of_group(record.id)
+    signal_group(record.id, Signal::SIGKILL)
 }
 
 // The start time of process `id` in microseconds since the epoch, read only while `unique_id`

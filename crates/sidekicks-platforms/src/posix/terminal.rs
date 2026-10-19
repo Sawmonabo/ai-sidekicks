@@ -18,13 +18,14 @@ use std::time::{Duration, Instant};
 
 use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
 use nix::errno::Errno;
-use nix::sys::signal::{Signal, kill, killpg};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
 use crate::posix::process_exit::wait_for_exit;
+use crate::posix::process_group::signal_group;
 #[cfg(any(test, feature = "test-support"))]
 use crate::shell_start::SHELL_START_CONFIRMATION;
 use crate::spawner::Spawner;
@@ -63,16 +64,20 @@ pub const DOES_PAUSED_READ_HOLD_INPUT: bool = false;
 /// reads: no on macOS and Linux, which have no console.
 pub const DOES_CONSOLE_COUNT_WAITING_INPUT: bool = false;
 
-/// Ends the process group `pid` leads with `SIGKILL`; no stop takes this route on macOS or Linux,
-/// and a job an interactive shell moved into a group of its own is outside it. Fails with
-/// `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the kill is refused;
-/// a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
+/// Ends the process group `pid` leads with `SIGKILL`, on a blocking thread; no stop takes this
+/// route on macOS or Linux, and a job an interactive shell moved into a group of its own is
+/// outside it. Fails with `InvalidInput` for a pid past `i32::MAX`, and with the system's error
+/// when the kill is refused; a group already gone answers [`ProcessTreeEnd::AlreadyGone`].
 pub fn end_process_tree(
     _spawner: &Spawner,
     pid: u32,
 ) -> impl Future<Output = io::Result<ProcessTreeEnd>> + Send {
-    // The kill is one system call, so the future is ready at once.
-    ready(signal_process_group(pid, TerminalSignal::Kill))
+    // A group whose kill macOS refuses is listed, which waits, so the kill leaves the runtime.
+    async move {
+        tokio::task::spawn_blocking(move || signal_process_group(pid, TerminalSignal::Kill))
+            .await
+            .map_err(io::Error::other)?
+    }
 }
 
 /// Runs the console helper, which only Windows has: always fails with `Unsupported`.
@@ -578,11 +583,11 @@ fn is_hang_up(error: &io::Error) -> bool {
 /// Fails with `InvalidInput` for a pid past `i32::MAX`, and with the system's error when the send
 /// is refused.
 fn signal_process_group(pid: u32, signal: TerminalSignal) -> io::Result<ProcessTreeEnd> {
-    match killpg(process_id(pid)?, posix_signal(signal)) {
-        Ok(()) => Ok(ProcessTreeEnd::Ended),
-        Err(Errno::ESRCH) => Ok(ProcessTreeEnd::AlreadyGone),
-        Err(errno) => Err(io::Error::from(errno)),
-    }
+    Ok(if signal_group(pid, posix_signal(signal))? {
+        ProcessTreeEnd::Ended
+    } else {
+        ProcessTreeEnd::AlreadyGone
+    })
 }
 
 /// The POSIX pid for `pid`; fails with `InvalidInput` past `i32::MAX`.
