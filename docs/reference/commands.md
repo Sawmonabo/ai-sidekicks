@@ -53,6 +53,7 @@ Nobody types these. One program, `sidekicks-daemon`, is signed and shipped; the 
 | `shell <daemon-pid>` | The service | Starts each terminal shell inside the service's process containment, reading the shell's program, arguments, folder, environment and any text the shell parses itself, and the fallback shell's launch, from its start confirmation. |
 | `console <pid>` | The service, on Windows | Sends a shell the hard stop (`CTRL_BREAK_EVENT`) and checks whether a console is waiting. |
 | `console input <pid>` | The service, on Windows | Writes how many input events wait unread on a shell's console, so the screen's answers stop while its program reads none of them. |
+| `environment <marker>` | The person's login shell, which the service starts once at its start | Prints the environment the login shell hands it between two marker lines, each entry ended by a NUL, so the service reads the environment every provider starts from without any program of the system's. |
 | `minidump` | The service | Writes the service's own crash reports. |
 | `index` | The service | Rebuilds the session search index in a child process, so a crash there cannot take the service down. |
 | `database shell` | The service | SQLite's own shell, used for `.recover` on a damaged database. |

@@ -13,6 +13,7 @@
 use std::ffi::{CString, c_char, c_int};
 use std::process::ExitCode;
 
+/// The allocator every thread of the program allocates through.
 #[global_allocator]
 static GLOBAL_ALLOCATOR: sidekicks_platforms::GlobalAllocator =
     sidekicks_platforms::GLOBAL_ALLOCATOR;
@@ -22,7 +23,7 @@ unsafe extern "C" {
     fn sqlite3_shell_main(argc: c_int, argv: *mut *mut c_char) -> c_int;
 }
 
-// Runs SQLite's shell with `arguments`, its first the program's name.
+/// Runs SQLite's shell with `arguments`, its first the program's name.
 fn run_sqlite_shell(arguments: &[CString]) -> c_int {
     let mut argv: Vec<*mut c_char> = arguments
         .iter()
