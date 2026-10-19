@@ -267,6 +267,18 @@ fn open_recorded_job(record: &ProcessRecord, name: &str) -> io::Result<Option<Ow
 // Ends every process still in `job`, which is open with the rights to ask what it holds and to
 // end it; `false` when it holds none, which no end is asked for.
 fn end_job_processes(job: &OwnedHandle) -> io::Result<bool> {
+    if count_active_processes(job)? == 0 {
+        return Ok(false);
+    }
+    // SAFETY: the job's handle is open and carries the right to end it.
+    if unsafe { TerminateJobObject(job.as_raw_handle(), KILLED_EXIT_CODE) } == FALSE {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(true)
+}
+
+// How many processes `job`, open with the right to ask what it holds, still holds.
+fn count_active_processes(job: &OwnedHandle) -> io::Result<u32> {
     let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
     // SAFETY: the job's handle is open with the right to query it, and the call writes the live
     // record of the length given and no returned length.
@@ -283,14 +295,7 @@ fn end_job_processes(job: &OwnedHandle) -> io::Result<bool> {
     if is_read == FALSE {
         return Err(io::Error::last_os_error());
     }
-    if accounting.ActiveProcesses == 0 {
-        return Ok(false);
-    }
-    // SAFETY: the job's handle is open and carries the right to end it.
-    if unsafe { TerminateJobObject(job.as_raw_handle(), KILLED_EXIT_CODE) } == FALSE {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(true)
+    Ok(accounting.ActiveProcesses)
 }
 
 /// The exit code of `process`, open with the right to read it; final once the process has exited.
@@ -378,7 +383,7 @@ mod tests {
     use rstest::rstest;
     use sysinfo::{Pid, ProcessesToUpdate, System};
 
-    use super::{PinnedProcess, read_exit_code};
+    use super::{PinnedProcess, count_active_processes, read_exit_code};
     use crate::child_command::ChildEnd;
     use crate::lasting_child::{LastingChild, LastingCommand};
     use crate::pinned_process::KILL_WAIT_BOUND;
@@ -513,6 +518,20 @@ mod tests {
                 .wait_for_exit(KILL_WAIT_BOUND)
                 .expect("the child's wait reads")
         );
+        // The job's count may drop after the process's handle signals, so it is polled to 0.
+        let job = child
+            .process
+            .job_handle
+            .as_deref()
+            .expect("a lasting child runs in a job");
+        let give_up_at = Instant::now() + KILL_WAIT_BOUND;
+        while count_active_processes(job).expect("the job's count reads") != 0 {
+            assert!(
+                Instant::now() < give_up_at,
+                "the job still counts a process"
+            );
+            std::thread::yield_now();
+        }
 
         let end = child.process.stop(Duration::ZERO).expect("the stop reads");
         let is_ended = child.record.end_survivors().expect("the survivors read");
