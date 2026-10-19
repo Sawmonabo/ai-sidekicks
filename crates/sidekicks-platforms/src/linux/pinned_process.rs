@@ -239,7 +239,8 @@ fn current_boot() -> io::Result<String> {
 }
 
 /// The caller's own child `id`, pinned; the child is not yet reaped, so no other process can take
-/// its id meanwhile. Fails with `ESRCH` when no process has the id, else with the system's error.
+/// its id meanwhile. Fails with `ESRCH` when no process has the id, with `InvalidInput` for an id
+/// of 0 or past `i32::MAX`, else with the system's error.
 pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
     Ok(PinnedProcess {
         id,
