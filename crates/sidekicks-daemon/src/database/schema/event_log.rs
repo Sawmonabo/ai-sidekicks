@@ -87,7 +87,7 @@ CREATE UNIQUE INDEX idx_session_events_turn_end_once
   ON {SESSION_EVENTS_TABLE}(run_id, turn_number)
   WHERE category = '{run_lifecycle}' AND type IN ({turn_end_types});
 -- A turn number starts once in its run: a start that raced another to the same number is refused
--- and numbered again. A NULL key would pass a UNIQUE index, so the trigger below refuses one.
+-- and numbered again. A NULL key would pass a UNIQUE index, so the triggers below refuse one.
 CREATE UNIQUE INDEX idx_session_events_turn_start_once
   ON {SESSION_EVENTS_TABLE}(run_id, turn_number)
   WHERE category = '{run_lifecycle}' AND type = '{TURN_STARTED_EVENT_TYPE}';
@@ -164,6 +164,29 @@ WHEN NEW.category = '{run_lifecycle}'
   AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL)
 BEGIN
   SELECT RAISE(ABORT, 'a turn start row requires a run_id and a turn_number');
+END;
+
+-- A committed turn start keeps its key and cannot be moved out of the index's predicate.
+CREATE TRIGGER trg_turn_start_key_update
+BEFORE UPDATE OF run_id, turn_number, category, type ON {SESSION_EVENTS_TABLE}
+WHEN OLD.category = '{run_lifecycle}'
+  AND OLD.type = '{TURN_STARTED_EVENT_TYPE}'
+  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL
+    OR NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number
+    OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
+BEGIN
+  SELECT RAISE(ABORT, 'a turn start row keeps its run_id, turn_number, category and type');
+END;
+
+-- Turn starts are insert-only: no update may promote a row into the index.
+CREATE TRIGGER trg_turn_start_key_promote
+BEFORE UPDATE OF category, type ON {SESSION_EVENTS_TABLE}
+WHEN NOT (OLD.category = '{run_lifecycle}' AND OLD.type = '{TURN_STARTED_EVENT_TYPE}')
+  AND NEW.category = '{run_lifecycle}'
+  AND NEW.type = '{TURN_STARTED_EVENT_TYPE}'
+BEGIN
+  SELECT RAISE(ABORT, 'a row cannot become a turn start row by UPDATE; turn start rows are \
+         insert-only');
 END;
 
 CREATE TABLE session_snapshots (
