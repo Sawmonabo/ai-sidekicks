@@ -48,10 +48,11 @@ pub fn daemon_run_folder() -> io::Result<DaemonRunFolder> {
 }
 
 /// Checks that the run folder at `folder` is private: opened without following a link, it is a
-/// folder, owned by this process's user, whose access list lets in no account but that user,
-/// SYSTEM and the Administrators. Fails with [`RunFolderRefused::Read`] when it cannot be read,
-/// [`RunFolderRefused::NotOwnFolder`] for a link, a file or another account's folder, and
-/// [`RunFolderRefused::OpenToAccount`] for one that lets another account in.
+/// folder, owned by this process's user, SYSTEM or the Administrators (who own what an elevated
+/// process makes), whose access list lets in no account but those three. Fails with
+/// [`RunFolderRefused::Read`] when it cannot be read, [`RunFolderRefused::NotOwnFolder`] for a
+/// link, a file or another account's folder, and [`RunFolderRefused::OpenToAccount`] for one that
+/// lets another account in.
 pub fn check_private_run_folder(folder: &Path) -> Result<(), RunFolderRefused> {
     let read_error = |source: io::Error| RunFolderRefused::Read {
         folder: folder.to_path_buf(),
@@ -71,7 +72,7 @@ pub fn check_private_run_folder(folder: &Path) -> Result<(), RunFolderRefused> {
     }
     let security = FolderSecurity::read(&opened).map_err(read_error)?;
     let user = ProcessUser::of_this_process().map_err(read_error)?;
-    if !user.has_sid(security.owner) {
+    if !is_admitted(&user, security.owner) {
         return Err(not_own_folder());
     }
     match security.first_other_account(&user).map_err(read_error)? {
@@ -167,10 +168,11 @@ impl Drop for FolderSecurity {
     }
 }
 
-// Whether `sid` is an account the run folder may let in: the user, SYSTEM or the Administrators.
+// Whether `sid` is an account that may own the run folder or be let in: the user, SYSTEM or the
+// Administrators.
 fn is_admitted(user: &ProcessUser, sid: PSID) -> bool {
     let is_well_known = |kind| {
-        // SAFETY: `sid` points at an id inside a live access list.
+        // SAFETY: `sid` points at a live id inside the folder's security descriptor.
         let is_kind = unsafe { IsWellKnownSid(sid, kind) };
         is_kind != FALSE
     };
