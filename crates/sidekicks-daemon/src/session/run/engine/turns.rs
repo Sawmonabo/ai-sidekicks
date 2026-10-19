@@ -151,7 +151,7 @@ impl StepCount {
 pub(crate) struct ProviderReportWritten<Written> {
     /// What the report wrote.
     pub(crate) written: Written,
-    /// Why the step limit's interrupt handed again failed, where it did.
+    /// Why a limit's interrupt handed again failed, where it did.
     pub(crate) resend_failure: Option<RunEngineError>,
 }
 

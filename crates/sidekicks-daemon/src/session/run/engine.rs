@@ -436,8 +436,9 @@ impl RunEngine {
     /// the same way, but a terminal before its next turn started belongs to the turn that ended it
     /// and is refused at once. A send's re-open of an ended run is the daemon's, never a
     /// provider's. Once a turn's end is written with the change, a step limit's interrupt a stop
-    /// of the run could not hand is handed again, its failure returned beside the run as the
-    /// change left it.
+    /// of the run could not hand is handed again, and once the run is back to `running` from a
+    /// wait for an approval or for input, the interrupt of every limit it owes, each failure
+    /// returned beside the run as the change left it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         self: &Arc<Self>,
@@ -472,11 +473,19 @@ impl RunEngine {
             return Err(self.refuse_ended(run_id, change, &run, turn_end).await);
         }
         let is_turn_ended = turn_end.is_some();
+        // A limit whose hand failed while the run waited has no step or usage report to hand it
+        // again until the run moves on.
+        let is_back_from_wait = matches!(
+            run.state,
+            RunState::WaitingForApproval | RunState::WaitingForInput
+        ) && RunState::from(to_state) == RunState::Running;
         let turn_end = turn_end.map(|end| self.provider_turn_end(&run_id, end));
         let changed = self
             .change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
             .await?;
-        let resend_failure = if is_turn_ended {
+        let resend_failure = if is_back_from_wait {
+            self.hand_owed_limit_interrupts(run_id).await.err()
+        } else if is_turn_ended {
             self.hand_owed_step_interrupt(run_id).await.err()
         } else {
             None

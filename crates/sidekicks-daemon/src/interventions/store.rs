@@ -1,5 +1,6 @@
 //! The `interventions` row: the statements that write it, each guarded so a write decided from a
-//! stale read is refused whole, and the read of a row saved under a reused idempotency key.
+//! stale read is refused whole, the read of a row saved under a reused idempotency key, and the
+//! read of whether a limit's interrupt of a run is pending.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -11,8 +12,9 @@ use sidekicks_contracts::provider::driver::length_limits::{
 };
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::intervention::InterventionType;
-use sidekicks_contracts::run::intervention::{InterventionId, InterventionState};
+use sidekicks_contracts::run::intervention::{
+    InterventionId, InterventionState, InterventionType, RunLimit,
+};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
@@ -173,6 +175,24 @@ const RUN_IN_STATES_SQL: &str = "SELECT 1 FROM runs
   WHERE run_id = @run_id
     AND state IN (SELECT value FROM json_each(@states))";
 
+// An interrupt of the run at one limit that has no outcome yet.
+static PENDING_LIMIT_INTERRUPT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM interventions
+   WHERE target_run_id = @run_id
+     AND type = '{}'
+     AND state IN ('{}', '{}')
+     AND json_extract(payload, '$.limit') = @limit
+   LIMIT 1",
+        <&'static str>::from(InterventionType::Interrupt),
+        <&'static str>::from(InterventionState::Requested),
+        <&'static str>::from(InterventionState::Accepted)
+    )
+});
+
+static SELECT_LIMIT_INTERRUPT_PENDING_SQL: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT EXISTS ({})", *PENDING_LIMIT_INTERRUPT_SQL));
+
 const SELECT_BY_IDEMPOTENCY_KEY_SQL: &str =
     "SELECT id, type, state, payload, rejection_reason, failure_reason FROM interventions
   WHERE target_run_id = @target_run_id AND client_idempotency_key = @client_idempotency_key";
@@ -308,4 +328,22 @@ pub(crate) fn read_intervention_by_idempotency_key(
             },
         )
         .optional()
+}
+
+/// Whether an interrupt of `run_id` at `limit` is `requested` or `accepted`, read on `reader`.
+/// Fails as the read fails.
+pub(crate) fn is_limit_interrupt_pending(
+    reader: &Connection,
+    run_id: &RunId,
+    limit: RunLimit,
+) -> rusqlite::Result<bool> {
+    reader
+        .prepare_cached(&SELECT_LIMIT_INTERRUPT_PENDING_SQL)?
+        .query_row(
+            named_params! {
+                "@run_id": run_id.text().as_str(),
+                "@limit": <&'static str>::from(limit),
+            },
+            |row| row.get(0),
+        )
 }
