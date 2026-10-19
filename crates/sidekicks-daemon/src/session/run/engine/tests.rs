@@ -4,7 +4,8 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -21,6 +22,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::Spawner;
 use tokio::runtime::Handle;
+use tokio::sync::oneshot;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
@@ -36,6 +38,14 @@ use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::projection::RUNS_TABLE_SQL;
 use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
 use crate::uuid_v7::mint_uuid_v7;
+
+/// Bounds a start or a continue and the call made while its driver is held, so a call that waits
+/// on nothing fails the test.
+pub(super) const SETTLE_WAIT: Duration = Duration::from_secs(10);
+
+/// How long a held driver stays held once the call under test is in flight, long enough for a
+/// call that does not wait to read the run and act on what it reads.
+pub(super) const DRIVER_HOLD: Duration = Duration::from_millis(200);
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
 /// interventions service and its posture files under `home`; a test makes the tables its runs
@@ -207,8 +217,31 @@ pub(super) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (Stri
         .expect("the test reads the run's row")
 }
 
-/// A continue of the interrupted `run_id` from an admitted message, read-only at the root, whose
-/// driver starts the next turn as `start_driver` does and whose turn interrupt succeeds at once.
+/// A turn start of `run_id`, read-only at the root, whose driver starts the turn as `start_driver`
+/// does and whose turn interrupt succeeds at once.
+pub(super) fn turn_start(
+    run_id: RunId,
+    start_driver: impl Fn(
+        ExecutionPosture,
+    ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
+    + Send
+    + Sync
+    + 'static,
+) -> RunTurnStart {
+    RunTurnStart {
+        run_id,
+        workspace_id: None,
+        execution_posture: compose_execution_posture(
+            PermissionLevel::Readonly,
+            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+        ),
+        start_driver: Box::new(start_driver),
+        interrupt_driver: Box::new(|| async { Ok(()) }.boxed()),
+    }
+}
+
+/// A continue of the interrupted `run_id` from an admitted message, its turn started as
+/// [`turn_start`] starts it.
 pub(super) fn continue_request(
     run_id: RunId,
     start_driver: impl Fn(
@@ -228,16 +261,7 @@ pub(super) fn continue_request(
     }))
     .expect("the test's message reads as an admitted item");
     RunContinueRequest {
-        turn: RunTurnStart {
-            run_id,
-            workspace_id: None,
-            execution_posture: compose_execution_posture(
-                PermissionLevel::Readonly,
-                FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-            ),
-            start_driver: Box::new(start_driver),
-            interrupt_driver: Box::new(|| async { Ok(()) }.boxed()),
-        },
+        turn: turn_start(run_id, start_driver),
         queue_item,
     }
 }
@@ -247,4 +271,35 @@ pub(super) fn started_turn(
     _resolved_posture: ExecutionPosture,
 ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>> {
     async { Ok(()) }.boxed()
+}
+
+/// A driver start that is held once it begins: the start, which reports on the receiver that it
+/// began and then waits until the sender releases it. It starts one turn.
+pub(super) fn held_driver() -> (
+    impl Fn(ExecutionPosture) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
+    + Send
+    + Sync
+    + 'static,
+    oneshot::Receiver<()>,
+    oneshot::Sender<()>,
+) {
+    let (driver_started, driver_has_started) = oneshot::channel::<()>();
+    let (release_driver, driver_released) = oneshot::channel::<()>();
+    let held = Mutex::new(Some((driver_started, driver_released)));
+    let start_driver = move |_resolved_posture: ExecutionPosture| {
+        let (started, released) = held
+            .lock()
+            .expect("the test's driver is not poisoned")
+            .take()
+            .expect("the driver starts one turn");
+        async move {
+            started
+                .send(())
+                .expect("the test waits for the driver's start");
+            released.await?;
+            Ok::<(), Box<dyn Error + Send + Sync>>(())
+        }
+        .boxed()
+    };
+    (start_driver, driver_has_started, release_driver)
 }

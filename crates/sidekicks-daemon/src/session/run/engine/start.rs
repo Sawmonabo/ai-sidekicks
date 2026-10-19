@@ -643,34 +643,19 @@ fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-    use std::sync::Mutex;
-    use std::time::Duration;
-
-    use futures::FutureExt as _;
     use rusqlite::params;
-    use sidekicks_contracts::free_form_string::FilesystemPath;
-    use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
     use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::session::controls::methods::PermissionLevel;
-    use tokio::sync::oneshot;
 
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
-    use crate::policy::execution_posture_service::compose_execution_posture;
     use crate::provider::driver::registry::test_provider;
-    use crate::session::run::engine::tests::test_engine;
+    use crate::session::run::engine::tests::{
+        DRIVER_HOLD, SETTLE_WAIT, held_driver, test_engine, turn_start,
+    };
     use crate::session::run::projection::RUNS_TABLE_SQL;
-    use crate::session::run::start_request::{RunStartRequest, RunTurnStart};
+    use crate::session::run::start_request::RunStartRequest;
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
     use crate::uuid_v7::mint_uuid_v7;
-
-    // Bounds the whole start and report, so a report that deadlocks on the start fails the test.
-    const SETTLE_WAIT: Duration = Duration::from_secs(10);
-
-    // How long the start is held in its driver after the report is in flight, long enough for a
-    // report that does not wait to read the run and be refused.
-    const DRIVER_HOLD: Duration = Duration::from_millis(200);
 
     // Killed by dropping the report's wait on the starting run's settlement: the report then reads
     // the run `starting`, which may not move to `waitingForApproval`, and is refused before the
@@ -697,36 +682,9 @@ mod tests {
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let engine = test_engine(&database, log.service, home.path());
 
-        let (driver_started, driver_has_started) = oneshot::channel::<()>();
-        let (release_driver, driver_released) = oneshot::channel::<()>();
-        let held_driver = Mutex::new(Some((driver_started, driver_released)));
+        let (start_driver, driver_has_started, release_driver) = held_driver();
         let request = RunStartRequest {
-            turn: RunTurnStart {
-                run_id,
-                workspace_id: None,
-                execution_posture: compose_execution_posture(
-                    PermissionLevel::Readonly,
-                    FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-                ),
-                start_driver: Box::new(move |_resolved_posture: ExecutionPosture| {
-                    let (started, released) = held_driver
-                        .lock()
-                        .expect("the test's driver is not poisoned")
-                        .take()
-                        .expect("the driver starts the run once");
-                    async move {
-                        started
-                            .send(())
-                            .expect("the test waits for the driver's start");
-                        released.await?;
-                        Ok::<(), Box<dyn Error + Send + Sync>>(())
-                    }
-                    .boxed()
-                }),
-                interrupt_driver: Box::new(|| {
-                    async { Ok::<(), Box<dyn Error + Send + Sync>>(()) }.boxed()
-                }),
-            },
+            turn: turn_start(run_id, start_driver),
             queue_item: None,
             provider: test_provider(),
             output_speed: None,

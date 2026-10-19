@@ -362,38 +362,26 @@ fn no_token_limit_reached_statement(run_id: &RunId) -> WriteStatement {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-    use std::sync::Mutex;
     use std::sync::atomic::Ordering;
-    use std::time::Duration;
 
-    use futures::FutureExt as _;
-    use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::intervention::RunLimit;
     use sidekicks_contracts::session::cost::TokensPerRun;
     use sidekicks_contracts::wire::integer::SafeInt;
-    use tokio::sync::oneshot;
 
     use super::LimitStop;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
     use crate::session::run::engine::live::lock;
     use crate::session::run::engine::tests::{
-        append, continue_request, hand_limit_interrupter, insert_running_run, started_turn,
-        stored_events, stored_run_state, test_engine, turn_started_at,
+        DRIVER_HOLD, SETTLE_WAIT, append, continue_request, hand_limit_interrupter, held_driver,
+        insert_running_run, started_turn, stored_events, stored_run_state, test_engine,
+        turn_started_at,
     };
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::engine::{RunEngine, RunEngineError};
     use crate::session::run::state_change::RunStateChangeCompanions;
     use crate::uuid_v7::mint_uuid_v7;
-
-    // Bounds a continue and the stop made during it, so a stop that waits on nothing fails.
-    const SETTLE_WAIT: Duration = Duration::from_secs(10);
-
-    // How long the continue is held in its driver after the stop is in flight, long enough for a
-    // stop that does not wait to read the run and find it ended.
-    const DRIVER_HOLD: Duration = Duration::from_millis(200);
 
     fn step_stop() -> LimitStop {
         LimitStop::Step {
@@ -751,24 +739,8 @@ mod tests {
             .await
             .expect("the person's interrupt ends the run");
         assert!(ended);
-        let (driver_started, driver_has_started) = oneshot::channel::<()>();
-        let (release_driver, driver_released) = oneshot::channel::<()>();
-        let held_driver = Mutex::new(Some((driver_started, driver_released)));
-        let request = continue_request(run_id, move |_resolved_posture: ExecutionPosture| {
-            let (started, released) = held_driver
-                .lock()
-                .expect("the test's driver is not poisoned")
-                .take()
-                .expect("the driver starts the turn once");
-            async move {
-                started
-                    .send(())
-                    .expect("the test waits for the driver's start");
-                released.await?;
-                Ok::<(), Box<dyn Error + Send + Sync>>(())
-            }
-            .boxed()
-        });
+        let (start_driver, driver_has_started, release_driver) = held_driver();
+        let request = continue_request(run_id, start_driver);
         let stop_during_continue = async {
             driver_has_started
                 .await
