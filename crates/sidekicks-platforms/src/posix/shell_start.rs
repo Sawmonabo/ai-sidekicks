@@ -21,6 +21,7 @@ use crate::macos::responsibility::OwnRootStart;
 #[cfg(target_os = "macos")]
 use crate::macos::shell_start_confirmation::receive_confirmation;
 use crate::posix::executable_file::is_executable_file;
+use crate::posix::process::id::system_process_id;
 use crate::shell_start::{ShellStart, ShellStartError};
 
 // zsh, the system's own shell on macOS.
@@ -165,10 +166,10 @@ fn arm(daemon_pid: u32) -> Result<(), ArmingFailure> {
     check_parent(daemon_pid)
 }
 
-// A pid past `i32::MAX` is never the parent.
+// A pid of 0 or past `i32::MAX` is never the parent.
 fn check_parent(daemon_pid: u32) -> Result<(), ArmingFailure> {
     let is_parent =
-        i32::try_from(daemon_pid).is_ok_and(|daemon_pid| getppid() == Pid::from_raw(daemon_pid));
+        system_process_id(daemon_pid).is_ok_and(|pid| getppid() == Pid::from_raw(pid.get()));
     if is_parent {
         Ok(())
     } else {

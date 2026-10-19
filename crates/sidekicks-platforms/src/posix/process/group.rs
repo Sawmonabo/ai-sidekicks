@@ -132,7 +132,7 @@ pub(crate) fn read_group_output_to_end(
 ) -> Option<Vec<u8>> {
     let read = read_to_end_within(output, bound).expect("the output reads");
     if read.is_none() {
-        let group = Pid::from_raw(libc::pid_t::try_from(group_id).expect("a process id fits"));
+        let group = Pid::from_raw(system_process_id(group_id).expect("a group's id").get());
         // Bounded, since a group that forks as it is killed can answer each kill.
         for _ in 0..1_000 {
             if killpg(group, Signal::SIGKILL).is_err() {

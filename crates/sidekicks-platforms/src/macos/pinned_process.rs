@@ -472,8 +472,8 @@ pub(crate) fn read_checked<Record>(
             "this macOS has no id-checked process read",
         ));
     };
-    // No process id passes `i32::MAX`, the largest the call takes.
-    let Ok(pid) = i32::try_from(id) else {
+    // An id of 0 or past `i32::MAX` names no process the daemon reads.
+    let Ok(pid) = system_process_id(id) else {
         return Ok(false);
     };
     let record_length =
@@ -484,7 +484,7 @@ pub(crate) fn read_checked<Record>(
     let written = unsafe {
         read(
             PROCESS_INFORMATION_CALL,
-            pid,
+            pid.get(),
             flavor,
             flags,
             pin,

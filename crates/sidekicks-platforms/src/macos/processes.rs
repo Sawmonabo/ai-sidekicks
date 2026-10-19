@@ -4,6 +4,8 @@ use std::io;
 use std::ptr;
 use std::sync::OnceLock;
 
+use crate::posix::process::id::system_process_id;
+
 // `<libproc.h>`'s `PROC_UID_ONLY` and `PROC_PPID_ONLY`, which `libc` does not bind: list the
 // processes of one user id, or the children of one process.
 const PROC_UID_ONLY: u32 = 4;
@@ -74,7 +76,9 @@ fn list_process_ids(kind: u32, value: u32) -> io::Result<Vec<u32>> {
 /// runs it) or shows no environment, as it shows none for its own programs. Blocks on the read;
 /// fails with the system's error on any other refusal.
 pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String>>> {
-    let pid = libc::c_int::try_from(process_id).map_err(io::Error::other)?;
+    let Ok(pid) = system_process_id(process_id) else {
+        return Ok(None);
+    };
     let argument_bytes = if let Some(bytes) = ARGUMENT_BYTES.get() {
         *bytes
     } else {
@@ -84,7 +88,7 @@ pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String
     // Allocated per read and freed after it, so no buffer the size of the limit stays held.
     let mut buffer = vec![0_u8; argument_bytes];
     let mut length = buffer.len();
-    let mut name = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut name = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid.get()];
     // SAFETY: `name` holds three integers, the buffer is live and `length` long, and nothing else
     // reads either until the call returns.
     let status = unsafe {

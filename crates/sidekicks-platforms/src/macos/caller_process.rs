@@ -18,6 +18,7 @@ use crate::macos::pinned_process::{
     TOKEN_ID_VERSION, TOKEN_PROCESS_ID, is_running, read_checked, read_unique_identifiers,
 };
 use crate::macos::responsibility::{read_responsible_id, read_responsible_unique_id};
+use crate::posix::process::id::system_process_id;
 
 /// The process that last used the other end of `stream` (the connecting one until it hands the
 /// socket on), pinned. `None` once that end has closed or that process has ended; fails with the
@@ -166,7 +167,7 @@ fn own_unique_id() -> io::Result<u64> {
 /// once `process` has ended. Fails with the system's error, `ENOENT` when the program's file is
 /// gone, so a start whose responsible process runs a deleted program fails.
 pub(crate) fn read_program_path(process: &PinnedProcess) -> io::Result<Option<PathBuf>> {
-    let Ok(pid) = libc::pid_t::try_from(process.id) else {
+    let Ok(pid) = system_process_id(process.id) else {
         return Ok(None);
     };
     let maximum =
@@ -174,7 +175,7 @@ pub(crate) fn read_program_path(process: &PinnedProcess) -> io::Result<Option<Pa
     let mut path = vec![0_u8; maximum];
     let path_length = u32::try_from(path.len()).expect("the path buffer's length fits a u32");
     // SAFETY: `path` is a live, writable buffer of the length given, which the call fills.
-    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path_length) };
+    let written = unsafe { libc::proc_pidpath(pid.get(), path.as_mut_ptr().cast(), path_length) };
     let Ok(written) = usize::try_from(written) else {
         return failed_path_read();
     };

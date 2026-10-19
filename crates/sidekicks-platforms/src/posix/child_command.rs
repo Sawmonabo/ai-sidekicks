@@ -160,6 +160,7 @@ mod tests {
     use nix::unistd::{Pid, getsid};
 
     use super::{prepare_lasting_child_command, signal_name};
+    use crate::posix::process::id::system_process_id;
 
     // Fails when the `setsid` is dropped, which leaves the child in the test's own session.
     #[test]
@@ -168,7 +169,7 @@ mod tests {
         command.arg("30");
         prepare_lasting_child_command(&mut command);
         let mut child = command.as_std_mut().spawn().expect("the child starts");
-        let pid = Pid::from_raw(i32::try_from(child.id()).expect("a process id fits an i32"));
+        let pid = Pid::from_raw(system_process_id(child.id()).expect("a child's id").get());
 
         let session = getsid(Some(pid));
 

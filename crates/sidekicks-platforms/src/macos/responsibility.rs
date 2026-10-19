@@ -18,6 +18,7 @@ use crate::ResponsibleProcess;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
 use crate::macos::pinned_process::pinned;
 use crate::own_root::OwnRootError;
+use crate::posix::process::id::system_process_id;
 
 /// The environment variable a program re-run as its own responsible process starts with, holding
 /// the id of the process that set it, which the re-run keeps, so the re-run never repeats; removed
@@ -116,12 +117,12 @@ fn look_up(name: &std::ffi::CStr) -> Option<*mut libc::c_void> {
 /// Fails with the system's error, and with `Unsupported` on a macOS without the call.
 pub(crate) fn read_responsible_unique_id(id: u32) -> io::Result<Option<u64>> {
     let calls = responsibility_calls()?;
-    let Ok(pid) = libc::pid_t::try_from(id) else {
+    let Ok(pid) = system_process_id(id) else {
         return Ok(None);
     };
     clear_errno();
     // SAFETY: the call takes any process id and only reads the kernel's records.
-    let unique_id = unsafe { (calls.responsible_unique_id)(pid) };
+    let unique_id = unsafe { (calls.responsible_unique_id)(pid.get()) };
     if unique_id != u64::MAX {
         return Ok(Some(unique_id));
     }
@@ -132,12 +133,12 @@ pub(crate) fn read_responsible_unique_id(id: u32) -> io::Result<Option<u64>> {
 /// with the system's error, and with `Unsupported` on a macOS without the call.
 pub(crate) fn read_responsible_id(id: u32) -> io::Result<Option<u32>> {
     let calls = responsibility_calls()?;
-    let Ok(pid) = libc::pid_t::try_from(id) else {
+    let Ok(pid) = system_process_id(id) else {
         return Ok(None);
     };
     clear_errno();
     // SAFETY: the call takes any process id and only reads the kernel's records.
-    let responsible = unsafe { (calls.responsible_id)(pid) };
+    let responsible = unsafe { (calls.responsible_id)(pid.get()) };
     if let Ok(responsible) = u32::try_from(responsible) {
         return Ok(Some(responsible));
     }
