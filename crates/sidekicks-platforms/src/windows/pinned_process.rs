@@ -176,8 +176,8 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 
 /// Ends what is left of the tree `record` names once its process has ended: every process still
 /// in the job a lasting child ran in; `false` when the record names no job, its process still
-/// runs, which its stop ends, or no running process is left in a job of its name. Fails with `InvalidData` for a job
-/// name no lasting child is given, else with the system's error.
+/// runs, which its stop ends, or no running process is left in a job of its name. Fails with
+/// `InvalidData` for a job name no lasting child is given, else with the system's error.
 pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
     let Some(name) = &record.job else {
         return Ok(false);
