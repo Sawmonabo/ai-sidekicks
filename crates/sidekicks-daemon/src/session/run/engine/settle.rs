@@ -73,9 +73,10 @@ impl RunEngine {
     /// Ends the run for an applied or degraded interrupt accepted at `accepted_run_version`, with
     /// `verdict` in the same write: `interrupted` for a person's, and for the daemon's own the end
     /// `limit` gives, with `cut_turn`, the turn its row names, ended interrupted with the limit of
-    /// its cuts the engine holds, else of the log's rows, else `limit`. Returns `true`, or `false`
-    /// with no change of the run written when it ended since that version, the caller then
-    /// recording the verdict alone; fails as the reads and [`RunEngine::transition`] do.
+    /// its cuts the engine holds, else of the log's rows, else `limit`; on a run that reads ended,
+    /// that turn still takes the limit's end, written on its own. Returns `true`, or `false` with
+    /// no change of the run written when it ended since that version, the caller then recording
+    /// the verdict alone; fails as the reads and [`RunEngine::transition`] do.
     #[cfg_attr(
         not(test),
         expect(
