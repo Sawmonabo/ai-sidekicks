@@ -1,11 +1,13 @@
 //! The event log's part of the daemon's schema: `session_events`, the append-only truth every
-//! session projection is rebuilt from, its indexes and the triggers that hold a terminal row and a
-//! turn end to their keys, and `session_snapshots`, a cache of a session's state at a sequence that
-//! the log can always rebuild.
+//! session projection is rebuilt from, its indexes and the triggers that hold a terminal row, a
+//! turn start and a turn end to their keys, and `session_snapshots`, a cache of a session's state
+//! at a sequence that the log can always rebuild.
 
 use sidekicks_contracts::event::envelope::EventCategory;
-use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
+use sidekicks_contracts::transcript::turn_attribution::{
+    TURN_END_EVENT_TYPES, TURN_STARTED_EVENT_TYPE,
+};
 use strum::VariantArray as _;
 
 use crate::database::sql_list::sql_list_of;
@@ -22,14 +24,7 @@ pub(super) fn event_log_schema_sql() -> String {
             .filter(|event_type| event_type.state().is_terminal())
             .map(|event_type| event_type.session_event_type().as_str()),
     );
-    let turn_end_types = sql_list_of(
-        [
-            SessionEventType::AgentTurnCompleted,
-            SessionEventType::AgentTurnInterrupted,
-            SessionEventType::AgentTurnFailed,
-        ]
-        .map(SessionEventType::as_str),
-    );
+    let turn_end_types = sql_list_of(TURN_END_EVENT_TYPES);
     format!(
         "
 -- ---------------------------------------------------------------------------
@@ -85,9 +80,13 @@ CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(run_id, run_version)
   WHERE category = '{run_lifecycle}' AND type IN ({terminal_types});
 -- Every started turn gets exactly one end; a late turn end is the one row a run's log takes after
--- its terminal row. A NULL key would pass a UNIQUE index, so the trigger below refuses one.
+-- its terminal row. A NULL key would pass a UNIQUE index, so the triggers below refuse one.
 CREATE UNIQUE INDEX idx_session_events_turn_end_once ON session_events(run_id, turn_number)
   WHERE category = '{run_lifecycle}' AND type IN ({turn_end_types});
+-- A turn number starts once in its run: a start that raced another to the same number is refused
+-- and numbered again. A NULL key would pass a UNIQUE index, so the trigger below refuses one.
+CREATE UNIQUE INDEX idx_session_events_turn_start_once ON session_events(run_id, turn_number)
+  WHERE category = '{run_lifecycle}' AND type = '{TURN_STARTED_EVENT_TYPE}';
 
 -- A terminal insert must carry its run's key.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
@@ -128,6 +127,37 @@ WHEN NEW.category = '{run_lifecycle}'
   AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL)
 BEGIN
   SELECT RAISE(ABORT, 'a turn end row requires a run_id and a turn_number');
+END;
+
+-- A committed turn end keeps its key and cannot be moved out of the index's predicate.
+CREATE TRIGGER trg_turn_end_key_update
+BEFORE UPDATE OF run_id, turn_number, category, type ON session_events
+WHEN OLD.category = '{run_lifecycle}'
+  AND OLD.type IN ({turn_end_types})
+  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL
+    OR NEW.run_id IS NOT OLD.run_id OR NEW.turn_number IS NOT OLD.turn_number
+    OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
+BEGIN
+  SELECT RAISE(ABORT, 'a turn end row keeps its run_id, turn_number, category and type');
+END;
+
+-- Turn ends are insert-only: no update may promote a row into the index.
+CREATE TRIGGER trg_turn_end_key_promote BEFORE UPDATE OF category, type ON session_events
+WHEN NOT (OLD.category = '{run_lifecycle}' AND OLD.type IN ({turn_end_types}))
+  AND NEW.category = '{run_lifecycle}'
+  AND NEW.type IN ({turn_end_types})
+BEGIN
+  SELECT RAISE(ABORT, 'a row cannot become a turn end row by UPDATE; turn end rows are \
+         insert-only');
+END;
+
+-- A turn-start insert must carry its turn's key.
+CREATE TRIGGER trg_turn_start_key_insert BEFORE INSERT ON session_events
+WHEN NEW.category = '{run_lifecycle}'
+  AND NEW.type = '{TURN_STARTED_EVENT_TYPE}'
+  AND (NEW.run_id IS NULL OR NEW.turn_number IS NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'a turn start row requires a run_id and a turn_number');
 END;
 
 CREATE TABLE session_snapshots (
