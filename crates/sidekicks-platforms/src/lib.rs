@@ -225,7 +225,9 @@ pub use posix::private_folder::create_private_folder;
 #[cfg(unix)]
 pub use posix::real_path::real_path;
 #[cfg(unix)]
-pub use posix::run_folder::{RUN_FOLDER_FILE_MODE, check_private_run_folder, daemon_run_folder};
+pub use posix::run_folder::{
+    RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
+};
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
 #[cfg(all(unix, any(test, feature = "test-support")))]
@@ -363,7 +365,9 @@ pub use windows::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "windows")]
 pub use windows::real_path::real_path;
 #[cfg(target_os = "windows")]
-pub use windows::run_folder::{RUN_FOLDER_FILE_MODE, check_private_run_folder, daemon_run_folder};
+pub use windows::run_folder::{
+    RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
+};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::shell_folder_start::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "windows")]

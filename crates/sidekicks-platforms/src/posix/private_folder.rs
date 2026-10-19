@@ -10,20 +10,9 @@ use std::path::Path;
 const PRIVATE_FOLDER_MODE: u32 = 0o700;
 
 /// Makes `folder` and every missing folder above it readable by its owner alone, and sets that mode
-/// on `folder` again, since a folder that already existed keeps its own. Fails with
-/// `InvalidInput` when `folder` is a link, before anything is made or changed, so no mode lands on
-/// the link's target, and with the system's error from the make or the mode change.
+/// on `folder` again, since a folder that already existed keeps its own. Fails with the system's
+/// error from the make or the mode change.
 pub fn create_private_folder(folder: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(folder) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("{} is a link, so it is not made private", folder.display()),
-            ));
-        }
-        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-        _ => {}
-    }
     DirBuilder::new()
         .recursive(true)
         .mode(PRIVATE_FOLDER_MODE)
@@ -62,21 +51,5 @@ mod tests {
         assert_eq!(mode_of(&existing), 0o700);
         assert_eq!(mode_of(&fresh), 0o700);
         assert_eq!(mode_of(&nested), 0o700);
-    }
-
-    // Fails when the mode is set before the link is refused, so the link's target turns private.
-    #[test]
-    fn a_link_is_refused_and_its_target_keeps_its_mode() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let target = scratch.path().join("target");
-        fs::create_dir(&target).expect("the target is made");
-        fs::set_permissions(&target, Permissions::from_mode(0o755)).expect("the mode is set");
-        let link = scratch.path().join("link");
-        std::os::unix::fs::symlink(&target, &link).expect("the link is made");
-
-        let refusal = create_private_folder(&link).expect_err("the link is refused");
-
-        assert_eq!(refusal.kind(), std::io::ErrorKind::InvalidInput);
-        assert_eq!(mode_of(&target), 0o755);
     }
 }

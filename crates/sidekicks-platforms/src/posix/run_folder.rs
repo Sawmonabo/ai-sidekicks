@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use nix::unistd::getuid;
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 
+use crate::posix::private_folder::create_private_folder;
 use crate::run_folder::{
     DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SESSION_TOKEN_FILE_NAME,
 };
@@ -45,6 +46,23 @@ pub fn daemon_run_folder() -> io::Result<DaemonRunFolder> {
         |name| std::env::var_os(name),
         &home,
     ))
+}
+
+/// Makes the run folder at `folder`, and every missing folder above it, readable by its owner
+/// alone. Fails with `InvalidInput` when `folder` is a link, before anything is made or changed, so
+/// no mode lands on the link's target, and with the system's error from the make or the mode change.
+pub fn create_private_run_folder(folder: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(folder) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{} is a link, so it is not made private", folder.display()),
+            ));
+        }
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    create_private_folder(folder)
 }
 
 /// Checks that the run folder at `folder` is private: read without following a link, it is a
@@ -116,8 +134,16 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::{check_private_run_folder, resolve_daemon_run_folder};
+    use super::{check_private_run_folder, create_private_run_folder, resolve_daemon_run_folder};
     use crate::run_folder::RunFolderRefused;
+
+    fn mode_of(folder: &Path) -> u32 {
+        fs::symlink_metadata(folder)
+            .expect("the folder reads")
+            .permissions()
+            .mode()
+            & 0o777
+    }
 
     // The cases desktop main's resolver asserts too.
     #[rstest]
@@ -200,5 +226,21 @@ mod tests {
             matches!(file_refusal, RunFolderRefused::NotOwnFolder { .. }),
             "{file_refusal:?}"
         );
+    }
+
+    // Fails when the mode is set before the link is refused, so the link's target turns private.
+    #[test]
+    fn a_link_is_refused_and_its_target_keeps_its_mode() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let target = scratch.path().join("target");
+        fs::create_dir(&target).expect("the target is made");
+        fs::set_permissions(&target, Permissions::from_mode(0o755)).expect("the mode is set");
+        let link = scratch.path().join("link");
+        symlink(&target, &link).expect("the link is made");
+
+        let refusal = create_private_run_folder(&link).expect_err("the link is refused");
+
+        assert_eq!(refusal.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(mode_of(&target), 0o755);
     }
 }

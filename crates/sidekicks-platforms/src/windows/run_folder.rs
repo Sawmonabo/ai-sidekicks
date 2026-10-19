@@ -27,6 +27,7 @@ use crate::run_folder::{
     DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SESSION_TOKEN_FILE_NAME,
 };
 use crate::windows::known_folder::known_folder;
+use crate::windows::private_folder::create_private_folder;
 use crate::windows::process_user::{ProcessUser, read_user_sid_text, sid_text};
 
 // The run folder's name inside the application's own folder.
@@ -44,6 +45,12 @@ pub fn daemon_run_folder() -> io::Result<DaemonRunFolder> {
         &known_folder(&FOLDERID_LocalAppData)?,
         &read_user_sid_text()?,
     ))
+}
+
+/// Makes the run folder at `folder` and every missing folder above it; the run folder's check
+/// refuses a reparse point, so a link is refused there. Fails with the system's error from the make.
+pub fn create_private_run_folder(folder: &Path) -> io::Result<()> {
+    create_private_folder(folder)
 }
 
 /// The run folder under the local application data folder `local_app_data`, and the named pipe of

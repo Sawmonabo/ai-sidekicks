@@ -6,7 +6,7 @@ use std::io;
 
 use sidekicks_platforms::{
     DaemonRunFolder, RUN_FOLDER_FILE_MODE, RunFolderRefused, SocketPathEntry,
-    check_private_run_folder, connect_socket, create_private_folder, read_socket_path_entry,
+    check_private_run_folder, connect_socket, create_private_run_folder, read_socket_path_entry,
 };
 use tokio::task::JoinError;
 
@@ -64,7 +64,7 @@ pub(crate) async fn prepare_run_folder(run_folder: &DaemonRunFolder) -> Result<(
     let folder_path = run_folder.folder_path.clone();
     let socket_path = run_folder.socket_path.clone();
     let entry = tokio::task::spawn_blocking(move || {
-        create_private_folder(&folder_path).map_err(RunFolderError::Folder)?;
+        create_private_run_folder(&folder_path).map_err(RunFolderError::Folder)?;
         check_private_run_folder(&folder_path)?;
         read_socket_path_entry(&socket_path).map_err(RunFolderError::LeftSocket)
     })
@@ -127,4 +127,45 @@ pub(crate) async fn bind_socket(
         return Err(error.into());
     }
     Ok(gateway)
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_platforms::{
+        DaemonRunFolder, SocketPathEntry, create_private_folder, read_socket_path_entry,
+    };
+
+    use super::{RunFolderError, prepare_run_folder};
+
+    // Fails when anything but a socket at the socket's path is probed, where a connect refused on a
+    // regular file would delete it.
+    #[tokio::test]
+    async fn a_file_at_the_socket_s_path_refuses_the_start_and_is_kept() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let folder_path = scratch.path().join("run");
+        create_private_folder(&folder_path).expect("the run folder is made");
+        let socket_path = folder_path.join("daemon.sock");
+        std::fs::write(&socket_path, b"").expect("a regular file stands at the socket's path");
+        // Where the socket's path is a named pipe, a file never stands there.
+        if read_socket_path_entry(&socket_path).expect("the path reads") == SocketPathEntry::Socket
+        {
+            return;
+        }
+
+        let result = prepare_run_folder(&DaemonRunFolder {
+            token_path: folder_path.join("daemon.token"),
+            folder_path,
+            socket_path: socket_path.clone(),
+        })
+        .await;
+
+        assert!(
+            matches!(result, Err(RunFolderError::NotASocket { .. })),
+            "{result:?}"
+        );
+        assert!(
+            socket_path.exists(),
+            "the file at the socket's path is kept"
+        );
+    }
 }
