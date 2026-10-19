@@ -530,7 +530,7 @@ mod tests {
                 Instant::now() < give_up_at,
                 "the job still counts a process"
             );
-            std::thread::yield_now();
+            std::thread::sleep(Duration::from_millis(1));
         }
 
         let end = child.process.stop(Duration::ZERO).expect("the stop reads");
