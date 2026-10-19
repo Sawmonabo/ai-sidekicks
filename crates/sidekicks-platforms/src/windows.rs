@@ -4,6 +4,7 @@ pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod caller_process;
 pub(crate) mod child_command;
+pub(crate) mod child_tree;
 pub(crate) mod command_argument_limit;
 pub(crate) mod credential_store;
 pub(crate) mod ctrl_c;

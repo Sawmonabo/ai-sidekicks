@@ -43,6 +43,7 @@
 mod atomic_replace;
 mod caller_process;
 mod child_command;
+mod child_tree;
 mod code_signature;
 mod credential_store;
 mod entry_identity;
@@ -62,6 +63,7 @@ mod path;
 mod pinned_process;
 #[cfg(unix)]
 mod posix;
+mod program_install_folders;
 mod program_start;
 mod run_folder;
 mod running_program;
@@ -87,6 +89,7 @@ pub use caller_process::{ParentProcess, ResponsibleProcess};
 #[cfg(not(target_os = "linux"))]
 pub use child_command::leave_daemon_scope;
 pub use child_command::{ChildEnd, ChildExit, read_child_exit};
+pub use child_tree::{ChildTree, ChildTreeOutput, ChildTreeOutputError, start_child_tree};
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
@@ -158,6 +161,7 @@ pub use memory::physical_memory;
 pub use own_root::OwnRootError;
 #[cfg(not(target_os = "macos"))]
 pub use own_root::become_own_root;
+pub use path::program_output::path_from_program_output;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
 pub use pinned_process::ProcessRecord;
@@ -232,6 +236,7 @@ pub use posix::terminal::{
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
 pub use run_folder::{DaemonRunFolder, RunFolderRefused};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
