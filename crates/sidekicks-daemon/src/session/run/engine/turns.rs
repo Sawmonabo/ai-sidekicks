@@ -22,6 +22,7 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::run_at_version_statement;
 use crate::session::run::engine::limits::LimitStop;
+use crate::session::run::engine::live::lock;
 use crate::session::run::engine::{
     LIVE_APPEND_VERSION_GUARD_INDEX, RunEngine, RunEngineError, refused_statement_index,
     safe_run_version, with_cleanup_failures,
@@ -270,7 +271,7 @@ impl RunEngine {
             }
             attempt += 1;
         };
-        let mut live = self.live();
+        let mut live = lock(&self.live);
         match counted_bound {
             Some(bound) => {
                 live.step_counts.insert(
@@ -298,7 +299,7 @@ impl RunEngine {
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(&self, run_id: RunId) -> Result<(), RunEngineError> {
         let (turn_number, reached) = {
-            let mut live = self.live();
+            let mut live = lock(&self.live);
             let Some(count) = live.step_counts.get_mut(&run_id) else {
                 return Ok(());
             };
@@ -318,8 +319,7 @@ impl RunEngine {
         if matches!(
             stopped,
             Err(RunEngineError::LimitInterrupterGone { .. } | RunEngineError::LimitInterrupt { .. })
-        ) && let Some(count) = self
-            .live()
+        ) && let Some(count) = lock(&self.live)
             .step_counts
             .get_mut(&run_id)
             .filter(|count| count.turn_number == turn_number)
@@ -351,8 +351,7 @@ impl RunEngine {
             turn_number,
             outcome,
         } = turn_end;
-        let cut_by = self
-            .live()
+        let cut_by = lock(&self.live)
             .cut_turns
             .get(run_id)
             .filter(|cut| cut.turn_number == turn_number)
@@ -508,7 +507,7 @@ impl RunEngine {
     // What the engine held for a turn whose end is written or dropped.
     fn forget_turn(&self, run_id: &RunId, turn_number: SafeInt<1>) {
         self.forget_cut_turn(run_id, turn_number);
-        let mut live = self.live();
+        let mut live = lock(&self.live);
         if live
             .step_counts
             .get(run_id)
@@ -521,7 +520,7 @@ impl RunEngine {
     /// Forgets the cut of `turn_number` on `run_id`, once its end is written or the stop did not
     /// cut it.
     pub(super) fn forget_cut_turn(&self, run_id: &RunId, turn_number: SafeInt<1>) {
-        let mut live = self.live();
+        let mut live = lock(&self.live);
         if live
             .cut_turns
             .get(run_id)
@@ -579,6 +578,7 @@ mod tests {
     use crate::events::log_service::tests::open_log;
     use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
     use crate::session::run::engine::RunEngineError;
+    use crate::session::run::engine::live::lock;
     use crate::session::run::engine::tests::{stored_events, test_engine};
     use crate::uuid_v7::mint_uuid_v7;
 
@@ -670,7 +670,7 @@ mod tests {
             "the spend stop answers {spend_stop:?}"
         );
 
-        engine.live().step_counts.insert(
+        lock(&engine.live).step_counts.insert(
             run_id,
             StepCount {
                 turn_number: turn(1),

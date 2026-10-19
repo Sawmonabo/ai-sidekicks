@@ -21,6 +21,7 @@ use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::provider::driver::contract::bound_failure_detail;
 use crate::session::run::engine::limits::limit_run_end;
+use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{TurnEnd, TurnOutcome};
 use crate::session::run::engine::{RunEngine, RunEngineError, settled};
 use crate::session::run::read::{LiveRun, RunRead, RunStateReader};
@@ -105,8 +106,7 @@ impl RunEngine {
             }
             Some(limit) => {
                 let run = self.require_run(run_id).await?;
-                let cut_turn = self
-                    .live()
+                let cut_turn = lock(&self.live)
                     .cut_turns
                     .get(&run_id)
                     .map(|cut| cut.turn_number);
@@ -344,6 +344,7 @@ mod tests {
     use crate::events::session::appender::SessionEventDraft;
     use crate::session::run::engine::RunEngine;
     use crate::session::run::engine::limits::CutTurn;
+    use crate::session::run::engine::live::lock;
     use crate::session::run::engine::tests::{stored_events, stored_run_state, test_engine};
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::projection::RUNS_TABLE_SQL;
@@ -447,7 +448,7 @@ CREATE TABLE interventions (
         let seeded = stored_events(&database, &run_id);
 
         // A stop cut turn 1 for an interrupt accepted before the run's end at version 3.
-        engine.live().cut_turns.insert(
+        lock(&engine.live).cut_turns.insert(
             run_id,
             CutTurn {
                 limit: RunLimit::StepLimit,

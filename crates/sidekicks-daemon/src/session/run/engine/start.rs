@@ -34,7 +34,7 @@ use crate::queue::store::take_over_interrupted_statement;
 use crate::session::run::agent::RunAgentReader;
 use crate::session::run::daemon_turn::queue_daemon_turn_run;
 use crate::session::run::engine::live::{
-    ContinuingGuard, ContinuingRun, StartingGuard, StartingRun,
+    ContinuingGuard, ContinuingRun, StartingGuard, StartingRun, lock,
 };
 use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, with_cleanup_failures};
 use crate::session::run::projection::insert_queued_run_statement;
@@ -121,7 +121,7 @@ impl RunEngine {
             has_ended: AtomicBool::new(false),
             settled: SetOnce::new(),
         });
-        self.live().starting.insert(run_id, Arc::clone(&entry));
+        lock(&self.live).starting.insert(run_id, Arc::clone(&entry));
         let mut guard = StartingGuard {
             live: &self.live,
             run_id,
@@ -167,7 +167,7 @@ impl RunEngine {
 
         // Held before the driver starts, since the driver may report the settled state at once.
         if let Some(speed) = carried_output_speed {
-            self.live().carried_output_speeds.insert(run_id, speed);
+            lock(&self.live).carried_output_speeds.insert(run_id, speed);
         }
         if let Err(source) = start_driver(resolved_posture.clone()).await {
             return Err(self
@@ -379,7 +379,7 @@ impl RunEngine {
         } = request;
         let run = self.require_run(run_id).await?;
         let entry = {
-            let mut live = self.live();
+            let mut live = lock(&self.live);
             if run.state != RunState::Interrupted || live.continuing.contains_key(&run_id) {
                 return Err(RunRefusal::InvalidTransition {
                     run_id,
@@ -472,7 +472,9 @@ impl RunEngine {
             is_turn_started: AtomicBool::new(true),
             settled: SetOnce::new(),
         });
-        self.live().continuing.insert(run_id, Arc::clone(&entry));
+        lock(&self.live)
+            .continuing
+            .insert(run_id, Arc::clone(&entry));
         let _settles_on_exit = ContinuingGuard {
             live: &self.live,
             run_id,

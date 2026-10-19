@@ -16,7 +16,7 @@ pub(crate) mod turns;
 
 use std::error::Error;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
@@ -364,7 +364,7 @@ impl RunEngine {
         run_id: RunId,
     ) -> Result<InterruptRoute, RunEngineError> {
         let routed = {
-            let live = self.live();
+            let live = lock(&self.live);
             if let Some(continuing) = live.continuing.get(&run_id) {
                 RoutedInterrupt::Continuing(Arc::clone(continuing))
             } else {
@@ -429,8 +429,7 @@ impl RunEngine {
     ) -> Result<RunRead, RunEngineError> {
         let run_id = change.run_id;
         let to_state = change.entry.state();
-        let settling = self
-            .live()
+        let settling = lock(&self.live)
             .starting
             .get(&run_id)
             .filter(|starting| !starting.is_claimable())
@@ -438,7 +437,7 @@ impl RunEngine {
         if let Some(starting) = settling {
             starting.settled.wait().await;
         }
-        let continuing = self.live().continuing.get(&run_id).cloned();
+        let continuing = lock(&self.live).continuing.get(&run_id).cloned();
         if let Some(continuing) = continuing {
             if !continuing.is_turn_started.load(Ordering::Acquire)
                 && RunState::from(to_state).is_terminal()
@@ -520,7 +519,7 @@ impl RunEngine {
         run_id: RunId,
         state: &ProviderOutputSpeedState,
     ) -> Result<(), RunEngineError> {
-        let Some(carried) = self.live().carried_output_speeds.remove(&run_id) else {
+        let Some(carried) = lock(&self.live).carried_output_speeds.remove(&run_id) else {
             return Ok(());
         };
         if state.declared.as_str() == carried.as_str() {
@@ -544,10 +543,6 @@ impl RunEngine {
             )
             .await?;
         Ok(())
-    }
-
-    fn live(&self) -> MutexGuard<'_, LiveRuns> {
-        lock(&self.live)
     }
 
     // Writes `change`, keeping a terminal write in flight for a continue to wait on, and runs the
@@ -580,7 +575,7 @@ impl RunEngine {
 
     // Keeps a terminal write of `run_id` in flight, after any before it, until the guard drops.
     fn track_ending(&self, run_id: RunId) -> EndingGuard<'_> {
-        let mut live = self.live();
+        let mut live = lock(&self.live);
         let entry = Arc::new(EndingWrite {
             previous: live.ending.get(&run_id).cloned(),
             landed: SetOnce::new(),
@@ -595,7 +590,7 @@ impl RunEngine {
 
     // Waits until every terminal write of `run_id` in flight now has landed or been refused.
     async fn wait_for_ending_writes(&self, run_id: &RunId) {
-        let mut next = self.live().ending.get(run_id).cloned();
+        let mut next = lock(&self.live).ending.get(run_id).cloned();
         while let Some(write) = next {
             write.landed.wait().await;
             next = write.previous.clone();
@@ -605,7 +600,7 @@ impl RunEngine {
     // What the engine held for a run that has ended. A limit's own end writes the end of the turn
     // it cut, so no cut is needed past the run's end.
     fn forget_ended_run(&self, run_id: &RunId) {
-        let mut live = self.live();
+        let mut live = lock(&self.live);
         live.carried_output_speeds.remove(run_id);
         live.step_counts.remove(run_id);
         live.cut_turns.remove(run_id);
@@ -625,7 +620,7 @@ impl RunEngine {
 
     // A run being continued reads ended until its continue is written.
     async fn wait_while_continuing(&self, run_id: &RunId) {
-        let continuing = self.live().continuing.get(run_id).cloned();
+        let continuing = lock(&self.live).continuing.get(run_id).cloned();
         if let Some(continuing) = continuing {
             continuing.settled.wait().await;
         }

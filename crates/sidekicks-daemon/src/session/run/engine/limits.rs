@@ -22,6 +22,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::events::session::appender::SessionEventDraft;
+use crate::session::run::engine::live::lock;
 use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, refused_statement_index};
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
@@ -223,7 +224,7 @@ impl RunEngine {
             return Ok(());
         }
         if let Some(turn_number) = open_turn {
-            self.live()
+            lock(&self.live)
                 .cut_turns
                 .insert(run_id, CutTurn { limit, turn_number });
         }
