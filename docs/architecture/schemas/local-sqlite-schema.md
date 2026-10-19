@@ -8,7 +8,7 @@ The database is one schema, created whole when the daemon first opens it. There 
 
 Nine areas keep their tables in files of their own, beside this one:
 
-- [Session Directory Tables (Plan-001)](local-sqlite-session-directory-tables.md)
+- [Session Tables (Plan-001)](local-sqlite-session-tables.md)
 - [Session Search Index Tables](local-sqlite-session-search-tables.md)
 - [Workspace and Git Tables (Plan-006, Plan-007, Plan-008)](local-sqlite-workspace-and-git-tables.md)
 - [Orchestration Tables (Plan-013)](local-sqlite-orchestration-tables.md)
@@ -719,7 +719,7 @@ The attention service's entries carry the state its two deliveries beyond the ap
 
 - **Each attention entry** carries a nullable `digested_at`, the instant the entry went out in an email digest, so no entry is listed twice and the digest's one timer is restored from it at start; and a nullable `web_address_state` (`pending`, `delivered` or `undelivered`) with its attempt count, so a retry to the web address survives a restart. Both live as long as the entry.
 - **Each delivery channel** — the web address and the email digest — keeps one outcome row: when the last attempt ran, its result (`delivered`, `refused`, `unreachable`, `timedOut`, `signInRefused`, `notEncrypted` or `notAnAddress`), the HTTP status where there was one, and how many moments are undelivered. The row is overwritten on each attempt and removed with the channel's secret; `attention.delivery.list` returns it.
-- **The session row's `muted_at`** ([Session Directory Tables §Session Directory](local-sqlite-session-directory-tables.md#session-directory-plan-001)) keeps a muted session's `Finished` and `Failed` moments out of both channels.
+- **The session row's `muted_at`** ([Session Tables §Session Directory](local-sqlite-session-tables.md#session-directory-plan-001)) keeps a muted session's `Finished` and `Failed` moments out of both channels.
 - **Each push to another device** keeps a `push_deliveries` row, its device one of `trusted_devices` ([Remote Control Tables §The Account's Devices](local-sqlite-remote-control-tables.md#the-accounts-devices)).
 
 ```sql

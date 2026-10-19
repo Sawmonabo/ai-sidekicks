@@ -1,4 +1,4 @@
-# Session Directory Tables (Plan-001)
+# Session Tables (Plan-001)
 
 The session tables of the daemon's one SQLite schema: the session directory, one row per session the daemon hosts with its groups, links, tags, related lists and the create and convert requests a retry resumes from, and each session's console state. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 

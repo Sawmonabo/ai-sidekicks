@@ -141,7 +141,7 @@ CREATE TABLE agent_tree_nodes (
 -- Two sessions trading messages. [Spec-014 §State And Data Implications](../../specs/014-multi-agent-orchestration.md#state-and-data-implications)
 -- declares both of the tables below durable, session-scoped daemon state, because a daemon restart
 -- mid-exchange must deliver what it was holding and must not forget which two sessions were talking.
--- The session directory those tables are read against is the daemon's `sessions` table (local-sqlite-session-directory-tables.md §Session Directory),
+-- The session directory those tables are read against is the daemon's `sessions` table (local-sqlite-session-tables.md §Session Directory),
 -- and an address that moved with a restarted provider process is looked up again rather than remembered.
 --
 -- Neither table holds a message. The send and the arrival are the ordinary tool events of the two
