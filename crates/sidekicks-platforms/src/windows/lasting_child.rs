@@ -21,17 +21,14 @@ use windows_sys::Win32::Foundation::{
     LocalFree, SetLastError, TRUE,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
-use windows_sys::Win32::Security::{
-    GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
-    TokenUser,
-};
+use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, InitializeProcThreadAttributeList,
-    LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcessToken, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+    LPPROC_THREAD_ATTRIBUTE_LIST, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
     PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOEXW,
     UpdateProcThreadAttribute,
 };
@@ -43,6 +40,7 @@ use crate::windows::handle_wait::HandleWait;
 use crate::windows::pinned_process::{
     PinnedProcess, current_process, is_process_in_job, read_exit_code,
 };
+use crate::windows::process_user::read_user_sid_text;
 use crate::windows::wide_text::{refuse_nul, wide_text};
 
 // The start of every lasting child's job name; random bytes follow it.
@@ -250,75 +248,6 @@ impl Drop for UserOnlyDescriptor {
         // SAFETY: the descriptor came from the conversion, which allocated it with `LocalAlloc`.
         unsafe { LocalFree(self.0) };
     }
-}
-
-// This process's user's id as SDDL text (`S-1-5-21-…`).
-fn read_user_sid_text() -> io::Result<String> {
-    let mut raw_token: HANDLE = std::ptr::null_mut();
-    // SAFETY: the call writes a new token handle.
-    if unsafe {
-        OpenProcessToken(
-            current_process().as_raw_handle(),
-            TOKEN_QUERY,
-            &raw mut raw_token,
-        )
-    } == FALSE
-    {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the handle was just opened and is owned by nothing else.
-    let token = unsafe { OwnedHandle::from_raw_handle(raw_token) };
-    let mut length = 0_u32;
-    // SAFETY: a null buffer of length 0 asks only for the length, which the call writes.
-    unsafe {
-        GetTokenInformation(
-            token.as_raw_handle(),
-            TokenUser,
-            std::ptr::null_mut(),
-            0,
-            &raw mut length,
-        )
-    };
-    // Eight-byte words keep the record aligned for its pointer.
-    let mut buffer = vec![
-        0_u64;
-        usize::try_from(length)
-            .map_err(io::Error::other)?
-            .div_ceil(8)
-    ];
-    // SAFETY: the buffer is live, writable and at least `length` bytes long.
-    if unsafe {
-        GetTokenInformation(
-            token.as_raw_handle(),
-            TokenUser,
-            buffer.as_mut_ptr().cast(),
-            length,
-            &raw mut length,
-        )
-    } == FALSE
-    {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the call filled the aligned buffer with a `TOKEN_USER` and the id it points at.
-    let sid = unsafe { (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid };
-    let mut text: windows_sys::core::PWSTR = std::ptr::null_mut();
-    // SAFETY: the id lives in the buffer, and the call writes a string it allocates, freed below.
-    if unsafe { ConvertSidToStringSidW(sid, &raw mut text) } == FALSE {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the call answered a NUL-ended UTF-16 string, read up to its NUL.
-    let units = unsafe {
-        let mut length = 0;
-        while *text.add(length) != 0 {
-            length += 1;
-        }
-        std::slice::from_raw_parts(text, length)
-    };
-    let read =
-        String::from_utf16(units).map_err(|error| io::Error::new(ErrorKind::InvalidData, error));
-    // SAFETY: the string came from the conversion, which allocated it with `LocalAlloc`.
-    unsafe { LocalFree(text.cast()) };
-    read
 }
 
 // A new handle to what `handle` opens, inheritable, so the attribute list can name it.

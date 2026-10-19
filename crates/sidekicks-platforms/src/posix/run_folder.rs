@@ -11,14 +11,12 @@ use std::path::{Path, PathBuf};
 
 use nix::unistd::getuid;
 
-use crate::run_folder::{DaemonRunFolder, RunFolderRefused};
+use crate::run_folder::{
+    DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SESSION_TOKEN_FILE_NAME,
+};
 
-// The run folder's name inside `XDG_RUNTIME_DIR`, and the start of its name, before the user id,
-// inside the temporary folder.
-const RUN_FOLDER_NAME: &str = "ai-sidekicks";
-
+// The local socket's file name in the run folder.
 const SOCKET_FILE_NAME: &str = "daemon.sock";
-const SESSION_TOKEN_FILE_NAME: &str = "daemon.token";
 
 // The temporary folder's variables, read in this order, and the folder where none is set.
 const TEMPORARY_FOLDER_VARIABLES: [&str; 3] = ["TMPDIR", "TMP", "TEMP"];

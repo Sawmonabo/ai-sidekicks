@@ -32,8 +32,11 @@
               `set_allocator`, and the power notifications and wall-clock timers of macOS and \
               Windows are C interfaces, and tokio's watch of the Linux timer's and the terminal \
               poller's descriptors trusts each to stay open while it watches, and the Windows \
-              Ctrl-C ending's `ExitProcess` and the user's locale read (`GetLocaleInfoEx`) are C \
-              interfaces too"
+              Ctrl-C ending's `ExitProcess`, the user's locale read (`GetLocaleInfoEx`), a \
+              process's user read from its token (`OpenProcess`, `OpenProcessToken`, \
+              `GetTokenInformation`, `EqualSid`, `ConvertSidToStringSidW`), the named pipe's \
+              server read (`GetNamedPipeServerProcessId`) and the run folder's owner and access \
+              list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`) are C interfaces too"
 )]
 
 mod atomic_replace;
@@ -204,6 +207,8 @@ pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(unix)]
+pub use posix::socket_connection::connect_socket;
+#[cfg(unix)]
 pub use posix::socket_listener::bind_socket_listener;
 #[cfg(unix)]
 pub use posix::socket_path::check_socket_path;
@@ -322,6 +327,8 @@ pub use windows::shell_folder_start::shell_folder_start;
 pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(target_os = "windows")]
+pub use windows::socket_connection::connect_socket;
 #[cfg(target_os = "windows")]
 pub use windows::socket_listener::bind_socket_listener;
 #[cfg(target_os = "windows")]

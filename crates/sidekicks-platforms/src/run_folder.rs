@@ -1,17 +1,25 @@
-//! The daemon's run folder: the person's own folder holding the local socket the daemon binds and
-//! every client connects to, and the session token the daemon writes at each start and every
-//! client presents. macOS and Linux resolve it and check it is private before any bind or byte;
-//! Windows has none, since its service is reached through a per-user named pipe.
+//! The daemon's run folder: the person's own folder holding the session token the daemon writes at
+//! each start and every client presents, and on macOS and Linux the local socket the daemon binds
+//! and every client connects to; on Windows that socket is the person's own named pipe. Each
+//! platform resolves the folder and checks it is private before any bind or byte.
 
 use std::io;
 use std::path::PathBuf;
 
-/// The run folder and the two files in it.
+/// The run folder's name, and the start of the names derived from it: the folder in the
+/// temporary folder on macOS and Linux, and the named pipe on Windows.
+pub(crate) const RUN_FOLDER_NAME: &str = "ai-sidekicks";
+
+/// The session token file's name in the run folder.
+pub(crate) const SESSION_TOKEN_FILE_NAME: &str = "daemon.token";
+
+/// The run folder, the daemon's local socket and its token file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DaemonRunFolder {
     /// The folder itself.
     pub folder_path: PathBuf,
-    /// The local socket the daemon binds.
+    /// The local socket the daemon binds: a socket file in the folder on macOS and Linux, the
+    /// person's own named pipe (`\\.\pipe\ai-sidekicks-<user SID>`) on Windows.
     pub socket_path: PathBuf,
     /// The session token file, rewritten with a new token at every daemon start.
     pub token_path: PathBuf,
@@ -46,10 +54,13 @@ pub enum RunFolderRefused {
         /// Its permission bits.
         mode: u32,
     },
-    /// The system has no run folder: Windows, whose service is reached through a named pipe.
-    #[error(
-        "on Windows the background service is reached through its per-user named pipe, not a run \
-         folder"
-    )]
-    Unsupported,
+    /// The folder's access list lets in an account other than this one, SYSTEM and the
+    /// Administrators: Windows.
+    #[error("the run folder {} lets {account} in", folder.display())]
+    OpenToAccount {
+        /// The folder checked.
+        folder: PathBuf,
+        /// The account let in, as SDDL text, or the kind of entry that names none.
+        account: String,
+    },
 }
