@@ -18,6 +18,7 @@ use crate::ResponsibleProcess;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
 use crate::macos::pinned_process::pinned;
 use crate::own_root::OwnRootError;
+use crate::posix::process::id::system_process_id;
 
 /// The environment variable a program re-run as its own responsible process starts with, holding
 /// the id of the process that set it, which the re-run keeps, so the re-run never repeats; removed
@@ -369,7 +370,7 @@ fn c_string(text: OsString) -> io::Result<CString> {
 
 /// How many threads this process runs. Fails with the system's error.
 fn read_thread_count() -> io::Result<i32> {
-    let pid = libc::pid_t::try_from(std::process::id()).map_err(io::Error::other)?;
+    let pid = system_process_id(std::process::id())?.get();
     // SAFETY: `proc_taskinfo` is a C struct of integers, for which all zero bytes are valid.
     let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
     let length = c_int::try_from(size_of::<libc::proc_taskinfo>())
