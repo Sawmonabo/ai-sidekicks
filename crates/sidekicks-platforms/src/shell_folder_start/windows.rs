@@ -498,8 +498,9 @@ mod tests {
     // known to leave it free, a switch only pwsh has, or a switch missing its value, its
     // `Set-Location` put anywhere but in front of the user's command, or in front of standard
     // input's `-`; cmd started on a share starts in the Windows folder, and a share path with `&`
-    // or `%` left bare runs a command; MSYS bash without its variable opens in the home folder, and
-    // WSL's launcher given it goes through the MSYS arm; `--cd` added over the user's own `~`.
+    // or `%` left bare runs a command; a horizontal bar not read as a dash; a drive root quoted
+    // without its `\`; MSYS bash without its variable opens in the home folder, and WSL's launcher
+    // given it goes through the MSYS arm; `--cd` added over the user's own `~`.
     #[rstest]
     #[case::pwsh_with_a_trailing_separator(
         r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -620,6 +621,30 @@ mod tests {
         r"C:\wt",
         &["-nol", "-WindowStyle"],
         r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_horizontal_bar_before_a_switch(
+        "powershell",
+        &["\u{2015}NoProfile"],
+        r"C:\wt",
+        &[
+            "\u{2015}NoProfile",
+            "-NoLogo",
+            "-NoExit",
+            "-Command",
+            r"Set-Location -LiteralPath 'C:\wt'",
+        ],
+        SYSTEM_FOLDER,
+        &[],
+        None
+    )]
+    #[case::windows_powershell_on_a_drive_root(
+        "powershell.exe",
+        &[],
+        r"C:\",
+        &["-NoLogo", "-NoExit", "-Command", r"Set-Location -LiteralPath 'C:\'"],
+        SYSTEM_FOLDER,
         &[],
         None
     )]
