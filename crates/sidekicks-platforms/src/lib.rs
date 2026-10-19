@@ -92,6 +92,8 @@ pub use file_facts::FileFacts;
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 pub use lasting_child::{LastingChild, LastingCommand};
+#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
+pub use linux::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "linux")]
 pub use linux::caller_process::{read_parent_process, read_peer_process};
 #[cfg(target_os = "linux")]
@@ -117,6 +119,8 @@ pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "linux")]
 pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use machine_name::MachineNameError;
+#[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
+pub use macos::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "macos")]
 pub use macos::caller_process::{read_parent_process, read_peer_process, read_responsible_process};
 #[cfg(target_os = "macos")]
@@ -187,8 +191,6 @@ pub use posix::private_folder::create_private_folder;
 pub use posix::real_path::real_path;
 #[cfg(unix)]
 pub use posix::run_folder::{check_private_run_folder, daemon_run_folder};
-#[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::shell_folder_start::SHELL_FOLDER_PROBES;
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
 #[cfg(unix)]

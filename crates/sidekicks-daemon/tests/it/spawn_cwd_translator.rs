@@ -80,7 +80,7 @@ async fn open_and_remove_worktree(probe: &ShellFolderProbe) {
     let scratch = tempfile::tempdir().expect("a scratch folder");
     // The shell's prompt shows the folder with its links resolved.
     let scratch_folder = real_path(scratch.path()).expect("the scratch folder resolves");
-    let worktree = scratch_folder.join("worktree");
+    let worktree = scratch_folder.join(probe.folder_name);
     std::fs::create_dir(&worktree).expect("the worktree is made");
     let environment = std::env::vars()
         .filter(|(name, _)| !probe.environment.iter().any(|(probed, _)| probed == name))

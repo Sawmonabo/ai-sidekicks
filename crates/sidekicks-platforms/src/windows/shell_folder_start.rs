@@ -24,7 +24,9 @@ pub fn shell_folder_start(
 }
 
 /// The shells the live test opens here with their own prompts: cmd holds its folder until it
-/// leaves it, and PowerShell, told its folder by its switch, never holds it.
+/// leaves it, and PowerShell, told its folder by pwsh's switch or Windows PowerShell's command,
+/// never holds it; Windows PowerShell opens on a folder whose name holds a quote it reads as its
+/// own.
 #[cfg(any(test, feature = "test-support"))]
 pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[
     ShellFolderProbe {
@@ -33,6 +35,7 @@ pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[
         environment: &[],
         prompt_prefix: "",
         leaves_the_folder_first: true,
+        folder_name: "worktree",
     },
     ShellFolderProbe {
         program: "pwsh.exe",
@@ -40,5 +43,14 @@ pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[
         environment: &[],
         prompt_prefix: "PS ",
         leaves_the_folder_first: false,
+        folder_name: "worktree",
+    },
+    ShellFolderProbe {
+        program: "powershell.exe",
+        arguments: &[],
+        environment: &[],
+        prompt_prefix: "PS ",
+        leaves_the_folder_first: false,
+        folder_name: "a\u{2019}b",
     },
 ];

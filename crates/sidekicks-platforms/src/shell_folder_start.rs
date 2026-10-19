@@ -41,4 +41,6 @@ pub struct ShellFolderProbe {
     pub prompt_prefix: &'static str,
     /// Whether the shell holds the folder until it leaves it with `cd ..`.
     pub leaves_the_folder_first: bool,
+    /// The name of the fresh folder it opens on.
+    pub folder_name: &'static str,
 }

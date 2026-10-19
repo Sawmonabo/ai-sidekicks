@@ -25,6 +25,8 @@ use tokio::process::Command;
 
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::posix::child_command::prepare_child_command;
+#[cfg(any(test, feature = "test-support"))]
+use crate::shell_folder_start::ShellFolderProbe;
 use crate::spawner::Spawner;
 
 // The program that reads the computer name, by its full path so no `PATH` entry stands in for it.
@@ -86,3 +88,25 @@ pub fn read_command_argument_limit() -> io::Result<usize> {
         .ok_or_else(|| io::Error::other("the system sets no limit on a program's arguments"))?;
     usize::try_from(limit).map_err(io::Error::other)
 }
+
+/// The shells the live test opens here, each with no startup files and a prompt of its folder:
+/// macOS removes a folder a process sits in, so none leaves it first.
+#[cfg(any(test, feature = "test-support"))]
+pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[
+    ShellFolderProbe {
+        program: "zsh",
+        arguments: &["-f"],
+        environment: &[("PS1", "%/>")],
+        prompt_prefix: "",
+        leaves_the_folder_first: false,
+        folder_name: "worktree",
+    },
+    ShellFolderProbe {
+        program: "bash",
+        arguments: &["--norc", "--noprofile"],
+        environment: &[("PS1", "$PWD>")],
+        prompt_prefix: "",
+        leaves_the_folder_first: false,
+        folder_name: "worktree",
+    },
+];

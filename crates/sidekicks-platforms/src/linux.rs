@@ -24,6 +24,8 @@ use std::path::PathBuf;
 use crate::footprint::ProcessFootprint;
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::posix::memory::page_bytes;
+#[cfg(any(test, feature = "test-support"))]
+use crate::shell_folder_start::ShellFolderProbe;
 use crate::spawner::Spawner;
 
 // The environment-style file systemd keeps the pretty host name in.
@@ -156,6 +158,18 @@ pub fn process_footprint() -> io::Result<ProcessFootprint> {
         "only macOS reports a process's footprint",
     ))
 }
+
+/// The shells the live test opens here, with no startup files and a prompt of its folder: Linux
+/// removes a folder a process sits in, so none leaves it first.
+#[cfg(any(test, feature = "test-support"))]
+pub const SHELL_FOLDER_PROBES: &[ShellFolderProbe] = &[ShellFolderProbe {
+    program: "bash",
+    arguments: &["--norc", "--noprofile"],
+    environment: &[("PS1", "$PWD>")],
+    prompt_prefix: "",
+    leaves_the_folder_first: false,
+    folder_name: "worktree",
+}];
 
 // The value of the first `PRETTY_HOSTNAME=` line in an environment-style file: `KEY=VALUE` lines,
 // `#` comments, and values that may be quoted, with backslash escapes inside double quotes.
