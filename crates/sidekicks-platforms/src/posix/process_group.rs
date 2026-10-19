@@ -184,12 +184,12 @@ mod tests {
             let wait = 5 + RandomState::new().hash_one(trial) % 46;
             std::thread::sleep(Duration::from_millis(wait));
 
-            let is_signaled =
-                signal_group(child.id(), Signal::SIGKILL).expect("the group's kill is sent");
+            // The kill's answer is checked only once the read has ended what it left.
+            let kill = signal_group(child.id(), Signal::SIGKILL);
             let rest = read_group_output_to_end(&mut output, child.id(), Duration::from_secs(2));
             child.wait().expect("the leader is reaped");
 
-            assert!(is_signaled);
+            assert!(kill.expect("the group's kill is sent"));
             if rest.is_none() {
                 survived_trials.push(trial);
             }
