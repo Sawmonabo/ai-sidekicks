@@ -287,10 +287,10 @@ pub(crate) fn limit_turn_cause(limit: RunLimit) -> TurnEndCause {
     }
 }
 
-/// The interrupt of `run_id` that has no outcome yet, read on `reader`, or `None`. Fails when
-/// SQLite refuses the read or a stored column does not read as its type; a stored record that is
-/// neither a person's interrupt nor the daemon's at a limit fails it too.
-pub(crate) fn read_pending_interrupt(
+// The interrupt of `run_id` that has no outcome yet, read on `reader`, or `None`. Fails when
+// SQLite refuses the read or a stored column does not read as its type; a stored record that is
+// neither a person's interrupt nor the daemon's at a limit fails it too.
+fn read_pending_interrupt(
     reader: &Connection,
     run_id: &RunId,
 ) -> rusqlite::Result<Option<PendingInterrupt>> {

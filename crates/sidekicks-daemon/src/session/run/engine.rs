@@ -65,11 +65,12 @@ use crate::session::run::state_change::{
 use crate::settle_all::{SettleFailures, settle_all};
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live
-/// provider subagents beneath a run, a run's pending interrupt, the reached limit no interrupt
-/// was recorded for since and the queued messages waiting for it, a run's newest turn start, its
-/// newest open turn and every open turn, its provider, and the two agent reads.
+/// provider subagents beneath a run, a run's pending interrupt and whether its interrupt at one
+/// limit is pending, the reached limit no interrupt was recorded for since and the queued
+/// messages waiting for it, a run's newest turn start, its newest open turn and every open turn,
+/// its provider, and the two agent reads.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 9 + RUN_AGENT_STATEMENT_CAPACITY;
+pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 10 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;

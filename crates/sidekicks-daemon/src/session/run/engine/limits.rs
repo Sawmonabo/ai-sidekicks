@@ -7,13 +7,14 @@
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock, Weak};
 
+use rusqlite::{Connection, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::orchestration::InterruptReason;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::intervention::{InterventionState, InterventionType, RunLimit};
 use sidekicks_contracts::session::controls::events::{
     AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
 };
@@ -28,7 +29,6 @@ use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, refused
 use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
-use crate::session::run::restart::read_pending_interrupt;
 use crate::session::run::state_change::RunStateEntry;
 use crate::session::run::transitions::is_transition_allowed;
 
@@ -48,6 +48,21 @@ static SELECT_TOKEN_LIMIT_REACHED_SQL: LazyLock<String> = LazyLock::new(|| {
             .category()
             .as_str(),
         SessionEventType::AgentRunTokenLimitReached.as_str()
+    )
+});
+
+// Whether an interrupt of the run at one limit has no outcome yet.
+static SELECT_LIMIT_INTERRUPT_PENDING_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT EXISTS (
+  SELECT 1 FROM interventions
+   WHERE target_run_id = @run_id
+     AND type = '{}'
+     AND state IN ('{}', '{}')
+     AND json_extract(payload, '$.limit') = @limit)",
+        <&'static str>::from(InterventionType::Interrupt),
+        <&'static str>::from(InterventionState::Requested),
+        <&'static str>::from(InterventionState::Accepted)
     )
 });
 
@@ -298,20 +313,22 @@ impl RunEngine {
                     {
                         // The run, live at the version the guard passed, reached its token limit
                         // before: that reached event stands, and the interrupt goes alone unless
-                        // a limit's interrupt of the run is still pending, which ends it.
-                        let pending = self
+                        // the token limit's own interrupt of the run is still pending, which ends
+                        // it.
+                        let limit = stop.limit();
+                        let is_pending = self
                             .pool
                             .read(ReadLength::Short, move |reader| {
-                                Ok::<_, RunEngineError>(read_pending_interrupt(reader, &run_id)?)
+                                Ok::<_, RunEngineError>(is_limit_interrupt_pending(
+                                    reader, &run_id, limit,
+                                )?)
                             })
                             .await?;
-                        Ok(
-                            if pending.is_some_and(|pending| pending.record.limit().is_some()) {
-                                LimitReach::InterruptPending
-                            } else {
-                                LimitReach::Live
-                            },
-                        )
+                        Ok(if is_pending {
+                            LimitReach::InterruptPending
+                        } else {
+                            LimitReach::Live
+                        })
                     }
                     Err(error) => Err(error),
                 }
@@ -326,8 +343,25 @@ enum LimitReach {
     Live,
     // The run has ended, so nothing is stopped.
     Ended,
-    // A limit's interrupt of the run is still pending, and it ends the run.
+    // The limit's own interrupt of the run is still pending, and it ends the run.
     InterruptPending,
+}
+
+// Whether the interrupt of `run_id` at `limit` has no outcome yet, read on `reader`.
+fn is_limit_interrupt_pending(
+    reader: &Connection,
+    run_id: &RunId,
+    limit: RunLimit,
+) -> rusqlite::Result<bool> {
+    reader
+        .prepare_cached(&SELECT_LIMIT_INTERRUPT_PENDING_SQL)?
+        .query_row(
+            named_params! {
+                "@run_id": run_id.text().as_str(),
+                "@limit": <&'static str>::from(limit),
+            },
+            |row| row.get(0),
+        )
 }
 
 // Refuses a limit's end from a state the table does not let the run leave for it.
@@ -361,6 +395,7 @@ fn no_token_limit_reached_statement(run_id: &RunId) -> WriteStatement {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use rstest::rstest;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::intervention::RunLimit;
     use sidekicks_contracts::session::cost::TokensPerRun;
@@ -759,5 +794,53 @@ mod tests {
         continued.expect("the continue runs the run again");
         stopped.expect("the retried stop's interrupt is accepted");
         assert_eq!(interventions.calls.load(Ordering::SeqCst), 2);
+    }
+
+    // Killed by the pending check counting any interrupt, any limit's, or one whose outcome is in:
+    // a second token interrupt then goes while the first is pending, or none goes once the only
+    // interrupt left is another limit's or a failed one.
+    #[rstest]
+    #[case::token_limit_accepted("tokenLimit", "accepted", 1)]
+    #[case::token_limit_failed("tokenLimit", "failed", 2)]
+    #[case::step_limit_accepted("stepLimit", "accepted", 2)]
+    #[tokio::test]
+    async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_interrupt(
+        #[case] limit: &str,
+        #[case] state: &str,
+        #[case] expected_calls: usize,
+    ) {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let home = tempfile::tempdir().expect("the test makes a home folder");
+        let session_id = test_session_id();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        insert_running_run(&database, session_id, run_id);
+        let engine = test_engine(&database, log.service, home.path());
+        let interventions = hand_limit_interrupter(&engine, 0);
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, run_id, 1, 1),
+        )
+        .await;
+        engine
+            .stop_at_token_limit(run_id, token_limit())
+            .await
+            .expect("the limit's interrupt is accepted");
+        database
+            .reader()
+            .execute(
+                "INSERT INTO interventions (id, target_run_id, type, state, payload)
+                 VALUES ('interrupt', ?1, 'interrupt', ?2, json_object('limit', ?3))",
+                [run_id.text().as_str(), state, limit],
+            )
+            .expect("the test records the run's interrupt");
+
+        engine
+            .stop_at_token_limit(run_id, token_limit())
+            .await
+            .expect("the next usage report's stop is left or sends the interrupt alone");
+
+        assert_eq!(interventions.calls.load(Ordering::SeqCst), expected_calls);
     }
 }
