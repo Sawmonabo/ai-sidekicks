@@ -7,12 +7,15 @@ use std::io::{self, ErrorKind};
 use std::os::windows::io::{
     AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use windows_sys::Wdk::System::SystemInformation::{
+    NtQuerySystemInformation, SystemTimeOfDayInformation,
+};
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_PARAMETER, FALSE, FILETIME,
-    WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    RtlNtStatusToDosError, STATUS_SUCCESS, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::JobObjects::{
     IsProcessInJob, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,
@@ -31,6 +34,9 @@ use crate::windows::ctrl_c::CTRL_C_EXIT_CODE;
 use crate::windows::error_codes::win32_code;
 use crate::windows::lasting_child::is_lasting_job_name;
 use crate::windows::wide_text::wide_text;
+
+// The size of the system's time-of-day record.
+const TIME_OF_DAY_RECORD_BYTES: usize = 48;
 
 /// The exit code a killed process, or every process of a killed job, is given:
 /// `STATUS_CONTROL_C_EXIT`, the code Windows gives a console program ended by a control event,
@@ -58,8 +64,8 @@ impl PinnedProcess {
         self.id
     }
 
-    /// The record a later process re-pins this one from: its id, its creation time and its job's
-    /// name; `None` once it has ended. Fails with the system's error.
+    /// The record a later process re-pins this one from: its id, its creation time, the boot it
+    /// runs in and its job's name; `None` once it has ended. Fails with the system's error.
     pub fn record(&self) -> io::Result<Option<ProcessRecord>> {
         if self.wait_for_exit(Duration::ZERO)? {
             return Ok(None);
@@ -68,7 +74,7 @@ impl PinnedProcess {
             id: self.id,
             start: read_creation_time(self.handle())?,
             started_at: None,
-            boot: None,
+            boot: current_boot()?,
             job: self.job.clone(),
         }))
     }
@@ -348,6 +354,51 @@ pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
         job: None,
         job_handle: None,
     })
+}
+
+/// Process `id` as it runs now, held open with the rights to read its times; `None` when no
+/// process has the id. Fails with the system's error, `ERROR_ACCESS_DENIED` for a process this
+/// user may not read.
+pub fn pin_running_process(id: u32) -> io::Result<Option<PinnedProcess>> {
+    match pin_child_process(id) {
+        Ok(process) => Ok(Some(process)),
+        Err(error) if win32_code(&error) == Some(ERROR_INVALID_PARAMETER) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// The machine's current boot: the instant the kernel records it started, in 100-nanosecond
+/// intervals since 1601, as decimal text; read once, since this process runs within one boot.
+/// Fails with the system's error.
+pub(crate) fn current_boot() -> io::Result<String> {
+    static BOOT: OnceLock<String> = OnceLock::new();
+    if let Some(boot) = BOOT.get() {
+        return Ok(boot.clone());
+    }
+    // The time-of-day record's first member is the boot's instant, a little-endian `i64`.
+    let mut time_of_day = [0_u8; TIME_OF_DAY_RECORD_BYTES];
+    let length = u32::try_from(time_of_day.len()).expect("the record's size fits a u32");
+    // SAFETY: the buffer is live and writable for `length` bytes, the size of the record the
+    // class asks for, and no returned length is asked for.
+    let status = unsafe {
+        NtQuerySystemInformation(
+            SystemTimeOfDayInformation,
+            time_of_day.as_mut_ptr().cast(),
+            length,
+            std::ptr::null_mut(),
+        )
+    };
+    if status != STATUS_SUCCESS {
+        // SAFETY: the call takes a status and answers the matching system error code.
+        let code = unsafe { RtlNtStatusToDosError(status) };
+        return Err(io::Error::from_raw_os_error(code.cast_signed()));
+    }
+    let boot_instant = i64::from_le_bytes(
+        time_of_day[..size_of::<i64>()]
+            .try_into()
+            .expect("eight bytes were taken"),
+    );
+    Ok(BOOT.get_or_init(|| boot_instant.to_string()).clone())
 }
 
 /// This process, held by its id.

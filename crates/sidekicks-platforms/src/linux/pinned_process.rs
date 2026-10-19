@@ -65,7 +65,7 @@ impl PinnedProcess {
             id: self.id,
             start: parse_stat_number(&start)?,
             started_at: None,
-            boot: Some(current_boot()?),
+            boot: current_boot()?,
             job: None,
         }))
     }
@@ -182,7 +182,7 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 /// is in its session and started no earlier than it; `false` when nothing was ended. Fails with
 /// the system's error, and with `InvalidData` for a stat file whose fields do not read.
 pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
-    if record.boot.as_deref() != Some(current_boot()?.as_str()) {
+    if record.boot != current_boot()? {
         return Ok(false);
     }
     // A process holding the id is the recorded one, or a later one, which took the id only once
@@ -240,6 +240,22 @@ fn parse_stat_number<Number: std::str::FromStr<Err = std::num::ParseIntError>>(
 // The machine's current boot, the kernel's boot id.
 fn current_boot() -> io::Result<String> {
     Ok(std::fs::read_to_string(BOOT_ID_FILE)?.trim().to_owned())
+}
+
+/// Process `id` as it runs now, pinned by a descriptor; `None` for an id of 0 or past `i32::MAX`,
+/// or when no process has the id. Fails with the system's error.
+pub fn pin_running_process(id: u32) -> io::Result<Option<PinnedProcess>> {
+    if system_process_id(id).is_err() {
+        return Ok(None);
+    }
+    match open_process_descriptor(id) {
+        Ok(descriptor) => Ok(Some(PinnedProcess {
+            id,
+            descriptor: Arc::new(descriptor),
+        })),
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// The caller's own child `id`, pinned; the child is not yet reaped, so no other process can take

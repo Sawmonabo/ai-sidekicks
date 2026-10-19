@@ -152,7 +152,7 @@ impl PinnedProcess {
             id: self.id,
             start: self.unique_id,
             started_at: Some(started_at),
-            boot: Some(current_boot()?),
+            boot: current_boot()?,
             job: None,
         }))
     }
@@ -273,7 +273,7 @@ fn skip_unreadable_process(id: u32, error: &io::Error) {
 /// process. Fails with the system's error, and with `Unsupported` on a macOS without the checked
 /// read.
 pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
-    if record.boot.as_deref() != Some(current_boot()?.as_str()) {
+    if record.boot != current_boot()? {
         return Ok(None);
     }
     let Some(started_at) = read_start_time(record.id, record.start)? else {
@@ -294,7 +294,7 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 /// nothing was ended. Fails with the system's error, and with `Unsupported` on a macOS without the
 /// checked read.
 pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool> {
-    if record.boot.as_deref() != Some(current_boot()?.as_str()) {
+    if record.boot != current_boot()? {
         return Ok(false);
     }
     // A process holding the id is the recorded one, or a later one, which took the id only once
@@ -436,7 +436,7 @@ pub fn this_process() -> PinnedProcess {
 
 /// Process `id`, pinned as it runs now; `None` for an id of 0 or past `i32::MAX`, or when no
 /// process has the id.
-pub(crate) fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
+pub fn pinned(id: u32) -> io::Result<Option<PinnedProcess>> {
     Ok(
         read_unique_identifiers(id, COMPARE_NOTHING, 0)?.map(|identifiers| PinnedProcess {
             id,

@@ -20,9 +20,9 @@ pub(crate) const KILL_WAIT_BOUND: Duration = Duration::from_secs(10);
 /// What a later process re-pins a process from, kept as JSON: its id and the system's marks of
 /// that process's start, which no later process given the same id carries (on macOS its unique id,
 /// start time and boot UUID; on Linux its start in clock ticks since boot and the boot's id; on
-/// Windows its creation time, one instant across boots, and its job's name). The process's exit
-/// never ends the group it leads or the job it runs in, so what it started is ended by its stop,
-/// or through the record once it is gone.
+/// Windows its creation time, one instant across boots, the boot's instant and its job's name).
+/// The process's exit never ends the group it leads or the job it runs in, so what it started is
+/// ended by its stop, or through the record once it is gone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProcessRecord {
@@ -35,9 +35,8 @@ pub struct ProcessRecord {
     /// Its start time in microseconds since the epoch, on macOS; `None` elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) started_at: Option<u64>,
-    /// The id of the boot it started in, on macOS and Linux; `None` on Windows.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) boot: Option<String>,
+    /// The boot it started in: macOS's boot session UUID, Linux's boot id, Windows' boot instant.
+    pub(crate) boot: String,
     /// The name of the job of its own a lasting child runs in, on Windows; `None` elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) job: Option<String>,
@@ -126,10 +125,7 @@ mod tests {
                 ..record.clone()
             },
             ProcessRecord {
-                boot: Some(format!(
-                    "{}-another",
-                    record.boot.as_deref().unwrap_or("boot")
-                )),
+                boot: format!("{}-another", record.boot),
                 ..record
             },
         ];
@@ -171,7 +167,7 @@ mod tests {
                 ..record.clone()
             },
             ProcessRecord {
-                boot: Some("another".to_owned()),
+                boot: "another".to_owned(),
                 ..record.clone()
             },
         ]

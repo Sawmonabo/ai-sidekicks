@@ -33,3 +33,29 @@ pub enum OwnRootError {
 pub fn become_own_root() -> Result<(), OwnRootError> {
     Ok(())
 }
+
+/// Runs the test body `body` in a process that is its own responsible process, as the daemon is:
+/// on macOS, from a process that is not, by running this test program's test `name` again as its
+/// own responsible process and asserting that run passed; elsewhere, and in that run, by calling
+/// `body` here. Panics when the run fails.
+#[cfg(any(test, feature = "test-support"))]
+pub fn run_test_as_own_root(name: &str, body: impl FnOnce()) {
+    #[cfg(target_os = "macos")]
+    {
+        let own_id = std::process::id();
+        let is_own_root = crate::macos::responsibility::read_responsible_id(own_id)
+            .expect("this process's responsible process reads")
+            == Some(own_id);
+        if !is_own_root {
+            let (has_passed, output) = crate::macos::responsibility::rerun_test_as_own_root(name);
+            assert!(
+                has_passed,
+                "the run as its own responsible process failed: {output}"
+            );
+            return;
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = name;
+    body();
+}
