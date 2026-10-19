@@ -5,7 +5,8 @@
 use std::sync::LazyLock;
 
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::value::RawValue;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
@@ -14,7 +15,11 @@ use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use super::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
 use crate::provider::driver::contract::bound_failure_detail;
+use crate::provider::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
+};
 use crate::provider::inbound_json::decode_inbound_json;
 use crate::provider::terminal_emission_gate::{
     TerminalEmissionDecision, TerminalEmissionGate, TerminalRunFrame,
@@ -40,7 +45,8 @@ static BLANK_TURN_ERROR_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_
             .expect("the fallback is non-blank and within the cap")
     });
 
-/// The turn statuses Codex sends, read from its open string; any other word reads as none.
+/// The turn statuses Codex sends, read from its open string; any other word reads as none, which
+/// a settled turn reports and fails its run on.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CodexTurnStatus {
     Completed,
@@ -67,12 +73,13 @@ struct TurnCompletedParams {
     turn: CompletedTurn,
 }
 
-/// The settled turn: its status, its items where loaded, and its error where it failed.
+/// The settled turn: its status, its items where loaded, each kept raw until its type is read,
+/// and its error where it failed.
 #[derive(Deserialize)]
 struct CompletedTurn {
     status: String,
     #[serde(default)]
-    items: Option<Value>,
+    items: Option<Vec<Box<RawValue>>>,
     #[serde(default)]
     error: Option<Value>,
 }
@@ -84,15 +91,30 @@ impl CompletedTurn {
         self.error.as_ref()?.get("message")?.as_str()
     }
 
+    // Whether an item is the model's output; an item whose type cannot be read is not.
     fn has_model_output(&self) -> bool {
-        self.items
-            .as_ref()
-            .and_then(Value::as_array)
-            .is_some_and(|items| {
-                items.iter().any(|item| {
-                    item.get("type").and_then(Value::as_str) == Some(CODEX_MODEL_OUTPUT_ITEM_TYPE)
-                })
-            })
+        self.items.iter().flatten().any(|item| {
+            serde_json::from_str::<ItemHead>(item.get())
+                .is_ok_and(|head| head.item_type == CODEX_MODEL_OUTPUT_ITEM_TYPE)
+        })
+    }
+
+    // The turn's status, a word Codex does not send reported once on the connection as unmapped.
+    fn read_status(&self, diagnostics: &mut OnceReportedDiagnostics) -> Option<CodexTurnStatus> {
+        let status = CodexTurnStatus::read(&self.status);
+        if status.is_none() {
+            diagnostics.report(&DriverDiagnosticRecord {
+                provider: super::DESCRIPTOR.provider_id(),
+                provider_account_id: None,
+                kind: DriverDiagnosticKind::UnmappedWireKind,
+                raw_wire_type: Some(format!("{CODEX_TURN_COMPLETED_METHOD}:{}", self.status)),
+                disposition_reason: "a settled turn's status is not one Codex sends, so its run \
+                                     fails as a turn that failed"
+                    .to_owned(),
+                details: Map::new(),
+            });
+        }
+        status
     }
 }
 
@@ -227,8 +249,9 @@ pub(crate) struct CodexTurnTerminal {
 
 /// The run's end and the turn's end a settling `turn/completed` reports, admitted through the
 /// session's terminal gate: `completed`, `interrupted`, or `failed` with the usage limit or spent
-/// retries that failed it. `None` when the gate suppressed it, the params cannot be read, or the
-/// status is `inProgress` or one Codex does not send.
+/// retries that failed it, and for a status Codex does not send, which is reported once through
+/// `diagnostics`. `None` when the gate suppressed it, the params cannot be read, or the status is
+/// `inProgress`.
 #[cfg_attr(
     not(test),
     expect(
@@ -239,6 +262,7 @@ pub(crate) struct CodexTurnTerminal {
 pub(crate) fn compose_codex_turn_terminal(
     input: CodexTurnTerminalInput<'_>,
     gate: &mut TerminalEmissionGate,
+    diagnostics: &mut OnceReportedDiagnostics,
 ) -> Option<CodexTurnTerminal> {
     let CodexTurnTerminalInput {
         params,
@@ -250,8 +274,8 @@ pub(crate) fn compose_codex_turn_terminal(
         fallback_detail,
     } = input;
     let turn = read_completed_turn(params)?;
-    let status = CodexTurnStatus::read(&turn.status)?;
-    if status == CodexTurnStatus::InProgress {
+    let status = turn.read_status(diagnostics);
+    if status == Some(CodexTurnStatus::InProgress) {
         return None;
     }
     let frame = TerminalRunFrame {
@@ -265,7 +289,7 @@ pub(crate) fn compose_codex_turn_terminal(
     };
     let (change, outcome) = compose_run_end(
         run_id,
-        Some(status),
+        status,
         turn.error_message(),
         RunEnd {
             is_intended_close,
@@ -283,17 +307,20 @@ pub(crate) fn compose_codex_turn_terminal(
 }
 
 /// The end a helper's last turn gives its child run, from that turn's `turn/completed` params
-/// JSON text: `completed`, `interrupted`, or `failed` for any other status or unreadable params.
-/// A helper's turns carry no epoch of the session's runs, so no terminal gate admits it.
+/// JSON text: `completed`, `interrupted`, or `failed` for any other status or unreadable params,
+/// a status Codex does not send reported once through `diagnostics`. A helper's turns carry no
+/// epoch of the session's runs, so no terminal gate admits it.
 #[expect(
     dead_code,
     reason = "the Codex helper roles end each helper's child run through it"
 )]
-pub(crate) fn compose_codex_child_terminal(child_run_id: RunId, params: &str) -> RunStateChange {
+pub(crate) fn compose_codex_child_terminal(
+    child_run_id: RunId,
+    params: &str,
+    diagnostics: &mut OnceReportedDiagnostics,
+) -> RunStateChange {
     let turn = read_completed_turn(params);
-    let status = turn
-        .as_ref()
-        .and_then(|turn| CodexTurnStatus::read(&turn.status));
+    let status = turn.as_ref().and_then(|turn| turn.read_status(diagnostics));
     let (change, _) = compose_run_end(
         child_run_id,
         status,
@@ -375,6 +402,7 @@ mod tests {
         CodexTurnTerminal, CodexTurnTerminalInput, classify_codex_turn_evidence,
         compose_codex_turn_terminal,
     };
+    use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
     use crate::provider::terminal_emission_gate::TerminalEmissionGate;
     use crate::provider::thread_frame_router::ThreadFrameRoute;
     use crate::provider::turn_evidence::TurnEvidenceClass;
@@ -389,15 +417,15 @@ mod tests {
         SafeInt::new(3).expect("3 is at least 1")
     }
 
-    fn failed_change(detail: &str) -> RunStateChange {
+    fn failed_change(detail: Option<&str>) -> RunStateChange {
         let mut change = RunStateChange::new(
             run_id(),
             RunStateEntry::Failed {
                 intended_close: None,
                 failure_cause: None,
-                provider_failure_detail: Some(
-                    FreeFormText::new(detail.to_owned()).expect("the detail is non-blank"),
-                ),
+                provider_failure_detail: detail.map(|detail| {
+                    FreeFormText::new(detail.to_owned()).expect("the detail is non-blank")
+                }),
                 process_exit: None,
             },
         );
@@ -425,10 +453,13 @@ mod tests {
     )]
     #[case::failed(
         r#"{"turn":{"status":"failed","items":[],"error":{"message":"usage limit reached"}}}"#,
-        Some((failed_change("usage limit reached"), TurnOutcome::Failed(None)))
+        Some((failed_change(Some("usage limit reached")), TurnOutcome::Failed(None)))
     )]
     #[case::in_progress(r#"{"turn":{"status":"inProgress","items":[]}}"#, None)]
-    #[case::unknown_status(r#"{"turn":{"status":"paused","items":[]}}"#, None)]
+    #[case::unknown_status(
+        r#"{"turn":{"status":"paused","items":[]}}"#,
+        Some((failed_change(None), TurnOutcome::Failed(None)))
+    )]
     fn each_status_ends_its_run_and_its_turn(
         #[case] params: &str,
         #[case] expected: Option<(RunStateChange, TurnOutcome)>,
@@ -445,6 +476,7 @@ mod tests {
                 fallback_detail: None,
             },
             &mut gate,
+            &mut OnceReportedDiagnostics::default(),
         );
 
         let expected = expected.map(|(change, outcome)| CodexTurnTerminal {

@@ -128,7 +128,7 @@ pub(crate) enum CodexError {
     #[error("{}", PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE)]
     RewindBoundaryUnsupported {
         /// The service's refusal, bounded as a failure detail.
-        provider_error: String,
+        provider_failure_detail: String,
     },
     /// A wait on a session's turns that the session's close ended: none of its turns will end
     /// now.
@@ -173,7 +173,7 @@ pub(crate) fn classify_rewind_fork_failure(error: CodexError) -> CodexError {
         && refusal_names_rewind_boundary_field(message)
     {
         return CodexError::RewindBoundaryUnsupported {
-            provider_error: bound_failure_detail(
+            provider_failure_detail: bound_failure_detail(
                 message,
                 UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
             )
@@ -193,8 +193,9 @@ fn refusal_names_rewind_boundary_field(provider_message: &str) -> bool {
 impl From<CodexError> for DriverError {
     /// A transport failure and an over-large request answer `provider.unavailable` and a timeout
     /// `provider.timeout`, each with the failure's words bounded as `providerFailureDetail`; a
-    /// refused fork boundary answers `provider.capability.unsupported` on the rollback flag, and a
-    /// session closed under a wait `session.alreadyClosed`; the rest are internal failures.
+    /// refused fork boundary answers `provider.capability.unsupported` on the rollback flag with
+    /// Codex's refusal bounded as `providerFailureDetail`, and a session closed under a wait
+    /// `session.alreadyClosed`; the rest are internal failures.
     fn from(error: CodexError) -> Self {
         match &error {
             CodexError::Transport { .. } => provider_failure_refusal(
@@ -212,14 +213,16 @@ impl From<CodexError> for DriverError {
                 RefusalCode::ProviderTimeout,
                 error,
             ),
-            CodexError::RewindBoundaryUnsupported { provider_error } => {
+            CodexError::RewindBoundaryUnsupported {
+                provider_failure_detail,
+            } => {
                 let mut refusal = provider_capability_unsupported(
                     &DESCRIPTOR.provider_id(),
                     DriverCapabilityFlag::Rollback,
                 );
                 refusal.detail.get_or_insert_default().insert(
-                    "providerError".to_owned(),
-                    Value::String(provider_error.clone()),
+                    "providerFailureDetail".to_owned(),
+                    Value::String(provider_failure_detail.clone()),
                 );
                 Self::Refused(refusal.with_source(error))
             }

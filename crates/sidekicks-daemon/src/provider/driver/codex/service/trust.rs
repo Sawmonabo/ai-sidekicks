@@ -164,8 +164,9 @@ fn read_daemon_hooks<'reply>(
     ])
 }
 
-// `hook` read as the daemon's hook running `command`, when it is one with a key and a hash. A hook
-// Codex manages runs without a recorded trust.
+// `hook` read as the daemon's hook running `command`, when it is one with a key and a hash. Codex
+// runs a `managed` hook as it runs a trusted one, so both count, though a hook from the session's
+// flags, the only source read here, is never managed.
 fn read_daemon_hook<'reply>(hook: &'reply ListedHook, command: &str) -> Option<DaemonHook<'reply>> {
     if hook.source.as_deref() != Some(SESSION_FLAGS_HOOK_SOURCE)
         || hook.command.as_deref() != Some(command)
