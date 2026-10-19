@@ -84,27 +84,27 @@ impl PinnedProcess {
         )
     }
 
-    // Sends `signal` through the descriptor, `SIGKILL` to the whole group the process leads, so
-    // nothing a lasting child started outlives it; `false` when nothing was left to signal. From
-    // Linux 6.9 the descriptor's group signal reaches exactly the group, `ESRCH` meaning no member
-    // is left; a kernel before 6.9 refuses the group flag with `EINVAL`, so the process is
-    // signaled alone and the rest of its group by its id, unless the process has been reaped and
-    // its id passed to another process, which happens only once the group has ended. Fails with
-    // the first error a signal met, once both are sent.
+    // Sends `signal` through the descriptor, `SIGKILL` to the process and then to the whole group
+    // it leads, so nothing a lasting child started outlives it; `false` when the process has
+    // ended. From Linux 6.9 the descriptor's group signal reaches exactly the group; a kernel
+    // before 6.9 refuses the group flag with `EINVAL`, so the rest of the group is signaled by its
+    // id, unless the process has been reaped and its id passed to another process, which happens
+    // only once the group has ended. Fails with the first error a signal met, once both are sent.
     fn send_signal(&self, signal: Signal) -> io::Result<bool> {
+        let is_running = self.send_through_descriptor(signal, 0);
         if signal != Signal::SIGKILL {
-            return self.send_through_descriptor(signal, 0);
+            return is_running;
         }
-        match self.send_through_descriptor(signal, libc::PIDFD_SIGNAL_PROCESS_GROUP) {
+        let group_end = match self.send_through_descriptor(signal, libc::PIDFD_SIGNAL_PROCESS_GROUP)
+        {
             Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {
-                let is_running = self.send_through_descriptor(signal, 0);
-                let group_end = self.kill_rest_of_own_group();
-                let is_running = is_running?;
-                group_end?;
-                Ok(is_running)
+                self.kill_rest_of_own_group().map(|_| ())
             }
-            sent => sent,
-        }
+            sent => sent.map(|_| ()),
+        };
+        let is_running = is_running?;
+        group_end?;
+        Ok(is_running)
     }
 
     // Sends `SIGKILL` to the rest of the group the process leads by its id, unless the process has
