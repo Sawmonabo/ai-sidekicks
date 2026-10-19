@@ -86,8 +86,9 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
 pub fn is_on_network_file_system(path: &Path) -> io::Result<bool> {
     let mut verbatim = verbatim_path(path)?;
     verbatim.push(0);
-    // A volume's root is never longer than the path inside it.
-    let mut volume_root = vec![0_u16; verbatim.len()];
+    // A volume's root is never longer than the path inside it, plus the separator the system adds
+    // to a root given without one (`\\server\share` comes back `\\server\share\`).
+    let mut volume_root = vec![0_u16; verbatim.len() + 1];
     let root_length = u32::try_from(volume_root.len()).map_err(io::Error::other)?;
     // SAFETY: `verbatim` is NUL-terminated, and `volume_root` is a live buffer of the length given.
     let is_read =
