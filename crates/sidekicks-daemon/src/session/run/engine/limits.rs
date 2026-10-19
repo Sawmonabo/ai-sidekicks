@@ -146,9 +146,12 @@ impl RunEngine {
     /// then the interrupt handed to the interventions service. Fails as the stop fails; the caller
     /// calls again at the next usage report, which sends the interrupt alone once the reached
     /// event has landed.
-    #[expect(
-        dead_code,
-        reason = "the budget accountant calls it when a run's tokens pass its limit"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the budget accountant calls it when a run's tokens pass its limit"
+        )
     )]
     pub(crate) async fn stop_at_token_limit(
         &self,
