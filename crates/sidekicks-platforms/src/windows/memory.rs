@@ -1,26 +1,24 @@
 //! A process's peak working set and the machine's available memory as Windows reports them.
 
 use std::io;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::io::AsRawHandle;
 
 use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER, FALSE};
 use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
 
 use crate::windows::error_codes::win32_code;
+use crate::windows::pinned_process::open_process;
 
 /// The most memory process `process_id` has held since it started, in bytes, its peak working
 /// set; `None` when no process has the id or another user runs it. Blocks on the read; fails with
 /// the system's error on any other refusal.
 pub fn read_process_peak_bytes(process_id: u32) -> io::Result<Option<u64>> {
-    // SAFETY: the call takes plain values and answers a new handle or null.
-    let raw_process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id) };
-    if raw_process.is_null() {
-        return absent_or_failed(io::Error::last_os_error());
-    }
-    // SAFETY: the handle was just opened and is owned by nothing else, so it closes on every path.
-    let process = unsafe { OwnedHandle::from_raw_handle(raw_process) };
+    let process = match open_process(process_id, PROCESS_QUERY_LIMITED_INFORMATION) {
+        Ok(process) => process,
+        Err(error) => return absent_or_failed(error),
+    };
     let counters_size = u32::try_from(size_of::<PROCESS_MEMORY_COUNTERS>())
         .expect("the record's size fits in a u32");
     // SAFETY: `PROCESS_MEMORY_COUNTERS` is a C struct of integers, for which all zero bytes are

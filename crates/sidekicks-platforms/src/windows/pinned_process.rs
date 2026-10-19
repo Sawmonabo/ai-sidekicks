@@ -21,8 +21,8 @@ use windows_sys::Win32::System::JobObjects::{
 use windows_sys::Win32::System::SystemServices::{JOB_OBJECT_QUERY, JOB_OBJECT_TERMINATE};
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetExitCodeProcess, GetProcessTimes, INFINITE, OpenProcess,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess,
-    WaitForSingleObject,
+    PROCESS_ACCESS_RIGHTS, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
 };
 
 use crate::child_command::ChildEnd;
@@ -212,7 +212,7 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
 // The process `record` names, held open while it runs with the recorded id and creation time;
 // `None` once it has ended or its id names another process.
 fn open_recorded_process(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
-    let process = match open_process(record.id) {
+    let process = match pin_process(record.id) {
         Ok(process) => process,
         // No process has the id, or it names a process of another user or a higher integrity,
         // which a lasting child this user started never is.
@@ -338,7 +338,7 @@ pub(crate) fn current_process() -> BorrowedHandle<'static> {
 /// passing to another process meanwhile. Fails with the system's error, `ERROR_INVALID_PARAMETER`
 /// when no process has the id.
 pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
-    open_process(id)
+    pin_process(id)
 }
 
 /// This process, held by its id.
@@ -352,21 +352,24 @@ pub fn this_process() -> PinnedProcess {
     }
 }
 
-// Process `id`, opened with the rights to read its times, wait on it and end it.
-fn open_process(id: u32) -> io::Result<PinnedProcess> {
+/// Process `id`, opened with `rights`. Fails with the system's error: `ERROR_INVALID_PARAMETER`
+/// when no process has the id, `ERROR_ACCESS_DENIED` when the rights are not granted.
+pub(crate) fn open_process(id: u32, rights: PROCESS_ACCESS_RIGHTS) -> io::Result<OwnedHandle> {
     // SAFETY: the call takes plain values and answers a new handle or null.
-    let raw_process = unsafe {
-        OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE | PROCESS_TERMINATE,
-            FALSE,
-            id,
-        )
-    };
+    let raw_process = unsafe { OpenProcess(rights, FALSE, id) };
     if raw_process.is_null() {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: the handle was just opened and is owned by nothing else, so it closes on every path.
-    let process = unsafe { OwnedHandle::from_raw_handle(raw_process) };
+    Ok(unsafe { OwnedHandle::from_raw_handle(raw_process) })
+}
+
+// Process `id`, held open with the rights to read its times, wait on it and end it.
+fn pin_process(id: u32) -> io::Result<PinnedProcess> {
+    let process = open_process(
+        id,
+        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE | PROCESS_TERMINATE,
+    )?;
     Ok(PinnedProcess {
         id,
         process: Some(Arc::new(process)),

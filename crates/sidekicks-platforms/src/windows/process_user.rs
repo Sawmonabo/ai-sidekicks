@@ -12,11 +12,9 @@ use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::Security::{
     EqualSid, GetTokenInformation, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
-use windows_sys::Win32::System::Threading::{
-    OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
-};
+use windows_sys::Win32::System::Threading::{OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
 
-use crate::windows::pinned_process::current_process;
+use crate::windows::pinned_process::{current_process, open_process};
 use crate::windows::wide_text::read_wide_string;
 
 /// The user a process's token names, kept in the token's own record, which holds the user's id.
@@ -34,13 +32,7 @@ impl ProcessUser {
     /// The user process `id` runs as, its token read with the least right that reads it. Fails
     /// with the system's error when the process cannot be opened or its token read.
     pub(crate) fn of_process_id(id: u32) -> io::Result<Self> {
-        // SAFETY: the call takes plain values and answers a new handle or null.
-        let raw_process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, id) };
-        if raw_process.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: the handle was just opened and is owned by nothing else.
-        let process = unsafe { OwnedHandle::from_raw_handle(raw_process) };
+        let process = open_process(id, PROCESS_QUERY_LIMITED_INFORMATION)?;
         Self::of_process(process.as_handle())
     }
 
