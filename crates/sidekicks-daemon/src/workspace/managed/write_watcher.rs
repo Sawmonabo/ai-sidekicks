@@ -9,6 +9,8 @@
 //!   bounded number of recent paths.
 //! - A workspace's own `.git` folder and the workspace folder itself are the daemon's, not the
 //!   chat's, so neither is reported.
+//! - A watch started again once ready walks for what landed before it was armed, from the instant
+//!   its owner hands it, so no write in between is lost.
 
 use std::error::Error;
 use std::ffi::OsStr;
@@ -22,8 +24,9 @@ use notify::{RecommendedWatcher, Watcher};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{EntryIdentity, entry_identity};
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::{JoinError, JoinHandle};
+use tokio::task::JoinHandle;
 
+use crate::file::bounded_read::run_on_own_thread;
 use crate::file_watch::{ChangeFeed, FileWatch, FileWatchError, FileWatchNotice, WalkFilter};
 use crate::missing_entry::is_missing_entry;
 
@@ -66,9 +69,9 @@ pub(crate) enum ManagedWorkspaceWatchError {
     /// The watch failed, its folder removed among the causes.
     #[error("the managed workspaces watch failed")]
     Failed(#[source] FileWatchError),
-    /// The read of the changed entries stopped before it answered.
+    /// The read of the changed entries could not run on its thread or stopped before it answered.
     #[error("the managed workspaces watch's read stopped before it finished")]
-    Interrupted(#[source] JoinError),
+    Interrupted(#[source] io::Error),
 }
 
 /// The one watch over every chat's managed workspace; dropping it stops the watch and its task.
@@ -81,9 +84,11 @@ pub(crate) struct ManagedWorkspaceWriteWatcher {
 }
 
 impl ManagedWorkspaceWriteWatcher {
-    /// Makes `workspaces_folder` when absent, watches it, and sends each write on `writes`, waiting
-    /// for room so a slow reader slows only this watch. The receiver answers with the reason, also
-    /// logged, when the watch cannot start or fails; it never answers otherwise.
+    /// Makes `workspaces_folder` when absent, watches it, walks it once ready for every write
+    /// changed at or after `missed_since`, and sends each write on `writes`, waiting for room so a
+    /// slow reader slows only this watch. When the watch cannot start or fails, the reason is
+    /// logged and the receiver answers with the instant since which writes may be unreported, for
+    /// the next watch's `missed_since`; it never answers otherwise.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the chat-versions record of a chat's writes")
@@ -91,27 +96,35 @@ impl ManagedWorkspaceWriteWatcher {
     pub(crate) fn start(
         workspaces_folder: PathBuf,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
-    ) -> (Self, oneshot::Receiver<ManagedWorkspaceWatchError>) {
+        missed_since: SystemTime,
+    ) -> (Self, oneshot::Receiver<SystemTime>) {
         let (failure_sender, failure) = oneshot::channel();
         let task = tokio::spawn(async move {
-            let outcome = match open_watch::<RecommendedWatcher>(workspaces_folder).await {
-                Ok((watch, _feed)) => report_writes(watch, &writes).await,
-                Err(error) => Err(error),
-            };
+            let (outcome, unreported_since) =
+                match open_watch::<RecommendedWatcher>(workspaces_folder).await {
+                    Ok((mut watch, _feed)) => {
+                        watch.catch_up(missed_since);
+                        let outcome = report_writes(&mut watch, &writes).await;
+                        (outcome, watch.whole_since())
+                    }
+                    Err(error) => (Err(error), missed_since),
+                };
             if let Err(error) = outcome {
                 tracing::error!(
                     error = &error as &(dyn Error + 'static),
                     "the managed workspaces watch stopped; chat writes are no longer reported"
                 );
-                if let Err(unheard) = failure_sender.send(error) {
-                    tracing::debug!(
-                        error = &unheard as &(dyn Error + 'static),
-                        "nobody waits for the managed workspaces watch's failure"
-                    );
+                if failure_sender.send(unreported_since).is_err() {
+                    tracing::debug!("nobody waits for the managed workspaces watch's failure");
                 }
             }
         });
         (Self { task }, failure)
+    }
+
+    /// Whether the watch's task has ended, for any reason.
+    pub(crate) fn has_finished(&self) -> bool {
+        self.task.is_finished()
     }
 }
 
@@ -140,7 +153,7 @@ async fn open_watch<W: Watcher + Send + 'static>(
 
 // Reads the watch's notices until it fails or the reader of `writes` is gone.
 async fn report_writes<W: Watcher + Send + 'static>(
-    mut watch: FileWatch<W>,
+    watch: &mut FileWatch<W>,
     writes: &mpsc::Sender<ManagedWorkspaceWrite>,
 ) -> Result<(), ManagedWorkspaceWatchError> {
     let root = watch
@@ -209,8 +222,8 @@ struct WriteReporter {
 }
 
 impl WriteReporter {
-    // Reads every changed path in one blocking batch and sends each new write; answers false once
-    // the reader of `writes` is gone.
+    // Reads every changed path in one batch on a thread of its own and sends each new write;
+    // answers false once the reader of `writes` is gone.
     async fn report(
         &mut self,
         paths: Vec<PathBuf>,
@@ -223,7 +236,7 @@ impl WriteReporter {
         if candidates.is_empty() {
             return Ok(true);
         }
-        let readings = tokio::task::spawn_blocking(move || {
+        let readings = run_on_own_thread("managed workspace write read", move || {
             candidates
                 .into_iter()
                 .map(|candidate| {
@@ -353,7 +366,7 @@ mod tests {
     use tokio::time::timeout;
 
     use super::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, open_watch, report_writes};
-    use crate::file_watch::FEED_CAPACITY;
+    use crate::file_watch::{FEED_CAPACITY, wait_for_the_next_whole_second};
 
     const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
     const WAIT: Duration = Duration::from_secs(10);
@@ -401,7 +414,10 @@ mod tests {
         fs::create_dir(session.join("made")).expect("a folder is made");
         fs::write(session.join(".git").join("index"), "index").expect("git's file is written");
         let (writes_sender, mut writes) = mpsc::channel(16);
-        let task = tokio::spawn(async move { report_writes(watch, &writes_sender).await });
+        let task = tokio::spawn(async move {
+            let mut watch = watch;
+            report_writes(&mut watch, &writes_sender).await
+        });
 
         feed.handle_event(notice(&[
             session.join("a.txt"),
@@ -439,8 +455,8 @@ mod tests {
     }
 
     // Catches a lost feed left unread: a write whose notice was dropped from a full feed must
-    // still be reported by the rescan the loss causes, and an entry unchanged since the feed was
-    // last whole must not be.
+    // still be reported by the rescan the loss causes, a file written with its modified time set
+    // an hour back among them, and an entry unchanged since the feed was last whole must not be.
     #[tokio::test]
     async fn managed_write_watch_rescans_after_the_feed_overflows() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -448,30 +464,40 @@ mod tests {
         let session = session_folder(&workspaces);
         let unchanged = session.join("unchanged.txt");
         fs::write(&unchanged, "written before the watch").expect("written");
-        fs::File::options()
-            .write(true)
-            .open(&unchanged)
-            .and_then(|file| file.set_modified(SystemTime::now() - Duration::from_secs(3_600)))
-            .expect("the file is aged");
+        age_by_an_hour(&unchanged);
+        // The rescan counts whole seconds, so the unchanged file's last change is left a second
+        // behind the watch's start.
+        wait_for_the_next_whole_second().await;
         let (watch, mut feed) = open_watch::<NullWatcher>(workspaces)
             .await
             .expect("the watch starts");
         let session = watch.roots()[0].join(SESSION);
         fs::write(session.join("a.txt"), "written while the feed was full").expect("written");
+        let unpacked = session.join("unpacked.txt");
+        fs::write(&unpacked, "unpacked with its old time kept").expect("written");
+        age_by_an_hour(&unpacked);
 
-        // Nothing reads the feed yet, so it fills with notices the filter drops and the notice
-        // for the write is lost.
+        // Nothing reads the feed yet, so it fills with notices the filter drops and the notices
+        // for the writes are lost.
         let git_index = [session.join(".git").join("index")];
         for _ in 0..FEED_CAPACITY {
             feed.handle_event(notice(&git_index));
         }
-        feed.handle_event(notice(&[session.join("a.txt")]));
+        feed.handle_event(notice(&[session.join("a.txt"), unpacked]));
         let (writes_sender, mut writes) = mpsc::channel(16);
-        let task = tokio::spawn(async move { report_writes(watch, &writes_sender).await });
+        let task = tokio::spawn(async move {
+            let mut watch = watch;
+            report_writes(&mut watch, &writes_sender).await
+        });
 
+        let mut reported = vec![next_write(&mut writes).await, next_write(&mut writes).await];
+        reported.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
         assert_eq!(
-            next_write(&mut writes).await,
-            write("a.txt", ManagedWorkspaceWriteKind::File)
+            reported,
+            vec![
+                write("a.txt", ManagedWorkspaceWriteKind::File),
+                write("unpacked.txt", ManagedWorkspaceWriteKind::File),
+            ]
         );
         assert!(
             timeout(Duration::from_millis(500), writes.recv())
@@ -480,5 +506,13 @@ mod tests {
             "the unchanged file is not reported"
         );
         task.abort();
+    }
+
+    fn age_by_an_hour(path: &Path) {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| file.set_modified(SystemTime::now() - Duration::from_secs(3_600)))
+            .expect("the file is aged");
     }
 }

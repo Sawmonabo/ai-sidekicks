@@ -3,14 +3,14 @@
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
 
 use ignore::WalkBuilder;
 use notify::{ErrorKind, RecursiveMode, Watcher};
-use sidekicks_platforms::{WATCHES_TREES, inotify_watch_ceiling};
+use sidekicks_platforms::{WATCHES_TREES, entry_changed_at};
 
+use super::ceiling::{CeilingMisses, log_watch_ceiling};
 use super::root_watchers::RootWatchers;
 use super::{FileWatchError, WalkFilter};
 use crate::missing_entry::is_missing_entry;
@@ -36,7 +36,7 @@ pub(super) struct WalkRequest {
     pub(super) start: PathBuf,
     /// Whether the root is watched again before the walk.
     pub(super) rearms_root: bool,
-    /// For a rescan, only entries modified at or after this instant are handed over.
+    /// For a rescan, only entries changed at or after this instant are handed over.
     pub(super) modified_since: Option<SystemTime>,
 }
 
@@ -72,36 +72,27 @@ pub(super) enum WalkOutput {
     },
 }
 
-/// What watching the roots at the start found.
-pub(super) struct ArmedRoots {
-    /// Whether the system's ceiling stopped the watch of a root or a folder short.
-    pub(super) has_reached_ceiling: bool,
-    /// The roots the ceiling refused, which are watched again later.
-    pub(super) roots_at_ceiling: Vec<PathBuf>,
-}
-
-/// Watches each root, and on a system that watches one folder at a time every folder under it the
-/// filter keeps; a root the system's ceiling refuses is handed back rather than failing the
-/// watch. Fails with the first root another refusal stops, or one removed while it is walked.
+/// Watches each root, and every folder under it the filter keeps where each folder takes a watch
+/// of its own; a root or a folder the system's ceiling refuses is recorded in `misses` rather than
+/// failing the watch. Answers whether the ceiling refused one. Fails with the first root another
+/// refusal stops, or one removed while it is walked.
 pub(super) fn arm_roots<W: Watcher>(
     watcher: &Mutex<RootWatchers<W>>,
-    is_incomplete: &AtomicBool,
+    misses: &Mutex<CeilingMisses>,
     roots: &[PathBuf],
     filter: &WalkFilter,
-) -> Result<ArmedRoots, FileWatchError> {
-    let mut armed = ArmedRoots {
-        has_reached_ceiling: false,
-        roots_at_ceiling: Vec::new(),
-    };
+) -> Result<bool, FileWatchError> {
+    let mut has_reached_ceiling = false;
+    let mut unwatched_roots = Vec::new();
     for root in roots {
         match lock(watcher).watch(root, ROOT_MODE) {
             Ok(()) => {}
             Err(error) if matches!(error.kind, ErrorKind::MaxFilesWatch) => {
-                if !is_incomplete.swap(true, Ordering::AcqRel) {
+                if lock(misses).record(root, true) {
                     log_watch_ceiling(Some(root), &error);
                 }
-                armed.has_reached_ceiling = true;
-                armed.roots_at_ceiling.push(root.clone());
+                has_reached_ceiling = true;
+                unwatched_roots.push(root);
             }
             Err(source) => {
                 return Err(FileWatchError::RootUnwatched {
@@ -111,56 +102,46 @@ pub(super) fn arm_roots<W: Watcher>(
             }
         }
     }
-    if WATCHES_TREES {
-        return Ok(armed);
-    }
     let mut failure = None;
-    for root in roots
-        .iter()
-        .filter(|root| !armed.roots_at_ceiling.contains(root))
-    {
+    for root in roots {
+        if unwatched_roots.contains(&root) || !lock(watcher).arms_each_folder(root) {
+            continue;
+        }
         let request = WalkRequest {
             root: root.clone(),
             start: root.clone(),
             rearms_root: false,
             modified_since: None,
         };
-        walk(
-            &request,
-            filter,
-            watcher,
-            is_incomplete,
-            false,
-            &mut |output| {
-                match output {
-                    WalkOutput::Entries(_) => {}
-                    WalkOutput::CeilingReached => armed.has_reached_ceiling = true,
-                    WalkOutput::RootMissing(root) => {
-                        failure = Some(FileWatchError::RootRemoved { root });
-                    }
-                    WalkOutput::RootUnwatched { root, source } => {
-                        failure = Some(FileWatchError::RootUnwatched { root, source });
-                    }
+        walk(&request, filter, watcher, misses, false, &mut |output| {
+            match output {
+                WalkOutput::Entries(_) => {}
+                WalkOutput::CeilingReached => has_reached_ceiling = true,
+                WalkOutput::RootMissing(root) => {
+                    failure = Some(FileWatchError::RootRemoved { root });
                 }
-                failure.is_none()
-            },
-        );
+                WalkOutput::RootUnwatched { root, source } => {
+                    failure = Some(FileWatchError::RootUnwatched { root, source });
+                }
+            }
+            failure.is_none()
+        });
         if let Some(failure) = failure.take() {
             return Err(failure);
         }
     }
-    Ok(armed)
+    Ok(has_reached_ceiling)
 }
 
 /// Walks one request's tree with the filter, blocking: watches the root again first when asked,
-/// watches each folder it keeps where the system watches one folder at a time, and hands every
-/// entry to `sink` in chunks when `reports_entries`, the root itself aside, and for a rescan only
-/// those modified at or after its instant. Stops when `sink` answers false.
+/// watches each folder it keeps where each folder takes a watch of its own, and hands every entry
+/// to `sink` in chunks when `reports_entries`, the root itself aside, and for a rescan only those
+/// changed at or after its instant. Stops when `sink` answers false.
 pub(super) fn walk<W: Watcher>(
     request: &WalkRequest,
     filter: &WalkFilter,
     watcher: &Mutex<RootWatchers<W>>,
-    is_incomplete: &AtomicBool,
+    misses: &Mutex<CeilingMisses>,
     reports_entries: bool,
     sink: &mut dyn FnMut(WalkOutput) -> bool,
 ) {
@@ -196,6 +177,7 @@ pub(super) fn walk<W: Watcher>(
             return;
         }
     }
+    let arms_each_folder = lock(watcher).arms_each_folder(&request.root);
     let root = request.root.clone();
     let entry_filter = filter.clone();
     let mut builder = WalkBuilder::new(&request.start);
@@ -229,14 +211,14 @@ pub(super) fn walk<W: Watcher>(
         let is_folder = entry
             .file_type()
             .is_some_and(|file_type| file_type.is_dir());
-        if !WATCHES_TREES
+        if arms_each_folder
             && is_folder
-            && arm_folder(watcher, is_incomplete, entry.path())
+            && arm_folder(watcher, misses, &request.root, entry.path())
             && !sink(WalkOutput::CeilingReached)
         {
             return;
         }
-        if reports_entries && is_modified_since(entry.path(), request.modified_since) {
+        if reports_entries && is_changed_since(entry.path(), request.modified_since) {
             chunk.push(entry.into_path());
             if chunk.len() >= WALK_CHUNK_LIMIT {
                 let full_chunk = std::mem::take(&mut chunk);
@@ -251,33 +233,40 @@ pub(super) fn walk<W: Watcher>(
     }
 }
 
-// Whether the entry at `path` was modified at or after `since`, read without following a link;
-// true with no instant, and for an entry whose time cannot be read, which may have changed.
-fn is_modified_since(path: &Path, since: Option<SystemTime>) -> bool {
+// Whether the entry at `path` changed at or after `since`, by the newer of its modified and
+// status-change times, read without following a link; true with no instant, and for an entry
+// whose times cannot be read, which may have changed.
+fn is_changed_since(path: &Path, since: Option<SystemTime>) -> bool {
     let Some(since) = since else {
         return true;
     };
     std::fs::symlink_metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .map_or(true, |modified| modified >= since)
+        .and_then(|metadata| entry_changed_at(&metadata))
+        .map_or(true, |changed| changed >= since)
 }
 
-// Watches one folder on its own; answers true the first time the system's ceiling refuses one,
-// after which no folder is added.
+// Watches one folder of `root` on its own; answers true the first time since the last retry that
+// the system's ceiling refuses one. Once one is refused, every later folder is skipped and its root
+// recorded, so the retry walks it again.
 fn arm_folder<W: Watcher>(
     watcher: &Mutex<RootWatchers<W>>,
-    is_incomplete: &AtomicBool,
+    misses: &Mutex<CeilingMisses>,
+    root: &Path,
     folder: &Path,
 ) -> bool {
-    if is_incomplete.load(Ordering::Acquire) {
-        return false;
+    {
+        let mut misses = lock(misses);
+        if misses.is_incomplete() {
+            misses.record(root, false);
+            return false;
+        }
     }
     let Err(error) = lock(watcher).watch(folder, RecursiveMode::NonRecursive) else {
         return false;
     };
     match &error.kind {
         ErrorKind::MaxFilesWatch => {
-            let is_first = !is_incomplete.swap(true, Ordering::AcqRel);
+            let is_first = lock(misses).record(root, false);
             if is_first {
                 log_watch_ceiling(Some(folder), &error);
             }
@@ -296,25 +285,6 @@ fn arm_folder<W: Watcher>(
             );
             false
         }
-    }
-}
-
-/// Logs that the system's ceiling on watches is reached at `folder`; the ceiling's figure is read
-/// only for the log, since the refused watch is what says it is reached.
-pub(super) fn log_watch_ceiling(folder: Option<&Path>, error: &notify::Error) {
-    match inotify_watch_ceiling() {
-        Ok(ceiling) => tracing::warn!(
-            error = error as &(dyn Error + 'static),
-            ?folder,
-            ?ceiling,
-            "the system's ceiling on watched folders is reached; folders past it are not watched"
-        ),
-        Err(ceiling_error) => tracing::warn!(
-            error = error as &(dyn Error + 'static),
-            ceiling_error = &ceiling_error as &(dyn Error + 'static),
-            ?folder,
-            "the system's ceiling on watched folders is reached; folders past it are not watched"
-        ),
     }
 }
 

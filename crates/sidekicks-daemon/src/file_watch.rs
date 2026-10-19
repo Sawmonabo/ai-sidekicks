@@ -9,42 +9,52 @@
 //! - The system's callback never waits: it hands each event to a bounded channel, and when that is
 //!   full it marks the feed lost, which the reader turns into a rescan of every root.
 //! - A rescan walks what the system says it lost, never above a watched root, and hands the owner
-//!   only the entries modified at or after the instant the feed was last whole, so a lost feed
-//!   never reports the unchanged tree.
+//!   only the entries changed at or after the instant the feed was last whole, by the newer of an
+//!   entry's modified and status-change times, so a lost feed never reports the unchanged tree
+//!   while a file written with an old modified time kept is still reported. A rescan of one path
+//!   leaves that instant; only a rescan of every root moves it, and a wall clock set back lowers
+//!   it by the step, read against the monotonic clock. Files inside a folder moved in while the
+//!   feed was lost keep their own times and are not reported; the folder's watch tells them after.
 //! - A root on a network file system, where a change another computer makes may raise no event,
-//!   is read again every two seconds instead of watched by the system.
-//! - A root the system's ceiling on watches refuses is tried again every five seconds, on a task
-//!   the watch tracks, until it is watched, then walked for what changed meanwhile.
+//!   is read again every two seconds instead of watched by the system, each folder the filter keeps
+//!   one level deep.
+//! - Once the system's ceiling on watches refuses one, every later watch is skipped and its root
+//!   recorded; five seconds on, on a task the watch tracks, the refused roots are watched again
+//!   and every recorded root walked again, as often as the ceiling is reached.
+//! - The watch's own file reads run on threads of their own or within the bounded read's ceiling,
+//!   never on tokio's blocking pool, whose stop waits for a read a hung mount holds.
 
 use std::collections::{BTreeSet, VecDeque};
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use notify::event::{CreateKind, ModifyKind, RenameMode};
 use notify::{
     Config, ErrorKind, Event, EventHandler, EventKind, EventKindMask, RecommendedWatcher, Watcher,
 };
-use sidekicks_platforms::{WATCHES_TREES, is_on_network_file_system, real_path};
+use sidekicks_platforms::is_on_network_file_system;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
-use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::file::bounded_read::read_within_ceiling;
+use crate::file::bounded_read::{read_within_ceiling, run_on_own_thread};
+use crate::file::real_location::resolve_real_path;
 use crate::missing_entry::is_missing_entry;
 
+mod ceiling;
 mod root_watchers;
 #[cfg(test)]
 mod tests;
 mod walk;
 
-use root_watchers::RootWatchers;
-use walk::{ROOT_MODE, WalkOutput, WalkRequest, arm_roots, lock, log_watch_ceiling, walk};
+use ceiling::{CeilingMisses, CeilingRetryOutcome, log_watch_ceiling, retry_after_ceiling};
+use root_watchers::{RootWatchers, arms_each_folder};
+use walk::{WalkOutput, WalkRequest, arm_roots, lock, walk};
 
 /// How many of the system's events wait for the reader; past it the feed is marked lost and one
 /// rescan of every root replaces what was dropped, so a burst costs a walk, never memory.
@@ -59,9 +69,6 @@ const WALK_CHUNKS_WAITING: usize = 2;
 // The most walks that may wait their turn; past it they fold into one rescan of every root, which
 // covers them all.
 const PENDING_WALK_LIMIT: usize = 256;
-
-// How long a root the system's ceiling refused waits before it is tried again.
-const CEILING_RETRY_WAIT: Duration = Duration::from_secs(5);
 
 // Whether a root is on a network file system, asked once per root at the watch's start; a test
 // answers in place of the system.
@@ -95,7 +102,8 @@ pub(crate) enum FileWatchNotice {
     /// filter keeps; one may name an entry since removed, and none names a root itself.
     Changed(Vec<PathBuf>),
     /// Some folders could not be watched, the system's ceiling on watches reached, so changes in
-    /// them are missed; told once, after the folder and the ceiling are logged.
+    /// them are missed until a retry finds room; told once each time the ceiling is reached, after
+    /// the folder and the ceiling are logged.
     Incomplete,
     /// The watch has failed and tells nothing more.
     Failed(FileWatchError),
@@ -131,9 +139,9 @@ pub(crate) enum FileWatchError {
         /// The real path of the root.
         root: PathBuf,
     },
-    /// A blocking read the watch waited on stopped before it answered.
+    /// A read the watch waited on could not run on its thread or stopped before it answered.
     #[error("a file watch read stopped before it finished")]
-    Interrupted(#[source] JoinError),
+    Interrupted(#[source] io::Error),
 }
 
 /// The handler the system's watch calls on its own thread: it never waits and never reads a file,
@@ -157,45 +165,44 @@ impl EventHandler for ChangeFeed {
 }
 
 /// One watch over a set of roots, read by its owner one notice at a time; dropping it ends the
-/// system's watch, any walk under way and any root's retry.
+/// system's watch, any walk under way and any retry after the ceiling.
 pub(crate) struct FileWatch<W = RecommendedWatcher> {
     watcher: Arc<Mutex<RootWatchers<W>>>,
     roots: Vec<PathBuf>,
-    // The instant the watch started, since which a root watched late may have changed untold.
-    started_at: SystemTime,
+    // The roots on a network file system, polled rather than watched by the system.
+    polled_roots: Arc<[PathBuf]>,
     // The instant the feed was last known whole; a rescan reports only entries changed since.
     whole_since: SystemTime,
-    root_retries: mpsc::Receiver<RootRetryOutcome>,
-    root_retry_sender: mpsc::Sender<RootRetryOutcome>,
+    // The monotonic clock's reading when `whole_since` was taken, which shows a wall clock set back.
+    whole_since_clock: Instant,
+    ceiling_misses: Arc<Mutex<CeilingMisses>>,
+    is_ceiling_retry_waiting: bool,
+    ceiling_retries: mpsc::Receiver<CeilingRetryOutcome>,
+    ceiling_retry_sender: mpsc::Sender<CeilingRetryOutcome>,
     retries: TaskTracker,
     retry_stop: CancellationToken,
-    // How many roots the system's ceiling refused are still tried again.
-    roots_awaiting_retry: usize,
     filter: WalkFilter,
     events: mpsc::Receiver<notify::Result<Event>>,
     has_lost_events: Arc<AtomicBool>,
-    is_incomplete: Arc<AtomicBool>,
     has_unreported_incomplete: bool,
+    // Polled folders whose failed read is logged, until an event names them again.
+    unreadable_polled_folders: BTreeSet<PathBuf>,
     pending_walks: VecDeque<WalkRequest>,
-    walk: Option<mpsc::Receiver<WalkOutput>>,
+    walk: Option<WalkUnderWay>,
     failure: Option<FileWatchError>,
     has_ended: bool,
 }
 
-// How a root the ceiling refused came to be watched, or why it could not be.
-enum RootRetryOutcome {
-    Watched(PathBuf),
-    Unwatched {
-        root: PathBuf,
-        source: notify::Error,
-    },
-    Interrupted(JoinError),
+// The walk the watch reads, with the instant it reports from.
+struct WalkUnderWay {
+    outputs: mpsc::Receiver<WalkOutput>,
+    modified_since: Option<SystemTime>,
 }
 
 enum Next {
     Event(Option<notify::Result<Event>>),
     Walk(Option<WalkOutput>),
-    RootRetry(Option<RootRetryOutcome>),
+    CeilingRetry(Option<CeilingRetryOutcome>),
 }
 
 impl<W: Watcher + Send + 'static> FileWatch<W> {
@@ -217,33 +224,20 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
         filter: WalkFilter,
         is_on_network: NetworkFileSystemCheck,
     ) -> Result<(Self, ChangeFeed), FileWatchError> {
-        let started_at = whole_seconds_now();
-        let roots = tokio::task::spawn_blocking(move || {
-            roots
-                .into_iter()
-                .map(|root| match real_path(&root) {
-                    Ok(resolved) => Ok(resolved),
-                    Err(source) => Err(FileWatchError::RootUnresolved { root, source }),
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .await
-        .map_err(FileWatchError::Interrupted)??;
-        let (sender, events) = mpsc::channel(FEED_CAPACITY);
-        let feed = ChangeFeed {
-            events: sender,
-            has_lost_events: Arc::new(AtomicBool::new(false)),
-        };
-        // Access events other than a close after writing are noise that would only fill the feed,
-        // and a link is never followed out of a root.
-        let config = Config::default()
-            .with_event_kinds(EventKindMask::CORE | EventKindMask::ACCESS_CLOSE)
-            .with_follow_symlinks(false);
-        let mut watchers =
-            RootWatchers::<W>::new(feed.clone(), config).map_err(FileWatchError::WatcherNotMade)?;
+        let whole_since_clock = Instant::now();
+        let whole_since = whole_seconds_now();
+        let mut resolved_roots = Vec::with_capacity(roots.len());
+        for root in roots {
+            match resolve_real_path(&root).await {
+                Ok(resolved) => resolved_roots.push(resolved),
+                Err(source) => return Err(FileWatchError::RootUnresolved { root, source }),
+            }
+        }
+        let roots = resolved_roots;
+        let mut polled_roots = Vec::new();
         for root in &roots {
             match read_within_ceiling(root, is_on_network).await {
-                Ok(true) => watchers.poll_root(root.clone()),
+                Ok(true) => polled_roots.push(root.clone()),
                 Ok(false) => {}
                 // The system's watch is the one left to try; it tells what it can.
                 Err(error) => tracing::warn!(
@@ -254,43 +248,58 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
                 ),
             }
         }
+        let polled_roots: Arc<[PathBuf]> = polled_roots.into();
+        let (sender, events) = mpsc::channel(FEED_CAPACITY);
+        let feed = ChangeFeed {
+            events: sender,
+            has_lost_events: Arc::new(AtomicBool::new(false)),
+        };
+        // Access events other than a close after writing are noise that would only fill the feed,
+        // and a link is never followed out of a root.
+        let config = Config::default()
+            .with_event_kinds(EventKindMask::CORE | EventKindMask::ACCESS_CLOSE)
+            .with_follow_symlinks(false);
+        let watchers = RootWatchers::<W>::new(feed.clone(), config, Arc::clone(&polled_roots))
+            .map_err(FileWatchError::WatcherNotMade)?;
         let watcher = Arc::new(Mutex::new(watchers));
-        let is_incomplete = Arc::new(AtomicBool::new(false));
+        let ceiling_misses = Arc::new(Mutex::new(CeilingMisses::default()));
         let arming = (
             Arc::clone(&watcher),
-            Arc::clone(&is_incomplete),
+            Arc::clone(&ceiling_misses),
             roots.clone(),
+            filter.clone(),
         );
-        let filter_for_arming = filter.clone();
-        let armed = tokio::task::spawn_blocking(move || {
-            let (watcher, is_incomplete, roots) = arming;
-            arm_roots(&watcher, &is_incomplete, &roots, &filter_for_arming)
+        let has_reached_ceiling = run_on_own_thread("file watch start", move || {
+            let (watcher, ceiling_misses, roots, filter) = arming;
+            arm_roots(&watcher, &ceiling_misses, &roots, &filter)
         })
         .await
         .map_err(FileWatchError::Interrupted)??;
-        let (root_retry_sender, root_retries) = mpsc::channel(roots.len().max(1));
-        let watch = Self {
+        let (ceiling_retry_sender, ceiling_retries) = mpsc::channel(1);
+        let mut watch = Self {
             watcher,
             roots,
-            started_at,
-            whole_since: started_at,
-            root_retries,
-            root_retry_sender,
+            polled_roots,
+            whole_since,
+            whole_since_clock,
+            ceiling_misses,
+            is_ceiling_retry_waiting: false,
+            ceiling_retries,
+            ceiling_retry_sender,
             retries: TaskTracker::new(),
             retry_stop: CancellationToken::new(),
-            roots_awaiting_retry: armed.roots_at_ceiling.len(),
             filter,
             events,
             has_lost_events: Arc::clone(&feed.has_lost_events),
-            is_incomplete,
-            has_unreported_incomplete: armed.has_reached_ceiling,
+            has_unreported_incomplete: has_reached_ceiling,
+            unreadable_polled_folders: BTreeSet::new(),
             pending_walks: VecDeque::new(),
             walk: None,
             failure: None,
             has_ended: false,
         };
-        for root in armed.roots_at_ceiling {
-            watch.retry_root_at_ceiling(root);
+        if has_reached_ceiling {
+            watch.retry_after_ceiling();
         }
         Ok((watch, feed))
     }
@@ -298,6 +307,33 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
     /// The watched roots, each resolved to its real path; every changed path is under one of them.
     pub(crate) fn roots(&self) -> &[PathBuf] {
         &self.roots
+    }
+
+    /// Walks every root once through the rescan path, reporting the entries changed at or after
+    /// `since`, so a change made before this watch was ready is told; for an owner whose earlier
+    /// watch ended, `since` being the instant that one's [`FileWatch::whole_since`] read.
+    pub(crate) fn catch_up(&mut self, since: SystemTime) {
+        let since = whole_seconds_of(since);
+        for root in self.roots.clone() {
+            self.queue_walk(WalkRequest {
+                start: root.clone(),
+                root,
+                rearms_root: false,
+                modified_since: Some(since),
+            });
+        }
+    }
+
+    /// The instant since which every change under the roots has been told or is still to be told
+    /// by a walk: when the feed was last whole, lowered by any wall clock step back, or the
+    /// earliest instant a walk under way or waiting reports from.
+    pub(crate) fn whole_since(&self) -> SystemTime {
+        self.pending_walks
+            .iter()
+            .map(|pending| pending.modified_since)
+            .chain(self.walk.as_ref().map(|walk| walk.modified_since))
+            .flatten()
+            .fold(self.rescan_instant(), SystemTime::min)
     }
 
     /// The next thing the watch has to tell, waiting for the system's feed or a walk; `None` once
@@ -328,7 +364,7 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
                     biased;
                     event = self.events.recv() => Next::Event(event),
                     output = next_walk_output(walk) => Next::Walk(output),
-                    outcome = self.root_retries.recv() => Next::RootRetry(outcome),
+                    outcome = self.ceiling_retries.recv() => Next::CeilingRetry(outcome),
                 }
             };
             match next {
@@ -360,76 +396,91 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
                 }
                 Next::Walk(Some(WalkOutput::CeilingReached)) => {
                     self.has_unreported_incomplete = true;
+                    self.retry_after_ceiling();
                 }
                 Next::Walk(Some(WalkOutput::RootMissing(root))) => {
                     self.failure = Some(FileWatchError::RootRemoved { root });
                 }
                 Next::Walk(Some(WalkOutput::RootUnwatched { root, source }))
-                | Next::RootRetry(Some(RootRetryOutcome::Unwatched { root, source })) => {
+                | Next::CeilingRetry(Some(CeilingRetryOutcome::Unwatched { root, source })) => {
                     self.failure = Some(FileWatchError::RootUnwatched { root, source });
                 }
                 // The watch holds a sender, so the channel never closes while it is read.
-                Next::RootRetry(None) => {}
-                Next::RootRetry(Some(RootRetryOutcome::Watched(root))) => {
-                    // Watched now, and what changed under it since the watch started is told; once
-                    // every refused root is watched, folders past the ceiling are tried again too.
-                    self.roots_awaiting_retry -= 1;
-                    if self.roots_awaiting_retry == 0 {
-                        self.is_incomplete.store(false, Ordering::Release);
-                    }
-                    self.queue_walk(WalkRequest {
-                        start: root.clone(),
-                        root,
-                        rearms_root: false,
-                        modified_since: Some(self.started_at),
-                    });
-                }
-                Next::RootRetry(Some(RootRetryOutcome::Interrupted(failure))) => {
+                Next::CeilingRetry(None) => {}
+                Next::CeilingRetry(Some(CeilingRetryOutcome::Room)) => self.walk_ceiling_misses(),
+                Next::CeilingRetry(Some(CeilingRetryOutcome::Interrupted(failure))) => {
                     self.failure = Some(FileWatchError::Interrupted(failure));
                 }
             }
         }
     }
 
-    // Tries a root the system's ceiling refused again every few seconds, on a task the watch
-    // tracks, until the system watches it or refuses it for another reason; the task ends with
-    // the watch.
-    fn retry_root_at_ceiling(&self, root: PathBuf) {
-        let watcher: Weak<Mutex<RootWatchers<W>>> = Arc::downgrade(&self.watcher);
-        let outcomes = self.root_retry_sender.clone();
+    // Once the ceiling refused a watch, tries again after a wait, on a task the watch tracks, until
+    // every refused root is watched or refused for another reason; one retry waits at a time, and
+    // the task ends with the watch.
+    fn retry_after_ceiling(&mut self) {
+        if self.is_ceiling_retry_waiting {
+            return;
+        }
+        self.is_ceiling_retry_waiting = true;
+        let watcher = Arc::downgrade(&self.watcher);
+        let misses = Arc::downgrade(&self.ceiling_misses);
         let stop = self.retry_stop.clone();
+        let outcomes = self.ceiling_retry_sender.clone();
         self.retries.spawn(async move {
-            loop {
-                tokio::select! {
-                    () = stop.cancelled() => return,
-                    () = tokio::time::sleep(CEILING_RETRY_WAIT) => {}
-                }
-                let Some(watcher) = watcher.upgrade() else {
-                    return;
-                };
-                let retried = root.clone();
-                let watched =
-                    tokio::task::spawn_blocking(move || lock(&watcher).watch(&retried, ROOT_MODE))
-                        .await;
-                let outcome = match watched {
-                    Ok(Ok(())) => RootRetryOutcome::Watched(root),
-                    Ok(Err(error)) if matches!(error.kind, ErrorKind::MaxFilesWatch) => continue,
-                    Ok(Err(source)) => RootRetryOutcome::Unwatched { root, source },
-                    Err(failure) => RootRetryOutcome::Interrupted(failure),
-                };
-                // A watch dropped meanwhile reads nothing more.
-                if outcomes.send(outcome).await.is_err() {
-                    tracing::debug!("a file watch ended before its retried root was told");
-                }
+            let Some(outcome) = retry_after_ceiling(watcher, misses, stop).await else {
                 return;
+            };
+            // A watch dropped meanwhile reads nothing more.
+            if outcomes.send(outcome).await.is_err() {
+                tracing::debug!("a file watch ended before its retry after the ceiling was told");
             }
         });
     }
 
-    // The instant the feed was last known whole, for a rescan to report from; the feed is whole
-    // again from now, in whole seconds, since some file systems keep a coarser modified time.
+    // The retry found room: the watch is complete again, and every root a watch was refused or
+    // skipped under is walked again, its folders watched and what changed since the first refusal
+    // told; a refusal on the way records it again and tells `Incomplete` again.
+    fn walk_ceiling_misses(&mut self) {
+        self.is_ceiling_retry_waiting = false;
+        let (roots, since) = {
+            let mut misses = lock(&self.ceiling_misses);
+            (std::mem::take(&mut misses.roots), misses.since.take())
+        };
+        for root in roots {
+            self.queue_walk(WalkRequest {
+                start: root.clone(),
+                root,
+                rearms_root: false,
+                modified_since: since,
+            });
+        }
+    }
+
+    // The instant a rescan reports from: when the feed was last known whole, lowered by however
+    // far the wall clock has been set back since.
+    fn rescan_instant(&self) -> SystemTime {
+        let since = lowered_for_clock_step(
+            self.whole_since,
+            self.whole_since_clock.elapsed(),
+            SystemTime::now(),
+        );
+        if since < self.whole_since {
+            tracing::warn!(
+                step = ?self.whole_since.duration_since(since).unwrap_or_default(),
+                "the wall clock was set back; a rescan reports from as far back"
+            );
+        }
+        since
+    }
+
+    // The rescan instant, for a rescan of every root, which makes the feed whole again from now,
+    // in whole seconds, since some file systems keep a coarser time.
     fn take_rescan_instant(&mut self) -> SystemTime {
-        std::mem::replace(&mut self.whole_since, whole_seconds_now())
+        let since = self.rescan_instant();
+        self.whole_since_clock = Instant::now();
+        self.whole_since = whole_seconds_now();
+        since
     }
 
     // Sorts one event from the feed: a change the filter keeps, a rescan, a folder to watch and
@@ -448,22 +499,24 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
             }
         };
         if event.need_rescan() {
-            let since = self.take_rescan_instant();
-            self.take_rescan(&event.paths, since);
+            self.take_rescan(&event.paths);
             return;
         }
-        let may_bring_a_folder = !WATCHES_TREES && may_bring_a_folder(event.kind);
+        let may_bring_a_folder = may_bring_a_folder(event.kind);
         for path in event.paths {
             let Some(root) = self.root_holding(&path) else {
                 continue;
             };
+            if !self.unreadable_polled_folders.is_empty() {
+                self.unreadable_polled_folders.remove(&path);
+            }
             let Ok(relative_path) = path.strip_prefix(&root) else {
                 continue;
             };
             if relative_path.as_os_str().is_empty() {
                 named_roots.push(root);
             } else if self.filter.keeps(relative_path) {
-                if may_bring_a_folder {
+                if may_bring_a_folder && arms_each_folder(&self.polled_roots, &root) {
                     // The walk reports the entry itself, and watches it first when it is a folder.
                     self.queue_walk(WalkRequest {
                         root,
@@ -479,13 +532,16 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
     }
 
     // A rescan with a path walks that subtree, clipped to the roots: a path above a root walks
-    // each root under it, never more. A rescan without one walks every root. Each reports entries
-    // modified at or after `since`.
-    fn take_rescan(&mut self, paths: &[PathBuf], since: SystemTime) {
+    // each root under it, never more, and leaves the instant the feed was last whole. A rescan
+    // without one walks every root and makes the feed whole again from now. Each reports entries
+    // changed at or after the rescan instant.
+    fn take_rescan(&mut self, paths: &[PathBuf]) {
         if paths.is_empty() {
+            let since = self.take_rescan_instant();
             self.queue_full_rescan(Some(since));
             return;
         }
+        let since = self.rescan_instant();
         for path in paths {
             if let Some(root) = self.root_holding(path) {
                 self.queue_walk(WalkRequest {
@@ -513,16 +569,30 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
         }
     }
 
-    // An error the system's watch reports: the ceiling marks the watch incomplete; any other is
-    // logged and what it names is watched again and walked, a root's lost watch among them.
+    // An error the system's watch reports: the ceiling marks the watch incomplete; a polled folder
+    // that cannot be read is logged once, the poll itself reading it again; any other is logged and
+    // what it names is watched again and walked, a root's lost watch among them.
     fn take_error(&mut self, error: &notify::Error) {
         match &error.kind {
             ErrorKind::MaxFilesWatch => {
-                if !self.is_incomplete.swap(true, Ordering::AcqRel) {
+                let named: Vec<PathBuf> = match error.paths.first() {
+                    Some(path) => self.root_holding(path).into_iter().collect(),
+                    None => self.roots.clone(),
+                };
+                let mut is_first = false;
+                {
+                    let mut misses = lock(&self.ceiling_misses);
+                    for root in &named {
+                        is_first |= misses.record(root, false);
+                    }
+                }
+                if is_first {
                     log_watch_ceiling(error.paths.first().map(PathBuf::as_path), error);
                     self.has_unreported_incomplete = true;
                 }
+                self.retry_after_ceiling();
             }
+            ErrorKind::Io(io_error) if self.take_polled_folder_error(io_error, &error.paths) => {}
             ErrorKind::Generic(_)
             | ErrorKind::Io(_)
             | ErrorKind::PathNotFound
@@ -532,11 +602,12 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
                     error = error as &(dyn Error + 'static),
                     "the file watch reported an error; what it names is watched and read again"
                 );
-                let since = self.take_rescan_instant();
                 if error.paths.is_empty() {
+                    let since = self.take_rescan_instant();
                     self.queue_full_rescan(Some(since));
                     return;
                 }
+                let since = self.rescan_instant();
                 for path in &error.paths {
                     let Some(root) = self.root_holding(path) else {
                         continue;
@@ -553,30 +624,71 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
         }
     }
 
-    // A root an event names by itself is checked: one that is gone fails the watch.
+    // Takes a poll's failed read of a folder under a polled root, the root itself aside: a folder
+    // that is gone stops being polled, since its parent's poll told its removal, and any other is
+    // logged once and not walked, since the poll reads it again every interval. Answers whether
+    // `paths` named such a folder.
+    fn take_polled_folder_error(&mut self, error: &io::Error, paths: &[PathBuf]) -> bool {
+        let Some(folder) = paths.first().filter(|path| {
+            self.polled_roots
+                .iter()
+                .any(|polled| path.starts_with(polled) && *path != polled)
+        }) else {
+            return false;
+        };
+        if is_missing_entry(error) {
+            self.forget_polled_folder(folder.clone());
+        } else if self.unreadable_polled_folders.insert(folder.clone()) {
+            tracing::warn!(
+                error = error as &(dyn Error + 'static),
+                folder = %folder.display(),
+                "a folder on a network file system could not be read; its changes are told once \
+                 it reads again"
+            );
+        }
+        true
+    }
+
+    // Stops polling a folder that is gone, on a thread of its own, since the poll holds its lock
+    // while it reads the network.
+    fn forget_polled_folder(&self, folder: PathBuf) {
+        let watcher = Arc::clone(&self.watcher);
+        let forgotten = std::thread::Builder::new()
+            .name("file watch poll removal".to_owned())
+            .spawn(move || {
+                if let Err(error) = lock(&watcher).forget_polled_folder(&folder) {
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a removed folder could not stop being polled"
+                    );
+                }
+            });
+        if let Err(error) = forgotten {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a removed folder could not stop being polled"
+            );
+        }
+    }
+
+    // A root an event names by itself is checked, each within the bounded read's ceiling: one
+    // that is gone fails the watch.
     async fn check_roots(&mut self, mut roots: Vec<PathBuf>) {
         roots.sort();
         roots.dedup();
-        let missing_root = tokio::task::spawn_blocking(move || {
-            roots
-                .into_iter()
-                .find(|root| match std::fs::symlink_metadata(root) {
-                    Ok(_) => false,
-                    Err(error) if is_missing_entry(&error) => true,
-                    Err(error) => {
-                        tracing::warn!(
-                            error = &error as &(dyn Error + 'static),
-                            "a watched folder could not be read to check that it is still there"
-                        );
-                        false
-                    }
-                })
-        })
-        .await;
-        match missing_root {
-            Ok(Some(root)) => self.failure = Some(FileWatchError::RootRemoved { root }),
-            Ok(None) => {}
-            Err(failure) => self.failure = Some(FileWatchError::Interrupted(failure)),
+        for root in roots {
+            match read_within_ceiling(&root, |root| std::fs::symlink_metadata(root).map(drop)).await
+            {
+                Ok(()) => {}
+                Err(error) if is_missing_entry(&error) => {
+                    self.failure = Some(FileWatchError::RootRemoved { root });
+                    return;
+                }
+                Err(error) => tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "a watched folder could not be read to check that it is still there"
+                ),
+            }
         }
     }
 
@@ -587,10 +699,15 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
             .cloned()
     }
 
-    // A walk of every root in place of every waiting walk, reporting entries modified at or after
-    // `since`, or every entry with none.
+    // A walk of every root in place of every waiting walk, reporting entries changed at or after
+    // the earliest of `since` and the instants the waiting walks report from, or every entry when
+    // any of them has none.
     fn queue_full_rescan(&mut self, since: Option<SystemTime>) {
-        self.pending_walks.clear();
+        let since = self
+            .pending_walks
+            .drain(..)
+            .map(|walk| walk.modified_since)
+            .fold(since, Option::min);
         self.pending_walks
             .extend(self.roots.iter().map(|root| WalkRequest {
                 root: root.clone(),
@@ -610,45 +727,45 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
         }
         if self.pending_walks.len() >= PENDING_WALK_LIMIT {
             // The rescan replacing them reports every entry any of them would.
-            let since = self
-                .pending_walks
-                .iter()
-                .chain([&request])
-                .map(|walk| walk.modified_since)
-                .min()
-                .flatten();
-            self.queue_full_rescan(since);
+            self.queue_full_rescan(request.modified_since);
             return;
         }
         self.pending_walks.push_back(request);
     }
 
+    // Starts the next waiting walk on a thread of its own, which ends early once its reader is
+    // dropped, so its handle is not kept.
     fn start_next_walk(&mut self) {
         let Some(request) = self.pending_walks.pop_front() else {
             return;
         };
-        let (sender, receiver) = mpsc::channel(WALK_CHUNKS_WAITING);
+        let (sender, outputs) = mpsc::channel(WALK_CHUNKS_WAITING);
+        let modified_since = request.modified_since;
         let watcher = Arc::clone(&self.watcher);
-        let is_incomplete = Arc::clone(&self.is_incomplete);
+        let misses = Arc::clone(&self.ceiling_misses);
         let filter = self.filter.clone();
-        // The walk ends early when its reader is dropped, so its handle is not kept.
-        drop(tokio::task::spawn_blocking(move || {
-            walk(
-                &request,
-                &filter,
-                &watcher,
-                &is_incomplete,
-                true,
-                &mut |output| sender.blocking_send(output).is_ok(),
-            );
-        }));
-        self.walk = Some(receiver);
+        let started = std::thread::Builder::new()
+            .name("file watch walk".to_owned())
+            .spawn(move || {
+                walk(&request, &filter, &watcher, &misses, true, &mut |output| {
+                    sender.blocking_send(output).is_ok()
+                });
+            });
+        match started {
+            Ok(_walk_thread) => {
+                self.walk = Some(WalkUnderWay {
+                    outputs,
+                    modified_since,
+                });
+            }
+            Err(error) => self.failure = Some(FileWatchError::Interrupted(error)),
+        }
     }
 }
 
-async fn next_walk_output(walk: &mut Option<mpsc::Receiver<WalkOutput>>) -> Option<WalkOutput> {
+async fn next_walk_output(walk: &mut Option<WalkUnderWay>) -> Option<WalkOutput> {
     match walk {
-        Some(receiver) => receiver.recv().await,
+        Some(walk) => walk.outputs.recv().await,
         None => std::future::pending().await,
     }
 }
@@ -685,8 +802,41 @@ impl<W> Drop for FileWatch<W> {
 // Now, cut to the whole second, so an entry written in the same second as a rescan's instant on a
 // file system that keeps whole seconds still counts as written at or after it.
 fn whole_seconds_now() -> SystemTime {
-    let since_epoch = SystemTime::now()
+    whole_seconds_of(SystemTime::now())
+}
+
+/// Waits for the wall clock's next whole second, so an entry changed before the wait counts as
+/// changed before a watch started after it.
+#[cfg(test)]
+pub(crate) async fn wait_for_the_next_whole_second() {
+    let into_second = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("the clock reads after 1970");
+        .expect("the test's clock reads after 1970")
+        .subsec_nanos();
+    tokio::time::sleep(Duration::from_nanos(u64::from(1_000_000_000 - into_second))).await;
+}
+
+// `instant` cut to the whole second; a clock before 1970 reads as 1970, so everything since counts.
+fn whole_seconds_of(instant: SystemTime) -> SystemTime {
+    let since_epoch = instant.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO);
     UNIX_EPOCH + Duration::from_secs(since_epoch.as_secs())
+}
+
+// `whole_since`, lowered by the step when the wall clock reads `now` earlier than it would after
+// `elapsed` on the monotonic clock: a clock set back by a step is what makes them differ, and a
+// change written after it carries a time that much earlier.
+fn lowered_for_clock_step(
+    whole_since: SystemTime,
+    elapsed: Duration,
+    now: SystemTime,
+) -> SystemTime {
+    let Some(expected_now) = whole_since.checked_add(elapsed) else {
+        return whole_since;
+    };
+    match expected_now.duration_since(now) {
+        Ok(step) if !step.is_zero() => {
+            whole_seconds_of(whole_since.checked_sub(step).unwrap_or(UNIX_EPOCH))
+        }
+        Ok(_) | Err(_) => whole_since,
+    }
 }
