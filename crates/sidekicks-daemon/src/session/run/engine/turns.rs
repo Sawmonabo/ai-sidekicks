@@ -3,6 +3,7 @@
 //! on a run whose provider does not bound them.
 
 use std::borrow::Cow;
+use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::types::Value;
@@ -142,17 +143,35 @@ impl StepCount {
     }
 }
 
-/// A provider's report the engine wrote, with the failure of the step limit's interrupt it then
-/// handed again, which the caller logs and goes on from: the next step, turn end or restart hands
-/// that interrupt once more.
+/// A write the engine made, a provider's report or a move of a run, with the failure of the
+/// limit interrupts it then handed again, which the caller logs and goes on from: the next step,
+/// usage report, turn end, return from a wait or restart hands that interrupt once more.
 #[derive(Debug)]
 #[must_use = "a failed resend is logged"]
 #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
-pub(crate) struct ProviderReportWritten<Written> {
-    /// What the report wrote.
+pub(crate) struct WriteWithResend<Written> {
+    /// What was written.
     pub(crate) written: Written,
     /// Why a limit's interrupt handed again failed, where it did.
     pub(crate) resend_failure: Option<RunEngineError>,
+}
+
+impl<Written> WriteWithResend<Written> {
+    /// What was written, the failure of the interrupts handed again logged for the next hand.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the run control and provider choice handlers")
+    )]
+    pub(crate) fn log_resend_failure(self, run_id: RunId) -> Written {
+        if let Some(error) = &self.resend_failure {
+            tracing::warn!(
+                run_id = %run_id,
+                error = error as &(dyn Error + 'static),
+                "a limit's interrupt handed again failed"
+            );
+        }
+        self.written
+    }
 }
 
 /// A turn's end as the log records it: the turn, who reported the end, and how it ended.
@@ -344,7 +363,7 @@ impl RunEngine {
         self: &Arc<Self>,
         run_id: RunId,
         turn_end: ProviderTurnEnd,
-    ) -> Result<ProviderReportWritten<bool>, RunEngineError> {
+    ) -> Result<WriteWithResend<bool>, RunEngineError> {
         let run = self.require_run(run_id).await?;
         let turn_end = if run.state.is_terminal() {
             let ProviderTurnEnd {
@@ -364,7 +383,7 @@ impl RunEngine {
         let is_written = self
             .record_turn_end_alone(run_id, &run, turn_end, false)
             .await?;
-        Ok(ProviderReportWritten {
+        Ok(WriteWithResend {
             written: is_written,
             resend_failure: self.hand_owed_step_interrupt(run_id).await.err(),
         })

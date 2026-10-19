@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::sync::{Arc, LazyLock, Weak};
 
+use futures::future::join_all;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::orchestration::InterruptReason;
@@ -15,6 +16,7 @@ use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{
     AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
 };
@@ -472,26 +474,39 @@ impl RunEngine {
     }
 
     /// Hands the interventions service again the interrupt of each limit `run_id` owes, as its
-    /// next step or usage report would, once the run is back to `running` from a wait. Every
-    /// limit is handed before the failures return, together.
-    pub(super) async fn hand_owed_limit_interrupts(
+    /// next step or usage report would, when its move from `left` into `entered` brings it back
+    /// to `running` from a wait for an approval or for input or from a pause, where no step or
+    /// usage report comes to hand it. Answers `None` for any other move, else how the hands went:
+    /// every limit is handed at once, the failures returned together.
+    pub(super) async fn hand_owed_limit_interrupts_after_wait(
         self: &Arc<Self>,
         run_id: RunId,
-    ) -> Result<(), RunEngineError> {
+        left: RunState,
+        entered: RunState,
+    ) -> Option<Result<(), RunEngineError>> {
+        let is_back_from_wait = entered == RunState::Running
+            && matches!(
+                left,
+                RunState::WaitingForApproval | RunState::WaitingForInput | RunState::Paused
+            );
+        if !is_back_from_wait {
+            return None;
+        }
         let owed: Vec<RunLimit> = lock(&self.live)
             .reached_limits
             .iter()
             .filter(|(owing_run_id, _)| *owing_run_id == run_id)
             .map(|(_, limit)| *limit)
             .collect();
-        let mut outcomes = Vec::with_capacity(owed.len());
-        for limit in owed {
-            outcomes.push(
-                self.stop_at_limit(run_id, LimitStop::Interrupt { limit })
-                    .await,
-            );
-        }
-        settled(outcomes, "handing the interrupts a run owes at its limits")
+        let outcomes = join_all(
+            owed.into_iter()
+                .map(|limit| self.stop_at_limit(run_id, LimitStop::Interrupt { limit })),
+        )
+        .await;
+        Some(settled(
+            outcomes,
+            "handing the interrupts a run owes at its limits",
+        ))
     }
 
     // A step stop that wrote nothing leaves its turn's count to reach the bound again.

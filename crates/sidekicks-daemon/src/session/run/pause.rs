@@ -293,7 +293,7 @@ impl RunPauseControl {
             .transition(RunStateChange::new(run_id, entry), companions)
             .await
         {
-            Ok(run) => Ok(run),
+            Ok(written) => Ok(written.log_resend_failure(run_id)),
             // The guard's refusal is the version the caller read gone stale; the run's version now
             // is what the refusal reports.
             Err(RunEngineError::Change(
@@ -332,7 +332,10 @@ impl RunPauseControl {
             .transition(back_to_running, RunStateChangeCompanions::default())
             .await
         {
-            Ok(_) => RunPauseError::Driver(driver_error),
+            Ok(written) => {
+                written.log_resend_failure(run_id);
+                RunPauseError::Driver(driver_error)
+            }
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
                 if from_state != RunState::Pausing =>
             {

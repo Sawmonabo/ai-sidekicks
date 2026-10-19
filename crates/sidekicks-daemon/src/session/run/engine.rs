@@ -53,7 +53,7 @@ use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
     ContinuingRun, EndingGuard, EndingWrite, LiveRuns, StartingRun, lock,
 };
-use crate::session::run::engine::turns::{ProviderReportWritten, ProviderTurnEnd, TurnEnd};
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::{RunRead, read_run_provider, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
@@ -416,14 +416,37 @@ impl RunEngine {
 
     /// Moves the run as `change` asks, with `companions` in the same write, and returns the run as
     /// the change left it. A terminal runs every terminal hook once it has committed; a hook's
-    /// failure is returned after all have run, with the change kept. Refuses as
-    /// [`RunStateChangeWriter::write`] does; a running change's posture is the start's to stamp.
+    /// failure is returned after all have run, with the change kept. Once the run is back to
+    /// `running` from a wait or a pause, the interrupt of every limit it owes is handed again, each
+    /// failure returned beside the run. Refuses as [`RunStateChangeWriter::write`] does; a running
+    /// change's posture is the start's to stamp.
     pub(crate) async fn transition(
-        &self,
+        self: &Arc<Self>,
         change: RunStateChange,
         companions: RunStateChangeCompanions,
-    ) -> Result<RunRead, RunEngineError> {
-        self.change(change, companions).await
+    ) -> Result<WriteWithResend<RunRead>, RunEngineError> {
+        let run_id = change.run_id;
+        let entered = RunState::from(change.entry.state());
+        // The state the move leaves, read only for a move into `running` that names none.
+        let left = match change.expected_state {
+            Some(expected) => Some(expected),
+            None if entered == RunState::Running => {
+                self.read_run(run_id).await?.map(|run| run.state)
+            }
+            None => None,
+        };
+        let written = self.change(change, companions).await?;
+        let resend_failure = match left {
+            Some(left) => self
+                .hand_owed_limit_interrupts_after_wait(run_id, left, entered)
+                .await
+                .and_then(Result::err),
+            None => None,
+        };
+        Ok(WriteWithResend {
+            written,
+            resend_failure,
+        })
     }
 
     /// Moves the run as its provider reported, as [`RunEngine::transition`] does, with the end of
@@ -437,14 +460,14 @@ impl RunEngine {
     /// and is refused at once. A send's re-open of an ended run is the daemon's, never a
     /// provider's. Once a turn's end is written with the change, a step limit's interrupt a stop
     /// of the run could not hand is handed again, and once the run is back to `running` from a
-    /// wait for an approval or for input, the interrupt of every limit it owes, each failure
-    /// returned beside the run as the change left it.
+    /// wait or a pause, the interrupt of every limit it owes, each failure returned beside the run
+    /// as the change left it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         self: &Arc<Self>,
         change: RunStateChange,
         turn_end: Option<ProviderTurnEnd>,
-    ) -> Result<ProviderReportWritten<RunRead>, RunEngineError> {
+    ) -> Result<WriteWithResend<RunRead>, RunEngineError> {
         let run_id = change.run_id;
         let to_state = change.entry.state();
         let settling = lock(&self.live)
@@ -473,24 +496,20 @@ impl RunEngine {
             return Err(self.refuse_ended(run_id, change, &run, turn_end).await);
         }
         let is_turn_ended = turn_end.is_some();
-        // A limit whose hand failed while the run waited has no step or usage report to hand it
-        // again until the run moves on.
-        let is_back_from_wait = matches!(
-            run.state,
-            RunState::WaitingForApproval | RunState::WaitingForInput
-        ) && RunState::from(to_state) == RunState::Running;
+        let left = run.state;
         let turn_end = turn_end.map(|end| self.provider_turn_end(&run_id, end));
         let changed = self
             .change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
             .await?;
-        let resend_failure = if is_back_from_wait {
-            self.hand_owed_limit_interrupts(run_id).await.err()
-        } else if is_turn_ended {
-            self.hand_owed_step_interrupt(run_id).await.err()
-        } else {
-            None
+        let resend_failure = match self
+            .hand_owed_limit_interrupts_after_wait(run_id, left, RunState::from(to_state))
+            .await
+        {
+            Some(handed) => handed.err(),
+            None if is_turn_ended => self.hand_owed_step_interrupt(run_id).await.err(),
+            None => None,
         };
-        Ok(ProviderReportWritten {
+        Ok(WriteWithResend {
             written: changed,
             resend_failure,
         })
