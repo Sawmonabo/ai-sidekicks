@@ -8491,6 +8491,7 @@ dependencies = [
  "bytes",
  "rstest",
  "sidekicks-platforms",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

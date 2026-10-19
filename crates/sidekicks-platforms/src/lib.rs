@@ -37,11 +37,20 @@
               process's user read from its token (`OpenProcess`, `OpenProcessToken`, \
               `GetTokenInformation`, `EqualSid`, `ConvertSidToStringSidW`), the named pipe's \
               server read (`GetNamedPipeServerProcessId`), the run folder's owner and access \
-              list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`) and a Windows child's output \
-              read at its exit (`CancelIoEx`, `PeekNamedPipe`) are C interfaces too"
+              list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), a Windows child's output \
+              read at its exit (`CancelIoEx`, `PeekNamedPipe`), the daemon's process \
+              containment (Windows' kill-on-close job through `CreateJobObjectW`, \
+              `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
+              cgroup's events), the start confirmation's peer checks (`SO_PEERCRED`, and on \
+              Windows `GetNamedPipeClientProcessId`), the Windows stop request's hidden window \
+              (`RegisterClassExW`, `CreateWindowExW` and its message loop), Windows' binary \
+              standard streams (`_setmode`) and macOS's user temp folder (`confstr`) are C \
+              interfaces too"
 )]
 
 mod atomic_replace;
+mod base_environment;
+mod bash_start;
 mod caller_process;
 mod child_command;
 mod child_tree;
@@ -64,6 +73,8 @@ mod path;
 mod pinned_process;
 #[cfg(unix)]
 mod posix;
+mod process_containment;
+mod process_identity;
 mod program_install_folders;
 mod program_start;
 mod run_folder;
@@ -72,9 +83,12 @@ mod shell_folder_start;
 mod shell_start;
 mod socket;
 mod spawner;
+mod standard_streams;
 mod system_folder;
 mod system_locale;
 mod terminal;
+#[cfg(any(test, feature = "test-support"))]
+mod test_program;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
 mod wake_watch;
@@ -84,6 +98,8 @@ mod windows;
 mod wsl;
 
 pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
+pub use base_environment::{BaseEnvironmentSource, base_environment_source};
+pub use bash_start::{BashStart, BashStartInput, start_bash};
 #[cfg(not(target_os = "macos"))]
 pub use caller_process::read_responsible_process;
 pub use caller_process::{ParentProcess, ResponsibleProcess};
@@ -114,7 +130,7 @@ pub use linux::memory::{
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::pinned_process::this_process;
 #[cfg(target_os = "linux")]
-pub use linux::pinned_process::{PinnedProcess, pin_child_process};
+pub use linux::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
@@ -145,15 +161,13 @@ pub use macos::memory::{
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::pinned_process::this_process;
 #[cfg(target_os = "macos")]
-pub use macos::pinned_process::{PinnedProcess, pin_child_process};
+pub use macos::pinned_process::{PinnedProcess, pin_child_process, pinned as pin_running_process};
 #[cfg(target_os = "macos")]
 pub use macos::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
-#[cfg(target_os = "macos")]
-pub use macos::shell_start_confirmation::ShellStartConfirmation;
 #[cfg(target_os = "macos")]
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
@@ -162,6 +176,8 @@ pub use memory::physical_memory;
 pub use own_root::OwnRootError;
 #[cfg(not(target_os = "macos"))]
 pub use own_root::become_own_root;
+#[cfg(any(test, feature = "test-support"))]
+pub use own_root::run_test_as_own_root;
 pub use path::program_output::path_from_program_output;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
@@ -175,7 +191,7 @@ pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
 pub use posix::child_command::{
     CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
-    spawn_lasting_child, wrap_child_command,
+    spawn_lasting_child, wrap_child_command, wrap_session_child_command,
 };
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
@@ -198,7 +214,7 @@ pub use posix::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
 };
 #[cfg(unix)]
-pub use posix::login_shell::login_shell;
+pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
 #[cfg(unix)]
@@ -206,19 +222,25 @@ pub use posix::private_folder::create_private_folder;
 #[cfg(unix)]
 pub use posix::real_path::real_path;
 #[cfg(unix)]
-pub use posix::run_folder::{check_private_run_folder, daemon_run_folder};
+pub use posix::run_folder::{RUN_FOLDER_FILE_MODE, check_private_run_folder, daemon_run_folder};
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::shell_start::run_shell_start_stand_in;
 #[cfg(unix)]
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(unix)]
+pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
 #[cfg(unix)]
 pub use posix::socket::connection::connect_socket;
 #[cfg(unix)]
 pub use posix::socket::listener::bind_socket_listener;
 #[cfg(unix)]
 pub use posix::socket::path::check_socket_path;
+#[cfg(unix)]
+pub use posix::stop_request::StopRequest;
 #[cfg(unix)]
 pub use posix::system_locale::{system_hour_cycle, system_locale};
 #[cfg(unix)]
@@ -232,13 +254,16 @@ pub use posix::terminal::{
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::{
     abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
-    interruptible_sleeper, key_stopped_printer, pass_through_start, start_confirmation_reader,
-    waiting_printer,
+    interruptible_sleeper, key_stopped_printer, launch_printer, waiting_printer,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+pub use process_containment::{
+    ShellContainment, contain_daemon_descendants, stable_working_folder,
+};
+pub use process_identity::process_identity;
 pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
 pub use run_folder::{DaemonRunFolder, RunFolderRefused};
@@ -246,12 +271,11 @@ pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
-#[cfg(not(target_os = "macos"))]
-pub use shell_start::ShellStartConfirmation;
-pub use shell_start::{ShellStart, ShellStartError};
+pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::listener::ExistingSocket;
 pub use socket::path::SocketPathRefused;
 pub use spawner::Spawner;
+pub use standard_streams::set_binary_standard_streams;
 pub use system_folder::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
@@ -263,6 +287,8 @@ pub use terminal::{
     CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
     TerminalInputRefusal, TerminalSignal, TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
+#[cfg(any(test, feature = "test-support"))]
+pub use test_program::pass_through_start;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
@@ -278,7 +304,7 @@ pub use windows::caller_process::{read_parent_process, read_peer_process};
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
     CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
-    wrap_child_command,
+    wrap_child_command, wrap_session_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
@@ -306,7 +332,7 @@ pub use windows::file_system::{
 #[cfg(target_os = "windows")]
 pub use windows::lasting_child::spawn_lasting_child;
 #[cfg(target_os = "windows")]
-pub use windows::login_shell::login_shell;
+pub use windows::login_shell::{login_shell, name_as_login_shell};
 #[cfg(target_os = "windows")]
 pub use windows::machine_name::machine_name;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
@@ -320,7 +346,7 @@ pub use windows::null_device::NULL_DEVICE_PATH;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
-pub use windows::pinned_process::{PinnedProcess, pin_child_process};
+pub use windows::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
 #[cfg(target_os = "windows")]
 pub use windows::private_folder::create_private_folder;
 #[cfg(target_os = "windows")]
@@ -328,21 +354,27 @@ pub use windows::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "windows")]
 pub use windows::real_path::real_path;
 #[cfg(target_os = "windows")]
-pub use windows::run_folder::{check_private_run_folder, daemon_run_folder};
+pub use windows::run_folder::{RUN_FOLDER_FILE_MODE, check_private_run_folder, daemon_run_folder};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::shell_folder_start::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "windows")]
 pub use windows::shell_folder_start::shell_folder_start;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::shell_start::run_shell_start_stand_in;
 #[cfg(target_os = "windows")]
 pub use windows::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(target_os = "windows")]
+pub use windows::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
 #[cfg(target_os = "windows")]
 pub use windows::socket::connection::connect_socket;
 #[cfg(target_os = "windows")]
 pub use windows::socket::listener::bind_socket_listener;
 #[cfg(target_os = "windows")]
 pub use windows::socket::path::check_socket_path;
+#[cfg(target_os = "windows")]
+pub use windows::stop_request::StopRequest;
 #[cfg(target_os = "windows")]
 pub use windows::system_locale::{system_hour_cycle, system_locale};
 #[cfg(target_os = "windows")]
@@ -356,8 +388,7 @@ pub use windows::terminal::{
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::terminal::{
     abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
-    interruptible_sleeper, key_stopped_printer, pass_through_start, start_confirmation_reader,
-    waiting_printer,
+    interruptible_sleeper, key_stopped_printer, launch_printer, waiting_printer,
 };
 #[cfg(target_os = "windows")]
 pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;

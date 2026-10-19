@@ -10,7 +10,6 @@ use crate::error_description::describe_error;
 /// every process it starts reads the daemon as responsible. A failure is written to standard error,
 /// the one place left before the service log starts, and answers the exit status `main` returns,
 /// so the daemon does not start.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) fn become_own_root() -> Result<(), ExitCode> {
     let Err(error) = sidekicks_platforms::become_own_root() else {
         return Ok(());
