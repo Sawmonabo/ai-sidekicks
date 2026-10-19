@@ -2,8 +2,8 @@
 //! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
 //! process's files under `/proc` and the fields of its stat file, a local connection's caller
 //! pinned, the bound on a program's argument, a process's memory and the machine's available
-//! memory, no list of one user's processes, the machine's wakes from sleep, a wall-clock timer and
-//! the Secret Service.
+//! memory, no list of one user's processes, the machine's wakes from sleep, a wall-clock timer, the
+//! Secret Service and the shells the live test opens on a folder.
 
 pub(crate) mod caller_process;
 pub(crate) mod credential_store;

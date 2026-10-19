@@ -3,7 +3,7 @@
 //! signature, the start as its own responsible process and the daemon's confirmation of a shell's
 //! start, the bound on a program's argument, a process's memory and the machine's available
 //! memory, one user's processes and a process's environment, the machine's wakes from sleep, a
-//! wall-clock timer and the login keychain.
+//! wall-clock timer, the login keychain and the shells the live test opens on a folder.
 
 pub(crate) mod caller_process;
 pub(crate) mod code_signature;
