@@ -269,3 +269,36 @@ fn inbound_absorbs_a_late_terminal_on_an_ended_run(
         diagnostics
     );
 }
+
+// Killed by a late `paused` or `running` report on a run a resume already set running surfaced as
+// a failure on the event path, or by any row written for it.
+#[rstest]
+#[case::a_late_pause(RunStateEntry::Paused)]
+#[case::a_late_turn_under_way(RunStateEntry::Running {
+    execution_posture: None,
+})]
+#[tokio::test]
+async fn inbound_absorbs_a_late_report_on_a_resumed_run(#[case] entry: RunStateEntry) {
+    let harness = Harness::new(RunState::Running).await;
+
+    let outcome = harness
+        .dispatched(InboundDelivery::RunLifecycle {
+            binding: harness.on_binding(None),
+            change: RunStateChange::new(harness.run_id, entry),
+            turn_end: None,
+            is_daemon_interrupt_end: false,
+        })
+        .await;
+
+    assert_eq!(
+        outcome,
+        InboundOutcome::Absorbed {
+            reason: LateEventAbsorbReason::RunResumed,
+        }
+    );
+    assert_eq!(harness.stored_event_count(), 0);
+    assert_eq!(
+        stored_run_state(&harness.database, &harness.run_id).0,
+        "running"
+    );
+}

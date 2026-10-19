@@ -10,6 +10,7 @@ pub(crate) mod rows;
 #[cfg(test)]
 mod tests;
 
+use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::{Map, Value};
@@ -164,13 +165,16 @@ pub(crate) enum InboundDelivery<'key> {
     },
 }
 
-/// Why a delivery was absorbed: it came from before an undo's cut, or its run had already ended.
+/// Why a delivery was absorbed: it came from before an undo's cut, its run had already ended, or
+/// it reported a pause or a turn under way that a resume had already moved past.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LateEventAbsorbReason {
     /// From the execution before an undo's cut.
     BeforeCut,
     /// For a run that had already ended.
     RunEnded,
+    /// A late `paused` or `running` report on a run a resume had already set running.
+    RunResumed,
 }
 
 impl LateEventAbsorbReason {
@@ -179,6 +183,7 @@ impl LateEventAbsorbReason {
         match self {
             Self::BeforeCut => "beforeCut",
             Self::RunEnded => "runEnded",
+            Self::RunResumed => "runResumed",
         }
     }
 
@@ -192,6 +197,10 @@ impl LateEventAbsorbReason {
             Self::RunEnded => {
                 "the delivery's run had already ended, so its write was refused and nothing is \
                  written"
+            }
+            Self::RunResumed => {
+                "the delivery reported a pause or a turn under way after a resume had already set \
+                 the run running, so its write was refused and nothing is written"
             }
         }
     }
@@ -623,6 +632,17 @@ impl RunInboundDispatch {
                         }
                     }
                     Err(error) if is_ended_run_refusal(&error) => run_ended(),
+                    // A resume can land before the provider's own report of the pause it ends.
+                    Err(error) if is_resumed_run_refusal(&error) => {
+                        tracing::debug!(
+                            error = &error as &(dyn Error + 'static),
+                            run_id = %run_id,
+                            "the provider's late report on a resumed run was absorbed"
+                        );
+                        InboundOutcome::Absorbed {
+                            reason: LateEventAbsorbReason::RunResumed,
+                        }
+                    }
                     Err(error) => return Err(error.into()),
                 }
             }
@@ -729,5 +749,18 @@ fn is_ended_run_refusal(error: &RunEngineError) -> bool {
         error,
         RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. })
             if from_state.is_terminal()
+    )
+}
+
+// A provider's late `paused` or `running` report refused because a resume had already set the
+// run running.
+fn is_resumed_run_refusal(error: &RunEngineError) -> bool {
+    matches!(
+        error,
+        RunEngineError::Refused(RunRefusal::InvalidTransition {
+            from_state: RunState::Running,
+            to_state: RunStateChangeState::Paused | RunStateChangeState::Running,
+            ..
+        })
     )
 }
