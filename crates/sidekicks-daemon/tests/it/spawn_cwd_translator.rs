@@ -41,9 +41,13 @@ impl ScreenListener for NoListener {
     fn answer_question(&mut self) {}
 }
 
-/// Reads `program`'s output until it holds `prompt`; fails the test when the output ends first or
-/// the prompt takes past [`PROMPT_BOUND`].
-async fn read_to_prompt(output: &mut TerminalOutput, prompt: &str, program: &str) {
+/// Reads `program`'s output until it holds `prompt`; fails when the output ends first or the
+/// prompt takes past [`PROMPT_BOUND`].
+async fn read_to_prompt(
+    output: &mut TerminalOutput,
+    prompt: &str,
+    program: &str,
+) -> Result<(), String> {
     tokio::time::timeout(PROMPT_BOUND, async {
         let mut text = String::new();
         while !text.contains(prompt) {
@@ -58,24 +62,34 @@ async fn read_to_prompt(output: &mut TerminalOutput, prompt: &str, program: &str
         Ok(())
     })
     .await
-    .unwrap_or_else(|_elapsed| panic!("{program}'s prompt {prompt:?} arrives in time"))
-    .unwrap_or_else(|failure| panic!("{failure}"));
+    .unwrap_or_else(|_elapsed| {
+        Err(format!(
+            "{program}'s prompt {prompt:?} did not arrive in time"
+        ))
+    })
 }
 
-// Fails when the `shell` mode or the shell holds the worktree as its current folder: the mode
-// spawned in the worktree, cmd's folder handed to the mode rather than to the shell, or PowerShell
-// started in the worktree instead of being told it by its switch.
+// On every host fails when a shell does not show its prompt in its folder: the `shell` mode or the
+// shell does not start, or starts elsewhere. On Windows it also fails when the mode or the shell
+// holds the folder as its current folder: the mode spawned in it, cmd's folder handed to the mode
+// rather than to the shell, or PowerShell started in it instead of being told it; macOS and Linux
+// remove a folder a process sits in, so there the removal cannot fail. Every probe runs, and their
+// failures are asserted together, so one shell's failure hides no other's.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_worktree_is_removable_while_its_shell_is_open() {
+    let mut failures = Vec::new();
     for probe in SHELL_FOLDER_PROBES {
-        open_and_remove_worktree(probe).await;
+        if let Err(failure) = open_and_remove_worktree(probe).await {
+            failures.push(failure);
+        }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 // Opens `probe`'s shell on a fresh worktree, waits for its prompt there (and, where it holds the
 // folder, for its prompt one folder up after `cd ..`), then removes the worktree with the shell
-// still open.
-async fn open_and_remove_worktree(probe: &ShellFolderProbe) {
+// still open; fails naming the shell and what went wrong.
+async fn open_and_remove_worktree(probe: &ShellFolderProbe) -> Result<(), String> {
     let program = probe.program;
     let scratch = tempfile::tempdir().expect("a scratch folder");
     // The shell's prompt shows the folder with its links resolved.
@@ -121,38 +135,43 @@ async fn open_and_remove_worktree(probe: &ShellFolderProbe) {
     let mut spawned = terminals
         .spawn(request, |_answers| NoListener, KeepAllOutput)
         .await
-        .unwrap_or_else(|error| panic!("{program} starts: {error:?}"));
-    read_to_prompt(
-        &mut spawned.output,
-        &prompt(probe.prompt_prefix, &worktree),
-        program,
-    )
-    .await;
-    if probe.leaves_the_folder_first {
-        terminals
-            .queue_write(spawned.handle, Bytes::from_static(b"cd ..\r\n"))
-            .expect("the line is handed over")
-            .taken()
-            .await
-            .expect("the line is taken");
+        .map_err(|error| format!("{program} does not start: {error:?}"))?;
+    let removal_outcome = async {
         read_to_prompt(
             &mut spawned.output,
-            &prompt(probe.prompt_prefix, &scratch_folder),
+            &prompt(probe.prompt_prefix, &worktree),
             program,
         )
-        .await;
+        .await?;
+        if probe.leaves_the_folder_first {
+            terminals
+                .queue_write(spawned.handle, Bytes::from_static(b"cd ..\r\n"))
+                .map_err(|error| format!("{program} is not handed `cd ..`: {error:?}"))?
+                .taken()
+                .await
+                .map_err(|error| format!("{program} does not take `cd ..`: {error:?}"))?;
+            read_to_prompt(
+                &mut spawned.output,
+                &prompt(probe.prompt_prefix, &scratch_folder),
+                program,
+            )
+            .await?;
+        }
+        std::fs::remove_dir(&worktree).map_err(|error| {
+            format!("the worktree is not removed while {program} is open: {error:?}")
+        })
     }
+    .await;
 
-    let removal = std::fs::remove_dir(&worktree);
-
-    terminals
+    let closing = terminals
         .close(spawned.handle)
         .await
-        .unwrap_or_else(|error| panic!("{program} closes: {error:?}"));
-    assert!(
-        removal.is_ok(),
-        "the worktree is removed while {program} is open: {removal:?}"
-    );
+        .map_err(|error| format!("{program} does not close: {error:?}"));
+    match (removal_outcome, closing) {
+        (Ok(()), closing) => closing,
+        (Err(failure), Ok(())) => Err(failure),
+        (Err(failure), Err(closing_failure)) => Err(format!("{failure}; {closing_failure}")),
+    }
 }
 
 // The prompt a shell shows in `folder`.
