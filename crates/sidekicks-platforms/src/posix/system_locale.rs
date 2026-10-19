@@ -1,8 +1,9 @@
 //! The person's locale on macOS and Linux, read from the environment in the order POSIX gives it
 //! (`LC_ALL`, then the category's own variable, then `LANG`, the first that is set and not empty)
-//! without calling `setlocale`, so the environment is the whole answer; `C`, `POSIX`, a value ICU
-//! cannot read and no value at all are the POSIX locale. The hour cycle is the one the locale's
-//! CLDR time pattern names.
+//! without calling `setlocale`; `C`, `POSIX` and a value ICU cannot read are the POSIX locale. When
+//! none of the three is set, macOS answers the Region setting the person chose, which a program
+//! the system starts sees with no `LANG`, and Linux the POSIX locale. The hour cycle is the one the
+//! locale's CLDR time pattern names.
 
 use std::ffi::OsString;
 use std::io;
@@ -15,38 +16,77 @@ use icu_locale_core::preferences::extensions::unicode::keywords::HourCycle;
 
 use crate::system_locale::{LocaleCategory, hour_cycle_in_pattern};
 
-/// The person's locale for `category`, from this process's environment; `None` for the POSIX
-/// locale, whose numbers are plain digits.
+/// The person's locale for `category`; `None` for the POSIX locale, whose numbers are plain
+/// digits.
 pub fn system_locale(category: LocaleCategory) -> Option<Locale> {
-    resolve_system_locale(|name| std::env::var_os(name), category)
+    match environment_locale(|name| std::env::var_os(name), category) {
+        EnvironmentLocale::Named(locale) => Some(locale),
+        EnvironmentLocale::Posix => None,
+        #[cfg(target_os = "macos")]
+        EnvironmentLocale::Unset => crate::macos::system_locale::region_locale(),
+        #[cfg(target_os = "linux")]
+        EnvironmentLocale::Unset => None,
+    }
 }
 
 /// The hour cycle of the person's times: the one the CLDR time pattern of their `Time` locale
 /// names, and the 24-hour clock for the POSIX locale. Fails when the locale's time pattern cannot
 /// be loaded or names no hour.
 pub fn system_hour_cycle() -> io::Result<HourCycle> {
-    hour_cycle_of(system_locale(LocaleCategory::Time).as_ref())
+    match environment_locale(|name| std::env::var_os(name), LocaleCategory::Time) {
+        EnvironmentLocale::Named(locale) => hour_cycle_of(Some(&locale)),
+        EnvironmentLocale::Posix => hour_cycle_of(None),
+        #[cfg(target_os = "macos")]
+        EnvironmentLocale::Unset => crate::macos::system_locale::region_hour_cycle(),
+        #[cfg(target_os = "linux")]
+        EnvironmentLocale::Unset => hour_cycle_of(None),
+    }
 }
 
-/// The locale for `category` with the environment read through `read_variable`.
-pub(crate) fn resolve_system_locale(
+/// What the environment names for one category of the person's settings.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum EnvironmentLocale {
+    /// A locale ICU reads.
+    Named(Locale),
+    /// `C`, `POSIX` or a value ICU cannot read: the POSIX locale.
+    Posix,
+    /// None of `LC_ALL`, the category's variable and `LANG` is set and not empty.
+    Unset,
+}
+
+/// What the environment, read through `read_variable`, names for `category`.
+pub(crate) fn environment_locale(
     read_variable: impl Fn(&str) -> Option<OsString>,
     category: LocaleCategory,
-) -> Option<Locale> {
+) -> EnvironmentLocale {
     let category_variable = match category {
         LocaleCategory::Number => "LC_NUMERIC",
         LocaleCategory::Time => "LC_TIME",
     };
-    let value = ["LC_ALL", category_variable, "LANG"]
+    let Some(value) = ["LC_ALL", category_variable, "LANG"]
         .into_iter()
-        .find_map(|name| read_variable(name).filter(|value| !value.is_empty()))?;
-    // A POSIX locale name is `language[_territory][.codeset][@modifier]`; the codeset and the
-    // modifier name no format, and ICU separates subtags with `-`.
-    let name = value.to_str()?.split(['.', '@']).next()?;
-    if name == "C" || name == "POSIX" {
-        return None;
-    }
-    Locale::try_from_str(&name.replace('_', "-")).ok()
+        .find_map(|name| read_variable(name).filter(|value| !value.is_empty()))
+    else {
+        return EnvironmentLocale::Unset;
+    };
+    value
+        .to_str()
+        .filter(|name| !is_posix_locale_name(name))
+        .and_then(locale_from_name)
+        .map_or(EnvironmentLocale::Posix, EnvironmentLocale::Named)
+}
+
+/// The locale a POSIX or Core Foundation locale name gives (`language[_territory][.codeset]
+/// [@modifier]`): the codeset and the modifier name no format, and ICU separates subtags with `-`;
+/// `None` for a name ICU cannot read.
+pub(crate) fn locale_from_name(name: &str) -> Option<Locale> {
+    let tag = name.split(['.', '@']).next()?;
+    Locale::try_from_str(&tag.replace('_', "-")).ok()
+}
+
+// Whether `name`, its codeset and modifier aside, selects the POSIX locale.
+fn is_posix_locale_name(name: &str) -> bool {
+    matches!(name.split(['.', '@']).next(), Some("C" | "POSIX"))
 }
 
 /// The hour cycle the CLDR time pattern of `locale` names, the 24-hour clock for the POSIX
@@ -74,9 +114,10 @@ mod tests {
     use icu_locale_core::preferences::extensions::unicode::keywords::HourCycle;
     use rstest::rstest;
 
-    use super::{hour_cycle_of, resolve_system_locale};
+    use super::{EnvironmentLocale, environment_locale, hour_cycle_of};
     use crate::system_locale::LocaleCategory;
 
+    // `Some(tag)` for a named locale, `Some("")` for the POSIX locale, `None` for no setting.
     #[rstest]
     #[case::lc_all_first(
         &[("LC_ALL", "de_DE.UTF-8"), ("LC_NUMERIC", "fr_FR"), ("LANG", "en_US")],
@@ -103,11 +144,24 @@ mod tests {
         LocaleCategory::Time,
         Some("de-DE")
     )]
-    #[case::c_is_plain(&[("LC_ALL", "C"), ("LANG", "de_DE.UTF-8")], LocaleCategory::Number, None)]
-    #[case::c_with_a_codeset_is_plain(&[("LANG", "C.UTF-8")], LocaleCategory::Number, None)]
-    #[case::posix_is_plain(&[("LC_NUMERIC", "POSIX")], LocaleCategory::Number, None)]
-    #[case::an_unreadable_name_is_plain(&[("LANG", "not a locale")], LocaleCategory::Number, None)]
-    #[case::nothing_set(&[], LocaleCategory::Time, None)]
+    #[case::c_is_plain(
+        &[("LC_ALL", "C"), ("LANG", "de_DE.UTF-8")],
+        LocaleCategory::Number,
+        Some("")
+    )]
+    #[case::c_with_a_codeset_is_plain(&[("LANG", "C.UTF-8")], LocaleCategory::Number, Some(""))]
+    #[case::posix_is_plain(&[("LC_NUMERIC", "POSIX")], LocaleCategory::Number, Some(""))]
+    #[case::an_unreadable_name_is_plain(
+        &[("LANG", "not a locale")],
+        LocaleCategory::Number,
+        Some("")
+    )]
+    #[case::nothing_set_falls_back(&[], LocaleCategory::Time, None)]
+    #[case::only_empty_values_fall_back(
+        &[("LC_ALL", ""), ("LC_NUMERIC", ""), ("LANG", "")],
+        LocaleCategory::Number,
+        None
+    )]
     fn the_system_locale_follows_the_posix_order(
         #[case] environment: &[(&str, &str)],
         #[case] category: LocaleCategory,
@@ -120,9 +174,14 @@ mod tests {
                 .map(|(_, value)| OsString::from(value))
         };
 
-        let locale = resolve_system_locale(read_variable, category);
+        let locale = environment_locale(read_variable, category);
 
-        assert_eq!(locale.map(|locale| locale.to_string()).as_deref(), expected);
+        let read = match locale {
+            EnvironmentLocale::Named(locale) => Some(locale.to_string()),
+            EnvironmentLocale::Posix => Some(String::new()),
+            EnvironmentLocale::Unset => None,
+        };
+        assert_eq!(read.as_deref(), expected);
     }
 
     #[rstest]

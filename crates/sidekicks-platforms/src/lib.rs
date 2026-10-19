@@ -32,7 +32,8 @@
               `set_allocator`, and the power notifications and wall-clock timers of macOS and \
               Windows are C interfaces, and tokio's watch of the Linux timer's and the terminal \
               poller's descriptors trusts each to stay open while it watches, and the Windows \
-              Ctrl-C ending's `ExitProcess`, the user's locale read (`GetLocaleInfoEx`), a \
+              Ctrl-C ending's `ExitProcess`, the user's locale reads (Windows' \
+              `GetLocaleInfoEx`, macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a \
               process's user read from its token (`OpenProcess`, `OpenProcessToken`, \
               `GetTokenInformation`, `EqualSid`, `ConvertSidToStringSidW`), the named pipe's \
               server read (`GetNamedPipeServerProcessId`) and the run folder's owner and access \
