@@ -2,4 +2,5 @@
 
 pub(crate) mod errors;
 pub(crate) mod mount_health;
+pub(crate) mod mount_service;
 pub(crate) mod root_resolver;

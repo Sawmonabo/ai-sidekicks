@@ -26,7 +26,7 @@ use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_contracts::worktree::events::SessionBranchChangedPayload;
 
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::statement::{StatementBindings, WriteStatement, place_value, text_binding};
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
 use crate::session::directory::run_activity::run_outcome_of;
 use crate::session::records::SessionDirectoryRow;
@@ -660,12 +660,4 @@ pub(crate) fn directory_row_statement(row: &SessionDirectoryRow) -> WriteStateme
         ]),
         expected_row_count: None,
     }
-}
-
-// The `place` column: the place as its wire JSON (`"windows"` or `{"distro":…}`), NULL on macOS
-// and Linux.
-fn place_value(place: Option<&Place>) -> SqlValue {
-    SqlValue::from(place.map(|place| {
-        serde_json::to_string(place).expect("a place is a string or a one-member object")
-    }))
 }

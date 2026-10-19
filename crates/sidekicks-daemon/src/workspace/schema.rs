@@ -3,6 +3,7 @@
 
 use std::sync::LazyLock;
 
+use serde::Deserialize;
 use sidekicks_contracts::project::ProjectState;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState, VcsType, WorkspaceState};
 use strum::{IntoStaticStr, VariantArray};
@@ -27,7 +28,9 @@ pub(crate) enum CloneOutcome {
 
 /// Where a repository mount came from, as the `repo_mounts.origin` column holds it: a project's
 /// folder the person attached or cloned, or a chat's git-initialized workspace the daemon owns.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
+/// Converts to the column's word and reads back from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, VariantArray, IntoStaticStr)]
+#[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum MountOrigin {
     /// A project's folder.
