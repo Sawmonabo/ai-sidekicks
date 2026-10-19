@@ -27,7 +27,7 @@ use crate::queue::delivery::{QueueWithdrawal, WITHDRAW_DEADLINE};
 use crate::queue::refusals::UnreturnedReason;
 use crate::queue::store::{QueueItemOutcome, RecordedQueueItemState};
 use crate::session::run::engine::tests::test_engine;
-use crate::session::run::pause::{RunPauseControl, RunPauseError};
+use crate::session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
 
 /// How long the test gives a call that does not wait for the session's hold to act.
 const HOLD_WATCH: Duration = Duration::from_millis(200);
@@ -154,7 +154,10 @@ async fn a_take_back_and_a_resume_of_one_run_take_the_session_in_turn(
     }
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let control = RunPauseControl::new(
-        Arc::new(DatabaseReadPool::new(fixture.database.path(), 2)),
+        Arc::new(DatabaseReadPool::new(
+            fixture.database.path(),
+            RUN_PAUSE_STATEMENT_CAPACITY,
+        )),
         test_engine(
             &fixture.database,
             Arc::clone(&fixture.log.service),

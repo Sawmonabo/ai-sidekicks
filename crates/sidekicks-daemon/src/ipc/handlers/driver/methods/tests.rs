@@ -21,7 +21,10 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use super::{DriverMethodSources, list_models, list_modes, list_provider_commands};
+use super::{
+    DRIVER_METHODS_STATEMENT_CAPACITY, DriverMethodSources, list_models, list_modes,
+    list_provider_commands,
+};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::ipc::domain_error::DomainError;
@@ -36,9 +39,6 @@ use crate::provider::driver::test_registry::registry_of_first_providers;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::uuid_v7::mint_uuid_v7;
-
-/// The statements the tests' read pool prepares.
-const READ_STATEMENT_CAPACITY: usize = 8;
 
 /// The instant the tests' events carry.
 const AT: &str = "2026-10-19T12:00:00.000Z";
@@ -62,7 +62,7 @@ fn fixture(drivers: Vec<MockProviderDriver>) -> Fixture {
     let sources = DriverMethodSources {
         pool: Arc::new(DatabaseReadPool::new(
             database.path(),
-            READ_STATEMENT_CAPACITY,
+            DRIVER_METHODS_STATEMENT_CAPACITY,
         )),
         providers: Arc::new(registry_of_first_providers(drivers)),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),

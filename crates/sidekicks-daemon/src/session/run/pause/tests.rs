@@ -19,7 +19,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
-use super::{ContinuedMessages, ContinuedMessagesError, RunPauseControl, RunPauseError};
+use super::{
+    ContinuedMessages, ContinuedMessagesError, RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl,
+    RunPauseError,
+};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
@@ -38,9 +41,6 @@ use crate::session::run::engine::{InterruptRoute, RunEngine};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 use crate::uuid_v7::mint_uuid_v7;
-
-/// The statements the control's read pool prepares: the run and its provider.
-const READ_STATEMENT_CAPACITY: usize = 2;
 
 /// How long a call held behind a resume is watched to show it waits.
 const HELD_WATCH: Duration = Duration::from_millis(200);
@@ -111,7 +111,7 @@ async fn fixture(driver: MockProviderDriver, state: &str) -> Fixture {
     let control = RunPauseControl::new(
         Arc::new(DatabaseReadPool::new(
             database.path(),
-            READ_STATEMENT_CAPACITY,
+            RUN_PAUSE_STATEMENT_CAPACITY,
         )),
         Arc::clone(&engine),
         Arc::new(registry_of_first_provider(Arc::new(driver))),
