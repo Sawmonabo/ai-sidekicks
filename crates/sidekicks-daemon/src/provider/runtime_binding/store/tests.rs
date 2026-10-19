@@ -1,8 +1,11 @@
 //! The binding store's tests, on a real database and writer.
 
+use std::error::Error;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use rstest::rstest;
 use serde_json::Map;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -13,9 +16,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{
-    CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, ResumeHandleChange,
-    RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
-    RuntimeBindingStore, read_binding,
+    CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBinding,
+    RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig, RuntimeBindingStore,
+    read_binding,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
@@ -136,7 +139,7 @@ async fn an_update_records_the_left_conversation_in_its_own_write() {
         .update(
             &binding.id,
             RuntimeBindingPatch {
-                resume_handle: ResumeHandleChange::Set("conversation-2".to_owned()),
+                resume_handle: Some("conversation-2".to_owned()),
                 ..RuntimeBindingPatch::default()
             },
             vec![left],
@@ -163,25 +166,48 @@ async fn an_update_records_the_left_conversation_in_its_own_write() {
     );
 }
 
+// Text a stored value holds that no read's error may repeat, put where a case says `{marker}`.
+const STORED_MARKER: &str = "stored-marker-text";
+
+// Fails when a stored column that does not read passes, or when the error, through every cause,
+// repeats what the column holds, which a parser's message quotes.
+#[rstest]
+#[case::a_member_no_leg_names("spawn_config = json_set(spawn_config, '$.{marker}', 1)")]
+#[case::a_leg_of_the_wrong_type(
+    "spawn_config = json_set(spawn_config, '$.toolServers', '{marker}')"
+)]
+#[case::recovery_data_not_an_object("runtime_metadata = json_quote('{marker}')")]
 #[tokio::test]
-async fn a_stored_spawn_record_with_an_unknown_member_fails_the_read() {
+async fn a_stored_column_that_does_not_read_fails_the_read_without_its_value(#[case] change: &str) {
     let database = TestDatabase::new();
     let store = open_store(&database).await;
     let binding = create(&store, RuntimeBindingSpawnConfig::default()).await;
     let connection = database.reader();
     connection
         .execute(
-            "UPDATE runtime_bindings SET spawn_config = json_set(spawn_config, '$.unknownLeg', 1)
-             WHERE id = ?",
+            &format!(
+                "UPDATE runtime_bindings SET {} WHERE id = ?",
+                change.replace("{marker}", STORED_MARKER)
+            ),
             [binding.id.as_str()],
         )
-        .expect("the test adds a member no leg names");
+        .expect("the test damages the stored row");
 
     let read = read_binding(&connection, &binding.id);
-    assert!(
-        matches!(read, Err(rusqlite::Error::FromSqlConversionFailure(..))),
-        "{read:?}"
-    );
+
+    let error = read.expect_err("the damaged row fails the read");
+    assert!(matches!(
+        error,
+        rusqlite::Error::FromSqlConversionFailure(..)
+    ));
+    let mut message = String::new();
+    let mut cause: Option<&(dyn Error + 'static)> = Some(&error);
+    while let Some(current) = cause {
+        writeln!(message, "{current} / {current:?}").expect("a string takes any text");
+        cause = current.source();
+    }
+    assert!(message.contains(binding.id.as_str()), "{message}");
+    assert!(!message.contains(STORED_MARKER), "{message}");
 }
 
 #[tokio::test]

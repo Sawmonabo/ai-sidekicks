@@ -32,7 +32,7 @@ use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool
 use crate::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::{json_object_column, text_column};
+use crate::database::stored_column::{StoredJsonFault, parse_stored_json_object, text_column};
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::provider::driver::contract::{
     DriverCliVersionReport, SessionToolServer, SpawnedVersionBindingCarriers, SubagentPolicy,
@@ -236,27 +236,10 @@ pub(crate) struct CreateRuntimeBindingInput {
 pub(crate) struct RuntimeBindingPatch {
     /// A new contract version.
     pub(crate) contract_version: Option<FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>>,
-    /// What becomes of the resume handle.
-    pub(crate) resume_handle: ResumeHandleChange,
+    /// A new resume handle.
+    pub(crate) resume_handle: Option<String>,
     /// New recovery data.
     pub(crate) runtime_metadata: Option<Map<String, Value>>,
-}
-
-/// What a patch does to a binding's resume handle.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum ResumeHandleChange {
-    /// The stored handle stays.
-    #[default]
-    Keep,
-    /// The handle is cleared.
-    #[expect(
-        dead_code,
-        reason = "the stored column holds no handle and the update's statement writes none, but \
-                  no caller clears a handle"
-    )]
-    Clear,
-    /// The handle becomes this one.
-    Set(String),
 }
 
 /// A binding pointed at the conversation its session moved onto, and the ones the session left.
@@ -318,29 +301,6 @@ enum SpawnConfigFault {
     /// A leg does not read as its type, or a member is no leg.
     #[error("a member of the spawn record is not a leg it holds")]
     Legs(#[source] StoredJsonFault),
-}
-
-/// Where and how a stored JSON column failed to read, without the parser's message, which can
-/// quote the stored value.
-#[derive(Debug, thiserror::Error)]
-#[error("{kind:?} fault at line {line}, column {column}")]
-struct StoredJsonFault {
-    /// Whether the text, its syntax or its data failed.
-    kind: serde_json::error::Category,
-    /// The line, from 1; 0 for a fault in data already parsed.
-    line: usize,
-    /// The column, from 1; 0 for a fault in data already parsed.
-    column: usize,
-}
-
-impl From<serde_json::Error> for StoredJsonFault {
-    fn from(error: serde_json::Error) -> Self {
-        Self {
-            kind: error.classify(),
-            line: error.line(),
-            column: error.column(),
-        }
-    }
 }
 
 /// Why a binding write or read failed.
@@ -550,7 +510,7 @@ impl RuntimeBindingStore {
         if let Some(contract_version) = &patch.contract_version {
             check_contract_version(contract_version)?;
         }
-        if let ResumeHandleChange::Set(resume_handle) = &patch.resume_handle {
+        if let Some(resume_handle) = &patch.resume_handle {
             check_resume_handle(resume_handle)?;
         }
         let runtime_metadata_text = patch
@@ -584,17 +544,8 @@ impl RuntimeBindingStore {
                         "@contract_version",
                         patch.contract_version.as_ref().map(FreeFormText::as_str),
                     ),
-                    set_flag_binding(
-                        "@sets_resume_handle",
-                        patch.resume_handle != ResumeHandleChange::Keep,
-                    ),
-                    nullable_text_binding(
-                        "@resume_handle",
-                        match &patch.resume_handle {
-                            ResumeHandleChange::Set(resume_handle) => Some(resume_handle.as_str()),
-                            ResumeHandleChange::Keep | ResumeHandleChange::Clear => None,
-                        },
-                    ),
+                    set_flag_binding("@sets_resume_handle", patch.resume_handle.is_some()),
+                    nullable_text_binding("@resume_handle", patch.resume_handle.as_deref()),
                     set_flag_binding("@sets_runtime_metadata", runtime_metadata_text.is_some()),
                     nullable_text_binding("@runtime_metadata", runtime_metadata_text.as_deref()),
                     text_binding("@updated_at", &updated_at),
@@ -628,7 +579,7 @@ impl RuntimeBindingStore {
         rebind: RuntimeBindingRebind,
     ) -> Result<(), RuntimeBindingStoreError> {
         let patch = RuntimeBindingPatch {
-            resume_handle: ResumeHandleChange::Set(rebind.resume_handle),
+            resume_handle: Some(rebind.resume_handle),
             ..RuntimeBindingPatch::default()
         };
         match self
@@ -757,7 +708,7 @@ fn binding_from_row(row: &Row<'_>) -> rusqlite::Result<RuntimeBinding> {
         resume_handle: row.get(6)?,
         resolved_executable_path,
         spawn_config,
-        runtime_metadata: json_object_column(row, 8)?,
+        runtime_metadata: runtime_metadata_column(&row.get::<_, String>(8)?, 8, &id)?,
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
         id,
@@ -775,10 +726,7 @@ fn patched_binding(
             stored_column_unreadable(0, &stored.id, "contract_version", Some(Box::new(error)))
         })?;
     let runtime_metadata =
-        serde_json::from_str(&returned_column::<String>(returned, 2)?).map_err(|error| {
-            let fault = StoredJsonFault::from(error);
-            stored_column_unreadable(2, &stored.id, "runtime_metadata", Some(Box::new(fault)))
-        })?;
+        runtime_metadata_column(&returned_column::<String>(returned, 2)?, 2, &stored.id)?;
     Ok(RuntimeBinding {
         contract_version,
         resume_handle: returned_column(returned, 1)?,
@@ -793,6 +741,17 @@ fn returned_column<Column: FromSql>(row: &[SqlValue], index: usize) -> rusqlite:
     let value = row.get(index).map_or(ValueRef::Null, ValueRef::from);
     Column::column_result(value).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(index, value.data_type(), Box::new(error))
+    })
+}
+
+// Binding `binding_id`'s stored recovery data, `text`, from column `index`, read as a JSON object.
+fn runtime_metadata_column(
+    text: &str,
+    index: usize,
+    binding_id: &RuntimeBindingId,
+) -> rusqlite::Result<Map<String, Value>> {
+    parse_stored_json_object(text).map_err(|fault| {
+        stored_column_unreadable(index, binding_id, "runtime_metadata", Some(Box::new(fault)))
     })
 }
 
@@ -841,8 +800,8 @@ fn parse_spawn_config(
         column: "spawn_config",
         cause: Some(Box::new(fault)),
     };
-    let mut record: Map<String, Value> = serde_json::from_str(text)
-        .map_err(|error| unreadable(SpawnConfigFault::NotAnObject(error.into())))?;
+    let mut record = parse_stored_json_object(text)
+        .map_err(|fault| unreadable(SpawnConfigFault::NotAnObject(fault)))?;
     let Some(Value::String(resolved_executable_path)) =
         record.remove(RESOLVED_EXECUTABLE_PATH_MEMBER)
     else {
