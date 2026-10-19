@@ -173,8 +173,8 @@ pub enum ProjectBranchPatternRefusedDetails {
     /// The filled-in name clashes with an existing branch: one that would hold it, sit inside it,
     /// or share its name.
     ClashesWithBranch {
-        /// Git's own line for the clash, without the `fatal: prepare: cannot lock ref '<name>': `
-        /// prefix git writes before it.
+        /// Git's own line for the clash, without git's `fatal: prepare: ` prefix and, on git's
+        /// files backend, the `cannot lock ref '<name>': ` clause after it, which reftable omits.
         git_message: NonEmptyText,
     },
 }
