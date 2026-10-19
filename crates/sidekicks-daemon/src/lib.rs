@@ -15,6 +15,7 @@ pub mod database;
 pub(crate) mod error_description;
 pub mod events;
 pub mod file;
+pub(crate) mod file_watch;
 pub mod git;
 pub(crate) mod helper_mode;
 pub mod highlight;

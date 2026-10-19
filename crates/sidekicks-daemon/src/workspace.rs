@@ -5,6 +5,7 @@ pub(crate) mod errors;
 pub(crate) mod event_emitter;
 pub(crate) mod folder;
 pub(crate) mod last_error;
+pub(crate) mod managed;
 pub(crate) mod project;
 pub(crate) mod projector;
 pub(crate) mod repo;
