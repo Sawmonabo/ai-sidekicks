@@ -250,10 +250,12 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     let connection = database.reader();
     connection
         .execute(
-            "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id)
-             VALUES (?1, ?2, 'interrupt', 'failed', '{\"limit\":\"tokenLimit\"}', NULL),
-                    (?3, ?2, 'interrupt', 'accepted', '{\"pending\":\"nextTurn\"}',
-                     'phone')",
+            "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
+               expected_run_version, client_idempotency_key, created_at)
+             VALUES (?1, ?2, 'interrupt', 'failed', '{\"limit\":\"tokenLimit\"}', NULL, 1, ?1,
+                     '2026-01-01T00:00:00.000Z'),
+                    (?3, ?2, 'interrupt', 'accepted', '{\"pending\":\"nextTurn\"}', 'phone',
+                     1, ?3, '2026-01-01T00:00:01.000Z')",
             params![
                 LIMIT_INTERRUPT_ID,
                 run_id.text().as_str(),

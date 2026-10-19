@@ -416,8 +416,10 @@ async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_inter
     database
         .reader()
         .execute(
-            "INSERT INTO interventions (id, target_run_id, type, state, payload)
-             VALUES ('interrupt', ?1, 'interrupt', ?2, json_object('limit', ?3))",
+            "INSERT INTO interventions (id, target_run_id, type, state, payload,
+               expected_run_version, client_idempotency_key, created_at)
+             VALUES ('interrupt', ?1, 'interrupt', ?2, json_object('limit', ?3), 1, 'interrupt',
+               '2026-01-01T00:00:00.000Z')",
             [run_id.text().as_str(), state, limit],
         )
         .expect("the test records the run's interrupt");

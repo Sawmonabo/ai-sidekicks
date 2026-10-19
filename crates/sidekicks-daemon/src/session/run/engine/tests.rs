@@ -124,20 +124,26 @@ pub(super) fn hand_limit_interrupter(
     interrupter
 }
 
-/// The interventions table with the columns the engine's reads, a settle's guard and its move of
-/// a pending interrupt name.
+/// The interventions table in the stored shape: the closed type and state words, the columns a
+/// request must carry, and one row per requester's key on a run.
 pub(super) const INTERVENTIONS_TABLE_SQL: &str = "
 CREATE TABLE interventions (
-  id             TEXT PRIMARY KEY,
-  target_run_id  TEXT NOT NULL,
-  type           TEXT NOT NULL,
-  state          TEXT NOT NULL DEFAULT 'requested',
-  payload        TEXT NOT NULL DEFAULT '{}',
-  device_id      TEXT,
-  rejection_reason TEXT,
-  failure_reason TEXT,
-  fallback_action TEXT,
-  resolved_at    TEXT
+  id                      TEXT PRIMARY KEY,
+  target_run_id           TEXT NOT NULL,
+  type                    TEXT NOT NULL CHECK(type IN ('interrupt', 'fasterModelRetry')),
+  state                   TEXT NOT NULL DEFAULT 'requested'
+                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected',
+                                          'degraded', 'expired', 'failed')),
+  payload                 TEXT NOT NULL DEFAULT '{}',
+  expected_run_version    INTEGER NOT NULL,
+  client_idempotency_key  TEXT NOT NULL,
+  device_id               TEXT,
+  rejection_reason        TEXT,
+  fallback_action         TEXT,
+  failure_reason          TEXT,
+  created_at              TEXT NOT NULL,
+  resolved_at             TEXT,
+  UNIQUE (target_run_id, client_idempotency_key)
 ) STRICT;
 ";
 
