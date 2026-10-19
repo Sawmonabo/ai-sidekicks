@@ -3,7 +3,7 @@
 //! turn carries; and the guards that settle each entry on every exit path.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
@@ -61,13 +61,16 @@ pub(super) struct EndingWrite {
     pub(super) landed: SetOnce<()>,
 }
 
-/// A limit stop's cut of a turn: the limit, and the run version the stop read before it wrote.
+/// A limit stop's cut of a turn: the limit, the run version the stop read before it wrote, and
+/// the stop's own identity, which no other stop shares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct LimitCut {
     /// The limit that cut the turn.
     pub(super) limit: RunLimit,
     /// The run version the stop read.
     pub(super) run_version: i64,
+    /// The stop that made the cut, from [`LiveRuns::next_stop_id`].
+    pub(super) stop_id: u64,
 }
 
 /// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
@@ -95,6 +98,8 @@ pub(super) struct LiveRuns {
     /// interrupt alone; one leaves when its interrupt is handed, its write is refused or its run
     /// ends, the step limit's also with its turn.
     pub(super) reached_limits: HashSet<(RunId, RunLimit)>,
+    /// The identity the next limit stop's cut takes.
+    pub(super) next_stop_id: AtomicU64,
 }
 
 impl LiveRuns {
@@ -131,16 +136,30 @@ impl LiveRuns {
             .max()
     }
 
+    /// A new stop's cut at `limit`, read at `run_version`, with an identity no other stop's cut
+    /// has.
+    pub(super) fn new_cut(&self, limit: RunLimit, run_version: i64) -> LimitCut {
+        LimitCut {
+            limit,
+            run_version,
+            stop_id: self.next_stop_id.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+
     /// Puts `earlier` back as the cut of `turn_number` on `run_id` only while the key still holds
-    /// `own`, so a stop that cut nothing never undoes a later stop's cut or one its turn's end
-    /// removed.
+    /// the cut of the stop `own` made, so a stop that cut nothing never undoes a later stop's cut,
+    /// even one at the same limit and version, or one its turn's end removed.
     pub(super) fn restore_cut(
         &mut self,
         key: (RunId, SafeInt<1>),
         own: LimitCut,
         earlier: Option<LimitCut>,
     ) {
-        if self.cut_turns.get(&key) != Some(&own) {
+        if self
+            .cut_turns
+            .get(&key)
+            .is_none_or(|current| current.stop_id != own.stop_id)
+        {
             return;
         }
         match earlier {
@@ -278,6 +297,8 @@ mod tests {
     use std::time::Duration;
 
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::intervention::RunLimit;
+    use sidekicks_contracts::wire::integer::SafeInt;
     use tokio::sync::SetOnce;
 
     use super::{EndingGuard, EndingWrite, LiveRuns, lock};
@@ -323,5 +344,23 @@ mod tests {
 
         assert!(entry.landed.initialized());
         assert!(lock(&live).ending.is_empty());
+    }
+
+    // Killed by the restore comparing cuts by their limit and version: two stops at one limit
+    // that read the same version make cuts alike in both, so the earlier stop's refusal would
+    // remove the later live stop's cut, and its turn's end would carry no cause.
+    #[test]
+    fn a_refused_stop_restores_only_its_own_cut() {
+        let mut live = LiveRuns::default();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let key = (run_id, SafeInt::new(1).expect("1 is a turn number"));
+        let earlier = live.new_cut(RunLimit::TokenLimit, 3);
+        let later = live.new_cut(RunLimit::TokenLimit, 3);
+        live.cut_turns.insert(key, earlier);
+        live.cut_turns.insert(key, later);
+
+        live.restore_cut(key, earlier, None);
+
+        assert_eq!(live.cut_turns.get(&key), Some(&later));
     }
 }

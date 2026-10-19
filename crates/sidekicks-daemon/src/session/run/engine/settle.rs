@@ -351,7 +351,7 @@ mod tests {
 
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
-    use crate::session::run::engine::live::{LimitCut, lock};
+    use crate::session::run::engine::live::lock;
     use crate::session::run::engine::tests::{
         INTERVENTIONS_TABLE_SQL, append, insert_running_run, run_version, stored_events,
         stored_run_state, test_engine, turn_started_at,
@@ -416,13 +416,10 @@ mod tests {
 
         // The cut is planted directly, read at the accepted version, to exercise the remap: no
         // stop cuts a turn started at 5 for an interrupt accepted at 2, before the run's end at 3.
-        lock(&engine.live).cut_turns.insert(
-            (run_id, turn_one),
-            LimitCut {
-                limit: RunLimit::StepLimit,
-                run_version: 2,
-            },
-        );
+        let mut live = lock(&engine.live);
+        let cut = live.new_cut(RunLimit::StepLimit, 2);
+        live.cut_turns.insert((run_id, turn_one), cut);
+        drop(live);
         let ended_since = engine
             .end_run_for_interrupt(
                 run_id,

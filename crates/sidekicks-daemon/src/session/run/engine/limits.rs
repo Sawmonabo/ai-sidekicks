@@ -23,7 +23,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::events::session::appender::SessionEventDraft;
-use crate::session::run::engine::live::{LimitCut, lock};
+use crate::session::run::engine::live::lock;
 use crate::session::run::engine::{LiveAppend, RunEngine, RunEngineError, refused_statement_index};
 use crate::session::run::limit_interrupter::LimitInterrupter;
 use crate::session::run::read::RunRead;
@@ -185,12 +185,9 @@ impl RunEngine {
         self.wait_while_continuing(&run_id).await;
         let run = self.require_run(run_id).await?;
         let open_turn = self.read_open_turn(run_id, None).await?;
-        let own_cut = LimitCut {
-            limit,
-            run_version: run.version,
-        };
-        let (stop, cut, is_memory_own) = {
+        let (stop, own_cut, cut, is_memory_own) = {
             let mut live = lock(&self.live);
+            let own_cut = live.new_cut(limit, run.version);
             let stop = if live.reached_limits.contains(&(run_id, limit)) {
                 LimitStop::Interrupt { limit }
             } else {
@@ -204,7 +201,7 @@ impl RunEngine {
                 let key = (run_id, turn_number);
                 (key, live.cut_turns.insert(key, own_cut))
             });
-            (stop, cut, is_memory_own)
+            (stop, own_cut, cut, is_memory_own)
         };
         let reached = match cut {
             Some(((_, turn_number), _)) => match self.read_open_turns(run_id).await {
