@@ -1,7 +1,17 @@
 //! Reading an entry that may be missing: a `NotFound` failure read as nothing there, every other
-//! failure kept.
+//! failure kept, and the wider test of a path that names nothing.
 
 use std::io;
+
+/// Whether `error` says the path names nothing: no entry there (`NotFound`), a component that is
+/// a file and not a folder (`NotADirectory`), or a name the system cannot hold
+/// (`InvalidFilename`), each of which every system reports for a path that cannot exist.
+pub(crate) fn is_missing_entry(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory | io::ErrorKind::InvalidFilename
+    )
+}
 
 /// A file-system result whose `NotFound` failure means nothing is at the path.
 pub(crate) trait MissingEntry<T> {

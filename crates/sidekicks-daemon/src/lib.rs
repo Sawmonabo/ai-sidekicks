@@ -42,6 +42,7 @@ pub mod session;
 pub mod settle_all;
 pub mod text_cut;
 pub mod transcript;
+pub(crate) mod utf8_stream;
 pub mod uuid_v7;
 pub mod workflow;
 pub mod workspace;
