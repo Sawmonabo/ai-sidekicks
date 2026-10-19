@@ -392,8 +392,8 @@ impl ArtifactIngestService {
     /// stream that is unknown or past its lifetime, or whose saved result no longer names the
     /// digest it committed, with `session.notFound` once its session is gone and
     /// `agent.run.notFound` for a run that is not the session's, and as
-    /// [`ArtifactError::StreamWriteDropped`] after a write dropped mid-chunk; every failure ends the
-    /// stream.
+    /// [`ArtifactError::StreamWriteDropped`] after a write dropped mid-chunk; every failure ends
+    /// the stream.
     pub(crate) async fn complete(
         &self,
         request: ArtifactIngestCompleteRequest,
