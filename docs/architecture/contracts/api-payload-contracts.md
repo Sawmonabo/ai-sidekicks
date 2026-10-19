@@ -15,6 +15,7 @@ The shapes are kept in one file per area, below. They and this index are one doc
 - [Local IPC Payload Contracts](./local-ipc-payloads.md) — Plan-005: the daemon's JSON-RPC method names, handshake, request ids and daemon control
 - [Provider Driver Payload Contracts](./provider-driver-payloads.md) — Plan-003: the driver interface and the parameters and results of its operations
 - [Provider Driver Capability Payload Contracts](./provider-driver-capability-payloads.md) — Plan-003: what a driver declares and reports: its session handle, models, modes, posture, callback tools, tool-server status, subagents, capabilities and tool metadata
+- [Provider Notice Payload Contracts](./provider-notice-payloads.md) — a run's live safety-buffering state and the notices the daemon records on a session about its provider
 - [Running Command Payload Contracts](./running-command-payloads.md) — the commands an agent started
 - [Voice Payload Contracts](./voice-payloads.md) — dictation and spoken calls
 - [Session Event Payload Contracts](./session-event-payloads.md) — Plan-004: the event envelope and the log reads
