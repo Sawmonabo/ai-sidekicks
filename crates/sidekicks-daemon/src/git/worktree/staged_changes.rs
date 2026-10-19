@@ -15,10 +15,13 @@ use crate::git::process::{
     GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::folder_names::read_folder_names;
-use crate::uuid_v7::mint_uuid_v7;
+use crate::random_hex::random_hex;
 
 // A dotted sibling of the project folders, which a slug never names and no sweep reads.
 const STAGED_CHANGES_SEGMENT: &str = ".staged-changes";
+
+// How many random bytes name a worktree's folder, so two never meet.
+const WORKTREE_NAME_BYTES: usize = 16;
 
 // What a failure of opening a worktree names as the operation its cleanup followed.
 const OPENING: &str = "staged worktree opening";
@@ -38,6 +41,9 @@ pub(crate) enum StagedChangesError {
         #[source]
         source: io::Error,
     },
+    /// The system's random source could not name a worktree's folder.
+    #[error("a staged-changes worktree's folder could not be named")]
+    Naming(#[source] getrandom::Error),
     /// A worktree's folder could not be removed.
     #[error("the staged-changes worktree {} could not be removed", path.display())]
     Remove {
@@ -127,8 +133,10 @@ impl StagedChangesWorktrees {
                     source,
                 })
             })?;
+        let name = random_hex(WORKTREE_NAME_BYTES)
+            .map_err(|failure| without_cleanup(StagedChangesError::Naming(failure)))?;
         let worktree = StagedChangesWorktree {
-            folder: self.folder.join(mint_uuid_v7().to_string()),
+            folder: self.folder.join(name),
             repository_root,
             place: place.cloned(),
             git: self.git.clone(),
