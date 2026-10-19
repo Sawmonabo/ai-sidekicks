@@ -2,3 +2,4 @@
 //! what was typed.
 
 pub(crate) mod listing;
+pub(crate) mod service;

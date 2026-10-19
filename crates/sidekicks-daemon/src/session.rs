@@ -1,8 +1,9 @@
-//! Sessions: creating, converting and searching them, reading a session's record and log, their
-//! groups, tags, drafts, staged files, inbox addresses, directory and working folder.
+//! Sessions: creating, changing, naming, converting and searching them, reading a session's record
+//! and log, their groups, tags, drafts, staged files, review notes, inbox addresses, directory and
+//! working folder.
 
 pub(crate) mod addresses;
-pub(crate) mod changes;
+pub(crate) mod auto_title;
 pub(crate) mod changes;
 pub(crate) mod console_state;
 pub(crate) mod directory;
