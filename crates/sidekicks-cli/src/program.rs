@@ -354,6 +354,11 @@ mod tests {
         "error: Repairing saved sessions after an unexpected shutdown…\n",
         ExitCode::Unavailable
     )]
+    #[case::repairing_with_its_count(
+        repairing(Some(serde_json::json!({ "progress": { "done": 12, "total": 34 } }))).into(),
+        "error: Repairing saved sessions after an unexpected shutdown · 12 of 34\n",
+        ExitCode::Unavailable
+    )]
     #[case::repairing_with_a_count_that_does_not_read(
         repairing(Some(serde_json::json!({ "progress": { "done": "many" } }))).into(),
         "error: Repairing saved sessions after an unexpected shutdown…\n",
