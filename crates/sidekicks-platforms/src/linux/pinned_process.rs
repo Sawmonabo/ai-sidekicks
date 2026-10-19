@@ -111,7 +111,7 @@ impl PinnedProcess {
     // been reaped and another process holds its id; `false` when nothing was signaled.
     fn kill_rest_of_own_group(&self) -> io::Result<bool> {
         let is_reaped = descriptor_process_id(self.descriptor.as_raw_fd())?.is_none();
-        if is_reaped && read_process_file(self.id, "stat")?.is_some() {
+        if is_reaped && is_id_held(self.id)? {
             return Ok(false);
         }
         signal_group(self.id, Signal::SIGKILL)
@@ -182,7 +182,7 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
     }
     // A process holding the id is the recorded one, or a later one, which took the id only once
     // the group's last member had ended.
-    if read_process_file(record.id, "stat")?.is_some() {
+    if is_id_held(record.id)? {
         return Ok(false);
     }
     let mut has_members = false;
@@ -190,9 +190,12 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
         let Ok(id) = entry?.file_name().to_string_lossy().parse::<u32>() else {
             continue;
         };
-        let Some([group, session, start]) =
-            read_process_stat_fields(id, [GROUP_FIELD, SESSION_FIELD, START_FIELD])?
-        else {
+        // A process whose stat file `/proc` hides is another user's, read as no member.
+        let fields = match read_process_stat_fields(id, [GROUP_FIELD, SESSION_FIELD, START_FIELD]) {
+            Err(error) if error.kind() == ErrorKind::PermissionDenied => continue,
+            read => read?,
+        };
+        let Some([group, session, start]) = fields else {
             continue;
         };
         if parse_stat_number::<i64>(&group)? != i64::from(record.id) {
@@ -209,6 +212,15 @@ pub(crate) fn end_recorded_survivors(record: &ProcessRecord) -> io::Result<bool>
         return Ok(false);
     }
     signal_group(record.id, Signal::SIGKILL)
+}
+
+// Whether a process holds `id`, one whose stat file `/proc` hides included.
+fn is_id_held(id: u32) -> io::Result<bool> {
+    match read_process_file(id, "stat") {
+        Ok(stat) => Ok(stat.is_some()),
+        Err(error) if error.kind() == ErrorKind::PermissionDenied => Ok(true),
+        Err(error) => Err(error),
+    }
 }
 
 // A stat file's number field read as `Number`; fails with `InvalidData` when it is not one.
