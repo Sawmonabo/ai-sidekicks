@@ -30,6 +30,7 @@ use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use crate::cleanup_failures::CleanupFailures;
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::missing_entry::MissingEntry as _;
 use crate::recovery::database_file::aside_copy::{
@@ -54,11 +55,17 @@ const READY_MARKER_SUFFIX: &str = ".recovered-ready";
 // The rollback journal each step that readies the fresh file keeps beside it while it writes.
 const FRESH_FILE_JOURNAL_SUFFIX: &str = ".recovered-journal";
 
+// The fresh file and the rollback journal a step readying it keeps beside it.
+const FRESH_FILE_SUFFIXES: [&str; 2] = [FRESH_FILE_SUFFIX, FRESH_FILE_JOURNAL_SUFFIX];
+
 // The copy of the newest backup's database the repair reads, beside the database file.
 const BACKUP_COPY_SUFFIX: &str = ".backup-read";
 
 // The marker holds nothing and is the person's alone.
 const READY_MARKER_MODE: u32 = 0o600;
+
+// What failed, as a failure that carries its cleanup's failures names it.
+const REPAIRING: &str = "the database file's repair";
 
 /// What the repair reads and where it writes.
 pub struct DatabaseFileRepairOptions<'a> {
@@ -92,8 +99,9 @@ pub enum DatabaseFileRepair {
     Unrepaired {
         /// The copy aside of the damaged file.
         aside_folder: PathBuf,
-        /// Why it could not be repaired.
-        failure: DatabaseFileRepairFailure,
+        /// Why it could not be repaired, beside each file of the repair that could not be removed
+        /// after it.
+        failure: CleanupFailures<DatabaseFileRepairFailure, io::Error>,
     },
     /// A stop ended the repair; the file stays as it was and the next start repairs it.
     Stopped,
@@ -129,6 +137,10 @@ pub enum DatabaseFileRepairError {
     /// A file of the repair could not be read, removed, renamed or flushed.
     #[error("a file of the database file's repair could not be read, removed, moved or flushed")]
     File(#[source] io::Error),
+    /// A file the repair writes beside the database file before its marker could not be removed:
+    /// the first failure, beside the others.
+    #[error("a file the repair wrote beside the database file could not be removed")]
+    Leftover(#[source] CleanupFailures<io::Error>),
     /// The ready marker could not be written.
     #[error("the repaired file's ready marker could not be written")]
     Marker(#[source] AtomicWriteError),
@@ -180,8 +192,9 @@ pub async fn prepare_database_file_repair(
 /// step it is on gives no count. A file it could not repair comes back
 /// [`DatabaseFileRepair::Unrepaired`], and one `stop` reached before the ready marker comes back
 /// [`DatabaseFileRepair::Stopped`], each left in place with its record. Fails when the file cannot
-/// be copied aside at all or the ready fresh file cannot be put in place, which the next start
-/// finishes.
+/// be copied aside at all, with [`DatabaseFileRepairError::Leftover`] when a file the repair writes
+/// before its marker cannot be removed, or when the ready fresh file cannot be put in place, which
+/// the next start finishes.
 pub async fn repair_damaged_file(
     options: &DatabaseFileRepairOptions<'_>,
     damage: &str,
@@ -208,14 +221,21 @@ pub async fn repair_damaged_file(
         "the damaged database's files are copied aside"
     );
     // A repair a stop or a crash cut short may have left a fresh file and its journal, which SQLite
-    // would otherwise roll back into the new one.
-    remove_fresh_file(database_path).await?;
+    // would otherwise roll back into the new one, and the newest backup's copy.
+    let mut leftovers = remove_beside(database_path, FRESH_FILE_SUFFIXES).await;
+    leftovers.extend(remove_beside(database_path, backup_copy_suffixes()).await);
+    all_removed(leftovers)?;
     let readied = ready_fresh_file(options, &fresh_path, backup_folder, progress, stop).await;
     progress.send_replace(None);
+    // Every shell has exited, so the backup's copy goes whichever way the readying ended.
+    let backup_copy_removal = remove_beside(database_path, backup_copy_suffixes()).await;
     let sessions_from_backup = match readied {
-        Ok(sessions_from_backup) if !stop.is_cancelled() => sessions_from_backup,
+        Ok(sessions_from_backup) if !stop.is_cancelled() => {
+            all_removed(backup_copy_removal)?;
+            sessions_from_backup
+        }
         Err(ReadyingEnd::Failed(failure)) if !stop.is_cancelled() => {
-            remove_fresh_file(database_path).await?;
+            all_removed(remove_beside(database_path, FRESH_FILE_SUFFIXES).await)?;
             warn!(
                 error = &failure as &(dyn Error + 'static),
                 aside_folder = %aside_folder.display(),
@@ -223,12 +243,13 @@ pub async fn repair_damaged_file(
             );
             return Ok(DatabaseFileRepair::Unrepaired {
                 aside_folder,
-                failure,
+                failure: CleanupFailures::new(failure, backup_copy_removal, REPAIRING),
             });
         }
-        // Every shell has exited; the fresh file is left for the next repair to remove, and
-        // nothing reads it without the marker.
+        // The fresh file is left for the next repair to remove, and nothing reads it without the
+        // marker.
         Ok(_) | Err(ReadyingEnd::Stopped | ReadyingEnd::Failed(_)) => {
+            all_removed(backup_copy_removal)?;
             return Ok(stopped_repair());
         }
     };
@@ -366,7 +387,7 @@ async fn recover_counting_events(
 // file so nothing is written beside the person's backups, and answers how many sessions took their
 // events from it. A backup that cannot be found or copied heals nothing, like no backup: the
 // recovery alone heals the file, and the log says why the backup was passed over. A stop ends the
-// copy. The copy goes whatever the readying answered.
+// copy, which the repair removes however the readying ends.
 async fn prepare_with_newest_backup(
     options: &DatabaseFileRepairOptions<'_>,
     fresh_path: &Path,
@@ -390,7 +411,7 @@ async fn prepare_with_newest_backup(
         }
         None => false,
     };
-    let prepared = prepare_fresh_file(
+    prepare_fresh_file(
         &FreshFilePreparation {
             shell: options.shell,
             fresh_path,
@@ -398,19 +419,7 @@ async fn prepare_with_newest_backup(
         },
         stop,
     )
-    .await;
-    for suffix in std::iter::once("").chain(DATABASE_COMPANION_FILE_SUFFIXES) {
-        let removed = tokio::fs::remove_file(sibling_path(&backup_copy_path, suffix))
-            .await
-            .none_if_missing();
-        if let Err(error) = removed {
-            warn!(
-                error = &error as &(dyn Error + 'static),
-                "the newest backup's copy could not be removed"
-            );
-        }
-    }
-    prepared
+    .await
 }
 
 // Why the newest backup's database could not be copied beside the database file.
@@ -452,15 +461,42 @@ fn stopped_repair() -> DatabaseFileRepair {
     DatabaseFileRepair::Stopped
 }
 
-// The fresh file and the rollback journal a step readying it keeps beside it.
-async fn remove_fresh_file(database_path: &Path) -> Result<(), DatabaseFileRepairError> {
-    for suffix in [FRESH_FILE_SUFFIX, FRESH_FILE_JOURNAL_SUFFIX] {
-        tokio::fs::remove_file(sibling_path(database_path, suffix))
+// The newest backup's copy and the companions SQLite may keep beside it, by their suffixes.
+fn backup_copy_suffixes() -> impl Iterator<Item = String> {
+    std::iter::once("")
+        .chain(DATABASE_COMPANION_FILE_SUFFIXES)
+        .map(|companion| format!("{BACKUP_COPY_SUFFIX}{companion}"))
+}
+
+// Removes each file beside the database file that `suffixes` name and that exists, answering every
+// removal that failed.
+async fn remove_beside(
+    database_path: &Path,
+    suffixes: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Vec<io::Error> {
+    let mut failures = Vec::new();
+    for suffix in suffixes {
+        let removed = tokio::fs::remove_file(sibling_path(database_path, suffix.as_ref()))
             .await
-            .none_if_missing()
-            .map_err(DatabaseFileRepairError::File)?;
+            .none_if_missing();
+        if let Err(failure) = removed {
+            failures.push(failure);
+        }
     }
-    Ok(())
+    failures
+}
+
+// Fails with every removal that failed: the first, beside the others.
+fn all_removed(failures: Vec<io::Error>) -> Result<(), DatabaseFileRepairError> {
+    let mut failures = failures.into_iter();
+    match failures.next() {
+        None => Ok(()),
+        Some(first) => Err(DatabaseFileRepairError::Leftover(CleanupFailures::new(
+            first,
+            failures.collect(),
+            REPAIRING,
+        ))),
+    }
 }
 
 // The damaged file's log and index go first, so SQLite never replays them into the fresh file;
