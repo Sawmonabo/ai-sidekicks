@@ -1,4 +1,4 @@
-//! One user's processes and a process's environment, as macOS lists and shows them.
+//! This process's user's processes and a process's environment, as macOS lists and shows them.
 
 use std::io;
 use std::ptr;
@@ -23,10 +23,10 @@ const ARGUMENT_COUNT_BYTES: usize = size_of::<libc::c_int>();
 // The most bytes a process's arguments and environment take together (`KERN_ARGMAX`), read once.
 static ARGUMENT_BYTES: OnceLock<usize> = OnceLock::new();
 
-/// The ids of the processes the user with `user_id` runs. Blocks on the read; fails with the
-/// system's error when macOS refuses the list.
-pub fn list_user_process_ids(user_id: u32) -> io::Result<Vec<u32>> {
-    list_process_ids(PROC_UID_ONLY, user_id)
+/// The ids of the processes this process's user runs. Blocks on the read; fails with the system's
+/// error when macOS refuses the list.
+pub fn list_user_process_ids() -> io::Result<Vec<u32>> {
+    list_process_ids(PROC_UID_ONLY, nix::unistd::getuid().as_raw())
 }
 
 /// The ids of process `parent_id`'s children, as `proc_listchildpids` lists them. Blocks on the
@@ -194,7 +194,7 @@ mod tests {
         let child_id = child.id();
 
         let environment = read_process_environment(child_id);
-        let user_processes = list_user_process_ids(nix::unistd::getuid().as_raw());
+        let user_processes = list_user_process_ids();
         child.kill().expect("the child is killed");
         child.wait().expect("the child is reaped");
 

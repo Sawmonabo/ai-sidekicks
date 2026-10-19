@@ -22,6 +22,13 @@ pub(crate) type ShellInputLookup =
     Arc<dyn Fn(&SessionId, &TerminalId) -> Result<Arc<ShellInput>, DomainError> + Send + Sync>;
 
 /// Registers `terminal.write`, finding each write's shell through `lookup`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start registers terminal.write with the shell table's lookup"
+    )
+)]
 pub(crate) fn register_terminal_write(
     registry: &mut MethodRegistryBuilder,
     lookup: ShellInputLookup,

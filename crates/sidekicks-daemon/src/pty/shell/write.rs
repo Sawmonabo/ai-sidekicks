@@ -12,6 +12,7 @@ use bytes::Bytes;
 use futures::future::BoxFuture;
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::method_descriptor::NullPayload;
 use sidekicks_contracts::terminal::{TERMINAL_WRITES_WAITING_LIMIT, TerminalId};
 use sidekicks_terminal::TerminalWriteError;
@@ -19,7 +20,7 @@ use sidekicks_terminal::TerminalWriteError;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{HandlerError, TransportId};
 use crate::pty::control_lease::{ShellControlLease, ShellLeaseCaller, ShellWriter, WriteAdmission};
-use crate::pty::shell::paste::{ShellPastePart, ShellPastes};
+use crate::pty::shell::paste::{PasteInput, ShellPastePart, ShellPastes};
 use crate::pty::shell::refusals::terminal_not_found;
 
 /// Hands bytes to a shell's terminal at once, behind every write before them, answering a future
@@ -105,6 +106,50 @@ impl ShellInput {
         if let Some(answer) = self.lock_pastes().hold_answer(answer) {
             (self.hooks.queue_answer)(answer);
         }
+    }
+
+    /// Closes the paste the pane `output_subscription_id` left open, once that pane has ended, so
+    /// the program is never left inside it.
+    pub(crate) fn close_paste_of(&self, output_subscription_id: SubscriptionId) {
+        let mut pastes = self.lock_pastes();
+        let closing = pastes.close_for(output_subscription_id);
+        self.queue_unawaited(closing, "a paste its pane left unfinished");
+    }
+
+    /// Closes the open paste whichever pane it came through, as the shell changes holder, so the
+    /// new holder's keys never land inside it.
+    pub(crate) fn close_open_paste(&self) {
+        let mut pastes = self.lock_pastes();
+        let closing = pastes.close_all();
+        self.queue_unawaited(closing, "a paste open as its holder changed");
+    }
+
+    /// Forgets the open paste and the answers it held, for a shell that takes no more input.
+    pub(crate) fn clear_pastes(&self) {
+        self.lock_pastes().clear();
+    }
+
+    /// Puts a paste's close on the terminal's input, called under the pastes' lock so no answer
+    /// lands between them; no caller waits on it, so its failure goes to the service log.
+    fn queue_unawaited(&self, closing: Option<PasteInput>, what: &'static str) {
+        let Some(closing) = closing else {
+            return;
+        };
+        let taken = (self.hooks.queue_write)(closing.bytes);
+        for answer in closing.held_answers {
+            (self.hooks.queue_answer)(answer);
+        }
+        let terminal_id = self.terminal_id.clone();
+        tokio::spawn(async move {
+            if let Err(error) = taken.await {
+                tracing::warn!(
+                    terminal = terminal_id.as_str(),
+                    what,
+                    error = &error as &(dyn Error + 'static),
+                    "a shell could not close a paste"
+                );
+            }
+        });
     }
 
     /// Puts one admitted write on the terminal's input, a paste part with the close of a paste it

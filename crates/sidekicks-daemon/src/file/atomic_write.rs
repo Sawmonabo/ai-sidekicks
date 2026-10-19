@@ -66,6 +66,23 @@ pub(crate) async fn write_file_atomically(
     }
 }
 
+/// Replaces `file_path` with `contents` as [`write_file_atomically`] does, unless it already holds
+/// exactly them, so a reader that has the file open never meets a rewrite it did not need. A file
+/// that cannot be read is replaced. Fails as [`write_file_atomically`] does.
+pub(crate) async fn write_file_atomically_if_changed(
+    file_path: &Path,
+    contents: &'static [u8],
+    mode: u32,
+) -> Result<(), AtomicWriteError> {
+    if tokio::fs::read(file_path)
+        .await
+        .is_ok_and(|held| held == contents)
+    {
+        return Ok(());
+    }
+    write_file_atomically(file_path, contents, mode).await
+}
+
 // The whole write, blocking: the file replaced, then its folder flushed.
 fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), AtomicWriteError> {
     sidekicks_platforms::replace_file_atomically(target, contents, mode).map_err(|error| {
