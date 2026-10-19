@@ -73,7 +73,7 @@ impl LimitInterrupter for TestLimitInterrupter {
         self.calls.fetch_add(1, Ordering::SeqCst);
         let is_refused = self
             .refusals_left
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(1)
             })
             .is_ok();
@@ -98,7 +98,7 @@ pub(super) fn hand_limit_interrupter(
         refusals_left: AtomicUsize::new(refusals),
         calls: AtomicUsize::new(0),
     });
-    let handed: Weak<dyn LimitInterrupter> = Arc::downgrade(&interrupter);
+    let handed: Weak<TestLimitInterrupter> = Arc::downgrade(&interrupter);
     assert!(
         engine.set_limit_interrupter(handed).is_ok(),
         "the engine is handed one interventions service"
