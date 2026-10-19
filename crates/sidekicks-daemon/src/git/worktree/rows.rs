@@ -103,7 +103,8 @@ pub(crate) fn live_worktree_state_predicate(table: &str) -> String {
 #[expect(
     dead_code,
     reason = "worktree creation, the worktree lifecycle, the branch list, worktree claims, the \
-              removed-worktrees store and the workspace's reattach and folder-usage reads"
+              removed-worktrees store and the workspace's reattach, folder-usage and trust \
+              envelope reads"
 )]
 pub(crate) static LIVE_WORKTREE_STATE_PREDICATE: LazyLock<String> =
     LazyLock::new(|| live_worktree_state_predicate("worktrees"));
