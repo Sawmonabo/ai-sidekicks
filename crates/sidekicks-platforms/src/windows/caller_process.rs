@@ -1,5 +1,5 @@
 //! Which process is at the other end of a local connection, and a process's parent, on Windows:
-//! the peer of an AF_UNIX connection is read from the socket, while the daemon's named pipe and a
+//! the peer of an `AF_UNIX` connection is read from the socket, while the daemon's named pipe and a
 //! process's parent are not read yet.
 
 use std::io::{self, ErrorKind};
@@ -28,7 +28,7 @@ pub fn read_peer_process(_stream: &Stream) -> io::Result<Option<PinnedProcess>> 
     ))
 }
 
-/// The process at the other end of the AF_UNIX `stream`, as the socket names it, pinned by an open
+/// The process at the other end of the `AF_UNIX` `stream`, as the socket names it, pinned by an open
 /// handle opened after the read, so a peer that ended in between and whose id passed on names the
 /// new process. `None` once that process has ended. Fails with the system's error, and with
 /// `Other` when the socket names no process.
