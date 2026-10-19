@@ -569,7 +569,7 @@ async fn a_stop_before_the_ready_marker_leaves_the_damaged_file_as_it_was() {
     let stop = CancellationToken::new();
     stop.cancel();
 
-    let repaired = repair_damaged_file(
+    let repaired = Box::pin(repair_damaged_file(
         &DatabaseFileRepairOptions {
             database_path: &database_path,
             data_folder: data_folder.path(),
@@ -582,7 +582,7 @@ async fn a_stop_before_the_ready_marker_leaves_the_damaged_file_as_it_was() {
         None,
         &progress,
         &stop,
-    )
+    ))
     .await
     .expect("the repair ends");
 

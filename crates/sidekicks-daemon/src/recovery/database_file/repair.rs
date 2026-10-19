@@ -252,7 +252,14 @@ pub async fn repair_damaged_file(
     // A repair a stop or a crash cut short may have left a fresh file and its journal, which SQLite
     // would otherwise roll back into the new one, and the newest backup's copy.
     require_all_removed(remove_repair_files(database_path).await)?;
-    let readied = ready_fresh_file(options, &fresh_path, backup_folder, progress, stop).await;
+    let readied = Box::pin(ready_fresh_file(
+        options,
+        &fresh_path,
+        backup_folder,
+        progress,
+        stop,
+    ))
+    .await;
     progress.send_replace(None);
     // Every shell has exited, so nothing writes the repair's files from here on.
     let sessions_from_backup = match readied {
@@ -311,7 +318,7 @@ async fn ready_fresh_file(
     progress: &watch::Sender<Option<DaemonRepairProgress>>,
     stop: &CancellationToken,
 ) -> Result<u64, ReadyingEnd> {
-    match recover_counting_events(options, fresh_path, progress, stop).await {
+    match Box::pin(recover_counting_events(options, fresh_path, progress, stop)).await {
         Ok(()) => {}
         Err(SqliteRecoveryError::Stopped) => return Err(ReadyingEnd::Stopped),
         Err(error) => {
@@ -371,16 +378,14 @@ async fn recover_counting_events(
         }
     };
     let recovering = async {
-        let recovered = options
-            .shell
-            .recover_into_fresh_file(
-                options.database_path,
-                fresh_path,
-                physical_memory(),
-                &recovered_events,
-                stop,
-            )
-            .await;
+        let recovered = Box::pin(options.shell.recover_into_fresh_file(
+            options.database_path,
+            fresh_path,
+            physical_memory(),
+            &recovered_events,
+            stop,
+        ))
+        .await;
         count_end.cancel();
         recovered
     };
