@@ -24,9 +24,7 @@ use windows_sys::Win32::Security::{
     GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
     TokenUser,
 };
-use windows_sys::Win32::System::JobObjects::{
-    CreateJobObjectW, IsProcessInJob, TerminateJobObject,
-};
+use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
@@ -39,7 +37,7 @@ use windows_sys::Win32::System::Threading::{
 use crate::lasting_child::{LastingChild, LastingCommand};
 use crate::path::rules::PathRules;
 use crate::path::rules::windows::command_line::compose_command_line;
-use crate::windows::pinned_process::{KILLED_EXIT_CODE, PinnedProcess};
+use crate::windows::pinned_process::{PinnedProcess, is_process_in_job};
 use crate::windows::wide_text::{refuse_nul, wide_text};
 
 // The start of every lasting child's job name; random bytes follow it.
@@ -91,7 +89,9 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     startup.StartupInfo.hStdError = error_output.as_raw_handle();
     startup.lpAttributeList = attributes.list;
     let mut flags = CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW;
-    if is_in_job()? {
+    // SAFETY: the call takes nothing and answers this process's pseudo-handle; a null job asks
+    // about any job.
+    if is_process_in_job(unsafe { GetCurrentProcess() }, std::ptr::null_mut())? {
         flags |= CREATE_BREAKAWAY_FROM_JOB;
     }
     // SAFETY: `PROCESS_INFORMATION` is a C struct of integers and handles, for which all zero
@@ -129,15 +129,15 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
         id: information.dwProcessId,
         process: Some(Arc::new(process_handle)),
         job: Some(job_name),
+        job_handle: Some(Arc::new(job)),
     };
     let record = match process.record() {
         Ok(Some(record)) => record,
         read => {
             // Nothing unrecorded outlives the start.
-            // SAFETY: the job's handle is open with every right, as it was made.
-            if unsafe { TerminateJobObject(job.as_raw_handle(), KILLED_EXIT_CODE) } == FALSE {
+            if let Err(error) = process.terminate_job() {
                 tracing::warn!(
-                    error = &io::Error::last_os_error() as &(dyn std::error::Error + 'static),
+                    error = &error as &(dyn std::error::Error + 'static),
                     "the unrecorded lasting child's job could not be ended"
                 );
             }
@@ -156,6 +156,17 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
         process,
         record,
         exit: Box::pin(wait_for_exit(waited)),
+    })
+}
+
+/// Whether `name` has the shape every lasting child's job name has: the prefix, then the random
+/// bytes as lowercase hex.
+pub(crate) fn is_lasting_job_name(name: &str) -> bool {
+    name.strip_prefix(JOB_NAME_PREFIX).is_some_and(|random| {
+        random.len() == 2 * JOB_NAME_RANDOM_BYTES
+            && random
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
     })
 }
 
@@ -292,24 +303,6 @@ fn read_user_sid_text() -> io::Result<String> {
     // SAFETY: the string came from the conversion, which allocated it with `LocalAlloc`.
     unsafe { LocalFree(text.cast()) };
     read
-}
-
-// Whether this process runs in a job.
-fn is_in_job() -> io::Result<bool> {
-    let mut is_in_job = FALSE;
-    // SAFETY: the pseudo-handle names this process, a null job asks about any job, and the result
-    // points at a live `BOOL`.
-    if unsafe {
-        IsProcessInJob(
-            GetCurrentProcess(),
-            std::ptr::null_mut(),
-            &raw mut is_in_job,
-        )
-    } == FALSE
-    {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(is_in_job != FALSE)
 }
 
 // A new handle to what `handle` opens, inheritable, so the attribute list can name it.

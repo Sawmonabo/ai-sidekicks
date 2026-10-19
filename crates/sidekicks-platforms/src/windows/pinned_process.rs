@@ -1,9 +1,9 @@
 //! A process pinned on Windows by an open handle, which keeps its id from passing to another
 //! process while it lives: a pinned process's record, its re-pin from a record and its stop, which
-//! ends the whole job a lasting child runs in.
+//! ends the whole job a lasting child runs in, held open with it.
 
+use std::ffi::OsStr;
 use std::io::{self, ErrorKind};
-use std::os::windows::ffi::OsStrExt as _;
 use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +22,8 @@ use windows_sys::Win32::System::Threading::{
 use crate::child_command::ChildEnd;
 use crate::pinned_process::{KILL_WAIT_BOUND, ProcessRecord};
 use crate::windows::error_codes::win32_code;
+use crate::windows::lasting_child::is_lasting_job_name;
+use crate::windows::wide_text::wide_text;
 
 /// The exit code a killed process, or every process of a killed job, is given.
 pub(crate) const KILLED_EXIT_CODE: u32 = 1;
@@ -36,6 +38,9 @@ pub struct PinnedProcess {
     pub(crate) process: Option<Arc<OwnedHandle>>,
     /// The name of the job of its own a lasting child runs in; `None` for any other process.
     pub(crate) job: Option<String>,
+    /// That job, held open, which keeps it and its name from passing to another job while the
+    /// handle lives; `None` with the name.
+    pub(crate) job_handle: Option<Arc<OwnedHandle>>,
 }
 
 impl PinnedProcess {
@@ -84,49 +89,13 @@ impl PinnedProcess {
         ))
     }
 
-    // Ends the job of the process's own, every process in it; `false` when it has none, or the
-    // job of that name no longer holds the process.
-    fn terminate_job(&self) -> io::Result<bool> {
-        let Some(name) = &self.job else {
+    /// Ends the job of the process's own, every process in it, through the handle held with it;
+    /// `false` when it runs in none. Fails with the system's error.
+    pub(crate) fn terminate_job(&self) -> io::Result<bool> {
+        let Some(job) = &self.job_handle else {
             return Ok(false);
         };
-        let wide_name: Vec<u16> = std::ffi::OsStr::new(name)
-            .encode_wide()
-            .chain([0])
-            .collect();
-        // SAFETY: the name is a live NUL-ended UTF-16 string; the call answers a new handle or
-        // null.
-        let raw_job = unsafe {
-            OpenJobObjectW(
-                JOB_OBJECT_QUERY | JOB_OBJECT_TERMINATE,
-                FALSE,
-                wide_name.as_ptr(),
-            )
-        };
-        if raw_job.is_null() {
-            let error = io::Error::last_os_error();
-            if win32_code(&error) == Some(ERROR_FILE_NOT_FOUND) {
-                return Ok(false);
-            }
-            return Err(error);
-        }
-        // SAFETY: the handle was just opened and is owned by nothing else.
-        let job = unsafe { OwnedHandle::from_raw_handle(raw_job) };
-        let mut is_in_job = FALSE;
-        // SAFETY: both handles are open, the job's with the right to query it, and the result
-        // points at a live `BOOL`.
-        if unsafe { IsProcessInJob(self.handle(), job.as_raw_handle(), &raw mut is_in_job) }
-            == FALSE
-        {
-            return Err(io::Error::last_os_error());
-        }
-        if is_in_job == FALSE {
-            return Ok(false);
-        }
-        // SAFETY: the job's handle is open and carries the right to end it.
-        if unsafe { TerminateJobObject(job.as_raw_handle(), KILLED_EXIT_CODE) } == FALSE {
-            return Err(io::Error::last_os_error());
-        }
+        terminate_job_object(job)?;
         Ok(true)
     }
 
@@ -168,10 +137,18 @@ impl PinnedProcess {
     }
 }
 
-/// The process `record` names, held open; `None` when it has ended or its id now names another
-/// process, whose creation time differs or which this user cannot open. Fails with the system's
-/// error.
+/// The process `record` names, held open with the job it records; `None` when it has ended or its
+/// id now names another process, whose creation time differs or which this user cannot open. Fails
+/// with `InvalidData` when the record names a job no lasting child is given, or a job that does
+/// not hold its process, else with the system's error.
 pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedProcess>> {
+    // Opened before the process is read: a job holding a live process lives on, so a name that
+    // opens nothing then names no job that process runs in.
+    let job = record
+        .job
+        .as_deref()
+        .map(|name| open_recorded_job(record, name))
+        .transpose()?;
     let mut process = match open_process(record.id) {
         Ok(process) => process,
         // No process has the id, or it names a process of another user or a higher integrity,
@@ -186,11 +163,86 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
         }
         Err(error) => return Err(error),
     };
-    process.job.clone_from(&record.job);
-    Ok(process
-        .record()?
-        .filter(|read| read == record)
-        .map(|_| process))
+    let Some(read) = process.record()? else {
+        return Ok(None);
+    };
+    if !(read.id == record.id && read.start == record.start) {
+        return Ok(None);
+    }
+    let Some(name) = &record.job else {
+        return Ok(Some(process));
+    };
+    let not_its_job = || {
+        io::Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "process record {}'s job does not hold its process",
+                record.id
+            ),
+        )
+    };
+    let job = job.flatten().ok_or_else(not_its_job)?;
+    if !is_process_in_job(process.handle(), job.as_raw_handle())? {
+        return Err(not_its_job());
+    }
+    process.job = Some(name.clone());
+    process.job_handle = Some(Arc::new(job));
+    Ok(Some(process))
+}
+
+// The job `record` names `name`, opened with the rights to ask what it holds and to end it; `None`
+// when no job has the name. Fails with `InvalidData` for a name of another shape than a lasting
+// child's job is given, else with the system's error.
+fn open_recorded_job(record: &ProcessRecord, name: &str) -> io::Result<Option<OwnedHandle>> {
+    if !is_lasting_job_name(name) {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "process record {}'s job name is none a lasting child is given",
+                record.id
+            ),
+        ));
+    }
+    let mut wide_name = wide_text(OsStr::new(name))?;
+    wide_name.push(0);
+    // SAFETY: the name is a live NUL-ended UTF-16 string; the call answers a new handle or null.
+    let raw_job = unsafe {
+        OpenJobObjectW(
+            JOB_OBJECT_QUERY | JOB_OBJECT_TERMINATE,
+            FALSE,
+            wide_name.as_ptr(),
+        )
+    };
+    if raw_job.is_null() {
+        let error = io::Error::last_os_error();
+        if win32_code(&error) == Some(ERROR_FILE_NOT_FOUND) {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+    // SAFETY: the handle was just opened and is owned by nothing else.
+    Ok(Some(unsafe { OwnedHandle::from_raw_handle(raw_job) }))
+}
+
+// Ends every process in `job`, which is open with the right to end it.
+fn terminate_job_object(job: &OwnedHandle) -> io::Result<()> {
+    // SAFETY: the job's handle is open and carries the right to end it.
+    if unsafe { TerminateJobObject(job.as_raw_handle(), KILLED_EXIT_CODE) } == FALSE {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Whether `process` runs in `job`, or in any job when `job` is null; both handles carry the
+/// right to query them. Fails with the system's error.
+pub(crate) fn is_process_in_job(process: HANDLE, job: HANDLE) -> io::Result<bool> {
+    let mut is_in_job = FALSE;
+    // SAFETY: the handles are open with the right to query them, or the job's null, and the result
+    // points at a live `BOOL`.
+    if unsafe { IsProcessInJob(process, job, &raw mut is_in_job) } == FALSE {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(is_in_job != FALSE)
 }
 
 /// The caller's own child `id`, held open; the caller's handle to the child keeps its id from
@@ -207,6 +259,7 @@ pub fn this_process() -> PinnedProcess {
         id: std::process::id(),
         process: None,
         job: None,
+        job_handle: None,
     }
 }
 
@@ -229,6 +282,7 @@ fn open_process(id: u32) -> io::Result<PinnedProcess> {
         id,
         process: Some(Arc::new(process)),
         job: None,
+        job_handle: None,
     })
 }
 
