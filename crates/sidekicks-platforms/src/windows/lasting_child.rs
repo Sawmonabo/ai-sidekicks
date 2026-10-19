@@ -54,9 +54,10 @@ const JOB_NAME_RANDOM_BYTES: usize = 16;
 /// console program it starts inherits, and inherits only its standard handles, so it never holds a
 /// pipe the daemon's starter waits on. Runs on the daemon's one spawner thread, the `spawner`
 /// module's [`crate::Spawner`]: the two inheritable copies of those handles live in the daemon
-/// until this returns, and a start on another thread meanwhile would inherit them. Fails with the system's error from the start, a refused breakaway among them,
-/// never retried inside the daemon's job; with `AlreadyExists` when a job of the drawn name exists;
-/// or from the pin, which ends the job first.
+/// until this returns, and a start on another thread meanwhile would inherit them. Fails with the
+/// system's error from the start, a refused breakaway among them, never retried inside the
+/// daemon's job; with `AlreadyExists` when a job of the drawn name exists; or from the pin, which
+/// ends the job first.
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
     let (job, job_name) = create_named_job()?;
     let null_device = OpenOptions::new().read(true).write(true).open("NUL")?;
@@ -452,8 +453,8 @@ fn append_argument(line: &mut Vec<u16>, argument: &[u16]) {
 
 // The environment block: each `NAME=value`, NUL-ended, sorted by name without case as Windows
 // keeps it, then one more NUL. Names that share their environment key are one variable, as std's
-// `Command` folds them: the first spelling with the last value. Fails with `InvalidInput` for a name that is
-// empty or holds `=`, or text holding a NUL.
+// `Command` folds them: the first spelling with the last value. Fails with `InvalidInput` for a
+// name that is empty or holds `=`, or text holding a NUL.
 fn compose_environment_block(environment: &[(String, String)]) -> io::Result<Vec<u16>> {
     let mut variables: BTreeMap<String, (&str, &str)> = BTreeMap::new();
     for (name, value) in environment {
