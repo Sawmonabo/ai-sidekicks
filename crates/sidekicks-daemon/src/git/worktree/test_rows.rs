@@ -1,5 +1,6 @@
 //! The worktree rows that run rows point at, for tests that keep foreign keys on: the workspace
-//! rows, a live worktree on their mount and that worktree's branch context.
+//! rows, a live worktree on their mount and that worktree's branch context, and a run's execution
+//! context on it.
 
 use rusqlite::Connection;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
@@ -43,5 +44,63 @@ pub(crate) fn worktree_row(id: &str, branch_name: &str, state: &str) -> String {
          fs_root, state, created_at, updated_at) VALUES ('{id}', 'mount', 'session', \
          '{branch_name}', 'main', '/worktrees/{id}', '{state}', '{PARENT_ROWS_AT}', \
          '{PARENT_ROWS_AT}')"
+    )
+}
+
+/// A run's execution context row on the parent branch context in workspace `workspace`, made at
+/// [`PARENT_ROWS_AT`]; [`RunContextRow::BOUND_ROOT`] fills the fields a test leaves alone.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RunContextRow<'a> {
+    /// The run.
+    pub(crate) run_id: &'a str,
+    /// The mode's text, any text, so a test can store one outside the set.
+    pub(crate) execution_mode: &'a str,
+    /// Where the run executes.
+    pub(crate) execution_root: &'a str,
+    /// The checkout's top level.
+    pub(crate) checkout_root: Option<&'a str>,
+    /// The repository's common git folder.
+    pub(crate) git_common_dir: Option<&'a str>,
+    /// The worktree the run executes in.
+    pub(crate) worktree_id: Option<&'a str>,
+    /// When the run let its context go.
+    pub(crate) released_at: Option<&'a str>,
+}
+
+impl RunContextRow<'_> {
+    /// The unreleased bound-root run `run` in the checkout `/repos/app`.
+    pub(crate) const BOUND_ROOT: RunContextRow<'static> = RunContextRow {
+        run_id: "run",
+        execution_mode: "boundRoot",
+        execution_root: "/repos/app",
+        checkout_root: Some("/repos/app"),
+        git_common_dir: Some("/repos/app/.git"),
+        worktree_id: None,
+        released_at: None,
+    };
+
+    /// The row's insert, each text quoted for SQL.
+    pub(crate) fn insert_sql(&self) -> String {
+        format!(
+            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+             execution_mode, execution_root, checkout_root, git_common_dir, worktree_id, \
+             branch_context_id, created_at, released_at) VALUES ({}, 'session', 'workspace', \
+             {}, {}, {}, {}, {}, 'branch-context', '{PARENT_ROWS_AT}', {})",
+            sql_text(Some(self.run_id)),
+            sql_text(Some(self.execution_mode)),
+            sql_text(Some(self.execution_root)),
+            sql_text(self.checkout_root),
+            sql_text(self.git_common_dir),
+            sql_text(self.worktree_id),
+            sql_text(self.released_at),
+        )
+    }
+}
+
+// `value` as an SQL literal: quoted with each quote doubled, or `NULL`.
+fn sql_text(value: Option<&str>) -> String {
+    value.map_or_else(
+        || "NULL".to_owned(),
+        |value| format!("'{}'", value.replace('\'', "''")),
     )
 }

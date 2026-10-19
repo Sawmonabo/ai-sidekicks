@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use jiff::Timestamp;
 use rstest::rstest;
-use rusqlite::params;
 use sidekicks_contracts::run::id::RunId;
 
 use super::{
@@ -20,7 +19,7 @@ use crate::git::process::{
 use crate::git::turn_snapshot::diagnostics::TurnSnapshotRetentionSkipReason;
 use crate::git::turn_snapshot::refs::build_run_snapshot_ref_prefix;
 use crate::git::turn_snapshot::retention::RunContextKey;
-use crate::git::worktree::test_rows::insert_worktree_rows;
+use crate::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
 use crate::uuid_v7::mint_uuid_v7;
 
 const ENDED_AT: &str = "2026-10-19T10:00:00.000Z";
@@ -184,18 +183,17 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_and_nothing_else(
         .expect("the writer opens its database");
     let rows = database.reader();
     insert_worktree_rows(&rows);
-    rows.execute(
-        "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id,
-               execution_mode, execution_root, checkout_root, git_common_dir,
-               branch_context_id, created_at, released_at)
-             VALUES (?1, 'session', 'workspace', 'boundRoot', ?2, ?2, ?3, 'branch-context',
-               '2026-10-19T09:00:00.000Z', ?4)",
-        params![
-            run_key.to_string(),
-            utf8(&repository),
-            utf8(&git_common_dir),
-            released_at
-        ],
+    let run_id = run_key.to_string();
+    rows.execute_batch(
+        &RunContextRow {
+            run_id: &run_id,
+            execution_root: utf8(&repository),
+            checkout_root: Some(utf8(&repository)),
+            git_common_dir: Some(utf8(&git_common_dir)),
+            released_at,
+            ..RunContextRow::BOUND_ROOT
+        }
+        .insert_sql(),
     )
     .expect("the test stores the run's context");
     let service = service_reading(git.clone(), &database, root.path());

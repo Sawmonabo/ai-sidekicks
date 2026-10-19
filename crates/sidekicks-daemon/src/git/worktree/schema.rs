@@ -203,9 +203,9 @@ mod tests {
     use strum::VariantArray;
 
     use crate::git::worktree::test_rows::{
-        PARENT_WORKTREE_ID, create_worktree_tables, insert_worktree_rows, worktree_row,
+        PARENT_WORKTREE_ID, RunContextRow, create_worktree_tables, insert_worktree_rows,
+        worktree_row,
     };
-    use crate::workspace::test_rows::PARENT_ROWS_AT;
 
     // A closed-set value in serde's spelling, the text the wire and the rows carry.
     fn serde_text(value: &impl Serialize) -> String {
@@ -216,51 +216,26 @@ mod tests {
             .to_owned()
     }
 
-    fn sql_text(value: Option<&str>) -> String {
-        value.map_or_else(|| "NULL".to_owned(), |value| format!("'{value}'"))
-    }
-
-    fn run_context_row(
-        run_id: &str,
-        execution_mode: &str,
-        worktree_id: Option<&str>,
-        checkout_root: Option<&str>,
-        git_common_dir: Option<&str>,
-    ) -> String {
-        format!(
-            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
-             execution_mode, execution_root, checkout_root, git_common_dir, worktree_id, \
-             branch_context_id, created_at) VALUES ('{run_id}', 'session', 'workspace', \
-             '{execution_mode}', '/repos/app', {}, {}, {}, 'branch-context', '{PARENT_ROWS_AT}')",
-            sql_text(checkout_root),
-            sql_text(git_common_dir),
-            sql_text(worktree_id),
-        )
-    }
-
     // A run context in the shape its mode asks for, the mode written in serde's spelling.
     fn run_context_in_shape(run_id: &str, mode: ExecutionMode) -> String {
         let worktree_id = match mode {
             ExecutionMode::BoundRoot => None,
             ExecutionMode::ProvisionedWorktree => Some(PARENT_WORKTREE_ID),
         };
-        run_context_row(
+        RunContextRow {
             run_id,
-            &serde_text(&mode),
+            execution_mode: &serde_text(&mode),
             worktree_id,
-            Some("/repos/app"),
-            Some("/repos/app/.git"),
-        )
+            ..RunContextRow::BOUND_ROOT
+        }
+        .insert_sql()
     }
 
-    fn bound_root_row(worktree_id: Option<&str>, checkout_root: Option<&str>) -> Vec<String> {
-        vec![run_context_row(
-            "run",
-            <&'static str>::from(ExecutionMode::BoundRoot),
-            worktree_id,
-            checkout_root,
-            Some("/repos/app/.git"),
-        )]
+    // The bound-root run with `change` made to it, as a case's one row.
+    fn bound_root_row(change: fn(&mut RunContextRow<'static>)) -> Vec<String> {
+        let mut row = RunContextRow::BOUND_ROOT;
+        change(&mut row);
+        vec![row.insert_sql()]
     }
 
     fn live_and_then(first: WorktreeState, second: WorktreeState) -> Vec<String> {
@@ -305,41 +280,22 @@ mod tests {
         true
     )]
     #[case::provisioned_without_its_worktree(
-        vec![run_context_row(
-            "run",
-            <&'static str>::from(ExecutionMode::ProvisionedWorktree),
-            None,
-            Some("/repos/app"),
-            Some("/repos/app/.git"),
-        )],
+        bound_root_row(|row| {
+            row.execution_mode = <&'static str>::from(ExecutionMode::ProvisionedWorktree);
+        }),
         false
     )]
     #[case::bound_root_naming_a_worktree(
-        bound_root_row(Some(PARENT_WORKTREE_ID), Some("/repos/app")),
+        bound_root_row(|row| row.worktree_id = Some(PARENT_WORKTREE_ID)),
         false
     )]
-    #[case::without_a_checkout_root(bound_root_row(None, None), false)]
-    #[case::without_a_git_common_dir(
-        vec![run_context_row(
-            "run",
-            <&'static str>::from(ExecutionMode::BoundRoot),
-            None,
-            Some("/repos/app"),
-            None,
-        )],
-        false
-    )]
+    #[case::without_a_checkout_root(bound_root_row(|row| row.checkout_root = None), false)]
+    #[case::without_a_git_common_dir(bound_root_row(|row| row.git_common_dir = None), false)]
     #[case::every_state_admitted(one_row_per_state(), true)]
     #[case::every_mode_admitted(one_row_per_mode(), true)]
     #[case::a_state_outside_the_set(vec![worktree_row("tree", "feature", "archived")], false)]
     #[case::a_mode_outside_the_set(
-        vec![run_context_row(
-            "run",
-            "worktree",
-            None,
-            Some("/repos/app"),
-            Some("/repos/app/.git"),
-        )],
+        bound_root_row(|row| row.execution_mode = "worktree"),
         false
     )]
     fn admits_only_rows_the_worktree_tables_allow(
