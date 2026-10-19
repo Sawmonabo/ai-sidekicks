@@ -44,7 +44,7 @@ use self::request::{
     interrupt_choice_of, interrupt_keys, interrupt_reason, intervention_type_of, request_guards,
     stored_payload_of,
 };
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::WriteStatement;
 use crate::error_description::describe_error;
 use crate::events::log_service::EventLogService;
@@ -62,9 +62,9 @@ use crate::interventions::store::{
     read_intervention_by_idempotency_key, run_at_version_statement, run_in_states_statement,
 };
 use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::resolve_run_driver;
+use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::contract::{DriverError, ProviderDriver, bound_failure_detail};
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
     ApplyInterventionParams, FasterModelRetryOutcome, FasterModelRetryParams, InterruptPayload,
@@ -72,7 +72,7 @@ use crate::provider::driver::run_control::{
 };
 use crate::session::run::engine::{InterruptRoute, RunEngine, RunEngineError};
 use crate::session::run::projection::advance_run_version_statement;
-use crate::session::run::read::{RunRead, read_run_provider, read_run_through};
+use crate::session::run::read::{RunRead, read_run_through};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChangeCompanions, refused_statement_index};
 use crate::session::run::transitions::states_that_may_enter;
@@ -191,7 +191,7 @@ pub(crate) enum DispatchError {
     /// A refusal with a code: the run has no row or no driver, or its provider answers no
     /// driver.
     #[error(transparent)]
-    Refused(DomainError),
+    Refused(#[from] DomainError),
     /// The driver failed.
     #[error(transparent)]
     Driver(DriverError),
@@ -205,6 +205,20 @@ pub(crate) enum DispatchError {
     /// run's own stop cuts it.
     #[error("the run ended and was continued before the dispatch")]
     RunContinued,
+}
+
+impl From<rusqlite::Error> for DispatchError {
+    /// A read the run engine would have made, kept whole as its failure.
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Engine(error.into())
+    }
+}
+
+impl From<DatabaseReadError> for DispatchError {
+    /// A read the pool did not run, kept whole as the run engine's failure.
+    fn from(error: DatabaseReadError) -> Self {
+        Self::Engine(error.into())
+    }
 }
 
 impl From<RunEngineError> for DispatchError {
@@ -506,7 +520,9 @@ impl InterventionService {
                 model,
                 ..
             } => {
-                let driver = self.run_driver(*target_run_id).await?;
+                let driver =
+                    read_run_driver::<DispatchError>(&self.pool, &self.providers, *target_run_id)
+                        .await?;
                 let retried = driver
                     .retry_turn_on_faster_model(FasterModelRetryParams {
                         session_id,
@@ -565,8 +581,7 @@ impl InterventionService {
         client_idempotency_key: ClientUuid,
         payload: InterruptPayload,
     ) -> Result<Verdict, DispatchError> {
-        let answered = self
-            .run_driver(run_id)
+        let answered = read_run_driver::<DispatchError>(&self.pool, &self.providers, run_id)
             .await?
             .apply_intervention(ApplyInterventionParams::Interrupt {
                 target_run_id: run_id,
@@ -584,19 +599,6 @@ impl InterventionService {
                 cancelled,
             },
         })
-    }
-
-    // The driver of the provider `run_id` runs on.
-    async fn run_driver(&self, run_id: RunId) -> Result<Arc<dyn ProviderDriver>, DispatchError> {
-        let bound = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(read_run_provider(reader, &run_id)?)
-            })
-            .await?;
-        resolve_run_driver(&self.providers, run_id, bound)
-            .map(|resolved| resolved.driver)
-            .map_err(DispatchError::Refused)
     }
 
     /// Records an applied or degraded verdict from `accepted`: an interrupt's in the write that

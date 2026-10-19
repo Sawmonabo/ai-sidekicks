@@ -3,10 +3,10 @@
 //! chain holds a job. A job's failure is logged, since no caller waits for it, and the drain goes
 //! on.
 
+use std::collections::VecDeque;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
 use std::error::Error;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::run::id::RunId;
@@ -15,34 +15,24 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::sync::{oneshot, watch};
-use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use crate::bounded_wait::wait_within;
 use crate::provider::driver::contract::{DriverError, ProviderDriver};
-use crate::provider::driver::run_control::{
-    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
-};
-use crate::queue::delivery::hands::{DeliveryState, HandRoute};
-use crate::queue::delivery::{
-    DeliveryError, QueueDelivery, QueueWithdrawal, WITHDRAW_DEADLINE, steer_of,
-};
-use crate::queue::refusals::UnreturnedReason;
+use crate::queue::delivery::state::{DeliveryState, HandRoute};
+use crate::queue::delivery::withdraw::{LateWithdraw, WithdrawJob};
+use crate::queue::delivery::{DeliveryError, QueueDelivery, steer_of};
 use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
 
-/// The answer a withdraw job sends its caller: each candidate's withdrawal, or the failure that
-/// stopped them.
-pub(super) type WithdrawReply = Result<HashMap<QueueItemId, QueueWithdrawal>, DeliveryError>;
-
-/// One session's jobs in push order, and the run a `Hand` job is inside its driver call for.
+/// One session's jobs in push order, and the run a `Hand` or `ToolBoundary` job is inside its
+/// driver call for.
 pub(super) struct SessionChain {
     jobs: VecDeque<ChainJob>,
     in_flight: watch::Sender<Option<RunId>>,
 }
 
 impl SessionChain {
-    /// Follows the run a `Hand` job is inside its driver call for; the follow closes once the
-    /// chain ends, when nothing is in flight.
+    /// Follows the run a `Hand` or `ToolBoundary` job is inside its driver call for; the follow
+    /// closes once the chain ends, when nothing is in flight.
     pub(super) fn follow_in_flight(&self) -> watch::Receiver<Option<RunId>> {
         self.in_flight.subscribe()
     }
@@ -93,35 +83,6 @@ pub(super) enum ChainJob {
     },
 }
 
-/// A take-back's withdraws, run when the chain reaches them unless their deadline passed first.
-pub(super) struct WithdrawJob {
-    /// The messages to take back.
-    pub(super) candidates: Vec<QueueItemRecord>,
-    /// Cancelled once the caller stops waiting.
-    pub(super) deadline: CancellationToken,
-    /// Set when the withdraws start, under its lock, which the caller reads as it cancels.
-    pub(super) has_started: Arc<Mutex<bool>>,
-    /// Where the withdrawals go; dropped unsent when the deadline passed first.
-    pub(super) reply: oneshot::Sender<WithdrawReply>,
-}
-
-/// A withdraw answered after the deadline, for the hand it was asked of.
-pub(super) struct LateWithdraw {
-    /// The message.
-    item: QueueItemRecord,
-    /// The run it was handed for.
-    handed_run_id: RunId,
-    /// The hand the withdraw was asked of.
-    hand_number: u64,
-    /// Whether the provider had taken it.
-    is_delivered: bool,
-}
-
-/// Locks `flag`; it holds a plain boolean, which no holder leaves half-written.
-pub(super) fn lock_flag(flag: &Mutex<bool>) -> std::sync::MutexGuard<'_, bool> {
-    flag.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 impl QueueDelivery {
     /// Pushes `job` onto the chain of `session_id` in `state`, the caller's own hold on the
     /// delivery's mutex, and starts the chain's drain when it had none.
@@ -134,7 +95,7 @@ impl QueueDelivery {
                     in_flight: watch::Sender::new(None),
                 });
                 let delivery = self.clone();
-                tokio::spawn(
+                self.shared.tasks.spawn(
                     async move { delivery.drain(session_id).await }
                         .instrument(tracing::Span::current()),
                 );
@@ -258,7 +219,10 @@ impl QueueDelivery {
     }
 
     // Makes every steer in send order before any is awaited, then settles each that failed; one
-    // the driver sent stays handed and waiting until the provider's record of it.
+    // the driver sent stays handed and waiting until the provider's record of it. An interrupt
+    // that now holds the run decides the messages instead, which wait unhanded for its choice,
+    // since the provider drops a steer when its turn is aborted. The run is marked in flight for
+    // the driver calls, which an interrupt's hold waits out.
     async fn steer_at_boundary(
         &self,
         session_id: SessionId,
@@ -284,12 +248,23 @@ impl QueueDelivery {
                 return;
             }
         };
+        {
+            let mut state = self.lock_state();
+            if state.interrupt_holds.contains(&run_id) {
+                for item in items {
+                    state.handed.remove(&item.id);
+                }
+                return;
+            }
+            chain_of(&state, session_id).mark_in_flight(Some(run_id));
+        }
         let answers = join_all(
             items
                 .iter()
                 .map(|item| driver.apply_intervention(steer_of(item, run_id, run.version))),
         )
         .await;
+        chain_of(&self.lock_state(), session_id).mark_in_flight(None);
         for (item, answer) in items.iter().zip(answers) {
             if let Err(error) = answer {
                 let settled = self
@@ -337,136 +312,11 @@ impl QueueDelivery {
         }
     }
 
-    // Withdraws every candidate at once, unless the caller's deadline passed before the chain
-    // reached the job: the caller has then answered for them, and nothing reaches the driver.
-    async fn withdraw_all(&self, session_id: SessionId, job: WithdrawJob) {
-        let WithdrawJob {
-            candidates,
-            deadline,
-            has_started,
-            reply,
-        } = job;
-        {
-            let mut is_started = lock_flag(&has_started);
-            if deadline.is_cancelled() {
-                return;
-            }
-            *is_started = true;
-        }
-        let withdrawals = join_all(
-            candidates
-                .iter()
-                .map(|item| self.withdraw(session_id, item, &deadline)),
-        )
-        .await;
-        let answer: WithdrawReply = candidates
-            .iter()
-            .zip(withdrawals)
-            .map(|(item, withdrawal)| withdrawal.map(|withdrawal| (item.id, withdrawal)))
-            .collect();
-        // A caller that left reads no failure, so the log keeps it.
-        if let Err(Err(error)) = reply.send(answer) {
-            tracing::error!(
-                session_id = %session_id,
-                error = &error as &(dyn Error + 'static),
-                "taking queued messages back from their provider failed"
-            );
-        }
-    }
-
-    // One withdraw of a take-back, bounded by the take-back's deadline. A message the provider
-    // does not answer for in time stays handed, since the provider may still start a turn with
-    // it, and its late answer is settled on the chain.
-    async fn withdraw(
-        &self,
-        session_id: SessionId,
-        item: &QueueItemRecord,
-        deadline: &CancellationToken,
-    ) -> Result<QueueWithdrawal, DeliveryError> {
-        let handed = self.lock_state().handed.get(&item.id).copied();
-        let Some(handed) = handed else {
-            return Ok(QueueWithdrawal::Returned);
-        };
-        let can_withdraw = match handed.route {
-            HandRoute::Driver(handing) => handing.can_withdraw,
-            HandRoute::Continue => false,
-        };
-        if !can_withdraw {
-            return Ok(QueueWithdrawal::Unreturned(UnreturnedReason::Taken));
-        }
-        let driver = self.driver_of(handed.run_id).await?;
-        let params = WithdrawQueuedMessageParams {
-            session_id,
-            run_id: handed.run_id,
-            client_idempotency_key: item.id,
-        };
-        let mut withdrawing = Box::pin(async move { driver.withdraw_queued_message(params).await });
-        match wait_within(withdrawing.as_mut(), WITHDRAW_DEADLINE, Some(deadline)).await {
-            None => {
-                let delivery = self.clone();
-                let late_item = item.clone();
-                tokio::spawn(
-                    async move {
-                        let is_delivered = match withdrawing.await {
-                            Ok(answer) => {
-                                tracing::info!(
-                                    session_id = %session_id,
-                                    queue_item_id = %late_item.id,
-                                    answer = ?answer,
-                                    "the provider answered a withdraw after the deadline"
-                                );
-                                matches!(answer, WithdrawQueuedMessageResult::AlreadyDelivered {})
-                            }
-                            Err(error) => {
-                                tracing::warn!(
-                                    session_id = %session_id,
-                                    queue_item_id = %late_item.id,
-                                    error = &error as &(dyn Error + 'static),
-                                    "a withdraw failed after the deadline"
-                                );
-                                false
-                            }
-                        };
-                        let late = LateWithdraw {
-                            item: late_item,
-                            handed_run_id: handed.run_id,
-                            hand_number: handed.hand_number,
-                            is_delivered,
-                        };
-                        delivery.push(session_id, ChainJob::LateWithdraw(late));
-                    }
-                    .instrument(tracing::Span::current()),
-                );
-                self.record_unreturned(item, "was not answered within the deadline")
-                    .await?;
-                Ok(QueueWithdrawal::Unreturned(UnreturnedReason::NotDelivered))
-            }
-            Some(Err(error)) => {
-                self.forget_hand(item.id);
-                tracing::warn!(
-                    session_id = %session_id,
-                    queue_item_id = %item.id,
-                    error = &error as &(dyn Error + 'static),
-                    "a withdraw of a queued message failed"
-                );
-                self.record_unreturned(item, "failed").await?;
-                Ok(QueueWithdrawal::Unreturned(UnreturnedReason::NotDelivered))
-            }
-            Some(Ok(WithdrawQueuedMessageResult::AlreadyDelivered {})) => {
-                self.record_admission(item, handed.run_id).await?;
-                Ok(QueueWithdrawal::Unreturned(UnreturnedReason::Taken))
-            }
-            Some(Ok(WithdrawQueuedMessageResult::Withdrawn {})) => {
-                self.forget_hand(item.id);
-                Ok(QueueWithdrawal::Returned)
-            }
-        }
-    }
-
     // A message the provider recorded as taken by `run_id`. One the driver handed is admitted
     // while it waits, else, reading not delivered, admitted late; its interrupted run is then
-    // continued, as the provider keeps no turn for it. One not handed that reads not delivered in
-    // this session is admitted late.
+    // continued, as the provider keeps no turn for it. One a resume kept is admitted, its resume
+    // having delivered it after all. One not handed that reads not delivered in this session is
+    // admitted late.
     async fn settle_taken(
         &self,
         session_id: SessionId,
@@ -490,7 +340,16 @@ impl QueueDelivery {
                     self.continue_if_interrupted(session_id, handed.run_id)
                         .await
                 }
-                HandRoute::Continue => Ok(()),
+                HandRoute::Continue { is_kept: true } => match item {
+                    Some(item) if item.state == RecordedQueueItemState::Queued => {
+                        self.record_admission(&item, run_id).await
+                    }
+                    Some(_) | None => {
+                        self.forget_hand(item_id);
+                        Ok(())
+                    }
+                },
+                HandRoute::Continue { is_kept: false } => Ok(()),
             },
             None => match item {
                 Some(item) if item.session_id == session_id => {
@@ -501,34 +360,9 @@ impl QueueDelivery {
         }
     }
 
-    // Settles a withdraw answered past the deadline, unless the message's hand changed since the
-    // withdraw saw it: one the provider had taken is admitted late, and with the message no longer
-    // the provider's to keep, its interrupted run is continued.
-    async fn settle_late_withdraw(
-        &self,
-        session_id: SessionId,
-        late: LateWithdraw,
-    ) -> Result<(), DeliveryError> {
-        {
-            let mut state = self.lock_state();
-            let is_same_hand = state
-                .handed
-                .get(&late.item.id)
-                .is_some_and(|handed| handed.hand_number == late.hand_number);
-            if !is_same_hand {
-                return Ok(());
-            }
-            state.handed.remove(&late.item.id);
-        }
-        if late.is_delivered {
-            self.admit_undelivered(late.item.id, late.handed_run_id)
-                .await?;
-        }
-        self.continue_if_interrupted(session_id, late.handed_run_id)
-            .await
-    }
-
-    async fn continue_if_interrupted(
+    /// Continues the interrupted run `run_id`, the provider keeping no message for it. Fails when
+    /// the run's read fails.
+    pub(super) async fn continue_if_interrupted(
         &self,
         session_id: SessionId,
         run_id: RunId,
@@ -543,10 +377,10 @@ impl QueueDelivery {
         Ok(())
     }
 
-    // Admits a message that reads not delivered into `run_id`, unless something moved it
-    // meanwhile. One a retry superseded, before or during the write, stays so: the agent then has
-    // it twice, which is logged.
-    async fn admit_undelivered(
+    /// Admits a message that reads not delivered into `run_id`, unless something moved it
+    /// meanwhile. One a retry superseded, before or during the write, stays so: the agent then has
+    /// it twice, which is logged. Fails when a read or the admission's write fails.
+    pub(super) async fn admit_undelivered(
         &self,
         item_id: QueueItemId,
         run_id: RunId,

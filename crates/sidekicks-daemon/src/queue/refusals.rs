@@ -2,7 +2,6 @@
 //! or not given back by its provider, and a skill pick its provider does not list.
 
 use serde_json::json;
-use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemChangeRefusedDetails, AgentQueueItemChangeRefusedReason, QueueItemId,
@@ -13,7 +12,6 @@ use sidekicks_contracts::wire::text::BoundedText;
 
 use crate::ipc::domain_error::DomainError;
 use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
-use crate::text_cut::cut_to_code_points;
 
 /// Why a withdraw ahead of a change left a message with its provider: taken by the agent, or not
 /// given back and now reading not delivered.
@@ -78,8 +76,8 @@ pub(crate) fn unreturned_refusal(
 #[expect(dead_code, reason = "the run queue's send path")]
 pub(crate) fn skill_not_listed(pick: &QueuedSkillPick) -> DomainError {
     let folder_path = pick.folder_path.as_str();
-    let path = BoundedText::new(cut_to_code_points(folder_path, FILE_PATH_MAX_LEN).to_owned())
-        .expect("a path cut to the cap is within it");
+    let path = BoundedText::new(folder_path.to_owned())
+        .expect("a skill folder path is within the cap of the refusal's path");
     DomainError::new(
         format!(
             "The skill {} in {folder_path} is not one the session's provider lists",

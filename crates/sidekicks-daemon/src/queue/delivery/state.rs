@@ -10,6 +10,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::driver::contract::MessageHanding;
+use crate::queue::delivery::ProviderProcessIdentity;
 use crate::queue::delivery::chain::SessionChain;
 use crate::queue::store::QueueItemRecord;
 
@@ -20,7 +21,11 @@ pub(super) enum HandRoute {
     /// Handed by the driver.
     Driver(MessageHanding),
     /// Read by a paused run's continue.
-    Continue,
+    Continue {
+        /// Kept by a resume whose outcome is unknown: no later continue reads it until that
+        /// outcome is settled.
+        is_kept: bool,
+    },
 }
 
 /// A message the provider has been handed and not yet confirmed taking.
@@ -31,7 +36,7 @@ pub(super) struct HandedMessage {
     /// How it was handed.
     pub(super) route: HandRoute,
     /// The provider process it went to, or `None` while none ran.
-    pub(super) process_id: Option<u32>,
+    pub(super) process: Option<ProviderProcessIdentity>,
     /// Unique for the delivery's life, so a late answer settles only the hand it was asked for.
     pub(super) hand_number: u64,
 }
@@ -53,14 +58,14 @@ pub(super) struct DeliveryState {
 }
 
 impl DeliveryState {
-    /// Marks each of `items` handed for `run_id` by `route` to the process `process_id`, each
-    /// under a fresh hand number.
+    /// Marks each of `items` handed for `run_id` by `route` to the process `process`, each under a
+    /// fresh hand number.
     pub(super) fn mark_handed(
         &mut self,
         items: &[QueueItemRecord],
         run_id: RunId,
         route: HandRoute,
-        process_id: Option<u32>,
+        process: Option<ProviderProcessIdentity>,
     ) {
         for item in items {
             self.next_hand_number += 1;
@@ -69,16 +74,16 @@ impl DeliveryState {
                 HandedMessage {
                     run_id,
                     route,
-                    process_id,
+                    process,
                     hand_number: self.next_hand_number,
                 },
             );
         }
     }
 
-    /// The messages of `lead_waiting` that go now: not handed, except by a continue when
-    /// `rereads_continue` (a continue that did not go delivered nothing), and not kept for a next
-    /// turn.
+    /// The messages of `lead_waiting` that go now: not handed, except by a continue no resume
+    /// keeps when `rereads_continue` (a continue that did not go delivered nothing), and not kept
+    /// for a next turn.
     pub(super) fn unhanded_of(
         &self,
         lead_waiting: Vec<QueueItemRecord>,
@@ -90,12 +95,28 @@ impl DeliveryState {
                 let is_free = match self.handed.get(&item.id) {
                     None => true,
                     Some(handed) => match handed.route {
-                        HandRoute::Continue => rereads_continue,
+                        HandRoute::Continue { is_kept } => rereads_continue && !is_kept,
                         HandRoute::Driver(_) => false,
                     },
                 };
                 is_free && !self.next_turn_runs.contains_key(&item.id)
             })
+            .collect()
+    }
+
+    /// The ids of the messages the continue of `run_id` holds, kept by an earlier resume or not as
+    /// `is_kept` says.
+    pub(super) fn continued_of(&self, run_id: RunId, is_kept: bool) -> Vec<QueueItemId> {
+        self.handed
+            .iter()
+            .filter(|(_, handed)| {
+                let is_continue_kept = match handed.route {
+                    HandRoute::Continue { is_kept } => Some(is_kept),
+                    HandRoute::Driver(_) => None,
+                };
+                handed.run_id == run_id && is_continue_kept == Some(is_kept)
+            })
+            .map(|(item_id, _)| *item_id)
             .collect()
     }
 
@@ -119,15 +140,17 @@ impl DeliveryState {
 }
 
 /// Whether `handed` is kept by the provider process it went to, which is still the session's
-/// process `live_process_id`, for a turn that process starts with it.
-pub(super) fn is_kept_by_process(handed: &HandedMessage, live_process_id: Option<u32>) -> bool {
+/// process `live_process`, for a turn that process starts with it. A new process that reuses the
+/// old one's id keeps nothing, since its spawn sequence differs.
+pub(super) fn is_kept_by_process(
+    handed: &HandedMessage,
+    live_process: Option<ProviderProcessIdentity>,
+) -> bool {
     match handed.route {
         HandRoute::Driver(handing) => {
-            handing.kept_by_process
-                && handed.process_id.is_some()
-                && handed.process_id == live_process_id
+            handing.kept_by_process && handed.process.is_some() && handed.process == live_process
         }
-        HandRoute::Continue => false,
+        HandRoute::Continue { .. } => false,
     }
 }
 

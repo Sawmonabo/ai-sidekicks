@@ -32,6 +32,8 @@ pub(crate) mod rewind;
 pub(crate) mod run_control;
 pub(crate) mod session_control;
 pub(crate) mod streamed_text;
+#[cfg(test)]
+pub(crate) mod test_registry;
 pub(crate) mod unified_diff;
 
 // The shared session tests compose addresses with the one real addresser.

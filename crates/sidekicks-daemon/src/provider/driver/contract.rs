@@ -424,9 +424,12 @@ pub(crate) struct MessageHanding {
 
 /// When the run queue hands a waiting message to a running turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "each driver's answer to how its provider takes a message"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "each driver's answer to how its provider takes a message"
+    )
 )]
 pub(crate) enum HandMoment {
     /// At once, the provider holding it to its own next step.

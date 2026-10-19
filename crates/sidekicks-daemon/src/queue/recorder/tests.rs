@@ -7,7 +7,7 @@ use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{QueueItemId, QueueItemSummary};
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason, QueueItemSummary};
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
 };
@@ -252,23 +252,28 @@ async fn a_send_past_a_stale_guard_is_refused_by_that_guard_and_writes_nothing(
 /// The write a case makes to a queue of two waiting messages.
 #[derive(Clone, Copy, Debug)]
 enum QueueWrite {
+    Send,
     Order,
     Retarget,
     NextRun,
     Outcome,
+    LateAdmission,
     RefusedOrder,
 }
 
 // Each write raises its queue's change exactly once after it commits. A reader at the cursor
 // taken before it reads the waiting messages again, in their order, only after a write no item
-// event records, and after an outcome only that item's own change; a refused write raises
-// nothing. Killed by flipping any writer's `moves_order`, raising twice, or raising a refused
+// event records, and after a send or an outcome only that item's own change; a refused write
+// raises nothing. The expected messages are indexes into the two waiting and, third, the one a
+// send adds. Killed by flipping any writer's `moves_order`, raising twice, or raising a refused
 // write.
 #[rstest]
+#[case::a_send(QueueWrite::Send, &[2])]
 #[case::a_reorder(QueueWrite::Order, &[1, 0])]
 #[case::a_retarget(QueueWrite::Retarget, &[0, 1])]
 #[case::a_next_run(QueueWrite::NextRun, &[0, 1])]
 #[case::an_outcome(QueueWrite::Outcome, &[0])]
+#[case::a_late_admission(QueueWrite::LateAdmission, &[0])]
 #[case::a_refused_reorder(QueueWrite::RefusedOrder, &[])]
 #[tokio::test]
 async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event_records_it(
@@ -288,7 +293,17 @@ async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event
             .record_outcome(&sent[0], QueueItemOutcome::Canceled, &now)
             .await
             .expect("the test removes the first message"),
-        QueueWrite::Order | QueueWrite::Retarget | QueueWrite::Outcome => {}
+        QueueWrite::LateAdmission => {
+            let not_delivered = QueueItemOutcome::NotDelivered {
+                reason: QueueItemNotDeliveredReason::Failed,
+            };
+            fixture
+                .recorder
+                .record_outcome(&sent[0], not_delivered, &now)
+                .await
+                .expect("the test marks the first message not delivered");
+        }
+        QueueWrite::Send | QueueWrite::Order | QueueWrite::Retarget | QueueWrite::Outcome => {}
     }
     let queue = lead_queue(&fixture);
     let mut count = fixture.signals.change_count(&queue);
@@ -298,7 +313,13 @@ async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event
         .expect("the test reads the queue's cursor");
 
     let reordered = [sent[1].clone(), sent[0].clone()];
+    let mut ids: Vec<QueueItemId> = sent.iter().map(|item| item.id).collect();
     let result = match write {
+        QueueWrite::Send => {
+            let item = record(&fixture, new_item(&fixture)).await;
+            ids.push(item.id);
+            Ok(())
+        }
         QueueWrite::Order | QueueWrite::RefusedOrder => {
             fixture.recorder.record_order(&reordered, &now).await
         }
@@ -318,6 +339,12 @@ async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event
             fixture
                 .recorder
                 .record_outcome(&sent[0], QueueItemOutcome::Canceled, &now)
+                .await
+        }
+        QueueWrite::LateAdmission => {
+            fixture
+                .recorder
+                .record_late_admission(&sent[0], fixture.run_id, &now)
                 .await
         }
     };
@@ -340,6 +367,6 @@ async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event
     .iter()
     .map(|change| summary_id(&change.stream_change.item))
     .collect();
-    let expected: Vec<QueueItemId> = expected.iter().map(|index| sent[*index].id).collect();
+    let expected: Vec<QueueItemId> = expected.iter().map(|index| ids[*index]).collect();
     assert_eq!(read, expected);
 }

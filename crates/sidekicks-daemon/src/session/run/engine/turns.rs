@@ -310,12 +310,12 @@ impl RunEngine {
     }
 
     /// Counts one step of the open turn on `run_id`, which the driver's delivery reports, whatever
-    /// the provider: the step that reaches the turn's bound writes
-    /// the turn's step limit reached event and stops the run at the step limit, and while that
-    /// stop's interrupt is not yet handed, a later step of any turn hands it again unless a hand
-    /// of it is in flight or it is pending. A run with no count armed is left as it is. Fails as
-    /// the stop fails; a failed stop is tried again at the next step or turn end, the interrupt
-    /// alone once the turn's reached event has landed.
+    /// the provider: the step that reaches the turn's bound writes the turn's step limit reached
+    /// event and stops the run at the step limit, and while that stop's interrupt is not yet
+    /// handed, a later step of any turn hands it again unless a hand of it is in flight or it is
+    /// pending. A run with no count armed is left as it is. Fails as the stop fails; a failed stop
+    /// is tried again at the next step or turn end, the interrupt alone once the turn's reached
+    /// event has landed.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(self: &Arc<Self>, run_id: RunId) -> Result<(), RunEngineError> {
         let stop = {

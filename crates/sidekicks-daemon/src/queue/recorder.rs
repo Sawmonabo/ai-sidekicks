@@ -154,7 +154,13 @@ pub(crate) enum QueueRecordError {
 impl QueueRecordError {
     /// Whether a guard of the write refused it: an item had left `queued`, or the run no longer
     /// reads as the write expected. Nothing was written.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's delivery"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the provider's event delivery and the run queue's edit, removal and reorder"
+        )
+    )]
     pub(crate) fn is_refused(&self) -> bool {
         match self {
             Self::Append(error) => refused_statement_index(error).is_some(),
@@ -165,7 +171,7 @@ impl QueueRecordError {
 }
 
 /// What the recorder writes, reads and signals through.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "the run queue's start"))]
 pub(crate) struct QueueRecorderDeps {
     /// The event log every queue event is appended to.
     pub(crate) event_log: Arc<EventLogService>,
@@ -199,7 +205,7 @@ pub(crate) enum RetargetRun {
 
 impl QueueRecorder {
     /// A recorder over `deps`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's start"))]
     pub(crate) fn new(deps: QueueRecorderDeps) -> Self {
         let QueueRecorderDeps {
             event_log,
