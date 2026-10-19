@@ -416,7 +416,7 @@ intervention_request_response! {
         },
         /// Its dispatch threw or never completed, a daemon death among them, with why.
         Failed {
-            /// The thrown error's code, else its message.
+            /// The thrown error's code, else its message, or why it never completed.
             failure_reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
             /// Never present outside `rejected`.
             #[serde(
