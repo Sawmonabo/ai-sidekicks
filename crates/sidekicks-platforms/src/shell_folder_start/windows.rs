@@ -71,9 +71,9 @@ const fn powershell_switch(
 /// The switches whose operand or effect decides the folder start, each at its shortest spelling
 /// PowerShell takes. No spelling names two different switches, so the first match is PowerShell's
 /// reading. A switch missing here is one pwsh reads with no operand, or one it does not know, which
-/// it reads as a script path and then fails to start on; Windows PowerShell's start refuses every
-/// switch missing here.
-const POWERSHELL_SWITCHES: [PowerShellSwitch; 30] = [
+/// it reads as a script path and then fails to start on; beside a switch missing here, Windows
+/// PowerShell's folder start is refused.
+const POWERSHELL_SWITCHES: [PowerShellSwitch; 32] = [
     powershell_switch(
         "nologo",
         "nol",
@@ -111,10 +111,24 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 30] = [
         AllowingPowerShells::Both,
     ),
     powershell_switch(
+        "noninteractive",
+        "noni",
+        SwitchOperand::Nothing,
+        AllowingPowerShells::Both,
+    ),
+    powershell_switch(
         "noprofileloadtime",
         "noprofileloadtime",
         SwitchOperand::Nothing,
         AllowingPowerShells::PwshOnly,
+    ),
+    // pwsh reads it with no operand and stops reading; Windows PowerShell takes the version to
+    // start. Only its whole name is matched, since no source shows Windows PowerShell taking less.
+    powershell_switch(
+        "version",
+        "version",
+        SwitchOperand::One,
+        AllowingPowerShells::Both,
     ),
     powershell_switch(
         "executionpolicy",
@@ -212,21 +226,16 @@ const POWERSHELL_SWITCHES: [PowerShellSwitch; 30] = [
         "inputformat",
         "inp",
         SwitchOperand::One,
-        AllowingPowerShells::PwshOnly,
+        AllowingPowerShells::Both,
     ),
-    powershell_switch(
-        "if",
-        "if",
-        SwitchOperand::One,
-        AllowingPowerShells::PwshOnly,
-    ),
+    powershell_switch("if", "if", SwitchOperand::One, AllowingPowerShells::Both),
     powershell_switch(
         "outputformat",
         "o",
         SwitchOperand::One,
-        AllowingPowerShells::PwshOnly,
+        AllowingPowerShells::Both,
     ),
-    powershell_switch("of", "o", SwitchOperand::One, AllowingPowerShells::PwshOnly),
+    powershell_switch("of", "o", SwitchOperand::One, AllowingPowerShells::Both),
     powershell_switch(
         "token",
         "to",
