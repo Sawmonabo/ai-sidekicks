@@ -5,6 +5,7 @@
 // paths from the facts each reads off its own process.
 
 const RUN_FOLDER_NAME = "ai-sidekicks";
+const RUN_SUBFOLDER_NAME = "run";
 const SOCKET_FILE_NAME = "daemon.sock";
 const SESSION_TOKEN_FILE_NAME = "daemon.token";
 
@@ -48,7 +49,7 @@ export interface DaemonRunFolder {
 export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFolder {
   if ("userSid" in facts) {
     const localAppData = trimTrailingSeparator(facts.localAppDataDirectory, "\\");
-    const folderPath = `${localAppData}\\${RUN_FOLDER_NAME}\\run`;
+    const folderPath = `${localAppData}\\${RUN_FOLDER_NAME}\\${RUN_SUBFOLDER_NAME}`;
     return {
       folderPath,
       socketPath: `\\\\.\\pipe\\${RUN_FOLDER_NAME}-${facts.userSid}`,
@@ -68,13 +69,12 @@ export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFo
 }
 
 /**
- * The run folder of an operating-system object that reads no Windows facts yet: neither desktop
- * main nor the TypeScript daemon reads the person's SID, which names the pipe. Always throws.
+ * The run folder of a Windows operating-system object: neither desktop main nor the TypeScript
+ * daemon reads the person's SID, which names the pipe. Always throws.
  */
 export function refuseWindowsDaemonRunFolder(): never {
   throw new Error(
-    "On Windows the background service is reached through its per-user named pipe, not a " +
-      "Unix domain socket",
+    "On Windows the person's SID, which names the background service's pipe, is not read here",
   );
 }
 
