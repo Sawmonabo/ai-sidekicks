@@ -56,7 +56,7 @@ use crate::interventions::interrupt_queue::{
     InterruptCause, InterruptEnd, InterruptQueue, InterruptQueueError,
 };
 use crate::interventions::store::{
-    InterventionTransition, RequestedIntervention, UnresolvedInterventionState,
+    InterventionTransition, RequestedIntervention, SavedIntervention, UnresolvedInterventionState,
     insert_requested_intervention_statement, move_intervention_statement,
     read_intervention_by_idempotency_key, run_at_version_statement, run_in_states_statement,
 };
@@ -328,6 +328,13 @@ impl InterventionService {
         };
         let _hold = lock.acquire(run_id).await;
         let run = self.require_run(run_id).await?;
+        // A reused key answers what it saved before any hold is taken, so its replay redoes none
+        // of the queue's work; read under the lock, it never sees a request of its type in flight.
+        let payload = stored_payload_of(&request);
+        let (_, key) = request_guards(&request);
+        if let Some(saved) = self.read_saved_intervention(run_id, key).await? {
+            return self.answer_saved(&request, run_id, saved, &payload).await;
+        }
         let target = InterventionTarget {
             session_id: run.session_id,
             intervention_id: mint_intervention_id(),
@@ -336,7 +343,7 @@ impl InterventionService {
             actor,
         };
         let AgentRunInterveneRequest::Interrupt(interrupt) = &request else {
-            return self.record_and_apply(&target, &request).await;
+            return self.record_and_apply(&target, &request, payload).await;
         };
         // The queue's hold comes before the row, so a hold that fails leaves no row to apply.
         let choice = interrupt_choice_of(interrupt);
@@ -344,7 +351,7 @@ impl InterventionService {
             .hold_for_interrupt(run_id, choice)
             .await
             .map_err(InterventionError::Queue)?;
-        let applied = self.record_and_apply(&target, &request).await;
+        let applied = self.record_and_apply(&target, &request, payload).await;
         let released = self
             .queue
             .release_interrupt(run_id, choice)
@@ -362,21 +369,22 @@ impl InterventionService {
         }
     }
 
-    // Records the request, then accepts, dispatches and settles it; a reused key answers what it
-    // saved instead.
+    // Records the request with its stored `payload`, then accepts, dispatches and settles it. A key
+    // refused at the insert was spent since the caller's read by a request of the other type,
+    // under the other lock, so it answers a conflict.
     async fn record_and_apply(
         &self,
         target: &InterventionTarget,
         request: &AgentRunInterveneRequest,
+        payload: String,
     ) -> Result<AgentRunInterveneResponse, InterventionError> {
         let run_id = target.target_run_id;
-        let payload = stored_payload_of(request);
         let (expected_run_version, key) = request_guards(request);
         let requested = RequestedIntervention {
             intervention_id: target.intervention_id,
             target_run_id: run_id,
             intervention_type: target.intervention_type,
-            payload: payload.clone(),
+            payload,
             expected_run_version,
             client_idempotency_key: key.clone(),
             device_id: device_of(&target.actor),
@@ -392,7 +400,15 @@ impl InterventionService {
             Ok(()) => self.accept_and_apply(target, request).await,
             Err(error) => match refused_statement_index(&error) {
                 Some(INSERT_STATEMENT_INDEX) => {
-                    self.answer_reused_key(request, run_id, key, &payload).await
+                    let saved = self
+                        .read_saved_intervention(run_id, key)
+                        .await?
+                        // An intervention row is never deleted.
+                        .ok_or_else(|| InterventionError::Unsaved {
+                            run_id,
+                            key: key.as_str().to_owned(),
+                        })?;
+                    Err(idempotency_conflict(run_id, saved.intervention_id))
                 }
                 _ => Err(error.into()),
             },
@@ -697,39 +713,34 @@ impl InterventionService {
         self.answer(target, &state).await
     }
 
-    // A reused key answers what the first request saved when the two ask for the same thing.
-    async fn answer_reused_key(
+    // The intervention saved on `run_id` under `key`, if one is.
+    async fn read_saved_intervention(
         &self,
-        request: &AgentRunInterveneRequest,
         run_id: RunId,
         key: &ClientUuid,
-        payload: &str,
-    ) -> Result<AgentRunInterveneResponse, InterventionError> {
-        let read_key = key.clone();
-        let saved = self
+    ) -> Result<Option<SavedIntervention>, InterventionError> {
+        let key = key.clone();
+        Ok(self
             .pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, RunEngineError>(read_intervention_by_idempotency_key(
-                    reader, &run_id, &read_key,
+                    reader, &run_id, &key,
                 )?)
             })
-            .await?
-            // The insert was refused on this key, and an intervention row is never deleted.
-            .ok_or_else(|| InterventionError::Unsaved {
-                run_id,
-                key: key.as_str().to_owned(),
-            })?;
+            .await?)
+    }
+
+    // A reused key answers what the first request saved when the two ask for the same thing, and
+    // refuses with a conflict otherwise.
+    async fn answer_saved(
+        &self,
+        request: &AgentRunInterveneRequest,
+        run_id: RunId,
+        saved: SavedIntervention,
+        payload: &str,
+    ) -> Result<AgentRunInterveneResponse, InterventionError> {
         if saved.intervention_type != intervention_type_of(request) || saved.payload != payload {
-            return Err(InterventionError::Refused(
-                DomainError::new(
-                    "The idempotency key was already used for a different intervention on this \
-                     run",
-                    RefusalCode::AgentInterventionIdempotencyConflict,
-                )
-                .with_detail(
-                    json!({ "targetRunId": run_id, "interventionId": saved.intervention_id }),
-                ),
-            ));
+            return Err(idempotency_conflict(run_id, saved.intervention_id));
         }
         let reason_missing = || InterventionError::Unreasoned {
             intervention_id: saved.intervention_id,
@@ -807,6 +818,18 @@ pub(super) struct RunEndOfVerdict {
     pub(super) accepted_run_version: i64,
     /// Whose interrupt it is.
     pub(super) cause: InterruptCause,
+}
+
+// The refusal of a request that reuses the key of `run_id`'s intervention `saved` and asks for
+// something else.
+fn idempotency_conflict(run_id: RunId, saved: InterventionId) -> InterventionError {
+    InterventionError::Refused(
+        DomainError::new(
+            "The idempotency key was already used for a different intervention on this run",
+            RefusalCode::AgentInterventionIdempotencyConflict,
+        )
+        .with_detail(json!({ "targetRunId": run_id, "interventionId": saved })),
+    )
 }
 
 /// A fresh intervention id.

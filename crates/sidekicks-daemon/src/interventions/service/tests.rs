@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -57,9 +58,11 @@ fn take_next_driver(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
         .expect("the test sets its driver before the registry is built")
 }
 
-/// A run queue that holds nothing and hands each end straight to the run engine.
+/// A run queue that holds nothing but counts each hold it takes, and hands each end straight to
+/// the run engine.
 struct EngineQueue {
     engine: Arc<RunEngine>,
+    holds_taken: Arc<AtomicUsize>,
 }
 
 impl InterruptQueue for EngineQueue {
@@ -68,6 +71,7 @@ impl InterruptQueue for EngineQueue {
         _run_id: RunId,
         _choice: InterruptChoice,
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
+        self.holds_taken.fetch_add(1, Ordering::SeqCst);
         async { Ok(()) }.boxed()
     }
 
@@ -116,6 +120,8 @@ pub(crate) struct Harness {
     pub(crate) session_id: SessionId,
     /// The run.
     pub(crate) run_id: RunId,
+    /// How many interrupt holds the run queue has taken.
+    pub(crate) holds_taken: Arc<AtomicUsize>,
     // The engine's posture files.
     _home: TempDir,
 }
@@ -150,6 +156,7 @@ pub(crate) async fn harness(driver: MockProviderDriver) -> Harness {
         }],
         &services,
     );
+    let holds_taken = Arc::new(AtomicUsize::new(0));
     let service = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool: Arc::new(DatabaseReadPool::new(
             database.path(),
@@ -160,6 +167,7 @@ pub(crate) async fn harness(driver: MockProviderDriver) -> Harness {
         providers: Arc::new(providers),
         queue: Arc::new(EngineQueue {
             engine: Arc::clone(&engine),
+            holds_taken: Arc::clone(&holds_taken),
         }),
     }));
     Harness {
@@ -168,6 +176,7 @@ pub(crate) async fn harness(driver: MockProviderDriver) -> Harness {
         service,
         session_id,
         run_id,
+        holds_taken,
         _home: home,
     }
 }
@@ -321,9 +330,10 @@ async fn a_request_its_guards_refuse_ends_without_a_dispatch(
     );
 }
 
-// A reused key answers what the first request saved without a second dispatch, and refuses a
-// request that asks for something else. Killed by dropping the payload comparison or the saved
-// answer.
+// A reused key answers what the first request saved without a second dispatch or a hold of the
+// queue, and refuses a request that asks for something else, also with no hold. Killed by
+// dropping the payload comparison or the saved answer, or by taking the hold before the key's
+// read.
 #[tokio::test]
 async fn a_reused_key_answers_the_saved_result_or_refuses_another_request() {
     let mut driver = MockProviderDriver::new();
@@ -371,6 +381,7 @@ async fn a_reused_key_answers_the_saved_result_or_refuses_another_request() {
     assert_eq!(detail["targetRunId"], harness.run_id.text().as_str());
     assert_eq!(detail["interventionId"], intervention_id.text().as_str());
     assert_eq!(harness.stored_rows().len(), 1);
+    assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 1);
     assert_eq!(
         stored_run_state(&harness.database, &harness.run_id).0,
         "interrupted"
