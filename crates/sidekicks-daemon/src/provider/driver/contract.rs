@@ -7,9 +7,12 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::io;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
@@ -34,6 +37,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::{ProviderToolMetadata, SessionCallbackTool};
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -71,8 +75,8 @@ pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
 const PROVIDER_AUTH_DETAIL_MAX_LEN: usize = 512;
 
 /// Why a driver operation did not answer: a refusal a client reads by its code, a steer whose turn
-/// ended before it was sent (the message waits for the next turn), or a failure inside the driver,
-/// keeping its cause.
+/// ended before it was sent (the message waits for the next turn), a provider command that names
+/// no runnable build, or a failure inside the driver, keeping its cause.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DriverError {
     /// A refusal a client reads by its code.
@@ -84,15 +88,33 @@ pub(crate) enum DriverError {
     /// The capability probe could not read the provider, so nothing is declared from it.
     #[error("the provider's capability probe failed")]
     CapabilityProbe(#[source] CapabilityProbeError),
+    /// The configured provider command names no runnable build.
+    #[error(transparent)]
+    ExecutableUnresolvable(ExecutableUnresolvable),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
 }
 
+/// The configured provider command names no runnable build, or one whose real path cannot be
+/// read. It carries the command as the person configured it, never a path they did not type.
+#[derive(Debug, thiserror::Error)]
+#[error("the provider command {requested_command:?} names no runnable build")]
+pub(crate) struct ExecutableUnresolvable {
+    /// The provider.
+    pub(crate) provider: ProviderId,
+    /// The command as configured: a bare name or a path.
+    pub(crate) requested_command: String,
+    /// Why it resolves to no build: none was found, or its real path could not be read.
+    #[source]
+    pub(crate) cause: io::Error,
+}
+
 impl From<DriverError> for HandlerError {
-    /// A driver's refusal answers the call by its code, and a failed capability probe as
-    /// `provider.unavailable` naming the probe; a steer whose turn ended, reaching a handler, is a
-    /// fault in the daemon, as is the driver's own failure.
+    /// A driver's refusal answers the call by its code; a failed capability probe and a command
+    /// that names no runnable build answer `provider.unavailable`, the latter naming the command
+    /// as configured; a steer whose turn ended, reaching a handler, is a fault in the daemon, as is
+    /// the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal) => Self::Refused(refusal),
@@ -103,6 +125,17 @@ impl From<DriverError> for HandlerError {
                 )
                 .with_detail(json!({ "providerFailureDetail": probe.to_string() }))
                 .with_source(probe),
+            ),
+            DriverError::ExecutableUnresolvable(unresolvable) => Self::Refused(
+                DomainError::new(
+                    "The provider's command names no runnable build",
+                    RefusalCode::ProviderUnavailable,
+                )
+                .with_detail(json!({
+                    "providerId": unresolvable.provider.as_str(),
+                    "requestedCommand": unresolvable.requested_command,
+                }))
+                .with_source(unresolvable),
             ),
             DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
             DriverError::Internal(fault) => Self::Internal(fault),
@@ -546,6 +579,16 @@ pub(crate) struct DriverCliVersionReport {
     pub(crate) parsed_version: Option<String>,
 }
 
+/// One spawned-build reading's two binding carriers, read together so a binding row never pairs
+/// one install's version with another install's path: what the build reported, and where it ran.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SpawnedVersionBindingCarriers {
+    /// The version the spawned build reported in-band.
+    pub(crate) cli_version: DriverCliVersionReport,
+    /// The build's absolute, symlink-resolved path, the one that answered.
+    pub(crate) resolved_executable_path: PathBuf,
+}
+
 /// How one flag's value was reached on a live reading: probed, or taken from the driver's own
 /// table where no probe is admissible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -590,6 +633,9 @@ pub(crate) enum DriverResumeResult {
         /// The conversation the session runs on now, for the daemon to record: the one it was
         /// given, or a new one where the provider continued the conversation in a new thread.
         resume_handle: NonEmptyText,
+        /// The relaunched build's version and path, from the one reading its spawn took; a
+        /// relaunch resolves the command again, so the predecessor's build may not be this one.
+        spawned_version: SpawnedVersionBindingCarriers,
     },
     /// The resume failed.
     Failed {
@@ -745,13 +791,24 @@ pub(crate) struct ListProviderCommandsParams {
 /// session only, so their usage counts against the run and their tool calls go through the same
 /// approval pipeline. A `Helpers at once` setting of 0 is `Disabled`, which withholds the
 /// provider's helper tool; nothing bounds how deep helpers nest.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "policy",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub(crate) enum SubagentPolicy {
     /// No helpers.
     Disabled {},
     /// Helpers run.
     Enabled {
         /// How many run at once, or `None` for no limit.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "sidekicks_contracts::wire::present"
+        )]
         helpers_at_once: Option<SafeInt<1>>,
         /// The helpers the lead can hand work to.
         definitions: Vec<SubagentDefinition>,
@@ -760,7 +817,8 @@ pub(crate) enum SubagentPolicy {
 
 /// One helper as each driver maps it onto its provider's own form; the members past `name`,
 /// `prompt` and `description` are mapped where the provider supports them.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SubagentDefinition {
     /// The helper's name.
     pub(crate) name: String,
@@ -769,17 +827,38 @@ pub(crate) struct SubagentDefinition {
     /// When the lead should hand work to it.
     pub(crate) description: String,
     /// Its model.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "sidekicks_contracts::wire::present"
+    )]
     pub(crate) model: Option<ProviderToken>,
     /// The tools it may use.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "sidekicks_contracts::wire::present"
+    )]
     pub(crate) tools: Option<Vec<String>>,
     /// Its reasoning effort.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "sidekicks_contracts::wire::present"
+    )]
     pub(crate) effort: Option<ProviderToken>,
     /// How many turns it may take.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "sidekicks_contracts::wire::present"
+    )]
     pub(crate) max_turns: Option<SafeInt<1>>,
 }
 
 /// One tool server a session can reach, by its name, and whether the person switched it on.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SessionToolServer {
     /// The server's name.
     pub(crate) server_name: McpServerName,
