@@ -1,15 +1,17 @@
-//! The daemon's run folder on macOS and Linux: resolved from the environment and the user id as
-//! desktop main resolves it, and checked to be private before the daemon binds and before a client
-//! writes its first byte, since a folder another account made could hold a stand-in socket and a
-//! token of its own.
+//! The daemon's run folder on macOS and Linux: resolved from the home folder and, on Linux, the
+//! session's runtime folder, as desktop main resolves it, and checked to be private before the
+//! daemon binds and before a client writes its first byte, since a folder another account made
+//! could hold a stand-in socket and a token of its own.
 
 use std::ffi::OsString;
 use std::fs;
+use std::io;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use nix::unistd::getuid;
+use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 
 use crate::run_folder::{
     DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SESSION_TOKEN_FILE_NAME,
@@ -18,19 +20,30 @@ use crate::run_folder::{
 // The local socket's file name in the run folder.
 const SOCKET_FILE_NAME: &str = "daemon.sock";
 
-// The temporary folder's variables, read in this order, and the folder where none is set.
-const TEMPORARY_FOLDER_VARIABLES: [&str; 3] = ["TMPDIR", "TMP", "TEMP"];
-const DEFAULT_TEMPORARY_FOLDER: &str = "/tmp";
+// The run folder's name inside the service's data folder.
+const RUN_SUBFOLDER_NAME: &str = "run";
 
 // The permission bits of the folder's group and other accounts.
 const OTHERS_PERMISSION_BITS: u32 = 0o077;
 
-/// The run folder of this process's user, from its own environment. Never fails on macOS and
-/// Linux.
-pub fn daemon_run_folder() -> std::io::Result<DaemonRunFolder> {
+/// The mode a file in the run folder is made with, less the umask: the person's alone, and on
+/// Linux also sticky, which tells a session manager that cleans the runtime folder to keep it.
+#[cfg(target_os = "linux")]
+pub const RUN_FOLDER_FILE_MODE: u32 = 0o1600;
+
+/// The mode a file in the run folder is made with, less the umask: the person's alone.
+#[cfg(target_os = "macos")]
+pub const RUN_FOLDER_FILE_MODE: u32 = 0o600;
+
+/// The run folder of this process's user, from its home folder and environment. Fails with
+/// `NotFound` when no home folder is known.
+pub fn daemon_run_folder() -> io::Result<DaemonRunFolder> {
+    let home = std::env::home_dir().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "this account has no home folder")
+    })?;
     Ok(resolve_daemon_run_folder(
         |name| std::env::var_os(name),
-        getuid().as_raw(),
+        &home,
     ))
 }
 
@@ -59,23 +72,21 @@ pub fn check_private_run_folder(folder: &Path) -> Result<(), RunFolderRefused> {
     Ok(())
 }
 
-/// The run folder of the user `user_id`, with the environment read through `read_variable`:
-/// `$XDG_RUNTIME_DIR/ai-sidekicks` when it is set and not empty, else
-/// `<temporary folder>/ai-sidekicks-<user_id>`, the temporary folder being the first of `TMPDIR`,
-/// `TMP` and `TEMP` that is set and not empty, else `/tmp`; never `std::env::temp_dir()`.
+/// The run folder under the home folder `home`, with the environment read through
+/// `read_variable`: on Linux `$XDG_RUNTIME_DIR/ai-sidekicks` when it is set and not empty, else
+/// `<home>/.ai-sidekicks/run`; on macOS always the latter, since nothing cleans it there.
 pub(crate) fn resolve_daemon_run_folder(
     read_variable: impl Fn(&str) -> Option<OsString>,
-    user_id: u32,
+    home: &Path,
 ) -> DaemonRunFolder {
-    let set_variable = |name: &str| read_variable(name).filter(|value| !value.is_empty());
-    let folder_path = if let Some(runtime_folder) = set_variable("XDG_RUNTIME_DIR") {
-        join_name(runtime_folder, RUN_FOLDER_NAME)
-    } else {
-        let temporary_folder = TEMPORARY_FOLDER_VARIABLES
-            .iter()
-            .find_map(|name| set_variable(name))
-            .unwrap_or_else(|| OsString::from(DEFAULT_TEMPORARY_FOLDER));
-        join_name(temporary_folder, &format!("{RUN_FOLDER_NAME}-{user_id}"))
+    let runtime_folder = read_variable("XDG_RUNTIME_DIR").filter(|value| !value.is_empty());
+    let folder_path = match runtime_folder {
+        Some(runtime_folder) if cfg!(target_os = "linux") => {
+            join_name(runtime_folder, RUN_FOLDER_NAME)
+        }
+        _ => {
+            join_name(home.as_os_str().to_owned(), DAEMON_DATA_FOLDER_NAME).join(RUN_SUBFOLDER_NAME)
+        }
     };
     DaemonRunFolder {
         socket_path: folder_path.join(SOCKET_FILE_NAME),
@@ -98,58 +109,51 @@ fn join_name(folder: OsString, name: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::ffi::OsString;
     use std::fs::{self, Permissions};
     use std::os::unix::fs::{PermissionsExt, symlink};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use rstest::rstest;
-    use serde_json::Value;
 
     use super::{check_private_run_folder, resolve_daemon_run_folder};
     use crate::run_folder::RunFolderRefused;
 
-    // The case table desktop main's resolver runs too, so the two cannot drift.
-    const CASES: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../sidekicks-contracts/tests/fixtures/run-folder.json"
-    ));
-
-    #[test]
-    fn resolves_every_case_of_the_shared_table() {
-        let cases: Vec<Value> = serde_json::from_str(CASES).expect("the case table parses");
-        let posix_cases: Vec<&Value> = cases
-            .iter()
-            .filter(|case| case.get("userSid").is_none())
-            .collect();
-        assert!(
-            !posix_cases.is_empty(),
-            "the shared table's macOS and Linux cases"
+    // The cases desktop main's resolver asserts too.
+    #[rstest]
+    #[case::runtime_folder_set(Some("/run/user/1000"), "/home/ada", true)]
+    #[case::runtime_folder_with_a_trailing_slash(Some("/run/user/1000/"), "/home/ada", true)]
+    #[case::runtime_folder_empty(Some(""), "/home/ada", false)]
+    #[case::runtime_folder_unset(None, "/home/ada/", false)]
+    fn resolves_the_runtime_folder_on_linux_and_the_home_folder_otherwise(
+        #[case] runtime_folder: Option<&str>,
+        #[case] home: &str,
+        #[case] is_runtime_folder_used: bool,
+    ) {
+        let resolved = resolve_daemon_run_folder(
+            |name| {
+                (name == "XDG_RUNTIME_DIR")
+                    .then_some(runtime_folder)
+                    .flatten()
+                    .map(OsString::from)
+            },
+            Path::new(home),
         );
-        for case in posix_cases {
-            let environment: HashMap<String, OsString> = case["environment"]
-                .as_object()
-                .expect("a case's environment is an object")
-                .iter()
-                .map(|(name, value)| {
-                    let value = value.as_str().expect("a variable's value is text");
-                    (name.clone(), OsString::from(value))
-                })
-                .collect();
-            let user_id = case["userId"]
-                .as_u64()
-                .and_then(|id| u32::try_from(id).ok())
-                .expect("a case's user id is a u32");
 
-            let resolved =
-                resolve_daemon_run_folder(|name| environment.get(name).cloned(), user_id);
-
-            let expected = PathBuf::from(case["folderPath"].as_str().expect("a folder path"));
-            assert_eq!(resolved.folder_path, expected, "{}", case["case"]);
-            assert_eq!(resolved.socket_path, expected.join("daemon.sock"));
-            assert_eq!(resolved.token_path, expected.join("daemon.token"));
-        }
+        let expected = if is_runtime_folder_used && cfg!(target_os = "linux") {
+            "/run/user/1000/ai-sidekicks"
+        } else {
+            "/home/ada/.ai-sidekicks/run"
+        };
+        assert_eq!(resolved.folder_path, PathBuf::from(expected));
+        assert_eq!(
+            resolved.socket_path,
+            Path::new(expected).join("daemon.sock")
+        );
+        assert_eq!(
+            resolved.token_path,
+            Path::new(expected).join("daemon.token")
+        );
     }
 
     #[rstest]

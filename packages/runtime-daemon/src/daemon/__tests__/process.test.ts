@@ -214,9 +214,9 @@ describe("DaemonProcess.start", () => {
     const otherRuntimeDirectory = path.join(scratch, "other-run");
     await mkdir(otherRuntimeDirectory, { mode: 0o700 });
     const otherRunFolder = resolveDaemonRunFolder({
+      platform: "linux",
       runtimeDirectory: otherRuntimeDirectory,
-      temporaryDirectory: os.tmpdir(),
-      userId: os.userInfo().uid,
+      homeDirectory: scratch,
     });
 
     const failure = await startDaemon(DRAIN_NOTHING, { runFolder: otherRunFolder }).catch(
@@ -474,17 +474,17 @@ describe("the socket path's length", () => {
   // A run folder whose socket path is exactly `socketPathBytes` long.
   async function makeRunFolderWithSocketPathOf(socketPathBytes: number): Promise<DaemonRunFolder> {
     const shortest = resolveDaemonRunFolder({
+      platform: "linux",
       runtimeDirectory: path.join(scratch, "r"),
-      temporaryDirectory: os.tmpdir(),
-      userId: os.userInfo().uid,
+      homeDirectory: scratch,
     });
     const padding = socketPathBytes - Buffer.byteLength(shortest.socketPath, "utf8");
     const runtimeDirectory = path.join(scratch, "r".repeat(1 + padding));
     await mkdir(runtimeDirectory, { mode: 0o700 });
     const sized = resolveDaemonRunFolder({
+      platform: "linux",
       runtimeDirectory,
-      temporaryDirectory: os.tmpdir(),
-      userId: os.userInfo().uid,
+      homeDirectory: scratch,
     });
     expect(Buffer.byteLength(sized.socketPath, "utf8")).toBe(socketPathBytes);
     return sized;

@@ -72,9 +72,9 @@ const daemon = await DaemonProcess.start({
   operatingSystem,
   callerProcessReader,
   runFolder: operatingSystem.resolveRunFolder({
+    platform: operatingSystem.platform,
     runtimeDirectory: process.env["XDG_RUNTIME_DIR"],
-    temporaryDirectory: os.tmpdir(),
-    userId: account.uid,
+    homeDirectory,
   }),
   openOrphanGuard: async (dataFolder) =>
     openOrphanGuard({

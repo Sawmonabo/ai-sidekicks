@@ -74,7 +74,8 @@ it(
     const runtimeDirectory = path.join(root, "run");
     mkdirSync(homeDirectory);
     mkdirSync(runtimeDirectory, { mode: 0o700 });
-    // Main's own connect resolves the run folder from this, as the app's does.
+    // Main's own connect resolves the run folder from these, as the app's does.
+    vi.stubEnv("HOME", homeDirectory);
     vi.stubEnv("XDG_RUNTIME_DIR", runtimeDirectory);
 
     const link = new DaemonLink();

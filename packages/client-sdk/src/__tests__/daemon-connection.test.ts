@@ -52,10 +52,11 @@ const HANDSHAKE_STOPPED = new Error("the supervisor's deadline passed");
 beforeEach(async () => {
   handshakeAbort = new AbortController();
   scratch = await mkdtemp(path.join(os.tmpdir(), "aisk-sdk-"));
+  // The Linux rule, which puts the folder straight under the scratch folder.
   runFolder = resolveDaemonRunFolder({
+    platform: "linux",
     runtimeDirectory: scratch,
-    temporaryDirectory: os.tmpdir(),
-    userId: os.userInfo().uid,
+    homeDirectory: scratch,
   });
   await mkdir(runFolder.folderPath, { mode: 0o700 });
   await writeFile(runFolder.tokenPath, "first-token", { mode: 0o600 });

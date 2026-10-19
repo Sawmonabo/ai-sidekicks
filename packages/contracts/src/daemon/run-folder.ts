@@ -4,6 +4,9 @@
 // that socket is the person's own named pipe. Pure, so the daemon and its clients resolve the same
 // paths from the facts each reads off its own process.
 
+import type { SupportedPlatform } from "../platform.js";
+import { DAEMON_DATA_FOLDER_NAME } from "./data.js";
+
 const RUN_FOLDER_NAME = "ai-sidekicks";
 const RUN_SUBFOLDER_NAME = "run";
 const SOCKET_FILE_NAME = "daemon.sock";
@@ -11,12 +14,12 @@ const SESSION_TOKEN_FILE_NAME = "daemon.token";
 
 /** What the run folder is resolved from on macOS and Linux, read off each side's own process. */
 export interface PosixDaemonRunFolderFacts {
-  /** `XDG_RUNTIME_DIR`, or `undefined` where it is unset (macOS, and Linux without a session). */
+  /** The system the resolving process runs on; only on Linux is the runtime folder read. */
+  readonly platform: SupportedPlatform;
+  /** `XDG_RUNTIME_DIR`, or `undefined` where it is unset; read only on Linux. */
   readonly runtimeDirectory: string | undefined;
-  /** `os.tmpdir()`. */
-  readonly temporaryDirectory: string;
-  /** The person's numeric user id, `os.userInfo().uid`. */
-  readonly userId: number;
+  /** The person's home folder, `os.homedir()`. */
+  readonly homeDirectory: string;
 }
 
 /** What the run folder is resolved from on Windows, read off each side's own process. */
@@ -40,9 +43,9 @@ export interface DaemonRunFolder {
 }
 
 /**
- * Resolves the run folder. On macOS or Linux: `$XDG_RUNTIME_DIR/ai-sidekicks` where the session
- * provides one, and otherwise `<temporary folder>/ai-sidekicks-<uid>`, kept per person because a
- * temporary folder can be shared, the socket and the token in it. On Windows:
+ * Resolves the run folder. On Linux: `$XDG_RUNTIME_DIR/ai-sidekicks` where the session provides
+ * one, and otherwise `~/.ai-sidekicks/run`; on macOS always `~/.ai-sidekicks/run`, which no system
+ * cleaner empties; the socket and the token in it. On Windows:
  * `<local app data>\ai-sidekicks\run` holding the token, and the named pipe
  * `\\.\pipe\ai-sidekicks-<user SID>`.
  */
@@ -56,11 +59,12 @@ export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFo
       tokenPath: `${folderPath}\\${SESSION_TOKEN_FILE_NAME}`,
     };
   }
-  const temporaryDirectory = trimTrailingSeparator(facts.temporaryDirectory, "/");
+  const runtimeDirectory = facts.platform === "linux" ? facts.runtimeDirectory : undefined;
+  const homeDirectory = trimTrailingSeparator(facts.homeDirectory, "/");
   const folderPath =
-    facts.runtimeDirectory !== undefined && facts.runtimeDirectory.length > 0
-      ? `${trimTrailingSeparator(facts.runtimeDirectory, "/")}/${RUN_FOLDER_NAME}`
-      : `${temporaryDirectory}/${RUN_FOLDER_NAME}-${String(facts.userId)}`;
+    runtimeDirectory !== undefined && runtimeDirectory.length > 0
+      ? `${trimTrailingSeparator(runtimeDirectory, "/")}/${RUN_FOLDER_NAME}`
+      : `${homeDirectory}/${DAEMON_DATA_FOLDER_NAME}/${RUN_SUBFOLDER_NAME}`;
   return {
     folderPath,
     socketPath: `${folderPath}/${SOCKET_FILE_NAME}`,

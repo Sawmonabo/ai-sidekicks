@@ -1,0 +1,128 @@
+//! `daemon.status.read`: the service's own facts in one reply, for Settings › Runtime and
+//! `sidekicks daemon status`. Processor and memory are read on each call, never on a timer; a call
+//! whose reading fails still answers, with both `null` and the failure in the service log.
+
+use std::sync::Arc;
+
+use futures::FutureExt as _;
+use jiff::Timestamp;
+use sidekicks_contracts::daemon::status::{
+    DAEMON_STATUS_TEXT_MAX_LEN, DaemonMemoryReading, DaemonProcessState, DaemonProcessorReading,
+    DaemonStatusRead, DaemonStatusReadResponse,
+};
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
+use sidekicks_contracts::method_descriptor::EmptyPayload;
+use sidekicks_contracts::process_identity::ProcessIdentity;
+use sidekicks_contracts::release_manifest::ReleaseVersion;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::number::Percent;
+use sidekicks_contracts::wire::text::BoundedText;
+
+use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
+use crate::ipc::registry::{
+    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
+};
+use crate::recovery::status::RecoveryStatusTracker;
+
+/// The running daemon's facts the status read reports.
+pub(crate) struct StatusMethodsDeps {
+    /// The daemon's own process as the system knows it, read once at its start.
+    pub(crate) process_identity: ProcessIdentity,
+    /// Where the daemon is in its own life at the moment of the call.
+    pub(crate) read_process_state: Arc<dyn Fn() -> DaemonProcessState + Send + Sync>,
+    /// Where the daemon stands in its recovery from the last restart.
+    pub(crate) recovery: Arc<RecoveryStatusTracker>,
+    /// The service's own release version.
+    pub(crate) version: ReleaseVersion,
+    /// The socket the daemon listens on.
+    pub(crate) transport_endpoint: BoundedText<1, DAEMON_STATUS_TEXT_MAX_LEN>,
+    /// The data folder this daemon holds.
+    pub(crate) data_directory: FilesystemPath,
+    /// When the daemon started.
+    pub(crate) started_at: Timestamp,
+    /// Reads the daemon's process and every process under it.
+    pub(crate) usage_reader: Arc<ProcessTreeUsageReader>,
+}
+
+/// Registers `daemon.status.read`, a read-only query. Fails the start when the method is already
+/// registered.
+#[expect(
+    dead_code,
+    reason = "the daemon's start registers its status read on its registry"
+)]
+pub(crate) fn register_status_methods(
+    registry: &mut MethodRegistryBuilder,
+    deps: StatusMethodsDeps,
+) -> Result<(), RegistrationError> {
+    let deps = Arc::new(deps);
+    registry.register::<DaemonStatusRead, _>(move |_: EmptyPayload, _context: HandlerContext| {
+        let deps = Arc::clone(&deps);
+        async move { read_status(&deps).await }.boxed()
+    })
+}
+
+// The status at this call; a failed processor and memory reading reads as `null` for both.
+async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadResponse, HandlerError> {
+    let usage = match deps.usage_reader.read(std::process::id()).await {
+        Ok(usage) => Some(usage),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "The processor and memory reading failed"
+            );
+            None
+        }
+    };
+    let read_at_timestamp = Timestamp::now();
+    let read_at = WireInstant::from_timestamp(read_at_timestamp)
+        .ok_or_else(|| internal("the clock reads before the year 0000"))?;
+    let started_at = WireInstant::from_timestamp(deps.started_at)
+        .ok_or_else(|| internal("the start reads before the year 0000"))?;
+    let uptime_ms = u64::try_from(
+        read_at_timestamp
+            .duration_since(deps.started_at)
+            .as_millis()
+            .max(0),
+    )
+    .map_err(|error| HandlerError::Internal(Box::new(error)))?;
+    let (processor, memory) = match usage {
+        Some(usage) => (
+            Some(DaemonProcessorReading {
+                percent: Percent::new(usage.processor_percent.clamp(0.0, 100.0))
+                    .ok_or_else(|| internal("the processor share is not a number"))?,
+                read_at: read_at.clone(),
+            }),
+            Some(DaemonMemoryReading {
+                resident_bytes: SafeInt::new(usage.resident_bytes)
+                    .ok_or_else(|| internal("the resident bytes pass the safe integers"))?,
+                read_at,
+            }),
+        ),
+        None => (None, None),
+    };
+    Ok(DaemonStatusReadResponse {
+        process_state: (deps.read_process_state)(),
+        process_identity: deps.process_identity.clone(),
+        version: deps.version.clone(),
+        protocol_version: BoundedText::new(CURRENT_PROTOCOL_VERSION.to_owned())
+            .ok_or_else(|| internal("the protocol version is no status text"))?,
+        transport_endpoint: deps.transport_endpoint.clone(),
+        started_at,
+        uptime_ms: SafeInt::new(uptime_ms)
+            .ok_or_else(|| internal("the uptime passes the safe integers"))?,
+        data_directory: deps.data_directory.clone(),
+        processor,
+        memory,
+        recovery: deps.recovery.read(),
+        relay: None,
+        wsl: None,
+        secrets_file: None,
+    })
+}
+
+// A fault inside the daemon, answered `-32603` with no detail.
+fn internal(why: &'static str) -> HandlerError {
+    HandlerError::Internal(why.into())
+}

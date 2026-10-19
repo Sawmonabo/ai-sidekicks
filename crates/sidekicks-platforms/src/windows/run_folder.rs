@@ -32,6 +32,10 @@ use crate::windows::process_user::{ProcessUser, read_user_sid_text, sid_text};
 // The run folder's name inside the application's own folder.
 const RUN_SUBFOLDER_NAME: &str = "run";
 
+/// The mode a file in the run folder is made with; unused on Windows, where the folder's access
+/// list keeps it the person's own.
+pub const RUN_FOLDER_FILE_MODE: u32 = 0o600;
+
 /// The run folder of this process's user, under the user's local application data folder, and the
 /// user's own named pipe. Fails with the system's error when that folder or the user's id cannot
 /// be read.
@@ -194,7 +198,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
 
-    use serde_json::Value;
+    use rstest::rstest;
 
     use super::{check_private_run_folder, resolve_daemon_run_folder};
     use crate::run_folder::RunFolderRefused;
@@ -260,37 +264,31 @@ mod tests {
         );
     }
 
-    // The case table desktop main's resolver runs too, so the two cannot drift.
-    const CASES: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../sidekicks-contracts/tests/fixtures/run-folder.json"
-    ));
+    #[rstest]
+    #[case::the_local_application_data_folder(
+        r"C:\Users\Ada\AppData\Local",
+        r"C:\Users\Ada\AppData\Local\ai-sidekicks\run"
+    )]
+    #[case::one_with_a_trailing_backslash(
+        r"D:\Profiles\Ada\Local\",
+        r"D:\Profiles\Ada\Local\ai-sidekicks\run"
+    )]
+    fn resolves_the_folder_under_local_application_data_and_the_pipe_from_the_sid(
+        #[case] local_app_data: &str,
+        #[case] folder: &str,
+    ) {
+        let sid = "S-1-5-21-1004336348-1177238915-682003330-1001";
 
-    #[test]
-    fn resolves_every_windows_case_of_the_shared_table() {
-        let cases: Vec<Value> = serde_json::from_str(CASES).expect("the case table parses");
-        let windows_cases: Vec<&Value> = cases
-            .iter()
-            .filter(|case| case.get("userSid").is_some())
-            .collect();
-        assert!(
-            !windows_cases.is_empty(),
-            "the shared table's Windows cases"
+        let resolved = resolve_daemon_run_folder(Path::new(local_app_data), sid);
+
+        assert_eq!(resolved.folder_path, PathBuf::from(folder));
+        assert_eq!(
+            resolved.socket_path,
+            PathBuf::from(format!(r"\\.\pipe\ai-sidekicks-{sid}"))
         );
-        for case in windows_cases {
-            let text = |name: &str| case[name].as_str().expect("a case's member is text");
-
-            let resolved =
-                resolve_daemon_run_folder(Path::new(text("localAppData")), text("userSid"));
-
-            assert_eq!(
-                resolved.folder_path,
-                PathBuf::from(text("folderPath")),
-                "{}",
-                case["case"]
-            );
-            assert_eq!(resolved.socket_path, PathBuf::from(text("socketPath")));
-            assert_eq!(resolved.token_path, PathBuf::from(text("tokenPath")));
-        }
+        assert_eq!(
+            resolved.token_path,
+            PathBuf::from(format!(r"{folder}\daemon.token"))
+        );
     }
 }
