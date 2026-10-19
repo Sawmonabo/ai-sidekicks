@@ -255,9 +255,13 @@ pub(super) const STEP_BOUND: SafeInt<1> = SafeInt::new(40).expect("40 is a step 
 /// Arms the step count of turn `turn_number` on `run_id` at `bound`, as the turn's start does on a
 /// run whose provider does not bound its steps.
 pub(super) fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u64) {
-    lock(&engine.live)
-        .step_counts
-        .insert(run_id, StepCount::new(turn(turn_number), turn(bound)));
+    lock(&engine.live).step_counts.insert(
+        run_id,
+        StepCount::new(
+            turn(turn_number),
+            SafeInt::new(bound).expect("the test's step bounds count from 1"),
+        ),
+    );
 }
 
 /// A test's turn number.
