@@ -242,7 +242,8 @@ impl FolderListService {
                 | GitError::Start(_)
                 | GitError::OutputTooLarge { .. }
                 | GitError::Read(_)
-                | GitError::PathText(_)),
+                | GitError::PathText(_)
+                | GitError::NotStartable),
             ) => return Err(failure.into()),
         };
         let top_level =

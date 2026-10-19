@@ -177,8 +177,8 @@ pub(crate) enum RepoMountServiceError {
 pub(crate) struct RepoAttachTarget {
     /// The path as entered, kept as provenance.
     pub(crate) local_path: FilesystemPath,
-    /// The resolved root.
-    pub(crate) canonical_root: PathBuf,
+    /// The resolved root, as the wire carries it and the row keeps it.
+    pub(crate) canonical_root: FilesystemPath,
     /// The repository's resolved git common folder, the mount's identity anchor.
     pub(crate) common_folder: PathBuf,
     /// Where the root is; `None` on macOS and Linux.
@@ -273,8 +273,9 @@ impl RepoMountService {
 
     /// Resolves `request`'s path for attach and checks the machine has no active mount of its
     /// repository, writing nothing. Refuses a path the resolver refuses, a WSL place
-    /// (`repoMount.distributionNotFound`, no distribution being reachable here), and
-    /// `repoMount.alreadyAttached` naming the mount that holds the repository.
+    /// (`repoMount.distributionNotFound`, no distribution being reachable here), a root that
+    /// resolves past the wire's path cap (`request.paramsInvalid`, as the request's own path would
+    /// be), and `repoMount.alreadyAttached` naming the mount that holds the repository.
     pub(crate) async fn resolve_attach_target(
         &self,
         request: &RepoMountAttachRequest,
@@ -284,6 +285,12 @@ impl RepoMountService {
             .resolver
             .resolve_canonical_root(Path::new(request.local_path.as_str()))
             .await?;
+        // A link or junction can resolve to a longer path than the one entered; a resolved path
+        // holds no NUL, so passing the cap is the one way it is refused.
+        let root_text = stored_path(&resolution.canonical_root);
+        let code_points = root_text.chars().count();
+        let canonical_root = FilesystemPath::new(root_text)
+            .map_err(|_over_cap| RepoRefusal::ResolvedRootTooLong { code_points })?;
         let place = None;
         if let Some(holder) = self
             .find_active_mount_of_repository(
@@ -297,7 +304,7 @@ impl RepoMountService {
         }
         Ok(RepoAttachTarget {
             local_path: request.local_path.clone(),
-            canonical_root: resolution.canonical_root,
+            canonical_root,
             common_folder: resolution.common_folder,
             place,
         })
@@ -315,7 +322,6 @@ impl RepoMountService {
     ) -> Result<RepoMountAttachResponse, RepoMountServiceError> {
         let repo_mount_id = new_repo_mount_id();
         let insert_index = project_statements.len();
-        let canonical_root = stored_path(&target.canonical_root);
         let mut statements = project_statements;
         statements.push(WriteStatement {
             sql: Cow::Borrowed(INSERT_ATTACHED_MOUNT_SQL.as_str()),
@@ -323,7 +329,7 @@ impl RepoMountService {
                 text_binding("@id", repo_mount_id.text().as_str()),
                 text_binding("@machine_id", self.machine_id.as_str()),
                 text_binding("@local_path", target.local_path.as_str()),
-                text_binding("@canonical_root", &canonical_root),
+                text_binding("@canonical_root", target.canonical_root.as_str()),
                 (Cow::Borrowed("@place"), place_value(target.place.as_ref())),
                 text_binding("@vcs_type", <&'static str>::from(VcsType::Git)),
                 text_binding("@project_id", project_id.text().as_str()),
@@ -336,7 +342,7 @@ impl RepoMountService {
             return Err(self
                 .refusal_of_insert(
                     error,
-                    &target.canonical_root,
+                    Path::new(target.canonical_root.as_str()),
                     Some(&target.common_folder),
                     target.place.as_ref(),
                     insert_index,
@@ -347,8 +353,7 @@ impl RepoMountService {
             repo_mount_id,
             state: RepoMountState::Attached,
             vcs_type: VcsType::Git,
-            canonical_root: FilesystemPath::new(canonical_root)
-                .expect("a resolved root is a whole path with no NUL"),
+            canonical_root: target.canonical_root.clone(),
             place: target.place.clone(),
         })
     }

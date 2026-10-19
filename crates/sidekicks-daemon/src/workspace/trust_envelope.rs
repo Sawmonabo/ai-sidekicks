@@ -16,6 +16,7 @@ use std::path::{Component, Path, PathBuf};
 use sidekicks_contracts::repo::folders::RepoMountOutsideTrustEnvelopeReason;
 use sidekicks_platforms::PathRules;
 
+use crate::file::bounded_read::read_within_ceiling;
 use crate::file::real_location::resolve_real_path;
 use crate::missing_entry::is_missing_entry;
 use crate::workspace::repo::errors::RepoRefusal;
@@ -91,8 +92,11 @@ pub(crate) async fn validate_execution_root(
     };
 
     // The folder becomes a workspace's bound root and nothing after re-asks, so a file or a
-    // folder that cannot be listed is refused here, after the other checks.
-    if let Err(error) = tokio::fs::read_dir(&resolved).await {
+    // folder that cannot be listed, or does not answer within the bounded read's ceiling, is
+    // refused here, after the other checks.
+    if let Err(error) =
+        read_within_ceiling(&resolved, |resolved| std::fs::read_dir(resolved).map(drop)).await
+    {
         tracing::debug!(
             error = &error as &(dyn Error + 'static),
             "a picked folder could not be listed"

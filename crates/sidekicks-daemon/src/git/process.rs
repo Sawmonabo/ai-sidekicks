@@ -19,6 +19,7 @@ use sidekicks_platforms::{
 };
 use tokio::process::Command;
 use tokio::sync::OnceCell;
+use tokio_util::task::TaskTracker;
 
 /// The most one stream of a git call may print, sized for the largest: a `-z` listing of a whole
 /// worktree's paths. Passing it fails the call; nothing is cut.
@@ -119,6 +120,10 @@ pub(crate) enum GitError {
     /// git printed a path this system cannot name.
     #[error("git printed a path this system cannot name")]
     PathText(#[source] io::Error),
+    /// A call given input or a time bound was asked to start, which takes neither: its caller
+    /// reads git as it runs and ends it.
+    #[error("a started git takes no input and no time bound")]
+    NotStartable,
 }
 
 impl GitError {
@@ -132,7 +137,8 @@ impl GitError {
             | Self::TimedOut { .. }
             | Self::OutputTooLarge { .. }
             | Self::Read(_)
-            | Self::PathText(_) => None,
+            | Self::PathText(_)
+            | Self::NotStartable => None,
         }
     }
 }
@@ -310,6 +316,8 @@ pub(crate) struct GitRunner {
     limits: GitLimits,
     // Whether the program was built with its file-watch daemon, read once it is first needed.
     has_built_in_file_watch: Arc<OnceCell<bool>>,
+    // The ends of the trees of calls that failed, run after the failure is answered.
+    tree_ends: TaskTracker,
 }
 
 impl GitRunner {
@@ -335,7 +343,19 @@ impl GitRunner {
             login_environment,
             limits,
             has_built_in_file_watch: Arc::new(OnceCell::new()),
+            tree_ends: TaskTracker::new(),
         }
+    }
+
+    /// Waits for the end of every tree a failed call left, taking no more; once a call fails
+    /// after this, its tree is ended by its drop alone.
+    #[expect(
+        dead_code,
+        reason = "the daemon's stop waits for the git trees a failed call left ending"
+    )]
+    pub(crate) async fn wait_for_tree_ends(&self) {
+        self.tree_ends.close();
+        self.tree_ends.wait().await;
     }
 
     /// Runs `call` for a project at `place`: `None` on macOS and Linux, Windows itself there. git
@@ -361,13 +381,20 @@ impl GitRunner {
     /// Starts `call` for a project at `place` and hands back its tree, its standard error piped
     /// for the caller to read as git writes it, its standard input and output the null device and
     /// no bound on its time: the caller ends it, and dropping the tree before git exits ends it.
-    /// A call's input is not written. Fails as [`run`](Self::run) does before git starts.
-    #[expect(dead_code, reason = "the clone service's git and the background fetch")]
+    /// Fails with `NotStartable` for a call given input or a time bound, else as
+    /// [`run`](Self::run) does before git starts.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the clone service's git and the background fetch")
+    )]
     pub(crate) async fn start(
         &self,
         place: Option<&Place>,
         call: GitCall,
     ) -> Result<ChildTree, GitError> {
+        if call.input.is_some() || call.timeout.is_some() {
+            return Err(GitError::NotStartable);
+        }
         let executable = self.executable_for(place)?;
         let prepared = self.prepare(executable, call).await?;
         self.start_git(
@@ -467,7 +494,8 @@ impl GitRunner {
     }
 
     // Starts the git at `executable` with `arguments` and holds it to `timeout` and the runner's
-    // output bound.
+    // output bound. A failure is answered at once and its tree ended after, on a tracked task, so a
+    // git the system cannot end at once (one held on a hard network mount) holds no caller.
     async fn run_git(
         &self,
         executable: &Path,
@@ -510,12 +538,14 @@ impl GitRunner {
             Ok(Err(ChildTreeOutputError::Io(error))) => GitError::Read(error),
             Err(_elapsed) => GitError::TimedOut { timeout },
         };
-        if let Err(error) = child.end_tree().await {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "the processes of a git call that failed could not be ended"
-            );
-        }
+        self.tree_ends.spawn(async move {
+            if let Err(error) = child.end_tree().await {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the processes of a git call that failed could not be ended"
+                );
+            }
+        });
         Err(failure)
     }
 
@@ -627,16 +657,24 @@ pub(crate) fn test_git_runner() -> GitRunner {
 }
 
 /// `line` without the one line end git prints after a single answer: the `\n`, and the `\r`
-/// before it only where the running system ends lines with `\r\n`, since elsewhere a name may
-/// end with a `\r` git prints as it stands.
+/// before it as [`strip_carriage_return`] reads it.
 pub(crate) fn strip_line_end(mut line: Vec<u8>) -> Vec<u8> {
     if line.last() == Some(&b'\n') {
         line.pop();
-        if PathRules::NATIVE.has_carriage_return_line_ends() && line.last() == Some(&b'\r') {
-            line.pop();
-        }
+        let kept = strip_carriage_return(&line).len();
+        line.truncate(kept);
     }
     line
+}
+
+/// `line`, already cut at its `\n`, without the `\r` before it where the running system ends
+/// lines with `\r\n`; elsewhere a name may end with a `\r` git prints as it stands.
+pub(crate) fn strip_carriage_return(line: &[u8]) -> &[u8] {
+    if PathRules::NATIVE.has_carriage_return_line_ends() {
+        line.strip_suffix(b"\r").unwrap_or(line)
+    } else {
+        line
+    }
 }
 
 // The `-c` settings put before a call's own arguments: hooks from the null device when `hooks` is

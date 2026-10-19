@@ -20,9 +20,11 @@ use std::time::Duration;
 
 use memchr::memmem;
 use sidekicks_contracts::place::Place;
-use sidekicks_platforms::{PathRules, path_from_program_output};
+use sidekicks_platforms::path_from_program_output;
 
-use crate::git::process::{GitCall, GitError, GitRunner, background_read, strip_line_end};
+use crate::git::process::{
+    GitCall, GitError, GitRunner, background_read, strip_carriage_return, strip_line_end,
+};
 use crate::missing_entry::is_missing_entry;
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 
@@ -50,6 +52,10 @@ const GIT_FILE_PREFIX: &[u8] = b"gitdir: ";
 
 /// One record `git worktree list` prints for a repository.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one fact git prints, or the read knows, of a tree"
+)]
 pub(crate) struct ListedWorktree {
     /// The tree's folder as git records it, not resolved.
     pub(crate) path: PathBuf,
@@ -184,14 +190,14 @@ fn parse_listed_worktrees<'listing>(
     Ok(worktrees)
 }
 
-// One record's fields read into a tree; a newline-ended record's path and lock reason are
-// unquoted, a NUL-ended one's are git's bytes as they stand.
+// One record's fields read into a tree. git prints the folder as it stands in either form, so it
+// is never unquoted; it C-quotes only a newline-ended record's lock reason.
 fn parse_worktree_record(
     fields: &[&[u8]],
     is_first: bool,
     is_path_exact: bool,
 ) -> Result<ListedWorktree, GitError> {
-    let unquoted = |value: &[u8]| -> Result<Vec<u8>, GitError> {
+    let lock_reason_of = |value: &[u8]| -> Result<Vec<u8>, GitError> {
         if is_path_exact {
             return Ok(value.to_vec());
         }
@@ -215,8 +221,7 @@ fn parse_worktree_record(
             b"worktree" => {
                 let value = value
                     .ok_or_else(|| malformed("git listed a tree with an empty folder field"))?;
-                let folder = unquoted(value)?;
-                path = Some(path_from_program_output(folder).map_err(GitError::PathText)?);
+                path = Some(path_from_program_output(value.to_vec()).map_err(GitError::PathText)?);
             }
             // An unborn branch prints the all-zero name.
             b"HEAD" => {
@@ -237,7 +242,7 @@ fn parse_worktree_record(
             b"locked" => {
                 is_locked = true;
                 lock_reason = value
-                    .map(&unquoted)
+                    .map(lock_reason_of)
                     .transpose()?
                     .map(|reason| String::from_utf8_lossy(&reason).into_owned());
             }
@@ -668,9 +673,11 @@ pub(crate) async fn read_linked_tree_record(
 
 /// The record a `.git` file at `git_file` names, read as git reads it: the file must start with
 /// `gitdir: `, only line ends are trimmed from its end, and a relative record is joined onto the
-/// file's folder, every byte kept. `None` for a missing `.git`, a checkout's own `.git` folder, or
-/// a file that names none. Fails with the read's error, or on Windows with `InvalidData` for a
-/// record that is not UTF-8.
+/// file's folder with its `..` and separators kept, as git joins it before resolving it, since
+/// folding them as text would lose a name's bytes that are not UTF-8; a caller resolves it before
+/// comparing it. `None` for a missing `.git`, a checkout's own `.git` folder, or a file that names
+/// none. Fails with the read's error, or on Windows with `InvalidData` for a record that is not
+/// UTF-8.
 pub(crate) async fn read_record_named_by(git_file: &Path) -> io::Result<Option<PathBuf>> {
     // A folder is checked first, since reading one fails differently from system to system.
     let contents = match tokio::fs::metadata(git_file).await {
@@ -716,13 +723,9 @@ fn ref_records(listing: &[u8]) -> impl Iterator<Item = &[u8]> {
 // The lines of git's output, each without its `\n`, and without the `\r` before it where the
 // running system ends lines with `\r\n`.
 fn output_lines(output: &[u8]) -> impl Iterator<Item = &[u8]> {
-    output.split(|byte| *byte == b'\n').map(|line| {
-        if PathRules::NATIVE.has_carriage_return_line_ends() {
-            line.strip_suffix(b"\r").unwrap_or(line)
-        } else {
-            line
-        }
-    })
+    output
+        .split(|byte| *byte == b'\n')
+        .map(strip_carriage_return)
 }
 
 // A path git printed in a field, `None` for an empty field.

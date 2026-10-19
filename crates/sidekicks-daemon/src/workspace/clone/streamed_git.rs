@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_contracts::place::Place;
-use sidekicks_platforms::{ChildEnd, ChildExit, ChildTree, read_child_exit};
+use sidekicks_platforms::{
+    ChildEnd, ChildExit, ChildTree, ChildTreeOutputError, read_child_exit, read_stderr_left_at_exit,
+};
 use tokio::io::AsyncReadExt as _;
 use tokio::process::ChildStderr;
 use tokio::time::Instant;
@@ -31,6 +33,10 @@ pub(crate) const SHUTDOWN_STOP_GRACE: Duration =
 
 // The most one read of git's standard error takes.
 const STDERR_READ_CHUNK: usize = 8 * 1024;
+
+// The most of git's standard error read at its exit, past which a process it left behind floods
+// the pipe and the read fails.
+const STDERR_LEFT_AT_EXIT_MAX_BYTES: usize = 1024 * 1024;
 
 /// How a streamed git run ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,9 +82,13 @@ pub(crate) enum StreamedGitError {
 /// chunk cuts waits for the next chunk; bytes that are not UTF-8 read as U+FFFD once) and handed
 /// to `on_stderr`, nothing of it kept. On `cancel` git's tree is asked to stop and ended after
 /// [`CANCEL_STOP_GRACE`], on `shutdown` after [`SHUTDOWN_STOP_GRACE`]; the exit comes once git
-/// has exited and its standard error has ended. Fails with the start's, the read's, the wait's or
-/// the stop's error.
-#[expect(dead_code, reason = "the clone service's git and the background fetch")]
+/// has exited and what it wrote before is read, without waiting on a process it left behind that
+/// holds its standard error open. Fails with the start's, the read's, the wait's or the stop's
+/// error.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the clone service's git and the background fetch")
+)]
 pub(crate) async fn run_streamed_git(
     git: &GitRunner,
     place: Option<&Place>,
@@ -94,27 +104,18 @@ pub(crate) async fn run_streamed_git(
     let stderr = tree
         .take_stderr()
         .expect("a started git's standard error is piped");
-    let read_ended = CancellationToken::new();
+    let git_exited = CancellationToken::new();
     let read_abandoned = CancellationToken::new();
-    let reading = async {
-        let read = read_stderr(stderr, &read_abandoned, &mut on_stderr).await;
-        read_ended.cancel();
-        read
-    };
+    let reading = read_stderr(stderr, &git_exited, &read_abandoned, &mut on_stderr);
     let ending = async {
         let ended = wait_or_stop(&mut tree, cancel, shutdown).await;
         if ended.is_err() {
             // The run has failed, so nothing waits on the rest of its standard error.
             read_abandoned.cancel();
-            return ended;
-        }
-        // A helper git left behind may hold its standard error open past its exit; a stop then
-        // ends the read instead of waiting on it.
-        tokio::select! {
-            biased;
-            () = read_ended.cancelled() => {}
-            () = shutdown.cancelled() => read_abandoned.cancel(),
-            () = cancel.cancelled() => read_abandoned.cancel(),
+        } else {
+            // A helper git left behind may hold its standard error open past its exit, so the
+            // read takes what git wrote and ends.
+            git_exited.cancel();
         }
         ended
     };
@@ -163,10 +164,12 @@ async fn wait_or_stop(
     }
 }
 
-// Reads `stderr` to its end, or until `abandoned` while no output waits, decoding it across
-// chunks into `on_stderr`.
+// Reads `stderr` to its end, or once `exited` while no output waits, what the pipe holds then; or
+// until `abandoned` while no output waits. Decodes it across chunks into `on_stderr`. Fails with a
+// read's error, or once what is read at the exit passes its bound.
 async fn read_stderr(
     mut stderr: ChildStderr,
+    exited: &CancellationToken,
     abandoned: &CancellationToken,
     on_stderr: &mut impl FnMut(&str),
 ) -> io::Result<()> {
@@ -176,6 +179,19 @@ async fn read_stderr(
         let count = tokio::select! {
             biased;
             read = stderr.read(&mut buffer) => read?,
+            () = exited.cancelled() => {
+                let mut left = Vec::new();
+                read_stderr_left_at_exit(&mut stderr, &mut left, STDERR_LEFT_AT_EXIT_MAX_BYTES)
+                    .await
+                    .map_err(|error| match error {
+                        ChildTreeOutputError::Io(error) => error,
+                        too_large @ ChildTreeOutputError::TooLarge { .. } => {
+                            io::Error::other(too_large)
+                        }
+                    })?;
+                decoder.push(&left, &mut *on_stderr);
+                0
+            }
             () = abandoned.cancelled() => 0,
         };
         if count == 0 {
@@ -183,5 +199,83 @@ async fn read_stderr(
             return Ok(());
         }
         decoder.push(&buffer[..count], &mut *on_stderr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsStr;
+    use std::time::{Duration, Instant};
+
+    use tokio_util::sync::CancellationToken;
+
+    use super::run_streamed_git;
+    use crate::file::atomic_write::write_file_atomically;
+    use crate::git::process::{GitCall, test_git_runner};
+
+    // Fails when the run waits past git's exit for the end of a standard error a hook's process
+    // still holds, or loses what the hook wrote before git exited.
+    #[tokio::test]
+    async fn a_streamed_run_ends_at_git_exit_while_a_hook_child_holds_its_stderr() {
+        let git = test_git_runner();
+        let temporary = tempfile::tempdir().expect("the temporary folder is made");
+        let repository = temporary.path().join("repository");
+        let hooks = temporary.path().join("hooks");
+        let sleeper_pid_file = temporary.path().join("sleeper.pid");
+        git.run(
+            None,
+            GitCall::read([OsStr::new("init"), repository.as_os_str()]),
+        )
+        .await
+        .expect("the repository is made");
+        tokio::fs::create_dir(&hooks)
+            .await
+            .expect("the hooks folder is made");
+        write_file_atomically(
+            &hooks.join("post-checkout"),
+            format!(
+                "#!/bin/sh\necho held >&2\nsleep 30 &\necho $! > '{}'\n",
+                sleeper_pid_file.display()
+            ),
+            0o755,
+        )
+        .await
+        .expect("the hook is written");
+        let hooks_path = format!("core.hooksPath={}", hooks.display());
+        let call = GitCall::write([
+            OsStr::new("-c"),
+            OsStr::new(&hooks_path),
+            OsStr::new("-C"),
+            repository.as_os_str(),
+            OsStr::new("hook"),
+            OsStr::new("run"),
+            OsStr::new("post-checkout"),
+        ]);
+        let mut stderr = String::new();
+        let started_at = Instant::now();
+
+        let ran = run_streamed_git(
+            &git,
+            None,
+            call,
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+            |text| stderr.push_str(text),
+        )
+        .await;
+        let elapsed = started_at.elapsed();
+        // The sleeper is the test's own child's child, ended here so it outlives nothing.
+        let sleeper_pid =
+            std::fs::read_to_string(&sleeper_pid_file).expect("the hook wrote its pid");
+        let ended = std::process::Command::new("kill")
+            .arg(sleeper_pid.trim())
+            .status()
+            .expect("kill runs");
+
+        let exit = ran.expect("the run is followed to its end");
+        assert!(exit.has_succeeded);
+        assert_eq!(stderr, "held\n");
+        assert!(elapsed < Duration::from_secs(10), "{elapsed:?}");
+        assert!(ended.success(), "the sleeper was still running");
     }
 }

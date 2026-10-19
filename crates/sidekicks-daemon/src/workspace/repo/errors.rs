@@ -10,6 +10,8 @@
 
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
+use sidekicks_contracts::jsonrpc::issue::{Issue, IssuePathSegment};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::place::{DistributionRefusalDetails, DistroName};
 use sidekicks_contracts::project::ProjectId;
@@ -52,6 +54,14 @@ pub(crate) enum RepoRefusal {
         reason: RepoMountRootResolutionReason,
         /// The system's own reason for a failed read, where there was one.
         detail: Option<FreeFormText<ROOT_RESOLUTION_DETAIL_MAX_LEN>>,
+    },
+    /// The path entered resolves to a root longer than the wire's path cap, so it is refused as
+    /// the request's own path past the cap is (`request.paramsInvalid`), its issue at `localPath`
+    /// naming the resolved length.
+    #[error("the params break the method's contract")]
+    ResolvedRootTooLong {
+        /// The resolved root's length, in code points.
+        code_points: usize,
     },
     /// A path or a workspace binding resolves outside the machine's attached roots, or names a
     /// tree whose removal is committed while its folder waits for deletion
@@ -150,6 +160,10 @@ pub(crate) enum RepoRefusal {
     },
 }
 
+/// The attach request's member holding the path entered, where a resolved root past the cap is
+/// named.
+const LOCAL_PATH_MEMBER: &str = "localPath";
+
 impl From<RepoRefusal> for DomainError {
     fn from(refusal: RepoRefusal) -> Self {
         let message = refusal.to_string();
@@ -168,6 +182,19 @@ impl From<RepoRefusal> for DomainError {
                     reason,
                     detail,
                 })),
+            ),
+            RepoRefusal::ResolvedRootTooLong { code_points } => (
+                RefusalCode::RequestParamsInvalid,
+                Some(refusal_fields(json!({
+                    "issues": [Issue {
+                        path: vec![IssuePathSegment::Member(LOCAL_PATH_MEMBER.to_owned())],
+                        message: format!(
+                            "breaks the schema's \"maxLength\" rule once resolved: the root is \
+                             {code_points} code points, past {FILE_PATH_MAX_LEN}"
+                        ),
+                        params: None,
+                    }],
+                }))),
             ),
             RepoRefusal::OutsideTrustEnvelope { reason } => (
                 RefusalCode::RepoMountOutsideTrustEnvelope,

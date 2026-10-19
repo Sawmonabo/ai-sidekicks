@@ -76,12 +76,29 @@ enum ToplevelAnswer {
 #[derive(Clone)]
 pub(crate) struct RepoRootResolver {
     git: GitRunner,
+    // The resolution every pick answers with, in place of the file system and git.
+    #[cfg(test)]
+    canned_resolution: Option<RepoRootResolution>,
 }
 
 impl RepoRootResolver {
     /// The resolver asking `git`, each call held to [`ROOT_RESOLUTION_GIT_TIMEOUT`].
     pub(crate) fn new(git: GitRunner) -> Self {
-        Self { git }
+        Self {
+            git,
+            #[cfg(test)]
+            canned_resolution: None,
+        }
+    }
+
+    /// A resolver whose every pick resolves to `resolution`, for a test of what an attach does
+    /// with a resolution no folder on the test's computer gives.
+    #[cfg(test)]
+    pub(crate) fn answering(git: GitRunner, resolution: RepoRootResolution) -> Self {
+        Self {
+            git,
+            canned_resolution: Some(resolution),
+        }
     }
 
     /// The repository `local_path` belongs to, both roots checked against git's answers. Fails
@@ -94,6 +111,10 @@ impl RepoRootResolver {
         &self,
         local_path: &Path,
     ) -> Result<RepoRootResolution, RepoRefusal> {
+        #[cfg(test)]
+        if let Some(resolution) = &self.canned_resolution {
+            return Ok(resolution.clone());
+        }
         // A relative path, `~` or a Windows root with no drive would be completed from the
         // daemon's own state into a plausible wrong root; `~` is the client's to expand.
         if !PathRules::NATIVE.names_complete_location(&local_path.to_string_lossy()) {

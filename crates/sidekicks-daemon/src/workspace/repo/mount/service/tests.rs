@@ -1,7 +1,11 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use rusqlite::Connection;
+use sidekicks_contracts::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::repo::folders::RepoMountAttachRequest;
 use sidekicks_contracts::repo::mount::{
     ExecutionMode, RepoMountHealth, RepoMountId, RepoMountState, WorkspaceId,
 };
@@ -18,9 +22,10 @@ use crate::events::log_service::{
 use crate::events::session::followers::SessionEventFollowers;
 use crate::file::bounded_read::stall_reads_of;
 use crate::git::process::test_git_runner;
+use crate::ipc::domain_error::DomainError;
 use crate::workspace::event_emitter::WorkspaceEventEmitter;
 use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::repo::root_resolver::RepoRootResolver;
+use crate::workspace::repo::root_resolver::{RepoRootResolution, RepoRootResolver};
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60";
@@ -30,6 +35,14 @@ const SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62";
 /// The service over a test database holding an attached mount with one workspace on it, and a
 /// connection the test writes rows through.
 async fn open_service(database: &TestDatabase) -> (Arc<RepoMountService>, Connection) {
+    open_service_resolving(database, RepoRootResolver::new(test_git_runner())).await
+}
+
+/// [`open_service`] with its picks resolved by `resolver`.
+async fn open_service_resolving(
+    database: &TestDatabase,
+    resolver: RepoRootResolver,
+) -> (Arc<RepoMountService>, Connection) {
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
@@ -64,7 +77,7 @@ async fn open_service(database: &TestDatabase) -> (Arc<RepoMountService>, Connec
         writer,
         reads,
         Arc::new(WorkspaceEventEmitter::new(event_log)),
-        RepoRootResolver::new(test_git_runner()),
+        resolver,
         MachineId::new("machine".to_owned()).expect("the id is short"),
     );
     (Arc::new(service), rows)
@@ -179,5 +192,45 @@ async fn a_read_whose_root_never_answers_reads_the_mount_unreachable() {
     assert!(
         matches!(held.health, RepoMountHealth::Unreachable { .. }),
         "{held:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_attach_whose_root_resolves_past_the_path_cap_is_refused_before_any_write() {
+    // Catches a resolved root kept unchecked until the reply, or refused under another code.
+    let database = TestDatabase::new();
+    let long_root = PathBuf::from(format!("/{}", "a".repeat(FILE_PATH_MAX_LEN)));
+    let resolver = RepoRootResolver::answering(
+        test_git_runner(),
+        RepoRootResolution {
+            canonical_root: long_root.clone(),
+            working_tree_root: long_root.clone(),
+            common_folder: long_root.join(".git"),
+        },
+    );
+    let (service, _rows) = open_service_resolving(&database, resolver).await;
+    let request = RepoMountAttachRequest {
+        local_path: FilesystemPath::new("/repos/linked".to_owned()).expect("the path is short"),
+        place: None,
+    };
+
+    let refusal = service
+        .resolve_attach_target(&request)
+        .await
+        .expect_err("the resolved root is past the cap");
+
+    let RepoMountServiceError::Refused(refusal) = refusal else {
+        panic!("the attach is refused, not {refusal:?}");
+    };
+    let refusal = DomainError::from(refusal);
+    assert_eq!(refusal.code, RefusalCode::RequestParamsInvalid);
+    let issue = &refusal.detail.expect("the refusal names its issue")["issues"][0];
+    assert_eq!(issue["path"], serde_json::json!(["localPath"]));
+    let length = (FILE_PATH_MAX_LEN + 1).to_string();
+    assert!(
+        issue["message"]
+            .as_str()
+            .is_some_and(|message| message.contains(&length)),
+        "{issue}"
     );
 }
