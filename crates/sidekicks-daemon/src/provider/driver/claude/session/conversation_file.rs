@@ -742,6 +742,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_purge_keeps_the_conversation_file_for_the_next_one() {
+        // Root removes a held file, so the purge would succeed and prove nothing.
+        if sidekicks_platforms::is_superuser() {
+            return;
+        }
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let config = scratch.path().join("config");
         let conversation = config
