@@ -203,8 +203,15 @@ impl CutGuard<'_> {
     /// Withdraws the cut now, where the stop goes on naming no turn. Never called while the live
     /// runs are locked.
     pub(super) fn withdraw(&mut self) {
+        if self.key.is_some() {
+            self.withdraw_locked(&mut lock(self.live));
+        }
+    }
+
+    /// Withdraws the cut now from `live`, the live runs the caller holds locked.
+    pub(super) fn withdraw_locked(&mut self, live: &mut LiveRuns) {
         if let Some(key) = self.key.take() {
-            lock(self.live).withdraw_cut(key, self.stop_id);
+            live.withdraw_cut(key, self.stop_id);
         }
     }
 }

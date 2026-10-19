@@ -313,8 +313,8 @@ impl RunEngine {
                 (stop, &reached),
                 (LimitStop::Step { .. }, Ok(LimitReach::InterruptPending))
             );
-            drop(cut_guard);
             let mut live = lock(&self.live);
+            cut_guard.withdraw_locked(&mut live);
             if let LimitStop::Step { turn_number, .. } = stop {
                 set_step_limit_reached(&mut live, &run_id, turn_number, is_step_reach_kept);
             }
