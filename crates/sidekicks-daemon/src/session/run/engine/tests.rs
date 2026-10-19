@@ -44,9 +44,9 @@ use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, L
 use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
 use crate::uuid_v7::mint_uuid_v7;
 
-/// Bounds a start or a continue and the call made while its driver is held, so a call that waits
-/// on nothing fails the test.
-pub(super) const SETTLE_WAIT: Duration = Duration::from_secs(10);
+/// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
+/// its own, so a call that waits on nothing, or a hand that never comes, fails the test.
+pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(10);
 
 /// How long a held driver stays held once the call under test is in flight, long enough for a
 /// call that does not wait to read the run and act on what it reads.

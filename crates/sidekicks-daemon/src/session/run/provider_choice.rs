@@ -257,8 +257,9 @@ impl ProviderChoiceResolver {
     }
 
     /// Answers the switch-or-credits choice the run waits on and settles it; either answer returns
-    /// the run to `running`. Fails with [`RunRefusal::InvalidTransition`], nothing sent or
-    /// written, when the run waits on no such choice.
+    /// the run to `running`, where a limit it owes is handed again on its own. Fails with
+    /// [`RunRefusal::InvalidTransition`], nothing sent or written, when the run waits on no such
+    /// choice.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the provider choice answer handlers")
@@ -398,10 +399,7 @@ impl ProviderChoiceResolver {
             leading_event: None,
         };
         match self.engine.transition(change, companions).await {
-            Ok(written) => Ok(run_control_response(
-                run_id,
-                &written.log_resend_failure(run_id),
-            )),
+            Ok(written) => Ok(run_control_response(run_id, &written)),
             Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
                 companion_index: SETTLEMENT_GUARD_COMPANION_INDEX,
                 source,

@@ -100,8 +100,8 @@ pub(super) struct LiveRuns {
     /// service answered with its row pending, so a stop retried at that limit sends the interrupt
     /// alone; one leaves when its interrupt is handed, its write is refused or its run ends. The
     /// step limit's outlives the turn that reached it, so a later step or turn end of the run
-    /// hands its interrupt again, and every one is handed again when the run returns to
-    /// `running` from a wait or a pause.
+    /// hands its interrupt again, and every one is handed again once the provider runs again:
+    /// with the move back to `running` out of a wait or `pausing`, or once it took a resume.
     pub(super) reached_limits: HashSet<(RunId, RunLimit)>,
     /// Each run whose step limit's interrupt is being handed to the interventions service, so
     /// one goes at a time.

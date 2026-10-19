@@ -143,12 +143,19 @@ impl StepCount {
     }
 }
 
-/// A write the engine made, a provider's report or a move of a run, with the failure of the
-/// limit interrupts it then handed again, which the caller logs and goes on from: the next step,
-/// usage report, turn end, return from a wait or restart hands that interrupt once more.
+/// A write the engine made for a provider's report, or nothing where the owed limits alone were
+/// handed, with the failure of the limit interrupts it then handed again, which the caller logs
+/// and goes on from: the next step, usage report, turn end, return from a wait or restart hands
+/// that interrupt once more.
 #[derive(Debug)]
 #[must_use = "a failed resend is logged"]
-#[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the provider's event delivery and the run control and provider choice handlers"
+    )
+)]
 pub(crate) struct WriteWithResend<Written> {
     /// What was written.
     pub(crate) written: Written,

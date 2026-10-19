@@ -142,7 +142,7 @@ pub(crate) struct RunPauseControl {
 
 impl RunPauseControl {
     /// Pause and resume reading runs through `pool` and moving them through `engine`.
-    #[expect(dead_code, reason = "the run control handlers")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the run control handlers"))]
     pub(crate) fn new(pool: Arc<DatabaseReadPool>, engine: Arc<RunEngine>) -> Self {
         Self {
             pool,
@@ -156,7 +156,7 @@ impl RunPauseControl {
     /// version is not the run's and [`RunRefusal::InvalidTransition`] for a run that is not
     /// running. A pause the driver refuses returns the run to `running` and fails with
     /// [`RunPauseError::Driver`].
-    #[expect(dead_code, reason = "the run control handlers")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the run control handlers"))]
     pub(crate) async fn pause(
         &self,
         request: &AgentRunPauseRequest,
@@ -183,11 +183,13 @@ impl RunPauseControl {
     }
 
     /// Moves a pausing or paused run back to `running` and asks the driver to continue it from
-    /// where it stopped, delivering the messages waiting for it in send order. Fails with
+    /// where it stopped, delivering the messages waiting for it in send order; once the driver
+    /// took the resume, the interrupt of every limit the run owes is handed again, the messages'
+    /// mark of delivery failed or not, so none reaches the provider before it runs. Fails with
     /// [`RunRefusal::VersionStale`] when the expected version is not the run's and
     /// [`RunRefusal::InvalidTransition`] for a run in any other state, nothing read; the driver's
     /// own failure is [`RunPauseError::Driver`], the run left `running`, its messages given back.
-    #[expect(dead_code, reason = "the run control handlers")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the run control handlers"))]
     pub(crate) async fn resume(
         &self,
         request: &AgentRunResumeRequest,
@@ -245,10 +247,9 @@ impl RunPauseControl {
                 });
             }
         };
-        continued
-            .admit(run.session_id, run_id)
-            .await
-            .map_err(RunPauseError::MessagesNotAdmitted)?;
+        let admitted = continued.admit(run.session_id, run_id).await;
+        self.engine.hand_owed_limit_interrupts(run_id);
+        admitted.map_err(RunPauseError::MessagesNotAdmitted)?;
         Ok(run_control_response(run_id, &running))
     }
 
@@ -293,7 +294,7 @@ impl RunPauseControl {
             .transition(RunStateChange::new(run_id, entry), companions)
             .await
         {
-            Ok(written) => Ok(written.log_resend_failure(run_id)),
+            Ok(moved) => Ok(moved),
             // The guard's refusal is the version the caller read gone stale; the run's version now
             // is what the refusal reports.
             Err(RunEngineError::Change(
@@ -315,8 +316,9 @@ impl RunPauseControl {
         }
     }
 
-    // Returns a run the driver would not pause to `running`; a run that left `pausing` while the
-    // driver was asked keeps where it went. Answers the error the pause fails with.
+    // Returns a run the driver would not pause to `running`, whose provider never paused, so the
+    // move hands again the limits the run owes; a run that left `pausing` while the driver was
+    // asked keeps where it went. Answers the error the pause fails with.
     async fn restore_running(&self, run_id: RunId, driver_error: DriverError) -> RunPauseError {
         let back_to_running = RunStateChange {
             expected_state: Some(RunState::Pausing),
@@ -332,10 +334,7 @@ impl RunPauseControl {
             .transition(back_to_running, RunStateChangeCompanions::default())
             .await
         {
-            Ok(written) => {
-                written.log_resend_failure(run_id);
-                RunPauseError::Driver(driver_error)
-            }
+            Ok(_running) => RunPauseError::Driver(driver_error),
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
                 if from_state != RunState::Pausing =>
             {
