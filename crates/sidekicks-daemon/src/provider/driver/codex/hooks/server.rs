@@ -1,6 +1,7 @@
 //! The daemon's answers to Codex's tool hooks, whatever carries the call: the hook input read from
-//! the payload Codex sends, and one dispatch point where each answerer in turn may answer or let
-//! the next one. A held call ends by an answer or by its cancellation, never by a timer.
+//! the tool call Codex makes for a hook row, and one dispatch point where each answerer in turn
+//! may answer or let the next one. A held call ends by an answer or by its cancellation, never by
+//! a timer.
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
@@ -56,6 +57,8 @@ pub(crate) struct CodexHookInput {
     pub(crate) event: CodexHookEvent,
     /// The conversation the call runs in: the session's own thread or a helper's.
     pub(crate) thread_id: String,
+    /// The session's root conversation, which a helper's call names too.
+    pub(crate) session_id: Option<String>,
     /// The turn the call runs in.
     pub(crate) turn_id: Option<String>,
     /// The tool called.
@@ -64,6 +67,8 @@ pub(crate) struct CodexHookInput {
     pub(crate) tool_use_id: Option<String>,
     /// The tool's arguments, as Codex sent them.
     pub(crate) tool_input: Option<Box<RawValue>>,
+    /// What the tool answered, on a post-tool call.
+    pub(crate) tool_response: Option<Box<RawValue>>,
     /// The folder the call runs in, which a patch's relative file paths are read against.
     pub(crate) cwd: Option<String>,
 }
@@ -125,31 +130,31 @@ impl CodexHookDispatch {
         Self { answerers }
     }
 
-    /// Answers one call of `event`'s hook with `payload`, the hook input Codex sent. `token` is
-    /// the call's own, cancelled when Codex ended the call or its connection went; a cancelled
-    /// call gets `None`, so an answer that arrives after it is dropped. An input that cannot be
-    /// read, or an answerer's failure, denies a pre-tool call and passes a post-tool one.
+    /// Answers one call of `event`'s hook: `call` is the tool call Codex made for the hook row.
+    /// `token` is the call's own, cancelled when Codex ended the call or its connection went; a
+    /// cancelled call gets `None`, so an answer that arrives after it is dropped. An input that
+    /// cannot be read, or an answerer's failure, denies a pre-tool call and passes a post-tool one.
     pub(crate) async fn answer(
         &self,
         event: CodexHookEvent,
-        payload: &[u8],
+        call: CodexHookCall<'_>,
         token: &CancellationToken,
     ) -> Option<CodexHookAnswer> {
         // Cancellation is polled first, so an answer ready on the same poll is dropped too.
         tokio::select! {
             biased;
             () = token.cancelled() => None,
-            answer = self.answer_payload(event, payload, token) => Some(answer),
+            answer = self.answer_call(event, call, token) => Some(answer),
         }
     }
 
-    async fn answer_payload(
+    async fn answer_call(
         &self,
         event: CodexHookEvent,
-        payload: &[u8],
+        call: CodexHookCall<'_>,
         token: &CancellationToken,
     ) -> CodexHookAnswer {
-        let input = match read_hook_input(event, payload) {
+        let input = match read_hook_input(event, call) {
             Ok(input) => input,
             Err(error) => {
                 tracing::warn!(
@@ -199,66 +204,100 @@ fn failure_answer(event: CodexHookEvent, reason: String) -> CodexHookAnswer {
     }
 }
 
-/// Why a hook payload could not be read as a tool hook input.
+/// One tool call Codex makes for a hook row, as its JSON: the call's arguments, which Codex fills
+/// from the row's `input` template, and the call's `_meta`, to which Codex adds the owning
+/// conversation's id.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex hook tools hand each call to the dispatch point"
+    )
+)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CodexHookCall<'call> {
+    /// The call's `arguments` object.
+    pub(crate) arguments: &'call [u8],
+    /// The call's `_meta` object.
+    pub(crate) meta: &'call [u8],
+}
+
+/// Why a hook call could not be read as a tool hook input.
 #[derive(Debug, thiserror::Error)]
 enum HookInputError {
-    /// The payload is not a JSON object of the expected members.
-    #[error("the Codex hook payload is not a hook input")]
+    /// The call's arguments are not a JSON object of the template's members.
+    #[error("the Codex hook call's arguments are not a hook input")]
     Malformed(#[source] serde_json::Error),
-    /// The payload names an event other than the hook called.
-    #[error("the Codex hook payload names the event \"{named}\", not the hook called")]
+    /// The call's `_meta` is not a JSON object.
+    #[error("the Codex hook call's metadata is not an object")]
+    MalformedMeta(#[source] serde_json::Error),
+    /// The call names an event other than the hook called.
+    #[error("the Codex hook call names the event \"{named}\", not the hook called")]
     OtherEvent {
-        /// The event the payload names.
+        /// The event the call names.
         named: String,
     },
-    /// The payload names no conversation.
-    #[error("the Codex hook payload names no conversation")]
+    /// The call's `_meta` names no conversation.
+    #[error("the Codex hook call names no conversation")]
     NoConversation,
 }
 
-/// The members of a tool hook input the dispatch reads.
+/// The arguments of a hook row's tool call, as the row's `input` template fills them. Codex fills
+/// each `${name}` from the hook event and fails the hook on a name the event lacks, so the
+/// template names only members both tool events always carry: every row's template maps
+/// `hook_event_name`, `session_id`, `turn_id`, `tool_name`, `tool_use_id`, `tool_input` and `cwd`
+/// each to the event member of the same name (`"tool_input": "${tool_input}"`), and the post-tool
+/// row's adds `tool_response`. The conversation is never a template member: the lead's event
+/// carries no `agent_id`, so it is read from the call's `_meta.threadId`.
 #[derive(Deserialize)]
-struct HookInputPayload {
+struct HookCallArguments {
     hook_event_name: String,
-    agent_id: Option<String>,
     session_id: Option<String>,
     turn_id: Option<String>,
     tool_name: Option<String>,
     tool_use_id: Option<String>,
     tool_input: Option<Box<RawValue>>,
+    tool_response: Option<Box<RawValue>>,
     cwd: Option<String>,
 }
 
-// Reads the hook input Codex sent to `event`'s hook.
+/// The member of a hook call's `_meta` that names the conversation the call runs in.
+#[derive(Deserialize)]
+struct HookCallMeta {
+    #[serde(rename = "threadId")]
+    thread_id: Option<String>,
+}
+
+// Reads the tool call Codex made for `event`'s hook row.
 fn read_hook_input(
     event: CodexHookEvent,
-    payload: &[u8],
+    call: CodexHookCall<'_>,
 ) -> Result<CodexHookInput, HookInputError> {
-    let payload: HookInputPayload =
-        serde_json::from_str(&decode_inbound_json(payload)).map_err(HookInputError::Malformed)?;
-    let named_event = match payload.hook_event_name.as_str() {
+    let arguments: HookCallArguments = serde_json::from_str(&decode_inbound_json(call.arguments))
+        .map_err(HookInputError::Malformed)?;
+    let meta: HookCallMeta = serde_json::from_str(&decode_inbound_json(call.meta))
+        .map_err(HookInputError::MalformedMeta)?;
+    let named_event = match arguments.hook_event_name.as_str() {
         "PreToolUse" => Some(CodexHookEvent::PreToolUse),
         "PostToolUse" => Some(CodexHookEvent::PostToolUse),
         _ => None,
     };
     if named_event != Some(event) {
         return Err(HookInputError::OtherEvent {
-            named: payload.hook_event_name,
+            named: arguments.hook_event_name,
         });
     }
-    // A helper's call names its own thread as `agent_id`; the session's own call names none, and
-    // its `session_id` is the root thread's id, which is the session's thread.
-    let thread_id = non_empty(payload.agent_id)
-        .or_else(|| non_empty(payload.session_id))
-        .ok_or(HookInputError::NoConversation)?;
+    let thread_id = non_empty(meta.thread_id).ok_or(HookInputError::NoConversation)?;
     Ok(CodexHookInput {
         event,
         thread_id,
-        turn_id: non_empty(payload.turn_id),
-        tool_name: non_empty(payload.tool_name),
-        tool_use_id: non_empty(payload.tool_use_id),
-        tool_input: payload.tool_input,
-        cwd: non_empty(payload.cwd),
+        session_id: non_empty(arguments.session_id),
+        turn_id: non_empty(arguments.turn_id),
+        tool_name: non_empty(arguments.tool_name),
+        tool_use_id: non_empty(arguments.tool_use_id),
+        tool_input: arguments.tool_input,
+        tool_response: arguments.tool_response,
+        cwd: non_empty(arguments.cwd),
     })
 }
 
@@ -279,18 +318,31 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{
-        CodexHookAnswer, CodexHookAnswerer, CodexHookDispatch, CodexHookEvent, CodexHookInput,
-        HOOK_INPUT_UNREADABLE_REASON,
+        CodexHookAnswer, CodexHookAnswerer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
+        CodexHookInput, HOOK_INPUT_UNREADABLE_REASON,
     };
     use crate::provider::driver::codex::session::errors::CodexError;
 
-    const PRE_TOOL_PAYLOAD: &[u8] = concat!(
-        r#"{"hook_event_name":"PreToolUse","session_id":"thread-1","#,
-        r#""tool_input":{"command":"ls"}}"#,
+    const PRE_TOOL_ARGUMENTS: &[u8] = concat!(
+        r#"{"hook_event_name":"PreToolUse","session_id":"thread-1","turn_id":"turn-1","#,
+        r#""tool_name":"Bash","tool_use_id":"call-1","tool_input":{"command":"ls"},"#,
+        r#""cwd":"/work"}"#,
     )
     .as_bytes();
-    const POST_TOOL_PAYLOAD: &[u8] =
-        br#"{"hook_event_name":"PostToolUse","session_id":"thread-1"}"#;
+    const POST_TOOL_ARGUMENTS: &[u8] = concat!(
+        r#"{"hook_event_name":"PostToolUse","session_id":"thread-1","turn_id":"turn-1","#,
+        r#""tool_name":"Bash","tool_use_id":"call-1","tool_input":{"command":"ls"},"#,
+        r#""tool_response":"done","cwd":"/work"}"#,
+    )
+    .as_bytes();
+    const META: &[u8] = br#"{"threadId":"thread-1","progressToken":7}"#;
+
+    fn call(arguments: &'static [u8]) -> CodexHookCall<'static> {
+        CodexHookCall {
+            arguments,
+            meta: META,
+        }
+    }
 
     /// Answers every call the same, counting the calls it was asked.
     struct FixedAnswerer {
@@ -348,42 +400,59 @@ mod tests {
     }
 
     #[rstest]
-    #[case::not_json_before_a_tool(CodexHookEvent::PreToolUse, b"not json".as_slice(), Ok(None),
-        deny(HOOK_INPUT_UNREADABLE_REASON))]
-    #[case::not_json_after_a_tool(CodexHookEvent::PostToolUse, b"not json".as_slice(), Ok(None),
-        CodexHookAnswer::Pass)]
-    #[case::no_conversation(CodexHookEvent::PreToolUse,
-        br#"{"hook_event_name":"PreToolUse","session_id":""}"#.as_slice(), Ok(None),
-        deny(HOOK_INPUT_UNREADABLE_REASON))]
+    #[case::not_json_before_a_tool(
+        CodexHookEvent::PreToolUse,
+        call(b"not json"),
+        Ok(None),
+        deny(HOOK_INPUT_UNREADABLE_REASON)
+    )]
+    #[case::not_json_after_a_tool(
+        CodexHookEvent::PostToolUse,
+        call(b"not json"),
+        Ok(None),
+        CodexHookAnswer::Pass
+    )]
+    #[case::no_conversation(
+        CodexHookEvent::PreToolUse,
+        CodexHookCall { arguments: PRE_TOOL_ARGUMENTS, meta: br#"{"progressToken":7}"# },
+        Ok(None),
+        deny(HOOK_INPUT_UNREADABLE_REASON)
+    )]
+    #[case::meta_not_an_object(
+        CodexHookEvent::PreToolUse,
+        CodexHookCall { arguments: PRE_TOOL_ARGUMENTS, meta: b"[]" },
+        Ok(None),
+        deny(HOOK_INPUT_UNREADABLE_REASON)
+    )]
     #[case::another_event(
         CodexHookEvent::PreToolUse,
-        POST_TOOL_PAYLOAD,
+        call(POST_TOOL_ARGUMENTS),
         Ok(None),
         deny(HOOK_INPUT_UNREADABLE_REASON)
     )]
     #[case::answerer_failed_before_a_tool(
         CodexHookEvent::PreToolUse,
-        PRE_TOOL_PAYLOAD,
+        call(PRE_TOOL_ARGUMENTS),
         Err("  the policy store is gone  "),
         deny("the policy store is gone")
     )]
     #[case::answerer_failed_after_a_tool(
         CodexHookEvent::PostToolUse,
-        POST_TOOL_PAYLOAD,
+        call(POST_TOOL_ARGUMENTS),
         Err("the policy store is gone"),
         CodexHookAnswer::Pass
     )]
     #[tokio::test]
     async fn a_call_that_cannot_be_answered_denies_before_a_tool_and_passes_after(
         #[case] event: CodexHookEvent,
-        #[case] payload: &[u8],
+        #[case] hook_call: CodexHookCall<'static>,
         #[case] answered: Result<Option<CodexHookAnswer>, &'static str>,
         #[case] expected: CodexHookAnswer,
     ) {
         let dispatch = CodexHookDispatch::new(vec![FixedAnswerer::new(answered)]);
 
         let answer = dispatch
-            .answer(event, payload, &CancellationToken::new())
+            .answer(event, hook_call, &CancellationToken::new())
             .await;
 
         assert_eq!(answer, Some(expected));
@@ -401,7 +470,7 @@ mod tests {
         let token = CancellationToken::new();
 
         let answer = dispatch
-            .answer(CodexHookEvent::PreToolUse, PRE_TOOL_PAYLOAD, &token)
+            .answer(CodexHookEvent::PreToolUse, call(PRE_TOOL_ARGUMENTS), &token)
             .await;
 
         assert_eq!(answer, Some(deny("first")));
@@ -410,7 +479,7 @@ mod tests {
 
         let none_answers = CodexHookDispatch::new(vec![letting_go]);
         let answer = none_answers
-            .answer(CodexHookEvent::PreToolUse, PRE_TOOL_PAYLOAD, &token)
+            .answer(CodexHookEvent::PreToolUse, call(PRE_TOOL_ARGUMENTS), &token)
             .await;
         assert_eq!(answer, Some(CodexHookAnswer::Pass));
     }
@@ -424,7 +493,7 @@ mod tests {
             let token = token.clone();
             async move {
                 dispatch
-                    .answer(CodexHookEvent::PreToolUse, PRE_TOOL_PAYLOAD, &token)
+                    .answer(CodexHookEvent::PreToolUse, call(PRE_TOOL_ARGUMENTS), &token)
                     .await
             }
         });

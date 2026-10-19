@@ -3,7 +3,7 @@
 //! lead's next pre-tool call is parked until run control has sent its turn's interrupt, then
 //! denied, so the parked call never runs. The first call held is the pause taking effect.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::FutureExt;
@@ -20,6 +20,10 @@ use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::hook_pauses::{EndedHookPause, HookPauses, PAUSED_REASON, PausedRole};
 
 /// The run a conversation's pause stops, and the binding its `paused` is delivered on.
+#[expect(
+    clippy::struct_field_names,
+    reason = "each member is the id of what it names"
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexHookPause {
     /// The session the conversation belongs to.
@@ -57,11 +61,21 @@ struct WaitingWords {
     words: String,
 }
 
-/// The pauses in force and the words waiting, keyed by thread id.
+/// The pauses in force, the paused leads whose turn's interrupt was sent, and the words waiting,
+/// keyed by thread id.
 #[derive(Default)]
 struct PauseState {
     pauses: HookPauses<String, CodexHookPause, HeldCall>,
+    interrupt_sent_threads: HashSet<String>,
     words_by_thread_id: HashMap<String, WaitingWords>,
+}
+
+impl PauseState {
+    // Ends `thread_id`'s pause, the interrupt sent for it forgotten with it.
+    fn end_pause(&mut self, thread_id: &str) -> Option<EndedHookPause<CodexHookPause, HeldCall>> {
+        self.interrupt_sent_threads.remove(thread_id);
+        self.pauses.resume(&thread_id.to_owned())
+    }
 }
 
 /// Every Codex conversation's hook pause, the lead's and each helper's, and the words waiting for
@@ -127,10 +141,9 @@ impl CodexRunPauses {
             if !is_paused_lead {
                 return;
             }
-            // The lead's pause reports its effect once the interrupt is out; from then on its
-            // pre-tool calls are denied at once.
+            // From the interrupt on, the lead's pre-tool calls are denied at once.
             state.pauses.mark_taken_effect(&thread_id);
-            state.pauses.report_effect(&thread_id);
+            state.interrupt_sent_threads.insert(thread_id.clone());
             state.pauses.take_held(&thread_id)
         };
         for call in parked {
@@ -152,7 +165,7 @@ impl CodexRunPauses {
             detail,
             held,
             had_taken_effect,
-        }) = state.pauses.resume(&thread_id.to_owned())
+        }) = state.end_pause(thread_id)
         else {
             return false;
         };
@@ -182,7 +195,7 @@ impl CodexRunPauses {
         let run_id = self.lock().pauses.get(thread_id)?.detail().run_id;
         // A service that crashed or a session let go leaves its pause behind with no run to stop.
         if !self.run_control.is_run_live(&run_id) {
-            self.lock().pauses.resume(thread_id);
+            self.lock().end_pause(thread_id);
             return None;
         }
         let (held_call, answered) = oneshot::channel();
@@ -190,7 +203,8 @@ impl CodexRunPauses {
             let mut state = self.lock();
             let pause = state.pauses.get(thread_id)?;
             let session_id = *pause.session_id();
-            if pause.role() == PausedRole::Lead && state.pauses.reported(thread_id).is_some() {
+            if pause.role() == PausedRole::Lead && state.interrupt_sent_threads.contains(thread_id)
+            {
                 return Some(paused_denial());
             }
             // Calls that stopped waiting leave the hold, so a long pause keeps only live ones.
@@ -241,14 +255,16 @@ impl CodexRunPauses {
     /// leave.
     pub(crate) fn forget_thread(&self, thread_id: &str) {
         let mut state = self.lock();
-        state.pauses.resume(&thread_id.to_owned());
+        state.end_pause(thread_id);
         state.words_by_thread_id.remove(thread_id);
     }
 
     /// Lets go of every pause and waiting word of `session_id`, whose conversations are gone.
     pub(crate) fn forget_session(&self, session_id: &SessionId) {
         let mut state = self.lock();
-        state.pauses.forget_session(session_id);
+        for (thread_id, _) in state.pauses.forget_session(session_id) {
+            state.interrupt_sent_threads.remove(&thread_id);
+        }
         state
             .words_by_thread_id
             .retain(|_, waiting| waiting.session_id != *session_id);
@@ -294,11 +310,12 @@ mod tests {
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
 
-    use super::{CodexHookPause, CodexPauseRunControl, CodexRunPauses};
+    use super::{CodexHookPause, CodexPauseRunControl, CodexRunPauses, paused_denial};
     use crate::provider::driver::codex::hooks::server::{
-        CodexHookAnswer, CodexHookAnswerer, CodexHookDispatch, CodexHookEvent, CodexHookInput,
+        CodexHookAnswer, CodexHookAnswerer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
+        CodexHookInput,
     };
-    use crate::provider::driver::hook_pauses::{PAUSED_REASON, PausedRole};
+    use crate::provider::driver::hook_pauses::PausedRole;
 
     const LEAD: &str = "thread-lead";
     const HELPER: &str = "thread-helper";
@@ -342,7 +359,8 @@ mod tests {
         (pauses, run_control)
     }
 
-    // One hook call on `thread_id` through a dispatch point whose only answerer is the pauses.
+    // One hook call on `thread_id` through a dispatch point whose only answerer is the pauses; the
+    // arguments name the lead's thread as the session, so only `_meta` tells a helper's call.
     fn call(
         pauses: &Arc<CodexRunPauses>,
         event: CodexHookEvent,
@@ -353,10 +371,15 @@ mod tests {
             CodexHookEvent::PreToolUse => "PreToolUse",
             CodexHookEvent::PostToolUse => "PostToolUse",
         };
-        let payload = format!(r#"{{"hook_event_name":"{event_name}","session_id":"{thread_id}"}}"#);
+        let arguments = format!(r#"{{"hook_event_name":"{event_name}","session_id":"{LEAD}"}}"#);
+        let meta = format!(r#"{{"threadId":"{thread_id}"}}"#);
         tokio::spawn(async move {
+            let hook_call = CodexHookCall {
+                arguments: arguments.as_bytes(),
+                meta: meta.as_bytes(),
+            };
             dispatch
-                .answer(event, payload.as_bytes(), &CancellationToken::new())
+                .answer(event, hook_call, &CancellationToken::new())
                 .await
         })
     }
@@ -372,12 +395,6 @@ mod tests {
             .expect("the call's task ends")
     }
 
-    fn paused_denial() -> Option<CodexHookAnswer> {
-        Some(CodexHookAnswer::Deny {
-            reason: PAUSED_REASON.to_owned(),
-        })
-    }
-
     #[tokio::test(start_paused = true)]
     async fn a_parked_lead_call_is_denied_once_the_interrupt_is_sent() {
         let (pauses, run_control) = pauses();
@@ -388,9 +405,9 @@ mod tests {
         assert_eq!(run_control.took_effect.load(Ordering::SeqCst), 1);
 
         pauses.interrupt_sent(LEAD);
-        assert_eq!(settled(parked).await, paused_denial());
+        assert_eq!(settled(parked).await, Some(paused_denial()));
         let after_the_interrupt = call(&pauses, CodexHookEvent::PreToolUse, LEAD);
-        assert_eq!(settled(after_the_interrupt).await, paused_denial());
+        assert_eq!(settled(after_the_interrupt).await, Some(paused_denial()));
 
         assert!(pauses.resume(LEAD, None));
         let after_continue = call(&pauses, CodexHookEvent::PreToolUse, LEAD);
@@ -437,10 +454,12 @@ mod tests {
                 let input = CodexHookInput {
                     event: CodexHookEvent::PreToolUse,
                     thread_id: HELPER.to_owned(),
+                    session_id: None,
                     turn_id: None,
                     tool_name: None,
                     tool_use_id: None,
                     tool_input: None,
+                    tool_response: None,
                     cwd: None,
                 };
                 pauses
