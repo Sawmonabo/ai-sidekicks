@@ -10,6 +10,8 @@ pub enum LocaleCategory {
     Number,
     /// How times are written: the hour cycle among them.
     Time,
+    /// The language of messages, which also sets how a list of names is ordered.
+    Messages,
 }
 
 /// The hour cycle a time pattern's hour field names, quoted text skipped: `h` the 12-hour clock,

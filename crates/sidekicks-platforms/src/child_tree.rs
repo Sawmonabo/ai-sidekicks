@@ -8,11 +8,12 @@ use std::process::ExitStatus;
 
 use process_wrap::tokio::ChildWrapper;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::{ChildStderr, ChildStdin, Command};
 
 #[cfg(unix)]
 use crate::posix::child_tree::{
-    end_child_tree, end_dropped_child_tree, read_ready_output, spawn_child_tree_process,
+    ask_child_tree_to_stop, end_child_tree, end_dropped_child_tree, read_ready_output,
+    spawn_child_tree_process,
 };
 #[cfg(windows)]
 use crate::windows::child_tree::{
@@ -128,6 +129,33 @@ impl ChildTree {
             stdout: stdout_bytes,
             stderr: stderr_bytes,
         })
+    }
+
+    /// Takes the child's standard error, if the command piped it and it was not taken before, so
+    /// the caller reads it as the child writes it.
+    pub fn take_stderr(&mut self) -> Option<ChildStderr> {
+        self.process().stderr().take()
+    }
+
+    /// Asks the child's whole tree to stop: on macOS and Linux `SIGTERM` to its group, so each
+    /// process may clean up; on Windows, where no process can be asked
+    /// ([`CAN_SIGNAL_A_STOP`](crate::CAN_SIGNAL_A_STOP) is false), the job's end at once. A tree
+    /// already gone is no failure. Fails with the system's error.
+    pub fn ask_tree_to_stop(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        ask_child_tree_to_stop(self.process())?;
+        #[cfg(windows)]
+        end_child_tree_now(self.process())?;
+        Ok(())
+    }
+
+    /// Waits for the child alone to exit and reaps it, so the drop no longer ends its tree; a
+    /// process it left behind runs on. Dropped before the exit, the wait leaves the tree to the
+    /// drop. Fails with the wait's error.
+    pub async fn wait(&mut self) -> io::Result<ExitStatus> {
+        let status = self.process().inner_mut().wait().await?;
+        self.is_reaped = true;
+        Ok(status)
     }
 
     /// Ends the child's whole tree, every process it started that is still in its group or job,

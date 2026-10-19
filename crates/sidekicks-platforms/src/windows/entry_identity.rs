@@ -1,5 +1,5 @@
-//! Which entry a path names on Windows: its volume serial and 128-bit file id with its kind, read
-//! from one handle opened on the entry itself, never on a link's target.
+//! Which entry a path names on Windows: its volume serial and 128-bit file id with its kind and
+//! facts, read from one handle opened on the entry itself, never on a link's target.
 
 use std::fs::OpenOptions;
 use std::io;
@@ -19,10 +19,10 @@ use crate::windows::file_information::read_information;
 // entry. A reparse point without it (a cloud-file placeholder) is the entry itself.
 const NAME_SURROGATE_TAG_BIT: u32 = 0x2000_0000;
 
-/// The identity and kind of the entry at `path`, both read from one handle opened on the entry
-/// itself, so a link or a junction reads as not a folder, as std's `symlink_metadata` reads it.
-/// The file id is the 128-bit one, since the 64-bit index is not unique on `ReFS`. Fails with the
-/// system's error from the open or either read, `NotFound` when nothing is there.
+/// The identity, kind and facts of the entry at `path`, all read from one handle opened on the
+/// entry itself, so a link or a junction reads as not a folder, as std's `symlink_metadata` reads
+/// it. The file id is the 128-bit one, since the 64-bit index is not unique on `ReFS`. Fails with
+/// the system's error from the open or a read, `NotFound` when nothing is there.
 pub fn entry_identity(path: &Path) -> io::Result<IdentifiedEntry> {
     // Opened as std opens a path, so the entry is the one std made there; the shares let a rename
     // of the entry go on while the handle is open, and a folder opens only with backup semantics.
@@ -33,6 +33,7 @@ pub fn entry_identity(path: &Path) -> io::Result<IdentifiedEntry> {
         .open(path)?;
     let identity: FILE_ID_INFO = read_information(&opened, FileIdInfo)?;
     let attributes: FILE_ATTRIBUTE_TAG_INFO = read_information(&opened, FileAttributeTagInfo)?;
+    let metadata = opened.metadata()?;
     let is_link = attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
         && attributes.ReparseTag & NAME_SURROGATE_TAG_BIT != 0;
     Ok(IdentifiedEntry {
@@ -41,5 +42,6 @@ pub fn entry_identity(path: &Path) -> io::Result<IdentifiedEntry> {
             volume: identity.VolumeSerialNumber,
             file: u128::from_le_bytes(identity.FileId.Identifier),
         },
+        metadata,
     })
 }

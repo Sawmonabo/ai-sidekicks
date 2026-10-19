@@ -50,8 +50,10 @@ mod credential_store;
 mod entry_identity;
 mod executable_search;
 mod file_facts;
+mod file_watch;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
+mod hidden_entry;
 mod lasting_child;
 #[cfg(target_os = "linux")]
 mod linux;
@@ -100,8 +102,10 @@ pub use credential_store::{CredentialStore, CredentialStoreError};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use executable_search::{find_executables, user_programs_folder};
 pub use file_facts::FileFacts;
+pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
+pub use hidden_entry::is_hidden_entry;
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::SHELL_FOLDER_PROBES;
@@ -187,15 +191,18 @@ pub use posix::disk::{
 pub use posix::entry_identity::entry_identity;
 #[cfg(unix)]
 pub use posix::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(unix)]
 pub use posix::file_facts::file_facts;
-#[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::file_system::UnremovableFile;
 #[cfg(unix)]
 pub use posix::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
+};
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::file_system::{
+    UnreadableFolder, UnremovableFile, is_superuser, make_folder_link, make_folder_unreadable,
 };
 #[cfg(unix)]
 pub use posix::login_shell::login_shell;
@@ -293,15 +300,18 @@ pub use windows::disk::{
 pub use windows::entry_identity::entry_identity;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_facts::file_facts;
-#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
-pub use windows::file_system::UnremovableFile;
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, remove_tree, rename_replacing,
+};
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::file_system::{
+    UnreadableFolder, UnremovableFile, is_superuser, make_folder_link, make_folder_unreadable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::lasting_child::spawn_lasting_child;

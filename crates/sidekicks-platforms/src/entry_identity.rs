@@ -16,14 +16,16 @@ pub struct EntryIdentity {
     pub(crate) file: u128,
 }
 
-/// An entry's identity with whether it is a folder, both from the same read, so the kind cannot
-/// change between them; a link, a junction among them, is never a folder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// An entry's identity with whether it is a folder and its other facts, all from the same read,
+/// so none can change between them; a link, a junction among them, is never a folder.
+#[derive(Clone, Debug)]
 pub struct IdentifiedEntry {
     /// Whether the entry is a folder itself, not a link to one.
     pub is_folder: bool,
     /// Which entry it is.
     pub identity: EntryIdentity,
+    /// The entry's own facts, never a link's target's: its kind, length and times.
+    pub metadata: std::fs::Metadata,
 }
 
 /// Text that is not an [`EntryIdentity`]'s `<volume>:<file>` form.
