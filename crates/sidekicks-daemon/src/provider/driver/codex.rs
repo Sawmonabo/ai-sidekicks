@@ -18,6 +18,7 @@ mod capabilities;
 mod capability_probe;
 mod delivery;
 mod event_normalizer;
+mod hooks;
 mod input_limit;
 mod intervention;
 mod native_program;

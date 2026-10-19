@@ -2,15 +2,12 @@
 //! hook ends its turn after the step in flight and its tool hook denies; a paused helper's next
 //! tool hook is held unanswered until it continues. Each pause reports when it took effect.
 
-use std::collections::{HashMap, HashSet};
-
 use serde::Serialize;
 use serde::ser::{SerializeMap, Serializer};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-/// The reason a paused lead's hooks give Claude Code, which the model reads.
-const CLAUDE_PAUSED_REASON: &str = "Paused by you";
+use crate::provider::driver::hook_pauses::{HookPauses, PAUSED_REASON, PausedRole};
 
 /// A hook answer, written as the JSON Claude Code reads from the hook's output.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,45 +83,30 @@ pub(crate) struct ClaudeReleasedCallback {
     pub(crate) answer: ClaudeHookAnswer,
 }
 
-// A pre-tool callback a paused helper is held on.
-struct HeldToolCallback {
-    request_id: String,
-    agent_id: String,
-}
-
-// The session's lead pause: its run, and whether a hook has stopped the turn on it yet.
-struct ClaudeLeadPause {
-    run_id: RunId,
-    is_stop_answered: bool,
-    is_effect_reported: bool,
-}
-
 /// Every session's pauses, the lead's and each helper's, and the callbacks the pauses hold.
 #[derive(Default)]
 pub(crate) struct ClaudeRunPauses {
-    lead_pauses: HashMap<SessionId, ClaudeLeadPause>,
-    paused_agents: HashMap<SessionId, HashSet<String>>,
-    held_callbacks: HashMap<SessionId, Vec<HeldToolCallback>>,
+    /// Each session's lead pause and the run it stops; a lead holds no callback.
+    lead_pauses: HookPauses<SessionId, RunId, ()>,
+    /// Each paused helper, by session and agent id, and the request ids of its held callbacks.
+    helper_pauses: HookPauses<(SessionId, String), (), String>,
 }
 
 impl ClaudeRunPauses {
     /// Pauses the session's lead run from its next hook on; a pause already in place is kept.
     pub(crate) fn pause_lead(&mut self, session_id: &SessionId, run_id: &RunId) {
         self.lead_pauses
-            .entry(*session_id)
-            .or_insert_with(|| ClaudeLeadPause {
-                run_id: *run_id,
-                is_stop_answered: false,
-                is_effect_reported: false,
-            });
+            .pause(*session_id, *session_id, PausedRole::Lead, *run_id);
     }
 
     /// Pauses one helper from its next tool call on.
     pub(crate) fn pause_helper(&mut self, session_id: &SessionId, agent_id: &str) {
-        self.paused_agents
-            .entry(*session_id)
-            .or_default()
-            .insert(agent_id.to_owned());
+        self.helper_pauses.pause(
+            (*session_id, agent_id.to_owned()),
+            *session_id,
+            PausedRole::Helper,
+            (),
+        );
     }
 
     /// Answers a pre-tool callback: a paused lead's is denied, a paused helper's is held, any
@@ -136,27 +118,18 @@ impl ClaudeRunPauses {
         request_id: &str,
     ) -> ClaudePauseAnswer {
         let Some(agent_id) = agent_id else {
-            if self.lead_pauses.contains_key(session_id) {
+            if self.lead_pauses.get(session_id).is_some() {
                 return ClaudePauseAnswer::Answer(ClaudeHookAnswer::Deny {
-                    reason: CLAUDE_PAUSED_REASON.to_owned(),
+                    reason: PAUSED_REASON.to_owned(),
                 });
             }
             return ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass);
         };
-        let is_paused = self
-            .paused_agents
-            .get(session_id)
-            .is_some_and(|paused| paused.contains(agent_id));
-        if !is_paused {
-            return ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass);
+        let helper = (*session_id, agent_id.to_owned());
+        match self.helper_pauses.hold(&helper, request_id.to_owned()) {
+            Some(has_taken_effect) => ClaudePauseAnswer::Hold { has_taken_effect },
+            None => ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass),
         }
-        let held = self.held_callbacks.entry(*session_id).or_default();
-        let has_taken_effect = !held.iter().any(|callback| callback.agent_id == agent_id);
-        held.push(HeldToolCallback {
-            request_id: request_id.to_owned(),
-            agent_id: agent_id.to_owned(),
-        });
-        ClaudePauseAnswer::Hold { has_taken_effect }
     }
 
     /// Answers a post-batch callback: a paused lead's ends the turn after the step in flight.
@@ -167,16 +140,12 @@ impl ClaudeRunPauses {
         session_id: &SessionId,
         agent_id: Option<&str>,
     ) -> ClaudePauseAnswer {
-        let lead_pause = match agent_id {
-            None => self.lead_pauses.get_mut(session_id),
-            Some(_) => None,
-        };
-        let Some(lead_pause) = lead_pause else {
+        let is_lead_paused = agent_id.is_none() && self.lead_pauses.mark_taken_effect(session_id);
+        if !is_lead_paused {
             return ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass);
-        };
-        lead_pause.is_stop_answered = true;
+        }
         ClaudePauseAnswer::Answer(ClaudeHookAnswer::Stop {
-            reason: CLAUDE_PAUSED_REASON.to_owned(),
+            reason: PAUSED_REASON.to_owned(),
         })
     }
 
@@ -184,25 +153,17 @@ impl ClaudeRunPauses {
     /// leaves the pause armed for the next; the pause is reported once, so a turn Claude Code
     /// starts by itself and the pause stops again reports nothing new.
     pub(crate) fn take_lead_pause_effect(&mut self, session_id: &SessionId) -> Option<RunId> {
-        let lead_pause = self.lead_pauses.get_mut(session_id)?;
-        if !lead_pause.is_stop_answered || lead_pause.is_effect_reported {
-            return None;
-        }
-        lead_pause.is_effect_reported = true;
-        Some(lead_pause.run_id)
+        self.lead_pauses.report_effect(session_id).copied()
     }
 
     /// The lead run whose pause already took effect and still holds, or `None`.
     pub(crate) fn reported_lead_pause(&self, session_id: &SessionId) -> Option<&RunId> {
-        self.lead_pauses
-            .get(session_id)
-            .filter(|lead_pause| lead_pause.is_effect_reported)
-            .map(|lead_pause| &lead_pause.run_id)
+        self.lead_pauses.reported(session_id)
     }
 
     /// Continues the lead; a pause that had not yet stopped a turn is dropped.
     pub(crate) fn resume_lead(&mut self, session_id: &SessionId) {
-        self.lead_pauses.remove(session_id);
+        self.lead_pauses.resume(session_id);
     }
 
     /// Continues one helper and answers the callbacks it was held on: with no decision, or denied
@@ -213,10 +174,10 @@ impl ClaudeRunPauses {
         agent_id: &str,
         steer: Option<&str>,
     ) -> Vec<ClaudeReleasedCallback> {
-        if let Some(paused) = self.paused_agents.get_mut(session_id) {
-            paused.remove(agent_id);
-        }
-        let Some(held) = self.held_callbacks.get_mut(session_id) else {
+        let Some(ended) = self
+            .helper_pauses
+            .resume(&(*session_id, agent_id.to_owned()))
+        else {
             return Vec::new();
         };
         let answer = match steer {
@@ -225,15 +186,11 @@ impl ClaudeRunPauses {
             },
             None => ClaudeHookAnswer::Pass,
         };
-        let (released, still_held): (Vec<HeldToolCallback>, Vec<HeldToolCallback>) =
-            std::mem::take(held)
-                .into_iter()
-                .partition(|callback| callback.agent_id == agent_id);
-        *held = still_held;
-        released
+        ended
+            .held
             .into_iter()
-            .map(|callback| ClaudeReleasedCallback {
-                request_id: callback.request_id,
+            .map(|request_id| ClaudeReleasedCallback {
+                request_id,
                 answer: answer.clone(),
             })
             .collect()
@@ -241,16 +198,14 @@ impl ClaudeRunPauses {
 
     /// Drops a callback Claude Code withdrew; it will not be answered.
     pub(crate) fn withdraw_callback(&mut self, session_id: &SessionId, request_id: &str) {
-        if let Some(held) = self.held_callbacks.get_mut(session_id) {
-            held.retain(|callback| callback.request_id != request_id);
-        }
+        self.helper_pauses
+            .withdraw_held(session_id, |held| held == request_id);
     }
 
     /// Forgets a session whose process is gone; its holds went with it.
     pub(crate) fn forget_session(&mut self, session_id: &SessionId) {
-        self.lead_pauses.remove(session_id);
-        self.paused_agents.remove(session_id);
-        self.held_callbacks.remove(session_id);
+        self.lead_pauses.forget_session(session_id);
+        self.helper_pauses.forget_session(session_id);
     }
 }
 
