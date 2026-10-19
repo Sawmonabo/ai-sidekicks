@@ -48,6 +48,14 @@ CREATE TABLE provider_accounts (
                         CHECK(reset_credits_available IS NULL OR reset_credits_available >= 0),  -- a Codex account's redeemable limit resets, `rateLimitResetCredits.availableCount` from its last limits read, which carries the count even with the separate reset-credit detail lookup skipped (Spec-025 §Per-limit provider quota). NULL where the read carried none or on a Claude Code account, which the surface reads as `Check availability`, never as none
   window_start_enabled  INTEGER NOT NULL DEFAULT 1
                         CHECK(window_start_enabled IN (0, 1)),  -- per-account switch for the one smallest turn the daemon spends at each window reset so the new window's clock starts then (Spec-025 §Credential-home health observation; `windowStartEnabled` on the wire). Default-on, and it sits UNDER `probe_enabled` rather than beside it: switching this off leaves the limits read running on its cadence, and switching `probe_enabled` off leaves this inert, so an account silenced for the observer spends nothing at a reset.
+  wake_for_window_start_enabled INTEGER NOT NULL DEFAULT 0
+                        CHECK(wake_for_window_start_enabled IN (0, 1)),  -- wake the machine for a window that resets while it sleeps; does nothing while `window_start_enabled` is 0
+  memory_import_outcome TEXT
+                        CHECK(memory_import_outcome IS NULL
+                          OR memory_import_outcome IN ('imported', 'nothingToImport')),  -- the account's one memory import: NULL until it runs, then `imported` with its count and time, or `nothingToImport` with neither. The outcome is kept, so a repeat answers it again
+  memory_import_count   INTEGER
+                        CHECK(memory_import_count IS NULL OR memory_import_count >= 1),  -- how much an `imported` outcome copied
+  memory_imported_at    TEXT,  -- RFC 3339 UTC of an `imported` outcome
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL,
   -- The stored observation is a PAIR, and the pair is enforced rather than asserted: a reading with
@@ -55,9 +63,13 @@ CREATE TABLE provider_accounts (
   -- timestamp for nothing. Either half-populated row would make the readiness projection serve an
   -- incoherent observation, so the database refuses both instead of leaving it to every writer.
   CHECK ((health_state IS NULL) = (health_observed_at IS NULL)),
+  -- An import that copied something has its count and time; no other outcome has either.
+  CHECK ((memory_import_outcome IS 'imported')
+    = (memory_import_count IS NOT NULL AND memory_imported_at IS NOT NULL)),
+  CHECK ((memory_import_count IS NULL) = (memory_imported_at IS NULL)),
   -- A typed name and its fold are written together, so the unique index never misses a name.
   CHECK ((display_label IS NULL) = (display_label_folded IS NULL))
-);
+) STRICT;
 
 -- Exactly one current account per provider (I-023-5) — the flag this schema calls `is_default` and
 -- every surface calls the current account, one fact under two words. A partial unique index rather
@@ -165,7 +177,7 @@ CREATE TABLE provider_account_usage_windows (
   source        TEXT NOT NULL
                 CHECK(source IN ('probe', 'run')),  -- which sanctioned source produced the reading: a deliberate read of the provider's own limits surface, or the account-scoped quota event emitted from real traffic. The background health observation is not a third value because it is not a third provenance: it performs the same deliberate read on its cadence, as another caller of it, and its readings record as 'probe' (Spec-025 §Credential-home health observation). The two values differ in COMPLETENESS, which is what consumers key on: a 'probe' reading is a whole-account read and replaces that account's stored set, while a 'run' reading is sparse and merges into it, pruning nothing it does not name.
   PRIMARY KEY (account_id, limit_id)
-);
+) STRICT;
 ```
 
 Spend joins to an account through the run wherever a run exists: a provider run carries the server-stamped `admittedProviderAccountId` on its `agent.run.queued` admission record. **Two** usage kinds carry account identity directly, and both for the same reason — a figure that belongs to an account rather than to a run. `usage.rateLimit.updated` does because provider quota is account-scoped and has no run to join through, and `usage.tokenCount.recorded` does because a turn can be spent on an account with no session at all (the window start, Spec-025 §Credential-home health observation) and because the per-turn projection below is keyed on the account rather than on the run. User identity stays off every usage row either way.
@@ -195,7 +207,7 @@ CREATE TABLE provider_account_usage_turns (
                   CHECK(observed_credential_generation >= 1),  -- the account's `credential_generation` when the turn was metered, mirroring the member the account-scoped quota event and the window readings both carry, with the same floor: a stamp below 1 names a generation that never existed. Its `STRICT` INTEGER type refuses a fractional stamp, which would sort between two whole generations.
   CHECK ((cost_usd_micros IS NULL) = (cost_source IS NULL)),  -- a figure always names where it came from, and a provenance with no figure is a source for nothing; an unlabeled number is the one thing the app never draws as money
   CHECK (run_id IS NULL OR session_id IS NOT NULL)  -- a run belongs to a session, so a row naming a run and no session describes a turn that cannot exist
-);
+) STRICT;
 
 -- The two slices the account surface draws, and nothing else reads this table by any other shape.
 CREATE INDEX idx_provider_account_usage_turns_account_day

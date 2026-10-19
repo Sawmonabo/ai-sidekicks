@@ -2,28 +2,42 @@
 //! the one minted from a saved definition with it, else the session's lead, for a lead run queued
 //! before a run named its agent; and the session's lead, which `session.created` names.
 
+use std::sync::LazyLock;
+
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::IdError;
 
-const SELECT_RUN_AGENT_SQL: &str = "SELECT COALESCE(
+static SELECT_RUN_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
+    let session_created = SessionEventType::SessionCreated.as_str();
+    let run_queued = SessionEventType::AgentRunQueued.as_str();
+    format!(
+        "SELECT COALESCE(
       json_extract(queued.payload, '$.agentId'),
       json_extract(queued.payload, '$.resolvedAgent.agentId'),
       (SELECT json_extract(created.payload, '$.mainAgent.agentId')
          FROM session_events AS created
         WHERE created.session_id = queued.session_id
-          AND created.type = 'session.created')) AS agent_id
+          AND created.type = '{session_created}')) AS agent_id
    FROM session_events AS queued
   WHERE queued.session_id = @session_id
-    AND queued.type = 'agent.run.queued'
-    AND queued.run_id = @run_id";
+    AND queued.type = '{run_queued}'
+    AND queued.run_id = @run_id"
+    )
+});
 
-const SELECT_LEAD_AGENT_SQL: &str = "
+static SELECT_LEAD_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
+    let session_created = SessionEventType::SessionCreated.as_str();
+    format!(
+        "
   SELECT json_extract(payload, '$.mainAgent.agentId') AS agent_id
    FROM session_events
-  WHERE session_id = ? AND type = 'session.created'";
+  WHERE session_id = ? AND type = '{session_created}'"
+    )
+});
 
 /// The statements [`RunAgentReader`] runs: the run's agent and the session's lead.
 pub(crate) const RUN_AGENT_STATEMENT_CAPACITY: usize = 2;
@@ -79,7 +93,7 @@ impl<'connection> RunAgentReader<'connection> {
     ) -> Result<AgentId, RunAgentReadError> {
         let agent_id: Option<String> = self
             .reader
-            .prepare_cached(SELECT_LEAD_AGENT_SQL)?
+            .prepare_cached(&SELECT_LEAD_AGENT_SQL)?
             .query_row([session_id.text().as_str()], |row| row.get(0))
             .optional()?
             .flatten();
@@ -98,7 +112,7 @@ impl<'connection> RunAgentReader<'connection> {
     ) -> Result<AgentId, RunAgentReadError> {
         let agent_id: Option<String> = self
             .reader
-            .prepare_cached(SELECT_RUN_AGENT_SQL)?
+            .prepare_cached(&SELECT_RUN_AGENT_SQL)?
             .query_row(
                 named_params! {
                     "@session_id": session_id.text().as_str(),

@@ -122,22 +122,10 @@ mod tests {
     use crate::ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
     use crate::provider::driver::ClaudeSessionInboxAddresser;
     use crate::session::addresses::SessionInboxAddresses;
+    use crate::session::directory::test_rows::insert_session_row;
     use crate::session::draft_store::{SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore};
     use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
     use crate::session::staged_attachments::{StagedAttachments, StagedAttachmentsError};
-
-    /// The tables a session read and the draft store name, with only the columns they read.
-    const SESSION_TABLES_SQL: &str = "
-CREATE TABLE sessions (
-  id TEXT PRIMARY KEY, state TEXT NOT NULL, shape TEXT NOT NULL, name TEXT, muted_at TEXT,
-  pending_working_folder TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, place TEXT);
-CREATE TABLE session_tags (session_id TEXT NOT NULL, tag TEXT NOT NULL, tag_folded TEXT NOT NULL);
-CREATE TABLE session_console_state (session_id TEXT PRIMARY KEY, max_steps_per_turn INTEGER);
-CREATE TABLE runs (
-  session_id TEXT NOT NULL, run_id TEXT NOT NULL, parent_run_id TEXT, is_apart INTEGER NOT NULL,
-  state TEXT NOT NULL, run_version INTEGER NOT NULL);
-CREATE TABLE session_drafts (
-  session_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL);";
 
     /// A session with no files staged.
     struct NoStagedAttachments;
@@ -167,18 +155,12 @@ CREATE TABLE session_drafts (
         let database = TestDatabase::new();
         let writer = open_log(&database, None).await.writer;
         let session_id = test_session_id();
-        let reader = database.reader();
-        reader
-            .execute_batch(SESSION_TABLES_SQL)
-            .expect("the session tables are made");
-        reader
-            .execute(
-                "INSERT INTO sessions (id, state, shape, created_at, updated_at, place)
-                 VALUES (?1, 'active', 'chat', '2026-10-18T09:00:00.000Z',
-                         '2026-10-18T09:00:00.000Z', '{\"distro\":\"Ubuntu\"}')",
-                [session_id.text().as_str()],
-            )
-            .expect("the session is written");
+        insert_session_row(
+            &database.reader(),
+            session_id.text().as_str(),
+            None,
+            Some("{\"distro\":\"Ubuntu\"}"),
+        );
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
             SESSION_SERVICE_STATEMENT_CAPACITY + SESSION_DRAFT_STORE_STATEMENT_CAPACITY,

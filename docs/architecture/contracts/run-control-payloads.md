@@ -407,6 +407,22 @@ interface AgentRunRolledBackEvent {
   targetPosition: number;
 }
 
+// agent.run.safetyBuffering.updated — Codex's `model/safetyBuffering/updated`, its
+// `showBufferingUi` carried as `active` (Spec-005 §Run Lifecycle). A LIVE event on the run's own
+// state stream, `agent.run.subscribe`, outside the session-event union: the daemon never appends
+// it, so it has no sequence, is not kept in the session's history and is not resent; a re-opened
+// session does not show it. While `active` is true the working line's action words read Codex's own
+// sentence in place of the verb, and when Codex clears the flag or the reply starts, the verb
+// returns. It draws no flow row, and a Claude Code session carries none, because Claude Code
+// sends no such signal.
+interface RunSafetyBufferingUpdatedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  turnId: string;
+  active: boolean;
+  fasterModel?: string; // the faster model Codex names, carried as sent
+}
+
 // Run-control mutations (Spec-003 §Required Behavior). `pause` holds the run at its next tool
 // boundary + persists conversation/run state and queues nothing (orchestration-layer, never
 // driver-gated per I-002-9); `Pause` is a toggle, and `resume`, the toggle pressed again or a send,

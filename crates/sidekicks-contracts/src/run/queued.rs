@@ -3,7 +3,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::IntoStaticStr;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::methods::agent_entry;
@@ -20,7 +20,17 @@ use crate::wire::{Never, True, literal};
 /// How a child run was reached: a provider's own subagent, a run another agent asked for through
 /// the bridge, or a workflow step. Internal to the agent index; the screen never shows it.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]

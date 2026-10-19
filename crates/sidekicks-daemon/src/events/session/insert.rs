@@ -14,6 +14,7 @@ use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::database::schema::recovery::ProjectionCursorState;
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::uuid_v7::mint_uuid_v7;
@@ -84,10 +85,11 @@ const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
 // A new session's cursor starts current; an existing one keeps its state, so a session marked for
 // rebuilding stays marked until its rebuild lands.
 static ADVANCE_PROJECTION_CURSOR_SQL: LazyLock<String> = LazyLock::new(|| {
+    let current = <&'static str>::from(ProjectionCursorState::Current);
     format!(
         "INSERT INTO projection_cursors
     (id, session_id, last_sequence, state, updated_at)
-  VALUES (@id, @session_id, @last_sequence, 'current', {DATABASE_NOW_SQL})
+  VALUES (@id, @session_id, @last_sequence, '{current}', {DATABASE_NOW_SQL})
   ON CONFLICT (session_id) DO UPDATE
     SET last_sequence = excluded.last_sequence,
         updated_at = excluded.updated_at"

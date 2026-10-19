@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use sidekicks_search::index::IndexRowKind;
 
+use crate::database::schema::SESSION_EVENTS_TABLE;
 use crate::database::sql_list::sql_list_of_every;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 use crate::session::search::index::columns::index_key_sql;
@@ -112,7 +113,7 @@ fn search_index_schema_sql() -> String {
         "OLD.session_id",
     );
     let activity_tag_key = index_key_sql("tag.rowid", IndexRowKind::Tag);
-    let event_floor = rowid_floor_trigger_sql("session_events", IndexRowKind::Event);
+    let event_floor = rowid_floor_trigger_sql(SESSION_EVENTS_TABLE, IndexRowKind::Event);
     let title_floor = rowid_floor_trigger_sql("sessions", IndexRowKind::Title);
     let group_floor = rowid_floor_trigger_sql("session_groups", IndexRowKind::Group);
     let tag_floor = rowid_floor_trigger_sql("session_tags", IndexRowKind::Tag);
@@ -144,7 +145,7 @@ CREATE TABLE session_search_outbox (
 -- Settled rows only, as they are appended. A purge deletes a session's log rows with its directory
 -- row, whose trigger takes every row the session owns out; a repair of the database file rewrites
 -- log rows with no outbox row and drops the whole index, which is built again.
-CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
+CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON {SESSION_EVENTS_TABLE}
 WHEN NEW.type IN ({indexed_event_types})
 BEGIN
   {event_insert}
@@ -152,12 +153,12 @@ END;
 
 -- A damaged session continued from its last good point skips a range of its log that no read takes
 -- again, so each settled row in it is read again, and found gone.
-CREATE TRIGGER trg_session_search_events_skipped AFTER INSERT ON session_events
+CREATE TRIGGER trg_session_search_events_skipped AFTER INSERT ON {SESSION_EVENTS_TABLE}
 WHEN NEW.type = '{skipped_type}'
 BEGIN
   INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
   SELECT {skipped_key}, '{event}', session.rowid, '{row}'
-    FROM session_events AS skipped
+    FROM {SESSION_EVENTS_TABLE} AS skipped
     JOIN sessions AS session ON session.id = skipped.session_id
    WHERE skipped.session_id = NEW.session_id
      AND skipped.type IN ({indexed_event_types})
@@ -253,38 +254,16 @@ CREATE TABLE session_search_rowid_floors (
     )
 }
 
-/// Makes, on a test's `connection`, the source tables the schema's triggers and the row reads
-/// name, with only the columns they read, then runs the search index's schema over them.
-#[cfg(test)]
-pub(crate) fn make_search_source_tables(connection: &rusqlite::Connection) {
-    connection
-        .execute_batch(
-            "
-CREATE TABLE sessions (
-  id TEXT NOT NULL UNIQUE, name TEXT, group_id TEXT, last_activity_at TEXT);
-CREATE TABLE session_groups (id TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
-CREATE TABLE session_tags (session_id TEXT NOT NULL, tag TEXT NOT NULL, tag_folded TEXT NOT NULL);
-CREATE TABLE session_events (
-  id TEXT NOT NULL, session_id TEXT NOT NULL, sequence INTEGER NOT NULL, type TEXT NOT NULL,
-  payload TEXT NOT NULL, content_payload BLOB);",
-        )
-        .expect("the source tables are made");
-    connection
-        .execute_batch(&SEARCH_INDEX_SCHEMA_SQL)
-        .expect("the search index's schema runs");
-}
-
-/// Writes a titled session with the id `session_id` on a test's `connection`, whose insert gives
-/// the outbox rows, and answers the outbox's highest id after it.
+/// Writes a titled session with the id `session_id` on a test's `connection` holding the daemon's
+/// schema, whose insert gives the outbox its rows, and answers the outbox's highest id after it.
 #[cfg(test)]
 pub(crate) fn add_titled_session(connection: &rusqlite::Connection, session_id: &str) -> u64 {
-    connection
-        .execute(
-            "INSERT INTO sessions (id, name, last_activity_at)
-             VALUES (?1, 'Billing fix', '2026-10-18T12:00:00.000Z')",
-            [session_id],
-        )
-        .expect("the session is written");
+    crate::session::directory::test_rows::insert_session_row(
+        connection,
+        session_id,
+        Some("Billing fix"),
+        None,
+    );
     crate::session::search::index::outbox::OutboxReader::new(connection)
         .highest_id_given()
         .expect("the outbox's highest id reads")

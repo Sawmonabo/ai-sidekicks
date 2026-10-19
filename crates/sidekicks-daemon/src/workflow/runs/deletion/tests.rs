@@ -18,10 +18,8 @@ use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
 use crate::events::session::followers::SessionEventFollowers;
-use crate::git::worktree::test_rows::{create_worktree_tables, insert_worktree_rows};
-use crate::workflow::test_rows::{
-    TestStep, create_workflow_tables, insert_run, insert_step, insert_workflow_version,
-};
+use crate::git::worktree::test_rows::insert_worktree_rows;
+use crate::workflow::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
 const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
@@ -36,19 +34,10 @@ const CUTOFF: &str = "2026-10-10T00:00:00.000Z";
 /// rows a run's context points at, foreign keys on, and a connection the test writes and reads
 /// rows through.
 async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connection) {
-    let opener = database.opener();
     let writer = Arc::new(
-        DatabaseWriter::open(
-            move || -> rusqlite::Result<Connection> {
-                let connection = opener()?;
-                create_workflow_tables(&connection)?;
-                create_worktree_tables(&connection)?;
-                Ok(connection)
-            },
-            DatabaseWriterOptions::default(),
-        )
-        .await
-        .expect("the writer opens the test database"),
+        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens the test database"),
     );
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),

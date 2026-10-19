@@ -9,7 +9,7 @@
 use futures::future::BoxFuture;
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::tools::IdempotencyClass;
-use strum::IntoStaticStr;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::provider::record_readers::read_non_empty_string;
 
@@ -41,7 +41,7 @@ pub(crate) struct McpTaskDispatchIdentity {
 
 /// Which MCP Tasks protocol a task handle belongs to, stored beside the handle so recovery polls
 /// it the way its server answers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr, VariantArray)]
 #[strum(serialize_all = "lowercase")]
 pub(crate) enum McpTaskGeneration {
     /// A task on a 2025-11-25 server, whose result `tasks/result` reads.

@@ -21,6 +21,13 @@ use crate::wire::integer::SafeInt;
 /// The event type of a turn boundary, which moves its run to its next turn.
 pub const TURN_STARTED_EVENT_TYPE: &str = SessionEventType::AgentTurnStarted.as_str();
 
+/// The event types that end a turn; every started turn takes exactly one of them.
+pub const TURN_END_EVENT_TYPES: [&str; 3] = [
+    SessionEventType::AgentTurnCompleted.as_str(),
+    SessionEventType::AgentTurnInterrupted.as_str(),
+    SessionEventType::AgentTurnFailed.as_str(),
+];
+
 /// The event type that opens a tool call; the call's later rows take the turn it opened in.
 pub const TOOL_CALL_OPENING_EVENT_TYPE: &str = SessionEventType::AgentToolCallInvoked.as_str();
 

@@ -67,14 +67,15 @@ const SELECT_RUN_PROVIDER_SQL: &str = "WITH RECURSIVE lineage(run_id, depth) AS 
 // one run's tree and a subagent that has ended cuts its branch off.
 static SELECT_LIVE_PROVIDER_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
     let terminal_states = &*RUN_TERMINAL_STATES_SQL;
+    let provider_subagent = <&'static str>::from(ChildRunProvenance::ProviderSubagent);
     format!(
         "WITH RECURSIVE subagents(run_id) AS (
     SELECT run_id FROM runs
-      WHERE parent_run_id = @run_id AND reached_by = 'providerSubagent'
+      WHERE parent_run_id = @run_id AND reached_by = '{provider_subagent}'
         AND state NOT IN ({terminal_states})
     UNION ALL
     SELECT runs.run_id FROM runs JOIN subagents ON runs.parent_run_id = subagents.run_id
-      WHERE runs.reached_by = 'providerSubagent'
+      WHERE runs.reached_by = '{provider_subagent}'
         AND runs.state NOT IN ({terminal_states})
   )
   SELECT run_id FROM subagents"

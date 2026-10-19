@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray, VariantNames};
 
 use crate::place::Place;
 use crate::provider::id::ProviderId;
@@ -67,8 +67,21 @@ ts_constants! {
 
 /// How an account is charged. `unknown` means not known, never `metered`: it labels cost and
 /// never derives it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum BillingMode {
     /// A subscription.
     Subscription,
@@ -81,9 +94,20 @@ pub enum BillingMode {
 /// The stored outcome of an account's last validation. `indeterminate` means the probe could not
 /// decide or none has run; it counts as not authenticated, and a stored null is sent as it.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ProviderAccountHealthState {
     /// Signed in.
     Authenticated,
@@ -98,9 +122,20 @@ pub enum ProviderAccountHealthState {
 /// The authentication mode the provider's own status output reports for a home; never assumed or
 /// read from a credential file's shape. `unknown` is a mode this build does not recognize.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ProviderAuthMode {
     /// A subscription sign-in.
     OauthSubscription,
@@ -141,9 +176,20 @@ pub fn normalize_observed_provider_auth_mode(reported: Option<&Value>) -> Option
 /// Which kind of reading produced a quota window: `probe` is the account's own limits read and
 /// replaces the stored set; `run` is the provider's push during a turn and is merged in.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum ProviderAccountUsageWindowSource {
     /// The account's own limits read.
     Probe,
@@ -222,9 +268,12 @@ impl JsonSchema for DisplayLabel {
 }
 
 /// The kind of a memory import that copied something.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "camelCase")]
 #[schemars(inline)]
+#[strum(serialize_all = "camelCase")]
 pub enum MemoryImportOutcomeKind {
     /// Copied.
     Imported,
@@ -232,13 +281,16 @@ pub enum MemoryImportOutcomeKind {
 
 /// How the account's one memory import went: `imported` counts what was copied and when,
 /// `nothingToImport` found nothing. The outcome is kept, so a repeat answers it again.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate, VariantNames,
+)]
 #[serde(
     tag = "outcome",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[strum(serialize_all = "camelCase")]
 #[garde(allow_unvalidated)]
 pub enum ProviderAccountMemoryImportOutcome {
     /// Something was copied.

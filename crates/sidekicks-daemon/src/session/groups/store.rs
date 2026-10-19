@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use sidekicks_contracts::session::groups::SessionGroupId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionShape;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::session::directory::lookups::session_project_sql;
@@ -14,10 +15,11 @@ use crate::session::directory::lookups::session_project_sql;
 static SESSION_PROJECT_SQL: LazyLock<String> = LazyLock::new(|| session_project_sql("@sessionId"));
 
 static PLACE_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
+    let project = <&'static str>::from(SessionShape::Project);
     format!(
         "UPDATE sessions SET group_id = @groupId
   WHERE id = @sessionId
-    AND shape = 'project'
+    AND shape = '{project}'
     AND EXISTS (SELECT 1 FROM session_groups
                  WHERE id = @groupId AND project_id = {})",
         *SESSION_PROJECT_SQL
@@ -25,9 +27,10 @@ static PLACE_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 static PROJECT_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
+    let project = <&'static str>::from(SessionShape::Project);
     format!(
         "SELECT 1 FROM sessions
-           WHERE id = @sessionId AND shape = 'project' AND {} IS NOT NULL",
+           WHERE id = @sessionId AND shape = '{project}' AND {} IS NOT NULL",
         *SESSION_PROJECT_SQL
     )
 });

@@ -11,10 +11,12 @@ use crate::cleanup_failures::CleanupFailures;
 /// Applies what every connection to the daemon's database holds: a page cache of at most 2,000
 /// KiB, so a large purge or a full read of the session list stays within it on each connection; a
 /// check of each b-tree page as it is first read from disk, so a damaged page fails the read that
-/// meets it rather than spreading.
+/// meets it rather than spreading; and a schema trusted to call only SQLite's own harmless
+/// functions, since the daemon registers none.
 pub(crate) fn apply_connection_pragmas(connection: &Connection) -> rusqlite::Result<()> {
     connection.pragma_update(None, "cache_size", -2000)?;
-    connection.pragma_update(None, "cell_size_check", "ON")
+    connection.pragma_update(None, "cell_size_check", "ON")?;
+    connection.pragma_update(None, "trusted_schema", "OFF")
 }
 
 /// Opens a read-only connection on an existing database, set up as the writer's is, keeping
@@ -38,10 +40,10 @@ pub(crate) fn open_database_reader(
 
 /// Runs `prepare` on a connection just opened and returns it. When `prepare` fails, the connection
 /// is closed and the failure returned, with the close's own failure beside it when that fails too.
-pub(crate) fn prepare_or_close(
+pub(crate) fn prepare_or_close<SetupError>(
     connection: Connection,
-    prepare: impl FnOnce(&Connection) -> rusqlite::Result<()>,
-) -> Result<Connection, CleanupFailures<rusqlite::Error>> {
+    prepare: impl FnOnce(&Connection) -> Result<(), SetupError>,
+) -> Result<Connection, CleanupFailures<SetupError, rusqlite::Error>> {
     match prepare(&connection) {
         Ok(()) => Ok(connection),
         Err(setup_failure) => {

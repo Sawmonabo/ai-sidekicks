@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::provider::driver::length_limits::{
     PROVIDER_TOOL_DESCRIPTION_MAX_LEN, PROVIDER_TOOL_NAME_MAX_LEN,
@@ -26,8 +26,10 @@ use crate::wire::text::FreeFormText;
     Deserialize,
     JsonSchema,
     VariantArray,
+    IntoStaticStr,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum IdempotencyClass {
     /// Safe to repeat.
     Idempotent,

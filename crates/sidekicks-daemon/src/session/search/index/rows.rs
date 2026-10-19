@@ -95,13 +95,20 @@ pub(crate) struct LogRowPosition {
 
 // A log row's text: a person's words, an agent's reply, or a tool's name then its arguments;
 // none for a payload that is not JSON, which `json_extract` would refuse with an error.
-const EVENT_TEXT_SQL: &str = "CASE
+static EVENT_TEXT_SQL: LazyLock<String> = LazyLock::new(|| {
+    let user_message = SessionEventType::UserMessageSent.as_str();
+    let agent_message = SessionEventType::AgentMessageSent.as_str();
+    let tool_call = SessionEventType::AgentToolCallInvoked.as_str();
+    format!(
+        "CASE
            WHEN NOT json_valid(event.payload) THEN NULL
-           WHEN event.type = 'user.message.sent' THEN json_extract(event.payload, '$.message')
-           WHEN event.type = 'agent.message.sent' THEN CAST(event.content_payload AS TEXT)
-           WHEN event.type = 'agent.toolCall.invoked' THEN json_extract(event.payload, '$.toolName')
+           WHEN event.type = '{user_message}' THEN json_extract(event.payload, '$.message')
+           WHEN event.type = '{agent_message}' THEN CAST(event.content_payload AS TEXT)
+           WHEN event.type = '{tool_call}' THEN json_extract(event.payload, '$.toolName')
              || coalesce(' ' || CAST(event.content_payload AS TEXT), '')
-         END";
+         END"
+    )
+});
 
 // The columns a row other than a tag holds none of.
 const NO_TAG_SQL: &str = "NULL AS tag_fold, NULL AS session_last_activity_at";
@@ -141,13 +148,14 @@ fn row_sql(kind: IndexRowKind, choice: RowChoice) -> String {
     match kind {
         IndexRowKind::Event => format!(
             "SELECT {key} AS key, session.rowid AS owner_key,
-           {EVENT_TEXT_SQL} AS text, event.id AS event_id, event.sequence, {NO_TAG_SQL}
+           {event_text} AS text, event.id AS event_id, event.sequence, {NO_TAG_SQL}
       FROM session_events AS event
       JOIN sessions AS session ON session.id = event.session_id
-     WHERE event.type IN ({types}) AND ({EVENT_TEXT_SQL}) IS NOT NULL
+     WHERE event.type IN ({types}) AND ({event_text}) IS NOT NULL
        AND {outside_skipped}
        {chosen}",
             key = index_key_sql("event.rowid", IndexRowKind::Event),
+            event_text = EVENT_TEXT_SQL.as_str(),
             types = INDEXED_EVENT_TYPES_SQL.as_str(),
             outside_skipped = outside_skipped_ranges_sql("event"),
             chosen = chosen_rows_sql(choice, "event.rowid"),

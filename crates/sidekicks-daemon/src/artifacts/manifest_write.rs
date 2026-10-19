@@ -284,6 +284,7 @@ mod tests {
     use sidekicks_contracts::artifacts::manifest::ArtifactType;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::record::JsonRecord;
     use sidekicks_platforms::WallClockTimer;
@@ -316,11 +317,13 @@ mod tests {
                 .writer
                 .write(vec![WriteStatement {
                     sql: Cow::Borrowed(
-                        "INSERT INTO runs (run_id, session_id) VALUES (@runId, @sessionId)",
+                        "INSERT INTO runs (run_id, session_id, state, run_version) \
+                         VALUES (@runId, @sessionId, @state, 0)",
                     ),
                     bindings: StatementBindings::Named(vec![
                         text_binding("@runId", run_id.text().as_str()),
                         text_binding("@sessionId", test_session_id().text().as_str()),
+                        text_binding("@state", RunState::Running.into()),
                     ]),
                     expected_row_count: Some(1),
                 }])

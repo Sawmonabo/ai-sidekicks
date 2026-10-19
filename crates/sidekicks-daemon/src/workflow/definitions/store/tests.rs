@@ -29,7 +29,6 @@ use crate::workflow::definitions::drafts::{
 use crate::workflow::definitions::errors::DefinitionRefusal;
 use crate::workflow::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
 use crate::workflow::not_found::{WorkflowNotFound, WorkflowVersionAddress};
-use crate::workflow::schema::WORKFLOW_SCHEMA_SQL;
 
 /// A document of `name` whose trigger feeds its one node, which the graph check passes.
 fn document(name: &str, path: &str) -> Value {
@@ -57,18 +56,10 @@ fn saved_document(name: &str, path: &str) -> WorkflowDocument {
 
 /// The store and the draft store over one test database holding the workflow tables.
 async fn open_stores(database: &TestDatabase) -> (WorkflowDefinitionStore, WorkflowDraftStore) {
-    let opener = database.opener_without_event_tables();
     let writer = Arc::new(
-        DatabaseWriter::open(
-            move || -> rusqlite::Result<Connection> {
-                let connection = opener()?;
-                connection.execute_batch(&WORKFLOW_SCHEMA_SQL)?;
-                Ok(connection)
-            },
-            DatabaseWriterOptions::default(),
-        )
-        .await
-        .expect("the writer opens the test database"),
+        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens the test database"),
     );
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
