@@ -12,6 +12,11 @@
 //! ends the repair at once and leaves the damaged file, its record and its copy aside as they were,
 //! so the next start repairs it again; from the marker on, the replacement finishes first.
 //!
+//! The files the repair writes beside the database file, the fresh file and the newest backup's
+//! copy, go once it ends, after the replacement when it succeeds. One that cannot be removed then
+//! is named beside the outcome, never undoing a repair or turning a stop into a failure; the next
+//! repair removes what an earlier one left before it starts.
+//!
 //! The start makes two calls: the first finishes a replacement a crash cut short and reads the
 //! damage record, and only when it names damage does the start answer that it is repairing and make
 //! the second, which repairs the file.
@@ -55,9 +60,6 @@ const READY_MARKER_SUFFIX: &str = ".recovered-ready";
 // The rollback journal each step that readies the fresh file keeps beside it while it writes.
 const FRESH_FILE_JOURNAL_SUFFIX: &str = ".recovered-journal";
 
-// The fresh file and the rollback journal a step readying it keeps beside it.
-const FRESH_FILE_SUFFIXES: [&str; 2] = [FRESH_FILE_SUFFIX, FRESH_FILE_JOURNAL_SUFFIX];
-
 // The copy of the newest backup's database the repair reads, beside the database file.
 const BACKUP_COPY_SUFFIX: &str = ".backup-read";
 
@@ -66,6 +68,10 @@ const READY_MARKER_MODE: u32 = 0o600;
 
 // What failed, as a failure that carries its cleanup's failures names it.
 const REPAIRING: &str = "the database file's repair";
+
+// The removal a repair makes before any work, of the files an earlier one left.
+const LEFTOVER_REMOVAL: &str =
+    "removing the files an earlier repair wrote beside the database file";
 
 /// What the repair reads and where it writes.
 pub struct DatabaseFileRepairOptions<'a> {
@@ -94,6 +100,9 @@ pub enum DatabaseFileRepair {
         aside_folder: PathBuf,
         /// The sessions whose events came from the newest backup.
         sessions_from_backup: u64,
+        /// Each file the repair wrote beside the database file that could not be removed after
+        /// the replacement, which the start logs; empty when every one went.
+        leftovers: Vec<LeftoverFile>,
     },
     /// The file stays as it was and keeps its record, so the next start tries again.
     Unrepaired {
@@ -101,10 +110,25 @@ pub enum DatabaseFileRepair {
         aside_folder: PathBuf,
         /// Why it could not be repaired, beside each file of the repair that could not be removed
         /// after it.
-        failure: CleanupFailures<DatabaseFileRepairFailure, io::Error>,
+        failure: CleanupFailures<DatabaseFileRepairFailure, LeftoverFile>,
     },
     /// A stop ended the repair; the file stays as it was and the next start repairs it.
-    Stopped,
+    Stopped {
+        /// Each file the repair wrote beside the database file that could not be removed once the
+        /// stop came, which the start logs; empty when every one went.
+        leftovers: Vec<LeftoverFile>,
+    },
+}
+
+/// A file a repair wrote beside the database file that could not be removed, and why.
+#[derive(Debug, thiserror::Error)]
+#[error("{} could not be removed", path.display())]
+pub struct LeftoverFile {
+    /// The file that stayed.
+    pub path: PathBuf,
+    /// Why its removal failed.
+    #[source]
+    pub error: io::Error,
 }
 
 /// Why a damaged file could not be repaired.
@@ -137,10 +161,10 @@ pub enum DatabaseFileRepairError {
     /// A file of the repair could not be read, removed, renamed or flushed.
     #[error("a file of the database file's repair could not be read, removed, moved or flushed")]
     File(#[source] io::Error),
-    /// A file the repair writes beside the database file before its marker could not be removed:
-    /// the first failure, beside the others.
-    #[error("a file the repair wrote beside the database file could not be removed")]
-    Leftover(#[source] CleanupFailures<io::Error>),
+    /// A file an earlier repair, cut short by a stop or a crash, left beside the database file
+    /// could not be removed before any work: the first, beside the others, each naming its file.
+    #[error("a file an earlier repair wrote beside the database file could not be removed")]
+    Leftover(#[source] CleanupFailures<LeftoverFile>),
     /// The ready marker could not be written.
     #[error("the repaired file's ready marker could not be written")]
     Marker(#[source] AtomicWriteError),
@@ -191,10 +215,11 @@ pub async fn prepare_database_file_repair(
 /// `progress` how many of the damaged file's session events it has recovered, `None` while the
 /// step it is on gives no count. A file it could not repair comes back
 /// [`DatabaseFileRepair::Unrepaired`], and one `stop` reached before the ready marker comes back
-/// [`DatabaseFileRepair::Stopped`], each left in place with its record. Fails when the file cannot
-/// be copied aside at all, with [`DatabaseFileRepairError::Leftover`] when a file the repair writes
-/// before its marker cannot be removed, or when the ready fresh file cannot be put in place, which
-/// the next start finishes.
+/// [`DatabaseFileRepair::Stopped`], each left in place with its record; each outcome names the
+/// files the repair wrote that could not be removed after it. Fails when the file cannot be copied
+/// aside at all, or the ready fresh file cannot be put in place, which the next start finishes.
+/// Fails with [`DatabaseFileRepairError::Leftover`] when a file an earlier repair left cannot be
+/// removed before this one starts.
 pub async fn repair_damaged_file(
     options: &DatabaseFileRepairOptions<'_>,
     damage: &str,
@@ -213,7 +238,7 @@ pub async fn repair_damaged_file(
     };
     let aside_folder = match copy_database_files_aside(&aside, stop).await {
         Ok(aside_folder) => aside_folder,
-        Err(_) if stop.is_cancelled() => return Ok(stopped_repair()),
+        Err(_) if stop.is_cancelled() => return Ok(stopped_repair(Vec::new())),
         Err(error) => return Err(DatabaseFileRepairError::AsideCopy(error)),
     };
     info!(
@@ -222,37 +247,27 @@ pub async fn repair_damaged_file(
     );
     // A repair a stop or a crash cut short may have left a fresh file and its journal, which SQLite
     // would otherwise roll back into the new one, and the newest backup's copy.
-    let mut leftovers = remove_beside(database_path, FRESH_FILE_SUFFIXES).await;
-    leftovers.extend(remove_beside(database_path, backup_copy_suffixes()).await);
-    all_removed(leftovers)?;
+    require_all_removed(remove_repair_files(database_path).await)?;
     let readied = ready_fresh_file(options, &fresh_path, backup_folder, progress, stop).await;
     progress.send_replace(None);
-    // Every shell has exited, so the backup's copy goes whichever way the readying ended.
-    let backup_copy_removal = remove_beside(database_path, backup_copy_suffixes()).await;
+    // Every shell has exited, so nothing writes the repair's files from here on.
     let sessions_from_backup = match readied {
-        Ok(sessions_from_backup) if !stop.is_cancelled() => {
-            all_removed(backup_copy_removal)?;
-            sessions_from_backup
-        }
+        Ok(sessions_from_backup) if !stop.is_cancelled() => sessions_from_backup,
         Err(ReadyingEnd::Failed(failure)) if !stop.is_cancelled() => {
-            // The log names why and where the copy aside is before any removal can fail.
+            // The log names why and where the copy aside is before the repair's files are removed.
             warn!(
                 error = &failure as &(dyn Error + 'static),
                 aside_folder = %aside_folder.display(),
                 "the database file could not be repaired"
             );
-            let mut cleanup_failures = backup_copy_removal;
-            cleanup_failures.extend(remove_beside(database_path, FRESH_FILE_SUFFIXES).await);
+            let leftovers = remove_repair_files(database_path).await;
             return Ok(DatabaseFileRepair::Unrepaired {
                 aside_folder,
-                failure: CleanupFailures::new(failure, cleanup_failures, REPAIRING),
+                failure: CleanupFailures::new(failure, leftovers, REPAIRING),
             });
         }
-        // The fresh file is left for the next repair to remove, and nothing reads it without the
-        // marker.
         Ok(_) | Err(ReadyingEnd::Stopped | ReadyingEnd::Failed(_)) => {
-            all_removed(backup_copy_removal)?;
-            return Ok(stopped_repair());
+            return Ok(stopped_repair(remove_repair_files(database_path).await));
         }
     };
     // From the marker on, a failure is the caller's rather than a failed repair: the fresh file
@@ -269,9 +284,11 @@ pub async fn repair_damaged_file(
         sessions_from_backup,
         "the database file was recovered; sessions took their events from the newest backup"
     );
+    // The repair's files go only once the fresh file is in place, so no removal undoes the repair.
     Ok(DatabaseFileRepair::Repaired {
         aside_folder,
         sessions_from_backup,
+        leftovers: remove_repair_files(database_path).await,
     })
 }
 
@@ -452,48 +469,50 @@ async fn copy_newest_backup(
     Ok(true)
 }
 
-fn stopped_repair() -> DatabaseFileRepair {
+fn stopped_repair(leftovers: Vec<LeftoverFile>) -> DatabaseFileRepair {
     info!(
         "the service's stop ended the repair; the damaged file stays as it was and its next start \
          repairs it"
     );
-    DatabaseFileRepair::Stopped
+    DatabaseFileRepair::Stopped { leftovers }
 }
 
-// The newest backup's copy and the companions SQLite may keep beside it, by their suffixes.
-fn backup_copy_suffixes() -> impl Iterator<Item = String> {
-    std::iter::once("")
+// The files a repair writes beside the database file before its marker, by their suffixes: the
+// fresh file and its journal, and the newest backup's copy with the companions SQLite may keep
+// beside it.
+fn repair_file_suffixes() -> impl Iterator<Item = String> {
+    let backup_copy = std::iter::once("")
         .chain(DATABASE_COMPANION_FILE_SUFFIXES)
-        .map(|companion| format!("{BACKUP_COPY_SUFFIX}{companion}"))
+        .map(|companion| format!("{BACKUP_COPY_SUFFIX}{companion}"));
+    [FRESH_FILE_SUFFIX, FRESH_FILE_JOURNAL_SUFFIX]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(backup_copy)
 }
 
-// Removes each file beside the database file that `suffixes` name and that exists, answering every
-// removal that failed.
-async fn remove_beside(
-    database_path: &Path,
-    suffixes: impl IntoIterator<Item = impl AsRef<str>>,
-) -> Vec<io::Error> {
-    let mut failures = Vec::new();
-    for suffix in suffixes {
-        let removed = tokio::fs::remove_file(sibling_path(database_path, suffix.as_ref()))
-            .await
-            .none_if_missing();
-        if let Err(failure) = removed {
-            failures.push(failure);
+// Removes each of the repair's files that exists beside the database file, answering every one
+// that could not be removed.
+async fn remove_repair_files(database_path: &Path) -> Vec<LeftoverFile> {
+    let mut leftovers = Vec::new();
+    for suffix in repair_file_suffixes() {
+        let path = sibling_path(database_path, &suffix);
+        if let Err(error) = tokio::fs::remove_file(&path).await.none_if_missing() {
+            leftovers.push(LeftoverFile { path, error });
         }
     }
-    failures
+    leftovers
 }
 
-// Fails with every removal that failed: the first, beside the others.
-fn all_removed(failures: Vec<io::Error>) -> Result<(), DatabaseFileRepairError> {
-    let mut failures = failures.into_iter();
-    match failures.next() {
+// Fails with every file an earlier repair left that could not be removed: the first, beside the
+// others.
+fn require_all_removed(leftovers: Vec<LeftoverFile>) -> Result<(), DatabaseFileRepairError> {
+    let mut leftovers = leftovers.into_iter();
+    match leftovers.next() {
         None => Ok(()),
         Some(first) => Err(DatabaseFileRepairError::Leftover(CleanupFailures::new(
             first,
-            failures.collect(),
-            REPAIRING,
+            leftovers.collect(),
+            LEFTOVER_REMOVAL,
         ))),
     }
 }

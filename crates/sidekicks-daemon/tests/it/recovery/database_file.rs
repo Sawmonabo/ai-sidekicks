@@ -585,7 +585,7 @@ async fn a_stop_before_the_ready_marker_leaves_the_damaged_file_as_it_was() {
     .expect("the repair ends");
 
     assert!(
-        matches!(repaired, DatabaseFileRepair::Stopped),
+        matches!(repaired, DatabaseFileRepair::Stopped { ref leftovers } if leftovers.is_empty()),
         "{repaired:?}"
     );
     assert_eq!(
