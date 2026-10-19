@@ -1,5 +1,5 @@
 //! The run configuration each Codex turn starts from, read from a run's `agentConfig`, which
-//! refuses every posture-affecting turn member a caller sets, since the daemon derives them.
+//! fails on every posture-affecting turn member a caller sets, since the daemon derives them.
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -11,11 +11,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::error_causes::{ProviderAxis, ProviderAxisInvalid};
 use crate::provider::driver::run_control::PickedSkill;
 
 /// The `turn/start` members that change a turn's posture, which the daemon derives; a run's
-/// `agentConfig` holds no typed policy, so a caller that sets one is refused.
+/// `agentConfig` holds no typed policy, so a caller that sets one breaches the driver's contract.
 const CALLER_DERIVED_TURN_POSTURE_FIELDS: [&str; 7] = [
     "cwd",
     "sandbox",
@@ -51,10 +50,9 @@ pub(crate) struct CodexRunConfig {
     pub(crate) skills: Vec<PickedSkill>,
 }
 
-/// Reads a run's `agentConfig` into the turn's run configuration. A posture-affecting turn member
-/// the caller set, whatever its value, fails as `DriverError::ProviderAxisInvalid` on the options
-/// axis naming the member and its value; any other missing or malformed member fails as
-/// `CodexError::DriverConfig` naming it.
+/// Reads a run's `agentConfig` into the turn's run configuration. Fails as
+/// `CodexError::DriverConfig` naming the member: a posture-affecting turn member the caller set,
+/// whatever its value, and any other member missing or malformed.
 #[cfg_attr(
     not(test),
     expect(
@@ -65,14 +63,16 @@ pub(crate) struct CodexRunConfig {
 pub(crate) fn parse_codex_run_config(
     agent_config: &Map<String, Value>,
 ) -> Result<CodexRunConfig, DriverError> {
-    // Refused even when the value matches what the daemon derives; no comparison needed.
-    for field in CALLER_DERIVED_TURN_POSTURE_FIELDS {
-        if let Some(value) = agent_config.get(field) {
-            return Err(DriverError::ProviderAxisInvalid(ProviderAxisInvalid {
-                axis: ProviderAxis::Options,
-                value: Value::Object(Map::from_iter([(field.to_owned(), value.clone())])),
-            }));
-        }
+    // Fails even when the value matches what the daemon derives; no comparison needed.
+    if let Some(field) = CALLER_DERIVED_TURN_POSTURE_FIELDS
+        .into_iter()
+        .find(|field| agent_config.contains_key(*field))
+    {
+        return Err(config_error(
+            field,
+            "it cannot be set; the daemon derives every posture-affecting turn member",
+            None,
+        ));
     }
     Ok(CodexRunConfig {
         session_id: read_required(agent_config, "sessionId")?,
@@ -142,8 +142,8 @@ mod tests {
     use serde_json::{Map, Value, json};
 
     use super::parse_codex_run_config;
+    use crate::provider::driver::codex::session::errors::CodexError;
     use crate::provider::driver::contract::DriverError;
-    use crate::provider::driver::error_causes::ProviderAxis;
 
     fn run_config() -> Map<String, Value> {
         serde_json::from_value(json!({
@@ -163,18 +163,23 @@ mod tests {
     #[case::permission_profile("permissionProfile", json!(null))]
     #[case::approval_policy("approvalPolicy", json!("never"))]
     #[case::approvals_reviewer("approvalsReviewer", json!("user"))]
-    fn a_posture_member_the_caller_sets_is_refused(#[case] field: &str, #[case] value: Value) {
+    fn a_posture_member_the_caller_sets_fails_the_driver_config(
+        #[case] field: &str,
+        #[case] value: Value,
+    ) {
         assert!(parse_codex_run_config(&run_config()).is_ok());
         let mut config = run_config();
-        config.insert(field.to_owned(), value.clone());
+        config.insert(field.to_owned(), value);
 
-        let Err(DriverError::ProviderAxisInvalid(refusal)) = parse_codex_run_config(&config) else {
-            panic!("a caller-set {field} is refused on the options axis");
+        let Err(DriverError::Internal(fault)) = parse_codex_run_config(&config) else {
+            panic!("a caller-set {field} fails as the driver's own fault");
         };
-        assert_eq!(refusal.axis, ProviderAxis::Options);
-        assert_eq!(
-            refusal.value,
-            Value::Object(Map::from_iter([(field.to_owned(), value)]))
-        );
+        let Some(CodexError::DriverConfig {
+            field: named_field, ..
+        }) = fault.downcast_ref::<CodexError>()
+        else {
+            panic!("a caller-set {field} fails as the driver's configuration: {fault:?}");
+        };
+        assert_eq!(*named_field, format!("StartRunParams.agentConfig.{field}"));
     }
 }

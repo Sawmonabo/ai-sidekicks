@@ -96,6 +96,13 @@ pub(crate) enum DriverError {
     #[error(transparent)]
     ModelCatalogUnreadable(ModelCatalogUnreadable),
     /// A provider axis the request set holds a value the provider does not offer now.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "a driver's live catalog check at a session's start refuses an axis with it"
+        )
+    )]
     #[error(transparent)]
     ProviderAxisInvalid(ProviderAxisInvalid),
     /// The driver or its provider failed.
@@ -106,9 +113,10 @@ pub(crate) enum DriverError {
 impl From<DriverError> for HandlerError {
     /// A driver's refusal answers the call by its code; a failed capability probe, a command that
     /// names no runnable build and an unreadable model catalog answer `provider.unavailable`, the
-    /// command named as configured and the catalog's fault as the provider failure's detail; a
-    /// provider axis the provider does not offer answers `agent.providerAxisInvalid`; a steer whose
-    /// turn ended, reaching a handler, is a fault in the daemon, as is the driver's own failure.
+    /// command named as configured and the catalog's bounded fault as the provider failure's
+    /// detail; a provider axis the provider does not offer answers `agent.providerAxisInvalid`
+    /// naming the agent, the axis and the value; a steer whose turn ended, reaching a handler, is
+    /// a fault in the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal) => Self::Refused(refusal),
@@ -138,7 +146,7 @@ impl From<DriverError> for HandlerError {
                 )
                 .with_detail(json!({
                     "providerId": unreadable.provider.as_str(),
-                    "providerFailureDetail": unreadable.to_string(),
+                    "providerFailureDetail": unreadable.detail.as_str(),
                 }))
                 .with_source(unreadable),
             ),
@@ -148,6 +156,7 @@ impl From<DriverError> for HandlerError {
                     RefusalCode::AgentProviderAxisInvalid,
                 )
                 .with_detail(json!({
+                    "agentId": invalid.agent_id,
                     "axis": <&str>::from(invalid.axis),
                     "value": invalid.value,
                 })),

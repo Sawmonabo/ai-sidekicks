@@ -4,11 +4,13 @@
 
 use std::collections::HashSet;
 use std::future::Future;
+use std::sync::LazyLock;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -20,7 +22,7 @@ use crate::provider::capability::probe::{CapabilityProbeExchange, read_capabilit
 use crate::provider::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
-use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
@@ -35,6 +37,20 @@ const CODEX_CAPABILITY_CONTRACT_VERSION: &str = "3.1.0";
 
 /// Codex's catalog read, as its wire names the method.
 const CODEX_MODEL_LIST_METHOD: &str = "model/list";
+
+/// The most pages a catalog read takes: Codex answers its whole catalog on one page when no page
+/// size is asked, so a service still sending cursors past this is faulty.
+const CODEX_MODEL_CATALOG_MAX_PAGES: usize = 20;
+
+/// The most rows, hidden ones included, a catalog read keeps across its pages.
+const CODEX_MODEL_CATALOG_MAX_ROWS: usize = 1000;
+
+/// Stands in for a catalog fault whose words are blank, which none is.
+static CATALOG_FAULT_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
+    LazyLock::new(|| {
+        FreeFormText::new("The model catalog could not be read.".to_owned())
+            .expect("the fallback is non-blank and within the cap")
+    });
 
 /// The name the catalog gives the tier that speeds output up; the tier's id is free-form.
 const CODEX_FAST_TIER_NAME: &str = "Fast";
@@ -75,8 +91,6 @@ const fn is_codex_flag_declared(flag: DriverCapabilityFlag) -> bool {
         DriverCapabilityFlag::ReasoningStream => false,
     }
 }
-
-// Codex's id as the driver table declares it.
 
 /// Reads the capabilities of the build `version` describes: probes that same build through
 /// `exchange`, reports each flag the probe withdrew, and composes the driver's flags, tools and
@@ -133,7 +147,7 @@ struct RowPlace {
 }
 
 /// The `model/list` catalog read so far, page by page: the visible rows as models, every id seen,
-/// hidden rows included, and every cursor a page answered.
+/// hidden rows included, and every cursor a page answered, each bounded by the read's limits.
 pub(crate) struct CodexModelCatalogReader {
     provider: ProviderId,
     models: Vec<ProviderModel>,
@@ -158,7 +172,8 @@ impl CodexModelCatalogReader {
     /// Reads one `model/list` result's JSON text and keeps its visible rows, answering the next
     /// page's cursor or `None` on the last page. Fails with [`DriverError::ModelCatalogUnreadable`]
     /// for a result with no `data` array, a row that is not an object, a row with no readable
-    /// `id` or `displayName`, an id listed twice, or a cursor an earlier page already answered.
+    /// `id` or `displayName`, an id listed twice, a cursor an earlier page already answered, a row
+    /// past the 1,000th or a cursor on the 20th page.
     pub(crate) fn read_page(
         &mut self,
         reply: &str,
@@ -167,10 +182,10 @@ impl CodexModelCatalogReader {
         let page = self.pages_read + 1;
         let text = decode_inbound_json(reply.as_bytes());
         let ModelListPage { data, next_cursor } = serde_json::from_str(&text).map_err(|error| {
-            self.unreadable(format!("page {page} is not a readable reply: {error}"))
+            self.unreadable(&format!("page {page} is not a readable reply: {error}"))
         })?;
         let Some(Value::Array(rows)) = data else {
-            return Err(self.unreadable(format!("page {page} has no `data` array")));
+            return Err(self.unreadable(&format!("page {page} has no `data` array")));
         };
         for (index, row) in rows.iter().enumerate() {
             let place = RowPlace {
@@ -183,9 +198,12 @@ impl CodexModelCatalogReader {
         let Some(cursor) = next_cursor else {
             return Ok(None);
         };
+        if page == CODEX_MODEL_CATALOG_MAX_PAGES {
+            return Err(self.past_limits(page));
+        }
         // A cursor answered twice would drive the read in a circle.
         if !self.seen_cursors.insert(cursor.clone()) {
-            return Err(self.unreadable(format!(
+            return Err(self.unreadable(&format!(
                 "page {page} answers the cursor {cursor:?}, which an earlier page already answered"
             )));
         }
@@ -207,14 +225,19 @@ impl CodexModelCatalogReader {
     ) -> Result<(), DriverError> {
         let RowPlace { page, row: index } = place;
         let Some(row) = row.as_object() else {
-            return Err(self.unreadable(format!("row {index} of page {page} is not an object")));
+            return Err(self.unreadable(&format!("row {index} of page {page} is not an object")));
         };
+        if self.seen_ids.len() == CODEX_MODEL_CATALOG_MAX_ROWS {
+            return Err(self.past_limits(page));
+        }
         let Some(id) = read_catalog_text(row, "id") else {
-            return Err(self.unreadable(format!("row {index} of page {page} has no readable `id`")));
+            return Err(
+                self.unreadable(&format!("row {index} of page {page} has no readable `id`"))
+            );
         };
         // The catalog has no alias, so an id listed twice is a malformed reply.
         if !self.seen_ids.insert(id.as_str().to_owned()) {
-            return Err(self.unreadable(format!(
+            return Err(self.unreadable(&format!(
                 "row {index} of page {page} lists the model {:?} a second time",
                 id.as_str()
             )));
@@ -223,7 +246,7 @@ impl CodexModelCatalogReader {
             return Ok(());
         }
         let Some(name) = read_catalog_text(row, "displayName") else {
-            return Err(self.unreadable(format!(
+            return Err(self.unreadable(&format!(
                 "row {index} of page {page}, the model {:?}, has no readable `displayName`",
                 id.as_str()
             )));
@@ -348,12 +371,23 @@ impl CodexModelCatalogReader {
         });
     }
 
-    // The whole catalog's fault, naming the row or the cursor in `detail`.
-    fn unreadable(&self, detail: String) -> DriverError {
+    // The fault of a catalog that runs past the pages or rows a read takes, naming the pages
+    // reached and the rows read.
+    fn past_limits(&self, pages: usize) -> DriverError {
+        self.unreadable(&format!(
+            "the catalog runs past {CODEX_MODEL_CATALOG_MAX_PAGES} pages or \
+             {CODEX_MODEL_CATALOG_MAX_ROWS} rows: {pages} pages and {} rows read",
+            self.seen_ids.len()
+        ))
+    }
+
+    // The whole catalog's fault, naming the row, the cursor or the counts in `detail`, which is
+    // bounded, since a cursor or an id is the service's own text.
+    fn unreadable(&self, detail: &str) -> DriverError {
         DriverError::ModelCatalogUnreadable(ModelCatalogUnreadable {
             provider: self.provider.clone(),
             reply_name: CODEX_MODEL_LIST_METHOD,
-            detail,
+            detail: bound_failure_detail(detail, CATALOG_FAULT_FALLBACK.clone()),
         })
     }
 }
@@ -366,7 +400,7 @@ fn read_catalog_text(source: &Map<String, Value>, key: &str) -> Option<CatalogTe
 /// Reads Codex's whole model catalog, asking `request_page` for each `model/list` result's JSON,
 /// first with no cursor and then with each cursor a page answers, until a page answers none.
 /// Fails with the first page request's failure, or as [`CodexModelCatalogReader::read_page`]
-/// fails; never answers a short catalog.
+/// fails, at most 20 pages in; never answers a short catalog.
 #[cfg_attr(
     not(test),
     expect(
@@ -464,9 +498,9 @@ mod tests {
             panic!("a repeated cursor must fail the catalog, not answer it: {ids:?}");
         };
         assert!(
-            unreadable.detail.contains("\"again\""),
+            unreadable.detail.as_str().contains("\"again\""),
             "{}",
-            unreadable.detail
+            unreadable.detail.as_str()
         );
         assert_eq!(cursors.len(), 2);
     }
@@ -483,9 +517,46 @@ mod tests {
             panic!("a duplicate id must fail the catalog, not answer it: {ids:?}");
         };
         assert!(
-            unreadable.detail.contains("row 2 of page 2"),
+            unreadable.detail.as_str().contains("row 2 of page 2"),
             "{}",
-            unreadable.detail
+            unreadable.detail.as_str()
         );
+    }
+
+    // A service that answers a fresh cursor for ever, its pages holding `rows_per_page` rows each.
+    async fn read_endless_pages(rows_per_page: usize) -> (String, usize) {
+        let mut pages_asked = 0;
+        let mut diagnostics = OnceReportedDiagnostics::default();
+        let result = read_codex_model_catalog(
+            |_| {
+                pages_asked += 1;
+                let rows: Vec<_> = (0..rows_per_page)
+                    .map(|row_index| row(&format!("gpt-{pages_asked}-{row_index}")))
+                    .collect();
+                let page = json!({ "data": rows, "nextCursor": format!("after-{pages_asked}") });
+                async move {
+                    Ok::<_, DriverError>(
+                        RawValue::from_string(page.to_string()).expect("the page is JSON"),
+                    )
+                }
+            },
+            &mut diagnostics,
+        )
+        .await;
+        let Err(DriverError::ModelCatalogUnreadable(unreadable)) = result else {
+            panic!("a catalog without end must fail, not answer: {result:?}");
+        };
+        (unreadable.detail.into_string(), pages_asked)
+    }
+
+    #[tokio::test]
+    async fn a_catalog_past_twenty_pages_or_a_thousand_rows_fails_naming_its_counts() {
+        let (detail, pages_asked) = read_endless_pages(1).await;
+        assert_eq!(pages_asked, 20);
+        assert!(detail.ends_with("20 pages and 20 rows read"), "{detail}");
+
+        let (detail, pages_asked) = read_endless_pages(400).await;
+        assert_eq!(pages_asked, 3);
+        assert!(detail.ends_with("3 pages and 1000 rows read"), "{detail}");
     }
 }
