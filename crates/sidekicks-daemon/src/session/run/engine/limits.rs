@@ -22,6 +22,7 @@ use sidekicks_contracts::session::controls::events::{
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::oneshot;
+use tracing::Instrument as _;
 
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -220,23 +221,27 @@ impl RunEngine {
         // The receiver lives in this future and drops with it, which tells the task whether its
         // caller still waits for the result.
         let (sender, _receiver) = oneshot::channel::<()>();
-        let stopping = tokio::spawn(async move {
-            let stopped = engine.run_limit_stop(run_id, stop).await;
-            // A caller gone returns the error to no one, so the task logs it. A caller dropped
-            // after this check and before it reads the result still loses it, and so does a panic
-            // after the caller dropped, which only a test meets: the daemon's panic hook aborts.
-            if let Err(error) = &stopped
-                && sender.is_closed()
-            {
-                tracing::warn!(
-                    run_id = %run_id,
-                    limit = <&'static str>::from(stop.limit()),
-                    error = error as &(dyn Error + 'static),
-                    "run_limit_stop_failed"
-                );
+        let stopping = tokio::spawn(
+            async move {
+                let stopped = engine.run_limit_stop(run_id, stop).await;
+                // A caller gone returns the error to no one, so the task logs it. A caller
+                // dropped after this check and before it reads the result still loses it, and so
+                // does a panic after the caller dropped, which only a test meets: the daemon's
+                // panic hook aborts.
+                if let Err(error) = &stopped
+                    && sender.is_closed()
+                {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        limit = <&'static str>::from(stop.limit()),
+                        error = error as &(dyn Error + 'static),
+                        "run_limit_stop_failed"
+                    );
+                }
+                stopped
             }
-            stopped
-        });
+            .in_current_span(),
+        );
         match stopping.await {
             Ok(stopped) => stopped,
             Err(error) => match error.try_into_panic() {
