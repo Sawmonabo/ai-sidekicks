@@ -264,6 +264,7 @@ mod tests {
         UpdateRekeying(KeyColumn),
         PromoteAnotherRow,
         UpdateMovingOut,
+        UpdateMovingOutByCategory,
         InsertWithKey,
     }
 
@@ -311,6 +312,10 @@ mod tests {
                 "UPDATE {SESSION_EVENTS_TABLE} SET type = '{}' WHERE id = 'keyed'",
                 RunStateEventType::Queued.session_event_type().as_str()
             ),
+            Write::UpdateMovingOutByCategory => format!(
+                "UPDATE {SESSION_EVENTS_TABLE} SET category = '{}' WHERE id = 'keyed'",
+                EventCategory::AgentOutput.as_str()
+            ),
             Write::InsertWithKey => insert_sql(index, "added", 3, "'run-1'", "2"),
         }
     }
@@ -330,6 +335,7 @@ mod tests {
     #[case::update_rekeying_a_committed_paired_key(Write::UpdateRekeying(KeyColumn::Paired), false)]
     #[case::promote_of_another_row(Write::PromoteAnotherRow, false)]
     #[case::update_moving_a_committed_row_out(Write::UpdateMovingOut, false)]
+    #[case::update_moving_a_committed_row_out_by_category(Write::UpdateMovingOutByCategory, false)]
     #[case::insert_with_its_key(Write::InsertWithKey, true)]
     fn the_key_triggers_hold_each_unique_index_to_its_key(
         #[values(KeyedIndex::RunTerminal, KeyedIndex::TurnStart, KeyedIndex::TurnEnd)]
