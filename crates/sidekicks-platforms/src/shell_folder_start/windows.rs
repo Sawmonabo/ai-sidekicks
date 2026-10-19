@@ -525,18 +525,21 @@ mod tests {
 
     const SYSTEM_FOLDER: &str = r"C:\Windows\System32";
 
-    // Mutations killed: PowerShell started in the worktree holds it for its life; a trailing `\`
-    // kept breaks pwsh's quoted switch; a switch's value read as pwsh's script, or a relative
-    // script given by a prefix, another switch character or a bare path started in the system
-    // folder; a complete script path or standard input's `-` dropping pwsh's folder switch, as a
-    // user command would; a folder quote other than `'` left single, which ends the string and runs
-    // the rest of the name; Windows PowerShell given its folder command beside an argument not
-    // known to leave it free, a switch only pwsh has, or a switch missing its value, its
-    // `Set-Location` put anywhere but in front of the user's command, or in front of standard
-    // input's `-`; cmd started on a share starts in the Windows folder, and a share path with `&`
-    // or `%` left bare runs a command; a horizontal bar not read as a dash; a drive root quoted
-    // without its `\`; MSYS bash without its variable opens in the home folder, and WSL's launcher
-    // given it goes through the MSYS arm; `--cd` added over the user's own `~`.
+    // Fails when PowerShell starts in the worktree, which it holds for its life; a trailing `\` is
+    // kept, which breaks pwsh's quoted switch; a switch's value is read as pwsh's script, or a
+    // relative script given by a prefix, another switch character or a bare path starts in the
+    // system folder; a complete script path or standard input's `-` drops pwsh's folder switch, as
+    // a user command would; a folder quote other than `'` is left single, which ends the string
+    // and runs the rest of the name; Windows PowerShell gets its folder statement beside an
+    // argument not known to leave it free, a switch only pwsh has (`-cwa` among them) or a switch
+    // missing its value, or loses it beside one of its own format, version or quiet switches; the
+    // statement goes anywhere but in front of the command's first value, in front of standard
+    // input's `-`, or in front of a command opening with `using`, `param`, `[`, `#` or `<#`; a bare
+    // word is not read as the command; cmd started on a share starts in the Windows folder, and a
+    // share path with `&` or `%` left bare runs a command; a horizontal bar is not read as a dash;
+    // a drive root is quoted without its `\`; MSYS bash without its variable opens in the home
+    // folder, and WSL's launcher given it goes through the MSYS arm; or `--cd` is added over the
+    // user's own `~`.
     #[rstest]
     #[case::pwsh_with_a_trailing_separator(
         r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -692,6 +695,32 @@ mod tests {
         &["-Command", "<# a note #> Get-Date"],
         r"C:\wt",
         &["-Command", "<# a note #> Get-Date"],
+        r"C:\wt",
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_a_command_of_several_arguments(
+        "powershell.exe",
+        &["-NonInteractive", "-Version", "2.0", "-NoExit", "-Command", "Get-ChildItem", "-Force"],
+        r"C:\wt",
+        &[
+            "-NonInteractive",
+            "-Version",
+            "2.0",
+            "-NoExit",
+            "-Command",
+            r"Set-Location -LiteralPath 'C:\wt'; Get-ChildItem",
+            "-Force",
+        ],
+        SYSTEM_FOLDER,
+        &[],
+        None
+    )]
+    #[case::windows_powershell_with_pwsh_s_command_with_arguments(
+        "powershell.exe",
+        &["-nop", "-cwa", "Get-Date"],
+        r"C:\wt",
+        &["-nop", "-cwa", "Get-Date"],
         r"C:\wt",
         &[],
         None
