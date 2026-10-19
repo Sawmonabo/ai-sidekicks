@@ -295,9 +295,9 @@ impl RunEngine {
 
     /// Counts one step of the open turn on `run_id`, which the driver's delivery reports for a run
     /// whose provider does not bound a turn's steps; the step that reaches the turn's bound stops
-    /// the run at the step limit, once. A run with no count armed is left as it is. Fails as the
-    /// stop fails; a stop the interventions service did not carry out is tried again at the next
-    /// step.
+    /// the run at the step limit. A run with no count armed is left as it is. Fails as the stop
+    /// fails; a failed stop is tried again at the next step, the interrupt alone once the turn's
+    /// reached event has landed.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(&self, run_id: RunId) -> Result<(), RunEngineError> {
         let (turn_number, stop) = {
