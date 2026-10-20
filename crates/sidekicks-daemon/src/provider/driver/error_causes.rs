@@ -1,8 +1,11 @@
 //! The typed causes a driver error carries where its caller acts on more than a code: a provider
 //! command that names no runnable build, a request the provider got with no answer back, a model
-//! catalog that cannot be read, and a provider axis set to a value the provider does not offer.
+//! catalog that cannot be read, and a provider axis set to a value the provider does not offer;
+//! and the refusal every driver answers a provider's own failure with.
 
+use std::error::Error;
 use std::io;
+use std::sync::LazyLock;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
@@ -11,7 +14,39 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::error_description::describe_error;
 use crate::ipc::domain_error::DomainError;
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
+
+/// Stands in for a provider failure whose words are blank once bounded.
+pub(crate) static UNSPECIFIED_PROVIDER_FAILURE_DETAIL: LazyLock<
+    FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+> = LazyLock::new(|| {
+    FreeFormText::new("The provider reported a failure with no diagnostic message.".to_owned())
+        .expect("the fallback is non-blank and within the cap")
+});
+
+/// A provider failure's refusal with `code` and `message`: the provider and the failure's words,
+/// bounded as `providerFailureDetail`, as its fields, and the failure kept as its source.
+pub(crate) fn provider_failure_refusal(
+    provider: &ProviderId,
+    message: &str,
+    code: RefusalCode,
+    error: impl Error + Send + Sync + 'static,
+) -> DriverError {
+    let provider_failure_detail = bound_failure_detail(
+        &describe_error(&error),
+        UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
+    );
+    DriverError::Refused(
+        DomainError::new(message, code)
+            .with_detail(json!({
+                "providerId": provider.as_str(),
+                "providerFailureDetail": provider_failure_detail.as_str(),
+            }))
+            .with_source(error),
+    )
+}
 
 /// The configured provider command names no runnable build, or one whose real path cannot be
 /// read. It carries the command as the person configured it, never a path they did not type.

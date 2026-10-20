@@ -18,10 +18,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use super::DESCRIPTOR;
 use super::capability_probe::CAPABILITY_PROBE_RULES;
 use super::tools::codex_tool_metadata;
-use crate::provider::capability::probe::{CapabilityProbeExchange, read_capability_detection};
-use crate::provider::driver::capabilities::{
-    DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
-};
+use crate::provider::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
+use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
@@ -103,30 +101,16 @@ pub(crate) async fn read_codex_capabilities(
     version: &SpawnedProviderVersionReading,
     exchange: &mut impl CapabilityProbeExchange,
 ) -> Result<GetCapabilitiesResult, DriverError> {
-    // Bound to the version reading's own path, so the flags describe the build whose version is
-    // reported.
-    let detection = read_capability_detection(
-        DESCRIPTOR.provider_id(),
+    read_provider_capabilities(
+        &DESCRIPTOR,
         &CAPABILITY_PROBE_RULES,
-        version.resolved_executable_path.clone(),
+        &DriverCapabilityFlags::from_fn(is_codex_flag_declared),
+        CODEX_CAPABILITY_CONTRACT_VERSION,
+        codex_tool_metadata(),
+        version,
         exchange,
     )
     .await
-    .map_err(DriverError::CapabilityProbe)?;
-    detection.report_withdrawals();
-    let declared = DriverCapabilityFlags::from_fn(is_codex_flag_declared);
-    Ok(GetCapabilitiesResult {
-        capabilities: DriverCapabilities {
-            flags: detection.apply_to(&declared),
-            contract_version: FreeFormText::new(CODEX_CAPABILITY_CONTRACT_VERSION.to_owned())
-                .expect("the contract version is non-blank and within its cap"),
-        },
-        tools: codex_tool_metadata(),
-        cli_version: version.report.clone(),
-        detection_source: Some(detection.detection_source),
-        // Each model lists its own tiers on the catalog.
-        output_speed_levels: None,
-    })
 }
 
 /// One `model/list` result: its rows and the cursor of the next page, `null` on the last.

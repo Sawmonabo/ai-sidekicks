@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -39,6 +40,25 @@ pub(crate) fn provider_capability_unsupported(
         RefusalCode::ProviderCapabilityUnsupported,
     )
     .with_detail(json!({ "providerId": provider.as_str(), "flag": flag }))
+}
+
+/// The refusal for a call the provider itself refused for want of `flag`'s capability, beyond what
+/// the static flag shows: [`provider_capability_unsupported`]'s detail with the provider's own words
+/// as `providerFailureDetail`.
+pub(crate) fn provider_capability_refused(
+    provider: &ProviderId,
+    flag: DriverCapabilityFlag,
+    provider_failure_detail: &FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+) -> DomainError {
+    DomainError::new(
+        PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE,
+        RefusalCode::ProviderCapabilityUnsupported,
+    )
+    .with_detail(json!({
+        "providerId": provider.as_str(),
+        "flag": flag,
+        "providerFailureDetail": provider_failure_detail.as_str(),
+    }))
 }
 
 /// A driver, its provider's fixed facts and the capability snapshot recorded for it.
