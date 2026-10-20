@@ -9,13 +9,14 @@ use alacritty_terminal::event::EventListener;
 use bytes::Bytes;
 use sidekicks_daemon::session::spawn_cwd_translator::{SpawnCwdStrategy, translate_spawn_cwd};
 use sidekicks_platforms::{
-    SHELL_FOLDER_PROBES, ShellFolderProbe, Spawner, default_shell, real_path, run_test_as_own_root,
+    SHELL_FOLDER_PROBES, ShellFolderProbe, default_shell, real_path, run_test_as_own_root,
 };
 use sidekicks_terminal::{
     CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalEvent,
     TerminalOutput, Terminals,
 };
-use tokio::runtime::Handle;
+
+use crate::helpers::{DAEMON_PROGRAM, spawner};
 
 /// The bound on each wait for the shell's prompt, so a shell that never shows it fails the test.
 const PROMPT_BOUND: Duration = Duration::from_secs(30);
@@ -148,16 +149,14 @@ async fn open_and_remove_worktree(probe: &ShellFolderProbe) -> Result<(), String
         rows: 24,
         columns: 160,
         shell_start: CommandLine {
-            program: env!("CARGO_BIN_EXE_sidekicks-daemon").to_owned(),
+            program: DAEMON_PROGRAM.to_owned(),
             arguments: vec!["shell".to_owned(), std::process::id().to_string()],
         },
     };
     let request = translate_spawn_cwd(request, SpawnCwdStrategy::ShellFolder, &scratch_folder)
         .map_err(|error| format!("{program}'s start is not translated: {error:?}"))?;
-    let spawner = Spawner::new(Handle::current())
-        .map_err(|error| format!("the spawner for {program} does not start: {error:?}"))?;
     let terminals = Terminals::new(
-        spawner,
+        spawner(),
         CommandLine {
             program: "console-helper".to_owned(),
             arguments: Vec::new(),

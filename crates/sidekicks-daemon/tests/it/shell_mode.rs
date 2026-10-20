@@ -6,11 +6,12 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use alacritty_terminal::event::EventListener;
-use sidekicks_platforms::{Spawner, default_shell, run_test_as_own_root};
+use sidekicks_platforms::{default_shell, run_test_as_own_root};
 use sidekicks_terminal::{
     CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalEvent, Terminals,
 };
-use tokio::runtime::Handle;
+
+use crate::helpers::{DAEMON_PROGRAM, spawner};
 
 /// The bound on each wait, so a mode that hangs fails the test.
 const WAIT_BOUND: Duration = Duration::from_secs(30);
@@ -71,12 +72,12 @@ fn a_shell_that_cannot_start_gives_way_to_the_fallback_with_a_line_saying_so() {
                 rows: 24,
                 columns: 200,
                 shell_start: CommandLine {
-                    program: env!("CARGO_BIN_EXE_sidekicks-daemon").to_owned(),
+                    program: DAEMON_PROGRAM.to_owned(),
                     arguments: vec!["shell".to_owned(), std::process::id().to_string()],
                 },
             };
             let terminals = Terminals::new(
-                Spawner::new(Handle::current()).expect("the spawner starts"),
+                spawner(),
                 CommandLine {
                     program: "console-helper".to_owned(),
                     arguments: Vec::new(),
@@ -120,7 +121,7 @@ fn a_shell_that_cannot_start_gives_way_to_the_fallback_with_a_line_saying_so() {
 
 #[tokio::test]
 async fn a_shell_mode_the_daemon_never_confirmed_starts_nothing() {
-    let mut mode = tokio::process::Command::new(env!("CARGO_BIN_EXE_sidekicks-daemon"));
+    let mut mode = tokio::process::Command::new(DAEMON_PROGRAM);
     mode.args(["shell", &std::process::id().to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
