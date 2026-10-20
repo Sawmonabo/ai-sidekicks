@@ -1,35 +1,30 @@
 //! A database file for tests, opened as the daemon opens its own with the daemon's whole schema,
 //! and the event rows tests write to it.
 
+// The event rows' imports are gated: those rows serve only the crate's own tests.
 use std::path::PathBuf;
-
-use rusqlite::Connection;
-use tempfile::TempDir;
-
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
-
-// The event rows serve only the crate's own tests.
 #[cfg(test)]
 use std::sync::Arc;
 
+use rusqlite::Connection;
+use tempfile::TempDir;
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
-use sidekicks_contracts::event::envelope::EventOccurredAt;
-#[cfg(test)]
-use sidekicks_contracts::event::session::SessionEvent;
-#[cfg(test)]
-use sidekicks_contracts::session::id::SessionId;
+use {
+    serde_json::json,
+    sidekicks_contracts::{
+        event::envelope::EventOccurredAt, event::session::SessionEvent, session::id::SessionId,
+    },
+};
 
+use crate::cleanup_failures::CleanupFailures;
+use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
 #[cfg(test)]
-use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
-#[cfg(test)]
-use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
-#[cfg(test)]
-use crate::events::session::version::SESSION_EVENT_VERSION;
-#[cfg(test)]
-use crate::uuid_v7::mint_uuid_v7;
+use crate::{
+    events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope},
+    events::session::insert::{SessionEventRow, monotonic_ns_now},
+    events::session::version::SESSION_EVENT_VERSION,
+    uuid_v7::mint_uuid_v7,
+};
 
 /// A database file in a folder of its own, removed when this drops.
 pub struct TestDatabase {
@@ -38,6 +33,10 @@ pub struct TestDatabase {
 
 impl TestDatabase {
     /// A folder for a database file the opener creates.
+    #[expect(
+        clippy::new_without_default,
+        reason = "each call makes a new temporary folder"
+    )]
     pub fn new() -> Self {
         Self {
             folder: tempfile::tempdir().expect("the test makes a temporary folder"),
