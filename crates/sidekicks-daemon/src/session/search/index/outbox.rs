@@ -38,7 +38,7 @@ pub(crate) enum OutboxOperation {
 
 /// The statements an outbox reader prepares: its own five, the index row reads by key of each of
 /// the four row kinds, and the rowid floor log's position.
-pub(crate) const OUTBOX_STATEMENT_CAPACITY: usize = 5 + 4 + 1;
+pub const OUTBOX_STATEMENT_CAPACITY: usize = 5 + 4 + 1;
 
 /// What one read of the outbox found.
 #[derive(Clone, Debug)]

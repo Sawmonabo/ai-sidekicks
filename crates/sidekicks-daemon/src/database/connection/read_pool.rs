@@ -36,7 +36,7 @@ pub(crate) enum ReadLength {
 
 /// Why a read did not reach a connection.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DatabaseReadError {
+pub enum DatabaseReadError {
     /// The pool was closed before the read borrowed a connection.
     #[error("the database read pool is closed")]
     Closed,
@@ -50,7 +50,7 @@ pub(crate) enum DatabaseReadError {
 
 /// Why a read-only connection could not be opened.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ReadConnectionOpenError {
+pub enum ReadConnectionOpenError {
     /// SQLite refused the open or the connection's setup.
     #[error(transparent)]
     Connection(#[from] CleanupFailures<rusqlite::Error>),
@@ -102,7 +102,7 @@ impl Manager for ReadConnectionManager {
 
 /// The daemon's read-only connections to its database, shared by every reading service; see the
 /// module doc.
-pub(crate) struct DatabaseReadPool {
+pub struct DatabaseReadPool {
     connections: Pool<ReadConnectionManager>,
     /// The places a long read takes first, one fewer than the pool's connections.
     long_reads: Arc<Semaphore>,
@@ -116,7 +116,7 @@ impl DatabaseReadPool {
     /// them, so a missing file fails the first read. Each connection caches `statement_capacity`
     /// statements: the sum of every reading service's statement set, which the pool's builder
     /// adds up, so a statement stays prepared on whichever connection a read borrows.
-    pub(crate) fn new(database_path: PathBuf, statement_capacity: usize) -> Self {
+    pub fn new(database_path: PathBuf, statement_capacity: usize) -> Self {
         let connections = Pool::builder(ReadConnectionManager {
             database_path,
             statement_capacity,

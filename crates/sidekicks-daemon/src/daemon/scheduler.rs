@@ -71,7 +71,7 @@ pub(crate) struct ScheduledJobHandle {
 
 /// The daemon's one scheduler and its wake signal: jobs run one at a time in the order they fall
 /// due, and a job scheduled after [`Scheduler::stop`] is refused.
-pub(crate) struct Scheduler {
+pub struct Scheduler {
     shared: Arc<SchedulerShared>,
     task: Mutex<Option<JoinHandle<()>>>,
 }
@@ -131,7 +131,7 @@ impl Scheduler {
     /// Starts the scheduler's one task on the running tokio runtime, running a wall-clock job on
     /// `wall_clock`'s timer and telling each wake `wake_watch` hears; with no watch, receivers hear
     /// no wake.
-    pub(crate) fn start(wall_clock: Arc<dyn WallClock>, wake_watch: Option<WakeWatch>) -> Self {
+    pub fn start(wall_clock: Arc<dyn WallClock>, wake_watch: Option<WakeWatch>) -> Self {
         let state = SchedulerState {
             pending_by_deadline: BTreeMap::new(),
             pending_by_instant: BTreeMap::new(),

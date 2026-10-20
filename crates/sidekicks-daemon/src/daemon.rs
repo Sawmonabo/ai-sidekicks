@@ -14,7 +14,7 @@ pub(crate) mod panic_hook;
 pub(crate) mod process_tree_usage;
 pub(crate) mod repairing_socket;
 pub(crate) mod run_folder;
-pub(crate) mod scheduler;
+pub mod scheduler;
 pub mod service_log;
 pub(crate) mod start;
 pub(crate) mod start_stopped_error;

@@ -25,19 +25,11 @@ use sidekicks_daemon::recovery::database_file::repair::{
     repair_damaged_file,
 };
 use sidekicks_daemon::recovery::database_file::sqlite_shell::SqliteShell;
-use sidekicks_platforms::{Spawner, physical_memory};
-use tokio::runtime::Handle;
+use sidekicks_platforms::physical_memory;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-// The daemon's own program, whose modes the copies and the shells run in.
-fn daemon_program() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_sidekicks-daemon"))
-}
-
-fn spawner() -> Spawner {
-    Spawner::new(Handle::current()).expect("the spawner thread starts")
-}
+use crate::helpers::{daemon_program, spawner};
 
 // The folders the store's files are copied into, each a copy.
 fn aside_copies(data_folder: &Path) -> Vec<PathBuf> {

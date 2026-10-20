@@ -1,44 +1,56 @@
 //! A database file for tests, opened as the daemon opens its own with the daemon's whole schema,
 //! and the event rows tests write to it.
 
+// The event rows' imports are gated: those rows serve only the crate's own tests.
 use std::path::PathBuf;
+#[cfg(test)]
 use std::sync::Arc;
 
 use rusqlite::Connection;
-use serde_json::json;
-use sidekicks_contracts::event::envelope::EventOccurredAt;
-use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::session::id::SessionId;
 use tempfile::TempDir;
+#[cfg(test)]
+use {
+    serde_json::json,
+    sidekicks_contracts::{
+        event::envelope::EventOccurredAt, event::session::SessionEvent, session::id::SessionId,
+    },
+};
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
-use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
-use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::uuid_v7::mint_uuid_v7;
+#[cfg(test)]
+use crate::{
+    events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope},
+    events::session::insert::{SessionEventRow, monotonic_ns_now},
+    events::session::version::SESSION_EVENT_VERSION,
+    uuid_v7::mint_uuid_v7,
+};
 
 /// A database file in a folder of its own, removed when this drops.
-pub(crate) struct TestDatabase {
+pub struct TestDatabase {
     folder: TempDir,
 }
 
 impl TestDatabase {
     /// A folder for a database file the opener creates.
-    pub(crate) fn new() -> Self {
+    #[expect(
+        clippy::new_without_default,
+        reason = "each call makes a new temporary folder"
+    )]
+    pub fn new() -> Self {
         Self {
             folder: tempfile::tempdir().expect("the test makes a temporary folder"),
         }
     }
 
     /// The database file's path.
-    pub(crate) fn path(&self) -> PathBuf {
+    pub fn path(&self) -> PathBuf {
         self.folder.path().join("daemon.db")
     }
 
     /// The opener a writer runs on its thread: the daemon's own open of the file, which creates it
     /// with the daemon's schema. Fails as that open does.
-    pub(crate) fn opener(
+    pub fn opener(
         &self,
     ) -> impl FnOnce() -> Result<Connection, CleanupFailures<DatabaseOpenError, rusqlite::Error>>
     + Send
@@ -48,17 +60,19 @@ impl TestDatabase {
     }
 
     /// A second connection on the file, for a test to read what the writer committed.
-    pub(crate) fn reader(&self) -> Connection {
+    pub fn reader(&self) -> Connection {
         Connection::open(self.path()).expect("the test opens a second connection on its file")
     }
 }
 
 /// A fresh session's id.
+#[cfg(test)]
 pub(crate) fn test_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
 }
 
 /// The envelope of `event` on `session_id`'s log, occurring now, with no linkage.
+#[cfg(test)]
 pub(crate) fn test_envelope(
     session_id: SessionId,
     event: &SessionEvent,
@@ -74,6 +88,7 @@ pub(crate) fn test_envelope(
 }
 
 /// A `session.pinned` row for `session_id`, with no body.
+#[cfg(test)]
 pub(crate) fn session_event_row(session_id: &SessionId) -> SessionEventRow {
     let pinned = serde_json::from_value(json!({
         "type": "session.pinned",

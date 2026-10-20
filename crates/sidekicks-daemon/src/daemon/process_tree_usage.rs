@@ -79,16 +79,21 @@ impl ProcessTreeUsageReader {
 impl ReaderState {
     fn read(&mut self, root: Pid) -> ProcessTreeUsage {
         // Pids and parents only, to find the tree; then processor and memory for the tree alone.
+        // Neither lists threads: a thread is listed as a child of its process and reports its
+        // process's memory, so it would count as a second process of the tree.
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
-            ProcessRefreshKind::nothing(),
+            ProcessRefreshKind::nothing().without_tasks(),
         );
         let tree = self.tree_under(root);
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::Some(&tree),
             true,
-            ProcessRefreshKind::nothing().with_cpu().with_memory(),
+            ProcessRefreshKind::nothing()
+                .without_tasks()
+                .with_cpu()
+                .with_memory(),
         );
         let read_at = Instant::now();
         let mut core_percent = 0.0;

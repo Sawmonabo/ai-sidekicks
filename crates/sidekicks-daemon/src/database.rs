@@ -2,9 +2,9 @@
 //! checkpoints, and reading stored columns as typed values.
 
 pub(crate) mod checkpoint;
-pub(crate) mod connection;
+pub mod connection;
 pub mod schema;
 pub(crate) mod sql_list;
 pub(crate) mod statement;
 pub(crate) mod stored_column;
-pub(crate) mod writer;
+pub mod writer;

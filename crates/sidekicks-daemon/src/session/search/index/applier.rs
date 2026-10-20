@@ -15,7 +15,7 @@ use crate::session::search::index::outbox::{OutboxRead, OutboxReader};
 
 /// Why a run did not apply every waiting row; the index is then behind the database.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SearchIndexApplyError {
+pub enum SearchIndexApplyError {
     /// The outbox or a row it names could not be read.
     #[error("the search outbox's read failed")]
     Database(#[from] rusqlite::Error),

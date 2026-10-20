@@ -1,55 +1,27 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use rstest::rstest;
-use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_search::index::SearchIndex;
-use tokio::runtime::Handle;
 use tokio::sync::{Notify, watch};
 
-use super::{LiveIndex, LiveIndexOptions, LiveIndexShared, OpenIndex, catch_up, delete_applied};
-use crate::daemon::scheduler::Scheduler;
-use crate::database::connection::read_pool::DatabaseReadPool;
+use super::test_services::TestDaemonServices;
+use super::{LiveIndexShared, OpenIndex, catch_up, delete_applied};
 use crate::database::writer::test_file::TestDatabase;
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::session::search::index::applier::SearchIndexApplier;
-use crate::session::search::index::outbox::{
-    AppliedOutbox, OUTBOX_STATEMENT_CAPACITY, OutboxReader, delete_applied_outbox,
-};
+use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
 use crate::session::search::index::rebuild::{
     SearchIndexOpening, make_index_at, open_search_index,
 };
 use crate::session::search::index::schema::add_titled_session;
 use crate::session::search::rowid_floors::RowidFloorLog;
 
-// The daemon's scheduler on the system's wall-clock timer.
-fn scheduler() -> Arc<Scheduler> {
-    Arc::new(Scheduler::start(
-        Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-        None,
-    ))
-}
-
-// A file the stand-in build writes beside the index folder.
-fn build_marker(index_folder: &Path, name: &str) -> PathBuf {
-    let mut path = index_folder.as_os_str().to_owned();
-    path.push(format!(".{name}"));
-    PathBuf::from(path)
-}
-
-// A writer on the test's file.
-async fn writer_on(database: &TestDatabase) -> DatabaseWriter {
-    DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-        .await
-        .expect("the writer opens its database")
-}
-
 // A database of `session_count` titled sessions, beside an index whose newest commit records the
 // first session's outbox rows, opened as a start opens it; and the outbox's highest id. Past one
 // session the last is deleted, so the floor log holds an entry.
 async fn index_behind_its_database(
     database: &TestDatabase,
+    services: &TestDaemonServices,
     folder: &Path,
     session_count: usize,
 ) -> (Arc<LiveIndexShared>, OpenIndex, u64) {
@@ -77,11 +49,8 @@ async fn index_behind_its_database(
     else {
         panic!("an index at an id the outbox gave serves");
     };
-    let reads = Arc::new(DatabaseReadPool::new(
-        database.path(),
-        OUTBOX_STATEMENT_CAPACITY,
-    ));
-    let shared = LiveIndexShared::new(Arc::clone(&reads), scheduler());
+    let reads = Arc::clone(&services.reads);
+    let shared = LiveIndexShared::new(Arc::clone(&reads), Arc::clone(&services.scheduler));
     let index: Arc<SearchIndex> = Arc::from(index);
     let open = OpenIndex {
         applier: Arc::new(SearchIndexApplier::new(Arc::clone(&index), reads)),
@@ -91,54 +60,12 @@ async fn index_behind_its_database(
 }
 
 #[tokio::test]
-async fn a_close_during_a_build_settles_once_the_build_has_exited() {
-    let database = TestDatabase::new();
-    let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-        .await
-        .expect("the writer opens its database");
-    let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-    let index_folder = folder.path().join("search-index");
-    let live = LiveIndex::start(LiveIndexOptions {
-        database_path: database.path(),
-        index_folder: index_folder.clone(),
-        program: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/search_index_build.sh"),
-        spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        reads: Arc::new(DatabaseReadPool::new(
-            database.path(),
-            OUTBOX_STATEMENT_CAPACITY,
-        )),
-        writer: Arc::new(writer),
-        scheduler: scheduler(),
-    });
-    let started = build_marker(&index_folder, "started");
-    // A build that fails to start fails the live index at once, so its failure ends the wait.
-    tokio::time::timeout(Duration::from_secs(30), async {
-        tokio::select! {
-            () = async {
-                while !started.exists() {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            } => {}
-            failure = live.when_failed() => panic!("the missing index's build fails: {failure:?}"),
-        }
-    })
-    .await
-    .expect("the missing index's build starts");
-
-    live.close().await.expect("the close ends the build");
-
-    assert!(
-        build_marker(&index_folder, "exited").exists(),
-        "the close settles only once the build's process has exited"
-    );
-}
-
-#[tokio::test]
 async fn the_start_reports_the_newest_commit_before_it_applies_what_waits() {
     let database = TestDatabase::new();
+    let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
     let (shared, open, highest_id_given) =
-        index_behind_its_database(&database, folder.path(), 3).await;
+        index_behind_its_database(&database, &services, folder.path(), 3).await;
     let (deletes, _applied) = watch::channel(None);
 
     catch_up(&shared, &open, &deletes, &Notify::new())
@@ -163,9 +90,9 @@ async fn the_start_reports_the_newest_commit_before_it_applies_what_waits() {
 #[tokio::test]
 async fn a_delete_during_a_first_page_s_read_keeps_the_floor_it_reads_from() {
     let database = TestDatabase::new();
+    let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-    let (shared, open, _) = index_behind_its_database(&database, folder.path(), 3).await;
-    let writer = writer_on(&database).await;
+    let (shared, open, _) = index_behind_its_database(&database, &services, folder.path(), 3).await;
     // A first page that read the applier's floor before the catch-up and is still being read.
     let in_flight = shared.enter_search(&open);
     let (deletes, _applied) = watch::channel(None);
@@ -174,7 +101,7 @@ async fn a_delete_during_a_first_page_s_read_keeps_the_floor_it_reads_from() {
         .await
         .expect("the index catches up");
     let applied = (*deletes.borrow()).expect("the catch-up reports its newest commit");
-    delete_applied_outbox(&writer, applied)
+    delete_applied_outbox(&services.writer, applied)
         .await
         .expect("the applied rows are deleted");
 
@@ -204,12 +131,12 @@ async fn a_restart_deletes_what_its_index_holds_and_applies_what_it_does_not(
     #[case] session_count: usize,
 ) {
     let database = TestDatabase::new();
+    let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
     let (shared, open, highest_id_given) =
-        index_behind_its_database(&database, folder.path(), session_count).await;
-    let writer = Arc::new(writer_on(&database).await);
+        index_behind_its_database(&database, &services, folder.path(), session_count).await;
     let (deletes, applied) = watch::channel(None);
-    let deleting = tokio::spawn(delete_applied(Arc::clone(&writer), applied));
+    let deleting = tokio::spawn(delete_applied(Arc::clone(&services.writer), applied));
 
     catch_up(&shared, &open, &deletes, &Notify::new())
         .await

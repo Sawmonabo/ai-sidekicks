@@ -41,7 +41,7 @@ const STANDARD_ERROR_TAIL_BYTES: usize = 16 * 1024;
 /// Why the index was built again at a start, logged by its word (`anotherDatabase`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum SearchIndexRebuildReason {
+pub enum SearchIndexRebuildReason {
     /// The index's folder was missing.
     Missing,
     /// The folder's files could not be read as an index; the folder was removed.
@@ -61,7 +61,7 @@ pub(crate) enum SearchIndexOpening {
 
 /// Why an open at a start failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SearchIndexOpenError {
+pub enum SearchIndexOpenError {
     /// The folder's presence could not be read, or a folder that could not serve was not removed.
     #[error("the search index folder could not be read or removed")]
     Folder(#[source] io::Error),
@@ -87,7 +87,7 @@ pub(crate) struct SearchIndexBuildRequest {
 
 /// Why a build in a child process did not finish.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SearchIndexChildError {
+pub enum SearchIndexChildError {
     /// The cancellation came before the build ended; the process has exited.
     #[error("the search index's build was canceled")]
     Canceled,
