@@ -1,12 +1,13 @@
 //! A node's reference parameters and its secret references, checked against the parameter list of
 //! the node's kind. A reference names a record kept elsewhere, so a parameter never carries a
 //! nested node or a tool's policy, and a `secret://` reference stands only in a parameter the kind
-//! marks sensitive, never inside an expression. The check reads only its arguments, so the builder
-//! runs the same function as the daemon's check at save.
+//! marks sensitive, never inside an expression. The check reads only its arguments: the builder
+//! runs it through the WebAssembly export, and the daemon's save calls it once the save reads the
+//! kinds catalog.
 
 use garde::Validate;
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::agent::definition::AgentDefinitionId;
@@ -24,7 +25,8 @@ const SECRET_SCHEME: &str = "secret://";
 /// One parameter value the check refused. `path` is the value's dotted place, its parameter's id
 /// first (`headers.0.token` inside a repeating collection), and `message` names the fault, such as
 /// a tool binding's `approvalMode`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "wasm", derive(serde::Serialize))]
 pub struct WorkflowParamIssue {
     /// The value's dotted place.
     pub path: String,
