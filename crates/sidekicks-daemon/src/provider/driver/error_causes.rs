@@ -21,6 +21,9 @@ pub(crate) struct ExecutableUnresolvable {
     /// Whether the system reads the command as a path the person typed, rather than a bare name
     /// searched for.
     pub(crate) is_typed_path: bool,
+    /// Whether a build the command names was found, one that then could not be resolved or
+    /// started.
+    pub(crate) is_build_found: bool,
     /// Why it resolves to no build: none was found, or its real path could not be read.
     #[source]
     pub(crate) cause: io::Error,
@@ -28,9 +31,9 @@ pub(crate) struct ExecutableUnresolvable {
 
 impl ExecutableUnresolvable {
     /// Whether the provider is not installed: a bare command name no search found, as against a
-    /// typed path that does not run or a build found that the system cannot start.
+    /// typed path that does not run or a build found that the system cannot resolve or start.
     pub(crate) fn is_not_installed(&self) -> bool {
-        !self.is_typed_path && self.cause.kind() == io::ErrorKind::NotFound
+        !self.is_typed_path && !self.is_build_found && self.cause.kind() == io::ErrorKind::NotFound
     }
 
     /// The refusal a call answers with, naming the command as configured:

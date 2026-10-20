@@ -116,6 +116,7 @@ impl SecondRead {
                 provider: provider(1),
                 requested_command: "missing".to_owned(),
                 is_typed_path: false,
+                is_build_found: false,
                 cause: io::Error::from(io::ErrorKind::NotFound),
             }),
             Self::TypedPathNotRunnable => {
@@ -123,6 +124,7 @@ impl SecondRead {
                     provider: provider(1),
                     requested_command: "/opt/provider/missing".to_owned(),
                     is_typed_path: true,
+                    is_build_found: false,
                     cause: io::Error::from(io::ErrorKind::NotFound),
                 })
             }
