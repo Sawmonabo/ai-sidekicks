@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -52,8 +53,9 @@ pub(super) struct DeliveryState {
     pub(super) next_turn_runs: HashMap<QueueItemId, RunId>,
     /// Runs whose provider holds a credits choice that a message settles.
     pub(super) credits_choice_runs: HashSet<RunId>,
-    /// Runs an interrupt is under way on, which are handed nothing until it settles.
-    pub(super) interrupt_holds: HashSet<RunId>,
+    /// Runs an interrupt is under way on, with each interrupt holding it; a run is handed nothing
+    /// until every one of them settles.
+    pub(super) interrupt_holds: HashMap<RunId, HashSet<InterventionId>>,
     /// Each session's chain, present only while its drain runs.
     pub(super) chains: HashMap<SessionId, SessionChain>,
     next_hand_number: u64,

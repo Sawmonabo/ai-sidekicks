@@ -106,6 +106,7 @@ async fn fixture(mut driver: MockProviderDriver, state: &str) -> Fixture {
             hands_at: HandMoment::AtOnce,
             can_withdraw: true,
             kept_by_process: false,
+            reads_priority_message: false,
         });
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;

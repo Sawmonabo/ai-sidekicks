@@ -28,6 +28,7 @@ use std::time::Duration;
 
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -115,6 +116,17 @@ pub(crate) enum QueueWithdrawal {
     Returned,
     /// Not the queue's to change.
     Unreturned(UnreturnedReason),
+}
+
+/// What one interrupt's release did to its run's hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InterruptHoldRelease {
+    /// The interrupt held nothing: it was released before, or never held.
+    NotHeld,
+    /// Another interrupt still holds the run.
+    StillHeld,
+    /// The run's last hold went; its messages may be handed again.
+    Released,
 }
 
 /// The interrupt's end writes for the messages waiting for its run.
@@ -451,17 +463,23 @@ impl QueueDelivery {
         output
     }
 
-    /// Holds back every hand to `run_id` until [`QueueDelivery::release_interrupt_hold`], a tool
-    /// boundary's included, and waits out a hand to it already inside its driver call, never the
-    /// jobs queued on the chain. Called under `hold`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the run queue's interrupt hold")
-    )]
-    pub(crate) async fn hold_for_interrupt(&self, hold: &KeyHold<'_, SessionId>, run_id: RunId) {
+    /// Holds back every hand to `run_id` for the interrupt `intervention_id` until its
+    /// [`QueueDelivery::release_interrupt_hold`], a tool boundary's included, and waits out a hand
+    /// to it already inside its driver call, never the jobs queued on the chain. Called under
+    /// `hold`.
+    pub(crate) async fn hold_for_interrupt(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        run_id: RunId,
+        intervention_id: InterventionId,
+    ) {
         let in_flight = {
             let mut state = self.lock_state();
-            state.interrupt_holds.insert(run_id);
+            state
+                .interrupt_holds
+                .entry(run_id)
+                .or_default()
+                .insert(intervention_id);
             state
                 .chains
                 .get(hold.key())
@@ -476,15 +494,30 @@ impl QueueDelivery {
         }
     }
 
-    /// Ends an interrupt's hold on `run_id`, answering whether one was held.
-    #[expect(dead_code, reason = "the run queue's interrupt hold")]
-    pub(crate) fn release_interrupt_hold(&self, run_id: RunId) -> bool {
-        self.lock_state().interrupt_holds.remove(&run_id)
+    /// Ends the hold the interrupt `intervention_id` took on `run_id`, answering what became of
+    /// the run's hold; a second release of one interrupt changes nothing.
+    pub(crate) fn release_interrupt_hold(
+        &self,
+        run_id: RunId,
+        intervention_id: InterventionId,
+    ) -> InterruptHoldRelease {
+        let mut state = self.lock_state();
+        let Some(holders) = state.interrupt_holds.get_mut(&run_id) else {
+            return InterruptHoldRelease::NotHeld;
+        };
+        if !holders.remove(&intervention_id) {
+            return InterruptHoldRelease::NotHeld;
+        }
+        if !holders.is_empty() {
+            return InterruptHoldRelease::StillHeld;
+        }
+        state.interrupt_holds.remove(&run_id);
+        InterruptHoldRelease::Released
     }
 
     /// Whether an interrupt of `run_id` is under way.
     pub(crate) fn is_held_for_interrupt(&self, run_id: RunId) -> bool {
-        self.lock_state().interrupt_holds.contains(&run_id)
+        self.lock_state().interrupt_holds.contains_key(&run_id)
     }
 
     /// Records whether the provider holds a credits choice on `run_id`, which a message settles.
@@ -716,6 +749,7 @@ fn steer_of(item: &QueueItemRecord, run_id: RunId, run_version: i64) -> ApplyInt
             attachments: attachments_of(&item.body),
             skills: item.body.skills.clone().unwrap_or_default(),
             expected_turn_id: None,
+            is_priority: false,
         },
     }
 }

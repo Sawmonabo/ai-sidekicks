@@ -32,6 +32,7 @@ const KEPT_BY_PROCESS: MessageHanding = MessageHanding {
     hands_at: HandMoment::AtOnce,
     can_withdraw: true,
     kept_by_process: true,
+    reads_priority_message: false,
 };
 
 // A message handed to a provider whose process keeps it past the run's end stays handed through

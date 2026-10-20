@@ -195,7 +195,7 @@ impl QueueDelivery {
         };
         {
             let mut state = self.lock_state();
-            if state.interrupt_holds.contains(&run_id) {
+            if state.interrupt_holds.contains_key(&run_id) {
                 state.handed.remove(&item.id);
                 return Ok(());
             }
@@ -250,7 +250,7 @@ impl QueueDelivery {
         };
         {
             let mut state = self.lock_state();
-            if state.interrupt_holds.contains(&run_id) {
+            if state.interrupt_holds.contains_key(&run_id) {
                 for item in items {
                     state.handed.remove(&item.id);
                 }

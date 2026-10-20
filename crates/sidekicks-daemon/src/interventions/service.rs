@@ -310,7 +310,7 @@ impl InterventionService {
         // The queue's hold comes before the row, so a hold that fails leaves no row to apply.
         let choice = interrupt_choice_of(interrupt);
         self.queue
-            .hold_for_interrupt(run_id, choice)
+            .hold_for_interrupt(run_id, target.intervention_id, choice)
             .await
             .map_err(InterventionError::Queue)?;
         let Applied {
@@ -322,7 +322,7 @@ impl InterventionService {
         }
         let released = self
             .queue
-            .release_interrupt(run_id, choice)
+            .release_interrupt(run_id, target.intervention_id, choice)
             .await
             .map_err(InterventionError::Queue);
         match settle_all(

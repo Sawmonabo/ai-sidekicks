@@ -12,7 +12,8 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::events::{InterventionActor, InterventionDeviceActor};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
-    AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionInterruptRequest,
+    AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionId,
+    InterventionInterruptRequest,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -59,6 +60,7 @@ impl InterruptQueue for EngineQueue {
     fn hold_for_interrupt(
         &self,
         _run_id: RunId,
+        _intervention_id: InterventionId,
         _choice: InterruptChoice,
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
         self.holds_taken.fetch_add(1, Ordering::SeqCst);
@@ -91,6 +93,7 @@ impl InterruptQueue for EngineQueue {
     fn release_interrupt(
         &self,
         _run_id: RunId,
+        _intervention_id: InterventionId,
         choice: InterruptChoice,
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
         self.releases
@@ -130,6 +133,7 @@ pub(crate) async fn harness(mut driver: MockProviderDriver) -> Harness {
             hands_at: HandMoment::AtOnce,
             can_withdraw: true,
             kept_by_process: false,
+            reads_priority_message: false,
         });
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;

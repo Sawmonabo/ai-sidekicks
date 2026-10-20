@@ -15,8 +15,8 @@ use tokio::time::timeout;
 
 use super::{
     HANDS_AT_ONCE, HANDS_AT_TOOL_BOUNDARY, WAIT, applied, continued_ids, count_steers,
-    driver_handing, fixture, hand, hold_chain, insert_item, release_chain, set_run_state, settle,
-    steered_item, stored_item,
+    driver_handing, fixture, hand, hold_chain, insert_item, intervention_id, release_chain,
+    set_run_state, settle, steered_item, stored_item,
 };
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
@@ -108,7 +108,9 @@ async fn a_hand_to_a_run_held_for_an_interrupt_makes_no_driver_call() {
             .expect("the hand is queued");
         timeout(
             WAIT,
-            fixture.delivery.hold_for_interrupt(&hold, fixture.run_id),
+            fixture
+                .delivery
+                .hold_for_interrupt(&hold, fixture.run_id, intervention_id()),
         )
         .await
         .expect("no hand is inside its driver call");
@@ -148,7 +150,9 @@ async fn a_tool_boundary_to_a_run_held_for_an_interrupt_leaves_the_message_for_t
             .expect("the boundary's steer is queued");
         timeout(
             WAIT,
-            fixture.delivery.hold_for_interrupt(&hold, fixture.run_id),
+            fixture
+                .delivery
+                .hold_for_interrupt(&hold, fixture.run_id, intervention_id()),
         )
         .await
         .expect("no steer is inside its driver call");
@@ -212,7 +216,11 @@ async fn an_interrupt_hold_waits_out_a_hand_inside_its_driver_call(
         .expect("the hand steers");
 
     let hold = fixture.session_lock.acquire(fixture.session_id).await;
-    let mut holding = pin!(fixture.delivery.hold_for_interrupt(&hold, fixture.run_id));
+    let mut holding = pin!(fixture.delivery.hold_for_interrupt(
+        &hold,
+        fixture.run_id,
+        intervention_id()
+    ));
     let early = timeout(Duration::from_millis(100), &mut holding).await;
     release_steer
         .send(())

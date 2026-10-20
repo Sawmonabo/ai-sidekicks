@@ -15,6 +15,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use rusqlite::params;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -63,6 +64,7 @@ const HANDS_AT_ONCE: MessageHanding = MessageHanding {
     hands_at: HandMoment::AtOnce,
     can_withdraw: true,
     kept_by_process: false,
+    reads_priority_message: false,
 };
 
 /// A provider whose messages the daemon holds to its turn's next tool boundary.
@@ -70,6 +72,7 @@ const HANDS_AT_TOOL_BOUNDARY: MessageHanding = MessageHanding {
     hands_at: HandMoment::AtToolBoundary,
     can_withdraw: false,
     kept_by_process: false,
+    reads_priority_message: false,
 };
 
 /// The session's provider process when each test starts.
@@ -312,6 +315,11 @@ fn set_run_state(fixture: &Fixture, state: RunState) {
             params![fixture.run_id.text().as_str(), <&'static str>::from(state)],
         )
         .expect("the test moves the run");
+}
+
+/// A fresh interrupt's id, for a hold the delivery takes.
+fn intervention_id() -> InterventionId {
+    InterventionId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an intervention id")
 }
 
 fn item_ids(items: &[QueueItemRecord]) -> Vec<QueueItemId> {

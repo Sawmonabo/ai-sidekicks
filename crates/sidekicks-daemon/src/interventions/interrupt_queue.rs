@@ -5,7 +5,7 @@ use std::error::Error;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::intervention::{InterventionId, RunLimit};
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
@@ -74,12 +74,15 @@ pub(crate) struct InterruptEnd {
 
 /// The run queue as an interrupt uses it.
 pub(crate) trait InterruptQueue: Send + Sync {
-    /// Holds the queue's hands to `run_id`, and the settling of an end of it seen meanwhile, until
-    /// [`InterruptQueue::release_interrupt`]; a run whose end already moved its waiting messages on
-    /// has `choice` applied to them. Fails as the queue's read or write fails.
+    /// Holds the queue's hands to `run_id` for the interrupt `intervention_id`, and the settling
+    /// of an end of it seen meanwhile, until that interrupt's
+    /// [`InterruptQueue::release_interrupt`]; the run stays held while any interrupt holds it. A
+    /// run whose end already moved its waiting messages on has `choice` applied to them. Fails as
+    /// the queue's read or write fails.
     fn hold_for_interrupt(
         &self,
         run_id: RunId,
+        intervention_id: InterventionId,
         choice: InterruptChoice,
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>>;
 
@@ -92,11 +95,13 @@ pub(crate) trait InterruptQueue: Send + Sync {
         end: InterruptEnd,
     ) -> BoxFuture<'_, Result<bool, InterruptQueueError>>;
 
-    /// Lets go the hold [`InterruptQueue::hold_for_interrupt`] took, applying `choice` to the
-    /// messages of a run that ended first. Fails as the queue's write fails.
+    /// Lets go the hold the interrupt `intervention_id` took, and once no interrupt holds the run,
+    /// applies `choice` to the messages of a run that ended first and hands the rest again. A
+    /// second release of one interrupt changes nothing. Fails as the queue's write fails.
     fn release_interrupt(
         &self,
         run_id: RunId,
+        intervention_id: InterventionId,
         choice: InterruptChoice,
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>>;
 }
