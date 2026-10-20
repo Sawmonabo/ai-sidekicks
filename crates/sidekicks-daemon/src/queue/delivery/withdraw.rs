@@ -64,9 +64,11 @@ fn lock_flag(flag: &Mutex<bool>) -> MutexGuard<'_, bool> {
 impl QueueDelivery {
     /// Takes `items` back from their provider ahead of a change to them and says of each whether
     /// it is the queue's to change: waiting, not a starting run's opening, and not handed or
-    /// given back. A handed one is withdrawn on the session's chain within [`WITHDRAW_DEADLINE`];
-    /// one the provider did not give back in time, or that the chain did not reach by then, reads
-    /// not delivered. Called under `hold`; fails when a read or a write fails.
+    /// given back. One a resume read is taken at once, the resume going to its provider off the
+    /// session lock; any other handed one is withdrawn on the session's chain within
+    /// [`WITHDRAW_DEADLINE`], and one the provider did not give back in time, or that the chain did
+    /// not reach by then, reads not delivered. Called under `hold`; fails when a read or a write
+    /// fails.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the run queue's edit, removal and reorder")
@@ -82,16 +84,24 @@ impl QueueDelivery {
         });
         // Under the session lock no hand of an unhanded message joins the chain, so one not
         // handed now stays with the queue and needs no withdraw.
-        let (handed, unhanded): (Vec<QueueItemRecord>, Vec<QueueItemRecord>) = {
+        let mut handed = Vec::new();
+        let mut withdrawals: HashMap<QueueItemId, QueueWithdrawal> = HashMap::new();
+        {
             let state = self.lock_state();
-            candidates
-                .cloned()
-                .partition(|item| state.handed.contains_key(&item.id))
-        };
-        let mut withdrawals: HashMap<QueueItemId, QueueWithdrawal> = unhanded
-            .iter()
-            .map(|item| (item.id, QueueWithdrawal::Returned))
-            .collect();
+            for item in candidates {
+                let withdrawal = match state.handed.get(&item.id).map(|handed| handed.route) {
+                    None => QueueWithdrawal::Returned,
+                    Some(HandRoute::Continue { .. }) => {
+                        QueueWithdrawal::Unreturned(UnreturnedReason::Taken)
+                    }
+                    Some(HandRoute::Driver(_)) => {
+                        handed.push(item.clone());
+                        continue;
+                    }
+                };
+                withdrawals.insert(item.id, withdrawal);
+            }
+        }
         if !handed.is_empty() {
             withdrawals.extend(self.withdraw_on_chain(*hold.key(), handed).await?);
         }

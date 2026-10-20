@@ -13,6 +13,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
@@ -39,7 +40,7 @@ use crate::session::run::engine::{
     LiveAppend, RunEngine, RunEngineError, RunResumeError, with_cleanup_failures,
 };
 use crate::session::run::projection::insert_queued_run_statement;
-use crate::session::run::read::{RunRead, RunStateReader};
+use crate::session::run::read::{RunRead, RunStateReader, read_run_provider};
 use crate::session::run::refusals::{RunRefusal, require_expected_version};
 use crate::session::run::setup_gates::{RunSetupContext, RunSetupGateError, RunTerminalContext};
 use crate::session::run::start_request::{
@@ -458,10 +459,11 @@ impl RunEngine {
     }
 
     /// Resumes the paused or pausing run `run_id` through `resume`, the driver's resume, which the
-    /// caller builds from the run as read: the run is registered as being continued first, so what
-    /// its provider reports from then on waits, then read and refused unless it is still at
-    /// `expected_run_version` and pausing or paused, and only once `resume` answers `Ok` is
-    /// `running` written, with `companions` in the same write. Fails with
+    /// caller builds from the run and the provider it runs on as one read gives them: the run is
+    /// registered as being continued first, once every provider change already past its check has
+    /// been written, so what its provider reports from then on waits, then read and refused unless
+    /// it is still at `expected_run_version` and pausing or paused, and only once `resume` answers
+    /// `Ok` is `running` written, with `companions` in the same write. Fails with
     /// [`RunResumeError::Unstarted`], `resume` never run, for a run unknown, held by another
     /// continue or a resume, at another version or in another state, refused as
     /// [`RunRefusal::NotFound`], [`RunRefusal::InvalidTransition`] and
@@ -473,12 +475,26 @@ impl RunEngine {
         run_id: RunId,
         expected_run_version: SafeInt<0>,
         companions: RunStateChangeCompanions,
-        resume: impl FnOnce(RunRead) -> Resume,
+        resume: impl FnOnce(RunRead, Option<ProviderId>) -> Resume,
     ) -> Result<RunRead, RunResumeError<DriverFailure>>
     where
         Resume: Future<Output = Result<(), DriverFailure>>,
     {
-        let Some(entry) = lock(&self.live).insert_continuing(run_id, false) else {
+        // A provider change past its check for a continue is written first, so the run read under
+        // the entry is never moved under the resume by a report that came before it.
+        let entry = loop {
+            let marks = {
+                let mut live = lock(&self.live);
+                match live.provider_changes.get(&run_id) {
+                    Some(marks) => marks.clone(),
+                    None => break live.insert_continuing(run_id, false),
+                }
+            };
+            for mark in marks {
+                mark.landed.wait().await;
+            }
+        };
+        let Some(entry) = entry else {
             let run = self
                 .require_run(run_id)
                 .await
@@ -492,8 +508,20 @@ impl RunEngine {
             run_id,
             entry: Arc::clone(&entry),
         };
-        let run = self
-            .require_run(run_id)
+        #[cfg(test)]
+        self.resume_read_pause.pass().await;
+        let (run, bound) = self
+            .pool
+            .read(
+                ReadLength::Short,
+                move |reader| -> Result<_, RunEngineError> {
+                    let Some(run) = RunStateReader::new(reader).read_run(&run_id)? else {
+                        return Err(RunRefusal::NotFound { run_id }.into());
+                    };
+                    let bound = read_run_provider(reader, &run_id)?.map(|bound| bound.provider);
+                    Ok((run, bound))
+                },
+            )
             .await
             .map_err(RunResumeError::Unstarted)?;
         require_expected_version(run_id, &run, expected_run_version)
@@ -503,7 +531,7 @@ impl RunEngine {
                 run_id, &run, false,
             )));
         }
-        resume(run).await.map_err(RunResumeError::Driver)?;
+        resume(run, bound).await.map_err(RunResumeError::Driver)?;
         entry.is_turn_started.store(true, Ordering::Release);
         self.change(
             RunStateChange::new(

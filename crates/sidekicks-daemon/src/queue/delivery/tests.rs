@@ -260,7 +260,7 @@ async fn hand(fixture: &Fixture) {
 /// The ids of the messages a continue of the fixture's run reads, under the session lock.
 async fn continued_ids(fixture: &Fixture) -> Vec<QueueItemId> {
     let hold = fixture.session_lock.acquire(fixture.session_id).await;
-    ContinuedMessages::read(&fixture.delivery, &hold, fixture.run_id)
+    ContinuedMessages::read(&fixture.delivery, &hold, fixture.run_id, HANDS_AT_ONCE)
         .await
         .expect("the continue reads the waiting messages")
         .iter()

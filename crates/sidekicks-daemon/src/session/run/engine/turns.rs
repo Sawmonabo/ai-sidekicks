@@ -352,8 +352,10 @@ impl RunEngine {
 
     /// Writes the end its provider reported for a turn of `run_id` that changes no run (one beside
     /// a live run, or a late end on an ended run, whose cut the log's rows give where the engine
-    /// holds none), answering whether it was written, a duplicate dropped, then hands again a step
-    /// limit's interrupt a stop could not hand, that failure returned beside. Fails with
+    /// holds none), answering whether it was written, a duplicate dropped; a live run's turn ended
+    /// any other way than interrupted then expires each interrupt left on the run with no outcome,
+    /// which did not take. It then hands again a step limit's interrupt a stop could not hand,
+    /// that failure returned beside. Fails with
     /// `RunRefusal::NotFound` for an unknown run and with the read's or the append's failure.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_turn_end(
@@ -362,6 +364,10 @@ impl RunEngine {
         turn_end: ProviderTurnEnd,
     ) -> Result<WriteWithResend<bool>, RunEngineError> {
         let run = self.require_run(run_id).await?;
+        // A turn of a live run its provider ended any other way than interrupted shows that an
+        // interrupt left with no outcome did not take.
+        let is_live_turn_uninterrupted =
+            !run.state.is_terminal() && !matches!(turn_end.outcome, TurnOutcome::Interrupted(_));
         let turn_end = if run.state.is_terminal() {
             let ProviderTurnEnd {
                 turn_number,
@@ -380,6 +386,9 @@ impl RunEngine {
         let is_written = self
             .record_turn_end_alone(run_id, &run, turn_end, false)
             .await?;
+        if is_written && is_live_turn_uninterrupted {
+            self.settle_after_uninterrupted_turn_end(run_id).await?;
+        }
         Ok(WriteWithResend {
             written: is_written,
             resend_failure: self.hand_owed_step_interrupt(run_id).await.err(),

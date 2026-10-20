@@ -13,6 +13,7 @@ mod start;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(crate) mod turns;
+mod unresolved_interventions;
 
 use std::error::Error;
 use std::sync::atomic::Ordering;
@@ -42,6 +43,7 @@ use crate::events::session::appender::{
     SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::interventions::interrupt_queue::{InterruptQueue, InterruptQueueError};
 use crate::interventions::store::run_at_version_statement;
 use crate::ipc::domain_error::DomainError;
 #[cfg(test)]
@@ -51,9 +53,9 @@ use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
 use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
-    ContinuingRun, EndingGuard, EndingWrite, LiveRuns, StartingRun, lock,
+    ContinuingRun, EndingGuard, EndingWrite, LiveRuns, ProviderChangeGuard, StartingRun, lock,
 };
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, WriteWithResend};
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, TurnOutcome, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
@@ -70,10 +72,10 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
-/// turn and every open turn, its provider, whether it ended since a version, and the two agent
-/// reads.
+/// turn and every open turn, its provider, whether it ended since a version, its interventions with
+/// no outcome and the ended runs still holding one, and the two agent reads.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 13 + RUN_AGENT_STATEMENT_CAPACITY;
+pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 15 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -230,6 +232,16 @@ pub(crate) enum RunEngineError {
     /// The read pool did not run a read.
     #[error("the read pool did not run the run's read")]
     Pool(#[from] DatabaseReadError),
+    /// The run's end or a turn's end landed with the settle of a person's interrupt, and letting go
+    /// the run queue's hold of that interrupt failed; the end is kept.
+    #[error("run {run_id} settled an interrupt, and its queue hold was not let go")]
+    InterruptRelease {
+        /// The run.
+        run_id: RunId,
+        /// The queue's failure.
+        #[source]
+        source: InterruptQueueError,
+    },
     /// A step failed and so did the cleanup after it, every failure kept, the step's own first.
     #[error(transparent)]
     Several(Box<SettleFailures<RunEngineError>>),
@@ -312,11 +324,17 @@ pub(crate) struct RunEngine {
     // The interventions service, which carries out the interrupt of each limit stop. It holds the
     // engine, so the engine holds it weakly.
     limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
+    // The run queue, whose hold of a person's interrupt a run's end or a turn's end lets go once it
+    // settles that interrupt; held weakly, as the queue holds the engine.
+    interrupt_queue: SetOnce<Weak<dyn InterruptQueue>>,
     live: Mutex<LiveRuns>,
     // Where a test holds a limit stop once its cut is in and before it reads whether its turn is
     // still open.
     #[cfg(test)]
     cut_pause: PausePoint,
+    // Where a test holds a resume's read of its run, once the run is held as being resumed.
+    #[cfg(test)]
+    resume_read_pause: PausePoint,
 }
 
 impl RunEngine {
@@ -343,10 +361,19 @@ impl RunEngine {
             execution_postures,
             providers,
             limit_interrupter: SetOnce::new(),
+            interrupt_queue: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
             #[cfg(test)]
             cut_pause: PausePoint::default(),
+            #[cfg(test)]
+            resume_read_pause: PausePoint::default(),
         }
+    }
+
+    /// Where a test holds a resume's read of its run, once the run is held as being resumed.
+    #[cfg(test)]
+    pub(crate) fn resume_read_pause(&self) -> &PausePoint {
+        &self.resume_read_pause
     }
 
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
@@ -458,11 +485,14 @@ impl RunEngine {
     /// settled, since a provider can answer before `running` is written, so a driver's start never
     /// waits on its own run's change. A change for a run being continued waits for its continue
     /// the same way, but a terminal before its next turn started belongs to the turn that ended it
-    /// and is refused at once. A send's re-open of an ended run is the daemon's, never a
-    /// provider's. Once a turn's end is written with the change, a step limit's interrupt a stop
-    /// of the run could not hand is handed again, and once the provider reports the run back to
-    /// `running` from a wait, a pause or `pausing`, the interrupt of every limit it owes, each
-    /// failure returned beside the run as the change left it.
+    /// and is refused at once; a resume that comes after this change has passed that check waits
+    /// for it to be written. A send's re-open of an ended run is the daemon's, never a provider's.
+    /// A turn the provider ended any other way than interrupted expires, in the change's write,
+    /// each interrupt left on the run with no outcome, which did not take, and lets go the run
+    /// queue's hold of a person's. Once a turn's end is written with the change, a step limit's
+    /// interrupt a stop of the run could not hand is handed again, and once the provider reports
+    /// the run back to `running` from a wait, a pause or `pausing`, the interrupt of every limit it
+    /// owes, each failure returned beside the run as the change left it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         self: &Arc<Self>,
@@ -479,8 +509,16 @@ impl RunEngine {
         if let Some(starting) = settling {
             starting.settled.wait().await;
         }
-        let continuing = lock(&self.live).continuing.get(&run_id).cloned();
-        if let Some(continuing) = continuing {
+        // Marked past the check under its lock, so a resume that holds the run after it waits for
+        // this change to be written first and never reads the run this change moves.
+        let mark = loop {
+            let continuing = {
+                let mut live = lock(&self.live);
+                match live.continuing.get(&run_id).cloned() {
+                    Some(continuing) => continuing,
+                    None => break live.mark_provider_change(run_id),
+                }
+            };
             if !continuing.is_turn_started.load(Ordering::Acquire)
                 && RunState::from(to_state).is_terminal()
                 && let Some(ended) = self
@@ -491,17 +529,34 @@ impl RunEngine {
                 return Err(self.refuse_ended(run_id, change, &ended, turn_end).await);
             }
             continuing.settled.wait().await;
-        }
+        };
+        let mark = ProviderChangeGuard {
+            live: &self.live,
+            run_id,
+            mark,
+        };
         let run = self.require_run(run_id).await?;
         if run.state.is_terminal() {
+            drop(mark);
             return Err(self.refuse_ended(run_id, change, &run, turn_end).await);
         }
         let is_turn_ended = turn_end.is_some();
+        // A turn its provider ended any other way than interrupted shows that an interrupt left
+        // with no outcome did not take; a run's end settles such rows itself.
+        let is_turn_uninterrupted = turn_end
+            .is_some_and(|end| !matches!(end.outcome, TurnOutcome::Interrupted(_)))
+            && !RunState::from(to_state).is_terminal();
         let left = run.state;
         let turn_end = turn_end.map(|end| self.provider_turn_end(&run_id, end));
-        let changed = self
-            .change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
-            .await?;
+        let changed = if is_turn_uninterrupted {
+            self.change_with_uninterrupted_turn_end(change, &run, turn_end)
+                .await
+        } else {
+            self.change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
+                .await
+        };
+        drop(mark);
+        let changed = changed?;
         // A provider that reports `running` runs again, from a pause or `pausing` as well.
         let is_back_to_running = RunState::from(to_state) == RunState::Running
             && matches!(
@@ -628,31 +683,41 @@ impl RunEngine {
         Ok(())
     }
 
-    // Writes `change`, keeping a terminal write in flight for a continue to wait on, and runs the
-    // terminal hooks once a terminal has committed.
+    // Writes `change`. A terminal is kept in flight for a continue to wait on and carries the
+    // settle of every intervention left with no outcome on the run; once it has committed, the run
+    // queue's holds of the interrupts it settled go and the terminal hooks run, every failure
+    // returned after all have run, with the end kept.
     async fn change(
         &self,
         change: RunStateChange,
         companions: RunStateChangeCompanions,
     ) -> Result<RunRead, RunEngineError> {
         let run_id = change.run_id;
-        let ending = RunState::from(change.entry.state())
-            .is_terminal()
-            .then(|| self.track_ending(run_id));
-        let written = self.changes.write(change, companions).await;
-        drop(ending);
-        let run = written?;
-        if run.state.is_terminal() {
-            self.forget_ended_run(&run_id);
-            self.gates
-                .release_for_terminal(&RunTerminalContext {
-                    run_id,
-                    session_id: run.session_id,
-                    terminal_state: run.state,
-                    run_version: run.version,
-                })
-                .await?;
+        if !RunState::from(change.entry.state()).is_terminal() {
+            return Ok(self.changes.write(change, companions).await?);
         }
+        // In flight before the settle reads the rows, so a dispatch that answers nothing after
+        // that read waits for this end and settles its own row.
+        let ending = self.track_ending(run_id);
+        let written = self.write_run_end(change, companions).await;
+        drop(ending);
+        let (run, released_choices) = written?;
+        self.forget_ended_run(&run_id);
+        let released = self.release_interrupt_holds(run_id, released_choices).await;
+        let hooks = self
+            .gates
+            .release_for_terminal(&RunTerminalContext {
+                run_id,
+                session_id: run.session_id,
+                terminal_state: run.state,
+                run_version: run.version,
+            })
+            .await
+            .map_err(RunEngineError::from);
+        settled(
+            vec![released, hooks],
+            "ending a run and letting go what it held",
+        )?;
         Ok(run)
     }
 

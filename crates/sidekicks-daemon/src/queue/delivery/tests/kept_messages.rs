@@ -1,20 +1,38 @@
 //! Messages kept past their hand: by the provider process they went to, only while that very
 //! process is the session's, and by a resume whose outcome is unknown, never read again until it
-//! is settled.
+//! is settled, its provider's record read only once no live process holds it.
 
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+use futures::FutureExt as _;
 use rstest::rstest;
+use sidekicks_contracts::run::control::AgentRunResumeRequest;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{
     FIRST_PROCESS, HANDS_AT_ONCE, continued_ids, count_steers, driver_handing, fixture, hand,
     insert_item, set_run_state, settle, stored_item,
 };
+use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
+use crate::provider::driver::run_control::TakenMessages;
+use crate::provider::driver::test_registry::registry_of_first_provider;
 use crate::queue::delivery::ProviderProcessIdentity;
 use crate::queue::store::RecordedQueueItemState;
-use crate::session::run::pause::ContinuedMessages;
+use crate::session::run::engine::tests::test_engine;
+use crate::session::run::pause::tests::unanswered;
+use crate::session::run::pause::{
+    ContinuedMessages, RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl,
+};
+
+/// A provider whose process keeps a message past its run's end, for a turn it starts with it.
+const KEPT_BY_PROCESS: MessageHanding = MessageHanding {
+    hands_at: HandMoment::AtOnce,
+    can_withdraw: true,
+    kept_by_process: true,
+};
 
 // A message handed to a provider whose process keeps it past the run's end stays handed through
 // the end while that process is the session's; once the session's process is gone, or is a new
@@ -31,11 +49,7 @@ use crate::session::run::pause::ContinuedMessages;
 async fn a_message_kept_by_a_process_no_longer_the_sessions_waits_unhanded(
     #[case] next_process: Option<ProviderProcessIdentity>,
 ) {
-    let mut driver = driver_handing(MessageHanding {
-        hands_at: HandMoment::AtOnce,
-        can_withdraw: true,
-        kept_by_process: true,
-    });
+    let mut driver = driver_handing(KEPT_BY_PROCESS);
     let steers = count_steers(&mut driver);
     let fixture = fixture(driver).await;
     let item = insert_item(&fixture).await;
@@ -77,7 +91,10 @@ async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
     set_run_state(&fixture, RunState::Paused);
 
     let first_read = continued_ids(&fixture).await;
-    fixture.delivery.keep_continued(fixture.run_id);
+    {
+        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        ContinuedMessages::keep(&fixture.delivery, &hold, fixture.run_id);
+    }
     let second_read = continued_ids(&fixture).await;
     {
         let hold = fixture.session_lock.acquire(fixture.session_id).await;
@@ -91,7 +108,7 @@ async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
     let is_kept_through_the_end = fixture.delivery.is_handed(&item.id);
     {
         let hold = fixture.session_lock.acquire(fixture.session_id).await;
-        ContinuedMessages::settle_kept(&fixture.delivery, &hold, fixture.run_id, &[])
+        ContinuedMessages::settle_kept(&fixture.delivery, &hold, fixture.run_id, &[item.id], &[])
             .await
             .expect("the kept message is settled");
     }
@@ -102,4 +119,81 @@ async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
     assert_eq!(read_after_a_release, []);
     assert!(is_kept_through_the_end);
     assert_eq!(read_after_the_settle, vec![item.id]);
+}
+
+// A message a resume sent with no answer back, on a provider whose process keeps messages past a
+// run's end, stays kept through the run's end with its provider's record unread while that
+// process is the session's, since the process may still start a turn with it; once the process
+// is gone, the record says what became of it. Killed by reading the record at the run's end or
+// forgetting the message there.
+#[tokio::test]
+async fn a_resume_kept_message_a_live_process_holds_waits_for_the_process_end() {
+    let fixture = fixture(driver_handing(KEPT_BY_PROCESS)).await;
+    let item = insert_item(&fixture).await;
+    set_run_state(&fixture, RunState::Paused);
+    let record_reads = Arc::new(AtomicUsize::new(0));
+    let mut resume_driver = driver_handing(KEPT_BY_PROCESS);
+    resume_driver
+        .expect_resume_run()
+        .times(1)
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    {
+        let record_reads = Arc::clone(&record_reads);
+        resume_driver
+            .expect_find_taken_messages()
+            .returning(move |_| {
+                record_reads.fetch_add(1, Ordering::SeqCst);
+                async { Ok(TakenMessages { taken: Vec::new() }) }.boxed()
+            });
+    }
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let control = RunPauseControl::new(
+        Arc::new(DatabaseReadPool::new(
+            fixture.database.path(),
+            RUN_PAUSE_STATEMENT_CAPACITY,
+        )),
+        test_engine(
+            &fixture.database,
+            Arc::clone(&fixture.log.service),
+            home.path(),
+        ),
+        Arc::new(registry_of_first_provider(Arc::new(resume_driver))),
+    );
+    let resumed = control
+        .resume(
+            &AgentRunResumeRequest {
+                target_run_id: fixture.run_id,
+                expected_run_version: SafeInt::new(1).expect("a test version"),
+            },
+            &fixture.delivery,
+        )
+        .await;
+
+    set_run_state(&fixture, RunState::Stopped);
+    fixture.delivery.end_run(fixture.session_id, fixture.run_id);
+    let at_the_runs_end = control
+        .settle_kept_by_record(fixture.session_id, fixture.run_id, &fixture.delivery)
+        .await;
+    let reads_at_the_runs_end = record_reads.load(Ordering::SeqCst);
+    let is_kept_through_the_end = fixture.delivery.is_handed(&item.id);
+    *fixture
+        .process
+        .0
+        .lock()
+        .expect("the test's process is writable") = None;
+    let at_the_process_end = control
+        .settle_kept_by_record(fixture.session_id, fixture.run_id, &fixture.delivery)
+        .await;
+
+    assert!(resumed.is_err(), "{resumed:?}");
+    assert!(at_the_runs_end.is_ok(), "{at_the_runs_end:?}");
+    assert_eq!(reads_at_the_runs_end, 0);
+    assert!(is_kept_through_the_end);
+    assert!(at_the_process_end.is_ok(), "{at_the_process_end:?}");
+    assert_eq!(record_reads.load(Ordering::SeqCst), 1);
+    assert!(!fixture.delivery.is_handed(&item.id));
+    assert_eq!(
+        stored_item(&fixture, item.id).state,
+        RecordedQueueItemState::Queued
+    );
 }

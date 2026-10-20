@@ -9,12 +9,14 @@
 //! which a change waits for only so long: one not given back in time reads not delivered, so a
 //! stuck process never holds the session's writes, and is admitted after all if the provider then
 //! shows it took it. A message the provider's process keeps past its run's end stays handed while
-//! that process runs; once it is gone, the message waits for the person's next send. While an
+//! that process runs; once it is gone, the message waits for the person's next send, unless a
+//! resume sent it, whose record then says what became of it. While an
 //! interrupt of a run is under way nothing more is handed to it. Every hand, withdraw and settle
 //! of a session's messages runs on one chain per session, so they reach the driver in the order
 //! the queue decided them.
 
 mod chain;
+mod continued;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -24,7 +26,6 @@ use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
@@ -44,7 +45,7 @@ use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
-    ApplyInterventionParams, InterruptPendingChoice, RunToolBoundary, SteerPayload, WaitingMessage,
+    ApplyInterventionParams, InterruptPendingChoice, RunToolBoundary, SteerPayload,
 };
 use crate::queue::delivery::chain::{ChainJob, SessionChain};
 use crate::queue::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
@@ -53,7 +54,6 @@ use crate::queue::refusals::UnreturnedReason;
 use crate::queue::store::{
     QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, placement_statements,
 };
-use crate::session::run::pause::{ContinuedMessages, ContinuedMessagesError};
 use crate::session::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
 
 /// How long a change waits for a provider to give its handed messages back.
@@ -500,8 +500,9 @@ impl QueueDelivery {
 
     /// Settles what was handed to the ended run `run_id`: its credits choice, its next-turn marks
     /// and every hand go, but one the session's live provider process keeps and one a resume kept,
-    /// which waits for the provider's record to settle it; the run's other waiting messages are
-    /// left for the next run. Called after [`QueueDelivery::settle`].
+    /// which waits for the provider's word or, once no live process holds it, its record; the
+    /// run's other waiting messages are left for the next run. Called after
+    /// [`QueueDelivery::settle`].
     #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's run lifecycle"))]
     pub(crate) fn end_run(&self, session_id: SessionId, run_id: RunId) {
         let live_process = self.shared.deps.processes.process_identity(&session_id);
@@ -510,7 +511,7 @@ impl QueueDelivery {
         state.handed.retain(|_, handed| {
             handed.run_id != run_id
                 || is_kept_by_process(handed, live_process)
-                || matches!(handed.route, HandRoute::Continue { is_kept: true })
+                || matches!(handed.route, HandRoute::Continue { is_kept: true, .. })
         });
         state
             .next_turn_runs
@@ -597,40 +598,6 @@ impl QueueDelivery {
             .handed
             .values()
             .any(|handed| handed.run_id == run_id && is_kept_by_process(handed, live_process))
-    }
-
-    /// Keeps the messages the resume of `run_id` read, whose outcome is unknown (the request went
-    /// out and no answer came): no later continue reads them, the run's end keeps them, until
-    /// [`QueueDelivery::settle_kept_continue`] or the provider's record of one says what became
-    /// of them, so none is sent twice.
-    pub(crate) fn keep_continued(&self, run_id: RunId) {
-        for handed in self.lock_state().handed.values_mut() {
-            if handed.run_id == run_id
-                && matches!(handed.route, HandRoute::Continue { is_kept: false })
-            {
-                handed.route = HandRoute::Continue { is_kept: true };
-            }
-        }
-    }
-
-    /// Settles the messages a resume of `run_id` kept once their outcome is known: each of `taken`
-    /// admitted into the run, the provider having taken it, every other one given back to go once
-    /// more under its own id. Fails when a read or an admission's write fails.
-    pub(crate) async fn settle_kept_continue(
-        &self,
-        run_id: RunId,
-        taken: &[QueueItemId],
-    ) -> Result<(), DeliveryError> {
-        let kept = self.lock_state().continued_of(run_id, true);
-        for item_id in kept {
-            match self.read_item(item_id).await? {
-                Some(item) if taken.contains(&item_id) => {
-                    self.record_admission(&item, run_id).await?;
-                }
-                Some(_) | None => self.forget_hand(item_id),
-            }
-        }
-        Ok(())
     }
 
     // The delivery's state. No holder awaits or panics while it changes the state, so a poisoned
@@ -722,100 +689,6 @@ impl QueueDelivery {
             .record_outcome(item, outcome, &WireInstant::now())
             .await?;
         Ok(())
-    }
-
-    // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go
-    // read again (one a resume keeps excepted), each marked handed by the continue, in the queue's
-    // order.
-    async fn read_continued(
-        &self,
-        session_id: SessionId,
-        run_id: RunId,
-    ) -> Result<Vec<WaitingMessage>, DeliveryError> {
-        let lead_waiting = self.lead_waiting(self.read_waiting(run_id).await?, false);
-        let process = self.shared.deps.processes.process_identity(&session_id);
-        let items = {
-            let mut state = self.lock_state();
-            let items = state.unhanded_of(lead_waiting, true);
-            let route = HandRoute::Continue { is_kept: false };
-            state.mark_handed(&items, run_id, route, process);
-            items
-        };
-        Ok(items
-            .into_iter()
-            .map(|item| WaitingMessage {
-                id: item.id,
-                attachments: attachments_of(&item.body),
-                skills: item.body.skills.unwrap_or_default(),
-                content: item.body.content,
-            })
-            .collect())
-    }
-
-    // Admits the messages this resume of `run_id` read; one an earlier resume keeps waits for its
-    // own settle.
-    async fn admit_continued(&self, run_id: RunId) -> Result<(), DeliveryError> {
-        let continued = self.lock_state().continued_of(run_id, false);
-        for item_id in continued {
-            if let Some(item) = self.read_item(item_id).await? {
-                self.record_admission(&item, run_id).await?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl ContinuedMessages for QueueDelivery {
-    fn session_lock(&self) -> &KeyedLock<SessionId> {
-        &self.shared.deps.session_lock
-    }
-
-    fn read(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-    ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
-        let session_id = *hold.key();
-        Box::pin(async move { Ok(self.read_continued(session_id, run_id).await?) })
-    }
-
-    fn admit(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
-        Box::pin(async move { Ok(self.admit_continued(run_id).await?) })
-    }
-
-    fn release(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
-        // A message an earlier resume keeps stays kept until its own settle.
-        self.lock_state().handed.retain(|_, handed| {
-            handed.run_id != run_id
-                || !matches!(handed.route, HandRoute::Continue { is_kept: false })
-        });
-        Box::pin(async { Ok(()) })
-    }
-
-    fn keep(&self, _hold: &KeyHold<'_, SessionId>, run_id: RunId) {
-        self.keep_continued(run_id);
-    }
-
-    fn kept(&self, _hold: &KeyHold<'_, SessionId>, run_id: RunId) -> Vec<QueueItemId> {
-        self.lock_state().continued_of(run_id, true)
-    }
-
-    fn settle_kept(
-        &self,
-        _hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-        taken: &[QueueItemId],
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
-        let taken = taken.to_vec();
-        Box::pin(async move { Ok(self.settle_kept_continue(run_id, &taken).await?) })
     }
 }
 

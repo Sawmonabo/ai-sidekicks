@@ -24,6 +24,7 @@ use sidekicks_contracts::run::events::{
 };
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::True;
@@ -318,6 +319,9 @@ pub(crate) struct RunStateChangeCompanions {
     /// An event drafted again at each attempt from the run it read, appended before every other
     /// preceding event.
     pub(crate) leading_event: Option<RunEventDraft>,
+    /// The interventions whose rows `statements` move to an outcome, which a run's end leaves to
+    /// them rather than settling as left with none.
+    pub(crate) settled_interventions: Vec<InterventionId>,
 }
 
 /// Why a run state change was not written; nothing of it is kept.
@@ -446,6 +450,7 @@ impl RunStateChangeWriter {
             statements,
             mut preceding_events,
             leading_event,
+            settled_interventions: _,
         } = companions;
         if let Some(draft) = leading_event {
             preceding_events.insert(0, draft(&run)?);

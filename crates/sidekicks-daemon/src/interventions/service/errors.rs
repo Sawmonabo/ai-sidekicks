@@ -70,6 +70,7 @@ impl From<RunEngineError> for DispatchError {
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
             | RunEngineError::LimitInterrupt { .. }
+            | RunEngineError::InterruptRelease { .. }
             | RunEngineError::DaemonTurn { .. }
             | RunEngineError::Agent { .. }
             | RunEngineError::Draft { .. }
@@ -95,6 +96,12 @@ pub(crate) enum InterventionError {
         run_id: RunId,
         /// The spent key.
         key: String,
+    },
+    /// A row another write settled first cannot be read back.
+    #[error("intervention {intervention_id} cannot be read back")]
+    Unread {
+        /// The intervention.
+        intervention_id: InterventionId,
     },
     /// A rejected or failed row holds no reason.
     #[error(
@@ -152,6 +159,7 @@ impl From<InterventionError> for HandlerError {
                 Self::Refused(refusal.into())
             }
             fault @ (InterventionError::Unsaved { .. }
+            | InterventionError::Unread { .. }
             | InterventionError::Unreasoned { .. }
             | InterventionError::Draft(_)
             | InterventionError::Append(_)
@@ -163,6 +171,7 @@ impl From<InterventionError> for HandlerError {
                 | RunEngineError::Driver { .. }
                 | RunEngineError::LimitInterrupterGone { .. }
                 | RunEngineError::LimitInterrupt { .. }
+                | RunEngineError::InterruptRelease { .. }
                 | RunEngineError::DaemonTurn(_)
                 | RunEngineError::Agent(_)
                 | RunEngineError::Draft(_)

@@ -1,6 +1,6 @@
 //! Take-backs: a handed message the chain does not reach in time reads not delivered with no
-//! driver call, one never handed is the queue's at once, and one a resume of its run reads waits
-//! for that resume.
+//! driver call, one never handed is the queue's at once, and one a resume of its run read is
+//! taken at once.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -115,9 +115,10 @@ enum TakeBackMoment {
 }
 
 // A take-back and a resume of one run take the session's hold in turn: a resume never sends a
-// message the person removed under their hold, and a change that came while the driver took a
-// resume it then refused finds the message back with the queue. Killed by reading the waiting
-// messages without the session's hold, or by letting it go before the driver call.
+// message the person removed under their hold, and a change that comes while the driver takes a
+// resume finds the message taken at once, without waiting for the driver, and the refused resume
+// gives it back to the queue. Killed by reading the waiting messages without the session's hold,
+// or by withdrawing a message the resume read.
 #[rstest]
 #[case::before_the_resume(TakeBackMoment::BeforeTheResume)]
 #[case::during_a_refused_resume(TakeBackMoment::DuringARefusedResume)]
@@ -132,6 +133,9 @@ async fn a_take_back_and_a_resume_of_one_run_take_the_session_in_turn(
     let driver_started = Arc::new(Notify::new());
     let (answer_driver, driver_answer) = oneshot::channel::<Result<(), DriverError>>();
     let mut resume_driver = MockProviderDriver::new();
+    resume_driver
+        .expect_message_handing()
+        .return_const(HANDS_AT_ONCE);
     {
         let sent = Arc::clone(&sent);
         let started = Arc::clone(&driver_started);
@@ -221,9 +225,9 @@ async fn a_take_back_and_a_resume_of_one_run_take_the_session_in_turn(
         }
     };
 
-    assert_eq!(withdrawals.get(&item.id), Some(&QueueWithdrawal::Returned));
     match moment {
         TakeBackMoment::BeforeTheResume => {
+            assert_eq!(withdrawals.get(&item.id), Some(&QueueWithdrawal::Returned));
             assert!(resumed.is_ok(), "{resumed:?}");
             assert_eq!(*sent.lock().expect("the sent messages read"), vec![vec![]]);
             assert_eq!(
@@ -232,6 +236,10 @@ async fn a_take_back_and_a_resume_of_one_run_take_the_session_in_turn(
             );
         }
         TakeBackMoment::DuringARefusedResume => {
+            assert_eq!(
+                withdrawals.get(&item.id),
+                Some(&QueueWithdrawal::Unreturned(UnreturnedReason::Taken))
+            );
             assert!(
                 matches!(
                     resumed,

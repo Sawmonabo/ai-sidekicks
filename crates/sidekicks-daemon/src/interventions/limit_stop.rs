@@ -2,7 +2,9 @@
 //! person's takes. Its row is written and accepted at once, since a limit's interrupt is never
 //! refused or outdated, and a second interrupt of one limit is refused while one is pending. The
 //! hand runs on its own task, which holds the run's interrupt lock and records the outcome
-//! however late it comes; the engine's stop waits on it for a bounded time.
+//! however late it comes; the engine's stop waits on it for a bounded time. A hand the provider
+//! got with no answer back leaves its row pending and the stop's cut kept, for the run's end to
+//! settle: applied when the run ended `interrupted`, else expired with the limit still owed.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -11,7 +13,8 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::run::events::{DaemonInterventionActor, InterventionActor};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
-    InterruptInterventionRecord, InterventionType, LimitInterruptRecord, RunLimit,
+    InterruptInterventionRecord, InterventionState, InterventionType, LimitInterruptRecord,
+    RunLimit,
 };
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -23,12 +26,14 @@ use crate::interventions::interrupt_queue::InterruptCause;
 use crate::interventions::service::errors::DispatchError;
 use crate::interventions::service::reached_state::{ReachedState, draft};
 use crate::interventions::service::{
-    InterventionService, InterventionTarget, RunEndOfVerdict, Verdict, mint_intervention_id,
+    InterventionService, InterventionTarget, RecordedFailure, RowMove, RunEndOfVerdict, Verdict,
+    mint_intervention_id,
 };
 use crate::interventions::store::{
     InterventionTransition, RequestedIntervention, insert_requested_intervention_statement,
     move_intervention_statement, no_pending_limit_interrupt_statement,
 };
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::run_control::{InterruptPayload, InterruptPendingChoice};
 use crate::session::run::engine::{InterruptRoute, RunEngineError};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
@@ -57,6 +62,13 @@ struct LimitInterruptPending {
 #[derive(Debug, thiserror::Error)]
 #[error("the hand of run {run_id}'s interrupt at a limit ended without an answer")]
 struct HandCanceled {
+    run_id: RunId,
+}
+
+/// The run's end or a turn's end settled the limit's interrupt unapplied while it was carried out.
+#[derive(Debug, thiserror::Error)]
+#[error("run {run_id}'s interrupt at a limit expired while it was carried out")]
+struct LimitInterruptExpired {
     run_id: RunId,
 }
 
@@ -226,20 +238,24 @@ impl InterventionService {
                 Err(dispatch) => return Err(self.fail_limit_hand(target, dispatch).await),
             },
         };
-        self.record_verdict(
-            target,
-            verdict,
-            Some(RunEndOfVerdict {
-                accepted_run_version: *accepted_run_version,
-                cause: InterruptCause::Limit {
-                    limit: *limit,
-                    cut_turn: *cut_turn,
-                },
-            }),
-        )
-        .await
-        .map_err(row_pending)?;
-        Ok(())
+        let recorded = self
+            .record_verdict(
+                target,
+                verdict,
+                Some(RunEndOfVerdict {
+                    accepted_run_version: *accepted_run_version,
+                    cause: InterruptCause::Limit {
+                        limit: *limit,
+                        cut_turn: *cut_turn,
+                    },
+                }),
+            )
+            .await
+            .map_err(row_pending)?;
+        match recorded {
+            RowMove::Made(_) => Ok(()),
+            RowMove::SettledSince => self.answer_settled_limit_hand(target).await,
+        }
     }
 
     // What the run's read once the interrupt is accepted says of its dispatch: nothing to cut when
@@ -297,15 +313,51 @@ impl InterventionService {
     }
 
     // Records the dispatch's failure: no row is left pending once the row is `failed`, and the
-    // row stays `accepted` when that move did not land.
+    // row stays `accepted` when that move did not land. A hand the provider got with no answer
+    // back may still cut the turn, so its row stays `accepted` as the mark of the stop's cut, for
+    // the run's end to settle, the run's end settling it here when it read the row too early.
     async fn fail_limit_hand(
         &self,
         target: &InterventionTarget,
         dispatch: DispatchError,
     ) -> LimitInterruptFailure {
+        if let DispatchError::Driver(DriverError::Unanswered(_)) = &dispatch {
+            let settled = self
+                .engine
+                .settle_unresolved_of_ended_run(target.target_run_id)
+                .await;
+            return match settled {
+                Ok(_) => row_pending(dispatch),
+                Err(error) => row_pending(error),
+            };
+        }
         match self.record_failure(target, dispatch).await {
-            Ok(recorded) => no_row(recorded.dispatch),
+            // A row the run's end settled first leaves nothing pending either, and a limit its
+            // continued run still owes is cut by that run's own stop.
+            Ok(
+                RecordedFailure::Recorded { dispatch, .. }
+                | RecordedFailure::SettledSince { dispatch },
+            ) => no_row(dispatch),
             Err(unrecorded) => row_pending(unrecorded),
+        }
+    }
+
+    // The outcome of a hand whose row the run's end or a turn's end settled while it was carried
+    // out: done where it applied, and otherwise no row is left and the limit is owed again.
+    async fn answer_settled_limit_hand(
+        &self,
+        target: &InterventionTarget,
+    ) -> Result<(), LimitInterruptFailure> {
+        match self.read_stored(target).await.map_err(no_row)?.state {
+            InterventionState::Applied => Ok(()),
+            InterventionState::Requested
+            | InterventionState::Accepted
+            | InterventionState::Degraded
+            | InterventionState::Expired
+            | InterventionState::Rejected
+            | InterventionState::Failed => Err(no_row(LimitInterruptExpired {
+                run_id: target.target_run_id,
+            })),
         }
     }
 

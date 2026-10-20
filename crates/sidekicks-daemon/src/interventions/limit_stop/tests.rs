@@ -39,9 +39,12 @@ use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
+use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
 use crate::session::run::engine::tests::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::pause::tests::unanswered;
 use crate::session::run::pause::{
     ContinuedMessages, ContinuedMessagesError, RunPauseControl, RunPauseError,
 };
@@ -332,6 +335,67 @@ async fn a_hand_past_its_bound_answers_pending_and_records_its_late_outcome(
     );
 }
 
+// A step limit's hand the provider got with no answer back answers with its row pending, never
+// failed, so the stop's cut stays; the provider's `interrupted` end then ends the cut turn with
+// the step limit's cause and settles the row `applied` in the run's own end. Killed by recording
+// the unanswered hand as failed, which leaves no row and withdraws the cut.
+#[tokio::test]
+async fn an_unanswered_step_hand_keeps_its_cut_until_the_providers_end() {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_apply_intervention()
+        .times(1)
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    let harness = harness(driver).await;
+    hand_service_to_engine(&harness);
+    let turn = SafeInt::new(3).expect("3 is a turn number");
+    let cut = hold_cut(&harness.engine, harness.run_id, turn, RunLimit::StepLimit);
+
+    let handed = harness
+        .service
+        .interrupt_for_limit(harness.run_id, RunLimit::StepLimit, Some(cut))
+        .await;
+    let row_while_pending = harness.stored_rows()[0].0.clone();
+    let cut_while_pending = held_cut_limit(&harness.engine, harness.run_id, turn);
+    let ended = harness
+        .engine
+        .apply_provider_state_change(
+            RunStateChange::new(
+                harness.run_id,
+                RunStateEntry::Interrupted {
+                    intended_close: None,
+                    trigger: None,
+                },
+            ),
+            Some(ProviderTurnEnd {
+                turn_number: turn,
+                outcome: TurnOutcome::Interrupted(None),
+            }),
+        )
+        .await
+        .expect("the provider's end is written");
+
+    assert!(
+        matches!(handed, Err(LimitInterruptFailure::RowPending { .. })),
+        "{handed:?}"
+    );
+    assert!(ended.resend_failure.is_none(), "{:?}", ended.resend_failure);
+    assert_eq!(row_while_pending, "accepted");
+    assert_eq!(cut_while_pending, Some(RunLimit::StepLimit));
+    assert_eq!(harness.stored_rows()[0].0, "applied");
+    let cause: String = harness
+        .database
+        .reader()
+        .query_row(
+            "SELECT json_extract(payload, '$.cause') FROM session_events
+             WHERE session_id = ?1 AND type = 'agent.turn.interrupted'",
+            [harness.session_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the turn's end is stored");
+    assert_eq!(cause, "stepLimit");
+}
+
 /// What became of the run between a limit's accept and its dispatch.
 #[derive(Clone, Copy, Debug)]
 enum RunAfterAccept {
@@ -341,38 +405,39 @@ enum RunAfterAccept {
     Unreadable,
 }
 
-// An accepted limit's interrupt reads the run before it dispatches. A step limit the run's
-// end discharged applies with no dispatch and leaves the continued run running; a token or
-// spend limit whose run ended and continued fails with no dispatch, so the continued run's
-// own stop cuts it; a read that fails ends the row failed. Killed by dispatching at the new
-// version (the driver is never to be called), the step arm dispatching, or a failed read
+// An accepted limit's interrupt reads the run before it dispatches. The person's interrupt that
+// ended the run applied the limit's row in that end's write; a step limit that end discharged
+// answers handed with no dispatch and leaves the continued run running, and a token or spend
+// limit answers with no row pending, so the continued run's own stop cuts it; a read that fails
+// ends the row failed. Killed by dispatching at the new version (the driver is never to be
+// called), the step arm dispatching, a token or spend limit answering handed, or a failed read
 // leaving the row accepted.
 #[rstest]
 #[case::step_discharged(
     RunLimit::StepLimit,
     RunAfterAccept::EndedAndContinued,
     "applied",
-    None
+    true
 )]
 #[case::token_left_to_the_continued_run(
     RunLimit::TokenLimit,
     RunAfterAccept::EndedAndContinued,
-    "failed",
-    Some("the run ended and was continued before the dispatch")
+    "applied",
+    false
 )]
 #[case::spend_left_to_the_continued_run(
     RunLimit::SpendLimit,
     RunAfterAccept::EndedAndContinued,
-    "failed",
-    Some("the run ended and was continued before the dispatch")
+    "applied",
+    false
 )]
-#[case::unreadable_run(RunLimit::TokenLimit, RunAfterAccept::Unreadable, "failed", None)]
+#[case::unreadable_run(RunLimit::TokenLimit, RunAfterAccept::Unreadable, "failed", false)]
 #[tokio::test]
 async fn an_accepted_limit_reads_the_run_before_it_dispatches(
     #[case] limit: RunLimit,
     #[case] run_after_accept: RunAfterAccept,
     #[case] row_state: &str,
-    #[case] failure_reason: Option<&str>,
+    #[case] is_handed: bool,
 ) {
     let harness = harness(MockProviderDriver::new()).await;
     let intervention_id = record_accepted_row(&harness, limit);
@@ -414,23 +479,11 @@ async fn an_accepted_limit_reads_the_run_before_it_dispatches(
 
     let carried = harness.service.carry_out_limit_interrupt(&accepted).await;
 
-    match (row_state, &carried) {
-        ("applied", Ok(())) | ("failed", Err(LimitInterruptFailure::NoRow { .. })) => {}
-        _ => panic!("expected the row {row_state}, got {carried:?}"),
+    match (is_handed, &carried) {
+        (true, Ok(())) | (false, Err(LimitInterruptFailure::NoRow { .. })) => {}
+        _ => panic!("expected handed {is_handed}, got {carried:?}"),
     }
     assert_eq!(harness.stored_rows()[0].0, row_state);
-    if let Some(failure_reason) = failure_reason {
-        let stored: String = harness
-            .database
-            .reader()
-            .query_row(
-                "SELECT failure_reason FROM interventions WHERE target_run_id = ?1",
-                [harness.run_id.text().as_str()],
-                |row| row.get(0),
-            )
-            .expect("the failed row holds its reason");
-        assert_eq!(stored, failure_reason);
-    }
     if let RunAfterAccept::EndedAndContinued = run_after_accept {
         assert_eq!(
             stored_run_state(&harness.database, &harness.run_id).0,
@@ -585,6 +638,7 @@ impl ContinuedMessages for NoWaitingMessages {
         &self,
         _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
+        _handing: MessageHanding,
     ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
         async { Ok(Vec::new()) }.boxed()
     }
@@ -611,11 +665,25 @@ impl ContinuedMessages for NoWaitingMessages {
         Vec::new()
     }
 
+    fn kept_unheld(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) -> Vec<QueueItemId> {
+        Vec::new()
+    }
+
     fn settle_kept(
         &self,
         _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
+        _settled: &[QueueItemId],
         _taken: &[QueueItemId],
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        async { Ok(()) }.boxed()
+    }
+
+    fn fail_kept(
+        &self,
+        _hold: &KeyHold<'_, SessionId>,
+        _run_id: RunId,
+        _message_ids: &[QueueItemId],
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         async { Ok(()) }.boxed()
     }
@@ -653,8 +721,8 @@ async fn a_limit_owed_through_a_pause_is_handed_once_the_provider_runs(
             .expect_resume_run()
             .times(1)
             .returning(move |params| {
-                // No hand is in flight or done, and the run has not moved, when the provider is asked
-                // to resume.
+                // No hand is in flight or done, and the run has not moved, when the provider is
+                // asked to resume.
                 assert_eq!(
                     Handle::current().metrics().num_alive_tasks(),
                     tasks_before.load(Ordering::SeqCst)

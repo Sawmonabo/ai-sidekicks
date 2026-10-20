@@ -205,10 +205,18 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Looks messages a resume sent with no answer back up in the provider's own record of the
-    /// conversation by their ids, answering the ones it holds; fails when the record is unreadable.
+    /// conversation by their ids, answering the ones it holds; called only once no live provider
+    /// process still holds them for a turn of its own, at the run's end for a provider whose
+    /// process keeps nothing past it and at the process's end otherwise. Fails when the record is
+    /// unreadable, or with [`DriverError::Unanswered`] when the read got no answer back, which the
+    /// next settle retries.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "each provider's driver reads its record")
+        expect(
+            dead_code,
+            reason = "the daemon's start, which wires the resume, and the run lifecycle's settle \
+                      of kept messages"
+        )
     )]
     fn find_taken_messages(
         &self,

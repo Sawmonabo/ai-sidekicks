@@ -32,6 +32,7 @@ use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::error_causes::RequestUnanswered;
+use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::{TakenMessages, WaitingMessage};
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
@@ -98,7 +99,14 @@ impl Fixture {
     }
 }
 
-async fn fixture(driver: MockProviderDriver, state: &str) -> Fixture {
+async fn fixture(mut driver: MockProviderDriver, state: &str) -> Fixture {
+    driver
+        .expect_message_handing()
+        .return_const(MessageHanding {
+            hands_at: HandMoment::AtOnce,
+            can_withdraw: true,
+            kept_by_process: false,
+        });
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
@@ -176,11 +184,11 @@ struct WaitingMessages {
     kept: Mutex<Vec<WaitingMessage>>,
     releases: AtomicUsize,
     admissions: AtomicUsize,
-    // The kept messages a settle delivered with the run, and those it gave back.
+    // The kept messages a settle delivered with the run, those it gave back, and those it ended
+    // not delivered.
     settled_taken: Mutex<Vec<QueueItemId>>,
     settled_given_back: Mutex<Vec<QueueItemId>>,
-    // A read the test holds: it signals when it starts, then waits for the test to let it go.
-    held_read: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
+    failed: Mutex<Vec<QueueItemId>>,
     session_lock: KeyedLock<SessionId>,
 }
 
@@ -193,7 +201,7 @@ impl Default for WaitingMessages {
             admissions: AtomicUsize::default(),
             settled_taken: Mutex::default(),
             settled_given_back: Mutex::default(),
-            held_read: Mutex::default(),
+            failed: Mutex::default(),
             session_lock: KeyedLock::new(),
         }
     }
@@ -221,17 +229,10 @@ impl ContinuedMessages for WaitingMessages {
         &self,
         _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
+        _handing: MessageHanding,
     ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
         let waiting = self.waiting.lock().expect("the messages read").clone();
-        let held = self.held_read.lock().expect("the held read reads").take();
-        async move {
-            if let Some((started, let_go)) = held {
-                started.send(()).expect("the test waits for the read");
-                let_go.await.expect("the test lets the read go");
-            }
-            Ok(waiting)
-        }
-        .boxed()
+        async move { Ok(waiting) }.boxed()
     }
 
     fn admit(
@@ -268,14 +269,25 @@ impl ContinuedMessages for WaitingMessages {
             .collect()
     }
 
+    // The test's provider process keeps nothing past a run's end.
+    fn kept_unheld(&self, hold: &KeyHold<'_, SessionId>, run_id: RunId) -> Vec<QueueItemId> {
+        self.kept(hold, run_id)
+    }
+
     fn settle_kept(
         &self,
         _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
+        settled: &[QueueItemId],
         taken: &[QueueItemId],
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
-        let kept = std::mem::take(&mut *self.kept.lock().expect("the kept messages read"));
-        for message in kept {
+        let mut kept = self.kept.lock().expect("the kept messages read");
+        let (settling, left): (Vec<_>, Vec<_>) = kept
+            .drain(..)
+            .partition(|message| settled.contains(&message.id));
+        *kept = left;
+        drop(kept);
+        for message in settling {
             if taken.contains(&message.id) {
                 self.settled_taken
                     .lock()
@@ -292,6 +304,23 @@ impl ContinuedMessages for WaitingMessages {
                     .push(message);
             }
         }
+        async { Ok(()) }.boxed()
+    }
+
+    fn fail_kept(
+        &self,
+        _hold: &KeyHold<'_, SessionId>,
+        _run_id: RunId,
+        message_ids: &[QueueItemId],
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        self.kept
+            .lock()
+            .expect("the kept messages read")
+            .retain(|message| !message_ids.contains(&message.id));
+        self.failed
+            .lock()
+            .expect("the failed messages read")
+            .extend_from_slice(message_ids);
         async { Ok(()) }.boxed()
     }
 }
@@ -632,37 +661,36 @@ async fn a_pause_whose_answer_never_came_stays_pausing_for_the_providers_report(
     assert_eq!(fixture.run().0, "paused");
 }
 
-// A provider's report that lands while a resume reads the waiting messages waits for the resume,
-// which sends the messages once and moves the run to running; the driver is never asked and then
-// overruled. Killed by holding the run as being resumed only after the messages are read: the
-// report then moves the run, and the resume taken by the driver gives its messages back.
+// A provider's report that lands while a resume reads its run waits for the resume, which sends
+// the messages once and moves the run to running; the driver is never asked and then overruled.
+// Killed by reading the run before holding it as being resumed: the report then moves the run
+// under the resume's read, and the resume's guarded move refuses.
 #[tokio::test]
-async fn a_report_during_the_resumes_read_waits_and_the_resume_takes_the_run() {
+async fn a_report_during_the_resumes_run_read_waits_and_the_resume_takes_the_run() {
     let mut driver = MockProviderDriver::new();
     driver
         .expect_resume_run()
         .times(1)
         .returning(|_| async { Ok(()) }.boxed());
     let fixture = Arc::new(fixture(driver, "pausing").await);
-    let (read_started, read_is_held) = oneshot::channel();
-    let (let_read_go, read_let_go) = oneshot::channel();
-    let messages = Arc::new(WaitingMessages {
-        held_read: Mutex::new(Some((read_started, read_let_go))),
-        ..WaitingMessages::holding(waiting_message())
-    });
+    let held_read = fixture.engine.resume_read_pause().arm();
+    let messages = Arc::new(WaitingMessages::holding(waiting_message()));
 
     let resuming = {
         let fixture = Arc::clone(&fixture);
         let messages = Arc::clone(&messages);
         tokio::spawn(async move { fixture.resume(1, messages.as_ref()).await })
     };
-    tokio::time::timeout(SETTLE_WAIT, read_is_held)
+    tokio::time::timeout(SETTLE_WAIT, held_read.reached)
         .await
-        .expect("the resume reads the waiting messages")
+        .expect("the resume reads its run")
         .expect("the read signals its start");
     let mut report = fixture.report(RunStateEntry::Paused);
     let is_report_held = tokio::time::timeout(HELD_WATCH, &mut report).await.is_err();
-    let_read_go.send(()).expect("the read waits to be let go");
+    held_read
+        .release
+        .send(())
+        .expect("the read waits to be let go");
     let resumed = resuming.await.expect("the resume ends");
     let is_report_applied = report.await.expect("the report ends");
 
@@ -759,6 +787,88 @@ async fn a_kept_message_settles_on_the_providers_own_word(#[case] settle: KeptSe
         KeptSettle::RunEndsUnrecorded => {
             assert_eq!((taken, given_back), (Vec::new(), vec![message.id]));
             assert_eq!(lookups, vec![vec![message.id]]);
+        }
+    }
+}
+
+/// How the provider's record answers the read of a kept message.
+#[derive(Clone, Copy, Debug)]
+enum RecordRead {
+    /// It cannot be read.
+    Unreadable,
+    /// The read went out and no answer came.
+    Unanswered,
+}
+
+// At the run's end a provider's record that cannot be read ends a kept message not delivered,
+// for the person to send again, and one whose read was never answered keeps it for the next
+// settle to read again. Killed by keeping a message whose record cannot be read, or by ending one
+// whose read went unanswered.
+#[rstest]
+#[case::unreadable(RecordRead::Unreadable)]
+#[case::unanswered(RecordRead::Unanswered)]
+#[tokio::test]
+async fn a_kept_message_whose_record_fails_ends_not_delivered_or_waits_for_the_next_read(
+    #[case] record: RecordRead,
+) {
+    let message = waiting_message();
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_resume_run()
+        .times(1)
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    driver
+        .expect_find_taken_messages()
+        .times(1)
+        .returning(move |_| {
+            async move {
+                Err(match record {
+                    RecordRead::Unreadable => {
+                        DriverError::Internal("the provider's record is gone".into())
+                    }
+                    RecordRead::Unanswered => unanswered(),
+                })
+            }
+            .boxed()
+        });
+    let fixture = fixture(driver, "paused").await;
+    let messages = WaitingMessages::holding(message.clone());
+    let resumed = fixture.resume(1, &messages).await;
+    fixture.set_run("stopped", 2);
+
+    let settled = fixture
+        .control
+        .settle_kept_by_record(fixture.session_id, fixture.run_id, &messages)
+        .await;
+
+    assert!(resumed.is_err(), "{resumed:?}");
+    let failed = messages
+        .failed
+        .lock()
+        .expect("the failed messages read")
+        .clone();
+    match record {
+        RecordRead::Unreadable => {
+            assert!(
+                matches!(
+                    settled,
+                    Err(RunPauseError::RecordUnreadable {
+                        give_back: None,
+                        ..
+                    })
+                ),
+                "{settled:?}"
+            );
+            assert_eq!(failed, vec![message.id]);
+            assert_eq!(messages.kept_messages(), []);
+        }
+        RecordRead::Unanswered => {
+            assert!(
+                matches!(settled, Err(RunPauseError::RecordUnanswered(_))),
+                "{settled:?}"
+            );
+            assert_eq!(failed, Vec::<QueueItemId>::new());
+            assert_eq!(messages.kept_messages(), vec![message]);
         }
     }
 }

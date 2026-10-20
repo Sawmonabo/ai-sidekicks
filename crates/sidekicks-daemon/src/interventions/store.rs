@@ -1,7 +1,7 @@
 //! The `interventions` row: the statements that write it, each guarded so a write decided from a
-//! stale read is refused whole, the read of a row saved under a reused idempotency key, the read of
-//! whether a limit's interrupt of a run is pending, and the settle at start of a faster-model retry
-//! a restart left with no outcome.
+//! stale read is refused whole, the read of a row by its id or saved under a reused idempotency
+//! key, the read of whether a limit's interrupt of a run is pending, and the settle at start of a
+//! faster-model retry a restart left with no outcome.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -165,7 +165,8 @@ pub(crate) enum InterventionTransition {
     },
 }
 
-/// An intervention as saved, read back for a request that reused its idempotency key.
+/// An intervention as saved, read back for a request that reused its idempotency key or whose row
+/// reached an outcome another write gave it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SavedIntervention {
     /// The intervention.
@@ -264,6 +265,10 @@ static RETRY_LOST_TO_RESTART: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_
 const SELECT_BY_IDEMPOTENCY_KEY_SQL: &str =
     "SELECT id, type, state, payload, rejection_reason, failure_reason FROM interventions
   WHERE target_run_id = @target_run_id AND client_idempotency_key = @client_idempotency_key";
+
+const SELECT_BY_ID_SQL: &str =
+    "SELECT id, type, state, payload, rejection_reason, failure_reason FROM interventions
+  WHERE id = @id";
 
 /// The statement that records a new intervention, refused when its key is already spent.
 pub(crate) fn insert_requested_intervention_statement(
@@ -384,18 +389,36 @@ pub(crate) fn read_intervention_by_idempotency_key(
                 "@target_run_id": target_run_id.text().as_str(),
                 "@client_idempotency_key": client_idempotency_key.as_str(),
             },
-            |row| {
-                Ok(SavedIntervention {
-                    intervention_id: text_column(row, 0, |text| InterventionId::new(&text))?,
-                    intervention_type: text_column(row, 1, closed_word)?,
-                    state: text_column(row, 2, closed_word)?,
-                    payload: row.get(3)?,
-                    rejection_reason: optional_text_column(row, 4, FreeFormText::new)?,
-                    failure_reason: optional_text_column(row, 5, FreeFormText::new)?,
-                })
-            },
+            saved_intervention,
         )
         .optional()
+}
+
+/// The intervention saved as `intervention_id`, if one is, read on `reader`. Fails when the read
+/// fails or a stored column does not read as its type.
+pub(crate) fn read_intervention(
+    reader: &Connection,
+    intervention_id: &InterventionId,
+) -> rusqlite::Result<Option<SavedIntervention>> {
+    reader
+        .prepare_cached(SELECT_BY_ID_SQL)?
+        .query_row(
+            named_params! { "@id": intervention_id.text().as_str() },
+            saved_intervention,
+        )
+        .optional()
+}
+
+// A row of the saved-intervention reads.
+fn saved_intervention(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedIntervention> {
+    Ok(SavedIntervention {
+        intervention_id: text_column(row, 0, |text| InterventionId::new(&text))?,
+        intervention_type: text_column(row, 1, closed_word)?,
+        state: text_column(row, 2, closed_word)?,
+        payload: row.get(3)?,
+        rejection_reason: optional_text_column(row, 4, FreeFormText::new)?,
+        failure_reason: optional_text_column(row, 5, FreeFormText::new)?,
+    })
 }
 
 /// A guard that refuses its write while an interrupt of `run_id` at `limit` is `requested` or
