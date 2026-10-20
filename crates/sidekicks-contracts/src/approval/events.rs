@@ -188,8 +188,14 @@ macro_rules! approval_reviewer_denied_payload {
                 pub agent_id: $crate::agent::definition::AgentId,
                 /// The block.
                 pub denial_id: $crate::approval::ReviewerDenialId,
-                /// The blocked call's own row.
-                pub event_id: $crate::wire::text::NonEmptyText,
+                /// The blocked call's own row; absent on a block that names no call.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "crate::wire::text::NonEmptyText")]
+                pub event_id: Option<$crate::wire::text::NonEmptyText>,
                 /// The reviewer's reason.
                 #[serde(
                     default,
@@ -212,8 +218,10 @@ approval_reviewer_denied_payload! {
     /// The `approval.reviewer.denied` payload: a provider's own reviewer blocked an action. The
     /// daemon keeps the denial whole beside the row, which is what lets the override hold across a
     /// restart. `eventId` names the blocked call's own row, whose reason line reads
-    /// `Blocked · <reason>`, or `Blocked` alone where the reviewer gave no reason. `overridable` is
-    /// false where the provider lets no person overrule the block, and no `Allow once` is drawn.
+    /// `Blocked · <reason>`, or `Blocked` alone where the reviewer gave no reason; a block that
+    /// names no call, such as a review of a network request, has none and is a row of its own.
+    /// `overridable` is false where the provider lets no person overrule the block, and no
+    /// `Allow once` is drawn.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct ApprovalReviewerDeniedPayload
