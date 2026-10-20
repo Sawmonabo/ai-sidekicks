@@ -2,17 +2,13 @@
 //! the build settles only once the build's process has exited.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
-use sidekicks_daemon::daemon::scheduler::Scheduler;
-use sidekicks_daemon::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_daemon::database::writer::test_file::TestDatabase;
-use sidekicks_daemon::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_daemon::session::directory::test_rows::insert_session_row;
+use sidekicks_daemon::session::search::index::live::test_services::TestDaemonServices;
 use sidekicks_daemon::session::search::index::live::{LiveIndex, LiveIndexOptions};
-use sidekicks_daemon::session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
-use sidekicks_platforms::{PinnedProcess, WallClockTimer, pin_child_process};
+use sidekicks_platforms::{PinnedProcess, pin_child_process};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::helpers::{daemon_program, spawner};
@@ -20,8 +16,9 @@ use crate::helpers::{daemon_program, spawner};
 /// Sessions enough that the build runs for seconds, so the close lands well inside it.
 const SESSION_COUNT: usize = 30_000;
 
-/// The bound on the wait for the build's process, so a build that never starts fails the test.
-const BUILD_START_BOUND: Duration = Duration::from_secs(30);
+/// The bound on each wait, for the build's process and for the close, so a build that never
+/// starts or a close that never settles fails the test.
+const WAIT_BOUND: Duration = Duration::from_secs(30);
 
 /// How often the process table is read while the test waits for the build's process.
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -48,7 +45,12 @@ fn store_titled_sessions(database: &TestDatabase) {
 /// this process's children, which keeps each read of the table cheap.
 fn find_build_process(system: &mut System, index_folder: &Path) -> Option<Pid> {
     let test_process = Pid::from_u32(std::process::id());
-    system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    // Processes only: a thread is listed as a child of its process, and is never the build.
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().without_tasks(),
+    );
     let children: Vec<Pid> = system
         .processes()
         .values()
@@ -58,7 +60,9 @@ fn find_build_process(system: &mut System, index_folder: &Path) -> Option<Pid> {
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&children),
         true,
-        ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always),
+        ProcessRefreshKind::nothing()
+            .without_tasks()
+            .with_cmd(UpdateKind::Always),
     );
     children.into_iter().find(|child| {
         system.process(*child).is_some_and(|process| {
@@ -71,7 +75,7 @@ fn find_build_process(system: &mut System, index_folder: &Path) -> Option<Pid> {
 }
 
 /// Waits for the build's process to appear and pins it, so its exit can be read after the close
-/// has reaped it.
+/// has ended it.
 async fn pin_build_process(index_folder: &Path) -> PinnedProcess {
     // On Linux the process table would otherwise keep each process's `stat` file open.
     sysinfo::set_open_files_limit(0);
@@ -84,15 +88,14 @@ async fn pin_build_process(index_folder: &Path) -> PinnedProcess {
     }
 }
 
-// Fails a close that returns once the build's stop is canceled, without waiting for the build to
-// end: the build's process is then still running, so its record still reads.
+// Fails, by construction, a close that returns once the build's stop is canceled without waiting
+// for the build to end: the build's process is then still running, so its record still reads. A
+// build dropped and killed with no wait is caught on Linux in practice and races on macOS.
 #[tokio::test]
 async fn a_close_during_a_build_settles_once_the_build_has_exited() {
     let database = TestDatabase::new();
     store_titled_sessions(&database);
-    let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-        .await
-        .expect("the writer opens its database");
+    let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
     let index_folder = folder.path().join("search-index");
     let live = LiveIndex::start(LiveIndexOptions {
@@ -100,18 +103,12 @@ async fn a_close_during_a_build_settles_once_the_build_has_exited() {
         index_folder: index_folder.clone(),
         program: daemon_program(),
         spawner: spawner(),
-        reads: Arc::new(DatabaseReadPool::new(
-            database.path(),
-            OUTBOX_STATEMENT_CAPACITY,
-        )),
-        writer: Arc::new(writer),
-        scheduler: Arc::new(Scheduler::start(
-            Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-            None,
-        )),
+        reads: services.reads,
+        writer: services.writer,
+        scheduler: services.scheduler,
     });
     // A build that fails to start fails the live index at once, so its failure ends the wait.
-    let build = tokio::time::timeout(BUILD_START_BOUND, async {
+    let build = tokio::time::timeout(WAIT_BOUND, async {
         tokio::select! {
             build = pin_build_process(&index_folder) => build,
             failure = live.when_failed() => panic!("the missing index's build fails: {failure:?}"),
@@ -120,15 +117,20 @@ async fn a_close_during_a_build_settles_once_the_build_has_exited() {
     .await
     .expect("the missing index's build starts");
 
-    live.close().await.expect("the close ends the build");
+    tokio::time::timeout(WAIT_BOUND, live.close())
+        .await
+        .expect("the close settles")
+        .expect("the close ends the build");
 
-    // Read with no await after the close, so nothing but the close itself can have reaped it.
+    // Read with no await after the close, so nothing but the close itself can have ended it.
     assert!(
         build.record().expect("the build's process reads").is_none(),
         "the close settles only once the build's process has exited"
     );
     assert!(
-        !index_folder.exists(),
+        !index_folder
+            .try_exists()
+            .expect("the index folder's presence reads"),
         "the close landed during the build, which placed nothing"
     );
 }
