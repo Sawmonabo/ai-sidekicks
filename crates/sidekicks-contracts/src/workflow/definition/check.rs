@@ -31,14 +31,15 @@ struct GraphCheckInput {
     node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
 }
 
-/// The connection check's arguments: the document's trigger and other nodes, each node's handles,
-/// and the one connection being drawn.
+/// The connection check's arguments: the document's trigger, its other nodes and edges, each
+/// node's handles, and the one connection being drawn.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ConnectionCheckInput {
     #[serde(default, deserialize_with = "crate::wire::present")]
     trigger: Option<WorkflowTriggerNode>,
     nodes: Vec<WorkflowNode>,
+    edges: Vec<WorkflowEdge>,
     edge: WorkflowEdge,
     node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
 }
@@ -66,9 +67,9 @@ pub fn check_workflow_graph_json(input: &str) -> Result<String, JsError> {
     Ok(serde_json::to_string(&findings)?)
 }
 
-/// Runs the connection check over `{trigger?, nodes, edge, nodeHandles}` and answers the
-/// connection's findings as a JSON array, empty when it is accepted; throws when the input does
-/// not read.
+/// Runs the connection check over `{trigger?, nodes, edges, edge, nodeHandles}` and answers the
+/// findings the connection adds to the document as a JSON array, empty when it is accepted; throws
+/// when the input does not read.
 #[wasm_bindgen(js_name = checkWorkflowConnection)]
 pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
     let input: ConnectionCheckInput = serde_json::from_str(input)?;
@@ -76,6 +77,7 @@ pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
     let findings = check_workflow_connection(
         trigger.as_ref(),
         &input.nodes,
+        &input.edges,
         &input.edge,
         &input.node_handles,
     );
@@ -116,6 +118,13 @@ mod tests {
                     "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
                     "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
                 },
+                "b": {
+                    "category": "agent",
+                    "inputs": [{
+                        "type": "main", "id": "inputs/main/0", "label": "In", "maxConnections": 1,
+                    }],
+                    "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                },
             },
         })
     }
@@ -145,8 +154,26 @@ mod tests {
     )]
     #[case::the_connection_check(
         check_workflow_connection_json,
-        with(graph_input(), "edge", edge("a", "t")),
+        with(with(graph_input(), "edges", json!([])), "edge", edge("a", "t")),
         json!([{ "rule": "edgeIntoTrigger", "nodeIds": ["a", "t"] }]),
+    )]
+    #[case::the_connection_check_closing_a_cycle(
+        check_workflow_connection_json,
+        with(
+            with(graph_input(), "edges", json!([edge("t", "a"), edge("a", "b")])),
+            "edge",
+            edge("b", "a"),
+        ),
+        json!([{ "rule": "cycle", "nodeIds": ["a", "b"] }]),
+    )]
+    #[case::the_connection_check_past_an_input_limit(
+        check_workflow_connection_json,
+        with(
+            with(graph_input(), "edges", json!([edge("t", "a"), edge("t", "b")])),
+            "edge",
+            edge("a", "b"),
+        ),
+        json!([{ "rule": "inputConnectionsExceeded", "nodeIds": ["b", "a"] }]),
     )]
     #[case::the_node_params_check(
         check_workflow_node_params_json,

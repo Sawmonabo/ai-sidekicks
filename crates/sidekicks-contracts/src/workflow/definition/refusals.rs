@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
+use std::iter;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -195,20 +196,34 @@ pub fn check_workflow_graph<S: BuildHasher>(
     findings
 }
 
-/// The findings one connection raises on its own, the rules the builder checks while it is
-/// dragged: an end naming a node the document does not hold, an edge into the trigger or out of a
-/// node with no outputs, a `tool` edge into a node with no `tool` input, an end that is not a
-/// declared handle of its node, and a `main` end joined to a `tool` end. Empty when the connection
-/// is accepted. The arguments read as `check_workflow_graph`'s, which raises the same findings for
-/// each of the document's edges.
+/// The findings a connection dragged onto the document adds, which the builder refuses while it
+/// is dragged: the edge's own rules, the cycle it would close (the edge closing a loop body
+/// excepted) and the input limit it would pass. It is `check_workflow_graph` over the document
+/// with the edge and without it, answering each finding of the first not in the second, so a
+/// finding the document already holds is not the connection's. Empty when it is accepted.
 pub fn check_workflow_connection<S: BuildHasher>(
     trigger: Option<&WorkflowNode>,
     document_nodes: &[WorkflowNode],
+    edges: &[WorkflowEdge],
     edge: &WorkflowEdge,
     node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
 ) -> Vec<WorkflowDefinitionFinding> {
-    GraphFacts::new(trigger, document_nodes, &[], node_handles)
-        .edge_findings(&ParsedEdge::new(edge))
+    let edges_with_connection: Vec<WorkflowEdge> =
+        edges.iter().chain(iter::once(edge)).cloned().collect();
+    let mut findings = check_workflow_graph(
+        trigger,
+        document_nodes,
+        &edges_with_connection,
+        node_handles,
+    );
+    // Each finding the document holds already accounts for one equal finding, so a second bad
+    // edge like one already there is still refused.
+    for held in check_workflow_graph(trigger, document_nodes, edges, node_handles) {
+        if let Some(index) = findings.iter().position(|finding| *finding == held) {
+            findings.remove(index);
+        }
+    }
+    findings
 }
 
 /// A rule one edge can break.
@@ -663,7 +678,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::{WorkflowNodeHandles, check_workflow_graph};
+    use super::{WorkflowNodeHandles, check_workflow_connection, check_workflow_graph};
     use crate::workflow::definition::document::{
         WorkflowDraftDocument, WorkflowNode, WorkflowNodeId, node,
     };
@@ -775,20 +790,7 @@ mod tests {
         #[case] edges: Value,
         #[case] findings: Value,
     ) {
-        let document: WorkflowDraftDocument = serde_json::from_value(json!({
-            "schemaVersion": "2",
-            "name": "Graph",
-            "trigger": node("t", "trigger.manual"),
-            "nodes": nodes,
-            "edges": edges,
-        }))
-        .expect("the document reads");
-        let trigger = document.trigger.as_ref().map(WorkflowNode::from);
-        let node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles> = trigger
-            .iter()
-            .chain(&document.nodes)
-            .filter_map(|node| Some((node.id.clone(), handles_of(node)?)))
-            .collect();
+        let (document, trigger, node_handles) = graph(&nodes, &edges);
         let found = check_workflow_graph(
             trigger.as_ref(),
             &document.nodes,
@@ -799,5 +801,80 @@ mod tests {
             serde_json::to_value(found).expect("the findings write"),
             findings
         );
+    }
+
+    // The connection check answers only what the dragged edge adds: the cycle it closes, the
+    // input limit it passes, never a finding the document already holds, and no cycle for the
+    // edge that closes a loop body.
+    #[rstest]
+    #[case::a_connection_closing_a_cycle(
+        json!([node("a", "agent.run"), node("b", "agent.run")]),
+        json!([main_edge("t", "a"), main_edge("a", "b")]),
+        main_edge("b", "a"),
+        json!([{ "rule": "cycle", "nodeIds": ["a", "b"] }]),
+    )]
+    #[case::a_connection_closing_a_loop_body(
+        json!([node("l", "flow.loopItems"), node("x", "agent.run")]),
+        json!([main_edge("t", "l"), edge("l", "outputs/main/1", "x", "inputs/main/0")]),
+        main_edge("x", "l"),
+        json!([]),
+    )]
+    #[case::a_connection_past_an_input_limit(
+        json!([node("a", "agent.run"), node("n", "output.notify")]),
+        json!([main_edge("t", "a"), main_edge("t", "n")]),
+        main_edge("a", "n"),
+        json!([{ "rule": "inputConnectionsExceeded", "nodeIds": ["n", "a"] }]),
+    )]
+    #[case::a_finding_the_document_already_holds(
+        json!([node("a", "agent.run"), node("b", "agent.run")]),
+        json!([]),
+        main_edge("t", "a"),
+        json!([]),
+    )]
+    fn the_connection_check_refuses_what_the_edge_adds(
+        #[case] nodes: Value,
+        #[case] edges: Value,
+        #[case] connection: Value,
+        #[case] findings: Value,
+    ) {
+        let (document, trigger, node_handles) = graph(&nodes, &edges);
+        let connection = serde_json::from_value(connection).expect("the connection reads");
+        let found = check_workflow_connection(
+            trigger.as_ref(),
+            &document.nodes,
+            &document.edges,
+            &connection,
+            &node_handles,
+        );
+        assert_eq!(
+            serde_json::to_value(found).expect("the findings write"),
+            findings
+        );
+    }
+
+    // The document under a manual trigger `t`, its trigger as a node, and each node's handles.
+    fn graph(
+        nodes: &Value,
+        edges: &Value,
+    ) -> (
+        WorkflowDraftDocument,
+        Option<WorkflowNode>,
+        HashMap<WorkflowNodeId, WorkflowNodeHandles>,
+    ) {
+        let document: WorkflowDraftDocument = serde_json::from_value(json!({
+            "schemaVersion": "2",
+            "name": "Graph",
+            "trigger": node("t", "trigger.manual"),
+            "nodes": nodes,
+            "edges": edges,
+        }))
+        .expect("the document reads");
+        let trigger = document.trigger.as_ref().map(WorkflowNode::from);
+        let node_handles = trigger
+            .iter()
+            .chain(&document.nodes)
+            .filter_map(|node| Some((node.id.clone(), handles_of(node)?)))
+            .collect();
+        (document, trigger, node_handles)
     }
 }
