@@ -445,4 +445,60 @@ mod tests {
             (score.to_string(), matched_indices.to_vec())
         );
     }
+
+    #[rstest]
+    #[case::a_scrambled_order("Copy SHA", "sc")]
+    #[case::a_unit_the_candidate_lacks("class", "csx")]
+    #[case::a_query_longer_than_the_candidate("cs", "css")]
+    #[case::an_empty_query("class", "")]
+    fn a_query_that_is_not_a_case_insensitive_subsequence_matches_nothing(
+        #[case] candidate: &str,
+        #[case] query: &str,
+    ) {
+        assert_eq!(score_subsequence(&utf16(candidate), &utf16(query)), None);
+    }
+
+    #[rstest]
+    #[case::cs_ranks_copy_sha_over_class("cs", "Copy SHA", "class")]
+    #[case::adjacent_matches_rank_over_scattered_ones("ab", "abxx", "axbx")]
+    #[case::a_prefix_match_ranks_first("run", "Run tests", "Stop run")]
+    fn ranks_the_better_candidate_over_the_worse(
+        #[case] query: &str,
+        #[case] better: &str,
+        #[case] worse: &str,
+    ) {
+        let score_of = |candidate: &str| {
+            score_subsequence(&utf16(candidate), &utf16(query))
+                .expect("the query matches")
+                .score
+        };
+        assert!(
+            score_of(better) > score_of(worse),
+            "{better} scores {} and {worse} {}",
+            score_of(better),
+            score_of(worse)
+        );
+    }
+
+    #[test]
+    fn equal_scores_keep_a_stable_order_between_keystrokes() {
+        let candidates = ["Run alpha", "Run omega"];
+        for query in ["r", "ru"] {
+            let found: Vec<_> = candidates
+                .iter()
+                .map(|candidate| {
+                    score_subsequence(&utf16(candidate), &utf16(query)).expect("the query matches")
+                })
+                .collect();
+            assert_eq!(found[0], found[1], "after {query}");
+        }
+    }
+
+    #[test]
+    fn matched_indices_point_at_the_original_candidates_utf16_units() {
+        // The emoji takes two UTF-16 units and four UTF-8 bytes, so `É` sits at unit 3, character
+        // 2 and byte 5; `ét` matches it folded to lower case.
+        let found = score_subsequence(&utf16("😀 Été"), &utf16("ét")).expect("the query matches");
+        assert_eq!(found.matched_indices, vec![3, 4]);
+    }
 }
