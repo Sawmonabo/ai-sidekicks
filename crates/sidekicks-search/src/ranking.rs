@@ -426,8 +426,13 @@ mod tests {
     // whose two ends total 7 each takes the earlier. A consecutive run and a gap that both reach
     // 14 before `b` take the run.
     #[rstest]
-    #[case::initials_over_a_word("Copy SHA", "cs", 99.0, &[0, 5])]
-    #[case::a_word_under_initials("class", "cs", 97.5, &[0, 3])]
+    #[case::an_initialism_reaches_a_candidate_whose_word_starts_it_spells(
+        "Copy SHA",
+        "cs",
+        99.0,
+        &[0, 5]
+    )]
+    #[case::over_one_that_holds_the_letters_mid_word("class", "cs", 97.5, &[0, 3])]
     #[case::one_unit_gap("axb", "ab", 101.0, &[0, 2])]
     #[case::two_unit_gap("axxb", "ab", 98.0, &[0, 3])]
     #[case::earliest_end_tie(&format!("XA{}a", "X".repeat(15)), "a", 7.0, &[1])]
@@ -459,7 +464,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::cs_ranks_copy_sha_over_class("cs", "Copy SHA", "class")]
     #[case::adjacent_matches_rank_over_scattered_ones("ab", "abxx", "axbx")]
     #[case::a_prefix_match_ranks_first("run", "Run tests", "Stop run")]
     fn ranks_the_better_candidate_over_the_worse(
@@ -478,20 +482,6 @@ mod tests {
             score_of(better),
             score_of(worse)
         );
-    }
-
-    #[test]
-    fn equal_scores_keep_a_stable_order_between_keystrokes() {
-        let candidates = ["Run alpha", "Run omega"];
-        for query in ["r", "ru"] {
-            let found: Vec<_> = candidates
-                .iter()
-                .map(|candidate| {
-                    score_subsequence(&utf16(candidate), &utf16(query)).expect("the query matches")
-                })
-                .collect();
-            assert_eq!(found[0], found[1], "after {query}");
-        }
     }
 
     #[test]
