@@ -63,12 +63,12 @@
     "sidekicks-crates#test": {
       "dependsOn": ["sidekicks-crates#test:doc", "@ai-sidekicks/daemon-engines#build"],
       "cache": false,
-      "command": ["cargo", "nextest", "run", "--workspace", "--locked"]
+      "command": ["cargo", "nextest", "run", "--workspace", "--all-features", "--locked"]
     },
     "sidekicks-crates#test:doc": {
       "dependsOn": ["@ai-sidekicks/daemon-engines#build"],
       "cache": false,
-      "command": ["cargo", "test", "--workspace", "--doc", "--locked"]
+      "command": ["cargo", "test", "--workspace", "--doc", "--all-features", "--locked"]
     },
     // The daemon embeds the JavaScript bundles its engines run.
     "sidekicks-daemon#build": {
