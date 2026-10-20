@@ -190,24 +190,24 @@ impl From<CodexError> for DriverError {
     /// `session.alreadyClosed`; the rest are internal failures.
     fn from(error: CodexError) -> Self {
         match &error {
-            CodexError::Transport { .. } => provider_failure_refusal(
+            CodexError::Transport { .. } => Self::Refused(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "The Codex service failed",
                 RefusalCode::ProviderUnavailable,
                 error,
-            ),
-            CodexError::RequestTooLarge { .. } => provider_failure_refusal(
+            )),
+            CodexError::RequestTooLarge { .. } => Self::Refused(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "The request is larger than the Codex service takes in one message",
                 RefusalCode::ProviderUnavailable,
                 error,
-            ),
-            CodexError::RequestTimeout { .. } => provider_failure_refusal(
+            )),
+            CodexError::RequestTimeout { .. } => Self::Refused(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "The Codex service did not answer in time",
                 RefusalCode::ProviderTimeout,
                 error,
-            ),
+            )),
             CodexError::RewindBoundaryUnsupported {
                 provider_failure_detail,
             } => {

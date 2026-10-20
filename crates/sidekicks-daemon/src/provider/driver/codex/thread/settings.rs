@@ -476,6 +476,7 @@ mod tests {
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_platforms::PathRules;
 
     use super::{
         ApprovalsReviewer, AskForApproval, CodexServiceTierChange, CodexThreadSettings,
@@ -483,12 +484,18 @@ mod tests {
         ThreadResumeParams, ThreadStartParams, UserInput, compose_codex_thread_fork_params,
         compose_codex_thread_resume_params, compose_codex_thread_start_params,
     };
+    use crate::provider::driver::PROVIDERS;
+    use crate::provider::driver::codex::DESCRIPTOR;
     use crate::provider::driver::codex::app_server_protocol::{
         ModeKind, Settings, TextUserInputType,
     };
     use crate::provider::driver::codex::permission_level::CodexProfileFolders;
     use crate::provider::driver::codex::vendored_schema::vendored_schema_file;
     use crate::provider::driver::contract::SubagentPolicy;
+    use crate::provider::spawn_environment::{
+        ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
+        build_conversation_command_environment,
+    };
 
     fn settings_with(subagent_policy: Option<SubagentPolicy>) -> CodexThreadSettings {
         CodexThreadSettings {
@@ -541,6 +548,45 @@ mod tests {
         let config = params.config.expect("a start always carries its config");
         assert_eq!(config.get("features.multi_agent_v2"), Some(&multi_agent));
         assert_eq!(config.get("agents.enabled"), agents_enabled.as_ref());
+    }
+
+    // Killed by building a conversation's command environment without the switches every
+    // registered provider's background work is turned off by, or by dropping them from the policy.
+    #[test]
+    fn the_conversation_commands_carry_every_providers_background_switch() {
+        let reserved_names = ReservedEnvironmentNames::of_providers(PROVIDERS);
+        let request = ProviderEnvironmentRequest {
+            session: SessionEnvironment {
+                base: &[],
+                every_project_rows: &[],
+                project_rows: &[],
+                reserved_names: &reserved_names,
+                rules: PathRules::Posix,
+            },
+            descriptor: &DESCRIPTOR,
+            deny_env_vars: &[],
+            credential_homes: &[],
+        };
+        let settings = CodexThreadSettings {
+            command_environment: build_conversation_command_environment(&request)
+                .expect("the conversation's command environment builds"),
+            ..settings_with(None)
+        };
+
+        let params = compose_codex_thread_start_params(&settings, None);
+        let config = params.config.expect("a start always carries its config");
+        let switches: Vec<_> = PROVIDERS
+            .iter()
+            .filter_map(|descriptor| descriptor.background_work.as_ref())
+            .map(|work| work.off_switch)
+            .collect();
+        assert!(!switches.is_empty());
+        for (name, value) in switches {
+            assert_eq!(
+                config["shell_environment_policy"]["set"][name],
+                json!(value)
+            );
+        }
     }
 
     /// A thread request that carries a service tier.

@@ -11,7 +11,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use serde::de::{self, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -23,6 +23,9 @@ use crate::provider::driver::claude::session::rules::{
 };
 use crate::provider::driver::claude::spawn::environment::compose_claude_scratch_folder;
 use crate::provider::inbound_json::decode_inbound_json;
+use crate::provider::lenient_json::{
+    Lenient, LenientElement, LenientVisitor, lenient_object, read_lenient, skip_other_shapes,
+};
 
 /// The turns one conversation file holds.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -373,140 +376,6 @@ struct ContentBlock {
     block_type: Option<String>,
 }
 
-// A value read leniently: the shape `T` takes, or `None` for any other, whose contents are skipped
-// without being kept.
-trait Lenient: Sized {
-    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error>;
-}
-
-fn read_lenient<'de, D: Deserializer<'de>, T: Lenient>(
-    deserializer: D,
-) -> Result<Option<T>, D::Error> {
-    T::read(deserializer)
-}
-
-// Skips any value but the one shape `Wanted` reads, which each impl below names.
-struct LenientVisitor<Wanted>(PhantomData<Wanted>);
-
-macro_rules! skip_other_shapes {
-    ($($skipped:ident($($argument:ty)?)),* $(,)?) => {$(
-        fn $skipped<E: de::Error>(self $(, _value: $argument)?) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-    )*};
-}
-
-macro_rules! skip_sequence {
-    () => {
-        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
-            while sequence.next_element::<IgnoredAny>()?.is_some() {}
-            Ok(None)
-        }
-    };
-}
-
-macro_rules! skip_map {
-    () => {
-        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-            while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-            Ok(None)
-        }
-    };
-}
-
-impl<'de> Visitor<'de> for LenientVisitor<String> {
-    type Value = Option<String>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-        Ok(Some(value.to_owned()))
-    }
-
-    fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
-        Ok(Some(value))
-    }
-
-    skip_other_shapes!(
-        visit_bool(bool),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit()
-    );
-    skip_sequence!();
-    skip_map!();
-}
-
-impl<'de> Visitor<'de> for LenientVisitor<bool> {
-    type Value = Option<bool>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
-        Ok(Some(value))
-    }
-
-    skip_other_shapes!(
-        visit_str(&str),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit()
-    );
-    skip_sequence!();
-    skip_map!();
-}
-
-impl<'de> Visitor<'de> for LenientVisitor<ConversationEntry> {
-    type Value = Option<ConversationEntry>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    // Only an object is an entry: serde's derive would read an array's items by position.
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        ConversationEntry::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
-    }
-
-    skip_other_shapes!(
-        visit_bool(bool),
-        visit_str(&str),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit(),
-    );
-    skip_sequence!();
-}
-
-impl<'de> Visitor<'de> for LenientVisitor<ConversationMessage> {
-    type Value = Option<ConversationMessage>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        ConversationMessage::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
-    }
-
-    skip_other_shapes!(
-        visit_bool(bool),
-        visit_str(&str),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit(),
-    );
-    skip_sequence!();
-}
-
 impl<'de> Visitor<'de> for LenientVisitor<MessageContent> {
     type Value = Option<MessageContent>;
 
@@ -520,7 +389,7 @@ impl<'de> Visitor<'de> for LenientVisitor<MessageContent> {
 
     fn visit_seq<A: SeqAccess<'de>>(self, mut blocks: A) -> Result<Self::Value, A::Error> {
         let mut has_tool_result = false;
-        while let Some(block) = blocks.next_element::<LenientBlock>()? {
+        while let Some(block) = blocks.next_element::<LenientElement<ContentBlock>>()? {
             has_tool_result |= block
                 .0
                 .is_some_and(|block| block.block_type.as_deref() == Some("tool_result"));
@@ -535,59 +404,16 @@ impl<'de> Visitor<'de> for LenientVisitor<MessageContent> {
         visit_f64(f64),
         visit_unit()
     );
-    skip_map!();
+    skip_other_shapes!(@map);
 }
 
-impl<'de> Visitor<'de> for LenientVisitor<ContentBlock> {
-    type Value = Option<ContentBlock>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        ContentBlock::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
-    }
-
-    skip_other_shapes!(
-        visit_bool(bool),
-        visit_str(&str),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit(),
-    );
-    skip_sequence!();
-}
-
-// One content block, read leniently.
-struct LenientBlock(Option<ContentBlock>);
-
-impl<'de> Deserialize<'de> for LenientBlock {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer
-            .deserialize_any(LenientVisitor::<ContentBlock>(PhantomData))
-            .map(Self)
+impl Lenient for MessageContent {
+    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
+        deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
     }
 }
 
-macro_rules! lenient {
-    ($($wanted:ty),*) => {$(
-        impl Lenient for $wanted {
-            fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
-                deserializer.deserialize_any(LenientVisitor::<$wanted>(PhantomData))
-            }
-        }
-    )*};
-}
-
-lenient!(
-    String,
-    bool,
-    ConversationEntry,
-    ConversationMessage,
-    MessageContent
-);
+lenient_object!(ConversationEntry, ConversationMessage, ContentBlock);
 
 #[cfg(test)]
 mod tests {

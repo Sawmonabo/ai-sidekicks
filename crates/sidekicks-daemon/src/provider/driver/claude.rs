@@ -8,8 +8,8 @@ use sidekicks_platforms::{
 };
 
 use crate::provider::driver::{
-    CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup,
-    ProviderDescriptor, ProviderMemoryEstimates,
+    BackgroundWork, CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand,
+    ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
 
 mod capability_probe;
@@ -130,4 +130,34 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
     mcp_config_members: &[],
     skill_name_max_length: None,
+    background_work: Some(BackgroundWork {
+        // Background sessions and their supervisor, a restart of them, and every form that serves
+        // or runs a session from elsewhere: Remote Control, a self-hosted runner, the gateway.
+        subcommands: &[
+            "agents",
+            "daemon",
+            "respawn",
+            "remote-control",
+            "self-hosted-runner",
+            "gateway",
+        ],
+        // A prompt sent to the background (`--exec` runs only beside `--bg`), to Remote Control,
+        // to the cloud, or taken over from it.
+        flags: &[
+            "--bg",
+            "--background",
+            "--remote-control",
+            "--rc",
+            "--cloud",
+            "--remote",
+            "--teleport",
+        ],
+        refusal: "`claude agents`, `claude daemon`, `claude --bg` and every other `claude` form \
+                  that starts or serves work outside this session are refused inside it: their \
+                  work would run outside the session's agents, outside Stop and Interrupt, and \
+                  off its receipt.",
+        // Turns off `claude agents`, `--bg`, `/background` and the on-demand supervisor; no
+        // setting turns them back on.
+        off_switch: ("CLAUDE_CODE_DISABLE_AGENT_VIEW", "1"),
+    }),
 };

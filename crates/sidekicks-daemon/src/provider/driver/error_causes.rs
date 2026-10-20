@@ -16,7 +16,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::error_description::describe_error;
 use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
+use crate::provider::driver::contract::bound_failure_detail;
 
 /// Stands in for a provider failure whose words are blank once bounded.
 pub(crate) static UNSPECIFIED_PROVIDER_FAILURE_DETAIL: LazyLock<
@@ -33,19 +33,17 @@ pub(crate) fn provider_failure_refusal(
     message: &str,
     code: RefusalCode,
     error: impl Error + Send + Sync + 'static,
-) -> DriverError {
+) -> DomainError {
     let provider_failure_detail = bound_failure_detail(
         &describe_error(&error),
         UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
     );
-    DriverError::Refused(
-        DomainError::new(message, code)
-            .with_detail(json!({
-                "providerId": provider.as_str(),
-                "providerFailureDetail": provider_failure_detail.as_str(),
-            }))
-            .with_source(error),
-    )
+    DomainError::new(message, code)
+        .with_detail(json!({
+            "providerId": provider.as_str(),
+            "providerFailureDetail": provider_failure_detail.as_str(),
+        }))
+        .with_source(error)
 }
 
 /// The configured provider command names no runnable build, or one whose real path cannot be
