@@ -1,7 +1,8 @@
-//! The sessions a follower of every session named, waiting for the task that serves them. The
-//! follower runs on the writer's pump and may not read or write there, so it only adds the session
-//! here; the task takes every waiting session at once, each named once however many events named
-//! it, and is woken once for any number of adds.
+//! The sessions a producer named, waiting for the task that serves them: a follower of every
+//! session, which runs on the writer's pump and may not read or write there, or a watch naming the
+//! chats whose folders changed. The producer only adds the session here; the task takes every
+//! waiting session at once, each named once however many times it was named, and is woken once for
+//! any number of adds.
 
 use std::collections::HashSet;
 use std::mem;
