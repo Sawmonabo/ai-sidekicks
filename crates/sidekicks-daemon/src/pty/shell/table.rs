@@ -16,8 +16,6 @@ mod end;
 mod open;
 mod output;
 #[cfg(test)]
-pub(crate) mod test_table;
-#[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;

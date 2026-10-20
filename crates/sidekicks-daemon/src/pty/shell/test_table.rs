@@ -14,10 +14,12 @@ use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
-use super::{ReadSessionWorkingFolder, ShellSettings, ShellTable, ShellTableDeps};
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
 use crate::pty::orphan::guard::open_orphan_guard;
 use crate::pty::shell::integration::injection::ShellStartupFolders;
+use crate::pty::shell::table::{
+    ReadSessionWorkingFolder, ShellSettings, ShellTable, ShellTableDeps,
+};
 use crate::session::not_found::session_not_found;
 use crate::session::working_folder::SessionWorkingFolder;
 

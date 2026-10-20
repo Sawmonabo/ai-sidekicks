@@ -45,7 +45,7 @@ use crate::provider::conversation_purge::{
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::registry::{ProviderRegistry, test_provider};
 use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
-use crate::pty::shell::table::test_table::{TableFixture, table_fixture};
+use crate::pty::shell::test_table::{TableFixture, table_fixture};
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::related::ranking::SessionRelatedRanking;
