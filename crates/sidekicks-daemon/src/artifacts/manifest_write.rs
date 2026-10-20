@@ -121,8 +121,9 @@ fn read_artifact_owner(
     let Some(run_id) = run_id else {
         return Ok(());
     };
+    let session_text = session_id.text();
     let is_run_of_session = connection.prepare_cached(RUN_IN_SESSION_SQL)?.exists(
-        named_params! { "@sessionId": session_id.text().as_str(), "@runId": run_id.text().as_str() },
+        named_params! { "@sessionId": session_text.as_str(), "@runId": run_id.text().as_str() },
     )?;
     if is_run_of_session {
         Ok(())
