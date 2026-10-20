@@ -9,8 +9,6 @@ publish.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = [
-  # The workflow builder's WebAssembly build of the workflow checks.
-  "wasm-bindgen",
   # On for the WebAssembly builds only, so the randomness `p256` (getrandom 0.4) and the schema
   # checker's hash maps (getrandom 0.3, through `ahash`) take is read from `crypto.getRandomValues`.
   "getrandom",

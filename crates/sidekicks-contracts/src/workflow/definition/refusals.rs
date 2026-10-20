@@ -118,7 +118,8 @@ const LOOP_KIND: &str = "flow.loopItems";
 /// One node's category and the handles it has. For a kind whose outputs derive from its params,
 /// `outputs` is what this node's params give; a node that routes failures to an error output lists
 /// that output too.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowNodeHandles {
     /// The kind's category.
     pub category: WorkflowNodeKindCategory,
@@ -141,21 +142,7 @@ pub fn check_workflow_graph<S: BuildHasher>(
     edges: &[WorkflowEdge],
     node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
 ) -> Vec<WorkflowDefinitionFinding> {
-    let nodes: Vec<&WorkflowNode> = trigger.into_iter().chain(document_nodes).collect();
-    let graph = GraphFacts {
-        trigger_id: trigger.map(|trigger| &trigger.id),
-        node_by_id: nodes.iter().map(|&node| (&node.id, node)).collect(),
-        node_handles,
-        edges: edges
-            .iter()
-            .map(|edge| ParsedEdge {
-                edge,
-                source: parse_workflow_handle(edge.source_handle.as_str()),
-                target: parse_workflow_handle(edge.target_handle.as_str()),
-            })
-            .collect(),
-        nodes,
-    };
+    let graph = GraphFacts::new(trigger, document_nodes, edges, node_handles);
     let mut findings = Vec::new();
     match graph.trigger_id {
         None => findings.push(WorkflowDefinitionFinding::TriggerMissing { node_ids: vec![] }),
@@ -184,21 +171,11 @@ pub fn check_workflow_graph<S: BuildHasher>(
     }
     let mut refused_edges = HashSet::new();
     for (edge_index, parsed_edge) in graph.edges.iter().enumerate() {
-        let WorkflowEdge { source, target, .. } = parsed_edge.edge;
-        let held_end_ids: Vec<WorkflowNodeId> = [source, target]
-            .into_iter()
-            .filter(|node_id| graph.node_by_id.contains_key(node_id))
-            .cloned()
-            .collect();
-        let rules = graph.edge_rules(parsed_edge);
-        if !rules.is_empty() {
+        let edge_findings = graph.edge_findings(parsed_edge);
+        if !edge_findings.is_empty() {
             refused_edges.insert(edge_index);
         }
-        findings.extend(
-            rules
-                .into_iter()
-                .map(|rule| rule.finding(held_end_ids.clone())),
-        );
+        findings.extend(edge_findings);
     }
     findings.extend(graph.connection_limit_findings(&refused_edges));
     findings.extend(
@@ -216,6 +193,22 @@ pub fn check_workflow_graph<S: BuildHasher>(
         }));
     }
     findings
+}
+
+/// The findings one connection raises on its own, the rules the builder checks while it is
+/// dragged: an end naming a node the document does not hold, an edge into the trigger or out of a
+/// node with no outputs, a `tool` edge into a node with no `tool` input, an end that is not a
+/// declared handle of its node, and a `main` end joined to a `tool` end. Empty when the connection
+/// is accepted. The arguments read as `check_workflow_graph`'s, which raises the same findings for
+/// each of the document's edges.
+pub fn check_workflow_connection<S: BuildHasher>(
+    trigger: Option<&WorkflowNode>,
+    document_nodes: &[WorkflowNode],
+    edge: &WorkflowEdge,
+    node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
+) -> Vec<WorkflowDefinitionFinding> {
+    GraphFacts::new(trigger, document_nodes, &[], node_handles)
+        .edge_findings(&ParsedEdge::new(edge))
 }
 
 /// A rule one edge can break.
@@ -252,7 +245,15 @@ struct ParsedEdge<'a> {
     target: WorkflowHandle,
 }
 
-impl ParsedEdge<'_> {
+impl<'a> ParsedEdge<'a> {
+    fn new(edge: &'a WorkflowEdge) -> Self {
+        Self {
+            edge,
+            source: parse_workflow_handle(edge.source_handle.as_str()),
+            target: parse_workflow_handle(edge.target_handle.as_str()),
+        }
+    }
+
     fn is_main(&self) -> bool {
         self.source.handle_type == WorkflowHandleType::Main
             && self.target.handle_type == WorkflowHandleType::Main
@@ -281,6 +282,22 @@ struct GraphFacts<'a, S> {
 }
 
 impl<'a, S: BuildHasher> GraphFacts<'a, S> {
+    fn new(
+        trigger: Option<&'a WorkflowNode>,
+        document_nodes: &'a [WorkflowNode],
+        edges: &'a [WorkflowEdge],
+        node_handles: &'a HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
+    ) -> Self {
+        let nodes: Vec<&WorkflowNode> = trigger.into_iter().chain(document_nodes).collect();
+        Self {
+            trigger_id: trigger.map(|trigger| &trigger.id),
+            node_by_id: nodes.iter().map(|&node| (&node.id, node)).collect(),
+            node_handles,
+            edges: edges.iter().map(ParsedEdge::new).collect(),
+            nodes,
+        }
+    }
+
     fn handles_of(&self, node_id: &WorkflowNodeId) -> Option<&WorkflowNodeHandles> {
         self.node_handles.get(node_id)
     }
@@ -289,6 +306,20 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
     fn is_listed_as_non_trigger(&self, node_id: &WorkflowNodeId) -> bool {
         self.handles_of(node_id)
             .is_some_and(|handles| handles.category != WorkflowNodeKindCategory::Trigger)
+    }
+
+    // The edge's findings, each marking the ends the document holds.
+    fn edge_findings(&self, parsed_edge: &ParsedEdge<'_>) -> Vec<WorkflowDefinitionFinding> {
+        let WorkflowEdge { source, target, .. } = parsed_edge.edge;
+        let held_end_ids: Vec<WorkflowNodeId> = [source, target]
+            .into_iter()
+            .filter(|node_id| self.node_by_id.contains_key(node_id))
+            .cloned()
+            .collect();
+        self.edge_rules(parsed_edge)
+            .into_iter()
+            .map(|rule| rule.finding(held_end_ids.clone()))
+            .collect()
     }
 
     // One rule at most for each end the document holds; a rule that names the end's problem

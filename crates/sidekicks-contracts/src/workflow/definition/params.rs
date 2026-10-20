@@ -5,8 +5,8 @@
 //! runs the same function as the daemon's check at save.
 
 use garde::Validate;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::agent::definition::AgentDefinitionId;
@@ -24,7 +24,7 @@ const SECRET_SCHEME: &str = "secret://";
 /// One parameter value the check refused. `path` is the value's dotted place, its parameter's id
 /// first (`headers.0.token` inside a repeating collection), and `message` names the fault, such as
 /// a tool binding's `approvalMode`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct WorkflowParamIssue {
     /// The value's dotted place.
     pub path: String,
