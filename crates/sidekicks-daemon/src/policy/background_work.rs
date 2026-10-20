@@ -42,6 +42,27 @@ pub(crate) fn refuse_background_work(
     None
 }
 
+/// Each provider's background-work forms written plainly, `<program> <subcommand or flag>`, once
+/// each, for a provider's own deny rules at the levels that never ask; every other spelling is
+/// read by [`refuse_background_work`] in the provider's pre-tool hook.
+pub(crate) fn plain_background_work_forms() -> Vec<String> {
+    let mut forms: Vec<String> = Vec::new();
+    for descriptor in PROVIDERS {
+        let Some(work) = &descriptor.background_work else {
+            continue;
+        };
+        for name in descriptor.command_names() {
+            for word in work.subcommands.iter().chain(work.flags) {
+                let form = format!("{name} {word}");
+                if !forms.contains(&form) {
+                    forms.push(form);
+                }
+            }
+        }
+    }
+    forms
+}
+
 // The refusal for a command of `reading` that hands a shell no string and starts background work;
 // each string a command hands a shell is read and left in `rereads` to be judged in its place.
 fn refusal_in(

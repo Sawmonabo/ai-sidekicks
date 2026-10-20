@@ -12,6 +12,7 @@ use crate::provider::driver::{
     ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
 
+mod capabilities;
 mod capability_probe;
 mod delivery;
 mod event_normalizer;

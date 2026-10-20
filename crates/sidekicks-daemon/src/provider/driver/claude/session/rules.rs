@@ -549,24 +549,12 @@ fn rule_entries(
         .collect())
 }
 
-// A rule's path as Claude Code matches it: in POSIX form, as Claude Code reads every path, so a
-// Windows place's `C:\Users\a` is `/c/Users/a`; an absolute one written with a leading `//`, which
-// roots it at `/`; and each gitignore special escaped, so the rule matches only that path.
-fn compose_path_content(path: &str, path_rules: PathRules) -> String {
+/// A rule's path as Claude Code matches it: in POSIX form, as Claude Code reads every path, so a
+/// Windows place's `C:\Users\a` is `/c/Users/a`; an absolute one written with a leading `//`,
+/// which roots it at `/`; and each gitignore special escaped, so the rule matches only that path.
+pub(crate) fn compose_path_content(path: &str, path_rules: PathRules) -> String {
     let is_absolute = path_rules.is_absolute(path);
-    let posix_path = match path_rules {
-        PathRules::Posix => path.to_owned(),
-        PathRules::Windows => {
-            let mut characters = path.chars();
-            let separated: String = match (characters.next(), characters.next()) {
-                (Some(drive), Some(':')) if drive.is_ascii_alphabetic() => {
-                    format!("/{}{}", drive.to_ascii_lowercase(), characters.as_str())
-                }
-                _ => path.to_owned(),
-            };
-            separated.replace('\\', "/")
-        }
-    };
+    let posix_path = path_rules.posix_form(Path::new(path));
     let mut content = String::with_capacity(posix_path.len() + 2);
     if is_absolute {
         content.push('/');

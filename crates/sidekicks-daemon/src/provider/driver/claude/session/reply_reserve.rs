@@ -69,8 +69,8 @@ pub(crate) fn derive_claude_reply_reserve(
             window_only,
             with_maximum_output,
         } => (
-            read_reply(window_only.as_deref()),
-            read_reply(with_maximum_output.as_deref()),
+            read_context_reply(window_only.as_deref()),
+            read_context_reply(with_maximum_output.as_deref()),
         ),
     };
     let window = CLAUDE_RESERVE_READ_WINDOW_TOKENS;
@@ -103,8 +103,8 @@ fn unread(reason: String) -> ClaudeReplyReserve {
     ClaudeReplyReserve::Unread { reason }
 }
 
-// A context reply's members; a reply that is no object reads as one with none.
-fn read_reply(reply: Option<&RawValue>) -> Map<String, Value> {
+/// A context reply's members; a reply that is no object reads as one with none.
+pub(super) fn read_context_reply(reply: Option<&RawValue>) -> Map<String, Value> {
     reply
         .and_then(|reply| serde_json::from_str(reply.get()).ok())
         .unwrap_or_default()

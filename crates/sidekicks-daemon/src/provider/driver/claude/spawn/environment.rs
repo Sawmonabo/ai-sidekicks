@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_platforms::PathRules;
 
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::spawn_environment::{
@@ -57,6 +58,23 @@ pub(crate) fn compose_claude_scratch_folder(
             .join(account.as_str()),
         None => scratch_folders.join(OWN_HOME_SCRATCH_FOLDER),
     }
+}
+
+/// The config folder a Claude Code process started in `spawn_environment`, in a place that spells
+/// paths by `rules`, reads: `CLAUDE_CONFIG_DIR` where set, else `.claude` in that environment's
+/// home, else in the daemon's own. `None` where no home is known at all.
+pub(crate) fn claude_config_folder(
+    spawn_environment: &[(String, String)],
+    rules: PathRules,
+) -> Option<PathBuf> {
+    if let Some(configured) = rules.environment_value(spawn_environment, "CLAUDE_CONFIG_DIR") {
+        return Some(PathBuf::from(configured));
+    }
+    let home = rules
+        .environment_value(spawn_environment, rules.home_environment_name())
+        .map(PathBuf::from)
+        .or_else(std::env::home_dir)?;
+    Some(home.join(".claude"))
 }
 
 /// The whole environment a session process, a relaunch or the sign-in check starts with, with
