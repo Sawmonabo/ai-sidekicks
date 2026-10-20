@@ -10,7 +10,8 @@ use regex::Regex;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::{
-    PathRules, ProgramFolder, ProgramStart, find_executables, program_start, real_path,
+    PathRules, ProgramFolder, ProgramStart, find_executables, is_path_command, program_start,
+    real_path,
 };
 
 use crate::provider::command_search::ProviderCommandSearch;
@@ -112,10 +113,13 @@ pub(crate) fn parse_cli_version_report(raw: &str) -> DriverCliVersionReport {
 /// [`DriverError::ExecutableUnresolvable`] naming the command as configured when it is blank, names
 /// no build, or names one the system cannot start, and with [`DriverError::Internal`] when a
 /// blocking task ends before it answers.
-#[expect(
-    dead_code,
-    reason = "each driver's session start and capability read resolve its command to the build \
-              they start through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "each driver's session start and capability read resolve its command to the \
+                  build they start through it"
+    )
 )]
 pub(crate) async fn resolve_provider_executable(
     command_search: &ProviderCommandSearch,
@@ -129,7 +133,7 @@ pub(crate) async fn resolve_provider_executable(
             io::ErrorKind::InvalidInput,
             "the configured provider command is empty",
         );
-        return Err(unresolvable(provider, requested_command, cause));
+        return Err(unresolvable(provider, requested_command, cause, false));
     }
     let (command, environment) = (requested_command.clone(), spawn_environment);
     let (along_search_path, spawn_environment) = tokio::task::spawn_blocking(move || {
@@ -142,13 +146,21 @@ pub(crate) async fn resolve_provider_executable(
     .map_err(|error| DriverError::Internal(Box::new(error)))?;
     let (build, environment) = match along_search_path {
         Ok(build) => (build, spawn_environment),
-        Err(cause) => {
+        Err(SearchPathMiss {
+            cause,
+            is_build_found,
+        }) => {
             let found = command_search
                 .find(&requested_command, search_folders, &spawn_environment)
                 .await
                 .map_err(|error| DriverError::Internal(Box::new(error)))?;
             let Some(hit) = found else {
-                return Err(unresolvable(provider, requested_command, cause));
+                return Err(unresolvable(
+                    provider,
+                    requested_command,
+                    cause,
+                    is_build_found,
+                ));
             };
             let mut environment = spawn_environment;
             place_folder_first_on_search_path(&mut environment, &hit.folder, PathRules::NATIVE);
@@ -166,7 +178,7 @@ pub(crate) async fn resolve_provider_executable(
     .map_err(|error| DriverError::Internal(Box::new(error)))?;
     let start = match start {
         Ok(start) => start,
-        Err(cause) => return Err(unresolvable(provider, requested_command, cause)),
+        Err(cause) => return Err(unresolvable(provider, requested_command, cause, true)),
     };
     Ok(ResolvedProviderExecutable {
         requested_command,
@@ -233,13 +245,19 @@ pub(crate) fn to_binding_version_carriers(
     }
 }
 
+// Why the search path gave no build: the last candidate's resolve error, or none was found.
+struct SearchPathMiss {
+    cause: io::Error,
+    is_build_found: bool,
+}
+
 // The first build `command` names along `environment`'s `PATH`, resolved to its real path. Fails
 // with the last candidate's resolve error, or `NotFound` when no candidate is found. Reads the
 // file system, so it runs in `spawn_blocking`.
 fn resolve_along_search_path(
     command: &str,
     environment: &[(String, String)],
-) -> io::Result<PathBuf> {
+) -> Result<PathBuf, SearchPathMiss> {
     let mut failure = None;
     for candidate in find_executables(command, environment, Path::new(""), &[]) {
         match real_path(&candidate) {
@@ -249,19 +267,89 @@ fn resolve_along_search_path(
             Err(error) => failure = Some(error),
         }
     }
-    Err(failure.unwrap_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "the configured provider command names no executable file",
-        )
-    }))
+    Err(match failure {
+        Some(cause) => SearchPathMiss {
+            cause,
+            is_build_found: true,
+        },
+        None => SearchPathMiss {
+            cause: io::Error::new(
+                io::ErrorKind::NotFound,
+                "the configured provider command names no executable file",
+            ),
+            is_build_found: false,
+        },
+    })
 }
 
 // The refusal for a command that resolves to no build, naming it as configured.
-fn unresolvable(provider: &ProviderId, requested_command: String, cause: io::Error) -> DriverError {
+fn unresolvable(
+    provider: &ProviderId,
+    requested_command: String,
+    cause: io::Error,
+    is_build_found: bool,
+) -> DriverError {
     DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
         provider: provider.clone(),
+        is_typed_path: is_path_command(&requested_command),
+        is_build_found,
         requested_command,
         cause,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_platforms::Spawner;
+
+    use super::resolve_provider_executable;
+    use crate::provider::command_search::ProviderCommandSearch;
+    use crate::provider::driver::PROVIDERS;
+    use crate::provider::driver::contract::DriverError;
+
+    // A typed command path that names nothing is refused as a path the person typed, never as a
+    // provider not installed, and a bare name no search finds is not installed. Killed by reading
+    // every command as a bare name, or a typed path as one.
+    #[rstest]
+    #[case::typed_path("/sidekicks-test-missing/provider", true)]
+    #[case::bare_name("sidekicks-test-missing-provider", false)]
+    #[tokio::test]
+    async fn a_command_that_names_no_build_is_refused_by_how_it_was_typed(
+        #[case] command: &str,
+        #[case] is_typed_path: bool,
+    ) {
+        let empty_search_path = tempfile::tempdir().expect("the temporary folder is made");
+        let search = ProviderCommandSearch::new(
+            Spawner::new(tokio::runtime::Handle::current()).expect("the spawner thread starts"),
+        );
+        let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a provider id");
+        let environment = vec![(
+            "PATH".to_owned(),
+            empty_search_path.path().to_string_lossy().into_owned(),
+        )];
+
+        let resolved = resolve_provider_executable(
+            &search,
+            &provider,
+            command.to_owned(),
+            environment,
+            Vec::new(),
+        )
+        .await;
+
+        let Err(DriverError::ExecutableUnresolvable(unresolvable)) = resolved else {
+            panic!("the command resolves to no build");
+        };
+        assert_eq!(unresolvable.is_typed_path, is_typed_path);
+        assert_eq!(unresolvable.is_not_installed(), !is_typed_path);
+        let expected_code = if is_typed_path {
+            RefusalCode::ProviderCommandPathNotRunnable
+        } else {
+            RefusalCode::ProviderUnavailable
+        };
+        assert_eq!(unresolvable.into_refusal().code, expected_code);
+    }
 }

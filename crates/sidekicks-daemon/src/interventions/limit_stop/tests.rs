@@ -4,6 +4,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -21,8 +22,10 @@ use sidekicks_contracts::run::provider_choice::{
     AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolveRequest,
     RunUsageCreditsChoice,
 };
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::runtime::Handle;
@@ -34,10 +37,14 @@ use crate::database::statement::DATABASE_NOW_SQL;
 use crate::events::session::appender::SessionEventDraft;
 use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
+use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
+use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
 use crate::session::run::engine::tests::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::pause::tests::unanswered;
 use crate::session::run::pause::{
     ContinuedMessages, ContinuedMessagesError, RunPauseControl, RunPauseError,
 };
@@ -328,6 +335,67 @@ async fn a_hand_past_its_bound_answers_pending_and_records_its_late_outcome(
     );
 }
 
+// A step limit's hand the provider got with no answer back answers with its row pending, never
+// failed, so the stop's cut stays; the provider's `interrupted` end then ends the cut turn with
+// the step limit's cause and settles the row `applied` in the run's own end. Killed by recording
+// the unanswered hand as failed, which leaves no row and withdraws the cut.
+#[tokio::test]
+async fn an_unanswered_step_hand_keeps_its_cut_until_the_providers_end() {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_apply_intervention()
+        .times(1)
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    let harness = harness(driver).await;
+    hand_service_to_engine(&harness);
+    let turn = SafeInt::new(3).expect("3 is a turn number");
+    let cut = hold_cut(&harness.engine, harness.run_id, turn, RunLimit::StepLimit);
+
+    let handed = harness
+        .service
+        .interrupt_for_limit(harness.run_id, RunLimit::StepLimit, Some(cut))
+        .await;
+    let row_while_pending = harness.stored_rows()[0].0.clone();
+    let cut_while_pending = held_cut_limit(&harness.engine, harness.run_id, turn);
+    let ended = harness
+        .engine
+        .apply_provider_state_change(
+            RunStateChange::new(
+                harness.run_id,
+                RunStateEntry::Interrupted {
+                    intended_close: None,
+                    trigger: None,
+                },
+            ),
+            Some(ProviderTurnEnd {
+                turn_number: turn,
+                outcome: TurnOutcome::Interrupted(None),
+            }),
+        )
+        .await
+        .expect("the provider's end is written");
+
+    assert!(
+        matches!(handed, Err(LimitInterruptFailure::RowPending { .. })),
+        "{handed:?}"
+    );
+    assert!(ended.resend_failure.is_none(), "{:?}", ended.resend_failure);
+    assert_eq!(row_while_pending, "accepted");
+    assert_eq!(cut_while_pending, Some(RunLimit::StepLimit));
+    assert_eq!(harness.stored_rows()[0].0, "applied");
+    let cause: String = harness
+        .database
+        .reader()
+        .query_row(
+            "SELECT json_extract(payload, '$.cause') FROM session_events
+             WHERE session_id = ?1 AND type = 'agent.turn.interrupted'",
+            [harness.session_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the turn's end is stored");
+    assert_eq!(cause, "stepLimit");
+}
+
 /// What became of the run between a limit's accept and its dispatch.
 #[derive(Clone, Copy, Debug)]
 enum RunAfterAccept {
@@ -337,38 +405,39 @@ enum RunAfterAccept {
     Unreadable,
 }
 
-// An accepted limit's interrupt reads the run before it dispatches. A step limit the run's
-// end discharged applies with no dispatch and leaves the continued run running; a token or
-// spend limit whose run ended and continued fails with no dispatch, so the continued run's
-// own stop cuts it; a read that fails ends the row failed. Killed by dispatching at the new
-// version (the driver is never to be called), the step arm dispatching, or a failed read
+// An accepted limit's interrupt reads the run before it dispatches. The person's interrupt that
+// ended the run applied the limit's row in that end's write; a step limit that end discharged
+// answers handed with no dispatch and leaves the continued run running, and a token or spend
+// limit answers with no row pending, so the continued run's own stop cuts it; a read that fails
+// ends the row failed. Killed by dispatching at the new version (the driver is never to be
+// called), the step arm dispatching, a token or spend limit answering handed, or a failed read
 // leaving the row accepted.
 #[rstest]
 #[case::step_discharged(
     RunLimit::StepLimit,
     RunAfterAccept::EndedAndContinued,
     "applied",
-    None
+    true
 )]
 #[case::token_left_to_the_continued_run(
     RunLimit::TokenLimit,
     RunAfterAccept::EndedAndContinued,
-    "failed",
-    Some("the run ended and was continued before the dispatch")
+    "applied",
+    false
 )]
 #[case::spend_left_to_the_continued_run(
     RunLimit::SpendLimit,
     RunAfterAccept::EndedAndContinued,
-    "failed",
-    Some("the run ended and was continued before the dispatch")
+    "applied",
+    false
 )]
-#[case::unreadable_run(RunLimit::TokenLimit, RunAfterAccept::Unreadable, "failed", None)]
+#[case::unreadable_run(RunLimit::TokenLimit, RunAfterAccept::Unreadable, "failed", false)]
 #[tokio::test]
 async fn an_accepted_limit_reads_the_run_before_it_dispatches(
     #[case] limit: RunLimit,
     #[case] run_after_accept: RunAfterAccept,
     #[case] row_state: &str,
-    #[case] failure_reason: Option<&str>,
+    #[case] is_handed: bool,
 ) {
     let harness = harness(MockProviderDriver::new()).await;
     let intervention_id = record_accepted_row(&harness, limit);
@@ -410,23 +479,11 @@ async fn an_accepted_limit_reads_the_run_before_it_dispatches(
 
     let carried = harness.service.carry_out_limit_interrupt(&accepted).await;
 
-    match (row_state, &carried) {
-        ("applied", Ok(())) | ("failed", Err(LimitInterruptFailure::NoRow { .. })) => {}
-        _ => panic!("expected the row {row_state}, got {carried:?}"),
+    match (is_handed, &carried) {
+        (true, Ok(())) | (false, Err(LimitInterruptFailure::NoRow { .. })) => {}
+        _ => panic!("expected handed {is_handed}, got {carried:?}"),
     }
     assert_eq!(harness.stored_rows()[0].0, row_state);
-    if let Some(failure_reason) = failure_reason {
-        let stored: String = harness
-            .database
-            .reader()
-            .query_row(
-                "SELECT failure_reason FROM interventions WHERE target_run_id = ?1",
-                [harness.run_id.text().as_str()],
-                |row| row.get(0),
-            )
-            .expect("the failed row holds its reason");
-        assert_eq!(stored, failure_reason);
-    }
     if let RunAfterAccept::EndedAndContinued = run_after_accept {
         assert_eq!(
             stored_run_state(&harness.database, &harness.run_id).0,
@@ -504,7 +561,11 @@ async fn assert_owed_hand_ends_the_run(harness: &Harness, dispatch: oneshot::Rec
 // resend from the engine's move of the run.
 #[tokio::test]
 async fn a_limit_owed_through_a_choice_is_handed_once_the_answer_returns_the_run() {
-    let (driver, dispatch) = driver_failing_once();
+    let (mut driver, dispatch) = driver_failing_once();
+    driver
+        .expect_answer_provider_choice()
+        .times(1)
+        .returning(|_| async { Ok(AnswerProviderChoiceResult::Answered {}) }.boxed());
     let harness = harness(driver).await;
     hand_service_to_engine(&harness);
     owe_token_limit(&harness, "waitingForInput").await;
@@ -529,17 +590,13 @@ async fn a_limit_owed_through_a_choice_is_handed_once_the_answer_returns_the_run
         )
         .await
         .expect("the provider asks the choice");
-    let mut choice_driver = MockProviderDriver::new();
-    choice_driver
-        .expect_answer_provider_choice()
-        .times(1)
-        .returning(|_| async { Ok(AnswerProviderChoiceResult::Answered {}) }.boxed());
     let resolver = ProviderChoiceResolver::new(
         Arc::new(DatabaseReadPool::new(
             harness.database.path(),
             PROVIDER_CHOICE_STATEMENT_CAPACITY,
         )),
         Arc::clone(&harness.engine),
+        Arc::clone(&harness.service.providers),
     );
 
     resolver
@@ -548,8 +605,9 @@ async fn a_limit_owed_through_a_choice_is_handed_once_the_answer_returns_the_run
                 run_id: harness.run_id,
                 choice: RunUsageCreditsChoice::Consent,
             },
-            ProviderChoiceAnswerOrigin { device_id: None },
-            &choice_driver,
+            ProviderChoiceAnswerOrigin {
+                device_id: DeviceId::new("device".to_owned()).expect("a device id"),
+            },
         )
         .await
         .expect("the answer returns the run to running");
@@ -568,20 +626,26 @@ enum ReturnToRunning {
     RefusedPause,
 }
 
-/// No messages wait for the run.
-struct NoWaitingMessages;
+/// No messages wait for the run; the lock is the queue's on each session.
+struct NoWaitingMessages(KeyedLock<SessionId>);
 
 impl ContinuedMessages for NoWaitingMessages {
+    fn session_lock(&self) -> &KeyedLock<SessionId> {
+        &self.0
+    }
+
     fn read(
         &self,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
+        _handing: MessageHanding,
     ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
         async { Ok(Vec::new()) }.boxed()
     }
 
     fn admit(
         &self,
-        _session_id: SessionId,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         async { Ok(()) }.boxed()
@@ -589,18 +653,47 @@ impl ContinuedMessages for NoWaitingMessages {
 
     fn release(
         &self,
-        _session_id: SessionId,
+        _hold: &KeyHold<'_, SessionId>,
         _run_id: RunId,
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        async { Ok(()) }.boxed()
+    }
+
+    fn keep(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) {}
+
+    fn kept(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) -> Vec<QueueItemId> {
+        Vec::new()
+    }
+
+    fn kept_unheld(&self, _hold: &KeyHold<'_, SessionId>, _run_id: RunId) -> Vec<QueueItemId> {
+        Vec::new()
+    }
+
+    fn settle_kept(
+        &self,
+        _hold: &KeyHold<'_, SessionId>,
+        _run_id: RunId,
+        _settled: &[QueueItemId],
+        _taken: &[QueueItemId],
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
+        async { Ok(()) }.boxed()
+    }
+
+    fn fail_kept(
+        &self,
+        _hold: &KeyHold<'_, SessionId>,
+        _run_id: RunId,
+        _message_ids: &[QueueItemId],
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         async { Ok(()) }.boxed()
     }
 }
 
 // A limit owed through a pause is handed again once its provider runs: a resume, from `paused` or
-// `pausing`, hands it only after the provider took the resume, when no hand was in flight and no
-// second row was written, and a refused pause hands it with the move back from `pausing`, since
-// the provider never paused. Killed by handing inside the resume's move before the provider's
-// resume, or by dropping `pausing` from the states whose move hands.
+// `pausing`, asks the provider before the run moves and hands it only once the provider took the
+// resume, when no hand was in flight and no second row was written, and a refused pause hands it
+// with the move back from `pausing`, since the provider never paused. Killed by moving the run or
+// handing before the provider's resume, or by dropping `pausing` from the states whose move hands.
 #[rstest]
 #[case::resume_from_paused(ReturnToRunning::ResumeFromPaused)]
 #[case::resume_from_pausing(ReturnToRunning::ResumeFromPausing)]
@@ -609,78 +702,175 @@ impl ContinuedMessages for NoWaitingMessages {
 async fn a_limit_owed_through_a_pause_is_handed_once_the_provider_runs(
     #[case] call: ReturnToRunning,
 ) {
-    let (driver, dispatch) = driver_failing_once();
+    let (mut driver, dispatch) = driver_failing_once();
+    let state_before = match call {
+        ReturnToRunning::ResumeFromPaused => "paused",
+        ReturnToRunning::ResumeFromPausing => "pausing",
+        ReturnToRunning::RefusedPause => "running",
+    };
+    let database: Arc<Mutex<Option<std::path::PathBuf>>> = Arc::default();
+    let tasks_before: Arc<AtomicUsize> = Arc::default();
+    if let ReturnToRunning::RefusedPause = call {
+        driver.expect_pause_run().times(1).returning(|_| {
+            async { Err(DriverError::Internal("the provider would not pause".into())) }.boxed()
+        });
+    } else {
+        let database = Arc::clone(&database);
+        let tasks_before = Arc::clone(&tasks_before);
+        driver
+            .expect_resume_run()
+            .times(1)
+            .returning(move |params| {
+                // No hand is in flight or done, and the run has not moved, when the provider is
+                // asked to resume.
+                assert_eq!(
+                    Handle::current().metrics().num_alive_tasks(),
+                    tasks_before.load(Ordering::SeqCst)
+                );
+                let path = database
+                    .lock()
+                    .expect("the path is not poisoned")
+                    .clone()
+                    .expect("the test names its database");
+                let (rows, state): (i64, String) = Connection::open(path)
+                    .and_then(|connection| {
+                        connection.query_row(
+                            "SELECT (SELECT count(*) FROM interventions WHERE target_run_id = ?1),
+                           (SELECT state FROM runs WHERE run_id = ?1)",
+                            [params.run_id.text().as_str()],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        )
+                    })
+                    .expect("the test reads the run");
+                assert_eq!((rows, state.as_str()), (1, state_before));
+                async { Ok(()) }.boxed()
+            });
+    }
     let harness = harness(driver).await;
+    *database.lock().expect("the path is not poisoned") = Some(harness.database.path());
     hand_service_to_engine(&harness);
-    owe_token_limit(
-        &harness,
-        match call {
-            ReturnToRunning::ResumeFromPaused => "paused",
-            ReturnToRunning::ResumeFromPausing => "pausing",
-            ReturnToRunning::RefusedPause => "running",
-        },
-    )
-    .await;
+    owe_token_limit(&harness, state_before).await;
     let control = RunPauseControl::new(
         Arc::clone(&harness.service.pool),
         Arc::clone(&harness.engine),
+        Arc::clone(&harness.service.providers),
     );
     let expected_run_version = SafeInt::new(
         u64::try_from(stored_run_state(&harness.database, &harness.run_id).1)
             .expect("a run's version is not negative"),
     )
     .expect("the run's version is a safe integer");
-    let mut run_driver = MockProviderDriver::new();
 
     if let ReturnToRunning::RefusedPause = call {
-        run_driver.expect_pause_run().times(1).returning(|_| {
-            async { Err(DriverError::Internal("the provider would not pause".into())) }.boxed()
-        });
         let paused = control
-            .pause(
-                &AgentRunPauseRequest {
-                    target_run_id: harness.run_id,
-                    expected_run_version,
-                },
-                &run_driver,
-            )
+            .pause(&AgentRunPauseRequest {
+                target_run_id: harness.run_id,
+                expected_run_version,
+            })
             .await;
         assert!(
             matches!(paused, Err(RunPauseError::Driver(_))),
             "{paused:?}"
         );
     } else {
-        let database = harness.database.path();
-        let run_id = harness.run_id;
-        let tasks_before = Handle::current().metrics().num_alive_tasks();
-        run_driver.expect_resume_run().times(1).returning(move |_| {
-            // No hand is in flight or done when the provider is asked to resume.
-            assert_eq!(Handle::current().metrics().num_alive_tasks(), tasks_before);
-            let (rows, state): (i64, String) = Connection::open(&database)
-                .and_then(|connection| {
-                    connection.query_row(
-                        "SELECT (SELECT count(*) FROM interventions WHERE target_run_id = ?1),
-                           (SELECT state FROM runs WHERE run_id = ?1)",
-                        [run_id.text().as_str()],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
-                    )
-                })
-                .expect("the test reads the run");
-            assert_eq!((rows, state.as_str()), (1, "running"));
-            async { Ok(()) }.boxed()
-        });
+        tasks_before.store(
+            Handle::current().metrics().num_alive_tasks(),
+            Ordering::SeqCst,
+        );
         let resumed = control
             .resume(
                 &AgentRunResumeRequest {
                     target_run_id: harness.run_id,
                     expected_run_version,
                 },
-                &run_driver,
-                &NoWaitingMessages,
+                &NoWaitingMessages(KeyedLock::new()),
             )
             .await;
         assert!(resumed.is_ok(), "{resumed:?}");
     }
 
+    assert_owed_hand_ends_the_run(&harness, dispatch).await;
+}
+
+// While the driver takes a resume, the provider's own `running` report waits; a resume the driver
+// refuses hands no limit, and the held report then moves the run and hands the owed limit once,
+// which ends it. Killed by resuming without holding the run, or by handing the limit on a refused
+// resume.
+#[tokio::test]
+async fn a_refused_resume_leaves_the_owed_limit_to_the_providers_own_report() {
+    let (mut driver, dispatch) = driver_failing_once();
+    let (started, has_started) = oneshot::channel();
+    let (answer, answered) = oneshot::channel::<()>();
+    let held = Mutex::new(Some((started, answered)));
+    driver.expect_resume_run().times(1).returning(move |_| {
+        let (started, answered) = held
+            .lock()
+            .expect("the held call reads")
+            .take()
+            .expect("the driver is resumed once");
+        started.send(()).expect("the test waits for the call");
+        async move {
+            answered.await.expect("the test answers the call");
+            Err(DriverError::Internal(
+                "the provider would not resume".into(),
+            ))
+        }
+        .boxed()
+    });
+    let harness = harness(driver).await;
+    hand_service_to_engine(&harness);
+    owe_token_limit(&harness, "paused").await;
+    let control = Arc::new(RunPauseControl::new(
+        Arc::clone(&harness.service.pool),
+        Arc::clone(&harness.engine),
+        Arc::clone(&harness.service.providers),
+    ));
+    let request = AgentRunResumeRequest {
+        target_run_id: harness.run_id,
+        expected_run_version: SafeInt::new(
+            u64::try_from(stored_run_state(&harness.database, &harness.run_id).1)
+                .expect("a run's version is not negative"),
+        )
+        .expect("the run's version is a safe integer"),
+    };
+
+    let resuming = {
+        let control = Arc::clone(&control);
+        tokio::spawn(async move {
+            control
+                .resume(&request, &NoWaitingMessages(KeyedLock::new()))
+                .await
+        })
+    };
+    tokio::time::timeout(SETTLE_WAIT, has_started)
+        .await
+        .expect("the driver is asked to resume")
+        .expect("the driver signals its call");
+    let mut report = {
+        let engine = Arc::clone(&harness.engine);
+        let change = RunStateChange::new(
+            harness.run_id,
+            RunStateEntry::Running {
+                execution_posture: None,
+            },
+        );
+        tokio::spawn(async move { engine.apply_provider_state_change(change, None).await })
+    };
+    let is_report_held = tokio::time::timeout(Duration::from_millis(200), &mut report)
+        .await
+        .is_err();
+    answer.send(()).expect("the resume waits for its answer");
+    let resumed = resuming.await.expect("the resume ends");
+    let reported = report.await.expect("the report ends");
+
+    assert!(is_report_held);
+    assert!(
+        matches!(
+            resumed,
+            Err(RunPauseError::Driver(DriverError::Internal(_)))
+        ),
+        "{resumed:?}"
+    );
+    assert!(reported.is_ok(), "{reported:?}");
     assert_owed_hand_ends_the_run(&harness, dispatch).await;
 }

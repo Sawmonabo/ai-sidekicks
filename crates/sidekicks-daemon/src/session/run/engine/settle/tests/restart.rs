@@ -177,7 +177,7 @@ enum Logged {
 // the run (`step_cut_beside_an_owed_token_limit`, `step_cut_beside_a_pending_spend_interrupt`); by
 // a turn two rows name keeping the first or the later row's limit over the higher-ranked
 // (`step_then_spend_rows`, `spend_then_step_rows`); and by the pending read taking a faster-model
-// retry for an interrupt (`retry_pending`).
+// retry for an interrupt, or the run's end leaving the retry open (`retry_pending`).
 #[rstest]
 #[case::two_step_rows(
     &[
@@ -424,7 +424,7 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
         (settled_state.to_owned(), 2)
     );
     if let Some(retry_row) = retry_row {
-        assert_eq!(interrupt_state(&database, &retry_row), "accepted");
+        assert_eq!(interrupt_state(&database, &retry_row), "expired");
     }
 }
 

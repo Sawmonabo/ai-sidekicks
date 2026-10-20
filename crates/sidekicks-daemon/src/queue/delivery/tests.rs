@@ -49,6 +49,7 @@ use crate::queue::store::{
 };
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
+use crate::session::run::pause::ContinuedMessages;
 use crate::uuid_v7::mint_uuid_v7;
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.
@@ -254,6 +255,17 @@ async fn hand(fixture: &Fixture) {
         .hand_waiting(&hold, fixture.run_id)
         .await
         .expect("the waiting messages are handed");
+}
+
+/// The ids of the messages a continue of the fixture's run reads, under the session lock.
+async fn continued_ids(fixture: &Fixture) -> Vec<QueueItemId> {
+    let hold = fixture.session_lock.acquire(fixture.session_id).await;
+    ContinuedMessages::read(&fixture.delivery, &hold, fixture.run_id, HANDS_AT_ONCE)
+        .await
+        .expect("the continue reads the waiting messages")
+        .iter()
+        .map(|message| message.id)
+        .collect()
 }
 
 async fn settle(fixture: &Fixture) {

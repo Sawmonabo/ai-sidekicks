@@ -18,6 +18,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderDeclarationId, ProviderOptionSetting, ProviderRow,
     ProviderSessionOption, ProviderValue,
@@ -25,7 +26,9 @@ use sidekicks_contracts::provider::declaration::{
 use sidekicks_contracts::provider::driver::capabilities::{
     ExecutionPosture, ProviderMode, ProviderModel,
 };
-use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::commands::{
+    ProviderCommandBinding, ProviderCommandBindingGroup,
+};
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
@@ -44,15 +47,16 @@ use crate::ipc::registry::HandlerError;
 use crate::provider::capability::probe::CapabilityProbeError;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::provider::driver::error_causes::{
-    ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid,
+    ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
 };
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    InterruptRunRequest, OverrideDenialParams, PauseRunParams, ResumeRunParams,
-    SteerTurnEndedError, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
+    ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
+    WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, CloseSessionParams, CreateSessionParams,
@@ -71,14 +75,22 @@ pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
 /// one is cut, and dropping it loses only words, never the probe's status.
 const PROVIDER_AUTH_DETAIL_MAX_LEN: usize = 512;
 
-/// Why a driver operation did not answer: a refusal a client reads by its code, a steer whose turn
-/// ended before it was sent (the message waits for the next turn), a provider command that names
-/// no runnable build, or a failure inside the driver, keeping its cause.
+/// Why a driver operation did not answer: a refusal a client reads by its code, a request the
+/// provider got with no answer back, a steer whose turn ended before it was sent (the message
+/// waits for the next turn), a provider command that names no runnable build, or a failure inside
+/// the driver, keeping its cause.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DriverError {
     /// A refusal a client reads by its code.
     #[error(transparent)]
     Refused(#[from] DomainError),
+    /// The request went out and no answer came, so the provider may still act on it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the drivers' request deadlines and lost links")
+    )]
+    #[error(transparent)]
+    Unanswered(RequestUnanswered),
     /// The turn a steer was handed for ended before it was sent.
     #[error(transparent)]
     SteerTurnEnded(#[from] SteerTurnEndedError),
@@ -107,15 +119,17 @@ pub(crate) enum DriverError {
 }
 
 impl From<DriverError> for HandlerError {
-    /// A driver's refusal answers the call by its code; a failed capability probe, a command that
-    /// names no runnable build and an unreadable model catalog answer `provider.unavailable`, the
-    /// command named as configured and the catalog's bounded fault as the provider failure's
-    /// detail; a provider axis the provider does not offer answers `agent.providerAxisInvalid`
-    /// naming the agent, the axis and the value; a steer whose turn ended, reaching a handler, is
-    /// a fault in the daemon, as is the driver's own failure.
+    /// A driver's refusal, and a request that got no answer, answer the call by the refusal's
+    /// code; a failed capability probe and an unreadable model catalog answer
+    /// `provider.unavailable`, the catalog's bounded fault as the provider failure's detail, and a
+    /// command that names no runnable build as [`ExecutableUnresolvable::into_refusal`] says; a
+    /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
+    /// agent, the axis and the value; a steer whose turn ended, reaching a handler, is a fault in
+    /// the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
-            DriverError::Refused(refusal) => Self::Refused(refusal),
+            DriverError::Refused(refusal)
+            | DriverError::Unanswered(RequestUnanswered { refusal }) => Self::Refused(refusal),
             DriverError::CapabilityProbe(probe) => Self::Refused(
                 DomainError::new(
                     "The provider's capabilities could not be read",
@@ -124,17 +138,9 @@ impl From<DriverError> for HandlerError {
                 .with_detail(json!({ "providerFailureDetail": probe.to_string() }))
                 .with_source(probe),
             ),
-            DriverError::ExecutableUnresolvable(unresolvable) => Self::Refused(
-                DomainError::new(
-                    "The provider's command names no runnable build",
-                    RefusalCode::ProviderUnavailable,
-                )
-                .with_detail(json!({
-                    "providerId": unresolvable.provider.as_str(),
-                    "requestedCommand": unresolvable.requested_command,
-                }))
-                .with_source(unresolvable),
-            ),
+            DriverError::ExecutableUnresolvable(unresolvable) => {
+                Self::Refused(unresolvable.into_refusal())
+            }
             DriverError::ModelCatalogUnreadable(unreadable) => Self::Refused(
                 DomainError::new(
                     "The provider's model catalog could not be read",
@@ -234,6 +240,25 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// the waiting messages; resolves once the provider has the request.
     fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
+    /// Looks messages a resume sent with no answer back up in the provider's own record of the
+    /// conversation by their ids, answering the ones it holds; called only once no live provider
+    /// process still holds them for a turn of its own, at the run's end for a provider whose
+    /// process keeps nothing past it and at the process's end otherwise. Fails when the record is
+    /// unreadable, or with [`DriverError::Unanswered`] when the read got no answer back, which the
+    /// next settle retries.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start, which wires the resume, and the run lifecycle's settle \
+                      of kept messages"
+        )
+    )]
+    fn find_taken_messages(
+        &self,
+        params: FindTakenMessagesParams,
+    ) -> BoxFuture<'_, Result<TakenMessages, DriverError>>;
+
     /// Takes back a steer the provider has not read yet (gated on `steer`); an edit is a withdraw
     /// and a new send.
     fn withdraw_queued_message(
@@ -328,8 +353,12 @@ pub(crate) trait ProviderDriver: Send + Sync {
         name: String,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
-    /// The provider's models.
-    fn list_models(&self) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>>;
+    /// The provider's models for a session's model control, read against the account the params
+    /// name, or the provider's default account where they name none.
+    fn list_models(
+        &self,
+        params: ListModelsParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>>;
 
     /// The provider's modes.
     fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>>;
@@ -352,12 +381,12 @@ pub(crate) trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<AgentRunContextCompactResponse, DriverError>>;
 
     /// A live read of the provider's own commands and skills for the bound session (gated on
-    /// `providerCommands`), held with the session and never stored; every entry carries the
-    /// driver and account it was read under.
+    /// `providerCommands`), held with the session and never stored: one group carrying the
+    /// params' run and binding, every entry stamped with that binding.
     fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
-    ) -> BoxFuture<'_, Result<ProviderCommandListResponse, DriverError>>;
+    ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>>;
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
     /// `None` with no live binding or no declaration yet, which means unread, never off. A read of
@@ -722,13 +751,28 @@ pub(crate) struct CompactContextParams {
     pub(crate) binding_id: RuntimeBindingId,
 }
 
-/// Params of `list_provider_commands` (gated on `providerCommands`); addresses one binding.
+/// Params of `list_provider_commands` (gated on `providerCommands`); addresses one binding, with
+/// the driver and account the daemon resolved it to and its one live run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ListProviderCommandsParams {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The binding.
     pub(crate) binding_id: RuntimeBindingId,
+    /// The driver and account the binding runs on, which the group and each entry carry.
+    pub(crate) binding: ProviderCommandBinding,
+    /// The one live run on the binding; `None` when several are live.
+    pub(crate) run_id: Option<RunId>,
+}
+
+/// Params of `list_models`: the session whose model control reads the catalog, and the account
+/// to read it against, `None` for the provider's default account.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ListModelsParams {
+    /// The session, only where this is the session's own provider; `None` for any other.
+    pub(crate) session_id: Option<SessionId>,
+    /// The account: the session's own bound account for its own provider.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
 
 /// The provider-native subagent policy (gated on `subagents`). Provider subagents run inside the

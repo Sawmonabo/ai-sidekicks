@@ -467,6 +467,9 @@ pub(crate) fn applied_pending_interrupts_of(
 ) -> Result<RunStateChangeCompanions, SessionEventDraftError> {
     let mut companions = RunStateChangeCompanions::default();
     for pending_interrupt in pending_interrupts {
+        companions
+            .settled_interventions
+            .push(pending_interrupt.intervention_id);
         companions.statements.push(move_intervention_statement(
             &pending_interrupt.intervention_id,
             &InterventionTransition::Apply {

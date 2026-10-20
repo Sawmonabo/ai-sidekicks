@@ -287,7 +287,7 @@ pub(crate) struct StoredBindingUnreadable {
 /// A stored binding id that is no valid binding id.
 #[derive(Debug, thiserror::Error)]
 #[error("a stored runtime binding id is not a valid binding id")]
-struct StoredBindingIdInvalid;
+pub(crate) struct StoredBindingIdInvalid;
 
 /// Why the stored spawn record does not read.
 #[derive(Debug, thiserror::Error)]
@@ -333,13 +333,6 @@ pub(crate) enum RuntimeBindingStoreError {
 }
 
 /// The binding `id`, or `None`. Fails on a database error or a stored row that does not read.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "a run's binding record reads a relaunched leg's predecessor through it"
-    )
-)]
 pub(crate) fn read_binding(
     reader: &Connection,
     id: &RuntimeBindingId,

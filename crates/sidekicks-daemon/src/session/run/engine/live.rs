@@ -1,6 +1,6 @@
 //! What the engine holds per live run, under one lock never held across an await: the runs no
-//! driver has yet, the runs being continued, the terminal writes in flight, and what a live run's
-//! turn carries; and the guards that settle each entry on every exit path.
+//! driver has yet, the runs being continued, the provider changes and terminal writes in flight,
+//! and what a live run's turn carries; and the guards that settle each entry on every exit path.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -44,13 +44,21 @@ impl StartingRun {
     }
 }
 
-/// An interrupted run being continued, until its `running` write landed or its continue failed.
+/// A run being continued, an interrupted run on its next turn or a paused run by its resume, until
+/// its `running` write landed or its continue failed.
 pub(super) struct ContinuingRun {
-    /// Whether its next turn has started: once the driver started it, or at once when the provider
-    /// started it.
+    /// Whether its next turn has started: once the driver started it or took the resume, or at
+    /// once when the provider started it.
     pub(super) is_turn_started: AtomicBool,
     /// Set once the continue has settled.
     pub(super) settled: SetOnce<()>,
+}
+
+/// A provider's change of a run that passed its check for a continue, in flight until its write
+/// lands or is refused.
+pub(super) struct ProviderChange {
+    /// Set once the change's write has landed or been refused.
+    pub(super) landed: SetOnce<()>,
 }
 
 /// One terminal write of a run, in flight until it lands or is refused, linked to the one before it
@@ -82,8 +90,12 @@ pub(super) struct LimitCut {
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.
     pub(super) starting: HashMap<RunId, Arc<StartingRun>>,
-    /// The interrupted runs being continued.
+    /// The runs being continued: an interrupted run on its next turn, or a paused run by its
+    /// resume.
     pub(super) continuing: HashMap<RunId, Arc<ContinuingRun>>,
+    /// Each run's provider changes past their check for a continue and not yet written, which a
+    /// resume waits out before it holds the run.
+    pub(super) provider_changes: HashMap<RunId, Vec<Arc<ProviderChange>>>,
     /// The newest terminal write in flight of each run.
     pub(super) ending: HashMap<RunId, Arc<EndingWrite>>,
     /// The fast output level each started run carried, until its settled state is reported or it
@@ -125,6 +137,38 @@ impl LiveRuns {
         {
             map.remove(run_id);
         }
+    }
+
+    /// Registers `run_id` as being continued, its next turn started already as `is_turn_started`
+    /// says, and answers its entry; `None`, nothing changed, while another continue or a resume
+    /// holds the run.
+    pub(super) fn insert_continuing(
+        &mut self,
+        run_id: RunId,
+        is_turn_started: bool,
+    ) -> Option<Arc<ContinuingRun>> {
+        if self.continuing.contains_key(&run_id) {
+            return None;
+        }
+        let entry = Arc::new(ContinuingRun {
+            is_turn_started: AtomicBool::new(is_turn_started),
+            settled: SetOnce::new(),
+        });
+        self.continuing.insert(run_id, Arc::clone(&entry));
+        Some(entry)
+    }
+
+    /// Marks a provider's change of `run_id` in flight, past its check for a continue, and answers
+    /// the mark its guard settles.
+    pub(super) fn mark_provider_change(&mut self, run_id: RunId) -> Arc<ProviderChange> {
+        let mark = Arc::new(ProviderChange {
+            landed: SetOnce::new(),
+        });
+        self.provider_changes
+            .entry(run_id)
+            .or_default()
+            .push(Arc::clone(&mark));
+        mark
     }
 
     /// A new stop's cut at `limit`, with an identity no other stop's cut has.
@@ -250,6 +294,31 @@ impl Drop for StartingGuard<'_> {
             }
         }
         settle(&self.entry.settled, self.has_driver_run);
+    }
+}
+
+/// Settles a provider change's mark on every exit path of the change, its future dropped included.
+pub(super) struct ProviderChangeGuard<'engine> {
+    /// The engine's live runs.
+    pub(super) live: &'engine Mutex<LiveRuns>,
+    /// The run the change moves.
+    pub(super) run_id: RunId,
+    /// The change's mark.
+    pub(super) mark: Arc<ProviderChange>,
+}
+
+impl Drop for ProviderChangeGuard<'_> {
+    fn drop(&mut self) {
+        {
+            let mut live = lock(self.live);
+            if let Some(marks) = live.provider_changes.get_mut(&self.run_id) {
+                marks.retain(|mark| !Arc::ptr_eq(mark, &self.mark));
+                if marks.is_empty() {
+                    live.provider_changes.remove(&self.run_id);
+                }
+            }
+        }
+        settle(&self.mark.landed, ());
     }
 }
 

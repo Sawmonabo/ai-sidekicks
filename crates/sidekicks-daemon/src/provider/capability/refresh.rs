@@ -210,8 +210,8 @@ impl DriverReads {
     async fn read_every_driver(&self) {
         join_all(
             self.providers
-                .providers()
-                .map(|provider| self.refresh_driver(provider)),
+                .drivers()
+                .map(|(provider, _)| self.refresh_driver(provider)),
         )
         .await;
     }

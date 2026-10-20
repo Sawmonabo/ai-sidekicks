@@ -568,7 +568,9 @@ methods! {
                 AgentRunNotFound,
                 AgentRunVersionStale,
                 AgentRunInvalidTransition,
+                ProviderNotFound,
                 ProviderUnavailable,
+                ProviderTimeout,
             ],
         },
         /// Resumes a paused run.
@@ -580,7 +582,9 @@ methods! {
                 AgentRunNotFound,
                 AgentRunVersionStale,
                 AgentRunInvalidTransition,
+                ProviderNotFound,
                 ProviderUnavailable,
+                ProviderTimeout,
             ],
         },
         /// Follows every run state change in a session.
@@ -644,14 +648,26 @@ methods! {
             mutating: true,
             params: AgentRunRefusalChoiceResolveRequest,
             result: AgentRunControlResponse,
-            refusals: [AgentRunNotFound, AgentRunInvalidTransition, ProviderUnavailable],
+            refusals: [
+                AgentRunNotFound,
+                AgentRunInvalidTransition,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+            ],
         },
         /// Answers the choice a turn past the plan's allowance waits on.
         AgentRunUsageCreditsChoiceResolve = mutation "agent.run.usageCreditsChoice.resolve" {
             mutating: true,
             params: AgentRunUsageCreditsChoiceResolveRequest,
             result: AgentRunControlResponse,
-            refusals: [AgentRunNotFound, AgentRunInvalidTransition, ProviderUnavailable],
+            refusals: [
+                AgentRunNotFound,
+                AgentRunInvalidTransition,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+            ],
         },
     ];
 }

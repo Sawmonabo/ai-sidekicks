@@ -25,6 +25,8 @@ pub(super) enum HandRoute {
         /// Kept by a resume whose outcome is unknown: no later continue reads it until that
         /// outcome is settled.
         is_kept: bool,
+        /// How the provider the resume went to takes messages.
+        handing: MessageHanding,
     },
 }
 
@@ -95,7 +97,7 @@ impl DeliveryState {
                 let is_free = match self.handed.get(&item.id) {
                     None => true,
                     Some(handed) => match handed.route {
-                        HandRoute::Continue { is_kept } => rereads_continue && !is_kept,
+                        HandRoute::Continue { is_kept, .. } => rereads_continue && !is_kept,
                         HandRoute::Driver(_) => false,
                     },
                 };
@@ -111,7 +113,7 @@ impl DeliveryState {
             .iter()
             .filter(|(_, handed)| {
                 let is_continue_kept = match handed.route {
-                    HandRoute::Continue { is_kept } => Some(is_kept),
+                    HandRoute::Continue { is_kept, .. } => Some(is_kept),
                     HandRoute::Driver(_) => None,
                 };
                 handed.run_id == run_id && is_continue_kept == Some(is_kept)
@@ -140,16 +142,20 @@ impl DeliveryState {
 }
 
 /// Whether `handed` is kept by the provider process it went to, which is still the session's
-/// process `live_process`, for a turn that process starts with it. A new process that reuses the
-/// old one's id keeps nothing, since its spawn sequence differs.
+/// process `live_process`, for a turn that process starts with it: a driver's hand, or one a
+/// resume kept, its outcome unknown. A new process that reuses the old one's id keeps nothing,
+/// since its spawn sequence differs.
 pub(super) fn is_kept_by_process(
     handed: &HandedMessage,
     live_process: Option<ProviderProcessIdentity>,
 ) -> bool {
-    match handed.route {
-        HandRoute::Driver(handing) => {
-            handing.kept_by_process && handed.process.is_some() && handed.process == live_process
-        }
-        HandRoute::Continue { .. } => false,
-    }
+    let handing = match handed.route {
+        HandRoute::Driver(handing)
+        | HandRoute::Continue {
+            is_kept: true,
+            handing,
+        } => handing,
+        HandRoute::Continue { is_kept: false, .. } => return false,
+    };
+    handing.kept_by_process && handed.process.is_some() && handed.process == live_process
 }

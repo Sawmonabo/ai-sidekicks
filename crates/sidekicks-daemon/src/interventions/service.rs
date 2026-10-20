@@ -8,18 +8,22 @@
 //! the driver's verdict is recorded whatever the run did meanwhile. An interrupt holds the run
 //! queue's hands to its run from before its accept until it settles, and its applied or degraded
 //! verdict is written with the run's end; a retry's verdict advances the run's version. A dispatch
-//! that throws ends the request `failed`. Retries on one run take turns under a per-run lock, and
-//! interrupts, the daemon's own at a limit among them, under another, so a stop never waits behind
-//! a retry and a retry still queued when it lands meets the advanced version and expires.
+//! that throws ends the request `failed`; one the provider got with no answer back leaves its row
+//! `accepted`, and an interrupt's queue hold held, until the run's end or a turn's end settles
+//! both, and a row such a settle reached while its dispatch was out answers that outcome. Retries
+//! on one run take turns under a per-run lock, and interrupts, the daemon's own at a limit among
+//! them, under another, so a stop never waits behind a retry and a retry still queued when it
+//! lands meets the advanced version and expires.
 
+pub(crate) mod errors;
 pub(super) mod reached_state;
 mod request;
+mod saved;
 #[cfg(test)]
 pub(super) mod tests;
 
 use std::sync::Arc;
 
-use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
@@ -28,8 +32,7 @@ use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN
 use sidekicks_contracts::run::events::{InterventionActor, RunStateChangeState};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
-    AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionId, InterventionState,
-    InterventionType,
+    AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionId, InterventionType,
 };
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
@@ -37,31 +40,28 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::{FreeFormText, TextError};
+use sidekicks_contracts::wire::text::FreeFormText;
 
-use self::reached_state::{ReachedState, draft, response};
+use self::errors::{DispatchError, InterventionError, failure_text_of};
+use self::reached_state::{ReachedState, draft};
 use self::request::{
     interrupt_choice_of, interrupt_keys, interrupt_reason, intervention_type_of, request_guards,
     stored_payload_of,
 };
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use self::saved::{idempotency_conflict, with_failed_read};
+use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::statement::WriteStatement;
-use crate::error_description::describe_error;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventLinkage,
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::interventions::interrupt_queue::{
-    InterruptCause, InterruptEnd, InterruptQueue, InterruptQueueError,
-};
+use crate::interventions::interrupt_queue::{InterruptCause, InterruptEnd, InterruptQueue};
 use crate::interventions::store::{
-    InterventionTransition, RequestedIntervention, SavedIntervention, UnresolvedInterventionState,
-    insert_requested_intervention_statement, move_intervention_statement,
-    read_intervention_by_idempotency_key, run_at_version_statement, run_in_states_statement,
+    InterventionTransition, RequestedIntervention, UnresolvedInterventionState,
+    insert_requested_intervention_statement, move_intervention_statement, run_at_version_statement,
+    run_in_states_statement,
 };
-use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::contract::{DriverError, bound_failure_detail};
@@ -81,16 +81,17 @@ use crate::text_cut::cut_to_code_points;
 use crate::uuid_v7::mint_uuid_v7;
 
 /// The statements the service's reads prepare on its pooled connection: the run's row, its
-/// provider and the row saved under a reused key.
+/// provider, and an intervention's row by its id and under a reused key.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-pub(crate) const INTERVENTION_SERVICE_STATEMENT_CAPACITY: usize = 3;
+pub(crate) const INTERVENTION_SERVICE_STATEMENT_CAPACITY: usize = 4;
 
 // The insert of a request is the first statement of its write.
 const INSERT_STATEMENT_INDEX: usize = 0;
 
-// The positions of the accepting write's two guards among its statements.
+// The positions of the accepting write's two guards and its row's move among its statements.
 const ACCEPT_VERSION_GUARD_INDEX: usize = 0;
 const ACCEPT_STATE_GUARD_INDEX: usize = 1;
+const ACCEPT_MOVE_INDEX: usize = 2;
 
 /// What the interventions service reads and writes through.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
@@ -175,131 +176,68 @@ enum DispatchOutcome {
     Unapplied(Resolution),
 }
 
-/// A failure recorded as the row's `failed` outcome, with the reason the row, its event and the
-/// answer carry.
-pub(super) struct RecordedFailure {
-    /// The reason recorded.
-    pub(super) reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
-    /// What the dispatch threw.
-    pub(super) dispatch: DispatchError,
+// What accepting and dispatching a person's recorded request came to.
+enum Dispatched {
+    // The accept's guards refused it, with the outcome that ends the row from `requested`.
+    Unaccepted(Resolution),
+    // The dispatch answered.
+    Answered(DispatchOutcome),
+    // The dispatch threw.
+    Threw(DispatchError),
+    // The provider got it with no answer back.
+    Unanswered,
+    // A turn's end settled the row before the accept could move it.
+    SettledSince,
 }
 
-/// Why a dispatch threw or could not run; its row moves to `failed` with a refusal's code, else
-/// its description.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum DispatchError {
-    /// A refusal with a code: the run has no row or no driver, or its provider answers no
-    /// driver.
-    #[error(transparent)]
-    Refused(#[from] DomainError),
-    /// The driver failed.
-    #[error(transparent)]
-    Driver(DriverError),
-    /// The run engine's route or read failed.
-    #[error(transparent)]
-    Engine(RunEngineError),
-    /// The retry's refusal gave a reason that is no machine-readable cause.
-    #[error("the retry's refusal gave a reason that cannot be recorded")]
-    RejectionReason(#[source] TextError),
-    /// A token or spend limit's run ended and was continued before the dispatch, so the continued
-    /// run's own stop cuts it.
-    #[error("the run ended and was continued before the dispatch")]
-    RunContinued,
+/// A row's move as written, or none where the row reached an outcome since it was read: its run's
+/// end or a turn's end settled it, and let go a person's interrupt's queue hold with it.
+pub(super) enum RowMove<T> {
+    /// The move landed, with what it recorded.
+    Made(T),
+    /// Another write settled the row first.
+    SettledSince,
 }
 
-impl From<rusqlite::Error> for DispatchError {
-    /// A read the run engine would have made, kept whole as its failure.
-    fn from(error: rusqlite::Error) -> Self {
-        Self::Engine(error.into())
-    }
-}
-
-impl From<DatabaseReadError> for DispatchError {
-    /// A read the pool did not run, kept whole as the run engine's failure.
-    fn from(error: DatabaseReadError) -> Self {
-        Self::Engine(error.into())
-    }
-}
-
-impl From<RunEngineError> for DispatchError {
-    /// A refusal keeps its code; any other engine failure is kept whole.
-    fn from(error: RunEngineError) -> Self {
-        match error {
-            RunEngineError::Refused(refusal) => Self::Refused(refusal.into()),
-            RunEngineError::Provider(refusal) => Self::Refused(refusal),
-            error @ (RunEngineError::Change { .. }
-            | RunEngineError::Released { .. }
-            | RunEngineError::Gate { .. }
-            | RunEngineError::NoResolvedPosture { .. }
-            | RunEngineError::Driver { .. }
-            | RunEngineError::LimitInterrupterGone { .. }
-            | RunEngineError::LimitInterrupt { .. }
-            | RunEngineError::DaemonTurn { .. }
-            | RunEngineError::Agent { .. }
-            | RunEngineError::Draft { .. }
-            | RunEngineError::Append { .. }
-            | RunEngineError::Read { .. }
-            | RunEngineError::Pool { .. }
-            | RunEngineError::Several { .. }) => Self::Engine(error),
-        }
-    }
-}
-
-/// Why the service did not answer an intervention; what each step wrote before the failure is
-/// kept.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum InterventionError {
-    /// A refusal with a code: an unknown run, or a reused key with another request.
-    #[error(transparent)]
-    Refused(DomainError),
-    /// The insert was refused on a spent key, and the row saved under it cannot be read back.
-    #[error("the intervention saved under key {key} on run {run_id} cannot be read back")]
-    Unsaved {
-        /// The run.
-        run_id: RunId,
-        /// The spent key.
-        key: String,
-    },
-    /// A rejected or failed row holds no reason.
-    #[error(
-        "intervention {intervention_id} ended {} with no reason",
-        <&'static str>::from(*.state)
-    )]
-    Unreasoned {
-        /// The intervention.
-        intervention_id: InterventionId,
-        /// Its state.
-        state: InterventionState,
-    },
-    /// An intervention's event breaks a check of its type.
-    #[error("the intervention's event could not be drafted")]
-    Draft(#[from] SessionEventDraftError),
-    /// The event log did not keep a step's write.
-    #[error("the intervention's step was not recorded")]
-    Append(#[from] SessionEventAppendError),
-    /// A read or the run's end failed.
-    #[error(transparent)]
-    Engine(#[from] RunEngineError),
-    /// The run queue's part in an interrupt failed.
-    #[error("the run queue failed its part in the interrupt")]
-    Queue(#[source] InterruptQueueError),
-    /// The dispatch threw, and the write recording its failure did not land.
-    #[error(
-        "intervention {intervention_id} failed in dispatch ({}), and recording it failed too",
-        describe_error(dispatch)
-    )]
-    Unrecorded {
-        /// The intervention.
-        intervention_id: InterventionId,
+/// A dispatch's failure as the row's `failed` outcome records it, with what the dispatch threw.
+pub(super) enum RecordedFailure {
+    /// The row ended `failed` with this reason, which its event and the answer carry.
+    Recorded {
+        /// The reason recorded.
+        reason: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
         /// What the dispatch threw.
         dispatch: DispatchError,
-        /// Why the failure was not recorded.
-        #[source]
-        record: SessionEventAppendError,
     },
-    /// A step failed and so did the release of the queue's hold after it, both kept.
-    #[error(transparent)]
-    Several(Box<SettleFailures<InterventionError>>),
+    /// The row reached an outcome another write gave it before the failure could be recorded.
+    SettledSince {
+        /// What the dispatch threw.
+        dispatch: DispatchError,
+    },
+}
+
+// Who lets go a person's interrupt's run queue hold: the request, once its own write settled the
+// row or it failed, or the run engine, whose settle of the row at the run's end or a turn's end
+// lets it go.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HoldRelease {
+    ByRequest,
+    BySettle,
+}
+
+// A recorded request's answer, with who lets go its interrupt's queue hold.
+struct Applied {
+    answer: Result<AgentRunInterveneResponse, InterventionError>,
+    hold_release: HoldRelease,
+}
+
+impl Applied {
+    // A failure before any settle could reach the row's hold.
+    fn failed(error: InterventionError) -> Self {
+        Self {
+            answer: Err(error),
+            hold_release: HoldRelease::ByRequest,
+        }
+    }
 }
 
 impl InterventionService {
@@ -331,11 +269,9 @@ impl InterventionService {
     /// in a state its type acts on, dispatches it once and answers with the state it reached. A
     /// reused key answers the saved result and dispatches nothing. Refuses `agent.run.notFound`
     /// for an unknown run and `agent.intervention.idempotencyConflict` for a reused key whose
-    /// request differs; a dispatch that throws answers `failed` with its reason.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the agent.run.intervene handler")
-    )]
+    /// request differs; a dispatch that throws answers `failed` with its reason, and one the
+    /// provider got with no answer back answers `accepted`, its row and an interrupt's queue hold
+    /// left for the run's end or a turn's end to settle, or the outcome such a settle gave it.
     pub(crate) async fn apply_intervention(
         &self,
         request: AgentRunInterveneRequest,
@@ -366,7 +302,10 @@ impl InterventionService {
             actor,
         };
         let AgentRunInterveneRequest::Interrupt(interrupt) = &request else {
-            return self.record_and_apply(&target, &request, payload).await;
+            return self
+                .record_and_apply(&target, &request, payload)
+                .await
+                .answer;
         };
         // The queue's hold comes before the row, so a hold that fails leaves no row to apply.
         let choice = interrupt_choice_of(interrupt);
@@ -374,7 +313,13 @@ impl InterventionService {
             .hold_for_interrupt(run_id, choice)
             .await
             .map_err(InterventionError::Queue)?;
-        let applied = self.record_and_apply(&target, &request, payload).await;
+        let Applied {
+            answer: applied,
+            hold_release,
+        } = self.record_and_apply(&target, &request, payload).await;
+        if hold_release == HoldRelease::BySettle {
+            return applied;
+        }
         let released = self
             .queue
             .release_interrupt(run_id, choice)
@@ -392,15 +337,28 @@ impl InterventionService {
         }
     }
 
-    // Records the request with its stored `payload`, then accepts, dispatches and settles it. A key
-    // refused at the insert was spent since the caller's read by a request of the other type,
-    // under the other lock, so it answers a conflict.
+    // Records the request with its stored `payload`, then accepts, dispatches and settles it.
     async fn record_and_apply(
         &self,
         target: &InterventionTarget,
         request: &AgentRunInterveneRequest,
         payload: String,
-    ) -> Result<AgentRunInterveneResponse, InterventionError> {
+    ) -> Applied {
+        match self.record(target, request, payload).await {
+            Ok(()) => self.accept_and_apply(target, request).await,
+            Err(error) => Applied::failed(error),
+        }
+    }
+
+    // Records the request with its stored `payload`. A key refused at the insert was spent since
+    // the caller's read by a request of the other type, under the other lock, so it answers a
+    // conflict.
+    async fn record(
+        &self,
+        target: &InterventionTarget,
+        request: &AgentRunInterveneRequest,
+        payload: String,
+    ) -> Result<(), InterventionError> {
         let run_id = target.target_run_id;
         let (expected_run_version, key) = request_guards(request);
         let requested = RequestedIntervention {
@@ -420,7 +378,7 @@ impl InterventionService {
             )
             .await;
         match inserted {
-            Ok(()) => self.accept_and_apply(target, request).await,
+            Ok(()) => Ok(()),
             Err(error) => match refused_statement_index(&error) {
                 Some(INSERT_STATEMENT_INDEX) => {
                     let saved = self
@@ -443,7 +401,74 @@ impl InterventionService {
         &self,
         target: &InterventionTarget,
         request: &AgentRunInterveneRequest,
-    ) -> Result<AgentRunInterveneResponse, InterventionError> {
+    ) -> Applied {
+        let dispatched = match self.accept_and_dispatch(target, request).await {
+            Ok(dispatched) => dispatched,
+            Err(error) => return Applied::failed(error),
+        };
+        let row_move = match dispatched {
+            // The provider may still carry it out, so the row and the hold stay for the run's end
+            // or a turn's end, the run's end settling it here when it read the row too early.
+            Dispatched::Unanswered => {
+                let answer = match self
+                    .engine
+                    .settle_unresolved_of_ended_run(target.target_run_id)
+                    .await
+                {
+                    Ok(_) => self.answer_stored(target).await,
+                    Err(error) => Err(error.into()),
+                };
+                return Applied {
+                    answer,
+                    hold_release: HoldRelease::BySettle,
+                };
+            }
+            Dispatched::SettledSince => Ok(RowMove::SettledSince),
+            Dispatched::Unaccepted(resolution) => {
+                self.resolve(target, UnresolvedInterventionState::Requested, resolution)
+                    .await
+            }
+            Dispatched::Answered(DispatchOutcome::Unapplied(resolution)) => {
+                self.resolve(target, UnresolvedInterventionState::Accepted, resolution)
+                    .await
+            }
+            Dispatched::Answered(DispatchOutcome::Carried(verdict)) => {
+                let end = match request {
+                    AgentRunInterveneRequest::Interrupt(interrupt) => Some(RunEndOfVerdict {
+                        accepted_run_version: i64::from(request_guards(request).0),
+                        cause: InterruptCause::Person(interrupt_choice_of(interrupt)),
+                    }),
+                    AgentRunInterveneRequest::FasterModelRetry { .. } => None,
+                };
+                self.record_verdict(target, verdict, end).await
+            }
+            Dispatched::Threw(dispatch) => match self.record_failure(target, dispatch).await {
+                Ok(RecordedFailure::Recorded { reason, .. }) => {
+                    Ok(RowMove::Made(ReachedState::Failed(reason)))
+                }
+                Ok(RecordedFailure::SettledSince { .. }) => Ok(RowMove::SettledSince),
+                Err(error) => Err(error),
+            },
+        };
+        match row_move {
+            Ok(RowMove::Made(state)) => Applied {
+                answer: self.answer(target, &state).await,
+                hold_release: HoldRelease::ByRequest,
+            },
+            Ok(RowMove::SettledSince) => Applied {
+                answer: self.answer_stored(target).await,
+                hold_release: HoldRelease::BySettle,
+            },
+            Err(error) => Applied::failed(error),
+        }
+    }
+
+    // Accepts the recorded request against the run and dispatches it once.
+    async fn accept_and_dispatch(
+        &self,
+        target: &InterventionTarget,
+        request: &AgentRunInterveneRequest,
+    ) -> Result<Dispatched, InterventionError> {
         let (expected_run_version, _key) = request_guards(request);
         let accepting_states = match target.intervention_type {
             InterventionType::Interrupt => states_that_may_enter(RunStateChangeState::Interrupted),
@@ -467,44 +492,28 @@ impl InterventionService {
             )
             .await;
         if let Err(error) = accepted {
-            let resolution = match refused_statement_index(&error) {
-                Some(ACCEPT_VERSION_GUARD_INDEX) => Resolution::Expired,
-                Some(ACCEPT_STATE_GUARD_INDEX) => Resolution::Rejected(
+            return match refused_statement_index(&error) {
+                Some(ACCEPT_VERSION_GUARD_INDEX) => Ok(Dispatched::Unaccepted(Resolution::Expired)),
+                Some(ACCEPT_STATE_GUARD_INDEX) => Ok(Dispatched::Unaccepted(Resolution::Rejected(
                     FreeFormText::new(RefusalCode::AgentRunInvalidTransition.as_str().to_owned())
                         .expect("a refusal code is a machine-readable cause"),
-                ),
-                _ => return Err(error.into()),
+                ))),
+                Some(ACCEPT_MOVE_INDEX) => Ok(Dispatched::SettledSince),
+                _ => Err(error.into()),
             };
-            return self
-                .resolve(target, UnresolvedInterventionState::Requested, resolution)
-                .await;
         }
-        let outcome = match self.dispatch(target.session_id, request).await {
-            Ok(outcome) => outcome,
-            Err(dispatch) => {
-                let failure = self.record_failure(target, dispatch).await?;
-                return self
-                    .answer(target, &ReachedState::Failed(failure.reason))
-                    .await;
+        Ok(match self.dispatch(target.session_id, request).await {
+            Ok(outcome) => Dispatched::Answered(outcome),
+            Err(DispatchError::Driver(DriverError::Unanswered(unanswered))) => {
+                tracing::info!(
+                    intervention_id = %target.intervention_id,
+                    error = %unanswered,
+                    "the provider got the intervention with no answer back"
+                );
+                Dispatched::Unanswered
             }
-        };
-        let end = match request {
-            AgentRunInterveneRequest::Interrupt(interrupt) => Some(RunEndOfVerdict {
-                accepted_run_version: i64::from(expected_run_version),
-                cause: InterruptCause::Person(interrupt_choice_of(interrupt)),
-            }),
-            AgentRunInterveneRequest::FasterModelRetry { .. } => None,
-        };
-        match outcome {
-            DispatchOutcome::Carried(verdict) => {
-                let state = self.record_verdict(target, verdict, end).await?;
-                self.answer(target, &state).await
-            }
-            DispatchOutcome::Unapplied(resolution) => {
-                self.resolve(target, UnresolvedInterventionState::Accepted, resolution)
-                    .await
-            }
-        }
+            Err(dispatch) => Dispatched::Threw(dispatch),
+        })
     }
 
     // Sends a person's request to whatever carries it out, exactly once.
@@ -604,13 +613,14 @@ impl InterventionService {
     /// Records an applied or degraded verdict from `accepted`: an interrupt's in the write that
     /// ends its run through the run queue as `end` says, handing it the messages the provider gave
     /// back, and alone where the run ended since; a retry's with the run's version advanced.
-    /// Answers the state reached. Fails as the run queue or the write fails.
+    /// Answers the state reached, or none where the run's end or a turn's end settled the row
+    /// first. Fails as the run queue or the write fails.
     pub(super) async fn record_verdict(
         &self,
         target: &InterventionTarget,
         verdict: Verdict,
         end: Option<RunEndOfVerdict>,
-    ) -> Result<ReachedState, InterventionError> {
+    ) -> Result<RowMove<ReachedState>, InterventionError> {
         let (transition, state, is_degraded, cancelled) = match verdict {
             Verdict::Degraded {
                 fallback_action,
@@ -648,6 +658,7 @@ impl InterventionService {
                         statements: vec![row_move.clone()],
                         preceding_events: vec![event.clone()],
                         leading_event: None,
+                        settled_interventions: vec![target.intervention_id],
                     },
                 })
                 .await
@@ -665,14 +676,22 @@ impl InterventionService {
                     row_move,
                 ],
             };
-            self.append(event, statements, Vec::new()).await?;
+            let row_move_index = statements.len() - 1;
+            if let Err(error) = self.append(event, statements, Vec::new()).await {
+                return match refused_statement_index(&error) {
+                    Some(index) if index == row_move_index => {
+                        self.settled_since_or(target, error.into()).await
+                    }
+                    _ => Err(error.into()),
+                };
+            }
         }
-        Ok(state)
+        Ok(RowMove::Made(state))
     }
 
     /// Ends the row `failed` from `accepted` with what `dispatch` threw, its event and the row
-    /// carrying one reason. Fails with [`InterventionError::Unrecorded`], keeping both causes,
-    /// when the write does not land.
+    /// carrying one reason, unless the run's end or a turn's end settled the row first. Fails with
+    /// [`InterventionError::Unrecorded`], keeping both causes, when the write does not land.
     pub(super) async fn record_failure(
         &self,
         target: &InterventionTarget,
@@ -696,23 +715,36 @@ impl InterventionService {
                 Vec::new(),
             )
             .await;
-        match recorded {
-            Ok(()) => Ok(RecordedFailure { reason, dispatch }),
-            Err(record) => Err(InterventionError::Unrecorded {
-                intervention_id: target.intervention_id,
-                dispatch,
-                record,
-            }),
+        let record = match recorded {
+            Ok(()) => return Ok(RecordedFailure::Recorded { reason, dispatch }),
+            Err(record) => record,
+        };
+        // The row's move is the write's one statement.
+        let is_settled_since = if refused_statement_index(&record) == Some(0) {
+            self.is_settled_since(target).await
+        } else {
+            Ok(false)
+        };
+        let unrecorded = |dispatch, record| InterventionError::Unrecorded {
+            intervention_id: target.intervention_id,
+            dispatch,
+            record,
+        };
+        match is_settled_since {
+            Ok(true) => Ok(RecordedFailure::SettledSince { dispatch }),
+            Ok(false) => Err(unrecorded(dispatch, record)),
+            Err(read) => Err(with_failed_read(unrecorded(dispatch, record), read)),
         }
     }
 
-    // Ends the row from `from` in an outcome that applies nothing, with its event, and answers it.
+    // Ends the row from `from` in an outcome that applies nothing, with its event, unless the run's
+    // end or a turn's end settled it first.
     async fn resolve(
         &self,
         target: &InterventionTarget,
         from: UnresolvedInterventionState,
         resolution: Resolution,
-    ) -> Result<AgentRunInterveneResponse, InterventionError> {
+    ) -> Result<RowMove<ReachedState>, InterventionError> {
         let (transition, state) = match resolution {
             Resolution::Rejected(reason) => (
                 InterventionTransition::Reject {
@@ -726,86 +758,24 @@ impl InterventionService {
                 ReachedState::Expired,
             ),
         };
-        self.append(
-            draft(target, &state)?,
-            vec![move_intervention_statement(
-                &target.intervention_id,
-                &transition,
-            )],
-            Vec::new(),
-        )
-        .await?;
-        self.answer(target, &state).await
-    }
-
-    // The intervention saved on `run_id` under `key`, if one is.
-    async fn read_saved_intervention(
-        &self,
-        run_id: RunId,
-        key: &ClientUuid,
-    ) -> Result<Option<SavedIntervention>, InterventionError> {
-        let key = key.clone();
-        Ok(self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(read_intervention_by_idempotency_key(
-                    reader, &run_id, &key,
-                )?)
-            })
-            .await?)
-    }
-
-    // A reused key answers what the first request saved when the two ask for the same thing, and
-    // refuses with a conflict otherwise.
-    async fn answer_saved(
-        &self,
-        request: &AgentRunInterveneRequest,
-        run_id: RunId,
-        saved: SavedIntervention,
-        payload: &str,
-    ) -> Result<AgentRunInterveneResponse, InterventionError> {
-        if saved.intervention_type != intervention_type_of(request) || saved.payload != payload {
-            return Err(idempotency_conflict(run_id, saved.intervention_id));
+        let resolved = self
+            .append(
+                draft(target, &state)?,
+                vec![move_intervention_statement(
+                    &target.intervention_id,
+                    &transition,
+                )],
+                Vec::new(),
+            )
+            .await;
+        match resolved {
+            Ok(()) => Ok(RowMove::Made(state)),
+            // The row's move is the write's one statement.
+            Err(error) if refused_statement_index(&error) == Some(0) => {
+                self.settled_since_or(target, error.into()).await
+            }
+            Err(error) => Err(error.into()),
         }
-        let reason_missing = || InterventionError::Unreasoned {
-            intervention_id: saved.intervention_id,
-            state: saved.state,
-        };
-        let state = match saved.state {
-            InterventionState::Requested => ReachedState::Requested,
-            InterventionState::Accepted => ReachedState::Accepted,
-            InterventionState::Applied => ReachedState::Applied,
-            InterventionState::Degraded => ReachedState::Degraded,
-            InterventionState::Expired => ReachedState::Expired,
-            InterventionState::Rejected => {
-                ReachedState::Rejected(saved.rejection_reason.clone().ok_or_else(reason_missing)?)
-            }
-            InterventionState::Failed => {
-                ReachedState::Failed(saved.failure_reason.clone().ok_or_else(reason_missing)?)
-            }
-        };
-        let run = self.require_run(run_id).await?;
-        Ok(response(
-            saved.intervention_id,
-            saved.intervention_type,
-            &run,
-            &state,
-        ))
-    }
-
-    // The answer for `state`, with the run's version as it is now.
-    async fn answer(
-        &self,
-        target: &InterventionTarget,
-        state: &ReachedState,
-    ) -> Result<AgentRunInterveneResponse, InterventionError> {
-        let run = self.require_run(target.target_run_id).await?;
-        Ok(response(
-            target.intervention_id,
-            target.intervention_type,
-            &run,
-            state,
-        ))
     }
 
     /// The run as it reads now, refused `agent.run.notFound` for a run the daemon has no row for.
@@ -845,18 +815,6 @@ pub(super) struct RunEndOfVerdict {
     pub(super) cause: InterruptCause,
 }
 
-// The refusal of a request that reuses the key of `run_id`'s intervention `saved` and asks for
-// something else.
-fn idempotency_conflict(run_id: RunId, saved: InterventionId) -> InterventionError {
-    InterventionError::Refused(
-        DomainError::new(
-            "The idempotency key was already used for a different intervention on this run",
-            RefusalCode::AgentInterventionIdempotencyConflict,
-        )
-        .with_detail(json!({ "targetRunId": run_id, "interventionId": saved })),
-    )
-}
-
 /// A fresh intervention id.
 pub(super) fn mint_intervention_id() -> InterventionId {
     InterventionId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an intervention id")
@@ -867,18 +825,5 @@ fn device_of(actor: &InterventionActor) -> Option<DeviceId> {
     match actor {
         InterventionActor::Daemon(_) => None,
         InterventionActor::Device(device) => Some(device.device_id().clone()),
-    }
-}
-
-// What a dispatch failure records: a refusal's code, else its description.
-fn failure_text_of(error: &DispatchError) -> String {
-    match error {
-        DispatchError::Refused(refusal) | DispatchError::Driver(DriverError::Refused(refusal)) => {
-            refusal.code.as_str().to_owned()
-        }
-        DispatchError::Driver(_)
-        | DispatchError::Engine(_)
-        | DispatchError::RejectionReason(_)
-        | DispatchError::RunContinued => describe_error(error),
     }
 }

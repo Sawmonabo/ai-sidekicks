@@ -1,7 +1,8 @@
-//! The driver registry other areas' tests build on: the table's first provider answered by a
-//! stand-in driver, and a run bound to that provider.
+//! The driver registry other areas' tests build on: the table's first providers answered by
+//! stand-in drivers, and a run bound to the first one.
 
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -16,32 +17,42 @@ use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 
 thread_local! {
-    // The driver the next registry this thread builds registers for the table's first provider.
-    static NEXT_DRIVER: RefCell<Option<Arc<dyn ProviderDriver>>> = const { RefCell::new(None) };
+    // The drivers the next registry this thread builds registers, in the table's order.
+    static NEXT_DRIVERS: RefCell<VecDeque<Arc<dyn ProviderDriver>>> =
+        const { RefCell::new(VecDeque::new()) };
 }
 
-// Hands the registry the driver the test put in the slot.
+// Hands the registry the next driver the test queued.
 fn take_next_driver(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
-    NEXT_DRIVER
-        .with_borrow_mut(Option::take)
-        .expect("the registry is built right after its driver is set")
+    NEXT_DRIVERS
+        .with_borrow_mut(VecDeque::pop_front)
+        .expect("the registry is built right after its drivers are queued")
 }
 
 /// A registry holding only the table's first provider, answered by `driver`. Called on a tokio
 /// runtime, which the spawner thread is started on.
 pub(crate) fn registry_of_first_provider(driver: Arc<dyn ProviderDriver>) -> ProviderRegistry {
-    NEXT_DRIVER.with_borrow_mut(|next| *next = Some(driver));
+    registry_of_first_providers(vec![driver])
+}
+
+/// A registry holding the table's first providers in its order, one for each of `drivers`, each
+/// answered by its driver. Called on a tokio runtime, which the spawner thread is started on.
+pub(crate) fn registry_of_first_providers(
+    drivers: Vec<Arc<dyn ProviderDriver>>,
+) -> ProviderRegistry {
+    let table: Vec<ProviderRegistration> = PROVIDERS[..drivers.len()]
+        .iter()
+        .map(|descriptor| ProviderRegistration {
+            descriptor,
+            build: take_next_driver,
+        })
+        .collect();
+    NEXT_DRIVERS.with_borrow_mut(|next| *next = drivers.into());
     let services = DriverServices {
         spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
         data_folder: PathBuf::from("data"),
     };
-    ProviderRegistry::register_from(
-        &[ProviderRegistration {
-            descriptor: PROVIDERS[0],
-            build: take_next_driver,
-        }],
-        &services,
-    )
+    ProviderRegistry::register_from(&table, &services)
 }
 
 /// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does.

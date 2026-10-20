@@ -8,15 +8,14 @@ use sidekicks_contracts::run::state::RunState;
 use tokio::time::timeout;
 
 use super::{
-    Fixture, HANDS_AT_ONCE, WAIT, count_steers, driver_handing, fixture, hand, insert_item,
-    item_ids, set_run_state, settle, stored_item,
+    Fixture, HANDS_AT_ONCE, WAIT, continued_ids, count_steers, driver_handing, fixture, hand,
+    insert_item, item_ids, set_run_state, settle, stored_item,
 };
 use crate::events::session::appender::{SessionEventAppender, SessionEventLinkage};
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::queue::delivery::InterruptEndWrites;
 use crate::queue::store::{QueueItemReader, QueueItemRecord, RecordedQueueItemState};
-use crate::session::run::pause::ContinuedMessages;
 use crate::uuid_v7::mint_uuid_v7;
 
 /// A run with three messages waiting: the first two handed to the provider, the third not.
@@ -170,9 +169,7 @@ async fn an_interrupt_that_keeps_waiting_leaves_the_messages_for_the_continue() 
     .await;
     let is_given_back_handed = fixture.delivery.is_handed(&given_back.id);
     set_run_state(&fixture, RunState::Interrupted);
-    let continued = ContinuedMessages::read(&fixture.delivery, fixture.run_id)
-        .await
-        .expect("the continue reads the waiting messages");
+    let continued = continued_ids(&fixture).await;
 
     assert!(writes.statements.is_empty());
     assert!(writes.preceding_events.is_empty());
@@ -182,13 +179,7 @@ async fn an_interrupt_that_keeps_waiting_leaves_the_messages_for_the_continue() 
         RecordedQueueItemState::Queued
     );
     assert!(!is_given_back_handed);
-    assert_eq!(
-        continued
-            .iter()
-            .map(|message| message.id)
-            .collect::<Vec<_>>(),
-        vec![given_back.id, unhanded.id]
-    );
+    assert_eq!(continued, vec![given_back.id, unhanded.id]);
     assert!(fixture.delivery.is_handed(&still_handed.id));
 }
 

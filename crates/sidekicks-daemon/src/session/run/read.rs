@@ -1,22 +1,30 @@
-//! Reads a run's current state and version from its `runs` row, the runs not yet ended, the ended
-//! runs that hold a turn with no end, the live provider subagents beneath one run, and the provider
-//! a run runs on, from its runtime binding or the binding of the parent whose provider process it
-//! runs in.
+//! Reads a run's current state and version from its `runs` row; the runs not yet ended across
+//! every session, and those of one session with the agent each runs for; the ended runs that hold
+//! a turn with no end; the live provider subagents beneath one run; and the provider a run runs on,
+//! from its runtime binding or the binding of the parent whose provider process it runs in.
 
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::envelope::EventCategory;
-use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
+use crate::database::sql_list::sql_list_of;
+use crate::database::stored_column::{
+    closed_word, optional_text_column, safe_int_column, text_column,
+};
+use crate::events::session::read::readable_event_sql;
+use crate::provider::runtime_binding::store::StoredBindingIdInvalid;
 use crate::session::run::engine::turns::TURN_END_TYPES_SQL;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
@@ -50,7 +58,7 @@ const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WH
 
 // Walks up from the run through each provider subagent to the parent whose process it runs in, and
 // takes the nearest run with a binding; a run's bindings all name the provider its first spawn
-// bound, so that run's newest one answers.
+// bound, so that run's newest one answers, with its id.
 const SELECT_RUN_PROVIDER_SQL: &str = "WITH RECURSIVE lineage(run_id, depth) AS (
     SELECT @run_id, 0
     UNION ALL
@@ -58,7 +66,7 @@ const SELECT_RUN_PROVIDER_SQL: &str = "WITH RECURSIVE lineage(run_id, depth) AS 
       FROM runs JOIN lineage ON runs.run_id = lineage.run_id
       WHERE runs.reached_by = 'providerSubagent'
   )
-  SELECT runtime_bindings.provider_name
+  SELECT runtime_bindings.id, runtime_bindings.provider_name
   FROM lineage JOIN runtime_bindings ON runtime_bindings.run_id = lineage.run_id
   ORDER BY lineage.depth, runtime_bindings.created_at DESC, runtime_bindings.id DESC
   LIMIT 1";
@@ -89,6 +97,47 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
   FROM runs
   WHERE state NOT IN ({})",
         *RUN_TERMINAL_STATES_SQL
+    )
+});
+
+// A run's agent is on its `agent.run.queued` row, by id or inside the agent it brought in. Its
+// newest touch is its newest readable `runLifecycle` event. Both read the run-and-type index on the
+// event log; the unary `+` drops the run id column's affinity, which would keep the index from
+// serving.
+static SELECT_SESSION_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
+    let run_queued = SessionEventType::AgentRunQueued.as_str();
+    let lifecycle_types = sql_list_of(
+        RUN_LIFECYCLE_EVENT_TYPES
+            .iter()
+            .copied()
+            .map(SessionEventType::as_str),
+    );
+    let terminal_states = &*RUN_TERMINAL_STATES_SQL;
+    let readable_queued = readable_event_sql("queued");
+    let readable_lifecycle = readable_event_sql("lifecycle");
+    format!(
+        "SELECT run_id, parent_run_id, is_apart, state, run_version,
+    (SELECT COALESCE(json_extract(queued.payload, '$.agentId'),
+                     json_extract(queued.payload, '$.resolvedAgent.agentId'))
+       FROM session_events AS queued
+      WHERE queued.session_id = runs.session_id
+        AND queued.type = '{run_queued}'
+        AND queued.run_id = +runs.run_id
+        AND {readable_queued}) AS agent_id,
+    (SELECT touched.occurred_at
+       FROM session_events AS touched
+      WHERE touched.session_id = runs.session_id
+        AND touched.sequence = (
+          SELECT MAX(lifecycle.sequence)
+            FROM session_events AS lifecycle
+           WHERE lifecycle.session_id = runs.session_id
+             AND lifecycle.type IN ({lifecycle_types})
+             AND lifecycle.run_id = +runs.run_id
+             AND {readable_lifecycle})) AS touched_at
+  FROM runs
+  WHERE session_id = @session_id
+    AND state NOT IN ({terminal_states})
+  ORDER BY rowid"
     )
 });
 
@@ -204,20 +253,85 @@ where
     .await
 }
 
-/// The provider `run_id` runs on, read on `reader`: the one its newest runtime binding names, or,
-/// for a provider subagent, the nearest parent's whose provider process it runs in; `None` when
-/// none of them has a binding. Fails when SQLite refuses the read or the stored name is no
-/// provider id.
+/// The runtime binding a run runs under and the provider it names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunProvider {
+    /// The binding.
+    pub(crate) binding_id: RuntimeBindingId,
+    /// The provider the binding runs on.
+    pub(crate) provider: ProviderId,
+}
+
+/// The provider `run_id` runs on, read on `reader`, with the binding that names it: its own newest
+/// runtime binding, or, for a provider subagent, the nearest parent's whose provider process it
+/// runs in; `None` when none of them has a binding. Fails when SQLite refuses the read or a stored
+/// id or name does not read as its type.
 pub(crate) fn read_run_provider(
     reader: &Connection,
     run_id: &RunId,
-) -> rusqlite::Result<Option<ProviderId>> {
+) -> rusqlite::Result<Option<RunProvider>> {
     reader
         .prepare_cached(SELECT_RUN_PROVIDER_SQL)?
         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
-            text_column(row, 0, closed_word::<ProviderId>)
+            Ok(RunProvider {
+                binding_id: text_column(row, 0, |text| {
+                    RuntimeBindingId::new(text).ok_or(StoredBindingIdInvalid)
+                })?,
+                provider: text_column(row, 1, closed_word::<ProviderId>)?,
+            })
         })
         .optional()
+}
+
+/// One live run of a session as its `runs` row and its log answer it: who it was reached from,
+/// whether it runs apart, its state and version, its agent and its newest touch; the agent and the
+/// touch are `None` when its `agent.run.queued` is past the read bound or skipped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SessionLiveRunRow {
+    /// The run.
+    pub(crate) run_id: RunId,
+    /// The run it was reached from; absent on a lead run.
+    pub(crate) parent_run_id: Option<RunId>,
+    /// Whether it runs apart from its parent.
+    pub(crate) is_apart: bool,
+    /// Its state.
+    pub(crate) state: RunState,
+    /// Its version.
+    pub(crate) run_version: SafeInt<0>,
+    /// The agent its `agent.run.queued` names.
+    pub(crate) agent_id: Option<AgentId>,
+    /// When its newest readable lifecycle event happened.
+    pub(crate) touched_at: Option<WireInstant>,
+}
+
+/// The live runs of `session_id` in the order they were written, read on `reader` with the log
+/// read before `read_bound`. Fails when SQLite refuses the read or a stored column does not read
+/// as its type.
+pub(crate) fn read_session_live_runs(
+    reader: &Connection,
+    session_id: &SessionId,
+    read_bound: i64,
+) -> rusqlite::Result<Vec<SessionLiveRunRow>> {
+    reader
+        .prepare_cached(&SELECT_SESSION_LIVE_RUNS_SQL)?
+        .query_map(
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@read_bound": read_bound,
+            },
+            |row| {
+                Ok(SessionLiveRunRow {
+                    run_id: text_column(row, 0, |text| RunId::new(&text))?,
+                    parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
+                    is_apart: row.get(2)?,
+                    state: text_column(row, 3, closed_word)?,
+                    run_version: safe_int_column(row, 4)?,
+                    agent_id: optional_text_column(row, 5, |text| AgentId::new(&text))?,
+                    touched_at: optional_text_column(row, 6, WireInstant::try_from)?,
+                })
+            },
+        )?
+        .collect()
 }
 
 /// A stored run version as the wire carries it.
@@ -280,7 +394,9 @@ mod tests {
         let bridge_run = new_run(Some(&lead), Some("bridgeRun"));
 
         assert_eq!(
-            read_run_provider(&connection, &nested_subagent).expect("the read runs"),
+            read_run_provider(&connection, &nested_subagent)
+                .expect("the read runs")
+                .map(|bound| bound.provider),
             Some(test_provider())
         );
         assert_eq!(

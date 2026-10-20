@@ -47,7 +47,7 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::latest_value::LatestValueOutlet;
 use crate::session::directory::lookups::{
-    SESSION_EXISTS_SQL, SessionWriteError, write_while_session_exists,
+    SessionWriteError, session_exists, write_while_session_exists,
 };
 use crate::session::not_found::session_not_found;
 use crate::session::review_note::diff_line::{NoteLocation, NotedLineError, NotedLineReader};
@@ -381,11 +381,7 @@ impl SessionReviewNoteStore {
         let is_known = self
             .pool
             .read(ReadLength::Short, move |connection| {
-                Ok::<_, ReviewNoteStoreError>(
-                    connection
-                        .prepare_cached(SESSION_EXISTS_SQL)?
-                        .exists(named_params! { "@sessionId": session_id.text().as_str() })?,
-                )
+                Ok::<_, ReviewNoteStoreError>(session_exists(connection, &session_id)?)
             })
             .await?;
         if !is_known {

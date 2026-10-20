@@ -340,7 +340,7 @@ impl QueueDelivery {
                     self.continue_if_interrupted(session_id, handed.run_id)
                         .await
                 }
-                HandRoute::Continue { is_kept: true } => match item {
+                HandRoute::Continue { is_kept: true, .. } => match item {
                     Some(item) if item.state == RecordedQueueItemState::Queued => {
                         self.record_admission(&item, run_id).await
                     }
@@ -349,7 +349,7 @@ impl QueueDelivery {
                         Ok(())
                     }
                 },
-                HandRoute::Continue { is_kept: false } => Ok(()),
+                HandRoute::Continue { is_kept: false, .. } => Ok(()),
             },
             None => match item {
                 Some(item) if item.session_id == session_id => {

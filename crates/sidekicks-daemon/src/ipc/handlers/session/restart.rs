@@ -112,7 +112,6 @@ mod tests {
     use sidekicks_contracts::machine::settings::ProviderRowValues;
     use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
     use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::controls::methods::SessionMode;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
@@ -120,7 +119,6 @@ mod tests {
     use tokio::runtime::Handle;
 
     use super::{RestartTargetReader, SessionRestartTarget, restart};
-    use crate::ipc::handlers::driver::resolution::resolve_run_driver;
     use crate::ipc::registry::HandlerError;
     use crate::provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
@@ -133,13 +131,10 @@ mod tests {
     use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 
     const SESSION: &str = "0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30";
-    const RUN: &str = "6a1d2e4f-3b5c-4e7d-9f80-1a2b3c4d5e6f";
 
     /// What a case sets up before its one call.
     #[derive(Clone, Copy, Debug)]
     enum Setup {
-        /// A run with no live binding, and no driver loaded.
-        UnknownRun,
         /// A session with no restart target, and no driver loaded.
         UnknownSession,
         /// A session whose provider no loaded driver answers.
@@ -184,7 +179,11 @@ mod tests {
             .into_iter()
             .collect();
         let registry = ProviderRegistry::register_from(&table, &services);
-        if let Some(provider) = registry.providers().next().cloned() {
+        if let Some(provider) = registry
+            .drivers()
+            .next()
+            .map(|(provider, _)| provider.clone())
+        {
             let capabilities = DriverCapabilities {
                 flags: DriverCapabilityFlags::from_fn(|flag| {
                     has_resume && flag == DriverCapabilityFlag::Resume
@@ -227,7 +226,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unknown_run(Setup::UnknownRun, RefusalCode::AgentRunNotFound, json!({ "runId": RUN }))]
     #[case::unknown_session(
         Setup::UnknownSession,
         RefusalCode::SessionNotFound,
@@ -268,12 +266,6 @@ mod tests {
     ) {
         let session_id = SessionId::new(SESSION).expect("the id is a UUID");
         let refusal = match setup {
-            Setup::UnknownRun => {
-                let run_id = RunId::new(RUN).expect("the id is a UUID");
-                resolve_run_driver(&providers(None, false), run_id, None)
-                    .err()
-                    .expect("an unbound run is refused")
-            }
             Setup::UnknownSession => {
                 match restart(&providers(None, false), &targets(false), session_id).await {
                     Err(HandlerError::Refused(refusal)) => refusal,

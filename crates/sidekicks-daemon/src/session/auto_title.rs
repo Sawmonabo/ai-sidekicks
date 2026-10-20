@@ -537,7 +537,7 @@ fn read_naming_input(
         return Ok(None);
     };
     let place = read_working_folder(&snapshot, session_id)?.place;
-    let provider = read_run_provider(&snapshot, &run_id)?;
+    let provider = read_run_provider(&snapshot, &run_id)?.map(|run| run.provider);
     let first_reply = read_run_reply(&snapshot, session_id, &run_id)?;
     Ok(Some(NamingInput {
         first_message,

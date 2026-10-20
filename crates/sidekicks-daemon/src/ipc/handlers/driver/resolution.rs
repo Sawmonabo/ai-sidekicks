@@ -10,40 +10,68 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::not_found::session_not_found;
 use crate::session::run::read::read_run_provider;
-use crate::session::run::refusals::RunRefusal;
 
-/// The driver of the provider `bound` names, which the caller read once from the run's live
-/// binding (`None` for a run unknown or not live). Refused `agent.run.notFound` for `None`, then
-/// `provider.notFound` for a provider no driver answers.
-pub(crate) fn resolve_run_driver(
+/// Why the driver of a live run was not resolved.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum LiveRunDriverError {
+    /// No binding on the run's chain names a provider. Every live run has one, so the record is
+    /// broken: a fault in the daemon, never a refusal of the call.
+    #[error("live run {run_id} has no runtime binding on its chain")]
+    Unbound {
+        /// The run.
+        run_id: RunId,
+    },
+    /// No registered driver answers the run's provider (`provider.notFound`).
+    #[error(transparent)]
+    ProviderNotFound(DomainError),
+}
+
+impl From<LiveRunDriverError> for HandlerError {
+    /// A provider no driver answers refuses the call; a live run with no binding is a fault.
+    fn from(error: LiveRunDriverError) -> Self {
+        match error {
+            LiveRunDriverError::ProviderNotFound(refusal) => Self::Refused(refusal),
+            unbound @ LiveRunDriverError::Unbound { .. } => Self::Internal(Box::new(unbound)),
+        }
+    }
+}
+
+/// The driver of the provider `bound` names, which the caller read from the run's binding once it
+/// found the run live. Fails with [`LiveRunDriverError::Unbound`] for `None` and
+/// [`LiveRunDriverError::ProviderNotFound`] for a provider no driver answers.
+pub(crate) fn resolve_live_run_driver(
     providers: &ProviderRegistry,
     run_id: RunId,
     bound: Option<ProviderId>,
-) -> Result<Arc<dyn ProviderDriver>, DomainError> {
-    let provider = bound.ok_or(RunRefusal::NotFound { run_id })?;
-    providers.lookup(&provider)
+) -> Result<Arc<dyn ProviderDriver>, LiveRunDriverError> {
+    let provider = bound.ok_or(LiveRunDriverError::Unbound { run_id })?;
+    providers
+        .lookup(&provider)
+        .map_err(LiveRunDriverError::ProviderNotFound)
 }
 
-/// The driver of the provider `run_id` runs on, its binding read through `pool`. Refused as
-/// [`resolve_run_driver`] refuses; fails as the pool and the read do.
+/// The driver of the provider the live run `run_id` runs on, its binding read through `pool`.
+/// Fails as [`resolve_live_run_driver`] fails, and as the pool and the read do.
 pub(crate) async fn read_run_driver<Failure>(
     pool: &DatabaseReadPool,
     providers: &ProviderRegistry,
     run_id: RunId,
 ) -> Result<Arc<dyn ProviderDriver>, Failure>
 where
-    Failure: From<DatabaseReadError> + From<rusqlite::Error> + From<DomainError> + Send + 'static,
+    Failure:
+        From<DatabaseReadError> + From<rusqlite::Error> + From<LiveRunDriverError> + Send + 'static,
 {
     let bound = pool
         .read(ReadLength::Short, move |reader| -> Result<_, Failure> {
-            Ok(read_run_provider(reader, &run_id)?)
+            Ok(read_run_provider(reader, &run_id)?.map(|bound| bound.provider))
         })
         .await?;
-    Ok(resolve_run_driver(providers, run_id, bound)?)
+    Ok(resolve_live_run_driver(providers, run_id, bound)?)
 }
 
 /// The driver of the provider `bound` names, which the caller read once from the session's

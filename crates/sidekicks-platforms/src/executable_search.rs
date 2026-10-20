@@ -66,6 +66,19 @@ pub fn user_programs_folder() -> Option<PathBuf> {
     }
 }
 
+/// Whether the system reads `command` as a path, absolute or holding a separator, which a search
+/// takes as typed, rather than a bare name it looks up along `PATH`.
+pub fn is_path_command(command: &str) -> bool {
+    is_path_command_with_rules(PathRules::NATIVE, command)
+}
+
+fn is_path_command_with_rules(rules: PathRules, command: &str) -> bool {
+    rules.is_absolute(command)
+        || command
+            .chars()
+            .any(|character| rules.is_separator(character))
+}
+
 fn find_executables_with_rules<'a>(
     rules: PathRules,
     command: &'a str,
@@ -73,11 +86,7 @@ fn find_executables_with_rules<'a>(
     working_folder: &'a Path,
     skipped_folders: &'a [PathBuf],
 ) -> impl Iterator<Item = PathBuf> + 'a {
-    let is_path_command = rules.is_absolute(command)
-        || command
-            .chars()
-            .any(|character| rules.is_separator(character));
-    let search_roots: Vec<PathBuf> = if is_path_command {
+    let search_roots: Vec<PathBuf> = if is_path_command_with_rules(rules, command) {
         vec![working_folder.join(command)]
     } else {
         rules

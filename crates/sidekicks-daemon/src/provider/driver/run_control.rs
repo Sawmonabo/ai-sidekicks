@@ -179,6 +179,25 @@ pub(crate) struct ResumeRunParams {
     pub(crate) messages: Vec<WaitingMessage>,
 }
 
+/// Params of `find_taken_messages`: messages a resume of the run sent with no answer back, by the
+/// ids they went under, to look up in the provider's own record of the conversation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FindTakenMessagesParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The run the messages were sent into.
+    pub(crate) run_id: RunId,
+    /// The ids the messages went under.
+    pub(crate) message_ids: Vec<QueueItemId>,
+}
+
+/// The messages of a [`FindTakenMessagesParams`] the provider's own record holds, so it took them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TakenMessages {
+    /// The ids the record holds, among those asked about.
+    pub(crate) taken: Vec<QueueItemId>,
+}
+
 /// Params of `withdraw_queued_message` (gated on `steer`): takes back a steer sent into a running
 /// turn before the provider reads it. The key is the steer's own, which the driver sent as the
 /// message's id.
