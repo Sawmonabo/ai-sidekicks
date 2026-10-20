@@ -125,6 +125,7 @@ impl From<RunEngineError> for ProviderChoiceError {
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
             | RunEngineError::LimitInterrupt { .. }
+            | RunEngineError::InterruptRelease { .. }
             | RunEngineError::Provider(_)
             | RunEngineError::DaemonTurn(_)
             | RunEngineError::Agent(_)
@@ -361,8 +362,9 @@ impl ProviderChoiceResolver {
     /// reports the run in `reported`: called before that report is applied, so the answer's
     /// settlement and move are written first and the report, a move the run already made, is
     /// refused. A report that the run still waits on input keeps the answer held, and a run the
-    /// provider ended drops an answer that would have returned it to `running`. Answers whether it
-    /// wrote the settlement; fails as the settlement's write fails.
+    /// provider ended drops an answer that would have returned it to `running`. A driver's own
+    /// signal that the provider resolved the choice settles the held answer the same way. Answers
+    /// whether it wrote the settlement; fails as the settlement's write fails.
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn settle_held_answer(
         &self,
@@ -479,7 +481,11 @@ impl ProviderChoiceResolver {
                 .into())
             }
             Err(unanswered @ DriverError::Unanswered(_)) => {
-                lock_held(&self.held_answers).insert(run_id, answer);
+                // The first answer held stays held: the provider may have taken it, and its word
+                // settles whichever it took.
+                lock_held(&self.held_answers)
+                    .entry(run_id)
+                    .or_insert(answer);
                 Err(ProviderChoiceError::Driver(unanswered))
             }
             Err(failed) => Err(ProviderChoiceError::Driver(failed)),
@@ -529,7 +535,7 @@ impl ProviderChoiceResolver {
                 expected_row_count: Some(0),
             }],
             preceding_events: vec![SessionEventDraft::of_session(session_id, settlement)?],
-            leading_event: None,
+            ..RunStateChangeCompanions::default()
         };
         match self.engine.transition(change, companions).await {
             Ok(written) => Ok(run_control_response(run_id, &written)),
