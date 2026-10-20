@@ -7,4 +7,4 @@ pub(crate) mod runs;
 pub(crate) mod schema;
 pub(crate) mod secrets;
 #[cfg(test)]
-mod test_rows;
+pub(crate) mod test_rows;
