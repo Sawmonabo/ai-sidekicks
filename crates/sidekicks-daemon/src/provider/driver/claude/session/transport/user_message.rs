@@ -25,6 +25,17 @@ pub(crate) struct ClaudeUserFrame {
     /// When a running turn reads the message; absent, Claude Code's own order.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) priority: Option<ClaudeMessagePriority>,
+    /// Set only on text a person typed, so Claude Code counts it as the person's own message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin: Option<ClaudeMessageOrigin>,
+}
+
+/// Who wrote a user message, as Claude Code's input reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ClaudeMessageOrigin {
+    /// A person.
+    Human,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -138,6 +149,8 @@ pub(crate) fn compose_claude_user_frame(
         client_composed: (outbound_text.origin == OutboundTextOrigin::SystemNarration)
             .then_some(true),
         priority: None,
+        origin: (outbound_text.origin == OutboundTextOrigin::HumanText)
+            .then_some(ClaudeMessageOrigin::Human),
     }
 }
 

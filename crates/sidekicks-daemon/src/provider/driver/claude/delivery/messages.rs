@@ -160,6 +160,11 @@ impl ClaudeMessageFrame {
             .or_else(|| self.uuid.as_deref().filter(|uuid| !uuid.is_empty()))
     }
 
+    /// The frame's own `uuid`, where it carries one.
+    pub(crate) fn uuid(&self) -> Option<&str> {
+        self.uuid.as_deref().filter(|uuid| !uuid.is_empty())
+    }
+
     fn blocks(&self) -> &[ClaudeContentBlock] {
         self.message
             .as_ref()

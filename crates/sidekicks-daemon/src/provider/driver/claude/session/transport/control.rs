@@ -5,10 +5,13 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+
+use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 
 /// One control request, tagged on the wire by its `subtype`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(tag = "subtype", rename_all = "snake_case")]
 pub(crate) enum ClaudeControlRequest {
     /// Brings the process up with the daemon's hooks, the session's helpers and the dialogs the
@@ -33,6 +36,16 @@ pub(crate) enum ClaudeControlRequest {
             skip_serializing_if = "Option::is_none"
         )]
         per_task_stop_affordance: Option<bool>,
+        /// The tool servers the daemon hosts in-process, answered through `mcp_message`; absent on
+        /// a re-send.
+        #[serde(rename = "sdkMcpServers", skip_serializing_if = "Option::is_none")]
+        sdk_mcp_servers: Option<Vec<String>>,
+        /// Each in-process server's settings, by its name.
+        #[serde(
+            rename = "sdkMcpServerConfigs",
+            skip_serializing_if = "Option::is_none"
+        )]
+        sdk_mcp_server_configs: Option<BTreeMap<String, ClaudeSdkServerConfig>>,
     },
     /// Stops the running turn; with `cancel_queued` it also drops what is queued behind it.
     Interrupt {
@@ -58,7 +71,45 @@ pub(crate) enum ClaudeControlRequest {
     /// Installs the session's tool-server routes, replacing the set.
     McpSetServers {
         /// Each route by its server name.
-        servers: BTreeMap<String, ClaudeHttpServerEntry>,
+        servers: BTreeMap<String, ClaudeToolServerEntry>,
+    },
+    /// Delivers one MCP JSON-RPC message from a tool server the daemon hosts in-process.
+    McpMessage {
+        /// The server, as `initialize` or `mcp_set_servers` named it.
+        server_name: String,
+        /// The JSON-RPC message, relayed as the server wrote it.
+        message: Box<RawValue>,
+    },
+    /// Moves running foreground work (a command, a helper) to the background, answered by a
+    /// [`ClaudeBackgroundTasksReply`].
+    BackgroundTasks {
+        /// The one tool call whose work moves; absent, all of it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
+    },
+    /// Asks Claude Code for a session title, answered by a [`ClaudeSessionTitleReply`].
+    GenerateSessionTitle {
+        /// What the session is about.
+        description: String,
+        /// Whether Claude Code keeps the title as the session's own.
+        persist: bool,
+    },
+    /// Sets the session's title as the person chose it in the app.
+    RenameSession {
+        /// The title.
+        title: String,
+        /// Always `host`: the person renamed it here, which Claude Code counts as their rename.
+        source: ClaudeTitleSource,
+        /// The session the title is for, so a process that moved to another session refuses it.
+        session_id: String,
+    },
+    /// Asks a side question beside the conversation, which the conversation never shows.
+    SideQuestion {
+        /// The question.
+        question: String,
+        /// Earlier side questions and answers, relayed as messages; absent when there are none.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        history: Option<Vec<Box<RawValue>>>,
     },
     /// Reads the settings that took effect.
     GetSettings {},
@@ -104,6 +155,11 @@ impl ClaudeControlRequest {
             Self::GetContextUsage {} => ClaudeControlSubtype::GetContextUsage,
             Self::SetModel { .. } => ClaudeControlSubtype::SetModel,
             Self::GetBinaryVersion {} => ClaudeControlSubtype::GetBinaryVersion,
+            Self::McpMessage { .. } => ClaudeControlSubtype::McpMessage,
+            Self::BackgroundTasks { .. } => ClaudeControlSubtype::BackgroundTasks,
+            Self::GenerateSessionTitle { .. } => ClaudeControlSubtype::GenerateSessionTitle,
+            Self::RenameSession { .. } => ClaudeControlSubtype::RenameSession,
+            Self::SideQuestion { .. } => ClaudeControlSubtype::SideQuestion,
         }
     }
 }
@@ -135,6 +191,16 @@ pub(crate) enum ClaudeControlSubtype {
     SetModel,
     /// `get_binary_version`.
     GetBinaryVersion,
+    /// `mcp_message`.
+    McpMessage,
+    /// `background_tasks`.
+    BackgroundTasks,
+    /// `generate_session_title`.
+    GenerateSessionTitle,
+    /// `rename_session`.
+    RenameSession,
+    /// `side_question`.
+    SideQuestion,
 }
 
 impl ClaudeControlSubtype {
@@ -153,6 +219,11 @@ impl ClaudeControlSubtype {
             Self::GetContextUsage => "get_context_usage",
             Self::SetModel => "set_model",
             Self::GetBinaryVersion => "get_binary_version",
+            Self::McpMessage => "mcp_message",
+            Self::BackgroundTasks => "background_tasks",
+            Self::GenerateSessionTitle => "generate_session_title",
+            Self::RenameSession => "rename_session",
+            Self::SideQuestion => "side_question",
         }
     }
 }
@@ -217,16 +288,73 @@ pub(crate) struct ClaudeAgentDefinition {
     pub(crate) max_turns: Option<u64>,
 }
 
-/// A tool server `mcp_set_servers` installs: one route on the daemon's tool server.
+/// A tool server `mcp_set_servers` installs: a route on the daemon's tool server, or a server the
+/// daemon hosts in-process.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub(crate) enum ClaudeHttpServerEntry {
+pub(crate) enum ClaudeToolServerEntry {
     /// Reached over HTTP at `url`.
     Http {
         /// The route's address.
         url: String,
     },
+    /// Hosted in-process, its messages carried by `mcp_message`.
+    Sdk {
+        /// The server's name.
+        name: String,
+    },
 }
+
+/// An in-process tool server's settings, as `initialize` declares them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClaudeSdkServerConfig {
+    /// Whether Claude Code keeps a long call in the foreground instead of moving it to the
+    /// background on its own.
+    pub(crate) disable_auto_background: bool,
+}
+
+/// Who chose a session's title.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ClaudeTitleSource {
+    /// The person, in the app.
+    Host,
+}
+
+/// An `interrupt`'s receipt: the messages still queued behind the stopped turn, and, where the
+/// interrupt dropped them, the ones it dropped; read leniently, a member of another shape as none.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct ClaudeInterruptReceipt {
+    /// The messages that survive the interrupt, by uuid.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) still_queued: Option<LenientList<String>>,
+    /// The messages the interrupt dropped, by uuid; sent only for `cancel_queued`.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) cancelled: Option<LenientList<String>>,
+}
+
+/// A `background_tasks` answer: whether any work moved.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct ClaudeBackgroundTasksReply {
+    /// Whether work moved; absent from a build that does not say.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) backgrounded: Option<bool>,
+}
+
+/// A `generate_session_title` answer.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct ClaudeSessionTitleReply {
+    /// The title Claude Code wrote.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) title: Option<String>,
+}
+
+lenient_object!(
+    ClaudeInterruptReceipt,
+    ClaudeBackgroundTasksReply,
+    ClaudeSessionTitleReply,
+);
 
 /// Claude Code's permission modes, as `--permission-mode` and `set_permission_mode` take them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

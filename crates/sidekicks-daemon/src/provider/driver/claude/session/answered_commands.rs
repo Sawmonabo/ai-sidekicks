@@ -180,9 +180,12 @@ pub(crate) fn read_claude_command_choices(
 }
 
 /// What a session holds when its command choices could not be read, with the reason given.
-#[expect(
-    dead_code,
-    reason = "the Claude driver holds it for a session whose creation-time read failed"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver holds it for a session whose creation-time read failed"
+    )
 )]
 pub(crate) fn unreadable_claude_command_choices(detail: &str) -> ClaudeCommandChoices {
     ClaudeCommandChoices {

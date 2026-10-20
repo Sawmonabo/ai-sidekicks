@@ -286,7 +286,12 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::GetSettings
         | ClaudeControlSubtype::GetContextUsage
         | ClaudeControlSubtype::SetModel
-        | ClaudeControlSubtype::GetBinaryVersion => None,
+        | ClaudeControlSubtype::GetBinaryVersion
+        | ClaudeControlSubtype::McpMessage
+        | ClaudeControlSubtype::BackgroundTasks
+        | ClaudeControlSubtype::GenerateSessionTitle
+        | ClaudeControlSubtype::RenameSession
+        | ClaudeControlSubtype::SideQuestion => None,
     }
 }
 

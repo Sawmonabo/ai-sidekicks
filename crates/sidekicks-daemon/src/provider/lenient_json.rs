@@ -163,6 +163,7 @@ impl Lenient for bool {
 
 /// A JSON array read leniently: the elements that read as `T`, every other element skipped; any
 /// value that is no array reads as absent.
+#[derive(Debug)]
 pub(crate) struct LenientList<T>(pub(crate) Vec<T>);
 
 impl<'de, T: Lenient> Visitor<'de> for LenientVisitor<LenientList<T>> {

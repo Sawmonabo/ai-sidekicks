@@ -4,7 +4,7 @@
 //! at any depth reads; a request is read by its `subtype` first, then by that subtype's own struct.
 //! A frame nothing can take is recorded, since its sender waits on an answer that never comes.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -16,8 +16,8 @@ use crate::provider::driver::diagnostics::{
 use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 
 // The request subtypes Claude Code sends that the daemon knowingly leaves pending: an MCP
-// elicitation, and a message for a tool server of the SDK's own, which the daemon declares none of.
-const PENDING_REQUEST_SUBTYPES: &[&str] = &["elicitation", "mcp_message"];
+// elicitation.
+const PENDING_REQUEST_SUBTYPES: &[&str] = &["elicitation"];
 
 /// What arrives on a process's request stream: a request, or Claude Code withdrawing one. It
 /// crosses from the process's reader to the session's task by value, the reader never waiting.
@@ -50,6 +50,9 @@ pub(crate) enum ClaudeInboundRequestBody {
     HookCallback(ClaudeHookCallback),
     /// A choice Claude Code asks the person.
     RequestUserDialog(ClaudeUserDialog),
+    /// A message for a tool server the daemon hosts in-process, answered with a
+    /// [`ClaudeMcpMessageAnswer`].
+    McpMessage(ClaudeMcpMessage),
     /// A request the daemon does not answer, which stays pending at the provider.
     Unrouted {
         /// Its subtype, as sent.
@@ -112,6 +115,24 @@ pub(crate) struct ClaudeUserDialog {
     /// The tool call the choice is about, where it is about one.
     #[serde(default, deserialize_with = "read_lenient")]
     pub(crate) tool_use_id: Option<String>,
+}
+
+/// The members of an `mcp_message` request.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ClaudeMcpMessage {
+    /// The server, as `initialize` or `mcp_set_servers` named it.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) server_name: Option<String>,
+    /// The JSON-RPC message for it, relayed as sent.
+    #[serde(default)]
+    pub(crate) message: Option<Box<RawValue>>,
+}
+
+/// The success an `mcp_message` request is answered with: the server's JSON-RPC reply.
+#[derive(Debug, Serialize)]
+pub(crate) struct ClaudeMcpMessageAnswer {
+    /// The reply, relayed as the server wrote it.
+    pub(crate) mcp_response: Box<RawValue>,
 }
 
 /// One answer Claude Code sent to a control request of the daemon's.
@@ -195,6 +216,7 @@ lenient_object!(
     ClaudeToolUseAsk,
     ClaudeHookCallback,
     ClaudeUserDialog,
+    ClaudeMcpMessage,
     ControlRequestFrame,
     RequestSubtype,
     ControlCancelFrame,
@@ -251,6 +273,7 @@ impl ClaudeControlFrameReader {
             "request_user_dialog" => {
                 read_body(&request, ClaudeInboundRequestBody::RequestUserDialog)
             }
+            "mcp_message" => read_body(&request, ClaudeInboundRequestBody::McpMessage),
             known if PENDING_REQUEST_SUBTYPES.contains(&known) => None,
             unknown => {
                 self.once_reported.report(&self.record(
