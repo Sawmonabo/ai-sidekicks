@@ -182,8 +182,10 @@ interface ApprovalReviewerDeniedPayload {
   runId: RunId;
   agentId: AgentId;
   denialId: DenialId;
-  // The event of the blocked call, whose row carries the reason line and the button.
-  eventId: string;
+  // The event of the blocked call, whose row carries the reason line and the button. Absent on a
+  // block that names no call — Codex's review of a network request — which is a row of its own,
+  // recorded as it arrives, its reason `network access to <target> · <Codex's rationale>`.
+  eventId?: string;
   // The reviewer's reason in the provider's own words: Claude Code's denial reason, such as
   // `[Data Exfiltration]`; Codex's review rationale. Absent where the reviewer gave none, and the
   // row then reads `Blocked` alone.
@@ -360,10 +362,13 @@ interface ApprovalDenialOverrideRequest {
 // The settled override. A press on a block already allowed, from this screen or another, returns
 // the same answer with the instant the first press landed and sends the provider nothing. A block
 // that is not overridable is refused with `approval.denial.notOverridable`, a `denialId` the daemon
-// holds no block for with `approval.denial.notFound`, and a press after the block's session has
-// ended with `session.alreadyClosed` (error-contracts.md §Approval, §Session).
+// holds no block for with `approval.denial.notFound`, a press after the block's session has ended
+// with `session.alreadyClosed`, and a block whose provider no driver answers with
+// `provider.notFound`; a press whose request got no answer back is refused with `provider.timeout`
+// or `provider.unavailable`, and a second press answers the same refusal and sends nothing until
+// the provider process the request went to has ended (error-contracts.md §Approval, §Session,
+// §Provider).
 interface ApprovalDenialOverrideResponse {
-  sessionId: SessionId;
   denialId: DenialId;
   overriddenAt: string;
 }
