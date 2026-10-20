@@ -2,7 +2,7 @@
 //! driver is a stand-in, the blocks taken through the port and pressed through `Allow once`.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -291,6 +291,11 @@ impl Fixture {
     }
 }
 
+/// The binding `bind_run_to_first_provider` writes, as its id.
+fn first_binding() -> RuntimeBindingId {
+    RuntimeBindingId::new(FIRST_BINDING.to_owned()).expect("a binding id")
+}
+
 /// A driver whose override answers each call with the next of `answers`, counting its calls.
 fn driver_answering(
     calls: &Arc<AtomicUsize>,
@@ -340,6 +345,31 @@ async fn blocks_that_came_before_their_row_are_each_recorded_on_it() {
     assert_eq!(fixture.recorded_rows(), vec![row.clone(), row]);
 }
 
+// A row committed while the block's read still runs, after the read found none, wakes the block,
+// which is recorded on it. Killed by arming the wait after the read.
+#[tokio::test]
+async fn a_row_committed_while_the_block_reads_carries_it() {
+    let fixture = Fixture::new(MockProviderDriver::new(), MockProviderDriver::new()).await;
+    let pause = fixture.denials.row_query_pause.arm();
+    let denials = Arc::clone(&fixture.denials);
+    let block = fixture.block(fixture.run_id, "call-1");
+    let taken = tokio::spawn(async move { denials.take(block).await });
+    tokio::time::timeout(ANSWER_WAIT, pause.reached)
+        .await
+        .expect("the read finds no row")
+        .expect("the read is held on the pool's thread");
+
+    let row = fixture.open_call(fixture.run_id, "call-1").await;
+    pause.release.send(()).expect("the read is held");
+
+    tokio::time::timeout(ANSWER_WAIT, taken)
+        .await
+        .expect("the block is answered")
+        .expect("the block's task ends")
+        .expect("the block is recorded");
+    assert_eq!(fixture.recorded_rows(), vec![row]);
+}
+
 /// When the block's run ends with no row for it.
 #[derive(Clone, Copy, Debug)]
 enum RunEnd {
@@ -387,8 +417,8 @@ async fn a_block_whose_run_ends_without_its_row_is_refused(#[case] run_end: RunE
 }
 
 // The daemon's stop refuses a waiting block, and a block taken after it is refused rather than
-// left waiting; nothing is recorded. Killed by a stop that drops the waiters unsettled, and by an
-// intake that does not read the stop.
+// left waiting or recorded, whether or not it names a call; nothing is recorded. Killed by a stop
+// that drops the waiters unsettled, and by either intake not reading the stop.
 #[tokio::test]
 async fn the_stop_refuses_every_block_waiting_or_later() {
     let mut fixture = Fixture::new(MockProviderDriver::new(), MockProviderDriver::new()).await;
@@ -410,6 +440,10 @@ async fn the_stop_refuses_every_block_waiting_or_later() {
     assert!(matches!(waited, Err(ReviewerDenialError::Stopped)));
     let later = fixture.take(fixture.block(fixture.run_id, "call-2")).await;
     assert!(matches!(later, Err(ReviewerDenialError::Stopped)));
+    let mut call_less = fixture.block(fixture.run_id, "unused");
+    call_less.tool_call_id = None;
+    let later_call_less = fixture.take(call_less).await;
+    assert!(matches!(later_call_less, Err(ReviewerDenialError::Stopped)));
     assert_eq!(fixture.recorded_rows(), Vec::<String>::new());
 }
 
@@ -584,18 +618,24 @@ enum FirstAnswer {
     Refused,
     /// No answer came; the press is held until the process it went to ends.
     Unanswered,
+    /// No answer came because the process it went to ended first; the next press sends again.
+    UnansweredAfterItsProcessEnded,
 }
 
 // A refused press records nothing and the next one sends again; an unanswered one answers its
-// refusal again and sends nothing until the process it went to has ended, and the press after that
-// sends and is recorded. Killed by recording on a refusal, by a held press that sends again, and
-// by a hold the process's end does not release.
+// refusal again and sends nothing until the process it went to has ended, however the release and
+// the answer are ordered, and the press after that sends and is recorded. Killed by recording on a
+// refusal, by a held press that sends again, by a hold the process's end does not release, by a
+// release that reaches another binding's hold, and by a hold written after an earlier release.
 #[rstest]
 #[case::refused(FirstAnswer::Refused)]
 #[case::unanswered(FirstAnswer::Unanswered)]
+#[case::unanswered_after_its_process_ended(FirstAnswer::UnansweredAfterItsProcessEnded)]
 #[tokio::test]
 async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAnswer) {
     let calls = Arc::new(AtomicUsize::new(0));
+    let service: Arc<OnceLock<Weak<ReviewerDenials>>> = Arc::default();
+    let ended_process = Arc::clone(&service);
     let fixture = Fixture::new(
         driver_answering(&calls, move |call| match (call, first) {
             (0, FirstAnswer::Refused) => Err(DriverError::Refused(DomainError::new(
@@ -603,11 +643,23 @@ async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAns
                 RefusalCode::ProviderUnavailable,
             ))),
             (0, FirstAnswer::Unanswered) => Err(unanswered()),
+            (0, FirstAnswer::UnansweredAfterItsProcessEnded) => {
+                // The process's exit is reported before its pending request fails.
+                ended_process
+                    .get()
+                    .and_then(Weak::upgrade)
+                    .expect("the service is running")
+                    .release_held_presses(&first_binding());
+                Err(unanswered())
+            }
             _ => Ok(()),
         }),
         MockProviderDriver::new(),
     )
     .await;
+    service
+        .set(Arc::downgrade(&fixture.denials))
+        .expect("the service is set once");
     let denial_id = fixture.recorded_block().await;
 
     let refused = fixture.press(denial_id).await.expect_err("the press fails");
@@ -617,15 +669,19 @@ async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAns
         }
         FirstAnswer::Unanswered => {
             assert_eq!(refusal_code(refused), Some(RefusalCode::ProviderTimeout));
+            fixture.denials.release_held_presses(
+                &RuntimeBindingId::new("another-binding".to_owned()).expect("a binding id"),
+            );
             let held = fixture
                 .press(denial_id)
                 .await
                 .expect_err("the press is held");
             assert_eq!(refusal_code(held), Some(RefusalCode::ProviderTimeout));
             assert_eq!(calls.load(Ordering::SeqCst), 1);
-            fixture.denials.release_held_presses(
-                &RuntimeBindingId::new(FIRST_BINDING.to_owned()).expect("an id"),
-            );
+            fixture.denials.release_held_presses(&first_binding());
+        }
+        FirstAnswer::UnansweredAfterItsProcessEnded => {
+            assert_eq!(refusal_code(refused), Some(RefusalCode::ProviderTimeout));
         }
     }
     assert_eq!(fixture.overrides(), Vec::<String>::new());
@@ -640,8 +696,9 @@ async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAns
 }
 
 // A press the provider took whose record failed is recorded by the next press at the first press's
-// instant, and the provider is not told again. Killed by a failed record that holds nothing, and
-// by an instant taken at the second press.
+// instant, and the provider is not told again, even once its process has ended. Killed by a failed
+// record that holds nothing, by a process's end that drops it, and by an instant taken at the
+// second press.
 #[tokio::test]
 async fn a_taken_press_whose_record_failed_is_recorded_by_the_next() {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -672,6 +729,7 @@ async fn a_taken_press_whose_record_failed_is_recorded_by_the_next() {
         .execute("DROP TRIGGER refuse_override", [])
         .expect("the test lets overrides through");
     tokio::time::sleep(Duration::from_millis(5)).await;
+    fixture.denials.release_held_presses(&first_binding());
 
     let allowed = fixture
         .press(denial_id)

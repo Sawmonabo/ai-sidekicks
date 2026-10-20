@@ -9,8 +9,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 /// One action the provider's reviewer blocked: the tool call it blocked (absent for an action that
-/// is no call, such as a network request), the reviewer's reason (absent where it gave none), whether the provider lets it be allowed once, and the provider's own record of the
-/// block, kept verbatim so `override_denial` hands it back unchanged.
+/// is no call, such as a network request), the reviewer's reason (absent where it gave none),
+/// whether the provider lets it be allowed once, and the provider's own record of the block, kept
+/// verbatim so `override_denial` hands it back unchanged.
 #[derive(Debug)]
 pub(crate) struct ProviderReviewerDenial {
     /// The session.

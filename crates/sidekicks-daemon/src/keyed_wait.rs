@@ -105,6 +105,13 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
     }
 
     /// How many waits are armed on `key`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the drivers' compaction arms the wait and reads it"
+        )
+    )]
     pub(crate) fn pending_count_for<Lookup>(&self, key: &Lookup) -> usize
     where
         Key: Borrow<Lookup>,

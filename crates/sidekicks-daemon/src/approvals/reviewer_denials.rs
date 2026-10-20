@@ -24,12 +24,14 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::approval::events::ApprovalDenialOverriddenPayload;
+use sidekicks_contracts::approval::events::{
+    ApprovalDenialOverriddenPayload, ApprovalReviewerDeniedPayload,
+};
 use sidekicks_contracts::approval::{
     ApprovalDenialOverrideRequest, ApprovalDenialOverrideResponse, ReviewerDenialId,
 };
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::event::session::{ApprovalReviewerDeniedEventPayload, SessionEvent};
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -156,9 +158,12 @@ enum BlockedCallRead {
     Waiting { agent_id: AgentId },
 }
 
-/// A press held after its first send: the provider got the override with no answer back, or took
-/// it and its record failed.
+/// A press held after its first send: the request is in flight, the provider got the override with
+/// no answer back, or it took it and its record failed.
 enum HeldPress {
+    /// The binding whose process the request in flight went to; a release that lands before the
+    /// answer drops it, so an unanswered request to an ended process holds nothing.
+    Pending { binding_id: RuntimeBindingId },
     /// The refusal the press answered and the binding whose process the request went to.
     Unanswered {
         refusal: DomainError,
@@ -288,8 +293,12 @@ pub(crate) struct ReviewerDenials {
     is_stopped: AtomicBool,
     /// Orders the presses on one block, so two at once hand it to the provider once.
     presses: KeyedLock<ReviewerDenialId>,
-    /// The presses held after their first send; changed only under the block's press hold.
+    /// The presses held after their first send, changed under the map's lock: a press writes its
+    /// pending mark before the driver call and keeps it only if no release dropped it meanwhile.
     held_presses: Mutex<HashMap<ReviewerDenialId, HeldPress>>,
+    // Where a test holds a block's read on the pool's thread once it found no row.
+    #[cfg(test)]
+    row_query_pause: Arc<PausePoint>,
     // Where a test holds a block once its read found no row, before it waits for one.
     #[cfg(test)]
     row_read_pause: PausePoint,
@@ -297,7 +306,7 @@ pub(crate) struct ReviewerDenials {
 
 impl ReviewerDenials {
     /// The blocks read through `reads`, recorded through `events`, and allowed once through the
-    /// drivers `providers` registered; no block waits for its row until
+    /// drivers `providers` registered; nothing wakes a waiting block until
     /// [`ReviewerDenials::start`].
     #[cfg_attr(
         not(test),
@@ -319,6 +328,8 @@ impl ReviewerDenials {
             is_stopped: AtomicBool::new(false),
             presses: KeyedLock::new(),
             held_presses: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            row_query_pause: Arc::default(),
             #[cfg(test)]
             row_read_pause: PausePoint::default(),
         }
@@ -356,7 +367,7 @@ impl ReviewerDenials {
     }
 
     /// The process behind `binding_id` has ended, so nothing can still take an override sent to
-    /// it: a press held on one sends again.
+    /// it: a press held on one, or still waiting on its answer, sends again.
     #[cfg_attr(
         not(test),
         expect(
@@ -366,7 +377,10 @@ impl ReviewerDenials {
     )]
     pub(crate) fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
         lock_held(&self.held_presses).retain(|_, held| match held {
-            HeldPress::Unanswered {
+            HeldPress::Pending {
+                binding_id: sent_to,
+            }
+            | HeldPress::Unanswered {
                 binding_id: sent_to,
                 ..
             } => sent_to != binding_id,
@@ -375,7 +389,8 @@ impl ReviewerDenials {
     }
 
     /// Records `denial` on the blocked call's own row, waiting for that row when the block came
-    /// first; a block that names no call is recorded at once, as a row of its own. Fails with [`ReviewerDenialError::NoRow`] when the run ends with no row for it, with
+    /// first; a block that names no call is recorded at once, as a row of its own. Fails with
+    /// [`ReviewerDenialError::NoRow`] when the run ends with no row for it, with
     /// [`ReviewerDenialError::Stopped`] once the daemon stops, and as the reads and the append do.
     #[cfg_attr(
         not(test),
@@ -384,6 +399,9 @@ impl ReviewerDenials {
     async fn take(&self, denial: ProviderReviewerDenial) -> Result<(), ReviewerDenialError> {
         let (session_id, run_id) = (denial.session_id, denial.run_id);
         let Some(tool_call_id) = denial.tool_call_id.clone() else {
+            if self.is_stopped.load(Ordering::SeqCst) {
+                return Err(ReviewerDenialError::Stopped);
+            }
             // A block that names no call is a row of its own, recorded as it arrives.
             let agent_id = self
                 .reads
@@ -405,10 +423,17 @@ impl ReviewerDenials {
         if self.is_stopped.load(Ordering::SeqCst) {
             return Err(ReviewerDenialError::Stopped);
         }
+        #[cfg(test)]
+        let row_query_pause = Arc::clone(&self.row_query_pause);
         let read = self
             .reads
             .read(ReadLength::Short, move |reader| {
-                read_blocked_call(reader, &blocked_call)
+                let read = read_blocked_call(reader, &blocked_call);
+                #[cfg(test)]
+                if matches!(read, Ok(BlockedCallRead::Waiting { .. })) {
+                    row_query_pause.pass_blocking();
+                }
+                read
             })
             .await?;
         let (event_id, agent_id) = match read {
@@ -449,7 +474,7 @@ impl ReviewerDenials {
             ]),
             expected_row_count: Some(1),
         };
-        let payload = ApprovalReviewerDeniedEventPayload {
+        let payload = ApprovalReviewerDeniedPayload {
             session_id: denial.session_id,
             run_id: denial.run_id,
             agent_id,
@@ -458,8 +483,6 @@ impl ReviewerDenials {
                 .map(|event_id| NonEmptyText::new(event_id).expect("an event id is a minted UUID")),
             reason: denial.reason.and_then(NonEmptyText::new),
             overridable: denial.is_overridable,
-            content_length: None,
-            content_truncated: None,
         };
         self.events
             .append(
@@ -521,7 +544,9 @@ impl ReviewerDenials {
         let held = match lock_held(&self.held_presses).get(&denial_id) {
             Some(HeldPress::Unanswered { refusal, .. }) => Some(Err(copy_of_refusal(refusal))),
             Some(HeldPress::Answered { overridden_at }) => Some(Ok(overridden_at.clone())),
-            None => None,
+            // Presses on one block run in turn, so a pending mark met here is from a press dropped
+            // mid-send, which holds nothing.
+            None | Some(HeldPress::Pending { .. }) => None,
         };
         match held {
             Some(Err(refusal)) => return Err(refusal.into()),
@@ -540,6 +565,13 @@ impl ReviewerDenials {
         let driver = self.providers.lookup(&run_provider.provider)?;
         let provider_denial = RawValue::from_string(denial.provider_denial)
             .map_err(DenialOverrideError::StoredDenial)?;
+        // Written before the send, so a release that lands before the answer drops it.
+        lock_held(&self.held_presses).insert(
+            denial_id,
+            HeldPress::Pending {
+                binding_id: run_provider.binding_id,
+            },
+        );
         let sent = driver
             .override_denial(OverrideDenialParams {
                 session_id,
@@ -554,17 +586,22 @@ impl ReviewerDenials {
             }
             Err(DriverError::Unanswered(RequestUnanswered { refusal })) => {
                 // The provider may have taken it, so nothing is sent again while its process
-                // lives.
-                lock_held(&self.held_presses).insert(
-                    denial_id,
-                    HeldPress::Unanswered {
+                // lives; a process that already ended dropped the pending mark.
+                let mut held_presses = lock_held(&self.held_presses);
+                if let Some(held) = held_presses.get_mut(&denial_id)
+                    && let HeldPress::Pending { binding_id } = held
+                {
+                    *held = HeldPress::Unanswered {
                         refusal: copy_of_refusal(&refusal),
-                        binding_id: run_provider.binding_id,
-                    },
-                );
+                        binding_id: binding_id.clone(),
+                    };
+                }
                 Err(refusal.into())
             }
-            Err(failed) => Err(DenialOverrideError::Driver(failed)),
+            Err(failed) => {
+                lock_held(&self.held_presses).remove(&denial_id);
+                Err(DenialOverrideError::Driver(failed))
+            }
         }
     }
 
