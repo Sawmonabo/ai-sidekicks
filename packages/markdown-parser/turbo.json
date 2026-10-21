@@ -2,28 +2,22 @@
   "$schema": "../../node_modules/turbo/schema.json",
   "extends": ["//"],
   "tasks": {
-    // The build downloads Sätteri's released source, checks it against the hash the script pins,
-    // applies the patch, compiles the parser to WebAssembly with the Rust the source pins, and lays
-    // out `dist/` through the repository's `tools/wasm-dist.ts`. The script names the release and
-    // its hash, so the patch, the script and that tool decide the output. The prepared source is
-    // an output too, so a cache hit leaves it for the `test` task, which runs Cargo there. The cache
-    // is not keyed by platform: every runner builds the same WebAssembly target, and no two builds
-    // are byte-identical anyway, as napi writes a random build id into each, so runners share one
-    // entry.
+    // The build downloads Sätteri's source with our fix, checks it against the hash the script
+    // pins, compiles the parser to WebAssembly with the Rust the source pins, and lays out `dist/`
+    // through the repository's `tools/wasm-dist.ts`. The script names the source's commit and its
+    // hash, so the script and that tool decide the output. The unpacked source is an output too, so
+    // a cache hit leaves it for the `test` task, which runs Cargo there. The cache is not keyed by
+    // platform: every runner builds the same WebAssembly target, and no two builds are
+    // byte-identical anyway, as napi writes a random build id into each, so runners share one entry.
     "build": {
-      "inputs": [
-        "$TURBO_EXTENDS$",
-        "build.ts",
-        "indented-code-block.patch",
-        "$TURBO_ROOT$/tools/wasm-dist.ts"
-      ],
+      "inputs": ["$TURBO_EXTENDS$", "build.ts", "$TURBO_ROOT$/tools/wasm-dist.ts"],
       "outputs": ["dist/**", "satteri/**"],
       // Cargo's job limit, its incremental setting (CI turns it off) and the toolchain's folders,
       // which Turborepo's strict environment mode would otherwise withhold.
       "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
     },
-    // The patched parser crate's own tests, the patch's among them, run by Cargo in the prepared
-    // source, so with the Rust the source pins.
+    // The parser crate's own tests, the fix's among them, run by Cargo in the unpacked source, so
+    // with the Rust the source pins.
     "test": {
       "dependsOn": ["build"],
       "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]

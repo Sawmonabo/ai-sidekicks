@@ -761,6 +761,9 @@ methods! {
                 ApprovalDenialNotOverridable,
                 SessionAlreadyClosed,
                 SessionChangeRefused,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
             ],
         },
     ];

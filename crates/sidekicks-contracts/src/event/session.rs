@@ -12,8 +12,8 @@ use crate::agent::provider_binding::{
 };
 use crate::approval::events::{
     ApprovalCanceledPayload, ApprovalDenialOverriddenPayload, ApprovalRequestedPayload,
-    ApprovalResolvedPayload, ApprovalRuleRememberedPayload, ApprovalRuleRevokedPayload,
-    approval_reviewer_denied_payload,
+    ApprovalResolvedPayload, ApprovalReviewerDeniedPayload, ApprovalRuleRememberedPayload,
+    ApprovalRuleRevokedPayload,
 };
 use crate::artifacts::publication::ArtifactPublicationPayload;
 use crate::cloud::CloudTaskUpdatedPayload;
@@ -107,15 +107,6 @@ use crate::worktree::events::{
     WorktreeRetiredPayload,
 };
 use crate::worktree::lifecycle::WorktreeLifecyclePayload;
-
-approval_reviewer_denied_payload! {
-    described
-    /// The `approval.reviewer.denied` payload as the session event carries it: the reviewer's
-    /// block, with the stored denial body's length and cut mark, which the append path owns.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct ApprovalReviewerDeniedEventPayload
-}
 
 /// The run an event belongs to: its payload's `runId`, with its `runVersion` and `turnNumber`
 /// where it carries them.
@@ -410,9 +401,8 @@ session_events! {
     ApprovalRequested(ApprovalRequestedPayload) = "approval.requested" => required,
     /// Emitted when an approval request is granted, and by whom.
     ApprovalApproved(ApprovalResolvedPayload) = "approval.approved" => required,
-    /// Emitted when the provider's own reviewer blocks an action; its denial is the row's body,
-    /// kept apart from the payload.
-    ApprovalReviewerDenied(ApprovalReviewerDeniedEventPayload) = "approval.reviewer.denied"
+    /// Emitted when the provider's own reviewer blocks an action.
+    ApprovalReviewerDenied(ApprovalReviewerDeniedPayload) = "approval.reviewer.denied"
         => required,
     /// Emitted when the person allows a blocked action once.
     ApprovalDenialOverridden(ApprovalDenialOverriddenPayload) = "approval.denial.overridden",
@@ -718,10 +708,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "event/session",
     doc: "The strict session event: an envelope's `type` and `payload`, the payload parsed by the \
           schema its type registers. The envelope is read tolerant and the event strict.",
-    definitions: &[
-        Definition::read::<ApprovalReviewerDeniedEventPayload>(),
-        Definition::read::<SessionEvent>().checked(),
-    ],
+    definitions: &[Definition::read::<SessionEvent>().checked()],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
