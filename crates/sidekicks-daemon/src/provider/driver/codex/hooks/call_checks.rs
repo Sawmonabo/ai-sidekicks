@@ -24,6 +24,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::resolve_path_against;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::policy::background_work::refuse_background_work;
@@ -93,6 +94,8 @@ pub(crate) struct CodexCallChecksDependencies {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// The run each call belongs to, and its limits.
     pub(crate) runs: Arc<dyn CodexCallRuns>,
+    /// The driver's tasks, which its shutdown waits for; a held call's card is taken back on one.
+    pub(crate) tasks: TaskTracker,
 }
 
 /// A call held for its card.
@@ -367,7 +370,7 @@ impl CodexHookAnswerer for CodexCallChecks {
 }
 
 /// A held call's card, taken back when the call stops waiting before its answer: the dispatch
-/// drops a cancelled call's answer, and this hold with it.
+/// drops a canceled call's answer, and this hold with it.
 struct HeldCallWithdrawal<'checks> {
     checks: &'checks CodexCallChecks,
     asks: Arc<dyn PermissionAskPort>,
@@ -386,7 +389,7 @@ impl Drop for HeldCallWithdrawal<'_> {
             session_id: self.session_id,
             request_id: std::mem::take(&mut self.request_id),
         };
-        tokio::spawn(async move {
+        self.checks.dependencies.tasks.spawn(async move {
             if let Err(error) = asks.withdraw_ask(withdrawal).await {
                 tracing::warn!(
                     error = &*error as &(dyn std::error::Error + 'static),
@@ -451,6 +454,7 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use tokio::sync::Notify;
     use tokio_util::sync::CancellationToken;
+    use tokio_util::task::TaskTracker;
 
     use super::{CodexCallChecks, CodexCallChecksDependencies, CodexCallRuns, CodexHookCallRun};
     use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -562,7 +566,7 @@ mod tests {
     }
 
     // Killed by answering a revoked subject's call without holding it, by settling it without the
-    // card's answer, and by a cancelled call leaving its card raised.
+    // card's answer, and by a canceled call leaving its card raised.
     #[tokio::test(start_paused = true)]
     async fn a_call_on_a_revoked_subject_is_held_until_its_card_is_answered() {
         let session_id =
@@ -580,6 +584,7 @@ mod tests {
             session_rules,
             shell_lines: Arc::new(ShellLineReadingBound::new(4096)),
             runs: Arc::new(OneRun(CodexHookCallRun { session_id, run_id })),
+            tasks: TaskTracker::new(),
         }));
         let dispatch = Arc::new(CodexHookDispatch::new(vec![checks.clone()]));
         let answer = |call_id: &'static str, token: CancellationToken| {

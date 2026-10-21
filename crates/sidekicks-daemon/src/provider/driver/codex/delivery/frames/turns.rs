@@ -89,7 +89,7 @@ impl CodexFrameDelivery {
             record.add_active_turn(turn_id.clone(), starting_run_id);
             self.dependencies
                 .run_routes
-                .bind_run(starting_run_id, record.session_id, &turn_id);
+                .bind_run(starting_run_id, record.session_id);
         }
         let Some(turn_run) = self.turn_run_for(record, &turn_id) else {
             report_unattributed("turn/started", Some(&turn_id));
@@ -377,6 +377,7 @@ impl CodexFrameDelivery {
             for forgotten in connection.forget_held_requests_of_turn(thread_id, turn_id) {
                 self.dependencies.effects.withdraw_ask(
                     record.session_id,
+                    record.provider_account_id.as_ref(),
                     &forgotten.request_id,
                     forgotten.ask_kind,
                 );
@@ -405,9 +406,12 @@ impl CodexFrameDelivery {
             .ok()
             .and_then(|connection| connection.forget_held_request(&request_id));
         if let Some(ask_kind) = ask_kind {
-            self.dependencies
-                .effects
-                .withdraw_ask(record.session_id, &request_id, ask_kind);
+            self.dependencies.effects.withdraw_ask(
+                record.session_id,
+                record.provider_account_id.as_ref(),
+                &request_id,
+                ask_kind,
+            );
         }
         Some(request_id)
     }

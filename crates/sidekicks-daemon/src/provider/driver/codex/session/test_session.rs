@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -643,7 +644,14 @@ impl crate::provider::port::run_state_publisher::RunStatePublisher for UnreadRun
 struct NoEffects;
 
 impl CodexFrameEffects for NoEffects {
-    fn withdraw_ask(&self, _session_id: SessionId, _request_id: &str, _ask_kind: CodexAskKind) {}
+    fn withdraw_ask(
+        &self,
+        _session_id: SessionId,
+        _provider_account_id: Option<&ProviderAccountId>,
+        _request_id: &str,
+        _ask_kind: CodexAskKind,
+    ) {
+    }
 
     fn forget_turn_corrections(&self, _session_id: SessionId, _turn_id: &str) {}
 

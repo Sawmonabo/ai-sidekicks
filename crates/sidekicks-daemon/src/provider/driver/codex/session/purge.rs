@@ -6,9 +6,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use serde::Serialize;
-
 use crate::error_description::describe_error;
+use crate::provider::driver::codex::app_server_protocol::ThreadDeleteParams;
 use crate::provider::driver::codex::service::home::CodexHomeKind;
 use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
 use crate::provider::driver::codex::session::helper_roles::remove_codex_helper_roles;
@@ -17,13 +16,6 @@ use crate::provider::driver::session_control::{PurgeSessionParams, PurgedConvers
 
 /// Codex's request that deletes a stored conversation.
 const CODEX_THREAD_DELETE_METHOD: &str = "thread/delete";
-
-/// The `thread/delete` params.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ThreadDeleteParams<'thread> {
-    thread_id: &'thread str,
-}
 
 /// Every step of a purge that failed, each tried before the purge answered, so one refusal leaves
 /// nothing else behind.
@@ -85,7 +77,7 @@ async fn delete_conversation(
         .request(
             CODEX_THREAD_DELETE_METHOD,
             &ThreadDeleteParams {
-                thread_id: &conversation.resume_handle,
+                thread_id: conversation.resume_handle.clone(),
             },
         )
         .await?;

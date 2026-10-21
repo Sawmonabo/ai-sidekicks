@@ -16,6 +16,7 @@ use sidekicks_contracts::session::controls::methods::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use tokio_util::task::TaskTracker;
 
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::app_server_protocol::AskForApproval;
@@ -116,19 +117,22 @@ struct CopyTurnError {
 pub(crate) struct CodexSideQuestions {
     /// Where an answer is delivered.
     dispatch: Arc<RunInboundDispatch>,
+    /// The driver's tasks, which its shutdown waits for; each answer is delivered on one.
+    tasks: TaskTracker,
     /// Never held across an await.
     questions: Mutex<HashMap<String, CodexSideQuestion>>,
 }
 
 impl CodexSideQuestions {
-    /// The side questions, delivering each answer through `dispatch`.
+    /// The side questions, delivering each answer through `dispatch` as a task of `tasks`.
     #[expect(
         dead_code,
         reason = "the Codex driver builds the side questions its sessions share"
     )]
-    pub(crate) fn new(dispatch: Arc<RunInboundDispatch>) -> Self {
+    pub(crate) fn new(dispatch: Arc<RunInboundDispatch>, tasks: TaskTracker) -> Self {
         Self {
             dispatch,
+            tasks,
             questions: Mutex::new(HashMap::new()),
         }
     }
@@ -240,7 +244,7 @@ impl CodexSideQuestions {
                     .expect("the question was found under this lock");
                 let turn =
                     read_codex_object::<CopyFrame>(params.get()).and_then(|frame| frame.turn);
-                tokio::spawn(finish(
+                self.tasks.spawn(finish(
                     Arc::clone(&self.dispatch),
                     thread_id,
                     question,
@@ -313,7 +317,7 @@ async fn start_turn(
 }
 
 // Delivers the copy's answer when its turn completed with one, else reports why none came, then
-// lets the copy go.
+// lets the copy go. A NUL the answer holds is dropped, since the row's text carries none.
 async fn finish(
     dispatch: Arc<RunInboundDispatch>,
     thread_id: String,
@@ -322,7 +326,7 @@ async fn finish(
 ) {
     let answer = question
         .answer
-        .and_then(|answer| FreeFormText::new(answer).ok());
+        .and_then(|answer| FreeFormText::new(answer.replace('\0', "")).ok());
     let is_completed = turn
         .as_ref()
         .is_some_and(|turn| turn.status.as_deref() == Some(CODEX_COMPLETED_TURN_STATUS));

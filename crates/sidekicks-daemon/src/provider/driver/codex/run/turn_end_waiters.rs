@@ -198,10 +198,19 @@ impl CodexTurnEndDeadline {
         if let Ok(answer) = answered.try_recv() {
             return answer;
         }
-        let at = *self.at.get_or_init(|| Instant::now() + self.timeout);
-        match tokio::time::timeout_at(at, answered).await {
+        match tokio::time::timeout_at(self.at(), answered).await {
             Ok(Ok(answer)) => answer,
             Ok(Err(_)) | Err(_) => Ok(false),
         }
+    }
+
+    /// The time left before the deadline, for a request one act sends within it; the clock starts
+    /// now where no wait started it.
+    pub(crate) fn remaining(&self) -> Duration {
+        self.at().saturating_duration_since(Instant::now())
+    }
+
+    fn at(&self) -> Instant {
+        *self.at.get_or_init(|| Instant::now() + self.timeout)
     }
 }

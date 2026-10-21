@@ -1,7 +1,7 @@
 //! Codex compaction: `thread/compact/start` sent on a session's conversation, `applied` only once
 //! the `thread/compacted` frame proves it ran, and the boundary position that frame carries.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -14,6 +14,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use crate::error_description::describe_error;
 use crate::provider::compaction_wait::{CompactionWaitTerminal, PendingCompactionRegistry};
 use crate::provider::driver::codex::DESCRIPTOR;
+use crate::provider::driver::codex::app_server_protocol::ThreadCompactStartParams;
 use crate::provider::driver::codex::transport::connection::{
     CodexAppServerConnection, read_codex_object,
 };
@@ -23,13 +24,6 @@ use crate::provider::driver::diagnostics::{
 
 /// Codex's own compaction request, answered before the compaction runs.
 const CODEX_THREAD_COMPACT_START_METHOD: &str = "thread/compact/start";
-
-/// The `thread/compact/start` params.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ThreadCompactStartParams<'thread> {
-    thread_id: &'thread str,
-}
 
 /// The member of a `thread/compacted` frame the boundary is read from.
 #[derive(Deserialize)]
@@ -67,7 +61,7 @@ pub(crate) async fn dispatch_codex_compaction(
         .request(
             CODEX_THREAD_COMPACT_START_METHOD,
             &ThreadCompactStartParams {
-                thread_id: target.thread_id,
+                thread_id: target.thread_id.to_owned(),
             },
         )
         .await;

@@ -1,10 +1,11 @@
-//! Turns the daemon starts on a session itself, such as a review, a goal's or an `Allow once`: each
-//! runs as the session's own run, opened through the run engine before its request is sent, so
-//! every row of the turn has a run. Refused, before any run exists, while a turn runs, starts or is
-//! still ending on the session, since Codex would fold it into that turn.
+//! Turns the daemon starts on a session itself, such as a review: each runs as the session's own
+//! run, opened through the run engine before its request is sent, so every row of the turn has a
+//! run. Refused, before any run exists, while a turn runs, starts or is still ending on the
+//! session, since Codex would fold it into that turn.
 
 use std::error::Error;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -29,13 +30,14 @@ use crate::session::run::engine::RunEngineError;
 use crate::session::run::start_request::DaemonTurnStartRequest;
 
 /// Sends the request that makes Codex start a turn the daemon starts, on the connection and
-/// conversation it names, and answers the turn its reply names, or `None` when the turn's own
-/// `turn/started` names it instead.
+/// conversation it names, within the time left of the start's deadline, and answers the turn its
+/// reply names.
 pub(crate) type CodexDaemonTurnOpening = Arc<
     dyn Fn(
             Arc<CodexAppServerConnection>,
             String,
-        ) -> BoxFuture<'static, Result<Option<String>, CodexError>>
+            Duration,
+        ) -> BoxFuture<'static, Result<String, CodexError>>
         + Send
         + Sync,
 >;
@@ -57,9 +59,8 @@ impl CodexRunStart {
     /// Codex started the turn and the run is running. Fails with
     /// `CodexError::SessionTurnInFlight`, before any run exists, while a turn runs, starts or still
     /// ends on the session; as the run engine refuses or fails the run, a session whose next turn
-    /// is held for another run among them; and with the opening's failure, or
-    /// `CodexError::Transport` when Codex started no turn within the turn-start deadline, which
-    /// end the run failed.
+    /// is held for another run among them; and with the opening's failure, which ends the run
+    /// failed.
     pub(crate) async fn start_daemon_turn(
         self: &Arc<Self>,
         session_id: SessionId,
@@ -156,8 +157,7 @@ impl CodexRunStart {
     }
 
     // Sends the opening with the run waiting as the turn starting next, so the turn's first frames
-    // reach it whether they come before the reply or, for a reply that names no turn, instead of
-    // it.
+    // reach it even when they come before the reply.
     async fn send_daemon_turn(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -171,23 +171,21 @@ impl CodexRunStart {
             run_id,
             turn: None,
             binding_id,
+            withdrawn: None,
         };
         let send = self.begin_turn(&hold, inbound, begin, &deadline).await?;
-        let turn_started = self.dependencies.run_routes.await_turn_start(run_id);
-        let outcome = match opening(Arc::clone(&send.connection), send.thread_id.clone()).await {
-            Ok(Some(turn_id)) => CodexTurnStartOutcome::Started { turn_id },
-            Ok(None) => match tokio::time::timeout(CODEX_TURN_START_TIMEOUT, turn_started).await {
-                Ok(Ok(turn_id)) => CodexTurnStartOutcome::Started { turn_id },
-                Ok(Err(_)) | Err(_) => CodexTurnStartOutcome::NotStarted(CodexError::Transport {
-                    detail: format!(
-                        "Codex started no turn within {CODEX_TURN_START_TIMEOUT:?} of the request."
-                    ),
-                    cause: None,
-                }),
-            },
-            Err(error) => CodexTurnStartOutcome::of_request(Err(error)),
-        };
-        self.settle_turn(inbound, run_id, send.accepted, outcome)
-            .await
+        let turn_id = opening(
+            Arc::clone(&send.connection),
+            send.thread_id.clone(),
+            deadline.remaining(),
+        )
+        .await;
+        self.settle_turn(
+            inbound,
+            run_id,
+            send.accepted,
+            CodexTurnStartOutcome::of_request(turn_id),
+        )
+        .await
     }
 }

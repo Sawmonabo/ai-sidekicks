@@ -7,6 +7,7 @@ use std::future::Future;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::{ProviderModel, find_provider_model_row};
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::id::RunId;
@@ -30,6 +31,8 @@ pub(crate) struct CodexSettledOutputSpeed {
     pub(crate) session_id: SessionId,
     /// The run.
     pub(crate) run_id: RunId,
+    /// The account the session runs on, `None` on the machine's default home.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The tier the thread declared.
     pub(crate) state: ProviderOutputSpeedState,
 }
@@ -234,6 +237,7 @@ fn settlement(record: &CodexSessionRecord, run_id: RunId) -> Option<CodexSettled
     Some(CodexSettledOutputSpeed {
         session_id: record.session_id,
         run_id,
+        provider_account_id: record.provider_account_id.clone(),
         state: record.declared_output_speed.clone()?,
     })
 }

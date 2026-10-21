@@ -442,7 +442,8 @@ fn the_supervisor_table(
 
 // Fails when the crash path stops counting on the crash window, which restarts a dying service
 // without bound, or a start is taken while the service is down for it, or the person's restart
-// does not start it again under its own cause, which tells the sessions it brings back.
+// does not start it again under its own cause, which tells the sessions it brings back, or a
+// failed start after that restart leaves the service stopped rather than counting a crash.
 #[test]
 fn a_fifth_crash_within_three_minutes_leaves_the_service_down() {
     let start = Instant::now();
@@ -473,11 +474,20 @@ fn a_fifth_crash_within_three_minutes_leaves_the_service_down() {
 
     assert_eq!(state_after_start, SupervisorState::CrashLoop);
     assert_eq!(format!("{refused:?}"), "[Publish(CrashLoop)]");
-    assert!(matches!(
-        supervision.state(),
-        SupervisorState::Starting {
-            recovery: Some(CodexServiceRecoveryCause::PersonRestart),
-            ..
-        }
-    ));
+    let SupervisorState::Starting {
+        launch: restarted,
+        recovery: Some(CodexServiceRecoveryCause::PersonRestart),
+    } = *supervision.state()
+    else {
+        panic!(
+            "the person's restart starts the service under its own cause: {:?}",
+            supervision.state()
+        );
+    };
+    supervision.transition(start_failed(restarted));
+    assert!(
+        matches!(supervision.state(), SupervisorState::Restarting { .. }),
+        "a failed start after the person's restart counts as a crash: {:?}",
+        supervision.state()
+    );
 }

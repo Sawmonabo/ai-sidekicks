@@ -7,6 +7,7 @@
 //! accepted and lets the session's conversation go.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::Value;
@@ -70,6 +71,9 @@ pub(crate) struct CodexTurnBegin {
     pub(crate) turn: Option<CodexTurnRequest>,
     /// The run's binding, which a fork during or after the start points at its conversation.
     pub(crate) binding_id: RuntimeBindingId,
+    /// Set once the run no longer wants the turn, which then goes unsent; `None` for a start no
+    /// one withdraws.
+    pub(crate) withdrawn: Option<Arc<AtomicBool>>,
 }
 
 /// How the record took a turn's start.
@@ -234,10 +238,10 @@ pub(crate) struct CodexRunCallDependencies {
 }
 
 /// Takes a turn's start on the record, on the session's task: refuses it while a turn Codex
-/// started by itself runs as a run's, and a turn the daemon starts while any turn is in flight,
-/// since Codex would fold it in; owes a fork or a wait first where one is owed; else adopts the
-/// run's binding, resolves the turn's output speed against the model's tier list and puts the run
-/// first among the runs whose turn is starting.
+/// started by itself runs as a run's, a turn the daemon starts while any turn is in flight, since
+/// Codex would fold it in, and a turn its run withdrew; owes a wait or a fork first where one is
+/// owed; else adopts the run's binding, resolves the turn's output speed against the model's tier
+/// list and puts the run first among the runs whose turn is starting.
 pub(crate) async fn begin_codex_turn_start(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexRunCallDependencies,
@@ -247,8 +251,14 @@ pub(crate) async fn begin_codex_turn_start(
     let session_id = record.session_id;
     let session_turn_in_flight =
         || CodexTurnBeginAnswer::Refused(CodexError::SessionTurnInFlight { session_id });
-    if record.is_config_fork_owed {
-        return CodexTurnBeginAnswer::ForkOwed;
+    if begin
+        .withdrawn
+        .as_ref()
+        .is_some_and(|withdrawn| withdrawn.load(Ordering::Acquire))
+    {
+        return CodexTurnBeginAnswer::Refused(CodexError::TurnWithdrawn {
+            run_id: begin.run_id,
+        });
     }
     // Codex would fold a turn the daemon starts into one in flight, which the queue holds it for.
     if begin.turn.is_none() && record.is_turn_in_flight(None) {
@@ -264,6 +274,9 @@ pub(crate) async fn begin_codex_turn_start(
         .any(|turn_id| record.active_turn_run(turn_id).is_some());
     if is_self_started_turn_running {
         return session_turn_in_flight();
+    }
+    if record.is_config_fork_owed {
+        return CodexTurnBeginAnswer::ForkOwed;
     }
     let connection = match record.service.connection() {
         Ok(connection) => connection,
@@ -468,7 +481,7 @@ pub(crate) fn route_accepted_turn(
     }
     if record.active_turn_run(turn_id).is_none() {
         record.add_active_turn(turn_id.to_owned(), run_id);
-        run_routes.bind_run(run_id, record.session_id, turn_id);
+        run_routes.bind_run(run_id, record.session_id);
     }
     true
 }

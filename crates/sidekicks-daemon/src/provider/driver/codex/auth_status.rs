@@ -3,11 +3,12 @@
 
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 
+use crate::provider::driver::codex::app_server_protocol::GetAccountParams;
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::{
@@ -30,14 +31,6 @@ pub(crate) const CODEX_AUTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long a failed resume's sign-in read waits; short, so it never delays the failure.
 const CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// The `account/read` params: no refresh, since the providers rotate refresh tokens single-use
-/// and a refresh would end the sign-in being checked.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AccountReadParams {
-    refresh_token: bool,
-}
 
 /// The members of an `account/read` reply the reader takes; the account's email and plan are
 /// never read, since only the sign-in kind is safe to show.
@@ -156,8 +149,10 @@ async fn request_account(
     connection
         .request_within(
             CODEX_ACCOUNT_READ_METHOD,
-            &AccountReadParams {
-                refresh_token: false,
+            // No refresh: the providers rotate refresh tokens single-use, and a refresh would end
+            // the sign-in being checked.
+            &GetAccountParams {
+                refresh_token: Some(false),
             },
             timeout,
         )

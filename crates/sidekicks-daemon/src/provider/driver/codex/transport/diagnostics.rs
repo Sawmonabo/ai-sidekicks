@@ -86,20 +86,6 @@ pub(crate) enum CodexDeliveryPort {
     StepCount,
 }
 
-/// Why the frames held while a turn Codex started opens its run went on before the run opened.
-#[expect(
-    dead_code,
-    reason = "the Codex session's frame hold reports why it let its frames go"
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
-#[strum(serialize_all = "camelCase")]
-pub(crate) enum CodexHeldFramesReleaseReason {
-    /// The hold filled.
-    HoldFull,
-    /// The hold outlived its deadline.
-    HoldDeadline,
-}
-
 /// Everything the Codex transport, service and deliveries could not route or carry out, and the
 /// notices only the service log keeps; `report` logs one.
 #[expect(
@@ -393,15 +379,6 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The interrupt's failure.
         error: DiagnosticCause,
     },
-    /// The frames held while a turn Codex started opens its run went on before the run opened.
-    ProviderTurnFramesReleased {
-        /// The session.
-        session_id: SessionId,
-        /// Why they went on.
-        reason: CodexHeldFramesReleaseReason,
-        /// How many frames went on.
-        frame_count: usize,
-    },
     /// A hook input the daemon could not read or answer; a pre-tool one was denied.
     HookAnswerFailed {
         /// The failure.
@@ -660,16 +637,6 @@ impl CodexTransportDiagnostic {
                 session_id = %session_id,
                 error = &**error as &(dyn Error + 'static),
                 "The interrupt of a turn Codex started failed; the turn runs on"
-            ),
-            Self::ProviderTurnFramesReleased {
-                session_id,
-                reason,
-                frame_count,
-            } => tracing::warn!(
-                session_id = %session_id,
-                reason = <&str>::from(*reason),
-                frame_count,
-                "The frames of a turn Codex started went on before its run opened"
             ),
             Self::HookAnswerFailed { error } => tracing::warn!(
                 error = &**error as &(dyn Error + 'static),

@@ -4,14 +4,15 @@
 //! reads Codex's answer; the request goes between, off the task, one turn start per session at a
 //! time. Codex runs a turn the daemon stopped until its end arrives and folds a turn sent onto a
 //! busy conversation into the running one, so no turn starts before every stopped turn ended, and
-//! every wait of one start shares the start's own deadline. A conversation that owes a fork onto a
-//! changed config forks before the turn.
+//! every wait and the request of one start share the start's own deadline. A conversation that
+//! owes a fork onto a changed config forks before the turn, once its turns settled.
 
 pub(crate) mod daemon_turns;
 pub(crate) mod record;
 
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -150,7 +151,7 @@ impl CodexRunStart {
             level: params.execution_posture.as_ref().map(posture_level),
         };
         let started = self
-            .start_turn(&inbound, run_id, opening.binding_id, turn, &deadline)
+            .start_turn(&inbound, run_id, opening.binding_id, turn, None, &deadline)
             .await;
         if started.is_err() {
             run_routes.forget_run(run_id);
@@ -160,16 +161,18 @@ impl CodexRunStart {
 
     /// Starts one turn of `run_id` on the session `inbound` reaches and routes it to the run, on
     /// `binding_id`, after the fork onto any config the conversation still owes, waiting out every
-    /// turn the daemon is stopping within `deadline`. A refusal Codex answered leaves the session
-    /// usable; any other failure may hide an accepted turn, so that turn is interrupted and the
-    /// session's conversation let go before the failure is answered. Fails as
-    /// [`Self::start_run`] does.
+    /// turn the daemon is stopping, every wait and the request within `deadline`. A refusal Codex
+    /// answered leaves the session usable; any other failure may hide an accepted turn, so that
+    /// turn is interrupted and the session's conversation let go before the failure is answered.
+    /// Fails as [`Self::start_run`] does, and with `CodexError::TurnWithdrawn`, nothing sent, once
+    /// `withdrawn` is set before the turn goes.
     pub(crate) async fn start_turn(
         &self,
         inbound: &CodexSessionInboundSender,
         run_id: RunId,
         binding_id: RuntimeBindingId,
         turn: CodexTurnRequest,
+        withdrawn: Option<Arc<AtomicBool>>,
         deadline: &CodexTurnEndDeadline,
     ) -> Result<(), CodexError> {
         let hold = self.turn_sends.acquire(inbound.session_id()).await;
@@ -177,6 +180,7 @@ impl CodexRunStart {
             run_id,
             turn: Some(turn),
             binding_id,
+            withdrawn,
         };
         let send = self.begin_turn(&hold, inbound, begin, deadline).await?;
         let params = send
@@ -185,7 +189,7 @@ impl CodexRunStart {
             .expect("a run's own turn carries its params");
         let replied = send
             .connection
-            .request_within(TURN_START_METHOD, params, CODEX_TURN_START_TIMEOUT)
+            .request_within(TURN_START_METHOD, params, deadline.remaining())
             .await
             .and_then(|reply| read_turn_id(&reply, TURN_START_METHOD));
         self.settle_turn(
@@ -210,8 +214,8 @@ impl CodexRunStart {
     }
 
     // Takes the turn's start on the session's task once nothing holds it back: a turn the daemon
-    // is stopping is waited out within `deadline`, and a config fork the conversation owes runs
-    // once the session is idle, the start taken again after each.
+    // is stopping is waited out, and a config fork the conversation owes runs once the session is
+    // idle, each within `deadline`, the start taken again after each.
     async fn begin_turn(
         &self,
         _hold: &KeyHold<'_, SessionId>,
@@ -230,7 +234,7 @@ impl CodexRunStart {
                 CodexTurnBeginAnswer::WaitForStoppedTurns => {
                     wait_out_stopped_turns(inbound, deadline).await?;
                 }
-                CodexTurnBeginAnswer::ForkOwed => self.fork_before_turn(inbound).await?,
+                CodexTurnBeginAnswer::ForkOwed => self.fork_before_turn(inbound, deadline).await?,
                 CodexTurnBeginAnswer::Refused(error) => return Err(error),
             }
         }
@@ -258,13 +262,18 @@ impl CodexRunStart {
         Ok(())
     }
 
-    // The fork the conversation owes, once no turn runs, starts or ends on it; that wait has no
-    // deadline, since the fork goes only once the session's turns settled.
+    // The fork the conversation owes, once no turn runs, starts or ends on it within `deadline`,
+    // else the turn is refused.
     async fn fork_before_turn(
         &self,
         inbound: &CodexSessionInboundSender,
+        deadline: &CodexTurnEndDeadline,
     ) -> Result<(), CodexError> {
-        wait_for_codex_turns(inbound, CodexTurnWait::Idle, None).await?;
+        if !wait_for_codex_turns(inbound, CodexTurnWait::Idle, Some(deadline)).await? {
+            return Err(CodexError::SessionTurnInFlight {
+                session_id: inbound.session_id(),
+            });
+        }
         self.dependencies
             .config_forks
             .fork(inbound.session_id(), inbound)
@@ -284,7 +293,7 @@ impl CodexRunStart {
             .await
         {
             CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: None,
+                provider_account_id: settled.provider_account_id,
                 port: CodexDeliveryPort::OutputSpeed,
                 session_id: Some(settled.session_id),
                 error: Box::new(error),

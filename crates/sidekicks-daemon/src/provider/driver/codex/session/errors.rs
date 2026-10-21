@@ -1,7 +1,7 @@
-//! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary, slot,
-//! turn-in-flight, larger-window, port, driver-shaped and configuration failures, and how each
-//! reaches the daemon as a driver error; and the readers of Codex's active-writer and restart
-//! refusals.
+//! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary,
+//! slot, turn-in-flight, withdrawn-turn, larger-window, port, driver-shaped and configuration
+//! failures, and how each reaches the daemon as a driver error; and the readers of Codex's
+//! active-writer and restart refusals.
 
 use std::error::Error;
 use std::time::Duration;
@@ -9,6 +9,7 @@ use std::time::Duration;
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -171,6 +172,12 @@ pub(crate) enum CodexError {
     SessionTurnInFlight {
         /// The session.
         session_id: SessionId,
+    },
+    /// A turn's start its run withdrew before the turn went; nothing was sent.
+    #[error("The run \"{run_id}\" withdrew its turn before it was sent.")]
+    TurnWithdrawn {
+        /// The run.
+        run_id: RunId,
     },
     /// A session asked for a larger window its model's catalog does not offer at that figure now;
     /// no conversation was started.
@@ -424,6 +431,7 @@ impl From<CodexError> for DriverError {
             }
             CodexError::ProviderRequest { .. }
             | CodexError::SessionAlreadyLive { .. }
+            | CodexError::TurnWithdrawn { .. }
             | CodexError::PortFailed { .. }
             | CodexError::Driver(_)
             | CodexError::DriverConfig { .. } => Self::Internal(Box::new(error)),

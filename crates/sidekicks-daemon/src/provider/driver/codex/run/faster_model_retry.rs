@@ -3,7 +3,7 @@
 //! session's model. The run goes on in the new turn under its binding; nothing is drawn twice. An
 //! interrupt of the run while it retries stops the retry, which then forks and sends nothing more;
 //! one that comes once the fork has begun leaves the session on the fork, since the conversation
-//! it left is already let go.
+//! it left is already let go, and sends the turn only when it comes too late to keep it back.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -93,14 +93,15 @@ pub(crate) struct CodexFasterModelRetries {
 }
 
 // One retry in flight: its session, the conversation its held turn ran on, the answer to its
-// interrupt, whether it has begun to fork or was stopped, and its end.
+// interrupt, whether it has begun to fork or was stopped, and its end. The stop is shared with the
+// turn's start, which the session's task refuses once it is set.
 struct CodexRetryInFlight {
     inbound: CodexSessionInboundSender,
     held_thread_id: String,
     interrupt_answered: CancellationToken,
     settled: CancellationToken,
     is_forking: AtomicBool,
-    is_canceled: AtomicBool,
+    is_canceled: Arc<AtomicBool>,
 }
 
 impl CodexFasterModelRetries {
@@ -150,7 +151,7 @@ impl CodexFasterModelRetries {
             interrupt_answered: CancellationToken::new(),
             settled: CancellationToken::new(),
             is_forking: AtomicBool::new(false),
-            is_canceled: AtomicBool::new(false),
+            is_canceled: Arc::new(AtomicBool::new(false)),
         });
         self.lock().insert(params.run_id, Arc::clone(&in_flight));
         let outcome = self.retry_stopped(&params, &in_flight, stop, binding).await;
@@ -171,13 +172,22 @@ impl CodexFasterModelRetries {
     /// turn ran on when that stopped the run: the retry forks and sends nothing more. A retry that
     /// has begun to fork is waited for, so the session is on its one conversation when this
     /// answers. Answers `None` with no retry in flight, and once a turn the retry kept or already
-    /// sent runs as the run's, which the interrupt then stops as any live turn.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's interrupt stops a retry in flight"
+    /// sent runs as the run's, which the interrupt then stops as any live turn. Fails as the
+    /// session's reading fails.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex run's interrupt stops a retry in flight"
+        )
     )]
-    pub(crate) async fn cancel(&self, run_id: RunId) -> Option<CodexStoppedRetry> {
-        let in_flight = self.lock().get(&run_id).map(Arc::clone)?;
+    pub(crate) async fn cancel(
+        &self,
+        run_id: RunId,
+    ) -> Result<Option<CodexStoppedRetry>, CodexError> {
+        let Some(in_flight) = self.lock().get(&run_id).map(Arc::clone) else {
+            return Ok(None);
+        };
         in_flight.is_canceled.store(true, Ordering::Release);
         // An interrupt Codex refused leaves the held turn running as the run's.
         in_flight.interrupt_answered.cancelled().await;
@@ -189,12 +199,13 @@ impl CodexFasterModelRetries {
                 thread_id: None,
                 reply,
             })
-            .await
-            .ok()?;
-        (!reading.live_turn_runs.contains(&run_id)).then(|| CodexStoppedRetry {
-            session_id: in_flight.inbound.session_id(),
-            held_thread_id: in_flight.held_thread_id.clone(),
-        })
+            .await?;
+        Ok(
+            (!reading.live_turn_runs.contains(&run_id)).then(|| CodexStoppedRetry {
+                session_id: in_flight.inbound.session_id(),
+                held_thread_id: in_flight.held_thread_id.clone(),
+            }),
+        )
     }
 
     async fn retry_stopped(
@@ -310,6 +321,7 @@ impl CodexFasterModelRetries {
                     output_schema: None,
                     level: None,
                 },
+                Some(Arc::clone(&in_flight.is_canceled)),
                 &CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT),
             )
             .await?;
@@ -419,9 +431,7 @@ pub(crate) fn restore_codex_retried_turn(
     }
     record.delivery.retried_run_id_by_turn_id.remove(turn_id);
     record.add_active_turn(turn_id.to_owned(), run_id);
-    dependencies
-        .run_routes
-        .bind_run(run_id, record.session_id, turn_id);
+    dependencies.run_routes.bind_run(run_id, record.session_id);
     true
 }
 
@@ -466,19 +476,36 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::agent::definition::binding::ProviderToken;
 
-    use super::{CodexFasterModelRetries, CodexFasterModelRetryDependencies};
+    use super::{
+        CodexFasterModelRetries, CodexFasterModelRetryDependencies, INTERRUPTED_REJECTION,
+    };
     use crate::provider::driver::codex::run::routes::CodexRunBinding;
+    use crate::provider::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
     use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
     use crate::provider::driver::codex::session::test_session::{
         TEST_THREAD, TestCodexSession, answer_fork, new_run_id, turn_completed, turn_reply,
     };
     use crate::provider::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
 
+    /// How the turn sent again on the fork goes.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum TurnOnFork {
+        Started,
+        Refused,
+        /// The run's interrupt arrives as the turn's start reaches the session's task.
+        Withdrawn,
+    }
+
     // Kills: `Applied` answered once the fork alone is established, before `turn/start` on it
-    // answered (the refused case then answers `Applied`).
+    // answered (the refused case then answers `Applied`); and a retry the interrupt stops while
+    // its turn's start is under way sending the turn anyway.
     #[tokio::test]
     async fn a_retry_applies_only_once_the_turn_on_the_fork_starts() {
-        for is_turn_start_refused in [false, true] {
+        for turn_on_fork in [
+            TurnOnFork::Started,
+            TurnOnFork::Refused,
+            TurnOnFork::Withdrawn,
+        ] {
             let mut session = TestCodexSession::start().await;
             let binding_id = session.record_binding().await;
             let run_id = new_run_id();
@@ -500,7 +527,7 @@ mod tests {
                 },
             );
             let run_routes = Arc::clone(&session.task.run_routes);
-            run_routes.bind_run(run_id, session_id, "turn-1");
+            run_routes.bind_run(run_id, session_id);
             run_routes.bind_run_delivery(
                 run_id,
                 CodexRunBinding {
@@ -535,11 +562,14 @@ mod tests {
                     fork_model, "gpt-5-fast",
                     "the fork runs on the faster model"
                 );
+                if turn_on_fork == TurnOnFork::Withdrawn {
+                    return;
+                }
                 let started = script.next_sent().await;
                 assert_eq!(started["method"], "turn/start");
                 assert_eq!(started["params"]["threadId"], "thread-2");
                 assert_eq!(started["params"]["input"][0]["text"], "Fix the build.");
-                if is_turn_start_refused {
+                if turn_on_fork == TurnOnFork::Refused {
                     script.send(&json!({
                         "jsonrpc": "2.0",
                         "id": started["id"],
@@ -549,31 +579,66 @@ mod tests {
                     script.answer(&started, &turn_reply("turn-2"));
                 }
             };
-            let (retried, ()) = tokio::time::timeout(
-                Duration::from_secs(10),
-                Box::pin(async { tokio::join!(task.drive(retry), service) }),
-            )
-            .await
-            .expect("the retry settles");
-            if is_turn_start_refused {
-                let error = retried.expect_err("a refused turn fails the retry");
-                assert!(
-                    error
-                        .to_string()
-                        .starts_with("Failed to retry with a faster model:"),
-                    "{error}"
-                );
-                assert_eq!(
-                    run_routes.binding_for(run_id),
-                    None,
-                    "the failed run has no route"
-                );
+            let bound = Duration::from_secs(10);
+            let settled = if turn_on_fork == TurnOnFork::Withdrawn {
+                // The session's task, the interrupt set as the turn's start reaches it.
+                let session_task = async {
+                    loop {
+                        let item = task.next_item().await;
+                        if matches!(
+                            item,
+                            CodexSessionInbound::Call(CodexSessionCall::BeginTurnStart { .. })
+                        ) {
+                            let mut cancel = std::pin::pin!(retries.cancel(run_id));
+                            assert!(futures::poll!(&mut cancel).is_pending());
+                            task.handle(item).await;
+                            return task.drive(cancel).await.expect("the session reads");
+                        }
+                        task.handle(item).await;
+                    }
+                };
+                tokio::time::timeout(
+                    bound,
+                    Box::pin(async { tokio::join!(retry, service, session_task).0 }),
+                )
+                .await
             } else {
-                assert_eq!(
-                    retried.expect("the retry applies"),
-                    FasterModelRetryOutcome::Applied {}
-                );
-                assert_eq!(session.task.record.active_turn_run("turn-2"), Some(run_id));
+                tokio::time::timeout(
+                    bound,
+                    Box::pin(async { tokio::join!(task.drive(retry), service).0 }),
+                )
+                .await
+            };
+            let retried = settled.expect("the retry settles");
+            match turn_on_fork {
+                TurnOnFork::Refused => {
+                    let error = retried.expect_err("a refused turn fails the retry");
+                    assert!(
+                        error
+                            .to_string()
+                            .starts_with("Failed to retry with a faster model:"),
+                        "{error}"
+                    );
+                    assert_eq!(
+                        run_routes.binding_for(run_id),
+                        None,
+                        "the failed run has no route"
+                    );
+                }
+                TurnOnFork::Started => {
+                    assert_eq!(
+                        retried.expect("the retry applies"),
+                        FasterModelRetryOutcome::Applied {}
+                    );
+                    assert_eq!(session.task.record.active_turn_run("turn-2"), Some(run_id));
+                }
+                TurnOnFork::Withdrawn => assert_eq!(
+                    retried.expect("a stopped retry answers"),
+                    FasterModelRetryOutcome::Rejected {
+                        rejection_reason: INTERRUPTED_REJECTION.to_owned(),
+                    },
+                    "a retry stopped during its turn's start sends no turn"
+                ),
             }
         }
     }

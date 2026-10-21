@@ -31,6 +31,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::oneshot;
+use tokio_util::task::TaskTracker;
 
 use crate::policy::destructive_git::covers_destructive_git;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -105,6 +106,9 @@ pub(crate) struct CodexAskHandOffDependencies {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// How a project rule is written into one working folder.
     pub(crate) project_rules: Arc<dyn CodexProjectRules>,
+    /// The driver's tasks, which its shutdown waits for; each card is raised and taken back on
+    /// one.
+    pub(crate) tasks: TaskTracker,
 }
 
 /// An approval held for its card: the turn it holds, the run it is on, and what it would do.
@@ -120,13 +124,13 @@ struct CodexHeldApproval {
 #[derive(Default)]
 struct CodexAskState {
     /// The approvals held for their card, by session then Codex's request id.
-    held_by_session: HashMap<SessionId, HashMap<String, CodexHeldApproval>>,
+    held_approvals: HashMap<SessionId, HashMap<String, CodexHeldApproval>>,
     /// The corrected commands and paths approved, by session then turn, each with the card it was
     /// approved on, taken by Codex's next ask for it in the same turn and dropped when the turn
     /// ends.
-    corrections_by_session: HashMap<SessionId, HashMap<String, HashMap<String, ApprovalRequestId>>>,
+    corrections: HashMap<SessionId, HashMap<String, HashMap<String, ApprovalRequestId>>>,
     /// The question pending on each turn, by session then turn, as its request id.
-    question_by_session: HashMap<SessionId, HashMap<String, String>>,
+    pending_questions: HashMap<SessionId, HashMap<String, String>>,
 }
 
 /// Hands Codex's approvals and questions to the run engine, then to their owner, and carries the
@@ -167,7 +171,10 @@ impl CodexAskHandOff {
                  one can answer it."
             ));
         };
-        let params = read_params(request);
+        let params = match read_params(request) {
+            Ok(params) => params,
+            Err(reason) => return refuse(reason),
+        };
         let approval = match request.ask_kind {
             CodexAskKind::Approval => {
                 match self
@@ -279,20 +286,27 @@ impl CodexAskHandOff {
     }
 
     /// Settles the card of an ask Codex resolved itself, or whose turn ended, before anyone
-    /// answered it: an approval's on the approvals, a question's on the questions card.
+    /// answered it: an approval's on the approvals, a question's on the questions card. A failed
+    /// withdrawal is reported under the session's `provider_account_id`.
     #[expect(
         dead_code,
         reason = "the Codex driver's frame effects withdraw an ask Codex let go of"
     )]
-    pub(crate) fn withdraw(&self, session_id: SessionId, request_id: &str, ask_kind: CodexAskKind) {
+    pub(crate) fn withdraw(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+        request_id: &str,
+        ask_kind: CodexAskKind,
+    ) {
         match ask_kind {
             CodexAskKind::Approval => {
                 self.take_held(session_id, request_id);
-                self.withdraw_approval_card(session_id, request_id.to_owned());
+                self.withdraw_approval_card(session_id, provider_account_id, request_id.to_owned());
             }
             CodexAskKind::Question => {
                 self.forget_question(session_id, request_id);
-                self.withdraw_question_card(session_id, request_id.to_owned());
+                self.withdraw_question_card(session_id, provider_account_id, request_id.to_owned());
             }
             CodexAskKind::CallbackTool => {}
         }
@@ -303,9 +317,9 @@ impl CodexAskHandOff {
     #[expect(dead_code, reason = "the Codex session's close forgets its asks")]
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let mut state = self.lock();
-        state.held_by_session.remove(&session_id);
-        state.corrections_by_session.remove(&session_id);
-        state.question_by_session.remove(&session_id);
+        state.held_approvals.remove(&session_id);
+        state.corrections.remove(&session_id);
+        state.pending_questions.remove(&session_id);
     }
 
     /// Drops the corrections an ended turn's asks could have carried out, which no later turn may,
@@ -316,8 +330,8 @@ impl CodexAskHandOff {
     )]
     pub(crate) fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str) {
         let mut state = self.lock();
-        remove_nested(&mut state.corrections_by_session, session_id, turn_id);
-        remove_nested(&mut state.question_by_session, session_id, turn_id);
+        remove_nested(&mut state.corrections, session_id, turn_id);
+        remove_nested(&mut state.pending_questions, session_id, turn_id);
     }
 
     // Reads what an approval would do and the card a corrected command or path carries out; a
@@ -369,12 +383,10 @@ impl CodexAskHandOff {
         let correction_key = compose_correction_key(&approval.action);
         let correction_of = {
             let mut state = self.lock();
-            let corrections = approval.turn_id.as_deref().and_then(|turn_id| {
-                state
-                    .corrections_by_session
-                    .get_mut(&session_id)?
-                    .get_mut(turn_id)
-            });
+            let corrections = approval
+                .turn_id
+                .as_deref()
+                .and_then(|turn_id| state.corrections.get_mut(&session_id)?.get_mut(turn_id));
             correction_key
                 .as_deref()
                 .zip(corrections)
@@ -387,7 +399,7 @@ impl CodexAskHandOff {
         let rule_scopes = std::mem::take(&mut approval.rule_scopes);
         let run_id = approval.run_id;
         self.lock()
-            .held_by_session
+            .held_approvals
             .entry(session_id)
             .or_default()
             .insert(request.request_id.clone(), approval);
@@ -414,10 +426,11 @@ impl CodexAskHandOff {
             correction_of,
         };
         let provider_account_id = record.provider_account_id.clone();
+        let tasks = self.dependencies.tasks.clone();
         // Raised once the connection holds the ask, since an answer the daemon reaches at once
         // must find it held.
         let take_ask = move || {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 if let Err(error) = port.take_ask(ask).await {
                     report_owner_failure(
                         provider_account_id,
@@ -448,7 +461,7 @@ impl CodexAskHandOff {
         {
             let replaced = self
                 .lock()
-                .question_by_session
+                .pending_questions
                 .entry(session_id)
                 .or_default()
                 .insert(turn_id.to_owned(), request.request_id.clone());
@@ -456,7 +469,11 @@ impl CodexAskHandOff {
                 if let Ok(connection) = record.service.connection() {
                     connection.forget_held_request(&replaced);
                 }
-                self.withdraw_question_card(session_id, replaced);
+                self.withdraw_question_card(
+                    session_id,
+                    record.provider_account_id.clone(),
+                    replaced,
+                );
             }
         }
         let Some(port) = self.dependencies.owners.questions.port().cloned() else {
@@ -470,8 +487,9 @@ impl CodexAskHandOff {
             is_agent_waiting: true,
         };
         let provider_account_id = record.provider_account_id.clone();
+        let tasks = self.dependencies.tasks.clone();
         let take_question = move || {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 if let Err(error) = port.take_question(question).await {
                     report_owner_failure(
                         provider_account_id,
@@ -515,12 +533,12 @@ impl CodexAskHandOff {
             && let Some(key) = compose_correction_key(&corrected)
         {
             self.lock()
-                .corrections_by_session
+                .corrections
                 .entry(session_id)
                 .or_default()
                 .entry(turn_id.clone())
                 .or_default()
-                .insert(key, correction.approval_request_id.clone());
+                .insert(key, correction.approval_request_id);
         }
         Some(if is_command {
             format!(
@@ -537,51 +555,71 @@ impl CodexAskHandOff {
 
     fn take_held(&self, session_id: SessionId, request_id: &str) -> Option<CodexHeldApproval> {
         let mut state = self.lock();
-        let held = state.held_by_session.get_mut(&session_id)?;
+        let held = state.held_approvals.get_mut(&session_id)?;
         let approval = held.remove(request_id);
         if held.is_empty() {
-            state.held_by_session.remove(&session_id);
+            state.held_approvals.remove(&session_id);
         }
         approval
     }
 
     fn forget_question(&self, session_id: SessionId, request_id: &str) {
         let mut state = self.lock();
-        let Some(by_turn) = state.question_by_session.get_mut(&session_id) else {
+        let Some(by_turn) = state.pending_questions.get_mut(&session_id) else {
             return;
         };
         by_turn.retain(|_, pending| pending != request_id);
         if by_turn.is_empty() {
-            state.question_by_session.remove(&session_id);
+            state.pending_questions.remove(&session_id);
         }
     }
 
-    fn withdraw_approval_card(&self, session_id: SessionId, request_id: String) {
+    fn withdraw_approval_card(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+        request_id: String,
+    ) {
         let Some(port) = self.dependencies.owners.permission_asks.port().cloned() else {
             return;
         };
-        tokio::spawn(async move {
+        self.dependencies.tasks.spawn(async move {
             let withdrawal = ProviderPermissionAskWithdrawal {
                 session_id,
                 request_id,
             };
             if let Err(error) = port.withdraw_ask(withdrawal).await {
-                report_owner_failure(None, CodexDeliveryPort::PermissionAsk, session_id, error);
+                report_owner_failure(
+                    provider_account_id,
+                    CodexDeliveryPort::PermissionAsk,
+                    session_id,
+                    error,
+                );
             }
         });
     }
 
-    fn withdraw_question_card(&self, session_id: SessionId, request_id: String) {
+    fn withdraw_question_card(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+        request_id: String,
+    ) {
         let Some(port) = self.dependencies.owners.questions.port().cloned() else {
             return;
         };
-        tokio::spawn(async move {
+        self.dependencies.tasks.spawn(async move {
             let withdrawal = ProviderQuestionWithdrawal {
                 session_id,
                 request_id,
             };
             if let Err(error) = port.withdraw_question(withdrawal).await {
-                report_owner_failure(None, CodexDeliveryPort::Question, session_id, error);
+                report_owner_failure(
+                    provider_account_id,
+                    CodexDeliveryPort::Question,
+                    session_id,
+                    error,
+                );
             }
         });
     }
@@ -727,15 +765,23 @@ fn refuse(reason: String) -> CodexServerRequestDecision {
     CodexServerRequestDecision::Answer(CodexServerRequestAnswer::Refuse { reason })
 }
 
-// The ask's params as an object; params that are no object read as none.
-fn read_params(request: &CodexInboundServerRequest) -> Map<String, Value> {
-    serde_json::from_str::<Value>(&decode_inbound_json(request.params.get().as_bytes()))
-        .ok()
-        .and_then(|params| match params {
-            Value::Object(members) => Some(members),
-            _ => None,
-        })
-        .unwrap_or_default()
+// The ask's params as an object; params that do not read as one refuse the ask with why.
+fn read_params(request: &CodexInboundServerRequest) -> Result<Map<String, Value>, String> {
+    let method = request.method.method();
+    let params =
+        serde_json::from_str::<Value>(&decode_inbound_json(request.params.get().as_bytes()))
+            .map_err(|error| {
+                format!("The provider's \"{method}\" request's params could not be read: {error}")
+            })?;
+    match params {
+        Value::Object(members) => Ok(members),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => {
+            Err(format!(
+                "The provider's \"{method}\" request's params are not an object, so it is not \
+                 asked."
+            ))
+        }
+    }
 }
 
 fn remove_nested<Value>(

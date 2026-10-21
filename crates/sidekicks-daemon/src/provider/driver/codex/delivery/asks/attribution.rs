@@ -10,6 +10,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::run::id::RunId;
 use tokio::sync::oneshot;
+use tokio_util::task::TaskTracker;
 
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::ask_option_sets::{
@@ -44,6 +45,8 @@ pub(crate) struct CodexAskIntake {
     pub(crate) run_routes: Arc<CodexRunRoutes>,
     /// The daemon's callback-tool host, once registered.
     pub(crate) callback_tools: Arc<PortRegistration<Arc<dyn CodexSessionServerRequestResponder>>>,
+    /// The driver's tasks, which its shutdown waits for; each callback tool's call runs on one.
+    pub(crate) tasks: TaskTracker,
 }
 
 impl CodexAskIntake {
@@ -69,7 +72,6 @@ impl CodexAskIntake {
             CodexRoutedAskAttribution::Attributed { owner } => Some(owner),
             CodexRoutedAskAttribution::Unattributed { owner } => owner,
         };
-        let options = read_ask_options(record, &request);
         if request.ask_kind != CodexAskKind::CallbackTool {
             let held = self.hand_off.hold(record, owner, &request).await;
             send_decision(decision, held);
@@ -83,13 +85,20 @@ impl CodexAskIntake {
             send_decision(decision, refuse(reason));
             return;
         };
+        let options = match read_ask_options(record, &request) {
+            Ok(options) => options,
+            Err(reason) => {
+                send_decision(decision, refuse(reason));
+                return;
+            }
+        };
         let call = CodexSessionServerRequest {
             request,
             session_id: record.session_id,
             run_id: owner.map(|owner| owner.run_id),
             options,
         };
-        tokio::spawn(async move {
+        self.tasks.spawn(async move {
             let answered = host.answer(call).await;
             // The connection that asked closed first; nothing waits for the answer.
             let _unheard = decision.send(answered);
@@ -190,14 +199,14 @@ fn report_turn_unresolved(
 }
 
 // The choices an ask offers; a set the driver will not carry is reported and dropped, the ask
-// still answerable in free text.
+// still answerable in free text. Fails, with why, when the ask's params do not read.
 fn read_ask_options(
     record: &CodexSessionRecord,
     request: &CodexInboundServerRequest,
-) -> Option<Vec<ProviderAskOption>> {
-    let params = Value::Object(read_params(request));
+) -> Result<Option<Vec<ProviderAskOption>>, String> {
+    let params = Value::Object(read_params(request)?);
     let method = request.method.method();
-    match read_codex_ask_option_set(method, &params) {
+    Ok(match read_codex_ask_option_set(method, &params) {
         CodexAskOptionSetReading::Absent => None,
         CodexAskOptionSetReading::Read { options } => Some(options),
         CodexAskOptionSetReading::Dropped {
@@ -217,7 +226,7 @@ fn read_ask_options(
             });
             None
         }
-    }
+    })
 }
 
 fn send_decision(decision: CodexAskDecisionSender, decided: CodexServerRequestDecision) {

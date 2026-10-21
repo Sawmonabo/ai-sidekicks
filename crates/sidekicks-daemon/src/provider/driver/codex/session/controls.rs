@@ -1,9 +1,8 @@
 //! The session controls Codex carries on the conversation itself: Build or Plan as its
 //! collaboration mode, sent with the session's model and effort; its own review of a set of
-//! changes; and `Allow once` on a block its reviewer made at Reviewed. A review, and an
-//! `Allow once` sent while no turn runs, start a turn, so each is started as the session's own
-//! run; an `Allow once` goes into a turn only while that turn is live, and waits for a turn still
-//! starting to run.
+//! changes; and `Allow once` on a block its reviewer made at Reviewed. A review starts a turn, so
+//! it is started as the session's own run. An `Allow once` starts none: Codex adds the approval to
+//! the turn running on the conversation or, with none running, to the conversation's history.
 
 use std::sync::Arc;
 
@@ -24,9 +23,7 @@ use crate::provider::driver::codex::run::start::daemon_turns::{
 use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
 use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundSender,
-};
+use crate::provider::driver::codex::session::inbound::CodexSessionCall;
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
 use crate::provider::driver::codex::thread::settings::{
     CodexThreadSettingsUpdateParams, compose_codex_collaboration_mode,
@@ -36,9 +33,7 @@ use crate::provider::driver::codex::transport::connection::CodexAppServerConnect
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::run_control::OverrideDenialParams;
 use crate::provider::driver::session_control::StartReviewParams;
-use crate::session::run::engine::RunEngineError;
 use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
-use crate::session::run::refusals::RunRefusal;
 
 const THREAD_SETTINGS_UPDATE_METHOD: &str = "thread/settings/update";
 const REVIEW_START_METHOD: &str = "review/start";
@@ -112,21 +107,22 @@ impl CodexSessionControls {
         let session_id = params.session_id;
         let target = params.target;
         let dispatch = Arc::clone(&self.dispatch);
-        let opening: CodexDaemonTurnOpening = Arc::new(move |connection, thread_id| {
+        let opening: CodexDaemonTurnOpening = Arc::new(move |connection, thread_id, timeout| {
             let dispatch = Arc::clone(&dispatch);
             async move {
                 let reply = connection
-                    .request(
+                    .request_within(
                         REVIEW_START_METHOD,
                         &ReviewStartParams {
                             delivery: None,
                             target: compose_review_target(target),
                             thread_id,
                         },
+                        timeout,
                     )
                     .await?;
                 record_review_started(&dispatch, session_id, target).await;
-                read_turn_id(&reply, REVIEW_START_METHOD).map(Some)
+                read_turn_id(&reply, REVIEW_START_METHOD)
             }
             .boxed()
         });
@@ -137,12 +133,11 @@ impl CodexSessionControls {
     }
 
     /// Sends `Allow once` for a block Codex's reviewer made, with the review Codex sent as the
-    /// block, on the conversation it was made in: into the turn running there, or, on the
-    /// session's own conversation with no live turn, as the session's own run, since Codex then
-    /// starts a turn for it. A conversation the service has not loaded is resumed first. A turn the
-    /// daemon is stopping is waited out first, and a turn still starting is waited for to run, all
-    /// within one request deadline, past which this fails with `CodexError::SessionTurnInFlight`,
-    /// nothing sent. Fails as the requests fail and as the run's start fails.
+    /// block, on the conversation it was made in, which Codex adds to the turn running there or,
+    /// with none, to the conversation's history, starting no turn. A conversation the service has
+    /// not loaded is resumed first. On the session's own conversation a turn the daemon is stopping
+    /// is waited out first, within the request deadline, past which this fails with
+    /// `CodexError::SessionTurnInFlight`, nothing sent. Fails as the requests fail.
     #[cfg_attr(
         not(test),
         expect(
@@ -153,7 +148,7 @@ impl CodexSessionControls {
     pub(crate) async fn override_denial(
         &self,
         params: OverrideDenialParams,
-    ) -> Result<(), CodexDaemonTurnError> {
+    ) -> Result<(), CodexError> {
         let event: Value = serde_json::from_str(params.provider_denial.get()).map_err(|error| {
             CodexError::Transport {
                 detail: "The stored reviewer block does not read as JSON.".to_owned(),
@@ -167,97 +162,61 @@ impl CodexSessionControls {
             .and_then(Value::as_str)
             .filter(|thread_id| !thread_id.is_empty())
             .map(str::to_owned);
-        let reading = call_codex_session(&inbound, |reply| CodexSessionCall::ReadSession {
-            thread_id: denial_thread_id.clone(),
-            reply,
-        })
-        .await?;
-        let thread_id = denial_thread_id.unwrap_or_else(|| reading.thread_id.clone());
-        let approval = compose_approval(thread_id.clone(), event, !reading.is_thread_loaded);
-        if thread_id != reading.thread_id {
-            approval(reading.connection?, reading.thread_id).await?;
-            return Ok(());
-        }
-        self.approve_on_session_thread(session_id, &inbound, approval)
-            .await
-    }
-
-    // Sends the approval into the session's live turn, or as its own run while none is in
-    // flight, waiting out a stopping turn and for a starting one within one request deadline.
-    async fn approve_on_session_thread(
-        &self,
-        session_id: SessionId,
-        inbound: &CodexSessionInboundSender,
-        approval: CodexDaemonTurnOpening,
-    ) -> Result<(), CodexDaemonTurnError> {
-        let deadline = CodexTurnEndDeadline::for_request();
-        let turn_held = || CodexError::SessionTurnInFlight { session_id };
-        loop {
-            // Sent into a turn still ending, it would start a turn no run holds once that ends.
-            if !wait_for_codex_turns(inbound, CodexTurnWait::StoppedTurns, Some(&deadline)).await? {
-                return Err(turn_held().into());
-            }
-            let reading = call_codex_session(inbound, |reply| CodexSessionCall::ReadSession {
-                thread_id: None,
+        let read_session = |thread_id: Option<String>| {
+            call_codex_session(&inbound, |reply| CodexSessionCall::ReadSession {
+                thread_id,
                 reply,
             })
+        };
+        let mut reading = read_session(denial_thread_id.clone()).await?;
+        let thread_id = denial_thread_id.unwrap_or_else(|| reading.thread_id.clone());
+        if thread_id == reading.thread_id {
+            // Sent into a turn the daemon is stopping, the approval would go with the input that
+            // turn drops as it ends.
+            let has_stopped = wait_for_codex_turns(
+                &inbound,
+                CodexTurnWait::StoppedTurns,
+                Some(&CodexTurnEndDeadline::for_request()),
+            )
             .await?;
-            if !reading.live_turn_runs.is_empty() {
-                approval(reading.connection?, reading.thread_id).await?;
-                return Ok(());
+            if !has_stopped {
+                return Err(CodexError::SessionTurnInFlight { session_id });
             }
-            // A turn starting on the session, or a lead run the session's next turn is held for,
-            // runs next, and the answer goes into it once it does.
-            if !reading.is_turn_in_flight {
-                match self
-                    .run_start
-                    .start_daemon_turn(session_id, Arc::clone(&approval))
-                    .await
-                {
-                    Ok(_) => return Ok(()),
-                    Err(
-                        CodexDaemonTurnError::Engine(RunEngineError::Refused(
-                            RunRefusal::SessionTurnHeld { .. },
-                        ))
-                        | CodexDaemonTurnError::Codex(CodexError::SessionTurnInFlight { .. }),
-                    ) => {}
-                    Err(error) => return Err(error),
-                }
-            }
-            if !wait_for_codex_turns(inbound, CodexTurnWait::LiveTurn, Some(&deadline)).await? {
-                return Err(turn_held().into());
-            }
+            reading = read_session(Some(thread_id.clone())).await?;
         }
+        send_approval(
+            &*reading.connection?,
+            thread_id,
+            event,
+            !reading.is_thread_loaded,
+        )
+        .await
     }
 }
 
-// The approval of `event` on `thread_id`, the conversation resumed first where the service has not
-// loaded it; it names no turn, which Codex's own `turn/started` names where it starts one.
-fn compose_approval(thread_id: String, event: Value, needs_resume: bool) -> CodexDaemonTurnOpening {
-    Arc::new(
-        move |connection: Arc<CodexAppServerConnection>, _session_thread_id| {
-            let thread_id = thread_id.clone();
-            let event = event.clone();
-            async move {
-                if needs_resume {
-                    connection
-                        .request(
-                            THREAD_RESUME_METHOD,
-                            &compose_bare_resume(thread_id.clone()),
-                        )
-                        .await?;
-                }
-                connection
-                    .request(
-                        APPROVE_GUARDIAN_DENIED_ACTION_METHOD,
-                        &ThreadApproveGuardianDeniedActionParams { event, thread_id },
-                    )
-                    .await?;
-                Ok(None)
-            }
-            .boxed()
-        },
-    )
+// Sends the approval of `event` on `thread_id`, the conversation resumed first where the service
+// has not loaded it.
+async fn send_approval(
+    connection: &CodexAppServerConnection,
+    thread_id: String,
+    event: Value,
+    needs_resume: bool,
+) -> Result<(), CodexError> {
+    if needs_resume {
+        connection
+            .request(
+                THREAD_RESUME_METHOD,
+                &compose_bare_resume(thread_id.clone()),
+            )
+            .await?;
+    }
+    connection
+        .request(
+            APPROVE_GUARDIAN_DENIED_ACTION_METHOD,
+            &ThreadApproveGuardianDeniedActionParams { event, thread_id },
+        )
+        .await?;
+    Ok(())
 }
 
 // A resume that loads the conversation as it stands, its turns left out of the reply.
@@ -334,12 +293,16 @@ mod tests {
     use serde_json::value::RawValue;
 
     use super::CodexSessionControls;
-    use crate::provider::driver::codex::session::test_session::{TestCodexSession, new_run_id};
+    use crate::provider::driver::codex::session::test_session::{
+        TEST_THREAD, TestCodexSession, new_run_id,
+    };
     use crate::provider::driver::run_control::OverrideDenialParams;
 
-    // Kills: the resume dropped, which Codex answers with "thread not found".
+    // Kills: the resume dropped, which Codex answers with "thread not found"; and `Allow once` on
+    // the session's idle conversation opened as a run waiting for a turn Codex never starts, since
+    // Codex records the approval there with no new turn.
     #[tokio::test]
-    async fn allow_once_on_a_conversation_the_service_has_not_loaded_resumes_it_first() {
+    async fn allow_once_reaches_the_blocked_conversation_and_starts_no_turn() {
         let mut session = TestCodexSession::start().await;
         let controls = CodexSessionControls::new(
             Arc::clone(&session.slots),
@@ -383,5 +346,27 @@ mod tests {
         .await
         .expect("the approval settles");
         allowed.expect("Codex takes the approval");
+
+        let idle_denial = json!({"threadId": TEST_THREAD, "turnId": "turn-4"});
+        let allow_idle = controls.override_denial(OverrideDenialParams {
+            session_id: session.task.record.session_id,
+            run_id: new_run_id(),
+            provider_denial: RawValue::from_string(idle_denial.to_string())
+                .expect("the denial is JSON"),
+        });
+        let script = &mut session.scripted.script;
+        let service = async {
+            let approved = script.next_sent().await;
+            assert_eq!(approved["method"], "thread/approveGuardianDeniedAction");
+            assert_eq!(approved["params"]["threadId"], TEST_THREAD);
+            script.answer(&approved, &json!({}));
+        };
+        let (allowed_idle, ()) = tokio::time::timeout(
+            Duration::from_secs(10),
+            Box::pin(async { tokio::join!(session.task.drive(allow_idle), service) }),
+        )
+        .await
+        .expect("the approval on the idle conversation answers at once, waiting for no turn");
+        allowed_idle.expect("Codex records the approval on the idle conversation");
     }
 }

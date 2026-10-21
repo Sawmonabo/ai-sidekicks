@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -44,8 +45,14 @@ use crate::session::run::inbound::{InboundDelivery, InboundOutcome, RunInboundDi
 
 /// What the rest of the Codex driver does for a frame, which the frame delivery cannot do itself.
 pub(crate) trait CodexFrameEffects: Send + Sync {
-    /// Settles the card of an ask Codex resolved or let go of itself.
-    fn withdraw_ask(&self, session_id: SessionId, request_id: &str, ask_kind: CodexAskKind);
+    /// Settles the card of an ask Codex resolved or let go of itself, on the session's account.
+    fn withdraw_ask(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<&ProviderAccountId>,
+        request_id: &str,
+        ask_kind: CodexAskKind,
+    );
 
     /// Drops the corrections waiting on a turn that ended.
     fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str);

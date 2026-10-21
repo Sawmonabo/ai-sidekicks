@@ -5,8 +5,8 @@
 //! running command takes none; a tool server's call takes the session's where Codex says it keeps
 //! one and the tool is known, since Codex keeps that allow for the one tool and never the whole
 //! server. A command is read as the whole line it runs, the one its `<shell> -lc '…'` wrapper hands
-//! the shell, read once on the ask's own shell-line reader for every check, and a tool server's call
-//! is named as Codex's pre-tool hook names it.
+//! the shell, read once on the ask's own shell-line reader for every check, and a tool server's
+//! call is named as Codex's pre-tool hook names it.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
@@ -46,9 +46,9 @@ pub(crate) struct CodexAskReading {
 
 /// Reads one approval from its method and its untrusted params. `changed_paths` are the files the
 /// change item a file-change ask names will touch, read from that item, since such an ask names no
-/// file itself; `called_tool` is the tool of the one tool call in flight on the ask's thread for its
-/// server, where there is exactly one, since Codex's own ask before a tool call names no tool. No
-/// other ask reads them. A command's line is read on `reader`, the ask's own, which runs on the
+/// file itself; `called_tool` is the tool of the one tool call in flight on the ask's thread for
+/// its server, where there is exactly one, since Codex's own ask before a tool call names no tool.
+/// No other ask reads them. A command's line is read on `reader`, the ask's own, which runs on the
 /// daemon-wide shell-line bound's blocking thread.
 pub(crate) fn read_codex_ask_action(
     method: &str,
