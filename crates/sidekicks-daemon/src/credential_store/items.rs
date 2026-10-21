@@ -1,6 +1,6 @@
 //! The daemon's secrets for one run: the place picked for them, the check that the place keeps what
-//! it is given, the move of the items file's secrets into a Secret Service once one runs, and the
-//! erase of every item the app made.
+//! it is given, the move of the items file's secrets into a Secret Service once one runs and its
+//! default collection is unlocked, and the erase of every item the app made.
 //!
 //! - **The pick.** A start with a place record keeps its place. One without picks the operating
 //!   system's store when it can be reached, else the items file because no Secret Service runs, and
@@ -13,34 +13,39 @@
 //!   until the next start; one locked or not reached refuses that call, and the next call checks
 //!   again.
 //! - **The move.** While the file holds the secrets because no Secret Service ran, each secret call
-//!   and each of the store's signals look for one, and once one answers its check the items move
-//!   into it. The move holds every call behind it, so none writes to a place the move is leaving.
+//!   that finds one running, and each of the store's signals, asks for a settling run, and the call
+//!   is served from the file. The run moves the items only once the Secret Service's default
+//!   collection exists and is unlocked, so no move raises an unlock prompt, and once the store
+//!   passes its check, made outside the place's lock. Only the copy and the deletes hold the calls
+//!   behind them, so none writes to a place the move is leaving, and each store call of the copy
+//!   answers within 2 s. A refusal before the move records its direction leaves the file serving;
+//!   one after leaves the recorded move, which the next call finishes. A store that keeps another
+//!   value stops the move until the next start.
 //!
-//! Every call answers within its one time, its waits for the place, a check and a move included,
-//! and a call with no answer in that time reads `locked`.
+//! Every call answers within its one time, its waits for the place and a check included, and a
+//! call with no answer in that time reads `locked`.
 
+mod erase;
+mod settling;
 #[cfg(test)]
 mod tests;
 
 use std::error::Error;
-use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
 use secrecy::SecretString;
-use sidekicks_contracts::daemon::data::DaemonDataKeychainUnavailableDetails;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use tokio::sync::RwLock;
 
 use crate::credential_store::file::{FileSecretKeychain, SecretItemsFile};
+use crate::credential_store::items::settling::SettleRuns;
 use crate::credential_store::os::{CredentialStoreAccess, OsCredentialStore, OsSecretKeychain};
 use crate::credential_store::place::{self, PlaceRecord, SecretsFileReason, SecretsPlace};
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain, holds_value};
-use crate::ipc::domain_error::DomainError;
 use crate::random_hex::random_hex;
 
 // The random bytes of the check's value and of its probe account's name.
@@ -80,6 +85,8 @@ pub(crate) struct SecretItems {
     call_timeout: Duration,
     /// The place and its check, read by every call and written by a pick, a check and a move.
     state: RwLock<PlaceState>,
+    /// Whether a settling run is under way, so only one runs at a time.
+    settle_runs: Mutex<SettleRuns>,
 }
 
 // What this run knows of the place.
@@ -89,6 +96,9 @@ struct PlaceState {
     // Where calls go, once picked.
     picked: Option<SecretsPlace>,
     verdict: Verdict,
+    // Whether a Secret Service kept another value than its check wrote, which stops the move until
+    // the next start.
+    is_move_stopped: bool,
 }
 
 // The place record as this run read it.
@@ -125,17 +135,42 @@ enum Check {
     Refused(KeychainRefusal),
 }
 
-// Whether an erase must reach the operating system's store or sweeps it only when it answers.
-enum OperatingSystemSweep {
-    Required,
-    WhenReachable,
+impl PlaceState {
+    // What a call may do with the place as it stands.
+    fn readiness(&self) -> Readiness {
+        match &self.record {
+            RecordState::Unread => return Readiness::Unsettled,
+            RecordState::Unreadable(reason) => {
+                return Readiness::Refused(unreadable_record(reason));
+            }
+            RecordState::Absent | RecordState::Present(_) => {}
+        }
+        let Some(place) = self.picked else {
+            return Readiness::Unsettled;
+        };
+        match self.verdict {
+            Verdict::Mismatch => Readiness::Refused(mismatch()),
+            Verdict::Unchecked => Readiness::Unsettled,
+            Verdict::Accepted => Readiness::Ready(place),
+        }
+    }
+
+    // Whether a settling run may move the items: they sit in the file because no Secret Service
+    // ran, and no Secret Service has kept another value this run.
+    fn is_waiting_to_move(&self, place: SecretsPlace) -> bool {
+        !self.is_move_stopped
+            && place
+                == SecretsPlace::File {
+                    reason: SecretsFileReason::NoSecretService,
+                }
+    }
 }
 
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the daemon's start builds the secret items, checks them in the background, \
+        reason = "the daemon's start builds the secret items, settles them in the background, \
                   hands each feature its keychain and status its file, and the erase calls them"
     )
 )]
@@ -153,6 +188,7 @@ impl SecretItems {
             probe_account,
             call_timeout: start.call_timeout,
             state: RwLock::new(PlaceState::default()),
+            settle_runs: Mutex::new(SettleRuns::default()),
         }))
     }
 
@@ -166,92 +202,46 @@ impl SecretItems {
         }
     }
 
-    /// Picks the place, checks it, and moves the items file's secrets into a Secret Service that
-    /// now runs, as the start asks in the background and each of the store's signals asks again; a
-    /// refusal is logged and the next secret call tries again.
-    pub(crate) async fn settle(&self) {
-        let mut state = self.state.write().await;
-        if let Err(refusal) = self.settle_held(&mut state, true).await {
-            tracing::warn!(
-                error = &refusal as &(dyn Error + 'static),
-                "The secrets' place is not ready; the next secret call tries again"
-            );
-        }
-    }
-
-    /// The items file's path while it holds a secret, for the status read. Fails with the file
-    /// system's error when that cannot be told.
-    pub(crate) async fn secrets_file(&self) -> io::Result<Option<PathBuf>> {
-        Ok(self
-            .items_file
-            .holds_items()
-            .await?
-            .then(|| self.items_file.file_path().to_path_buf()))
-    }
-
-    /// Lists every service's items in every place the erase must empty, before the erase answers,
-    /// so a locked store raises its unlock prompt while the person is at the screen. Fails with
-    /// [`KeychainRefusal`] when the record names the operating system's store and that store is
-    /// locked or cannot be used; nothing is erased then.
-    pub(crate) async fn check_for_erase(&self) -> Result<(), KeychainRefusal> {
-        let _state = self.state.write().await;
-        let sweep = self.operating_system_sweep().await;
-        if matches!(sweep, OperatingSystemSweep::Required)
-            || self.access.check_reachable().await.is_ok()
-        {
-            for service in KeychainService::ALL {
-                if let Err(refusal) = self.os_store.check_items(service.as_str()).await {
-                    self.skip_sweep(&sweep, refusal)?;
-                    break;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Deletes every item the app made: each service's items in the operating system's store,
-    /// probe leftovers and items it cannot name included, and the items file. The store is swept
-    /// when the record names it, and otherwise when it answers, since items can be left there by
-    /// a data folder removed by hand. Fails with [`KeychainRefusal`] at the first item the store
-    /// that must be emptied refuses, before the data folder goes, so the erase can run again.
-    pub(crate) async fn erase_all(&self) -> Result<(), KeychainRefusal> {
-        let _state = self.state.write().await;
-        let sweep = self.operating_system_sweep().await;
-        if matches!(sweep, OperatingSystemSweep::Required)
-            || self.access.check_reachable().await.is_ok()
-        {
-            for service in KeychainService::ALL {
-                if let Err(refusal) = self.os_store.erase_items(service.as_str()).await {
-                    self.skip_sweep(&sweep, refusal)?;
-                    break;
-                }
-            }
-        }
-        self.items_file.remove_all().await
+    /// The items file's path while it holds an item a move would carry, for the status read; a
+    /// file that cannot be read counts, since it may hold one.
+    pub(crate) async fn secrets_file(&self) -> Option<PathBuf> {
+        let moved_services: Vec<&str> = KeychainService::ALL
+            .into_iter()
+            .filter(|service| service.is_moved())
+            .map(KeychainService::as_str)
+            .collect();
+        self.items_file
+            .holds_items(&moved_services)
+            .await
+            .then(|| self.items_file.file_path().to_path_buf())
     }
 
     // Serves one call within the call's time: waits for the place, settles it when it is not, then
-    // runs `call` on it while no move can start.
+    // runs `call` on it while no move can start, asking for a settling run when the items wait for
+    // a Secret Service that now runs.
     async fn serve<'call, Answer: Send>(
-        &'call self,
+        self: &'call Arc<Self>,
         service: KeychainService,
         call: impl FnOnce(SecretsPlace) -> BoxFuture<'call, Result<Answer, KeychainRefusal>> + Send,
     ) -> Result<Answer, KeychainRefusal> {
         let answer = tokio::time::timeout(self.call_timeout, async {
-            let mut may_move = true;
-            let (_state, place) = loop {
+            let (state, place) = loop {
                 let state = self.state.read().await;
-                match self.readiness(&state, may_move).await {
+                match state.readiness() {
                     Readiness::Ready(place) => break (state, place),
                     Readiness::Refused(refusal) => return Err(refusal),
                     Readiness::Unsettled => {}
                 }
                 drop(state);
                 let mut state = self.state.write().await;
-                self.settle_held(&mut state, may_move).await?;
-                may_move = false;
+                self.settle_held(&mut state).await?;
             };
-            call(place).await
+            if state.is_waiting_to_move(place) && self.access.check_reachable().await.is_ok() {
+                self.nudge();
+            }
+            let answer = call(place).await;
+            drop(state);
+            answer
         })
         .await
         .unwrap_or_else(|_elapsed| {
@@ -270,37 +260,9 @@ impl SecretItems {
         answer
     }
 
-    // What a call may do with the place as it stands; a file kept because no Secret Service ran
-    // is unsettled once one answers, when `may_move`.
-    async fn readiness(&self, state: &PlaceState, may_move: bool) -> Readiness {
-        match &state.record {
-            RecordState::Unread => return Readiness::Unsettled,
-            RecordState::Unreadable(reason) => {
-                return Readiness::Refused(unreadable_record(reason));
-            }
-            RecordState::Absent | RecordState::Present(_) => {}
-        }
-        let Some(place) = state.picked else {
-            return Readiness::Unsettled;
-        };
-        match state.verdict {
-            Verdict::Mismatch => return Readiness::Refused(mismatch()),
-            Verdict::Unchecked => return Readiness::Unsettled,
-            Verdict::Accepted => {}
-        }
-        if may_move && is_waiting_for_secret_service(place) && self.is_store_reachable().await {
-            return Readiness::Unsettled;
-        }
-        Readiness::Ready(place)
-    }
-
-    // Reads the record, picks the place, checks it, and when `may_move` moves the file's items into
-    // a Secret Service that now answers. Fails with the refusal the caller answers with.
-    async fn settle_held(
-        &self,
-        state: &mut PlaceState,
-        may_move: bool,
-    ) -> Result<(), KeychainRefusal> {
+    // Reads the record, picks the place and checks it, as far as each is not done yet, and answers
+    // the place calls go to. Fails with the refusal the caller answers with.
+    async fn settle_held(&self, state: &mut PlaceState) -> Result<SecretsPlace, KeychainRefusal> {
         if matches!(state.record, RecordState::Unread) {
             state.record = match place::read_record(&self.record_path).await {
                 Ok(Some(record)) => RecordState::Present(record),
@@ -323,8 +285,8 @@ impl SecretItems {
             None => self.pick(state).await?,
         };
         match state.verdict {
-            Verdict::Mismatch => return Err(mismatch()),
-            Verdict::Accepted => {}
+            Verdict::Mismatch => Err(mismatch()),
+            Verdict::Accepted => Ok(place),
             Verdict::Unchecked => match self.check(place).await {
                 Check::Accepted => {
                     if matches!(state.record, RecordState::Absent) {
@@ -333,6 +295,7 @@ impl SecretItems {
                         state.record = RecordState::Present(record);
                     }
                     state.verdict = Verdict::Accepted;
+                    Ok(place)
                 }
                 Check::Mismatch => {
                     state.verdict = Verdict::Mismatch;
@@ -341,25 +304,11 @@ impl SecretItems {
                         "The secrets' place kept another value than the one written, so every \
                          secret call is refused until the next start"
                     );
-                    return Err(mismatch());
+                    Err(mismatch())
                 }
-                Check::Refused(refusal) => return Err(refusal),
+                Check::Refused(refusal) => Err(refusal),
             },
         }
-        if may_move && is_waiting_for_secret_service(place) && self.is_store_reachable().await {
-            let record = PlaceRecord::settled(place);
-            if let Err(refusal) = self
-                .move_items(state, record, SecretsPlace::OperatingSystem)
-                .await
-            {
-                tracing::warn!(
-                    error = &refusal as &(dyn Error + 'static),
-                    "The secrets stay in the items file: their move into the Secret Service was \
-                     refused, and the next secret call or signal tries again"
-                );
-            }
-        }
-        Ok(())
     }
 
     // Picks this run's place from the record, finishing a move the record names first, or with no
@@ -372,7 +321,13 @@ impl SecretItems {
         let place = match recorded {
             Some(record) => match record.moving_to {
                 Some(destination) => {
-                    self.move_items(state, record, destination).await?;
+                    match self.check(destination).await {
+                        Check::Accepted => {}
+                        Check::Mismatch => return Err(mismatch()),
+                        Check::Refused(refusal) => return Err(refusal),
+                    }
+                    let to = |service| self.place_keychain(destination, service);
+                    self.move_items(state, record, destination, &to).await?;
                     destination
                 }
                 None => record.place,
@@ -411,29 +366,28 @@ impl SecretItems {
         Ok(place)
     }
 
-    // Checks `destination`, then moves every item from `record`'s place into it. On success the
-    // destination serves, already checked, and a file left behind is deleted; on a refusal the
-    // record is read again at the next call, since the move may have recorded its direction.
+    // Moves every item from `record`'s place into `destination`, already checked, through the
+    // keychains `to` gives. On success the destination serves, checked, and a file left behind is
+    // deleted. Fails with the refusal, leaving `state` as it was when the move stopped before
+    // recording its direction, and otherwise the recorded move, which the next call finishes.
     async fn move_items(
         &self,
         state: &mut PlaceState,
         record: PlaceRecord,
         destination: SecretsPlace,
+        to: &(dyn Fn(KeychainService) -> Box<dyn SecretKeychain> + Sync),
     ) -> Result<(), KeychainRefusal> {
-        let moved = async {
-            match self.check(destination).await {
-                Check::Accepted => {}
-                Check::Mismatch => return Err(mismatch()),
-                Check::Refused(refusal) => return Err(refusal),
+        let from = |service| self.place_keychain(record.place, service);
+        if let Err(stopped) =
+            place::move_items(&self.record_path, record, destination, &from, to).await
+        {
+            if stopped.record != record {
+                *state = PlaceState {
+                    record: RecordState::Present(stopped.record),
+                    ..PlaceState::default()
+                };
             }
-            let from = |service| self.place_keychain(record.place, service);
-            let to = |service| self.place_keychain(destination, service);
-            place::move_items(&self.record_path, record, destination, &from, &to).await
-        }
-        .await;
-        if let Err(refusal) = moved {
-            *state = PlaceState::default();
-            return Err(refusal);
+            return Err(stopped.refusal);
         }
         if matches!(record.place, SecretsPlace::File { .. })
             && let Err(refusal) = self.items_file.remove_all().await
@@ -447,6 +401,7 @@ impl SecretItems {
             record: RecordState::Present(PlaceRecord::settled(destination)),
             picked: Some(destination),
             verdict: Verdict::Accepted,
+            is_move_stopped: false,
         };
         tracing::info!(place = ?destination, "The daemon's secrets moved");
         Ok(())
@@ -497,40 +452,6 @@ impl SecretItems {
         match place {
             SecretsPlace::OperatingSystem => Box::new(self.os_store.keychain(service.as_str())),
             SecretsPlace::File { .. } => Box::new(self.items_file.keychain(service.as_str())),
-        }
-    }
-
-    async fn is_store_reachable(&self) -> bool {
-        self.access.check_reachable().await.is_ok()
-    }
-
-    // Whether the erase must reach the operating system's store: when the record names it. With
-    // no record, or one that cannot be read, the store is swept only when it answers.
-    async fn operating_system_sweep(&self) -> OperatingSystemSweep {
-        match place::read_record(&self.record_path).await {
-            Ok(Some(record)) if record.names_operating_system() => OperatingSystemSweep::Required,
-            Ok(Some(_) | None) | Err(_) => OperatingSystemSweep::WhenReachable,
-        }
-    }
-
-    // A store the erase must empty refuses with `refusal`; one it sweeps only when it answers is
-    // left, logged.
-    fn skip_sweep(
-        &self,
-        sweep: &OperatingSystemSweep,
-        refusal: KeychainRefusal,
-    ) -> Result<(), KeychainRefusal> {
-        match sweep {
-            OperatingSystemSweep::Required => Err(refusal),
-            OperatingSystemSweep::WhenReachable => {
-                tracing::info!(
-                    error = &refusal as &(dyn Error + 'static),
-                    file = %self.items_file.file_path().display(),
-                    "The erase leaves the operating system's store, which does not hold the \
-                     secrets and does not answer"
-                );
-                Ok(())
-            }
         }
     }
 }
@@ -595,28 +516,6 @@ impl SecretKeychain for ItemsKeychain {
                 .serve(self.service, move |place| self.at(place).accounts()),
         )
     }
-}
-
-/// The erase's refusal for a store check that failed before its answer:
-/// `daemon.data.keychainUnavailable` with the cause.
-#[expect(dead_code, reason = "the erase answers a refused store check with it")]
-pub(crate) fn erase_refused(refusal: KeychainRefusal) -> DomainError {
-    let cause = refusal.cause();
-    let (message, failure) = refusal.into_failure();
-    let refused = DomainError::new(message, RefusalCode::DaemonDataKeychainUnavailable)
-        .with_detail(DaemonDataKeychainUnavailableDetails { cause });
-    match failure {
-        Some(failure) => refused.with_source(failure),
-        None => refused,
-    }
-}
-
-// Whether `place` is the file kept only because no Secret Service ran, which moves into one.
-fn is_waiting_for_secret_service(place: SecretsPlace) -> bool {
-    place
-        == SecretsPlace::File {
-            reason: SecretsFileReason::NoSecretService,
-        }
 }
 
 fn unreadable_record(reason: &str) -> KeychainRefusal {

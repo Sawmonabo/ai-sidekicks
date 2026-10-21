@@ -109,7 +109,6 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         .secret_items
         .secrets_file()
         .await
-        .map_err(|error| HandlerError::Internal(Box::new(error)))?
         .map(|path| FilesystemPath::new(path.to_string_lossy().into_owned()))
         .transpose()
         .map_err(|error| HandlerError::Internal(Box::new(error)))?;

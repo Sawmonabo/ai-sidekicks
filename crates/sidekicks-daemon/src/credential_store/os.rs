@@ -21,7 +21,9 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{CredentialStore, CredentialStoreError, CredentialStoreUnreachable};
+use sidekicks_platforms::{
+    CredentialStore, CredentialStoreError, CredentialStoreUnreachable, CredentialStoreWatch,
+};
 use tokio::sync::oneshot;
 
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
@@ -31,12 +33,17 @@ use crate::keyed_lock::KeyedLock;
 #[expect(dead_code, reason = "the daemon's start passes it")]
 pub(crate) const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// This machine's credential store as the daemon reaches it: whether it can be reached, opening it,
-/// and what holds its items; a test supplies a store of its own.
+/// This machine's credential store as the daemon reaches it: whether it can be reached, whether it
+/// takes items without a prompt, opening it, and what holds its items; a test supplies a store of
+/// its own.
 pub(crate) trait CredentialStoreAccess: Send + Sync {
     /// Whether the store can be reached now, without opening it. Fails with
     /// [`CredentialStoreUnreachable`] naming the condition that failed and its remedy.
     fn check_reachable(&self) -> BoxFuture<'_, Result<(), CredentialStoreUnreachable>>;
+
+    /// Whether the store takes items now without raising an unlock prompt, read without starting
+    /// it. Fails with [`CredentialStoreUnreachable`] when that cannot be read.
+    fn is_unlocked(&self) -> BoxFuture<'_, Result<bool, CredentialStoreUnreachable>>;
 
     /// Opens the store, blocking while it connects. Fails with [`CredentialStoreError`] when it
     /// cannot be built or reached.
@@ -46,16 +53,23 @@ pub(crate) trait CredentialStoreAccess: Send + Sync {
     fn description(&self) -> BoxFuture<'_, String>;
 }
 
-/// The system's own credential store, through the platforms crate.
+/// The system's own credential store, through the platforms crate, asked over the store's watch.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the daemon's start hands it to the secret items")
 )]
-pub(crate) struct SystemCredentialStore;
+pub(crate) struct SystemCredentialStore {
+    /// The watch the start began, whose connection answers every question about the store.
+    pub(crate) watch: CredentialStoreWatch,
+}
 
 impl CredentialStoreAccess for SystemCredentialStore {
     fn check_reachable(&self) -> BoxFuture<'_, Result<(), CredentialStoreUnreachable>> {
-        CredentialStore::check_reachable().boxed()
+        self.watch.check_reachable().boxed()
+    }
+
+    fn is_unlocked(&self) -> BoxFuture<'_, Result<bool, CredentialStoreUnreachable>> {
+        self.watch.is_unlocked().boxed()
     }
 
     fn open(&self) -> Result<CredentialStore, CredentialStoreError> {
@@ -63,7 +77,7 @@ impl CredentialStoreAccess for SystemCredentialStore {
     }
 
     fn description(&self) -> BoxFuture<'_, String> {
-        CredentialStore::description().boxed()
+        self.watch.description().boxed()
     }
 }
 
@@ -94,11 +108,22 @@ impl OsCredentialStore {
     }
 
     /// The items filed under `service` in this store, sharing its per-entry lock with every other
-    /// service's.
+    /// service's, each call answered within the store's time.
     pub(crate) fn keychain(self: &Arc<Self>, service: &str) -> OsSecretKeychain {
+        self.keychain_within(service, self.call_timeout)
+    }
+
+    /// The items filed under `service`, as [`Self::keychain`], each call answered within
+    /// `call_timeout` instead of the store's time.
+    pub(crate) fn keychain_within(
+        self: &Arc<Self>,
+        service: &str,
+        call_timeout: Duration,
+    ) -> OsSecretKeychain {
         OsSecretKeychain {
             store: Arc::clone(self),
             service: service.to_owned(),
+            call_timeout,
         }
     }
 
@@ -108,7 +133,7 @@ impl OsCredentialStore {
         self: &Arc<Self>,
         service: &str,
     ) -> Result<(), KeychainRefusal> {
-        self.call(service, "", |credentials, service, _| {
+        self.call(service, "", self.call_timeout, |credentials, service, _| {
             credentials.accounts(service).map(drop)
         })
         .await
@@ -121,7 +146,7 @@ impl OsCredentialStore {
         self: &Arc<Self>,
         service: &str,
     ) -> Result<(), KeychainRefusal> {
-        self.call(service, "", |credentials, service, _| {
+        self.call(service, "", self.call_timeout, |credentials, service, _| {
             for item in credentials.accounts(service)? {
                 item.remove()?;
             }
@@ -131,13 +156,15 @@ impl OsCredentialStore {
     }
 
     // Runs `operation` on the entry under `service` and `account` once every earlier call on it has
-    // answered, on a blocking thread, and answers `locked` when that takes longer than the call's
-    // time. The entry is held in a task of its own, so it stays held until the store answers even
-    // after the caller stops waiting; a task still queued for the entry then leaves the queue.
+    // answered, on a blocking thread, and answers `locked` when that takes longer than
+    // `call_timeout`. The entry is held in a task of its own, so it stays held until the store
+    // answers even after the caller stops waiting; a task still queued for the entry then leaves
+    // the queue.
     async fn call<Answer: Send + 'static>(
         self: &Arc<Self>,
         service: &str,
         account: &str,
+        call_timeout: Duration,
         operation: impl FnOnce(&CredentialStore, &str, &str) -> Result<Answer, CredentialStoreError>
         + Send
         + 'static,
@@ -180,7 +207,7 @@ impl OsCredentialStore {
             }
             Some(answer)
         });
-        match tokio::time::timeout(self.call_timeout, held_call).await {
+        match tokio::time::timeout(call_timeout, held_call).await {
             Ok(Ok(Some(Ok(Ok(answer))))) => Ok(answer),
             Ok(Ok(Some(Ok(Err(refused))))) => {
                 let cause = if refused.is_locked() {
@@ -199,10 +226,7 @@ impl OsCredentialStore {
             // same answer the timeout gives.
             Ok(Ok(None)) | Err(_) => Err(KeychainRefusal::new(
                 KeychainRefusalCause::Locked,
-                format!(
-                    "the credential store gave no answer within {:?}",
-                    self.call_timeout
-                ),
+                format!("the credential store gave no answer within {call_timeout:?}"),
             )),
         }
     }
@@ -224,25 +248,28 @@ impl OsCredentialStore {
     }
 }
 
-/// A credential store a test hands the daemon: one store it opens, and whether it can be reached and
-/// whether it opens, each switched by the test.
+/// A credential store a test hands the daemon: one store it opens, and whether it can be reached,
+/// takes items without a prompt and opens, each switched by the test.
 #[cfg(test)]
 pub(crate) struct TestStoreAccess {
     /// The store each open answers with.
     pub(crate) credentials: CredentialStore,
     /// Whether the store can be reached.
     pub(crate) is_reachable: std::sync::atomic::AtomicBool,
+    /// Whether the store takes items without a prompt.
+    pub(crate) is_unlocked: std::sync::atomic::AtomicBool,
     /// Whether the store opens.
     pub(crate) opens: std::sync::atomic::AtomicBool,
 }
 
 #[cfg(test)]
 impl TestStoreAccess {
-    /// A store over `credentials` that can be reached and opens.
+    /// A store over `credentials` that can be reached, takes items without a prompt and opens.
     pub(crate) fn new(credentials: CredentialStore) -> Arc<Self> {
         Arc::new(Self {
             credentials,
             is_reachable: std::sync::atomic::AtomicBool::new(true),
+            is_unlocked: std::sync::atomic::AtomicBool::new(true),
             opens: std::sync::atomic::AtomicBool::new(true),
         })
     }
@@ -259,6 +286,11 @@ impl CredentialStoreAccess for TestStoreAccess {
                 Err(CredentialStoreUnreachable::NoSecretService)
             }
         })
+    }
+
+    fn is_unlocked(&self) -> BoxFuture<'_, Result<bool, CredentialStoreUnreachable>> {
+        let is_unlocked = self.is_unlocked.load(std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move { Ok(is_unlocked) })
     }
 
     fn open(&self) -> Result<CredentialStore, CredentialStoreError> {
@@ -282,6 +314,8 @@ pub(crate) struct OsSecretKeychain {
     store: Arc<OsCredentialStore>,
     /// The keychain service the items are filed under.
     service: String,
+    /// How long a caller waits for each call, the wait for the entry included.
+    call_timeout: Duration,
 }
 
 impl SecretKeychain for OsSecretKeychain {
@@ -294,6 +328,7 @@ impl SecretKeychain for OsSecretKeychain {
         Box::pin(self.store.call(
             &self.service,
             account,
+            self.call_timeout,
             move |credentials, service, account| credentials.write(service, account, &value),
         ))
     }
@@ -302,37 +337,42 @@ impl SecretKeychain for OsSecretKeychain {
         &'call self,
         account: &'call str,
     ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
-        Box::pin(
-            self.store
-                .call(&self.service, account, |credentials, service, account| {
-                    credentials.read(service, account)
-                }),
-        )
+        Box::pin(self.store.call(
+            &self.service,
+            account,
+            self.call_timeout,
+            CredentialStore::read,
+        ))
     }
 
     fn remove<'call>(
         &'call self,
         account: &'call str,
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
-        Box::pin(
-            self.store
-                .call(&self.service, account, |credentials, service, account| {
-                    credentials.remove(service, account)
-                }),
-        )
+        Box::pin(self.store.call(
+            &self.service,
+            account,
+            self.call_timeout,
+            CredentialStore::remove,
+        ))
     }
 
     fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
         Box::pin(async move {
             let accounts = self
                 .store
-                .call(&self.service, "", |credentials, service, _| {
-                    Ok(credentials
-                        .accounts(service)?
-                        .iter()
-                        .map(|item| item.account().map(str::to_owned))
-                        .collect::<Vec<_>>())
-                })
+                .call(
+                    &self.service,
+                    "",
+                    self.call_timeout,
+                    |credentials, service, _| {
+                        Ok(credentials
+                            .accounts(service)?
+                            .iter()
+                            .map(|item| item.account().map(str::to_owned))
+                            .collect::<Vec<_>>())
+                    },
+                )
                 .await?;
             accounts
                 .into_iter()

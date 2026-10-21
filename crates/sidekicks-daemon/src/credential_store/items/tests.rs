@@ -6,7 +6,7 @@ use std::time::Duration;
 use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{BlockingCredentialStore, CredentialStore};
+use sidekicks_platforms::{BlockingCredentialStore, CredentialStore, CredentialStoreWatch};
 
 use super::{SecretItems, SecretItemsStart};
 use crate::credential_store::SecretKeychain;
@@ -60,6 +60,19 @@ async fn write_and_read(
     Ok(kept.map(|kept| kept.expose_secret().to_owned()))
 }
 
+// A data folder whose items file holds `first = one` because no Secret Service ran.
+async fn folder_with_a_filed_secret() -> tempfile::TempDir {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    std::fs::write(folder.path().join(RECORD), NO_SECRET_SERVICE)
+        .expect("the test writes the record");
+    SecretItemsFile::new(folder.path())
+        .keychain(WORKFLOW)
+        .write("first", &SecretString::from("one"))
+        .await
+        .expect("the test fills the file");
+    folder
+}
+
 fn read_text(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
@@ -72,24 +85,129 @@ fn stored(credentials: &CredentialStore, service: &str, account: &str) -> Option
 }
 
 /// Every pick the record and the machine allow, each served or refused as its place says, the
-/// record written only once its place passes its check. Mutations: ignore the record at a later
-/// start (a recorded store that cannot be reached is then traded for the file); let a store that
-/// does not open fall back to the file; write the record before the check accepts; pick the login
-/// keychain for a Mac's logged-out service.
+/// record written only once its place passes its check, and a call served from the file even once
+/// a Secret Service runs. Mutations: ignore the record at a later start (a recorded store that
+/// cannot be reached is then traded for the file); let a store that does not open fall back to the
+/// file; write the record before the check accepts; pick the login keychain for a Mac's logged-out
+/// service.
 #[rstest]
-#[case::first_start_with_a_store(None, None, true, true, false, Ok(()), (Some(OPERATING_SYSTEM), false, true))]
-#[case::first_start_whose_store_does_not_open(None, None, true, false, false, Err(KeychainRefusalCause::Unavailable), (None, false, false))]
-#[case::first_start_with_no_secret_service(None, None, false, false, false, Ok(()), (Some(NO_SECRET_SERVICE), true, false))]
-#[case::first_start_of_a_logged_out_service(None, None, true, true, true, Ok(()), (Some(LOGGED_OUT), true, false))]
-#[case::recorded_store(Some(OPERATING_SYSTEM), None, true, true, false, Ok(()), (Some(OPERATING_SYSTEM), false, true))]
-#[case::recorded_store_not_reached(Some(OPERATING_SYSTEM), None, false, false, false, Err(KeychainRefusalCause::Unavailable), (Some(OPERATING_SYSTEM), false, false))]
-#[case::recorded_file_still_without_a_secret_service(Some(NO_SECRET_SERVICE), None, false, true, false, Ok(()), (Some(NO_SECRET_SERVICE), true, false))]
-#[case::recorded_file_once_a_secret_service_runs(Some(NO_SECRET_SERVICE), None, true, true, false, Ok(()), (Some(OPERATING_SYSTEM), false, true))]
-#[case::recorded_file_of_a_logged_out_service(Some(LOGGED_OUT), None, true, true, false, Ok(()), (Some(LOGGED_OUT), true, false))]
-#[case::recorded_move(Some(MOVING_IN), None, true, true, false, Ok(()), (Some(OPERATING_SYSTEM), false, true))]
-#[case::recorded_move_whose_store_is_gone(Some(MOVING_IN), None, false, false, false, Err(KeychainRefusalCause::Unavailable), (Some(MOVING_IN), false, false))]
-#[case::unreadable_record(Some("{\"place\":"), None, true, true, false, Err(KeychainRefusalCause::Unavailable), (Some("{\"place\":"), false, false))]
-#[case::unreadable_items_file(Some(NO_SECRET_SERVICE), Some("{\"ai-sidekicks"), false, true, false, Err(KeychainRefusalCause::Unavailable), (Some(NO_SECRET_SERVICE), true, false))]
+#[case::first_start_with_a_store(
+    None,
+    None,
+    true,
+    true,
+    false,
+    Ok(()),
+    (Some(OPERATING_SYSTEM), false, true)
+)]
+#[case::first_start_whose_store_does_not_open(
+    None,
+    None,
+    true,
+    false,
+    false,
+    Err(KeychainRefusalCause::Unavailable),
+    (None, false, false)
+)]
+#[case::first_start_with_no_secret_service(
+    None,
+    None,
+    false,
+    false,
+    false,
+    Ok(()),
+    (Some(NO_SECRET_SERVICE), true, false)
+)]
+#[case::first_start_of_a_logged_out_service(
+    None,
+    None,
+    true,
+    true,
+    true,
+    Ok(()),
+    (Some(LOGGED_OUT), true, false)
+)]
+#[case::recorded_store(
+    Some(OPERATING_SYSTEM),
+    None,
+    true,
+    true,
+    false,
+    Ok(()),
+    (Some(OPERATING_SYSTEM), false, true)
+)]
+#[case::recorded_store_not_reached(
+    Some(OPERATING_SYSTEM),
+    None,
+    false,
+    false,
+    false,
+    Err(KeychainRefusalCause::Unavailable),
+    (Some(OPERATING_SYSTEM), false, false)
+)]
+#[case::recorded_file_still_without_a_secret_service(
+    Some(NO_SECRET_SERVICE),
+    None,
+    false,
+    true,
+    false,
+    Ok(()),
+    (Some(NO_SECRET_SERVICE), true, false)
+)]
+#[case::recorded_file_while_a_secret_service_runs(
+    Some(NO_SECRET_SERVICE),
+    None,
+    true,
+    true,
+    false,
+    Ok(()),
+    (Some(NO_SECRET_SERVICE), true, false)
+)]
+#[case::recorded_file_of_a_logged_out_service(
+    Some(LOGGED_OUT),
+    None,
+    true,
+    true,
+    false,
+    Ok(()),
+    (Some(LOGGED_OUT), true, false)
+)]
+#[case::recorded_move(
+    Some(MOVING_IN),
+    None,
+    true,
+    true,
+    false,
+    Ok(()),
+    (Some(OPERATING_SYSTEM), false, true)
+)]
+#[case::recorded_move_whose_store_is_gone(
+    Some(MOVING_IN),
+    None,
+    false,
+    false,
+    false,
+    Err(KeychainRefusalCause::Unavailable),
+    (Some(MOVING_IN), false, false)
+)]
+#[case::unreadable_record(
+    Some("{\"place\":"),
+    None,
+    true,
+    true,
+    false,
+    Err(KeychainRefusalCause::Unavailable),
+    (Some("{\"place\":"), false, false)
+)]
+#[case::unreadable_items_file(
+    Some(NO_SECRET_SERVICE),
+    Some("{\"ai-sidekicks"),
+    false,
+    true,
+    false,
+    Err(KeychainRefusalCause::Unavailable),
+    (Some(NO_SECRET_SERVICE), true, false)
+)]
 #[tokio::test]
 async fn the_start_picks_and_keeps_the_secrets_place(
     #[case] record: Option<&str>,
@@ -112,6 +230,8 @@ async fn the_start_picks_and_keeps_the_secrets_place(
     let access = TestStoreAccess::new(credentials.clone());
     access.is_reachable.store(is_reachable, Ordering::SeqCst);
     access.opens.store(opens, Ordering::SeqCst);
+    // A locked default collection keeps any settling run a call asks for from moving the items.
+    access.is_unlocked.store(false, Ordering::SeqCst);
     let items = secret_items(
         folder.path(),
         &access,
@@ -135,14 +255,7 @@ async fn the_start_picks_and_keeps_the_secrets_place(
             Some(items_file)
         );
     }
-    assert_eq!(
-        items
-            .secrets_file()
-            .await
-            .expect("the folder reads")
-            .is_some(),
-        has_secrets_file
-    );
+    assert_eq!(items.secrets_file().await.is_some(), has_secrets_file);
     assert_eq!(
         stored(&credentials, WORKFLOW, "secret").is_some(),
         is_in_store
@@ -272,22 +385,23 @@ async fn the_check_never_touches_an_earlier_probe_item() {
 }
 
 /// A store that keeps another value than the one written is refused `unavailable`, its record
-/// never written, and stays refused. Mutation: drop the check's compare.
+/// never written, and stays refused for the run once it keeps values again. Mutations: drop the
+/// check's compare; drop the mismatch's latch, so the second call checks again and is served.
 #[tokio::test]
 async fn a_store_keeping_another_value_is_refused_for_the_run() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let blocking_store = BlockingCredentialStore::new();
     blocking_store.release();
     blocking_store.keep_changed_values_for(PROBE);
-    let access = TestStoreAccess::new(CredentialStore::from_store(blocking_store));
+    let access = TestStoreAccess::new(CredentialStore::from_store(blocking_store.clone()));
     let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
 
-    for _ in 0..2 {
-        assert_eq!(
-            write_and_read(&items, "secret", "value").await,
-            Err(KeychainRefusalCause::Unavailable)
-        );
-    }
+    let first = write_and_read(&items, "secret", "value").await;
+    blocking_store.stop_changing_values_for(PROBE);
+    let second = write_and_read(&items, "secret", "value").await;
+
+    assert_eq!(first, Err(KeychainRefusalCause::Unavailable));
+    assert_eq!(second, Err(KeychainRefusalCause::Unavailable));
     assert!(!folder.path().join(RECORD).exists());
 }
 
@@ -316,9 +430,10 @@ async fn a_locked_check_refuses_that_call_and_the_next_one_checks_again() {
 
 /// The erase deletes every item the app made in the store, probe leftovers included, and the
 /// items file, and leaves another program's item whose service only starts like one of ours. Its
-/// check refuses a store the record names that cannot be used, and passes over one the record does
-/// not name. Mutations: drop the exact-service filter; leave a service out of the set; let the
-/// check pass a recorded store that cannot be used.
+/// check refuses a store that cannot be used when the record names it or cannot be read, and passes
+/// over one a readable record does not name. Mutations: drop the exact-service filter; leave a
+/// service out of the set; let the check pass a recorded store that cannot be used; sweep a store
+/// under an unreadable record only as far as it answers.
 #[tokio::test]
 async fn the_erase_deletes_every_item_the_app_made_and_nothing_else() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
@@ -350,6 +465,12 @@ async fn the_erase_deletes_every_item_the_app_made_and_nothing_else() {
         .await
         .expect_err("a recorded store that cannot be used refuses the erase");
     assert_eq!(refused.cause(), KeychainRefusalCause::Unavailable);
+    std::fs::write(folder.path().join(RECORD), "{\"place\":").expect("the test writes it");
+    let refused = items
+        .check_for_erase()
+        .await
+        .expect_err("a store that can be reached under an unreadable record must be emptied");
+    assert_eq!(refused.cause(), KeychainRefusalCause::Unavailable);
     std::fs::write(folder.path().join(RECORD), NO_SECRET_SERVICE).expect("the test writes it");
     items
         .check_for_erase()
@@ -374,6 +495,153 @@ async fn the_erase_deletes_every_item_the_app_made_and_nothing_else() {
     assert!(!folder.path().join(ITEMS).exists());
 }
 
+/// A call made while a settling run checks a Secret Service is served from the file at once and
+/// never reaches the store, and the run then moves the items. Mutation: run the move inside the
+/// call, so the call waits on the held check and is refused `locked`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_call_during_a_move_is_served_from_the_file_without_a_store_call() {
+    let folder = folder_with_a_filed_secret().await;
+    let blocking_store = BlockingCredentialStore::new();
+    let credentials = CredentialStore::from_store(blocking_store.clone());
+    let access = TestStoreAccess::new(credentials.clone());
+    let items = secret_items(folder.path(), &access, false, Duration::from_secs(2));
+
+    let scenario = async {
+        let settling = tokio::spawn({
+            let items = Arc::clone(&items);
+            async move { items.settle().await }
+        });
+        // The move's check waits on its first write.
+        blocking_store.wait_for_calls(1).await;
+        let served = items
+            .keychain(KeychainService::WorkflowSecrets)
+            .read("first")
+            .await
+            .map(|kept| kept.map(|kept| kept.expose_secret().to_owned()))
+            .map_err(|refusal| refusal.cause());
+        let calls_while_moving = blocking_store.calls();
+        blocking_store.release();
+        settling.await.expect("the settling run ends");
+        (served, calls_while_moving)
+    };
+    let outcome = tokio::time::timeout(Duration::from_secs(5), scenario).await;
+    blocking_store.release();
+    let (served, calls_while_moving) = outcome.expect("every call answers within its time");
+
+    assert_eq!(served, Ok(Some("one".to_owned())));
+    assert_eq!(calls_while_moving, 1);
+    assert_eq!(
+        stored(&credentials, WORKFLOW, "first").as_deref(),
+        Some("one")
+    );
+    assert_eq!(
+        read_text(&folder.path().join(RECORD)).as_deref(),
+        Some(OPERATING_SYSTEM)
+    );
+}
+
+/// A settling request made while a run is under way returns at once and runs it once more when
+/// it ends, so a run whose copy was refused is followed by one that moves the items. Mutation:
+/// drop the request made during a run.
+#[tokio::test]
+async fn a_settling_request_during_a_run_runs_it_once_more() {
+    let folder = folder_with_a_filed_secret().await;
+    let credentials = CredentialStore::in_memory();
+    // The first run's copy is refused, before the move records its direction.
+    credentials.refuse_next_call(WORKFLOW, "first");
+    let access = TestStoreAccess::new(credentials.clone());
+    let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
+
+    let mut first_run = std::pin::pin!(items.settle());
+    assert!(futures::poll!(first_run.as_mut()).is_pending());
+    items.settle().await;
+    first_run.await;
+
+    assert_eq!(
+        stored(&credentials, WORKFLOW, "first").as_deref(),
+        Some("one")
+    );
+    assert!(!folder.path().join(ITEMS).exists());
+    assert_eq!(
+        read_text(&folder.path().join(RECORD)).as_deref(),
+        Some(OPERATING_SYSTEM)
+    );
+}
+
+/// A Secret Service whose default collection is locked or missing gets no move and no store call,
+/// so no move raises an unlock prompt; the file and the record stay byte for byte. Mutation: drop
+/// the collection's lock read.
+#[tokio::test]
+async fn a_locked_default_collection_keeps_the_secrets_in_the_file() {
+    let folder = folder_with_a_filed_secret().await;
+    let items_text = read_text(&folder.path().join(ITEMS));
+    let blocking_store = BlockingCredentialStore::new();
+    blocking_store.release();
+    let access = TestStoreAccess::new(CredentialStore::from_store(blocking_store.clone()));
+    access.is_unlocked.store(false, Ordering::SeqCst);
+    let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
+
+    items.settle().await;
+
+    assert_eq!(blocking_store.calls(), 0);
+    assert_eq!(read_text(&folder.path().join(ITEMS)), items_text);
+    assert_eq!(
+        read_text(&folder.path().join(RECORD)).as_deref(),
+        Some(NO_SECRET_SERVICE)
+    );
+}
+
+/// A write made while the move copies the items waits for the copy and the deletes, then lands in
+/// the store, never in the file the move deletes. Mutation: copy under the place's read lock, so
+/// the write lands in the file mid-move and is deleted with it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_write_during_the_copy_waits_for_it_and_lands_in_the_store() {
+    let folder = folder_with_a_filed_secret().await;
+    let blocking_store = BlockingCredentialStore::new();
+    blocking_store.release();
+    blocking_store.hold_calls_for(WORKFLOW);
+    let credentials = CredentialStore::from_store(blocking_store.clone());
+    let access = TestStoreAccess::new(credentials.clone());
+    let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
+
+    let scenario = async {
+        let settling = tokio::spawn({
+            let items = Arc::clone(&items);
+            async move { items.settle().await }
+        });
+        // The check's write, read and delete answer; the copy's write is held.
+        blocking_store.wait_for_calls(4).await;
+        let writing = tokio::spawn({
+            let items = Arc::clone(&items);
+            async move {
+                items
+                    .keychain(KeychainService::WorkflowSecrets)
+                    .write("first", &SecretString::from("two"))
+                    .await
+                    .map_err(|refusal| refusal.cause())
+            }
+        });
+        // Long enough for a write that does not wait for the copy to land in the file.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        blocking_store.release();
+        settling.await.expect("the settling run ends");
+        writing.await.expect("the write's task ends")
+    };
+    let outcome = tokio::time::timeout(Duration::from_secs(5), scenario).await;
+    blocking_store.release();
+
+    assert_eq!(outcome.expect("every call answers within its time"), Ok(()));
+    assert_eq!(
+        stored(&credentials, WORKFLOW, "first").as_deref(),
+        Some("two")
+    );
+    assert!(!folder.path().join(ITEMS).exists());
+    assert_eq!(
+        read_text(&folder.path().join(RECORD)).as_deref(),
+        Some(OPERATING_SYSTEM)
+    );
+}
+
 /// Each item round-trips through this machine's own credential store, which on Linux is the Secret
 /// Service and never a file or the kernel keyring.
 #[tokio::test]
@@ -383,7 +651,9 @@ async fn an_item_round_trips_through_this_machines_credential_store() {
     let items = SecretItems::new(SecretItemsStart {
         data_folder: folder.path().to_path_buf(),
         runs_while_logged_out: false,
-        access: Arc::new(SystemCredentialStore),
+        access: Arc::new(SystemCredentialStore {
+            watch: CredentialStoreWatch::start().await,
+        }),
         call_timeout: Duration::from_secs(30),
     })
     .expect("the system gives random bytes");

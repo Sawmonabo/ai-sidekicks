@@ -13,13 +13,9 @@
 use std::sync::Arc;
 
 use secrecy::SecretString;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::workflow::secret::{
-    WorkflowSecretId, WorkflowSecretStoreUnavailableDetails, WorkflowSecretValue,
-};
+use sidekicks_contracts::workflow::secret::{WorkflowSecretId, WorkflowSecretValue};
 
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
-use crate::ipc::domain_error::DomainError;
 
 /// Seals, resolves and removes workflow secrets' values in the keychain.
 #[cfg_attr(
@@ -75,26 +71,6 @@ impl WorkflowSecretStore {
     }
 }
 
-/// A refused keychain call answered as `workflow.secret.storeUnavailable` with its cause.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the workflow secret handlers and the steps that resolve a secret answer a \
-                  refused keychain with it"
-    )
-)]
-pub(crate) fn store_unavailable(refusal: KeychainRefusal) -> DomainError {
-    let cause = refusal.cause();
-    let (message, failure) = refusal.into_failure();
-    let refused = DomainError::new(message, RefusalCode::WorkflowSecretStoreUnavailable)
-        .with_detail(WorkflowSecretStoreUnavailableDetails { cause });
-    match failure {
-        Some(failure) => refused.with_source(failure),
-        None => refused,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -104,9 +80,11 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::keychain::KeychainRefusalCause;
-    use sidekicks_contracts::workflow::secret::{WorkflowSecretId, WorkflowSecretValue};
+    use sidekicks_contracts::workflow::secret::{
+        WorkflowSecretId, WorkflowSecretStoreUnavailableDetails, WorkflowSecretValue,
+    };
 
-    use super::{WorkflowSecretStore, store_unavailable};
+    use super::WorkflowSecretStore;
     use crate::credential_store::{KeychainRefusal, SecretKeychain};
 
     /// The value the seal writes.
@@ -171,7 +149,10 @@ mod tests {
             .expect_err("a value the keychain did not keep is refused");
 
         assert_eq!(refusal.cause(), KeychainRefusalCause::Unavailable);
-        let refused = store_unavailable(refusal);
+        let refused = refusal
+            .into_domain_error(RefusalCode::WorkflowSecretStoreUnavailable, |cause| {
+                WorkflowSecretStoreUnavailableDetails { cause }
+            });
         assert_eq!(refused.code, RefusalCode::WorkflowSecretStoreUnavailable);
         for written in [refused.to_string(), format!("{refused:?}")] {
             assert!(!written.contains("hunter2"), "{written}");

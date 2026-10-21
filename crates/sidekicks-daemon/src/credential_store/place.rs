@@ -1,5 +1,5 @@
-//! Where this machine keeps the daemon's secrets, recorded in the data folder, and the move of every
-//! item from one place to the other.
+//! Where this machine keeps the daemon's secrets, recorded in the data folder, and the move of
+//! every item from one place to the other.
 //!
 //! The record, `secrets-place.json` (mode 0600), names the place picked at the first start that
 //! accepted one, so a later start keeps it whatever it finds: a Linux start before login finds no
@@ -107,43 +107,67 @@ pub(crate) async fn write_record(path: &Path, record: &PlaceRecord) -> Result<()
         .map_err(|failure| record_failure(path, failure))
 }
 
+/// A move stopped by a refused call, and the record as it left it: the record it started from when
+/// it stopped before recording its direction, else the record naming the move.
+pub(crate) struct MoveStopped {
+    /// The refused call's refusal.
+    pub(crate) refusal: KeychainRefusal,
+    /// The record at the path once the move stopped.
+    pub(crate) record: PlaceRecord,
+}
+
 /// Moves every item from the keychains `from` gives to those `to` gives, as the module doc says,
-/// recording at `path` the move from `record.place` to `destination`. Fails with
-/// [`KeychainRefusal`] at the first call refused: before any item is deleted the record is left as
-/// it was, and after, it names the move, which the next try finishes.
+/// recording at `path` the move from `record.place` to `destination`. Fails with [`MoveStopped`] at
+/// the first call refused: before any item is deleted the record is left as it was, and after, it
+/// names the move, which the next try finishes.
 pub(crate) async fn move_items(
     path: &Path,
     record: PlaceRecord,
     destination: SecretsPlace,
     from: &(dyn Fn(KeychainService) -> Box<dyn SecretKeychain> + Sync),
     to: &(dyn Fn(KeychainService) -> Box<dyn SecretKeychain> + Sync),
-) -> Result<(), KeychainRefusal> {
+) -> Result<(), MoveStopped> {
     let mut copied = Vec::new();
     for service in KeychainService::ALL
         .into_iter()
         .filter(|service| service.is_moved())
     {
         let (source, target) = (from(service), to(service));
-        for account in source.accounts().await? {
+        for account in source.accounts().await.map_err(stopped_at(record))? {
             // A listed account with no value holds nothing to move.
-            let Some(value) = source.read(&account).await? else {
+            let Some(value) = source.read(&account).await.map_err(stopped_at(record))? else {
                 continue;
             };
-            target.seal(&account, &value).await?;
+            target
+                .seal(&account, &value)
+                .await
+                .map_err(stopped_at(record))?;
             copied.push((service, account));
         }
     }
+    let moving = PlaceRecord {
+        place: record.place,
+        moving_to: Some(destination),
+    };
     if record.moving_to.is_none() {
-        let moving = PlaceRecord {
-            place: record.place,
-            moving_to: Some(destination),
-        };
-        write_record(path, &moving).await?;
+        write_record(path, &moving)
+            .await
+            .map_err(stopped_at(record))?;
     }
     for (service, account) in copied {
-        from(service).remove(&account).await?;
+        from(service)
+            .remove(&account)
+            .await
+            .map_err(stopped_at(moving))?;
     }
-    write_record(path, &PlaceRecord::settled(destination)).await
+    write_record(path, &PlaceRecord::settled(destination))
+        .await
+        .map_err(stopped_at(moving))
+}
+
+// The stop of a move that left `record` at the record's path.
+fn stopped_at(record: PlaceRecord) -> impl FnOnce(KeychainRefusal) -> MoveStopped {
+    move |refusal| MoveStopped { refusal, record }
 }
 
 // The refusal for a record that cannot be read, naming the file.

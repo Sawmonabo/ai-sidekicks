@@ -75,10 +75,18 @@ impl SecretItemsFile {
         }
     }
 
-    /// Whether the file holds an item, which is whether it exists, a file that cannot be read
-    /// included. Fails with the file system's error when that cannot be told.
-    pub(crate) async fn holds_items(&self) -> io::Result<bool> {
-        tokio::fs::try_exists(&self.file_path).await
+    /// Whether the file holds an item filed under one of `services`; a file that cannot be read
+    /// counts as holding one, since it may.
+    pub(crate) async fn holds_items(&self, services: &[&str]) -> bool {
+        let _held = self.calls.lock().await;
+        match self.read_items().await {
+            Ok(items) => services.iter().any(|service| {
+                items
+                    .get(*service)
+                    .is_some_and(|entries| !entries.is_empty())
+            }),
+            Err(_unreadable) => true,
+        }
     }
 
     /// Deletes the file, every item in it with it, and the leftovers of any write cut short; one
