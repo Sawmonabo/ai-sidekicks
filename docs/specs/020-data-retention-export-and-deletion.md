@@ -229,6 +229,8 @@ Erasing a person's data spans three independent storage paths, each carried out 
 5. deletes the data folder, the account homes it created included, and, on a Windows computer, each WSL 2 distribution's `~/.ai-sidekicks/` but its worktrees, after unmounting the private mount there as uninstall does, since it points at the data folder, and the desktop app's main-process log (`main.jsonl` and `main.jsonl.1`), which main deletes from the operating system's logs folder for the app;
 6. starts again empty, and the app opens as on first launch.
 
+Before step 1 the daemon checks that its credential store can be used, so an erase never stops half-way: a locked keychain refuses with `This computer's keychain is locked. Unlock it, then try again.` and one that cannot be used right now with `This computer's keychain can't be used right now, so nothing was erased.` (`daemon.data.credentialStoreUnavailable` with `cause: locked | unavailable`), and nothing is erased on either.
+
 `sidekicks data erase` is refused while the service holds the data folder; on Windows the CLI deletes the items itself through `sidekicks-platforms`' credential code, and the CLI inside a WSL distribution hands the command to it through interop ([§Daemon Secrets](#daemon-secrets)).
 
 **Scope.** Everything the app keeps on this machine: the database, the data folder, the account homes the app created, main's log and every credential-store item it made. Project folders and the person's own provider folders stay. A disk backup taken earlier keeps what it held; the erase claims no more than that. A single session's PII leaves earlier, with its rows, when the person deletes that session (§Retention Policy).
