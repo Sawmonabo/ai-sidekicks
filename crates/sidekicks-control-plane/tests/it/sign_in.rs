@@ -146,7 +146,7 @@ async fn a_spoiled_proof_is_refused_before_the_challenge_is_read(#[case] spoil: 
 }
 
 #[tokio::test]
-async fn a_bad_signature_or_a_replayed_jti_is_refused_and_a_query_still_matches() {
+async fn a_bad_signature_or_a_replayed_jti_is_refused_and_a_query_or_a_fraction_still_matches() {
     let relay = start_relay();
     relay.add_user_with_passkey(USER, HANDLE, PASSKEY, 0);
     let key = DpopKey::generate();
@@ -164,13 +164,16 @@ async fn a_bad_signature_or_a_replayed_jti_is_refused_and_a_query_still_matches(
     let proof = format!("{}{flipped}{}", &proof[..middle], &proof[middle + 1..]);
     assert_proof_refused(&relay, &proof).await;
 
-    // A target that differs only by its query is the same request's.
+    // A target that differs only by its query is the same request's, and an `iat` with a fraction
+    // is a NumericDate.
     relay
         .verifier
         .answer(&json!({ "verified": true, "newCounter": 1 }));
     let (transaction_id, _) = issue_sign_in_challenge(&relay.router).await;
     let mut claims = build_proof_claims(VERIFY_PATH, None);
     claims["htu"] = json!(format!("{ORIGIN}{VERIFY_PATH}?from=sheet"));
+    claims["iat"] = serde_json::from_str(&format!("{}.5", Timestamp::now().as_second()))
+        .expect("a number with a fraction is JSON");
     let used = key.sign(&key.header(), &claims);
     let body = build_assertion(&transaction_id, PASSKEY, Some(HANDLE));
     let (status, _, signed_in) =
