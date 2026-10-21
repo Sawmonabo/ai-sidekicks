@@ -25,7 +25,6 @@ pub mod keyed_lock;
 pub mod mcp;
 pub mod missing_entry;
 pub mod observability;
-pub mod operating_system;
 pub mod orchestration;
 #[cfg(test)]
 pub(crate) mod pause_point;
