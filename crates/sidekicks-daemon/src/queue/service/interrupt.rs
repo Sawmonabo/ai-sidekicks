@@ -38,9 +38,9 @@ use crate::queue::store::{
 use crate::session::run::read::{read_run_through, safe_run_version};
 use crate::session::run::refusals::RunRefusal;
 
-// What a release left unsettled records once its choice applied: nothing more to apply, only
-// what the hold held back to settle.
-const CHOICE_APPLIED: InterruptChoice = InterruptChoice {
+// What a release left unsettled records once its choice settled, applied or not due: nothing more
+// to apply, only what the hold held back to settle.
+const CHOICE_SETTLED: InterruptChoice = InterruptChoice {
     pending: InterruptPendingChoice::KeepWaiting,
     deliver_first: None,
 };
@@ -414,7 +414,7 @@ impl RunQueue {
             settled,
         } = self.settle_release(&hold, run_id, choice).await;
         let left = if is_choice_settled {
-            CHOICE_APPLIED
+            CHOICE_SETTLED
         } else {
             choice
         };
@@ -563,12 +563,12 @@ impl RunQueue {
         } = self.settle_release(hold, run_id, choice).await;
         if let Err(error) = settled {
             if is_choice_settled
-                && choice != CHOICE_APPLIED
+                && choice != CHOICE_SETTLED
                 && let Err(rewrite_error) = self
                     .writer
                     .write(vec![record_unreleased_statement(
                         &intervention_id,
-                        CHOICE_APPLIED,
+                        CHOICE_SETTLED,
                     )])
                     .await
             {

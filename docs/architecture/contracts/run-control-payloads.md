@@ -146,9 +146,10 @@ interface AgentQueueItemReorderRequest {
 // key reuse with a differing payload is rejected as `agent.intervention.idempotencyConflict`
 // (Spec-004 §Required Behavior). A `Send now` on a provider that reads a priority message writes no
 // interventions row: its key is recorded per run with its first answer, runs again while the mark
-// it set is in force, and otherwise answers that result. The two guards are orthogonal: `expectedRunVersion` is the
-// stale-request guard, refusing OUTDATED intent; `clientIdempotencyKey` is the duplicate-request
-// guard, refusing a second application of the SAME intent.
+// it set is in force, and otherwise answers that result. The two guards are orthogonal:
+// `expectedRunVersion` is the stale-request guard, refusing OUTDATED intent;
+// `clientIdempotencyKey` is the duplicate-request guard, refusing a second application of the
+// SAME intent.
 type AgentRunInterveneRequest =
   | {
       // The lead's interrupt. `Interrupt everything` is this arm on the lead's run plus
@@ -188,7 +189,8 @@ type AgentRunInterveneRequest =
 
 // On a retry (same clientIdempotencyKey, identical payload) the daemon returns the saved result:
 // this response, reconstructed from the persisted intervention row — same interventionId, current
-// state, current runVersion — never a second application.
+// state, current runVersion — never a second application; a `Send now`'s from its key record, run
+// again while its mark is in force.
 //
 // Undo is not an intervention. Putting a session back to before one of its messages, or to one of
 // its snapshots, is the session's own call, `session.restore`, read first through its dry run

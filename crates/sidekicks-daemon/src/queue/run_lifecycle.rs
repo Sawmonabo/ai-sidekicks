@@ -106,6 +106,8 @@ struct PendingWork {
     continues: Vec<RunId>,
     // The session's provider process is gone.
     is_process_gone: bool,
+    // The session closed: what the queue kept for it is forgotten after everything before it.
+    is_closed: bool,
     // The session's waiting messages are read again from the record, once for each caller
     // waiting on the outcome.
     reconciles: Vec<oneshot::Sender<Result<(), QueueError>>>,
@@ -149,8 +151,9 @@ impl QueueRunLifecycle {
     }
 
     /// Takes one committed session event, as the event log's every-session follow delivers it: a
-    /// run state change goes to the session's drain, a credits choice is noted at once, and a
-    /// session's close forgets what the queue kept for it. Fails when a run state change or a
+    /// run state change and a session's close go to the session's drain, where the close forgets
+    /// what the queue kept for the session after every change committed before it, and a credits
+    /// choice is noted at once. Fails when a run state change or a
     /// credits choice does not read as its type.
     pub(crate) fn observe(
         self: &Arc<Self>,
@@ -176,7 +179,7 @@ impl QueueRunLifecycle {
             return Ok(());
         }
         if event_type == SessionEventType::SessionClosed {
-            self.forget_session(session_id);
+            self.schedule(session_id, |work| work.is_closed = true);
             return Ok(());
         }
         let is_held = if event_type == SessionEventType::AgentRunUsageCreditsChoiceRequested {
@@ -410,6 +413,9 @@ impl QueueRunLifecycle {
         for reconciled in work.reconciles {
             // A caller that stopped waiting has nothing to hear.
             drop(reconciled.send(self.reconcile_now(session_id).await));
+        }
+        if work.is_closed {
+            self.forget_session(session_id);
         }
     }
 
@@ -711,7 +717,7 @@ impl QueueRunLifecycle {
     }
 
     // A closed session's provider session, resting run, held-back run ends and moved-on messages
-    // are forgotten, and each run it rested or held back an end of gives back its place.
+    // are forgotten; its resting run and each run whose end it held back give back their places.
     fn forget_session(&self, session_id: SessionId) {
         self.deps.provider_sessions.forget(session_id);
         self.let_go_resting_run(session_id);

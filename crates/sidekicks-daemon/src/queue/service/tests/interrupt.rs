@@ -569,9 +569,10 @@ async fn a_run_end_held_for_an_interrupt_settles_at_a_later_hold(#[case] row: In
 }
 
 // A session closed while an interrupt holds back its run's end gives back the run's place at the
-// gate and keeps no end held back, before any release settles it; a settle failed after the end's
-// own release is no case of this, since a run's end lets its place go before any step that can
-// fail. Killed by a close that keeps the held-back end, or that releases no place for it.
+// gate and keeps no end held back, before any release settles it; the close covers an end the
+// interrupt still holds and one whose settle failed before it let its place go. The close is
+// applied on the session's drain, after every change committed before it. Killed by a close that
+// keeps the held-back end, or that releases no place for it.
 #[tokio::test]
 async fn a_closed_session_gives_back_its_held_back_run_ends() {
     let calls = Arc::new(DriverCalls::default());
@@ -597,6 +598,13 @@ async fn a_closed_session_gives_back_its_held_back_run_ends() {
             sequence: SafeInt::new(1).expect("a sequence"),
         })
         .expect("the close reads as its type");
+    timeout(WAIT, async {
+        while fixture.queue.admission.is_admitting(run_id) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the close is applied on the drain");
     fixture
         .queue
         .delivery

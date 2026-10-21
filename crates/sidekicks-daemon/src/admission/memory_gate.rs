@@ -234,7 +234,8 @@ struct GateState {
     learned_peak_by_kind: HashMap<EstimatedKind, u64>,
     held_bytes: u64,
     admitted_count: usize,
-    last_estimated_start: Option<Instant>,
+    // The last estimated start still admitted, and when it started: an ended one spaces nothing.
+    last_estimated_start: Option<(EntryId, Instant)>,
 }
 
 struct GateShared {
@@ -491,7 +492,7 @@ impl GateShared {
             let work = &state.entry(head).work;
             let is_estimate = work.estimated_kind().is_some();
             if is_estimate
-                && let Some(last) = state.last_estimated_start
+                && let Some((_, last)) = state.last_estimated_start
                 && Instant::now() < last + ESTIMATED_START_SPACING
             {
                 return Weighed::WaitUntil(last + ESTIMATED_START_SPACING);
@@ -507,7 +508,7 @@ impl GateShared {
             }
             state.line.pop_front();
             if is_estimate {
-                state.last_estimated_start = Some(Instant::now());
+                state.last_estimated_start = Some((head, Instant::now()));
             }
             state.held_bytes += bytes;
             state.admitted_count += 1;
@@ -600,6 +601,12 @@ impl GateState {
         let held_bytes = std::mem::take(&mut entry.held_bytes);
         self.held_bytes -= held_bytes;
         self.admitted_count -= 1;
+        if self
+            .last_estimated_start
+            .is_some_and(|(last, _)| last == id)
+        {
+            self.last_estimated_start = None;
+        }
     }
 
     /// Keeps the entry's observed peak for its node and, beside a quick step's, for its kind: a
