@@ -22,12 +22,12 @@ pub(crate) mod capabilities;
 mod claude;
 mod codex;
 pub(crate) mod contract;
+pub(crate) mod delivery_dispatch;
 pub(crate) mod diagnostics;
 pub(crate) mod error_causes;
 pub(crate) mod hook_pauses;
 pub(crate) mod mcp_server_status;
 pub(crate) mod message_handing;
-pub(crate) mod plan_record;
 pub(crate) mod question_answers;
 pub(crate) mod registry;
 pub(crate) mod reorder_buffer;
@@ -99,6 +99,9 @@ pub(crate) struct ProviderDescriptor {
     pub(crate) mcp_config_members: &'static [McpDeclaredConfigMember],
     /// The most characters it takes in a skill's name, where it sets a limit of its own.
     pub(crate) skill_name_max_length: Option<u64>,
+    /// The forms of the provider's own command whose work would outlive the call, which no agent
+    /// in a session may run, and the switch that turns them off; `None` where it has none.
+    pub(crate) background_work: Option<BackgroundWork>,
 }
 
 impl ProviderDescriptor {
@@ -194,6 +197,13 @@ impl ProviderDescriptor {
     /// Every variable the app sets on the provider's processes or its Terminal pane's shells, which
     /// a person's own environment row may not name: the process, launch, credential-home and
     /// screen-reader names. The withheld names are left out, since a person's command keeps them.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the environment rows' check refuses a name the app sets through it"
+        )
+    )]
     pub(crate) fn app_set_environment_names(&self) -> impl Iterator<Item = &'static str> {
         self.process_environment
             .iter()
@@ -201,7 +211,31 @@ impl ProviderDescriptor {
             .chain(self.launch_environment_names.iter().copied())
             .chain(self.credential_home_environment_names.iter().copied())
             .chain(self.screen_reader_environment_names.iter().copied())
+            .chain(self.background_work.iter().map(|work| work.off_switch.0))
     }
+
+    /// Every name the provider's command starts by, on any system.
+    pub(crate) fn command_names(&self) -> impl Iterator<Item = &'static str> {
+        [&self.command.unix, &self.command.windows]
+            .into_iter()
+            .flatten()
+            .flat_map(|lookup| lookup.names.iter().copied())
+    }
+}
+
+/// The forms of a provider's own command that start work outside the session that runs them:
+/// work no agent of the session holds, that `Stop` and `Interrupt` never reach and that its
+/// receipt never shows.
+pub(crate) struct BackgroundWork {
+    /// The subcommands whose work outlives the call, whatever follows them.
+    pub(crate) subcommands: &'static [&'static str],
+    /// The options, alone or with `=<value>`, that send a prompt to the background.
+    pub(crate) flags: &'static [&'static str],
+    /// The reason an agent reads when one of these commands is refused.
+    pub(crate) refusal: &'static str,
+    /// The variable and value that turn the provider's background work off, set on every
+    /// provider's process and on the commands its conversation runs, so a nested run inherits it.
+    pub(crate) off_switch: (&'static str, &'static str),
 }
 
 /// How a provider's command is found on each kind of operating system: Windows, and macOS and
@@ -217,10 +251,6 @@ pub(crate) struct ProviderCommand {
 /// hold none: the names it starts by and the folders its own installer puts it in.
 pub(crate) struct ProviderCommandLookup {
     /// The command's names, tried in order.
-    #[expect(
-        dead_code,
-        reason = "each driver's command resolution tries these names when the person set no command"
-    )]
     pub(crate) names: &'static [&'static str],
     /// The folders the provider's own installer puts its command in, searched in order.
     pub(crate) install_folders: &'static [InstallFolder],
@@ -316,6 +346,10 @@ impl ReportedVersionReading {
     /// `token` as the version where it is a canonical semantic version of at most
     /// [`VERSION_TOKEN_MAX_LEN`] characters, else `reply`, the text
     /// that carried it, as unreadable; every driver's version reader decides through this one rule.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "each driver's version read decides through it")
+    )]
     pub(crate) fn from_token(token: &str, reply: &str) -> Self {
         if token.chars().count() <= VERSION_TOKEN_MAX_LEN && is_canonical_semver(token) {
             Self::Version(token.to_owned())

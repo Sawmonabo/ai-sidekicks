@@ -25,20 +25,35 @@ use sidekicks_platforms::PathRules;
 use crate::provider::driver::ProviderDescriptor;
 
 /// The names a person's row may not set because a registered driver sets them: every driver's
-/// process, launch, credential-home and screen-reader names. Built once at the daemon's start.
+/// process, launch, credential-home, screen-reader and background-work switch names; and every
+/// driver's background-work switch, which every provider's process and conversation commands get,
+/// so no provider's agent starts another's background work. Built once at the daemon's start.
 pub(crate) struct ReservedEnvironmentNames {
     names: Vec<&'static str>,
+    background_work_off_switches: Vec<(&'static str, &'static str)>,
 }
 
 impl ReservedEnvironmentNames {
     /// The names every one of `descriptors` sets, so a row naming any of them is dropped whichever
-    /// provider the session runs.
+    /// provider the session runs, and their background-work switches.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start reserves every provider's names through it"
+        )
+    )]
     pub(crate) fn of_providers(descriptors: &[&ProviderDescriptor]) -> Self {
         Self {
             names: descriptors
                 .iter()
                 .copied()
                 .flat_map(ProviderDescriptor::app_set_environment_names)
+                .collect(),
+            background_work_off_switches: descriptors
+                .iter()
+                .filter_map(|descriptor| descriptor.background_work.as_ref())
+                .map(|work| work.off_switch)
                 .collect(),
         }
     }
@@ -105,9 +120,10 @@ pub(crate) enum SpawnEnvironmentError {
 
 /// The provider process's whole environment: the session's, the run's credential variables and the
 /// driver's withheld names removed, then the driver's process variables (its auto-update opt-out
-/// among them), the account's folders and `additional_mandated_pairs` (a pair a caller sets on this
-/// one process), which no base pair or row overrides. Fails when two mandated pairs claim one name,
-/// or when an account folder is relative or ends up empty.
+/// among them), every driver's background-work switch, the account's folders and
+/// `additional_mandated_pairs` (a pair a caller sets on this one process), which no base pair or
+/// row overrides. Fails when two mandated pairs claim one name, or when an account folder is
+/// relative or ends up empty.
 pub(crate) fn build_provider_process_environment(
     request: &ProviderEnvironmentRequest<'_>,
     additional_mandated_pairs: &[(String, String)],
@@ -122,8 +138,16 @@ pub(crate) fn build_provider_process_environment(
 }
 
 /// The whole environment of the commands a provider's conversation runs: the session's, the run's
-/// credential variables and the driver's withheld names removed, then the account's folders. Fails
-/// as [`build_provider_process_environment`] does for the account's folders.
+/// credential variables and the driver's withheld names removed, then every driver's
+/// background-work switch and the account's folders. Fails as
+/// [`build_provider_process_environment`] does for the account's folders.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the conversation commands' launch builds its environment through it"
+    )
+)]
 pub(crate) fn build_conversation_command_environment(
     request: &ProviderEnvironmentRequest<'_>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
@@ -179,12 +203,19 @@ pub(crate) fn remove_environment_names(
     environment.retain(|(name, _)| !removed_keys.contains(&*rules.environment_name_key(name)));
 }
 
-/// The session's environment for a provider with `mandated_pairs` set over it, which nothing in
-/// the session overrides.
+/// The session's environment for a provider with every driver's background-work switch and
+/// `mandated_pairs` set over it, which nothing in the session overrides.
 fn build_driver_environment<'p>(
     request: &ProviderEnvironmentRequest<'_>,
     mandated_pairs: impl IntoIterator<Item = (&'p str, &'p str)>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
+    let off_switches = request
+        .session
+        .reserved_names
+        .background_work_off_switches
+        .iter()
+        .copied();
+    let mandated_pairs = off_switches.chain(mandated_pairs);
     let rules = request.session.rules;
     if let Some((name, _)) = request
         .credential_homes
@@ -314,7 +345,8 @@ mod tests {
         build_project_command_environment, build_provider_process_environment,
     };
     use crate::provider::driver::{
-        CommandSandboxNeeds, ProviderCommand, ProviderDescriptor, ProviderMemoryEstimates,
+        BackgroundWork, CommandSandboxNeeds, ProviderCommand, ProviderDescriptor,
+        ProviderMemoryEstimates,
     };
 
     /// A provider that sets, withholds and reserves names of its own.
@@ -357,15 +389,23 @@ mod tests {
         mcp_transports: &[],
         mcp_config_members: &[],
         skill_name_max_length: None,
+        background_work: None,
     };
 
-    /// A second registered provider, whose credential home no row may set either.
+    /// A second registered provider, whose credential home no row may set either, and whose
+    /// background work every provider's process and conversation commands turn off.
     const OTHER_DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         id: "second",
         process_environment: &[],
         launch_environment_names: &[],
         credential_home_environment_names: &["OTHER_HOME"],
         withheld_environment_names: &[],
+        background_work: Some(BackgroundWork {
+            subcommands: &["daemon"],
+            flags: &[],
+            refusal: "refused",
+            off_switch: ("OTHER_BACKGROUND_OFF", "1"),
+        }),
         ..DESCRIPTOR
     };
 
@@ -431,6 +471,49 @@ mod tests {
         assert_eq!(value(&commands, "APP_UPDATES_OFF"), Some("0"));
         assert_eq!(value(&project, "NPM_TOKEN"), Some("from-row"));
         assert_eq!(value(&project, "APP_WITHHELD"), Some("1"));
+    }
+
+    // Killed by setting the switch only on its own provider's process, by leaving it off the
+    // conversation's commands, by setting it on the person's project command, or by letting a row
+    // clear it.
+    #[test]
+    fn every_providers_background_switch_reaches_each_provider_and_never_a_project_command() {
+        let base = pairs(&[("OTHER_BACKGROUND_OFF", "0")]);
+        let project_rows = rows(&[("OTHER_BACKGROUND_OFF", "0")]);
+        let reserved_names = reserved();
+        let request = ProviderEnvironmentRequest {
+            session: SessionEnvironment {
+                base: &base,
+                every_project_rows: &[],
+                project_rows: &project_rows,
+                reserved_names: &reserved_names,
+                rules: PathRules::Posix,
+            },
+            descriptor: &DESCRIPTOR,
+            deny_env_vars: &[],
+            credential_homes: &[],
+        };
+
+        let process = build_provider_process_environment(&request, &[])
+            .expect("the provider's environment builds");
+        let commands = build_conversation_command_environment(&request)
+            .expect("the conversation's command environment builds");
+        let project = build_project_command_environment(&request.session);
+
+        assert_eq!(value(&process, "OTHER_BACKGROUND_OFF"), Some("1"));
+        assert_eq!(value(&commands, "OTHER_BACKGROUND_OFF"), Some("1"));
+        assert_eq!(value(&project, "OTHER_BACKGROUND_OFF"), Some("0"));
+        let row_dropped = SessionEnvironment {
+            base: &[],
+            ..request.session
+        };
+        assert_eq!(
+            value(
+                &build_project_command_environment(&row_dropped),
+                "OTHER_BACKGROUND_OFF"
+            ),
+            None
+        );
     }
 
     #[rstest]

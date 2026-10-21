@@ -1,6 +1,7 @@
-//! The refusal a save answers with when a document breaks a rule, and the check over the
-//! document's graph that the builder runs while a connection is dragged and the daemon runs again
-//! at save, so both refuse the same shapes.
+//! The refusal a save answers with when a document breaks a rule, the check over the document's
+//! graph that the builder runs before a save and the daemon runs again at save, and the check of
+//! one connection the builder runs while it is dragged, which answers only what that connection
+//! adds.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
@@ -223,7 +224,7 @@ pub fn check_workflow_connection<S: BuildHasher>(
         .expect("the connection is the last edge");
     let is_refused = !findings.is_empty();
     let connection = graph.edges.last().expect("the connection is the last edge");
-    if connection.is_main() {
+    if connection.is_main() && !is_refused {
         findings.extend(
             graph
                 .cycles()
@@ -366,11 +367,12 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
     // The edge's findings, each marking the ends the document holds.
     fn edge_findings(&self, parsed_edge: &ParsedEdge<'_>) -> Vec<WorkflowDefinitionFinding> {
         let WorkflowEdge { source, target, .. } = parsed_edge.edge;
-        let held_end_ids: Vec<WorkflowNodeId> = [source, target]
+        let mut held_end_ids: Vec<WorkflowNodeId> = [source, target]
             .into_iter()
             .filter(|node_id| self.node_by_id.contains_key(node_id))
             .cloned()
             .collect();
+        held_end_ids.dedup();
         self.edge_rules(parsed_edge)
             .into_iter()
             .map(|rule| rule.finding(held_end_ids.clone()))

@@ -62,7 +62,7 @@ use crate::artifacts::validation::{
     validate_and_store,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::DatabaseWriter;
+use crate::events::session::appender::SessionEventAppender;
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry as _;
 #[cfg(test)]
@@ -190,7 +190,7 @@ enum ChunkOutcome {
 
 /// The ingest streams of every session, and the reaper pass that ends the abandoned ones.
 pub(crate) struct ArtifactIngestService {
-    writer: Arc<DatabaseWriter>,
+    appender: Arc<SessionEventAppender>,
     reads: Arc<DatabaseReadPool>,
     payloads: Arc<PayloadStore>,
     admission: Arc<UploadAdmission>,
@@ -204,17 +204,17 @@ pub(crate) struct ArtifactIngestService {
 }
 
 impl ArtifactIngestService {
-    /// A service writing through `writer`, reading through `reads`, storing into `payloads` and
-    /// spooling in `admission`'s folder, which must be on the store's volume.
+    /// A service appending through `appender`, reading through `reads`, storing into `payloads`
+    /// and spooling in `admission`'s folder, which must be on the store's volume.
     pub(crate) fn new(
-        writer: Arc<DatabaseWriter>,
+        appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
         payloads: Arc<PayloadStore>,
         admission: Arc<UploadAdmission>,
         clock: Arc<dyn WallClock>,
     ) -> Self {
         Self {
-            writer,
+            appender,
             reads,
             payloads,
             admission,
@@ -430,7 +430,10 @@ impl ArtifactIngestService {
                                 size_bytes: SafeInt::new(progress.received_bytes)
                                     .expect("a stream holds no more than its declared safe size"),
                                 media_type: String::new(),
+                                natural_size: None,
                                 metadata: file_name_metadata(&stream.file_name),
+                                workspace_path: None,
+                                plan_id: None,
                                 created_at: manifest_created_at(self.clock.as_ref()),
                             },
                             SpooledPayload {
@@ -460,11 +463,12 @@ impl ArtifactIngestService {
         let artifact_id = manifest.artifact_id;
         let content_hash = manifest.content_hash.clone();
         let size_bytes = manifest.size_bytes;
-        let stored = validate_and_store(&self.payloads, payload, |media_type| {
+        let stored = validate_and_store(&self.payloads, payload, |reading| {
             write_published_manifest(
-                &self.writer,
+                &self.appender,
                 PublishedManifest {
-                    media_type,
+                    media_type: reading.media_type,
+                    natural_size: reading.natural_size,
                     ..manifest
                 },
             )

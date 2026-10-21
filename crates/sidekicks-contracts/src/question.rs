@@ -100,13 +100,22 @@ pub struct QuestionPrompt {
     )]
     #[schemars(with = "NonEmptyText")]
     pub heading: Option<NonEmptyText>,
+    /// The question's own helper line, drawn faint under its text.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "NonEmptyText")]
+    pub description: Option<NonEmptyText>,
     /// The option rows; empty on a secret question.
     pub options: Vec<QuestionOption>,
     /// The provider's own reading of whether several picks go back together.
     pub several_answers: bool,
     /// Whether the answer is masked and never stored.
     pub secret: bool,
-    /// Whether the form must have this field answered; present only on a tool server's form field.
+    /// Whether the form must have this field answered. Only a tool server's form field sets it, and
+    /// a producer that sets it on an agent's question makes that question refuse typed text.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -138,6 +147,30 @@ pub struct QuestionPrompt {
     )]
     #[schemars(with = "Number")]
     pub maximum: Option<Number>,
+    /// How far the arrow keys move a number field, where the question sets it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Number")]
+    pub step: Option<Number>,
+    /// A short unit drawn as a suffix inside a number field, where the question sets one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "NonEmptyText")]
+    pub unit: Option<NonEmptyText>,
+    /// A text field's faint hint while it is empty, where the question sets one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "NonEmptyText")]
+    pub placeholder: Option<NonEmptyText>,
 }
 
 /// Each rule a prompt keeps, reported at the member that breaks it: option rows on a secret
@@ -203,8 +236,8 @@ macro_rules! question_asked {
             pub session_id: SessionId,
             $($own)*
             /// False only on a question the agent does not wait for: its run keeps running, no card
-            /// of its own is raised, and the `user.message.sent` naming it as `answersQuestionId`
-            /// marks it answered.
+            /// of its own is raised, and the admission of the queued message naming it as
+            /// `answersQuestionId` marks it answered.
             pub is_agent_waiting: bool,
             /// Every question of the record in page order, so a rebuilt card pages through them
             /// with no further read.
@@ -254,6 +287,32 @@ pub enum QuestionAskedPayload {
     Run(#[garde(dive)] RunQuestionAskedPayload),
     /// Held by a workflow wait.
     Wait(#[garde(dive)] WaitQuestionAskedPayload),
+}
+
+/// Why an open question ended unanswered: its turn was interrupted, its provider withdrew the
+/// request, or its run ended, a restart of the background service among the ways a run ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum QuestionCanceledReason {
+    /// Its turn was interrupted.
+    Interrupted,
+    /// The provider withdrew the request.
+    Withdrawn,
+    /// Its run ended.
+    RunEnded,
+}
+
+/// `question.canceled`: an open question ended unanswered, so its card stays closed after a
+/// reload and on every device, and no `user.message.sent` is written.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuestionCanceledPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The question.
+    pub question_id: QuestionId,
+    /// Why it ended.
+    pub reason: QuestionCanceledReason,
 }
 
 /// The answer to one question: the picked labels, typed text, a secret, or a skip; each question
@@ -318,6 +377,23 @@ pub struct QuestionResolveResponse {
     pub state: QuestionSettledState,
 }
 
+/// Why `question.answerInvalid` refused one answer, carried as its `reason`: a secret for a plain
+/// question, a label the question does not offer, several labels for a question that takes one,
+/// or typed text for a question that takes only its options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum QuestionAnswerInvalidReason {
+    /// A secret for a question that is not secret, or anything but a secret or a skip for one that
+    /// is.
+    SecretOnPlain,
+    /// A label the question does not offer.
+    LabelNotOffered,
+    /// Several labels for a question that takes one.
+    SeveralOnSingle,
+    /// Typed text for a question that takes only its options.
+    TextOnChoice,
+}
+
 methods! {
     /// The `question.*` methods a client calls.
     pub const QUESTION_METHOD_DESCRIPTORS = [
@@ -326,7 +402,12 @@ methods! {
             mutating: true,
             params: QuestionResolveRequest,
             result: QuestionResolveResponse,
-            refusals: [QuestionAnswersIncomplete],
+            refusals: [
+                QuestionNotFound,
+                QuestionNotWaiting,
+                QuestionAnswersIncomplete,
+                QuestionAnswerInvalid,
+            ],
         },
     ];
 }
@@ -341,7 +422,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<QuestionDefault>(),
         Definition::read::<QuestionPrompt>(),
         Definition::read::<QuestionAskedPayload>().checked(),
+        Definition::read::<QuestionCanceledReason>(),
+        Definition::read::<QuestionCanceledPayload>().checked(),
         Definition::read::<QuestionAnswer>(),
+        Definition::read::<QuestionAnswerInvalidReason>(),
         Definition::read::<QuestionResolveRequest>().checked(),
         Definition::read::<QuestionSettledState>(),
         Definition::read::<QuestionResolveResponse>(),

@@ -52,9 +52,10 @@ ts_constants! {
 }
 
 /// The `interactiveRequest` types whose payload does not always name a run: queue events, a
-/// person's message (accepted before any run exists) and a question a workflow step asks. The
-/// rest of the category is run-scoped, so a newly added type defaults to run-scoped.
-const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [SessionEventType; 7] = [
+/// person's message (accepted before any run exists), a question a workflow step asks and a
+/// question's cancellation. The rest of the category is run-scoped, so a newly added type defaults
+/// to run-scoped.
+const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [SessionEventType; 8] = [
     SessionEventType::AgentQueueItemCreated,
     SessionEventType::AgentQueueItemAdmitted,
     SessionEventType::AgentQueueItemSuperseded,
@@ -62,6 +63,7 @@ const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: [SessionEventType; 7] = [
     SessionEventType::AgentQueueItemNotDelivered,
     SessionEventType::UserMessageSent,
     SessionEventType::QuestionAsked,
+    SessionEventType::QuestionCanceled,
 ];
 
 /// The `usageTelemetry` types whose payload requires `runId`, listed positively because the

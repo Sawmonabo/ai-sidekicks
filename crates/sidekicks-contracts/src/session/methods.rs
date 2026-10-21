@@ -788,6 +788,7 @@ methods! {
                 SessionNotFound,
                 ProviderNotFound,
                 ProviderUnavailable,
+                ProviderCommandPathNotRunnable,
                 ProviderCapabilityUnsupported,
                 ProviderAccountNotAuthenticated,
             ],
