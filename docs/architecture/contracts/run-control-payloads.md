@@ -160,11 +160,14 @@ type AgentRunInterveneRequest =
       // or put back into the draft one line per message in send order (`returnToDraft`, which
       // `Interrupt everything` sends).
       pending: "nextTurn" | "returnToDraft";
-      // `Send now` on a waiting message on Codex: the interrupt ends the turn and this item goes
-      // first, the rest following in order as the next turn's messages. Only with
-      // `pending: "nextTurn"`. On Claude Code `Send now` is no interrupt: the daemon takes back the
-      // rows ahead, sends this one with `priority: "now"` and resends the rows ahead after it, with
-      // no `Turn interrupted` row.
+      // `Send now` on a waiting message on a provider that reads no priority message (Codex): the
+      // interrupt ends the turn and this item goes first, the rest following in order as the next
+      // turn's messages. Only with `pending: "nextTurn"`. On one that reads a priority message
+      // (Claude Code) `Send now` is no interrupt: the daemon takes back every waiting row, puts
+      // this one first marked sent now, and sends it with `priority: "now"`, the rest after it,
+      // with no `Turn interrupted` row. While a permission ask or a question is open the driver
+      // holds it until the card is answered; in any other state that takes no message it stays
+      // first, reading as sent now, until the run's next hand.
       deliverFirst?: QueueItemId;
     }
   | {
@@ -537,9 +540,11 @@ interface AgentChildRunInterruptRequest {
   childHandle: ChildHandle;
   expectedRunVersion: number;
   clientIdempotencyKey: string; // a UUID
-  // `Send now` on one of the child's pending rows on Codex: the interrupt ends the child's turn
-  // and this item goes first, the rest following in order as its next turn's messages. On Claude
-  // Code a child's `Send now` is no interrupt, as the lead's is not.
+  // `Send now` on one of the child's pending rows on a provider that reads no priority message
+  // (Codex): the interrupt ends the child's turn and this item goes first, the rest following in
+  // order as its next turn's messages. On one that reads a priority message (Claude Code) a
+  // child's `Send now` is no interrupt and takes the lead's path: first with `priority: "now"`,
+  // held while a card is open, and kept first, reading as sent now, while the child takes none.
   deliverFirst?: QueueItemId;
 }
 // Where the child stands after the interrupt; a child that had already finished answers the state
