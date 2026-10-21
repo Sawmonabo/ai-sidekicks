@@ -94,11 +94,11 @@ impl ProviderProcessIds for ProcessStandIn {
 struct OpeningStandIn(Mutex<HashSet<QueueItemId>>);
 
 impl OpeningMessages for OpeningStandIn {
-    fn is_opening(&self, item_id: &QueueItemId) -> bool {
+    fn is_opening(&self, item: &QueueItemRecord) -> bool {
         self.0
             .lock()
             .expect("the test's openings are readable")
-            .contains(item_id)
+            .contains(&item.id)
     }
 }
 

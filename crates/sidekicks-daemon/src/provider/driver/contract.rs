@@ -249,14 +249,6 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// process keeps nothing past it and at the process's end otherwise. Fails when the record is
     /// unreadable, or with [`DriverError::Unanswered`] when the read got no answer back, which the
     /// next settle retries.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which wires the resume, and the run lifecycle's settle \
-                      of kept messages"
-        )
-    )]
     fn find_taken_messages(
         &self,
         params: FindTakenMessagesParams,

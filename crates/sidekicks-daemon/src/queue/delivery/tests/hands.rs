@@ -21,7 +21,7 @@ use super::{
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::RunToolBoundary;
-use crate::queue::delivery::DeliveryError;
+use crate::queue::delivery::{DeliveryError, InterruptHoldRelease};
 use crate::queue::store::RecordedQueueItemState;
 
 // Killed by a hand that joins the chain from a task of its own: a gate joined as soon as the
@@ -124,6 +124,45 @@ async fn a_hand_to_a_run_held_for_an_interrupt_makes_no_driver_call() {
         RecordedQueueItemState::Queued
     );
     assert!(!fixture.delivery.is_handed(&item.id));
+}
+
+// A second interrupt failing while the first is unanswered lets go of its own hold only: the run
+// stays held, so a hand to it makes no driver call, until the first lets go. Killed by holds kept
+// per run, which the second's release would end.
+#[tokio::test]
+async fn a_second_interrupt_failing_keeps_the_first_ones_hold() {
+    let mut driver = driver_handing(HANDS_AT_ONCE);
+    let steers = count_steers(&mut driver);
+    let fixture = fixture(driver).await;
+    insert_item(&fixture).await;
+    let (first, second) = (intervention_id(), intervention_id());
+    {
+        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        for intervention_id in [&first, &second] {
+            timeout(
+                WAIT,
+                fixture
+                    .delivery
+                    .hold_for_interrupt(&hold, fixture.run_id, intervention_id.clone()),
+            )
+            .await
+            .expect("no hand is inside its driver call");
+        }
+    }
+
+    let second_released = fixture
+        .delivery
+        .release_interrupt_hold(fixture.run_id, second);
+    hand(&fixture).await;
+    settle(&fixture).await;
+    let steers_while_held = steers.load(Ordering::SeqCst);
+    let first_released = fixture
+        .delivery
+        .release_interrupt_hold(fixture.run_id, first);
+
+    assert_eq!(second_released, InterruptHoldRelease::StillHeld);
+    assert_eq!(steers_while_held, 0);
+    assert_eq!(first_released, InterruptHoldRelease::Released);
 }
 
 // A tool boundary's steer queued behind the chain to a run an interrupt then holds makes no driver

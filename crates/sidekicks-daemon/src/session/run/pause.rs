@@ -466,13 +466,6 @@ impl RunPauseControl {
     /// ends the messages not delivered and fails with [`RunPauseError::RecordUnreadable`]; one
     /// asked for with no answer back keeps them for the next settle and fails with
     /// [`RunPauseError::RecordUnanswered`]; a run unknown or no driver refuses as a resume does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the run queue's run lifecycle, and the provider's event delivery at an exit"
-        )
-    )]
     pub(crate) async fn settle_kept_by_record(
         &self,
         session_id: SessionId,

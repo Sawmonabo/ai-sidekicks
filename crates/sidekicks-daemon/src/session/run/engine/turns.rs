@@ -148,13 +148,6 @@ impl StepCount {
 /// that interrupt once more.
 #[derive(Debug)]
 #[must_use = "a failed resend is logged"]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start and the provider's event delivery"
-    )
-)]
 pub(crate) struct WriteWithResend<Written> {
     /// What was written.
     pub(crate) written: Written,
@@ -164,13 +157,6 @@ pub(crate) struct WriteWithResend<Written> {
 
 impl<Written> WriteWithResend<Written> {
     /// What was written, the failure of the interrupts handed again logged for the next hand.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start and the provider's event delivery"
-        )
-    )]
     pub(crate) fn log_resend_failure(self, run_id: RunId) -> Written {
         if let Some(error) = &self.resend_failure {
             tracing::warn!(

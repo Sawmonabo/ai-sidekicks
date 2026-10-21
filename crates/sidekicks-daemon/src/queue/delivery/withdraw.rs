@@ -69,10 +69,6 @@ impl QueueDelivery {
     /// [`WITHDRAW_DEADLINE`], and one the provider did not give back in time, or that the chain did
     /// not reach by then, reads not delivered. Called under `hold`; fails when a read or a write
     /// fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the run queue's edit, removal and reorder")
-    )]
     pub(crate) async fn take_back(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -80,7 +76,7 @@ impl QueueDelivery {
     ) -> Result<HashMap<QueueItemId, QueueWithdrawal>, DeliveryError> {
         let openings = &self.shared.deps.openings;
         let candidates = items.iter().filter(|item| {
-            item.state == RecordedQueueItemState::Queued && !openings.is_opening(&item.id)
+            item.state == RecordedQueueItemState::Queued && !openings.is_opening(item)
         });
         // Under the session lock no hand of an unhanded message joins the chain, so one not
         // handed now stays with the queue and needs no withdraw.

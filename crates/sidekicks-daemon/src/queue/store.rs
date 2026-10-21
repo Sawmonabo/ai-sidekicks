@@ -2,6 +2,8 @@
 //! stale read is refused whole, and the reads of a queue in its order. A row is never deleted while
 //! its session is kept; a message's words ride its payload beside its `user.message.sent` row.
 
+pub(crate) mod send_now;
+
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
@@ -11,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
@@ -58,6 +61,16 @@ pub(crate) struct QueueItemBody {
     /// The repository the run it starts binds to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) workspace_id: Option<WorkspaceId>,
+}
+
+impl QueueItemBody {
+    /// The ids of the message's files in staging order, none when it carries none.
+    pub(crate) fn attachment_ids(&self) -> Vec<ArtifactId> {
+        self.attachments
+            .as_ref()
+            .map(|attachments| attachments.0.clone())
+            .unwrap_or_default()
+    }
 }
 
 /// Where a queued message stands, as its row holds it: only a message never delivered carries,

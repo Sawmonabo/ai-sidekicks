@@ -103,10 +103,6 @@ impl ProviderRegistry {
 
     /// The contract version `provider`'s recorded snapshot declares, `None` until a snapshot is
     /// recorded; refused `provider.notFound` when no driver answers it.
-    #[expect(
-        dead_code,
-        reason = "a provider session's opening records the contract version its binding runs under"
-    )]
     pub(crate) fn contract_version(
         &self,
         provider: &ProviderId,

@@ -13,7 +13,7 @@ use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::run_control::WaitingMessage;
 use crate::queue::delivery::state::{HandRoute, is_kept_by_process};
-use crate::queue::delivery::{DeliveryError, QueueDelivery, attachments_of};
+use crate::queue::delivery::{DeliveryError, QueueDelivery};
 use crate::queue::store::RecordedQueueItemState;
 use crate::session::run::pause::{ContinuedMessages, ContinuedMessagesError};
 
@@ -43,7 +43,7 @@ impl QueueDelivery {
             .into_iter()
             .map(|item| WaitingMessage {
                 id: item.id,
-                attachments: attachments_of(&item.body),
+                attachments: item.body.attachment_ids(),
                 skills: item.body.skills.unwrap_or_default(),
                 content: item.body.content,
             })

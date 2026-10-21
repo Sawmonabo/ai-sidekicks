@@ -26,7 +26,6 @@ use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
@@ -53,7 +52,7 @@ use crate::queue::delivery::state::{DeliveryState, HandRoute, is_kept_by_process
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
 use crate::queue::refusals::UnreturnedReason;
 use crate::queue::store::{
-    QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, placement_statements,
+    QueueItemOutcome, QueueItemReader, QueueItemRecord, placement_statements,
 };
 use crate::session::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
 
@@ -78,9 +77,9 @@ pub(crate) trait ProviderProcessIds: Send + Sync {
 
 /// Which waiting messages open a run whose driver is being started.
 pub(crate) trait OpeningMessages: Send + Sync {
-    /// Whether the waiting message `item_id` opens a run whose driver is being started, which
-    /// that start delivers.
-    fn is_opening(&self, item_id: &QueueItemId) -> bool;
+    /// Whether the waiting message `item` opens the run it waits for, whose driver is being
+    /// started, which that start delivers.
+    fn is_opening(&self, item: &QueueItemRecord) -> bool;
 }
 
 /// Continues an interrupted run with the messages waiting for it.
@@ -90,7 +89,6 @@ pub(crate) trait InterruptedRunContinuation: Send + Sync {
 }
 
 /// What the delivery reads, writes and calls.
-#[cfg_attr(not(test), expect(dead_code, reason = "the run queue's start"))]
 pub(crate) struct QueueDeliveryDeps {
     /// The read pool every queue and run read goes through.
     pub(crate) pool: Arc<DatabaseReadPool>,
@@ -130,7 +128,6 @@ pub(crate) enum InterruptHoldRelease {
 }
 
 /// The interrupt's end writes for the messages waiting for its run.
-#[cfg_attr(not(test), expect(dead_code, reason = "the run queue's interrupt end"))]
 pub(crate) struct InterruptEndWrites {
     /// The row moves, committed with the run's end.
     pub(crate) statements: Vec<WriteStatement>,
@@ -179,7 +176,10 @@ pub(crate) struct QueueDelivery {
 
 impl QueueDelivery {
     /// A delivery over `deps`, holding nothing.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's start"))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's start, which builds the run queue")
+    )]
     pub(crate) fn new(deps: QueueDeliveryDeps) -> Self {
         Self {
             shared: Arc::new(DeliveryShared {
@@ -193,7 +193,7 @@ impl QueueDelivery {
     /// Takes `item`, just sent, into the live run `run_id`: kept for the next turn while the run
     /// waits on input with no credits choice held, else handed as [`QueueDelivery::hand_waiting`]
     /// does. Called under `hold`; fails as that does.
-    #[expect(dead_code, reason = "the run queue's send path")]
+    #[expect(dead_code, reason = "the daemon's start, which builds the run queue")]
     pub(crate) async fn accept_send(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -252,9 +252,45 @@ impl QueueDelivery {
             run_id,
             driver,
             items,
+            is_priority: false,
         };
         self.push_job(&mut state, session_id, job);
         Ok(())
+    }
+
+    /// Hands `item`, waiting for `run_id` and taken back from the provider, to the run marked
+    /// priority, so the provider reads it ahead of what it holds, then every other lead message
+    /// waiting for the run, in the queue's order, as [`QueueDelivery::hand_waiting`] does. Called
+    /// under `hold`, so the priority hand joins the chain first. Fails when a read fails or the
+    /// run's driver is refused.
+    pub(crate) async fn hand_first(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        run_id: RunId,
+        item: QueueItemRecord,
+    ) -> Result<(), DeliveryError> {
+        let session_id = *hold.key();
+        let driver = read_run_driver::<DeliveryError>(
+            &self.shared.deps.pool,
+            &self.shared.deps.providers,
+            run_id,
+        )
+        .await?;
+        let handing = driver.message_handing();
+        let process = self.shared.deps.processes.process_identity(&session_id);
+        {
+            let mut state = self.lock_state();
+            let items = vec![item];
+            state.mark_handed(&items, run_id, HandRoute::Driver(handing), process);
+            let job = ChainJob::Hand {
+                run_id,
+                driver,
+                items,
+                is_priority: true,
+            };
+            self.push_job(&mut state, session_id, job);
+        }
+        self.hand_waiting(hold, run_id).await
     }
 
     /// Hands the driver every lead message waiting for the run at a tool boundary of its turn, in
@@ -354,7 +390,6 @@ impl QueueDelivery {
     /// opening (a starting run's opening goes with the rest) are cancelled for `ReturnToDraft`,
     /// placed with `deliver_first` first for `NextTurn`, and left for `KeepWaiting`. Writes nothing
     /// itself. Fails when a read fails or an event cannot be drafted.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's interrupt end"))]
     pub(crate) async fn interrupt_end_writes(
         &self,
         run_id: RunId,
@@ -424,7 +459,6 @@ impl QueueDelivery {
 
     /// Forgets that the provider was handed any of `item_ids` or that one waits for a next turn,
     /// once another's write moved them.
-    #[expect(dead_code, reason = "the run queue's edit, removal and reorder")]
     pub(crate) fn forget(&self, item_ids: &[QueueItemId]) {
         let mut state = self.lock_state();
         for item_id in item_ids {
@@ -434,7 +468,6 @@ impl QueueDelivery {
     }
 
     /// Settles once every job pushed on the session's chain before it has settled.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's run lifecycle"))]
     pub(crate) async fn settle(&self, session_id: SessionId) {
         self.run_between_hands(session_id, async {}).await;
     }
@@ -536,7 +569,6 @@ impl QueueDelivery {
     /// which waits for the provider's word or, once no live process holds it, its record; the
     /// run's other waiting messages are left for the next run. Called after
     /// [`QueueDelivery::settle`].
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's run lifecycle"))]
     pub(crate) fn end_run(&self, session_id: SessionId, run_id: RunId) {
         let live_process = self.shared.deps.processes.process_identity(&session_id);
         let mut state = self.lock_state();
@@ -554,7 +586,6 @@ impl QueueDelivery {
     /// Forgets each message of `session_id` a provider process kept past its ended run when that
     /// process is no longer the session's, and answers those runs: each message stays waiting and
     /// goes with the person's next send, never on its own. Fails when a read fails.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's run lifecycle"))]
     pub(crate) async fn forget_kept_by_gone_process(
         &self,
         session_id: SessionId,
@@ -617,20 +648,25 @@ impl QueueDelivery {
     }
 
     /// Whether the provider has been handed `item_id` and has not yet said what became of it.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's interrupt end"))]
     pub(crate) fn is_handed(&self, item_id: &QueueItemId) -> bool {
         self.lock_state().handed.contains_key(item_id)
     }
 
     /// Whether the session's live provider process keeps a message handed for `run_id`, which it
     /// starts a turn of its own with.
-    #[expect(dead_code, reason = "the run queue's run lifecycle")]
     pub(crate) fn is_message_kept_for_run(&self, session_id: SessionId, run_id: RunId) -> bool {
         let live_process = self.shared.deps.processes.process_identity(&session_id);
         self.lock_state()
             .handed
             .values()
             .any(|handed| handed.run_id == run_id && is_kept_by_process(handed, live_process))
+    }
+
+    /// Stops taking new work and waits for every task the delivery runs on its own: each chain's
+    /// drain, so a hand in flight finishes or fails before it answers.
+    pub(crate) async fn stop(&self) {
+        self.shared.tasks.close();
+        self.shared.tasks.wait().await;
     }
 
     // The delivery's state. No holder awaits or panics while it changes the state, so a poisoned
@@ -685,7 +721,7 @@ impl QueueDelivery {
         waiting
             .into_iter()
             .filter(|item| {
-                item.child_handle.is_none() && (keeps_openings || !openings.is_opening(&item.id))
+                item.child_handle.is_none() && (keeps_openings || !openings.is_opening(item))
             })
             .collect()
     }
@@ -725,9 +761,9 @@ impl QueueDelivery {
     }
 }
 
-// `waiting` with the item `deliver_first` names moved ahead of the rest, which keep their order;
-// `None` when it names none of them.
-fn reordered_of(
+/// `waiting` with the item `deliver_first` names moved ahead of the rest, which keep their order;
+/// `None` when it names none of them.
+pub(crate) fn reordered_of(
     waiting: &[QueueItemRecord],
     deliver_first: Option<QueueItemId>,
 ) -> Option<Vec<QueueItemRecord>> {
@@ -738,25 +774,24 @@ fn reordered_of(
     Some(ordered)
 }
 
-// The steer that hands `item` to `run_id`, at the run version `run_version` the queue read.
-fn steer_of(item: &QueueItemRecord, run_id: RunId, run_version: i64) -> ApplyInterventionParams {
+// The steer that hands `item` to `run_id`, at the run version `run_version` the queue read; one
+// `is_priority` the provider reads ahead of what it holds.
+fn steer_of(
+    item: &QueueItemRecord,
+    run_id: RunId,
+    run_version: i64,
+    is_priority: bool,
+) -> ApplyInterventionParams {
     ApplyInterventionParams::Steer {
         target_run_id: run_id,
         expected_run_version: safe_run_version(run_version),
         client_idempotency_key: item.id,
         payload: SteerPayload {
             content: item.body.content.clone(),
-            attachments: attachments_of(&item.body),
+            attachments: item.body.attachment_ids(),
             skills: item.body.skills.clone().unwrap_or_default(),
             expected_turn_id: None,
-            is_priority: false,
+            is_priority,
         },
     }
-}
-
-fn attachments_of(body: &QueueItemBody) -> Vec<ArtifactId> {
-    body.attachments
-        .as_ref()
-        .map(|attachments| attachments.0.clone())
-        .unwrap_or_default()
 }

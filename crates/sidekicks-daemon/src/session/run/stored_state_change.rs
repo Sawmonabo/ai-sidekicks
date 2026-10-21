@@ -50,8 +50,8 @@ pub(crate) enum StoredRunStateChange {
     not(test),
     expect(
         dead_code,
-        reason = "the queue's run lifecycle, and the daemon's start handing committed changes to \
-                  the run binding cursors"
+        reason = "the daemon's start, which builds the run queue's lifecycle and hands committed \
+                  changes to the run binding cursors"
     )
 )]
 impl StoredRunStateChange {

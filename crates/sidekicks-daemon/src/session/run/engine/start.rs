@@ -75,13 +75,6 @@ impl RunEngine {
     /// `running` write that fails once the driver has the run, after the driver's turn is
     /// interrupted. An interrupt that arrives after the gates is routed once the start settles (see
     /// [`RunEngine::route_interrupt`]).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the queue's drain, which starts the run of each message it admits"
-        )
-    )]
     pub(crate) async fn start_run(
         &self,
         request: RunStartRequest,
@@ -368,13 +361,6 @@ impl RunEngine {
     /// and is returned; a `running` write that fails once the driver started the turn does so
     /// after the turn is interrupted. Fails with [`RunRefusal::InvalidTransition`] for a run that
     /// does not read interrupted or is already being continued.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the queue's drain, which continues an interrupted run on its next message"
-        )
-    )]
     pub(crate) async fn continue_run(
         &self,
         request: RunContinueRequest,

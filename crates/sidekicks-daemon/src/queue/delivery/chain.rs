@@ -52,6 +52,8 @@ pub(super) enum ChainJob {
         driver: Arc<dyn ProviderDriver>,
         /// The messages, marked handed.
         items: Vec<QueueItemRecord>,
+        /// Whether the provider reads them ahead of what it holds: a person's `Send now`.
+        is_priority: bool,
     },
     /// Steers every message at once, in order, at a tool boundary of the run's turn.
     ToolBoundary {
@@ -138,9 +140,12 @@ impl QueueDelivery {
                 run_id,
                 driver,
                 items,
+                is_priority,
             } => {
                 for item in &items {
-                    let handed = self.hand(session_id, run_id, driver.as_ref(), item).await;
+                    let handed = self
+                        .hand(session_id, run_id, driver.as_ref(), item, is_priority)
+                        .await;
                     log_job_failure(session_id, item.id, handed);
                 }
             }
@@ -180,6 +185,7 @@ impl QueueDelivery {
         run_id: RunId,
         driver: &dyn ProviderDriver,
         item: &QueueItemRecord,
+        is_priority: bool,
     ) -> Result<(), DeliveryError> {
         let run = match self.read_run(run_id).await {
             Ok(Some(run)) => run,
@@ -202,7 +208,7 @@ impl QueueDelivery {
             chain_of(&state, session_id).mark_in_flight(Some(run_id));
         }
         let steered = driver
-            .apply_intervention(steer_of(item, run_id, run.version))
+            .apply_intervention(steer_of(item, run_id, run.version, is_priority))
             .await;
         chain_of(&self.lock_state(), session_id).mark_in_flight(None);
         match steered {
@@ -261,7 +267,7 @@ impl QueueDelivery {
         let answers = join_all(
             items
                 .iter()
-                .map(|item| driver.apply_intervention(steer_of(item, run_id, run.version))),
+                .map(|item| driver.apply_intervention(steer_of(item, run_id, run.version, false))),
         )
         .await;
         chain_of(&self.lock_state(), session_id).mark_in_flight(None);
