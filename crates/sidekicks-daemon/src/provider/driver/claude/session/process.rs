@@ -270,8 +270,7 @@ impl ClaudeCodeProcess {
             .is_err()
         {
             self.ends.ask(ChildEnd::Stop);
-            // Whoever reads the end awaits `exited` itself; this only waits for it.
-            drop(self.exited().await);
+            self.wait_for_exit().await;
         }
     }
 
@@ -287,6 +286,13 @@ impl ClaudeCodeProcess {
                 "the Claude Code process's owner ended before reading its exit",
             ))),
         }
+    }
+
+    // Waits until the end is published, or its owner is gone; whoever reads the end awaits
+    // `exited` itself.
+    async fn wait_for_exit(&self) {
+        let mut end = self.end.clone();
+        let _is_owner_gone = end.wait_for(Option::is_some).await.is_err();
     }
 
     /// The operating system's id for the process and its place in the daemon's spawn count.
@@ -357,8 +363,7 @@ impl ClaudeProcessChannel for ClaudeCodeProcess {
     fn terminate(&self) -> BoxFuture<'_, ()> {
         async move {
             self.ends.ask(ChildEnd::Stop);
-            // Whoever reads the end awaits `exited` itself; this only waits for it.
-            drop(self.exited().await);
+            self.wait_for_exit().await;
         }
         .boxed()
     }
