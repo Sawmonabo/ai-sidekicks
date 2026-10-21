@@ -110,9 +110,12 @@ impl CodexSessionSlots {
 
     /// The queue of `session_id`'s live record, while no transition is in flight on it. Fails
     /// with `CodexError::Transport` while it is being established again or torn down, or has none.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver's calls reach a session's record through its queue"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex driver's calls reach a session's record through its queue"
+        )
     )]
     pub(crate) fn require_live(
         &self,

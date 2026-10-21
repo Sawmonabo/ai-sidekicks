@@ -205,13 +205,6 @@ pub(crate) struct CodexServiceTierChange(pub(crate) Option<String>);
 /// The `turn/start` params the daemon sends: the turn's input and the overrides it carries from
 /// that turn on. `service_tier` keeps its three meanings: absent keeps the thread's tier, `null`
 /// returns it to standard, a value sets it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex run start and side questions send a turn with these"
-    )
-)]
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CodexTurnStartParams {
@@ -293,9 +286,12 @@ pub(crate) struct CodexThreadSettingsUpdateParams {
 /// Codex's collaboration mode for Build or Plan on `model` at `reasoning_effort`, with the mode's
 /// built-in instructions. It takes precedence over a request's own model and effort, so both are
 /// carried; an effort Codex reported that this build's schema does not list is left out.
-#[expect(
-    dead_code,
-    reason = "the Codex mode move and the run start send the session's mode with it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex mode move and the run start send the session's mode with it"
+    )
 )]
 pub(crate) fn compose_codex_collaboration_mode(
     mode: SessionMode,

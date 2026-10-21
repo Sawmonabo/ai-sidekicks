@@ -92,9 +92,13 @@ impl CodexFrameDelivery {
     /// whose oldest unclaimed spawn call on the parent thread started it, else the parent helper's
     /// own child run, else the session's one live run. A helper whose parent run cannot be told,
     /// or beneath a helper that never started, is left unstarted, since no run can own it.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame routing starts each helper its conversation announces"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's frame routing starts each helper \
+                its conversation announces"
+        )
     )]
     pub(crate) async fn start_child(
         &self,
@@ -159,9 +163,12 @@ impl CodexFrameDelivery {
     /// Ends the child run of a helper whose last turn ended, with the `subagent.completed` row,
     /// after the asks that turn still held and the pieces it still had waiting; `turn_params` is
     /// that turn's `turn/completed` params.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame routing ends each helper whose last turn ended"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's frame routing ends each helper whose last turn ended"
+        )
     )]
     pub(crate) async fn complete_child(
         &self,

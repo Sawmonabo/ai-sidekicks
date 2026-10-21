@@ -46,9 +46,12 @@ pub(crate) async fn resolve_codex_turn_message(
 /// The input items of the person's messages, in send order: each message's words as a text item,
 /// then an item per picked skill in the order picked, then an item per staged file in staging
 /// order.
-#[expect(
-    dead_code,
-    reason = "the Codex run start, steer and faster-model retry send a turn's input with it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex run start, steer and faster-model retry send a turn's input with it"
+    )
 )]
 pub(crate) fn compose_codex_message_input(messages: &[CodexTurnMessage]) -> Vec<UserInput> {
     messages

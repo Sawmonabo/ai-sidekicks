@@ -58,9 +58,12 @@ impl CodexRunRoutes {
 
     /// Answers with the turn once `run_id` is routed to one, for a turn Codex starts on its own
     /// after a request whose reply names no turn. Dropping the receiver stops waiting.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's start waits for the turn a reply named no id of"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex run's start waits for the turn a reply named no id of"
+        )
     )]
     pub(crate) fn await_turn_start(&self, run_id: RunId) -> oneshot::Receiver<String> {
         let (waiter, turn_started) = oneshot::channel();
@@ -70,9 +73,12 @@ impl CodexRunRoutes {
 
     /// Records the binding a run's deliveries go on, before its first turn is sent; it stays
     /// until the run ends, through every turn the run takes.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's start binds each run before its first turn"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex run's start binds each run before its first turn"
+        )
     )]
     pub(crate) fn bind_run_delivery(&self, run_id: RunId, binding: CodexRunBinding) {
         self.lock().binding_by_run_id.insert(run_id, binding);
@@ -126,9 +132,12 @@ impl CodexRunRoutes {
     /// Retires one turn's route, and the run's session route only when that turn was the run's
     /// last: dropping it earlier would strand the steer and interrupt paths of the run's other
     /// live turn.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's control retires a turn an interrupt took from its run"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex run's control retires a turn an interrupt took from its run"
+        )
     )]
     pub(crate) fn retire_turn_route(&self, record: &mut CodexSessionRecord, turn_id: &str) {
         let Some(run_id) = record.remove_active_turn(turn_id) else {

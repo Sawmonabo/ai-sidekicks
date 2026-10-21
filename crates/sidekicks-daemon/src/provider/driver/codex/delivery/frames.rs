@@ -184,9 +184,12 @@ pub(crate) struct CodexFrameDelivery {
 
 impl CodexFrameDelivery {
     /// The frame delivery over `dependencies`.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver builds one frame delivery its sessions' tasks share"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex driver builds one frame delivery its sessions' tasks share"
+        )
     )]
     pub(crate) fn new(dependencies: CodexFrameDeliveryDependencies) -> Self {
         Self {
@@ -200,9 +203,12 @@ impl CodexFrameDelivery {
     /// `route` for it, while the turn bookkeeping still holds the turn's route; `gate` is the
     /// session's terminal gate, which outlives its records. Never fails: each delivery's failure
     /// is reported where it happens.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's task hands each frame of its queue to it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's task hands each frame of its queue to it"
+        )
     )]
     pub(crate) async fn deliver(
         &self,

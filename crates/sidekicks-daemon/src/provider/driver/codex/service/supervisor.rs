@@ -298,9 +298,12 @@ impl CodexService {
     }
 
     /// The account's rate-limit readings this service has seen.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's failed-turn reading reads the account's usage limit"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's failed-turn reading reads the account's usage limit"
+        )
     )]
     pub(crate) fn rate_limit_observation(&self) -> CodexRateLimitObservation {
         self.lock_routing().rate_limits.clone()
@@ -563,9 +566,13 @@ impl CodexService {
 
     /// Opens a claim on the conversation a start or fork in flight is about to name, so its
     /// frames are held until it is registered.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's start and fork claim the conversation they are about to name"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's start and fork claim the conversation they are \
+                about to name"
+        )
     )]
     pub(crate) fn begin_thread_claim(&self) -> ThreadClaim {
         CodexServiceThreads::begin_claim(&self.threads)

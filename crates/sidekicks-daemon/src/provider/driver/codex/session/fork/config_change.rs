@@ -31,9 +31,12 @@ pub(crate) type CodexConfigFork = Shared<BoxFuture<'static, Result<bool, Arc<Cod
 
 /// The forks each session's conversation owes onto the config its record holds once that changed,
 /// never run while a turn runs, starts or is still ending on it.
-#[expect(
-    dead_code,
-    reason = "the Codex driver builds the config forks its sessions share"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex driver builds the config forks its sessions share"
+    )
 )]
 pub(crate) struct CodexConfigForks {
     slots: Arc<CodexSessionSlots>,
@@ -46,9 +49,12 @@ pub(crate) struct CodexConfigForks {
 impl CodexConfigForks {
     /// The config forks, claiming each session's slot through `slots` and running a fork no
     /// caller waits on as a task of `tasks`.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver builds the config forks its sessions share"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex driver builds the config forks its sessions share"
+        )
     )]
     pub(crate) fn new(slots: Arc<CodexSessionSlots>, tasks: TaskTracker) -> Self {
         Self {
@@ -72,9 +78,12 @@ impl CodexConfigForks {
 
     /// Runs the fork `record`'s session owes once nothing runs, starts or ends on it, as a task no
     /// caller waits on; called on the session's task whenever a turn of the session settled.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame intake notes each turn's end"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's frame intake notes each turn's end"
+        )
     )]
     pub(crate) fn note_turn_settled(self: &Arc<Self>, record: &CodexSessionRecord) {
         if !record.is_config_fork_owed || record.is_turn_in_flight(None) {
@@ -87,7 +96,10 @@ impl CodexConfigForks {
     /// The fork the session owes, joined when one is in flight: it claims the session's slot, then
     /// runs on the session's task if the session still owes it and is idle there. Fails as the
     /// fork fails, and with `CodexError::SessionClosed` once the session closed before its turn.
-    #[expect(dead_code, reason = "the Codex run start forks before its turn")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Codex run start forks before its turn")
+    )]
     pub(crate) fn fork(
         self: &Arc<Self>,
         session_id: SessionId,
@@ -126,9 +138,12 @@ impl CodexConfigForks {
 
     /// Waits for the forks in flight on the session to end, a fork started meanwhile among them;
     /// how each ended is the fork's caller's to read.
-    #[expect(
-        dead_code,
-        reason = "the Codex run start, goals and controls wait for a fork in flight"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex run start, goals and controls wait for a fork in flight"
+        )
     )]
     pub(crate) async fn join(&self, session_id: SessionId) {
         loop {

@@ -74,9 +74,12 @@ struct ListedUserMessage {
 /// Every turn of `thread_id`, oldest first; a conversation no message has reached yet answers
 /// none. Fails as the connection's request does, and with `CodexError::Transport` for a reply
 /// that is not a page.
-#[expect(
-    dead_code,
-    reason = "the Codex session's recovery and rewind read a conversation's turns"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex session's recovery and rewind read a conversation's turns"
+    )
 )]
 pub(crate) async fn read_codex_turns(
     connection: &CodexAppServerConnection,

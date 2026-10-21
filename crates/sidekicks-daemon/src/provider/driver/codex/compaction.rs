@@ -98,9 +98,13 @@ pub(crate) async fn dispatch_codex_compaction(
 
 /// The boundary position a `thread/compacted` frame carries: only a non-negative integer, since
 /// Codex's frame names only the thread and turn today, so a build that adds one is read.
-#[expect(
-    dead_code,
-    reason = "the Codex session's frame routing reads each compaction frame's boundary through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex session's frame routing reads each compaction frame's \
+            boundary through it"
+    )
 )]
 pub(crate) fn read_codex_compaction_boundary_position(params: &RawValue) -> Option<u64> {
     read_codex_object::<CompactedFrame>(params.get())

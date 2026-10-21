@@ -114,9 +114,12 @@ pub(crate) struct CodexSessionRouting {
 
 impl CodexSessionRouting {
     /// An empty band for one session, settling compaction waits through `pending_compactions`.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's task makes its routing band as the session is created"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's task makes its routing band as the session is created"
+        )
     )]
     pub(crate) fn new(pending_compactions: PendingCompactionRegistry) -> Self {
         Self {
@@ -143,9 +146,13 @@ impl CodexSessionRouting {
     /// `establishment` says, and delivers the frames that waited for it. Bases come first, since a
     /// released usage frame meters at once; binding replaces the session's conversation, which is
     /// how a rewind retires the old one.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's create, resume and rewind bind their conversation through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's create, resume and rewind bind their \
+                conversation through it"
+        )
     )]
     pub(crate) async fn bind_session_thread(
         &mut self,
@@ -208,9 +215,12 @@ impl CodexSessionRouting {
     /// Routes one notification of the session and delivers what it releases, a helper's
     /// announcement registering the helper before the announcement itself is routed. Never fails:
     /// each delivery reports its own failure.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's task routes each frame of its queue through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's task routes each frame of its queue through it"
+        )
     )]
     pub(crate) async fn route_notification(
         &mut self,

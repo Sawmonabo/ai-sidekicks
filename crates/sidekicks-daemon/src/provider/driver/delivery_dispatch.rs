@@ -20,9 +20,12 @@ use crate::session::run::inbound::rows::SessionScopedRow;
 use crate::session::run::inbound::{InboundDelivery, InboundOutcome, RunInboundDispatch};
 
 /// Where a delivery came from, as a refusal's diagnostic names it.
-#[expect(
-    dead_code,
-    reason = "each provider's event delivery names the origin of every delivery it hands over"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "each provider's event delivery names the origin of every delivery it hands over"
+    )
 )]
 pub(crate) struct DeliveryOrigin<'a> {
     /// The provider whose driver produced it.
@@ -36,9 +39,12 @@ pub(crate) struct DeliveryOrigin<'a> {
 /// Dispatches `delivery` through `dispatch` now, before the returned future is first polled, and
 /// answers its outcome, or `None` once a refusal is logged as `DeliveryDispatchFailed` naming its
 /// origin, its kind and its session or binding.
-#[expect(
-    dead_code,
-    reason = "each provider's event delivery hands every delivery it builds through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "each provider's event delivery hands every delivery it builds through it"
+    )
 )]
 pub(crate) fn dispatch_delivery<'d>(
     dispatch: &'d RunInboundDispatch,

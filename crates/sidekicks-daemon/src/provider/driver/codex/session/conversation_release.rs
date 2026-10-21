@@ -198,9 +198,13 @@ impl CodexConversationRelease {
     /// Forgets every conversation a session holds on `service`, its helpers' included, that
     /// `is_released` names, except those held here, whose frames keep reaching the session until
     /// their commands end.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close, establishment, fork and recovery forget its threads"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's close, establishment, fork and recovery \
+                forget its threads"
+        )
     )]
     pub(crate) fn release_session_threads(
         &self,

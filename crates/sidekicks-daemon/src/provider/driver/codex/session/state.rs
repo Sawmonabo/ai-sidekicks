@@ -34,9 +34,12 @@ use crate::provider::thread_frame_router::ThreadFrameRouterConfig;
 const CODEX_INTERRUPTED_ROUTE_MEMORY: usize = 64;
 
 /// How many settled turn ids a session remembers, oldest dropped first.
-#[expect(
-    dead_code,
-    reason = "the Codex session's frame intake remembers each turn's end"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex session's frame intake remembers each turn's end"
+    )
 )]
 const CODEX_SETTLED_TURN_MEMORY: usize = 64;
 
@@ -52,9 +55,12 @@ pub(crate) const CODEX_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig =
 /// One of the person's messages a turn is sent with: its words as typed, the skills picked for it,
 /// then its staged files.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "the Codex run start sends a turn's messages and resends them on a retry"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex run start sends a turn's messages and resends them on a retry"
+    )
 )]
 pub(crate) struct CodexTurnMessage {
     /// The words.
@@ -67,9 +73,12 @@ pub(crate) struct CodexTurnMessage {
 
 /// What a turn was sent with, kept so a faster-model retry can send it again, files and all.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "the Codex run start keeps a turn's input for a faster-model retry"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex run start keeps a turn's input for a faster-model retry"
+    )
 )]
 pub(crate) struct CodexTurnInput {
     /// The messages.
@@ -200,9 +209,12 @@ impl CodexSessionRecord {
     }
 
     /// Records that a turn's end was read, dropping the oldest past the memory's bound.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame intake remembers each turn's end"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's frame intake remembers each turn's end"
+        )
     )]
     pub(crate) fn remember_settled_turn(&mut self, turn_id: String) {
         self.settled_turn_ids.retain(|settled| *settled != turn_id);
@@ -253,9 +265,12 @@ impl CodexSessionRecord {
 
     /// The turns the daemon stopped whose `turn/completed` has yet to arrive: interrupted,
     /// interrupted for a pause, or stopped for a faster-model retry.
-    #[expect(
-        dead_code,
-        reason = "the Codex run start reads whether a turn is still ending"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex run start reads whether a turn is still ending"
+        )
     )]
     pub(crate) fn ending_turn_ids(&self) -> Vec<&str> {
         self.interrupted_run_by_turn_id
@@ -278,9 +293,12 @@ impl CodexSessionRecord {
     /// Whether a turn runs, is starting or is still ending, or one Codex started by itself is
     /// opening or runs with no run, so input the daemon sends would fold into it. The opening of
     /// `opening_turn_id` itself does not count, for the run that opening starts.
-    #[expect(
-        dead_code,
-        reason = "the Codex run start and steer read whether a turn is in flight"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex run start and steer read whether a turn is in flight"
+        )
     )]
     pub(crate) fn is_turn_in_flight(&self, opening_turn_id: Option<&str>) -> bool {
         let opening = self.delivery.self_started_turn_opening.as_deref();

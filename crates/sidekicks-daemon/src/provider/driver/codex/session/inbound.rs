@@ -11,17 +11,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use crate::provider::driver::codex::output_speed::CodexSettledOutputSpeed;
+use crate::provider::driver::codex::run::faster_model_retry::CodexRetryStopAnswer;
+use crate::provider::driver::codex::run::start::record::{
+    CodexAcceptedTurn, CodexTurnBegin, CodexTurnBeginAnswer, CodexTurnStartOutcome,
+};
 use crate::provider::driver::codex::run::steer::CodexSteerSend;
 use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnWait, CodexTurnWaitAnswer};
 use crate::provider::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
+use crate::provider::driver::codex::session::calls::CodexSessionReading;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::contract::{
@@ -70,9 +77,13 @@ pub(crate) enum CodexSessionInbound {
     Barrier(oneshot::Sender<()>),
     /// A call the driver makes on the session's record, run on the session's task in its place
     /// among the frames.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver's run control and waits reach the session's record through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex driver's run control and waits reach the session's \
+                record through it"
+        )
     )]
     Call(CodexSessionCall),
 }
@@ -122,6 +133,68 @@ pub(crate) enum CodexSessionCall {
         params: MoveSessionToForkParams,
         /// Where the move's result, or its failure, goes.
         reply: oneshot::Sender<Result<MoveSessionToForkResult, CodexError>>,
+    },
+    /// Takes a turn's start on the record, before its request goes.
+    BeginTurnStart {
+        /// The run, its turn and its binding.
+        begin: Box<CodexTurnBegin>,
+        /// Where the start goes, or what holds it back.
+        reply: oneshot::Sender<CodexTurnBeginAnswer>,
+    },
+    /// Settles a turn's start with Codex's outcome.
+    SettleTurnStart {
+        /// The run.
+        run_id: RunId,
+        /// What the start's acceptance changes.
+        accepted: Box<CodexAcceptedTurn>,
+        /// How the start went at Codex.
+        outcome: CodexTurnStartOutcome,
+        /// Where the speed a turn that already ended settled at goes, or the start's failure.
+        reply: oneshot::Sender<Result<Option<CodexSettledOutputSpeed>, CodexError>>,
+    },
+    /// Reads what a turn the daemon starts and `Allow once` act on.
+    ReadSession {
+        /// A conversation whose load the reading answers, the session's own when `None`.
+        thread_id: Option<String>,
+        /// Where the reading goes.
+        reply: oneshot::Sender<CodexSessionReading>,
+    },
+    /// Stops the newest live turn of a run.
+    InterruptRunTurn {
+        /// The run.
+        run_id: RunId,
+        /// Where the stop's failure goes; `Ok` with no live turn.
+        reply: oneshot::Sender<Result<(), CodexError>>,
+    },
+    /// Marks a held turn retried and takes its route, before its interrupt goes out.
+    StopTurnForRetry {
+        /// The run.
+        run_id: RunId,
+        /// The held turn.
+        turn_id: String,
+        /// Where what the retry sends again goes, or why it is refused.
+        reply: oneshot::Sender<CodexRetryStopAnswer>,
+    },
+    /// Gives a retried turn Codex did not stop back to its run.
+    RestoreRetriedTurn {
+        /// The run.
+        run_id: RunId,
+        /// The held turn.
+        turn_id: String,
+        /// Where `true` goes when the turn runs on as the run's.
+        reply: oneshot::Sender<bool>,
+    },
+    /// Forks the conversation to just before a retried turn on the faster model, once the caller
+    /// claimed the slot.
+    ForkForRetry {
+        /// The retried turn.
+        turn_id: String,
+        /// The faster model.
+        model: String,
+        /// The run's binding, pointed at the fork.
+        binding_id: RuntimeBindingId,
+        /// Where the fork's failure goes.
+        reply: oneshot::Sender<Result<(), CodexError>>,
     },
 }
 

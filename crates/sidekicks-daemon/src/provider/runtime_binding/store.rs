@@ -547,10 +547,13 @@ impl RuntimeBindingStore {
     /// each conversation the session left in the same write. Fails with
     /// [`RuntimeBindingStoreError::NoRowToRebind`] when the binding has no row, so nothing was
     /// recorded, and as [`RuntimeBindingStore::update`] does.
-    #[expect(
-        dead_code,
-        reason = "a fork or a restart's resume points the binding at its new conversation \
-                  through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "a fork or a restart's resume points the binding at its new \
+                conversation through it"
+        )
     )]
     pub(crate) async fn rebind(
         &self,

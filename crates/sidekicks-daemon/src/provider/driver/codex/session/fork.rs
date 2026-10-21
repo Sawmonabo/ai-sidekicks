@@ -201,9 +201,12 @@ pub(crate) async fn move_codex_session_to_fork(
 /// Points the binding of the session's first run at the conversation the session is on, recording
 /// with it each conversation a fork left before the session had a binding. Fails as the binding's
 /// write does, those conversations still owed to the next write.
-#[expect(
-    dead_code,
-    reason = "the Codex run start binds a session's first run through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex run start binds a session's first run through it"
+    )
 )]
 pub(crate) async fn bind_codex_first_run(
     record: &mut CodexSessionRecord,

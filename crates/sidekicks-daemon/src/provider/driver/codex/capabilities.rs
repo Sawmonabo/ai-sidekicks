@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::sync::LazyLock;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
@@ -16,6 +16,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::DESCRIPTOR;
+use super::app_server_protocol::ModelListParams;
 use super::capability_probe::CAPABILITY_PROBE_RULES;
 use super::tools::codex_tool_metadata;
 use super::transport::connection::CodexAppServerConnection;
@@ -408,14 +409,6 @@ where
     }
 }
 
-/// The `model/list` params a catalog read sends: the cursor of the page it asks for, none for the
-/// first.
-#[derive(Serialize)]
-struct ModelListParams {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cursor: Option<String>,
-}
-
 /// Reads the whole model catalog of the service `connection` reaches, as
 /// [`read_codex_model_catalog`] does; a fault in a row is reported again on each read. Fails as
 /// that read does.
@@ -426,7 +419,14 @@ pub(crate) async fn read_codex_service_model_catalog(
     read_codex_model_catalog(
         |cursor| async move {
             connection
-                .request(CODEX_MODEL_LIST_METHOD, &ModelListParams { cursor })
+                .request(
+                    CODEX_MODEL_LIST_METHOD,
+                    &ModelListParams {
+                        cursor,
+                        include_hidden: None,
+                        limit: None,
+                    },
+                )
                 .await
                 .map_err(DriverError::from)
         },

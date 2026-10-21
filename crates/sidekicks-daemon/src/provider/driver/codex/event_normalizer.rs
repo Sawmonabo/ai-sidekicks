@@ -533,9 +533,12 @@ pub(crate) fn resolve_codex_frame_emission_route(
 /// The method's routing family for the thread-frame router: a connection-scoped family needs no
 /// thread identity, a thread-scoped one demands one, and a method outside the table is `Unknown`,
 /// never presumed connection-scoped.
-#[expect(
-    dead_code,
-    reason = "the Codex connection's reader classifies each inbound frame for the router"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex connection's reader classifies each inbound frame for the router"
+    )
 )]
 pub(crate) fn classify_codex_frame_family_for_routing(method: &str) -> ThreadFrameFamilyClass {
     CodexInboundMethod::from_method(method).map_or(ThreadFrameFamilyClass::Unknown, |inbound| {

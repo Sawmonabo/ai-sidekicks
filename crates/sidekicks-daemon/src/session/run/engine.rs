@@ -653,7 +653,7 @@ impl RunEngine {
     /// provider runs it at another state, appends one `fastOutputUnavailable` notice naming the
     /// run, with the provider's reason. Only the first report for a started run is compared; a
     /// later one finds nothing. Fails when the notice is not appended.
-    #[expect(dead_code, reason = "the provider's event delivery")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_settled_output_speed(
         &self,
         session_id: SessionId,

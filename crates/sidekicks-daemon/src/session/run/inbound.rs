@@ -167,9 +167,12 @@ pub(crate) enum InboundDelivery<'key> {
 
 impl InboundDelivery<'_> {
     /// The delivery's kind as a diagnostic names it.
-    #[expect(
-        dead_code,
-        reason = "the delivery dispatch names a refused delivery's kind in its diagnostic"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the delivery dispatch names a refused delivery's kind in its diagnostic"
+        )
     )]
     pub(crate) fn kind_name(&self) -> &'static str {
         match self {
@@ -244,9 +247,12 @@ pub(crate) enum InboundOutcome {
 
 impl InboundOutcome {
     /// The id of the event a delivery was written as; `None` where nothing was written.
-    #[expect(
-        dead_code,
-        reason = "the provider's event delivery reads the event a delivery was written as"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the provider's event delivery reads the event a delivery was written as"
+        )
     )]
     pub(crate) fn event_id(&self) -> Option<&FreeFormText<EVENT_FIELD_MAX_LEN>> {
         match self {

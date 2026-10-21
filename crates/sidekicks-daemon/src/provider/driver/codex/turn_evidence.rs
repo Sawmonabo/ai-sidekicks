@@ -310,9 +310,12 @@ pub(crate) fn compose_codex_turn_terminal(
 /// JSON text: `completed`, `interrupted`, or `failed` for any other status or unreadable params,
 /// a status Codex does not send reported once through `diagnostics`. A helper's turns carry no
 /// epoch of the session's runs, so no terminal gate admits it.
-#[expect(
-    dead_code,
-    reason = "the Codex helper roles end each helper's child run through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex helper roles end each helper's child run through it"
+    )
 )]
 pub(crate) fn compose_codex_child_terminal(
     child_run_id: RunId,

@@ -283,9 +283,12 @@ impl CodexError {
 /// Turns a refused `thread/fork` that names the rewind boundary member into
 /// `RewindBoundaryUnsupported`, the service's words bounded as a failure detail; any other error
 /// is returned unchanged.
-#[expect(
-    dead_code,
-    reason = "the Codex rewind classifies a refused fork before it reports the failure"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex rewind classifies a refused fork before it reports the failure"
+    )
 )]
 pub(crate) fn classify_rewind_fork_failure(error: CodexError) -> CodexError {
     if let CodexError::ProviderRequest {

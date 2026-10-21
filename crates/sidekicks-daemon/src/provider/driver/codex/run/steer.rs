@@ -8,12 +8,12 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
-use serde::Serialize;
+
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::codex::app_server_protocol::UserInput;
+use crate::provider::driver::codex::app_server_protocol::{TurnSteerParams, UserInput};
 use crate::provider::driver::codex::intervention::CodexSteerAcknowledgment;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
@@ -34,16 +34,6 @@ const CODEX_STEER_TURN_GONE_MESSAGES: [&str; 4] = [
     "compact turn",
 ];
 
-/// The `turn/steer` params.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TurnSteerParams {
-    thread_id: String,
-    input: Vec<UserInput>,
-    expected_turn_id: String,
-    client_user_message_id: String,
-}
-
 /// One steer registered on its record and waiting to be written, off the session's task.
 pub(crate) struct CodexSteerSend {
     connection: Arc<CodexAppServerConnection>,
@@ -63,9 +53,12 @@ pub(crate) struct CodexSteerSend {
 /// steer, which the next one waits for. `expected_turn_id`, where the caller pins one, is the turn
 /// the steer names to Codex. Fails with `SteerTurnEnded` when the run has no live turn or an
 /// interrupt is stopping it, and as the service's connection fails.
-#[expect(
-    dead_code,
-    reason = "the Codex session's task registers each steer call through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex session's task registers each steer call through it"
+    )
 )]
 pub(crate) fn register_codex_steer(
     record: &mut CodexSessionRecord,
@@ -145,7 +138,9 @@ pub(crate) async fn send_codex_steer(
                 input,
                 expected_turn_id: send.targeted_turn_id.clone(),
                 // The message's own id, never re-minted, so its echo names it.
-                client_user_message_id: send.message_id.to_string(),
+                client_user_message_id: Some(send.message_id.to_string()),
+                additional_context: None,
+                responsesapi_client_metadata: None,
             },
         )
         .await;
@@ -165,9 +160,12 @@ pub(crate) async fn send_codex_steer(
 
 /// Takes back a steer Codex did not take, on the session's task: it is no longer waited for on
 /// its turn, so no interrupt lists it as cancelled.
-#[expect(
-    dead_code,
-    reason = "the Codex run's steer withdraws a steer whose send failed"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex run's steer withdraws a steer whose send failed"
+    )
 )]
 pub(crate) fn withdraw_codex_steer(
     record: &mut CodexSessionRecord,

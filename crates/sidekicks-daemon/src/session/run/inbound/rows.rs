@@ -108,7 +108,13 @@ macro_rules! unstamped_rows {
         /// the run: from before a cut it is absorbed, otherwise appended as it is. A settlement's
         /// run move is its own delivery.
         #[derive(Debug)]
-        #[expect(dead_code, reason = "the provider's event delivery builds each row it hands over")]
+        #[cfg_attr(
+            not(test),
+            expect(
+                dead_code,
+                reason = "the provider's event delivery builds each row it hands over"
+            )
+        )]
         pub(crate) enum UnstampedRow {
             $($(#[$doc])* $variant($payload),)+
         }

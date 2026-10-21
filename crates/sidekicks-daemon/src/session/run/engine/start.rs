@@ -223,9 +223,12 @@ impl RunEngine {
     /// The run of a provider's own turn takes over, in its `running` write, the lead messages
     /// waiting for the session's interrupted lead runs, so a turn that fails to open leaves them
     /// where they were. Fails as [`RunEngine::start_run`] does.
-    #[expect(
-        dead_code,
-        reason = "the turns the daemon starts on a session itself, such as a goal or a review"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the turns the daemon starts on a session itself, such as a goal or a review"
+        )
     )]
     pub(crate) async fn start_daemon_turn(
         &self,

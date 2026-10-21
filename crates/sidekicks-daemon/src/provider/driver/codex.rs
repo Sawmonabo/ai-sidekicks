@@ -22,6 +22,7 @@ mod commands;
 mod compaction;
 mod delivery;
 mod event_normalizer;
+mod goals;
 mod hooks;
 mod input_limit;
 mod intervention;
