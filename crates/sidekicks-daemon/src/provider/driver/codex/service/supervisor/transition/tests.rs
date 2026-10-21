@@ -1,0 +1,315 @@
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime};
+
+use rstest::rstest;
+
+use super::{Supervision, SupervisorEvent, SupervisorState};
+use crate::provider::driver::codex::service::home::CodexServiceKind;
+use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::contract::DaemonStopIntent;
+
+fn wall(seconds: u64) -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)
+}
+
+fn started(launch: u64, kind: CodexServiceKind) -> impl Fn(Instant) -> SupervisorEvent {
+    move |start| SupervisorEvent::Started {
+        launch,
+        at: start,
+        kind,
+    }
+}
+
+fn dropped(dial: u64, after: u64, is_process_gone: bool) -> impl Fn(Instant) -> SupervisorEvent {
+    move |start| SupervisorEvent::Dropped {
+        dial,
+        at: start + Duration::from_secs(after),
+        wall_at: wall(after),
+        process_gone_at: is_process_gone.then(|| wall(after)),
+    }
+}
+
+fn reconnected(dial: u64, after: u64) -> impl Fn(Instant) -> SupervisorEvent {
+    move |start| SupervisorEvent::Reconnected {
+        dial,
+        at: start + Duration::from_secs(after),
+    }
+}
+
+fn start_failed(launch: u64) -> SupervisorEvent {
+    SupervisorEvent::StartFailed {
+        launch,
+        at: wall(0),
+        failure: Arc::new(CodexError::Transport {
+            detail: "refused".to_owned(),
+            cause: None,
+        }),
+    }
+}
+
+// Runs `steps` from a stopped service of `kind`, answering the state and the last step's actions,
+// each as its debug text, an `Up` state's instant read as how long after the run's start.
+fn drive(
+    kind: CodexServiceKind,
+    steps: Vec<Box<dyn Fn(Instant) -> SupervisorEvent>>,
+) -> (String, Vec<String>) {
+    let start = Instant::now();
+    let mut supervision = Supervision::new(kind);
+    let mut actions = Vec::new();
+    for step in steps {
+        actions = supervision.transition(step(start));
+    }
+    let state = if let SupervisorState::Up {
+        launch,
+        dial,
+        attempt,
+        since,
+        draining,
+    } = supervision.state()
+    {
+        format!(
+            "Up {{ launch: {launch}, dial: {dial}, attempt: {attempt}, up for: {:?}, draining: \
+             {draining:?} }}",
+            since.saturating_duration_since(start)
+        )
+    } else {
+        format!("{:?}", supervision.state())
+    };
+    let actions = actions.iter().map(|action| format!("{action:?}")).collect();
+    (state, actions)
+}
+
+fn boxed(
+    step: impl Fn(Instant) -> SupervisorEvent + 'static,
+) -> Box<dyn Fn(Instant) -> SupervisorEvent> {
+    Box::new(step)
+}
+
+fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> SupervisorEvent> {
+    Box::new(event)
+}
+
+// Each cell of the supervisor's table that moves its state or tears something down, from a
+// stopped service of the daemon's own kind unless the case names another. Fails on any arm
+// changed: a drop while the process runs read as a crash, a stale start's outcome dropped with
+// no teardown (a leaked lasting service), a stop that forgets what follows it, a reconnect count
+// that starts again after a short uptime, or one that keeps growing after a long one.
+#[rstest]
+#[case::a_start(
+    CodexServiceKind::Account,
+    vec![at_once(|_| SupervisorEvent::Start)],
+    "Starting { launch: 1, recovery: None }",
+    &["Launch { launch: 1 }", "Publish(Starting)"],
+)]
+#[case::a_start_comes_up(
+    CodexServiceKind::Account,
+    vec![at_once(|_| SupervisorEvent::Start), boxed(started(1, CodexServiceKind::Account))],
+    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None }",
+    &["AdoptStart { launch: 1 }", "Publish(Up)"],
+)]
+#[case::a_start_fails(
+    CodexServiceKind::Account,
+    vec![at_once(|_| SupervisorEvent::Start), at_once(|_| start_failed(1))],
+    "Stopped",
+    &["TearDown { ticket: 1, ends_lasting_service: true }",
+        "Publish(StartFailed(Transport { detail: \"refused\", cause: None }))"],
+)]
+#[case::a_drop_after_a_short_uptime_keeps_the_grown_count(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        boxed(dropped(1, 10, false)),
+        boxed(reconnected(2, 20)),
+        boxed(dropped(2, 30, false)),
+    ],
+    "Reconnecting { launch: 1, dial: 3, attempt: 2 }",
+    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 3, attempt: 2 }",
+        "Publish(Reconnecting)"],
+)]
+#[case::a_drop_after_a_long_uptime_starts_the_count_again(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        boxed(dropped(1, 10, false)),
+        boxed(reconnected(2, 20)),
+        boxed(dropped(2, 140, false)),
+    ],
+    "Reconnecting { launch: 1, dial: 3, attempt: 0 }",
+    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 3, attempt: 0 }",
+        "Publish(Reconnecting)"],
+)]
+#[case::a_drop_whose_process_ended_is_a_crash(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        boxed(dropped(1, 10, true)),
+    ],
+    "Restarting { wait: 2 }",
+    &["Disconnect { is_process_gone: true }", "ReportProcessExited",
+        "WaitToRestart { ticket: 2, wait: 0ns }", "Publish(Restarting)"],
+)]
+#[case::a_joined_service_whose_process_ended_is_redialed(
+    CodexServiceKind::Joined,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Joined)),
+        boxed(dropped(1, 10, true)),
+    ],
+    "Reconnecting { launch: 1, dial: 2, attempt: 1 }",
+    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 2, attempt: 1 }",
+        "Publish(Reconnecting)"],
+)]
+#[case::a_reconnect_where_nothing_listens_starts_the_daemon_s_own(
+    CodexServiceKind::Joined,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Joined)),
+        boxed(dropped(1, 10, false)),
+        at_once(|_| SupervisorEvent::ReconnectFailed {
+            dial: 2,
+            is_listening: false,
+            process_gone_at: None,
+        }),
+    ],
+    "Starting { launch: 3, recovery: Some(Crash) }",
+    &["Disconnect { is_process_gone: true }", "Launch { launch: 3 }", "Publish(Starting)"],
+)]
+#[case::a_stop(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        at_once(|_| SupervisorEvent::Stop),
+    ],
+    "Stopping { launch: 1, then: Stopped, ends_lasting_service: true }",
+    &["StopService { launch: 1, ends_lasting_service: true }", "Publish(Stopping)"],
+)]
+#[case::a_daemon_restart_leaves_the_terminal_service(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::Shutdown { intent: DaemonStopIntent::Restart }),
+    ],
+    "Stopping { launch: 1, then: ShutDown, ends_lasting_service: false }",
+    &["StopService { launch: 1, ends_lasting_service: false }", "Publish(Stopping)"],
+)]
+#[case::a_start_during_a_stop_follows_it(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        at_once(|_| SupervisorEvent::Stop),
+        at_once(|_| SupervisorEvent::Start),
+        at_once(|_| SupervisorEvent::StopDone { ticket: 1 }),
+    ],
+    "Starting { launch: 2, recovery: None }",
+    &["Launch { launch: 2 }", "Publish(Starting)"],
+)]
+#[case::an_account_service_s_planned_restart_stops_then_starts(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        at_once(|_| SupervisorEvent::PlannedRestart),
+    ],
+    "Stopping { launch: 1, then: Starting, ends_lasting_service: true }",
+    &["StopService { launch: 1, ends_lasting_service: true }", "Publish(Stopping)"],
+)]
+#[case::a_terminal_service_s_planned_restart_goes_to_the_recovery(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::PlannedRestart),
+    ],
+    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None }",
+    &["BeginPlannedRestart"],
+)]
+#[case::a_stale_start_is_torn_down(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        at_once(|_| SupervisorEvent::Stop),
+        at_once(|_| SupervisorEvent::StopDone { ticket: 1 }),
+        boxed(started(1, CodexServiceKind::Account)),
+    ],
+    "Stopped",
+    &["TearDown { ticket: 1, ends_lasting_service: true }"],
+)]
+#[case::a_stale_redial_is_torn_down(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        boxed(dropped(1, 10, false)),
+        at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(11) }),
+        boxed(reconnected(2, 12)),
+    ],
+    "Restarting { wait: 3 }",
+    &["TearDown { ticket: 2, ends_lasting_service: true }"],
+)]
+#[case::a_crash_wait_ends_in_a_start_that_resumes(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(10) }),
+        at_once(|_| SupervisorEvent::WaitElapsed { wait: 2 }),
+    ],
+    "Starting { launch: 3, recovery: Some(Crash) }",
+    &["Launch { launch: 3 }", "Publish(Starting)"],
+)]
+fn the_supervisor_table(
+    #[case] kind: CodexServiceKind,
+    #[case] steps: Vec<Box<dyn Fn(Instant) -> SupervisorEvent>>,
+    #[case] state: &str,
+    #[case] actions: &[&str],
+) {
+    let (driven_state, driven_actions) = drive(kind, steps);
+
+    assert_eq!(driven_state, state);
+    assert_eq!(driven_actions, actions);
+}
+
+// Fails when the crash path stops counting on the crash window, which restarts a dying service
+// without bound, or a start is taken while the service is down for it, or the person's restart
+// does not start it again.
+#[test]
+fn a_fifth_crash_within_three_minutes_leaves_the_service_down() {
+    let start = Instant::now();
+    let mut supervision = Supervision::new(CodexServiceKind::Account);
+    supervision.transition(SupervisorEvent::Start);
+    let mut launch = 1;
+    for crash in 0..5 {
+        supervision.transition(SupervisorEvent::Started {
+            launch,
+            at: start,
+            kind: CodexServiceKind::Account,
+        });
+        supervision.transition(SupervisorEvent::ProcessExited {
+            launch,
+            at: wall(crash * 10),
+        });
+        if let SupervisorState::Restarting { wait } = *supervision.state() {
+            supervision.transition(SupervisorEvent::WaitElapsed { wait });
+            let SupervisorState::Starting { launch: next, .. } = *supervision.state() else {
+                panic!("a crash wait ends in a start: {:?}", supervision.state());
+            };
+            launch = next;
+        }
+    }
+    let refused = supervision.transition(SupervisorEvent::Start);
+    let state_after_start = supervision.state().clone();
+    supervision.transition(SupervisorEvent::Restart);
+
+    assert_eq!(state_after_start, SupervisorState::CrashLoop);
+    assert_eq!(format!("{refused:?}"), "[Publish(CrashLoop)]");
+    assert!(matches!(
+        supervision.state(),
+        SupervisorState::Starting { .. }
+    ));
+}
