@@ -1,6 +1,7 @@
 //! The transcript: reply bodies, run facts, turn attribution, file patches and the windows a
 //! client reads.
 
+pub(crate) mod block_cut;
 pub(crate) mod body;
 pub(crate) mod child_run;
 pub(crate) mod patch_list;

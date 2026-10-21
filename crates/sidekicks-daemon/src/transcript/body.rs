@@ -1,6 +1,7 @@
 //! The part of a row's body `transcript.body.read` answers: the row named by the id of the event it
 //! stands at, its body the pieces the provider sent it in, joined through the read's head. Only the
-//! stored pieces one part covers are read, so a long body read part by part is read once.
+//! stored pieces one part covers are read, so a long body read part by part is read once; the first
+//! part reads the whole body, because it carries where each of the body's blocks starts.
 
 use rusqlite::Connection;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
@@ -12,6 +13,7 @@ use sidekicks_contracts::transcript::content::{
 use crate::database::connection::read_pool::DatabaseReadError;
 use crate::events::session::read::SessionEventReads;
 use crate::ipc::registry::HandlerError;
+use crate::transcript::block_cut::{StalledBlockCut, block_starts_of, is_cut_into_blocks};
 use crate::transcript::rejoin::{RowReads, joined_body_of};
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
@@ -24,6 +26,9 @@ pub(crate) enum BodyReadError {
     /// The offset is inside a character or past the body's end.
     #[error(transparent)]
     Offset(#[from] BodyReadOffsetRefused),
+    /// The reply's body could not be cut into blocks.
+    #[error(transparent)]
+    BlockCut(#[from] StalledBlockCut),
 }
 
 impl From<DatabaseReadError> for BodyReadError {
@@ -38,6 +43,7 @@ impl From<BodyReadError> for HandlerError {
         match error {
             BodyReadError::Read(error) => error.into(),
             BodyReadError::Offset(refused) => refused.into(),
+            fault @ BodyReadError::BlockCut(_) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -94,7 +100,12 @@ where
         .collect();
     let payload = &stored_row.envelope.payload;
     let Some(joined) = joined_body_of(sequence, payload, members) else {
-        return Ok(Some(stored_body_content_of(Some(payload), None, offset)?));
+        return Ok(Some(stored_body_content_of(
+            Some(payload),
+            None,
+            offset,
+            None,
+        )?));
     };
     let body_length: usize = piece_bounds.iter().map(|(_, length)| length).sum();
     let wanted_from = usize::try_from(offset).unwrap_or(usize::MAX);
@@ -104,7 +115,7 @@ where
     let mut window_start = body_length;
     let mut wanted_sequences = Vec::new();
     let mut piece_start = 0;
-    for (piece_sequence, length) in piece_bounds {
+    for &(piece_sequence, length) in &piece_bounds {
         let piece_end = piece_start + length;
         if piece_end > wanted_from && piece_start < wanted_to {
             window_start = window_start.min(piece_start);
@@ -112,9 +123,26 @@ where
         }
         piece_start = piece_end;
     }
-    let window_text = rows_of
-        .piece_texts(&wanted_sequences)
-        .map_err(TranscriptReadError::from)?;
+    // The first part carries every start of the whole body, so its read cuts the whole text once.
+    let (window_text, block_starts) = if offset == 0 {
+        let all_sequences: Vec<i64> = piece_bounds.iter().map(|(sequence, _)| *sequence).collect();
+        let whole = rows_of
+            .piece_texts(&all_sequences)
+            .map_err(TranscriptReadError::from)?;
+        let event_type = stored_row.envelope.event_type.0.as_str();
+        let block_starts = if is_cut_into_blocks(event_type, payload, &whole) {
+            block_starts_of(&whole)?
+        } else {
+            None
+        };
+        window_start = 0;
+        (whole, block_starts)
+    } else {
+        let text = rows_of
+            .piece_texts(&wanted_sequences)
+            .map_err(TranscriptReadError::from)?;
+        (text, None)
+    };
     let part = stored_body_content_of(
         Some(&joined.facts),
         Some(BodyWindow {
@@ -123,6 +151,7 @@ where
             body_length,
         }),
         offset,
+        block_starts,
     )?;
     snapshot.commit().map_err(TranscriptReadError::from)?;
     Ok(Some(part))

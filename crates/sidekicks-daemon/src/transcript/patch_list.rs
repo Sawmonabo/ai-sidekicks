@@ -392,14 +392,14 @@ mod tests {
     use sidekicks_contracts::transcript::content::TranscriptPatchListRequest;
 
     use super::{PatchListError, list_patches};
-    use crate::transcript::test_log::TranscriptTestLog;
+    use crate::transcript::test_log::{TranscriptTestLog, wire_message};
     use crate::transcript::window::{TranscriptReadError, read_transcript_window};
 
     fn list(log: &TranscriptTestLog, tool_call_id: &str, cursor: Option<&Value>) -> Value {
         let request = request(log, tool_call_id, cursor);
         let page =
             list_patches(&log.reader(), &|_: &SessionId| None, &request).expect("the patches read");
-        serde_json::to_value(page).expect("a page serializes")
+        wire_message(&page).0
     }
 
     fn request(
@@ -450,7 +450,7 @@ mod tests {
             .expect("the test's request reads");
         let page = read_transcript_window(&log.reader(), &|_: &SessionId| None, &window_request)
             .expect("the window reads");
-        let page = serde_json::to_value(page).expect("a page serializes");
+        let page = wire_message(&page).0;
         assert_eq!(
             page["entries"][0]["omittedPatches"][0]["oldPath"],
             "/repo/old.rs"

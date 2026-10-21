@@ -226,7 +226,7 @@ mod tests {
     use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 
     use super::{read_reasoning, split_reasoning_text};
-    use crate::transcript::test_log::{AT, TranscriptTestLog};
+    use crate::transcript::test_log::{AT, TranscriptTestLog, wire_message};
 
     const THINKING: &str = "agent.thinking.updated";
 
@@ -240,7 +240,7 @@ mod tests {
         let request = serde_json::from_value(request).expect("the test's request reads");
         let page = read_reasoning(&log.reader(), &|_: &SessionId| None, &request)
             .expect("the reasoning reads");
-        serde_json::to_value(page).expect("a page serializes")
+        wire_message(&page).0
     }
 
     // Killed by an entry holding pieces of two rows, by an entry past the cap, by an entry named

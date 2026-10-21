@@ -316,7 +316,7 @@ mod tests {
     use sidekicks_contracts::wire::instant::WireInstant;
 
     use super::expand_child_run;
-    use crate::transcript::test_log::{AT, TranscriptTestLog};
+    use crate::transcript::test_log::{AT, TranscriptTestLog, wire_message};
     use crate::transcript::window::{TranscriptReadError, read_transcript_window};
     use crate::uuid_v7::mint_uuid_v7;
 
@@ -345,7 +345,7 @@ mod tests {
             .expect("the test's request reads");
         let page = read_transcript_window(&log.reader(), &|_: &SessionId| None, &request)
             .expect("the window reads");
-        let page = serde_json::to_value(page).expect("a page serializes");
+        let page = wire_message(&page).0;
         page["entries"]
             .as_array()
             .expect("a page holds entries")
@@ -402,14 +402,14 @@ mod tests {
         else {
             panic!("the child's rows fill more than one page");
         };
-        let first = serde_json::to_value(first).expect("a page serializes");
+        let first = wire_message(&first).0;
         let next_cursor = first["nextCursor"].clone();
         let Ok(TranscriptChildRunExpandResponse::Terminal(last)) =
             expand(&log, child, Some(&next_cursor))
         else {
             panic!("the second page ends the child's rows");
         };
-        let last = serde_json::to_value(last).expect("a page serializes");
+        let last = wire_message(&last).0;
         let rows: Vec<&Value> = [&first, &last]
             .iter()
             .flat_map(|page| page["entries"].as_array().expect("a page holds entries"))

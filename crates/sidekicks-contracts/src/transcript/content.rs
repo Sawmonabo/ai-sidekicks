@@ -174,12 +174,14 @@ impl<'text> BodyWindow<'text> {
 /// through `window`, which must start at or before `offset`. A part holds as much of the window as
 /// fits one page, and no more than one stored body's cap, and names where the next part starts, so
 /// a client reading from each `nextOffset` until it is `null` joins the whole body. The length and
-/// truncation mark are the payload's own. Refuses an offset outside the window or inside a
-/// character.
+/// truncation mark are the payload's own. `block_starts`, the whole body's starts on a first part,
+/// travel with the part and are charged against its page. Refuses an offset outside the window or
+/// inside a character.
 pub fn stored_body_content_of(
     payload: Option<&Map<String, Value>>,
     window: Option<BodyWindow<'_>>,
     offset: u64,
+    block_starts: Option<BlockStarts>,
 ) -> Result<TranscriptBodyReadResponse, BodyReadOffsetRefused> {
     let Some(window) = window else {
         return Ok(TranscriptBodyReadResponse::Unavailable {
@@ -197,7 +199,10 @@ pub fn stored_body_content_of(
             body_length: window.body_length,
         });
     };
-    let end = page_end(text, start);
+    let starts_bytes = block_starts
+        .as_ref()
+        .map_or(0, |starts| starts.as_bytes().len());
+    let end = page_end(text, start, PAGE_MAX_BYTES.saturating_sub(starts_bytes));
     let (content_length, content_truncated) = echoed_body_facts_of(payload);
     let next = window.start + end;
     Ok(TranscriptBodyReadResponse::Available {
@@ -207,7 +212,7 @@ pub fn stored_body_content_of(
         next_offset: (next < window.body_length).then(|| byte_offset(next)),
         content_length,
         content_truncated,
-        block_starts: None,
+        block_starts,
     })
 }
 
@@ -220,16 +225,16 @@ fn byte_offset(offset: usize) -> SafeInt<0> {
 }
 
 /// Where the part of `body` that starts at `offset` ends: the furthest character boundary at most
-/// [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points on whose stretch's JSON fits [`PAGE_MAX_BYTES`],
+/// [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points on whose stretch's JSON fits `budget_bytes`,
 /// measured as the reply's check measures it. One character's JSON is at most eight bytes, so a
 /// part short of the end holds at least one.
-fn page_end(body: &str, offset: usize) -> usize {
+fn page_end(body: &str, offset: usize, budget_bytes: usize) -> usize {
     let cap_end = body[offset..]
         .char_indices()
         .nth(CONTENT_PAYLOAD_PLAINTEXT_MAX)
         .map_or(body.len(), |(index, _)| offset + index);
     let fits = |end: usize| {
-        json_utf8_byte_length(&&body[offset..end]).is_ok_and(|length| length <= PAGE_MAX_BYTES)
+        json_utf8_byte_length(&&body[offset..end]).is_ok_and(|length| length <= budget_bytes)
     };
     if fits(cap_end) {
         return cap_end;
@@ -622,7 +627,7 @@ mod tests {
                 .as_ref()
                 .and_then(|stored| stored.body.as_deref());
             assert_eq!(
-                stored_body_content_of(payload, body.map(BodyWindow::whole), 0)
+                stored_body_content_of(payload, body.map(BodyWindow::whole), 0, None)
                     .expect("the body's start is an offset"),
                 case.body_read,
                 "{}",
@@ -650,7 +655,7 @@ mod tests {
         while let Some(offset) = next {
             let TranscriptBodyReadResponse::Available {
                 body, next_offset, ..
-            } = stored_body_content_of(None, Some(BodyWindow::whole(body)), offset)?
+            } = stored_body_content_of(None, Some(BodyWindow::whole(body)), offset, None)?
             else {
                 panic!("a stored body is available");
             };

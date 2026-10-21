@@ -22,6 +22,7 @@ use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::list::BoundedVec;
 
 use crate::events::session::read::SessionEventReads;
+use crate::transcript::block_cut::{StalledBlockCut, with_block_starts};
 use crate::transcript::rejoin::{RowReads, joined_body_of, joined_row_content_of};
 use crate::transcript::turn_attribution::{
     RunEventAttribution, RunTurnReads, SessionTurnAttribution, TurnAttributionError,
@@ -44,6 +45,9 @@ pub(crate) enum TranscriptProjectionError {
     /// An event could not be attributed to its turn.
     #[error(transparent)]
     Attribution(#[from] TurnAttributionError),
+    /// A reply's body could not be cut into blocks.
+    #[error(transparent)]
+    BlockCut(#[from] StalledBlockCut),
     /// An event's stored time is not an instant with its seconds and offset, which only a write
     /// outside the append path can leave.
     #[error("the event at sequence {sequence} holds a time that is not a full instant")]
@@ -87,7 +91,11 @@ where
             let body = members_by_row
                 .remove(&sequence)
                 .and_then(|members| joined_body_of(sequence, &event.payload, members));
-            let content = joined_row_content_of(&event.payload, body.as_ref());
+            let content = with_block_starts(
+                joined_row_content_of(&event.payload, body.as_ref()),
+                event.event_type.0.as_str(),
+                &event.payload,
+            )?;
             let attributed = attribution.attribute(&reads, event)?;
             row_of(event, attributed, content)
         })

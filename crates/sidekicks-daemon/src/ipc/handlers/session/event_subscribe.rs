@@ -33,7 +33,9 @@ use crate::events::session::read::session_read_bound;
 use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use crate::ipc::stream::frame_batcher::ChangeFeed;
-use crate::transcript::stream_state::{TranscriptStreamState, read_streamed_pieces};
+use crate::transcript::stream_state::{
+    StreamRowError, StreamedPiece, TranscriptStreamState, read_streamed_pieces,
+};
 use crate::transcript::turn_attribution::{
     RunTurnReads, SessionTurnAttribution, TurnAttributionError,
 };
@@ -77,9 +79,12 @@ enum SessionEventStreamError {
     /// An event of a run could not be attributed to its turn.
     #[error(transparent)]
     Attribution(#[from] TurnAttributionError),
-    /// A read of where a piece sits in its row, or of a child run's count, failed.
-    #[error("a read of a streamed row's place or a child run's count failed")]
+    /// A read of the page's pieces or of a child run's count failed.
+    #[error("a read of a streamed page's pieces or a child run's count failed")]
     Rows(#[from] rusqlite::Error),
+    /// A piece could not be placed in its row, or an ended row's text cut into blocks.
+    #[error(transparent)]
+    Placement(#[from] StreamRowError),
 }
 
 impl From<DatabaseReadError> for SessionEventStreamError {
@@ -162,7 +167,17 @@ impl ChangeRecord for SessionEventRecord {
                             .collect();
                         // Cut before any fold moves, so an event left for the next read is
                         // folded once.
-                        let kept = count_changes_fitting_one_frame(&page.events, &contents);
+                        let starts_bytes: Vec<usize> = page
+                            .events
+                            .iter()
+                            .map(|event| {
+                                stored
+                                    .get(&i64::from(event.sequence))
+                                    .map_or(0, StreamedPiece::block_starts_bytes_max)
+                            })
+                            .collect();
+                        let kept =
+                            count_changes_fitting_one_frame(&page.events, &contents, &starts_bytes);
                         let is_cut_by_size = kept < page.events.len();
                         let reads = RunTurnReads::new(connection, read_damaged_from_sequence);
                         let observed_at = WireInstant::now();
@@ -200,14 +215,14 @@ impl ChangeRecord for SessionEventRecord {
                                 run_id,
                                 &observed_at,
                             )?;
-                            rows.forget_ended(&event, run_id);
+                            let ended_rows = rows.forget_ended(&event, run_id)?;
                             changes.push(SessionStreamChange {
                                 cursor,
                                 event,
                                 run_stamp: Some(attributed.stamp),
                                 piece,
                                 child_run_summary,
-                                ended_rows: None,
+                                ended_rows,
                             });
                         }
                         Ok(RecordPage {
@@ -232,25 +247,32 @@ impl ChangeRecord for SessionEventRecord {
     fn is_store_closed(error: &SessionEventStreamError) -> bool {
         match error {
             SessionEventStreamError::Log(error) => error.is_pool_closed(),
-            SessionEventStreamError::Attribution(_) | SessionEventStreamError::Rows(_) => false,
+            SessionEventStreamError::Attribution(_)
+            | SessionEventStreamError::Rows(_)
+            | SessionEventStreamError::Placement(_) => false,
         }
     }
 }
 
-/// The most bytes a change takes beside its event and its piece's body: its cursor, its run stamp,
-/// its piece's place and a child's summary, each a few ids and integers.
+/// The most bytes a change takes beside its event, its piece's body and its starts: its cursor,
+/// its run stamp, its piece's place, a child's summary and the rows it ends, each a few ids and
+/// integers.
 const CHANGE_BESIDE_BODIES_MAX_BYTES: usize = 1024;
 
 // How many leading events go out in one frame: as many as fit the page budget with their pieces'
-// bodies, never fewer than one.
+// bodies and the most bytes their block starts can take, never fewer than one.
 fn count_changes_fitting_one_frame(
     events: &[EventEnvelope],
     contents: &[Option<TranscriptRowContent>],
+    starts_bytes: &[usize],
 ) -> usize {
     let mut used_bytes = 2;
-    for (index, (event, content)) in events.iter().zip(contents).enumerate() {
+    for (index, ((event, content), starts_bytes)) in
+        events.iter().zip(contents).zip(starts_bytes).enumerate()
+    {
         let change_bytes = json_utf8_byte_length(event).expect("an event serializes")
             + json_utf8_byte_length(content).expect("a body serializes")
+            + starts_bytes
             + CHANGE_BESIDE_BODIES_MAX_BYTES
             + usize::from(index > 0);
         if used_bytes + change_bytes > PAGE_MAX_BYTES {

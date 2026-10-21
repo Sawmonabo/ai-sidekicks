@@ -2,9 +2,11 @@
 //! each through the daemon's insert so its join and run stamps are the ones a live append makes.
 
 use rusqlite::{Connection, params};
+use serde::Serialize;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::attachment::write;
 
 use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
 use crate::uuid_v7::mint_uuid_v7;
@@ -184,4 +186,13 @@ impl TranscriptTestLog {
     pub(crate) fn reader(&self) -> Connection {
         self.database.reader()
     }
+}
+
+/// `value` as the wire writes it, its byte members as their placeholders, beside its attachments.
+pub(crate) fn wire_message<T: Serialize>(value: &T) -> (Value, Vec<bytes::Bytes>) {
+    let (json, attachments) = write(value).expect("the test's value serializes");
+    (
+        serde_json::from_slice(&json).expect("a written message reads as JSON"),
+        attachments,
+    )
 }

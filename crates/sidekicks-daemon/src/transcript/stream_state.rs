@@ -1,7 +1,9 @@
 //! What a session stream keeps between frames so each change says what its transcript row needs:
-//! for every row still taking pieces, its id and where its next piece starts, and for every child
-//! run the stream met, its running event count. A stream that first meets a row or a child partway
-//! seeds it with one indexed read; a row is let go at its run's turn end, a child at its end.
+//! for every row still taking pieces, its id, where its next piece starts and, for a reply drawn as
+//! markdown, its block cut past its last frozen start, and for every child run the stream met, its
+//! running event count. A stream that first meets a row or a child partway seeds it with one
+//! indexed read; a row is let go at its run's turn end, with the starts its cut left unsent, and a
+//! child at its end.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -9,11 +11,12 @@ use std::sync::LazyLock;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::EventEnvelope;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::methods::SessionStreamPiece;
+use sidekicks_contracts::session::methods::{SessionStreamEndedRow, SessionStreamPiece};
 use sidekicks_contracts::transcript::child_run_summary::{
     ChildRunCompleteness, ChildRunIncompleteCause, ChildRunSummary,
 };
@@ -24,6 +27,7 @@ use sidekicks_contracts::transcript::run_attribution::transcript_own_run_id_of;
 use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::stored_column::{
@@ -31,16 +35,35 @@ use crate::database::stored_column::{
 };
 use crate::events::session::read::readable_event_sql;
 use crate::session::run::transitions::is_run_terminal_event_type;
+use crate::transcript::block_cut::{StalledBlockCut, StreamingBlockCut, is_cut_into_blocks};
 use crate::transcript::child_run::read_child_counts;
 use crate::transcript::projector::TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES;
 
 // Each page event's place in the rows: the row it continues, whether it is a piece of a reply or
-// of reasoning, and its body's size, with its text when it can travel inline.
-const PAGE_PIECES_SQL: &str = "SELECT sequence, joins_sequence, join_key IS NOT NULL,
-       octet_length(content_payload),
-       CASE WHEN octet_length(content_payload) <= @inline_max THEN content_payload END
+// of reasoning, and its body's size, with its text when it can travel inline or, on a reply's
+// piece, when its row's block cut reads it.
+static PAGE_PIECES_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT sequence, joins_sequence, join_key IS NOT NULL, octet_length(content_payload),
+       CASE WHEN octet_length(content_payload) <= @inline_max OR type = '{reply}'
+            THEN content_payload END
   FROM session_events
- WHERE session_id = @session_id AND sequence IN (SELECT value FROM json_each(@sequences))";
+ WHERE session_id = @session_id AND sequence IN (SELECT value FROM json_each(@sequences))",
+        reply = SessionEventType::AgentMessageSent.as_str(),
+    )
+});
+
+// The text of a row's readable pieces before a piece, in order, which seeds its block cut.
+static ROW_TEXT_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT event.content_payload FROM session_events AS event
+      WHERE event.session_id = @session_id
+        AND (event.sequence = @anchor_sequence OR event.joins_sequence = @anchor_sequence)
+        AND event.sequence < @sequence AND {readable}
+      ORDER BY event.sequence",
+        readable = readable_event_sql("event"),
+    )
+});
 
 // Where a piece first met partway through its row sits: the row's id, which is its first event's
 // or, when that one cannot be read, the row's first readable piece's, and the bytes of the row's
@@ -90,9 +113,27 @@ impl StreamedPiece {
                 self.body.as_ref().map(|(byte_length, text)| StoredRowBody {
                     byte_length: SafeInt::new(*byte_length)
                         .expect("a body's size is a safe integer"),
-                    body: text.as_deref(),
+                    body: text.as_deref().filter(|_| {
+                        i64::try_from(*byte_length)
+                            .is_ok_and(|length| length <= TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES)
+                    }),
                 }),
             )
+        })
+    }
+}
+
+impl StreamedPiece {
+    /// The most bytes the block starts this piece can freeze take: one start at most per line it
+    /// ends, its row's first start and the one before it, each four bytes.
+    pub(crate) fn block_starts_bytes_max(&self) -> usize {
+        let text = self.body.as_ref().and_then(|(_, text)| text.as_deref());
+        text.map_or(0, |text| {
+            let line_ends = text
+                .bytes()
+                .filter(|&byte| byte == b'\n' || byte == b'\r')
+                .count();
+            4 * (line_ends + 2)
         })
     }
 }
@@ -103,7 +144,7 @@ pub(crate) fn read_streamed_pieces(
     session_id: &SessionId,
     sequences: &[i64],
 ) -> rusqlite::Result<HashMap<i64, StreamedPiece>> {
-    let mut statement = reader.prepare_cached(PAGE_PIECES_SQL)?;
+    let mut statement = reader.prepare_cached(&PAGE_PIECES_SQL)?;
     let mut rows = statement.query(named_params! {
         "@session_id": session_id.text().as_str(),
         "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
@@ -138,6 +179,19 @@ struct OpenRow {
     run_id: RunId,
     row_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     next_offset: u64,
+    /// The row's block cut, on a reply drawn as markdown.
+    cut: Option<StreamingBlockCut>,
+}
+
+/// Why a streamed piece could not be placed in its row, or a row's end read.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StreamRowError {
+    /// SQLite refused the read that seeds a row met partway.
+    #[error("the read seeding a streamed row failed")]
+    Database(#[from] rusqlite::Error),
+    /// A reply's text could not be cut into blocks.
+    #[error(transparent)]
+    BlockCut(#[from] StalledBlockCut),
 }
 
 /// A child run's running count of its events.
@@ -160,8 +214,9 @@ pub(crate) struct TranscriptStreamState {
 
 impl TranscriptStreamState {
     /// Where `event`, a piece of `run_id` with stored facts `stored` carrying `content`, sits in
-    /// its row, read on `reader` when the stream meets the row partway; `read_bound` is where the
-    /// session's reads stop. Fails when SQLite refuses the seed read.
+    /// its row with the block starts it froze, read on `reader` when the stream meets the row
+    /// partway; `read_bound` is where the session's reads stop. Fails when SQLite refuses the seed
+    /// read or the row's text cannot be cut into blocks.
     pub(crate) fn place_piece(
         &mut self,
         reader: &Connection,
@@ -170,16 +225,24 @@ impl TranscriptStreamState {
         run_id: RunId,
         stored: &StreamedPiece,
         content: TranscriptRowContent,
-    ) -> rusqlite::Result<SessionStreamPiece> {
+    ) -> Result<SessionStreamPiece, StreamRowError> {
         let sequence = i64::from(event.sequence);
         let anchor_sequence = stored.joins_sequence.unwrap_or(sequence);
         let byte_length = stored.body.as_ref().map_or(0, |(length, _)| *length);
-        let open_row = match self.open_rows.remove(&anchor_sequence) {
+        let text = stored
+            .body
+            .as_ref()
+            .and_then(|(_, text)| text.as_deref())
+            .unwrap_or_default();
+        let event_type = event.event_type.0.as_str();
+        let mut open_row = match self.open_rows.remove(&anchor_sequence) {
             Some(open_row) => open_row,
             None if stored.joins_sequence.is_none() => OpenRow {
                 run_id,
                 row_id: event.id.clone(),
                 next_offset: 0,
+                cut: is_cut_into_blocks(event_type, &event.payload, text)
+                    .then(StreamingBlockCut::default),
             },
             None => {
                 let (row_id, offset): (String, i64) =
@@ -192,18 +255,33 @@ impl TranscriptStreamState {
                         },
                         |row| Ok((row.get(0)?, row.get(1)?)),
                     )?;
+                let received = if event_type == SessionEventType::AgentMessageSent.as_str() {
+                    read_row_text_before(reader, read_bound, event, anchor_sequence)?
+                } else {
+                    String::new()
+                };
+                let cut = if is_cut_into_blocks(event_type, &event.payload, &received) {
+                    Some(StreamingBlockCut::seeded(&received)?)
+                } else {
+                    None
+                };
                 OpenRow {
                     run_id,
                     row_id: FreeFormText::new(row_id).expect("a stored event id is an event id"),
                     next_offset: u64::try_from(offset).expect("a size is not negative"),
+                    cut,
                 }
             }
+        };
+        let block_starts = match open_row.cut.as_mut() {
+            Some(cut) => cut.push(text)?,
+            None => None,
         };
         let piece = SessionStreamPiece {
             row_id: open_row.row_id.clone(),
             offset: SafeInt::new(open_row.next_offset).expect("an offset is a safe integer"),
             content,
-            block_starts: None,
+            block_starts,
         };
         self.open_rows.insert(
             anchor_sequence,
@@ -260,17 +338,40 @@ impl TranscriptStreamState {
     }
 
     /// Lets go of what `event`, filed under `run_id`, ends: the run's open rows at a turn's end or
-    /// its own end, and the run itself at its end.
-    pub(crate) fn forget_ended(&mut self, event: &EventEnvelope, run_id: RunId) {
+    /// its own end, and the run itself at its end. Answers each ended row cut into blocks with the
+    /// starts its whole text left unsent. Fails when a row's text cannot be cut into blocks.
+    pub(crate) fn forget_ended(
+        &mut self,
+        event: &EventEnvelope,
+        run_id: RunId,
+    ) -> Result<Option<BoundedVec<SessionStreamEndedRow, 1, { usize::MAX }>>, StreamRowError> {
         let event_type = event.event_type.0.as_str();
         let is_run_end = is_run_terminal_event_type(event_type);
+        let mut ended_rows = Vec::new();
         if is_run_end || TURN_END_EVENT_TYPES.contains(&event_type) {
-            self.open_rows
-                .retain(|_, open_row| open_row.run_id != run_id);
+            let ended: Vec<i64> = self
+                .open_rows
+                .iter()
+                .filter(|(_, open_row)| open_row.run_id == run_id)
+                .map(|(anchor_sequence, _)| *anchor_sequence)
+                .collect();
+            for anchor_sequence in ended {
+                let open_row = self
+                    .open_rows
+                    .remove(&anchor_sequence)
+                    .expect("the row was just found open");
+                if let Some(cut) = open_row.cut {
+                    ended_rows.push(SessionStreamEndedRow {
+                        row_id: open_row.row_id,
+                        block_starts: cut.finish()?,
+                    });
+                }
+            }
         }
         if is_run_end {
             self.runs.remove(&run_id);
         }
+        Ok(BoundedVec::new(ended_rows))
     }
 }
 
@@ -305,6 +406,27 @@ fn seed_child_tally(
         total: count.total,
         readable: count.readable,
     }))
+}
+
+// The text of the row anchored at `anchor_sequence` before `event`, from its readable pieces.
+fn read_row_text_before(
+    reader: &Connection,
+    read_bound: i64,
+    event: &EventEnvelope,
+    anchor_sequence: i64,
+) -> rusqlite::Result<String> {
+    let mut statement = reader.prepare_cached(&ROW_TEXT_BEFORE_SQL)?;
+    let mut rows = statement.query(named_params! {
+        "@session_id": event.session_id.text().as_str(),
+        "@anchor_sequence": anchor_sequence,
+        "@sequence": i64::from(event.sequence),
+        "@read_bound": read_bound,
+    })?;
+    let mut text = String::new();
+    while let Some(row) = rows.next()? {
+        text.push_str(&optional_utf8_blob_column(row, 0)?.unwrap_or_default());
+    }
+    Ok(text)
 }
 
 fn read_state(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Option<RunState>> {

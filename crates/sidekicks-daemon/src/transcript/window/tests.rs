@@ -9,7 +9,7 @@ use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, Transcr
 use super::{TranscriptReadError, read_transcript_window};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::transcript::body::read_row_body;
-use crate::transcript::test_log::TranscriptTestLog;
+use crate::transcript::test_log::{TranscriptTestLog, wire_message};
 use crate::uuid_v7::mint_uuid_v7;
 
 const AT: &str = "2026-10-14T09:00:00.000Z";
@@ -120,7 +120,7 @@ fn read(log: &TranscriptTestLog, request: Value) -> Value {
         serde_json::from_value(request).expect("the test's request reads");
     let response = read_transcript_window(&log.reader(), &|_: &SessionId| None, &request)
         .expect("the window reads");
-    serde_json::to_value(response).expect("a page serializes")
+    wire_message(&response).0
 }
 
 // Each row of `page`: a tool row as `tool`, any other as its inline body.
@@ -282,7 +282,7 @@ fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
         )
         .expect("the body reads")
         .expect("a row stands at the anchor");
-        let part = serde_json::to_value(part).expect("a part serializes");
+        let part = wire_message(&part).0;
         assert_eq!(part["contentLength"], whole.len());
         read_back.push_str(part["body"].as_str().expect("the part is available"));
         offset = part["nextOffset"].as_u64();
