@@ -452,7 +452,7 @@ async fn run_started_command(
                 Err(end_error) => {
                     tracing::warn!(
                         error = &end_error as &(dyn Error + 'static),
-                        "what a setup command left running could not be ended"
+                        "What a setup command left running could not be ended"
                     );
                     let end_words = format!(
                         "Could not end what the command left running: {}",
