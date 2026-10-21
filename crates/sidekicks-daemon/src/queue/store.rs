@@ -115,6 +115,8 @@ pub(crate) struct QueueItemRecord {
     pub(crate) created_at: WireInstant,
     /// When it last changed.
     pub(crate) updated_at: WireInstant,
+    /// Whether a person's `Send now` marked it to go ahead of what its provider holds.
+    pub(crate) is_sent_now: bool,
 }
 
 /// A message to insert. It takes the place of `replaces_queue_item_id` when it is an edit, else
@@ -177,10 +179,11 @@ pub(crate) struct CurrentLeadRun {
 
 /// The columns every read of an item selects, in the order `record_of` reads them.
 pub(super) const COLUMNS: &str = "id, session_id, state, not_delivered_reason, payload, \
-    target_run_id, child_handle, position, client_idempotency_key, created_at, updated_at";
+    target_run_id, child_handle, position, client_idempotency_key, created_at, updated_at, \
+    send_now_key IS NOT NULL";
 
 /// The columns `COLUMNS` names; a read's own column follows them.
-pub(super) const COLUMN_COUNT: usize = 11;
+pub(super) const COLUMN_COUNT: usize = 12;
 
 /// An item's order within its queue: by place, and an edit's superseded item after its
 /// replacement.
@@ -828,6 +831,7 @@ pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
         client_idempotency_key: optional_text_column(row, 8, ClientUuid::new)?,
         created_at: text_column(row, 9, WireInstant::try_from)?,
         updated_at: text_column(row, 10, WireInstant::try_from)?,
+        is_sent_now: row.get(11)?,
     })
 }
 

@@ -56,6 +56,9 @@ pub(crate) enum QueueError {
     /// A run's place at the memory gate refused what was asked of it.
     #[error(transparent)]
     Gate(#[from] MemoryAdmissionError),
+    /// The queue stopped before the work asked of it answered.
+    #[error("the run queue stopped before the work answered")]
+    Stopped,
     /// A newer lead run took over the messages an interrupted run's continue was opening with.
     #[error("a newer lead run took over the messages of run {run_id}")]
     ContinueTakenOver {
@@ -87,6 +90,7 @@ impl From<QueueError> for HandlerError {
             | QueueError::ProviderSession(_)
             | QueueError::Agent(_)
             | QueueError::Gate(_)
+            | QueueError::Stopped
             | QueueError::ContinueTakenOver { .. }) => Self::Internal(Box::new(fault)),
         }
     }

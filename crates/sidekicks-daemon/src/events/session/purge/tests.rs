@@ -595,6 +595,54 @@ async fn a_second_refusal_of_the_range_is_a_fault_that_keeps_every_row() {
     assert_eq!(receipts(&reader), []);
 }
 
+// Kills: the marked guard dropped (the rows go though the session left `purge_requested`), and its
+// refusal read as the range's (the purge writes again).
+#[tokio::test]
+async fn a_session_moved_after_its_mark_keeps_every_row() {
+    let fixture = purge_fixture().await;
+    let reader = fixture.database.reader();
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    store_session(&reader, session_id, SessionState::Archived);
+    append_event(&fixture.log, session_id, "Read").await;
+    let before_write = fixture.purge.rows_write_pause.arm();
+
+    let session_ids = [session_id];
+    let (outcome, ()) = tokio::join!(
+        fixture.purge.purge(&session_ids, PurgeCaller::Retention),
+        async {
+            before_write
+                .reached
+                .await
+                .expect("the purge read its range");
+            reader
+                .execute(
+                    "UPDATE sessions SET state = ?2 WHERE id = ?1",
+                    params![
+                        session_id.text().as_str(),
+                        <&'static str>::from(SessionState::Archived)
+                    ],
+                )
+                .expect("the test moves the session off its mark");
+            before_write.release.send(()).expect("the purge waits");
+        }
+    );
+
+    let outcome = only_outcome(outcome);
+    assert!(
+        matches!(
+            outcome,
+            SessionPurgeOutcome::Refused(SessionPurgeError::MarkLost)
+        ),
+        "a session moved off its mark is refused, got {outcome:?}"
+    );
+    assert_eq!(event_count(&reader, session_id), 1);
+    assert_eq!(
+        state_of(&reader, session_id).as_deref(),
+        Some(<&'static str>::from(SessionState::Archived))
+    );
+    assert_eq!(receipts(&reader), []);
+}
+
 // Kills: a busy truncation taken as done, and a truncation given up after its first busy answer.
 #[tokio::test]
 async fn the_logs_truncation_is_tried_until_no_reader_keeps_it_busy() {

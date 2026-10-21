@@ -360,10 +360,20 @@ impl QueueAdmission {
         Ok(())
     }
 
-    /// Stops taking new work and waits for every start and continue under way.
-    pub(crate) async fn stop(&self) {
+    /// Marks the admission stopping, so [`QueueAdmission::wait`] answers once no start or
+    /// continue runs; one started after still counts.
+    pub(crate) fn close(&self) {
         self.tasks.close();
+    }
+
+    /// Waits, once closed, for every start and continue under way.
+    pub(crate) async fn wait(&self) {
         self.tasks.wait().await;
+    }
+
+    /// Whether no start or continue runs.
+    pub(crate) fn is_idle(&self) -> bool {
+        self.tasks.is_empty()
     }
 
     // Marks a start or continue of `run_id` under way, answering its done signal, or `None` when

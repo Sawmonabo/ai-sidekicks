@@ -217,8 +217,9 @@ impl QueueDelivery {
 
     /// Hands `run_id` every lead message waiting for it not yet handed, in the queue's order,
     /// when its provider takes messages at once and the run takes them now; nothing while an
-    /// interrupt holds the run. Called under `hold`, so the hands join the chain in call order.
-    /// Fails when a read fails or the run's driver is refused.
+    /// interrupt holds the run. A message a person sent now goes first, marked priority, so the
+    /// provider reads it ahead of what it holds. Called under `hold`, so the hands join the chain
+    /// in call order. Fails when a read fails or the run's driver is refused.
     pub(crate) async fn hand_waiting(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -246,18 +247,23 @@ impl QueueDelivery {
         let lead_waiting = self.lead_waiting(self.read_waiting(run_id).await?, false);
         let process = self.shared.deps.processes.process_identity(&session_id);
         let mut state = self.lock_state();
-        let items = state.unhanded_of(lead_waiting, false);
-        if items.is_empty() {
-            return Ok(());
+        let (sent_now, rest): (Vec<_>, Vec<_>) = state
+            .unhanded_of(lead_waiting, false)
+            .into_iter()
+            .partition(|item| item.is_sent_now);
+        for (items, is_priority) in [(sent_now, true), (rest, false)] {
+            if items.is_empty() {
+                continue;
+            }
+            state.mark_handed(&items, run_id, HandRoute::Driver(handing), process);
+            let job = ChainJob::Hand {
+                run_id,
+                driver: Arc::clone(&driver),
+                items,
+                is_priority,
+            };
+            self.push_job(&mut state, session_id, job);
         }
-        state.mark_handed(&items, run_id, HandRoute::Driver(handing), process);
-        let job = ChainJob::Hand {
-            run_id,
-            driver,
-            items,
-            is_priority: false,
-        };
-        self.push_job(&mut state, session_id, job);
         Ok(())
     }
 
@@ -668,11 +674,21 @@ impl QueueDelivery {
             .any(|handed| handed.run_id == run_id && is_kept_by_process(handed, live_process))
     }
 
-    /// Stops taking new work and waits for every task the delivery runs on its own: each chain's
-    /// drain, so a hand in flight finishes or fails before it answers.
-    pub(crate) async fn stop(&self) {
+    /// Marks the delivery stopping, so [`QueueDelivery::wait`] answers once no task of its own
+    /// runs; a task started after still counts.
+    pub(crate) fn close(&self) {
         self.shared.tasks.close();
+    }
+
+    /// Waits, once closed, for every task the delivery runs on its own: each chain's drain, so a
+    /// hand in flight finishes or fails before it answers.
+    pub(crate) async fn wait(&self) {
         self.shared.tasks.wait().await;
+    }
+
+    /// Whether no task of the delivery's own runs.
+    pub(crate) fn is_idle(&self) -> bool {
+        self.shared.tasks.is_empty()
     }
 
     // The delivery's state. No holder awaits or panics while it changes the state, so a poisoned

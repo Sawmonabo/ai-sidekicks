@@ -291,7 +291,7 @@ impl QueueDelivery {
                             hand_number: handed.hand_number,
                             is_delivered,
                         };
-                        delivery.push(session_id, ChainJob::LateWithdraw(late));
+                        delivery.push(session_id, ChainJob::LateWithdraw(Box::new(late)));
                     }
                     .instrument(tracing::Span::current()),
                 );

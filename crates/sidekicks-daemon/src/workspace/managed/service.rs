@@ -302,15 +302,33 @@ impl ManagedWorkspaceService {
     }
 }
 
-// Recounts the files in each folder the watch names and stores the count on the chat's managed
-// mount, naming the chat to the sessions list when it moved. A count that cannot be read or stored
-// is logged and left as it was until the folder's next change.
+// Recounts the files in every chat's folder once at the start, since a change made while the
+// daemon was down reaches no watch, then in each folder the watch names, and stores the count on
+// the chat's managed mount, naming the chat to the sessions list when it moved. A count that
+// cannot be read or stored is logged and left as it was until the folder's next change.
 async fn count_documents(
     workspaces_folder: PathBuf,
     changed_folders: Arc<PendingSessions>,
     repo_mounts: Arc<RepoMountService>,
     list_feed: Arc<SessionListFeed>,
 ) {
+    let listed_folder = workspaces_folder.clone();
+    match run_on_own_thread("chat folders listing", move || {
+        list_chat_folders(&listed_folder)
+    })
+    .await
+    .and_then(|listed| listed)
+    {
+        Ok(session_ids) => {
+            for session_id in session_ids {
+                changed_folders.add(session_id);
+            }
+        }
+        Err(error) => tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "the chats' folders could not be listed; each count waits for its folder's next change"
+        ),
+    }
     loop {
         for session_id in changed_folders.take().await {
             let folder = workspaces_folder.join(session_id.to_string());
@@ -339,6 +357,30 @@ async fn count_documents(
             }
         }
     }
+}
+
+// The session of each chat folder under `workspaces_folder`; none once the folder is gone.
+fn list_chat_folders(workspaces_folder: &Path) -> io::Result<Vec<SessionId>> {
+    let entries = match std::fs::read_dir(workspaces_folder) {
+        Ok(entries) => entries,
+        Err(error) if is_missing_entry(&error) => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut session_ids = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        if let Some(session_id) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| SessionId::new(name).ok())
+        {
+            session_ids.push(session_id);
+        }
+    }
+    Ok(session_ids)
 }
 
 // The files in a chat's workspace folder, its `.git` folder aside, without following a link;

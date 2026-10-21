@@ -295,9 +295,7 @@ impl InterventionService {
         // of the queue's work; read under the lock, it never sees a request of its type in flight.
         let payload = stored_payload_of(&request);
         let (_, key) = request_guards(&request);
-        if let AgentRunInterveneRequest::Interrupt(interrupt) = &request
-            && let Some(answer) = self.answer_sent_now(interrupt, run_id, &run, key).await?
-        {
+        if let Some(answer) = self.answer_sent_now(&request, run_id, &run, key).await? {
             return Ok(answer);
         }
         if let Some(saved) = self.read_saved_intervention(run_id, key).await? {

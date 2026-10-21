@@ -73,8 +73,9 @@ pub(super) enum ChainJob {
         /// The run whose turn took it.
         run_id: RunId,
     },
-    /// Settles a withdraw the provider answered past the deadline.
-    LateWithdraw(LateWithdraw),
+    /// Settles a withdraw the provider answered past the deadline; boxed, since the message it
+    /// carries outweighs every other job.
+    LateWithdraw(Box<LateWithdraw>),
     /// Gives a caller its turn between the jobs: `go` says it is its turn, and the drain waits
     /// until `done` closes.
     Gate {
@@ -155,7 +156,7 @@ impl QueueDelivery {
                 items,
             } => {
                 self.steer_at_boundary(session_id, run_id, driver.as_ref(), &items)
-                    .await
+                    .await;
             }
             ChainJob::Withdraw(job) => self.withdraw_all(session_id, job).await,
             ChainJob::MessageTaken { item_id, run_id } => {
@@ -164,7 +165,7 @@ impl QueueDelivery {
             }
             ChainJob::LateWithdraw(late) => {
                 let item_id = late.item.id;
-                let settled = self.settle_late_withdraw(session_id, late).await;
+                let settled = self.settle_late_withdraw(session_id, *late).await;
                 log_job_failure(session_id, item_id, settled);
             }
             // A caller that left before its turn lets the chain go on at once.

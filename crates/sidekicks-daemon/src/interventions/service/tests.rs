@@ -57,13 +57,24 @@ use crate::uuid_v7::mint_uuid_v7;
 
 /// A run queue that holds nothing but counts each hold it takes, records each release's choice,
 /// and hands each end straight to the run engine; with a writer, it marks each `Send now`'s
-/// message as sent and counts it, else it leaves the request to the interrupt.
+/// message as sent once per key and counts it, a key it marked answering the first's id.
 struct EngineQueue {
     engine: Arc<RunEngine>,
     holds_taken: Arc<AtomicUsize>,
     releases: Arc<Mutex<Vec<InterruptPendingChoice>>>,
     sends_now: Option<Arc<DatabaseWriter>>,
     sent_now: Arc<AtomicUsize>,
+    marked: Mutex<Vec<(ClientUuid, InterventionId)>>,
+}
+
+impl EngineQueue {
+    // Records the release of a hold with `choice`.
+    fn record_release(&self, choice: InterruptChoice) {
+        self.releases
+            .lock()
+            .expect("the test's releases are writable")
+            .push(choice.pending);
+    }
 }
 
 impl InterruptQueue for EngineQueue {
@@ -72,9 +83,20 @@ impl InterruptQueue for EngineQueue {
         send: SendNow,
     ) -> BoxFuture<'_, Result<SendNowOutcome, InterruptQueueError>> {
         async move {
-            let Some(writer) = &self.sends_now else {
-                return Ok(SendNowOutcome::Interrupt);
-            };
+            let writer = self
+                .sends_now
+                .as_ref()
+                .expect("only a provider that reads a priority message sends now");
+            let marked = self
+                .marked
+                .lock()
+                .expect("the test's marks are readable")
+                .iter()
+                .find(|(key, _)| *key == send.key)
+                .map(|(_, intervention_id)| *intervention_id);
+            if let Some(intervention_id) = marked {
+                return Ok(SendNowOutcome::Sent { intervention_id });
+            }
             writer
                 .write(vec![mark_sent_now_statement(
                     &send.item_id,
@@ -84,8 +106,14 @@ impl InterruptQueue for EngineQueue {
                 )])
                 .await
                 .expect("the test marks the message sent now");
+            self.marked
+                .lock()
+                .expect("the test's marks are writable")
+                .push((send.key, send.intervention_id));
             self.sent_now.fetch_add(1, Ordering::SeqCst);
-            Ok(SendNowOutcome::Sent)
+            Ok(SendNowOutcome::Sent {
+                intervention_id: send.intervention_id,
+            })
         }
         .boxed()
     }
@@ -129,10 +157,17 @@ impl InterruptQueue for EngineQueue {
         _intervention_id: InterventionId,
         choice: InterruptChoice,
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
-        self.releases
-            .lock()
-            .expect("the test's releases are writable")
-            .push(choice.pending);
+        self.record_release(choice);
+        async { Ok(()) }.boxed()
+    }
+
+    fn release_interrupt_at_run_end(
+        &self,
+        _run_id: RunId,
+        _intervention_id: InterventionId,
+        choice: InterruptChoice,
+    ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
+        self.record_release(choice);
         async { Ok(()) }.boxed()
     }
 }
@@ -199,6 +234,7 @@ async fn harness_reading_priority(
         releases: Arc::clone(&releases),
         sends_now: reads_priority_message.then(|| Arc::clone(&log.writer)),
         sent_now: Arc::clone(&sent_now),
+        marked: Mutex::new(Vec::new()),
     });
     let writer = Arc::clone(&log.writer);
     engine
@@ -526,8 +562,9 @@ async fn a_reused_key_answers_the_saved_result_or_refuses_another_request() {
 
 // `Send now` on a provider that reads a priority message hands the message with no interrupt row;
 // the same request again answers the first's `applied` and hands nothing, and the key reused for
-// an interrupt without the message first is refused as a conflict. Killed by dropping the
-// sent-now read before the saved row's, or its comparison of the message first.
+// an interrupt without the message first, or for a retry, is refused as a conflict. Killed by
+// dropping the sent-now read before the saved row's, its comparison of the message first, or its
+// check of a retry.
 #[tokio::test]
 async fn a_reused_send_now_key_answers_applied_or_refuses_another_request() {
     let harness = harness_reading_priority(MockProviderDriver::new(), true).await;
@@ -548,6 +585,11 @@ async fn a_reused_send_now_key_answers_applied_or_refuses_another_request() {
         .apply_intervention(interrupt(harness.run_id, 1, "stop"), device())
         .await
         .expect_err("an interrupt under the spent key is refused");
+    let retry_conflict = harness
+        .service
+        .apply_intervention(retry(harness.run_id, 1), device())
+        .await
+        .expect_err("a retry under the spent key is refused");
 
     let AgentRunInterveneResponse::Applied {
         intervention_id, ..
@@ -563,10 +605,12 @@ async fn a_reused_send_now_key_answers_applied_or_refuses_another_request() {
         panic!("the same request answers the first's result, got {again:?}");
     };
     assert_eq!(saved, intervention_id);
-    let InterventionError::Refused(DomainError { code, .. }) = conflict else {
-        panic!("a conflict is a refusal, got {conflict:?}");
-    };
-    assert_eq!(code, RefusalCode::AgentInterventionIdempotencyConflict);
+    for refused in [conflict, retry_conflict] {
+        let InterventionError::Refused(DomainError { code, .. }) = refused else {
+            panic!("a conflict is a refusal, got {refused:?}");
+        };
+        assert_eq!(code, RefusalCode::AgentInterventionIdempotencyConflict);
+    }
     assert_eq!(harness.sent_now.load(Ordering::SeqCst), 1);
     assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 0);
     assert_eq!(harness.stored_rows(), []);

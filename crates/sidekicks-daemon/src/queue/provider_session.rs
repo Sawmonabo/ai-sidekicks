@@ -50,6 +50,11 @@ use crate::session::permission_level::{
 use crate::session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
 use crate::session::run::ids::SESSION_RUN_IDS_SQL;
 
+#[cfg(test)]
+pub(crate) mod test_opening;
+#[cfg(test)]
+mod tests;
+
 /// The statements the provider sessions' reads prepare: a session's runs, their bindings, its
 /// mode and its level.
 #[expect(dead_code, reason = "the daemon's start, sizing its read connections")]

@@ -268,7 +268,8 @@ async fn a_stop_waits_out_a_hand_inside_its_driver_call() {
         .await
         .expect("the hand steers");
 
-    let mut stopping = pin!(fixture.delivery.stop());
+    fixture.delivery.close();
+    let mut stopping = pin!(fixture.delivery.wait());
     let early = timeout(Duration::from_millis(100), &mut stopping).await;
     release_steer
         .send(())

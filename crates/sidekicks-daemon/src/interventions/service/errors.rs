@@ -126,6 +126,10 @@ pub(crate) enum InterventionError {
     /// The run queue's part in an interrupt failed.
     #[error("the run queue failed its part in the interrupt")]
     Queue(#[source] InterruptQueueError),
+    /// The run's driver was not resolved: the live run has no binding, or no driver answers its
+    /// provider (`provider.notFound`).
+    #[error(transparent)]
+    NoDriver(#[from] LiveRunDriverError),
     /// The dispatch threw, and the write recording its failure did not land.
     #[error(
         "intervention {intervention_id} failed in dispatch ({}), and recording it failed too",
@@ -145,6 +149,20 @@ pub(crate) enum InterventionError {
     Several(Box<SettleFailures<InterventionError>>),
 }
 
+impl From<rusqlite::Error> for InterventionError {
+    /// A read the run engine would have made, kept whole as its failure.
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Engine(error.into())
+    }
+}
+
+impl From<DatabaseReadError> for InterventionError {
+    /// A read the pool did not run, kept whole as the run engine's failure.
+    fn from(error: DatabaseReadError) -> Self {
+        Self::Engine(error.into())
+    }
+}
+
 impl From<InterventionError> for HandlerError {
     /// A refusal answers by its code, the run engine's included (an unknown run); the rest are
     /// faults in the daemon, since a dispatch that threw answers its row `failed` rather than
@@ -152,7 +170,8 @@ impl From<InterventionError> for HandlerError {
     fn from(error: InterventionError) -> Self {
         match error {
             InterventionError::Refused(refusal)
-            | InterventionError::Engine(RunEngineError::Provider(refusal)) => {
+            | InterventionError::Engine(RunEngineError::Provider(refusal))
+            | InterventionError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal)) => {
                 Self::Refused(refusal)
             }
             InterventionError::Engine(RunEngineError::Refused(refusal)) => {
@@ -181,6 +200,7 @@ impl From<InterventionError> for HandlerError {
                 | RunEngineError::Several(_),
             )
             | InterventionError::Queue(_)
+            | InterventionError::NoDriver(LiveRunDriverError::Unbound { .. })
             | InterventionError::Unrecorded { .. }
             | InterventionError::Several(_)) => Self::Internal(Box::new(fault)),
         }

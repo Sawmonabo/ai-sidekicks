@@ -74,22 +74,26 @@ pub(crate) struct SendNow {
 /// What a `Send now` came to.
 #[derive(Debug)]
 pub(crate) enum SendNowOutcome {
-    /// Handed ahead of what the provider held.
-    Sent,
+    /// Marked to go ahead of what the provider holds: handed now where the run takes it, else
+    /// first in the queue and handed first at the run's next hand.
+    Sent {
+        /// The id the message's mark records, which the answer carries.
+        intervention_id: InterventionId,
+    },
     /// The run moved past the version the person decided against; nothing was handed.
     Expired,
     /// The message has left the queue, or its provider did not give it back; nothing was handed.
     Refused(DomainError),
-    /// The run takes no message now: the interrupt that puts the message first in the next turn
-    /// carries the request instead.
-    Interrupt,
 }
 
 /// The run queue as an interrupt uses it.
 pub(crate) trait InterruptQueue: Send + Sync {
-    /// Hands `send.item_id` to its run ahead of what the provider holds, with the rows ahead of it
-    /// taken back first and handed again after it, the request's key recorded on the message; no
-    /// interrupt is made. Fails as the queue's read or write fails.
+    /// Hands `send.item_id` to its run ahead of what the provider holds, with every waiting row
+    /// taken back first and handed again after it, the request's key recorded on the message; a
+    /// run that takes no message now keeps it first in the queue, marked, for its next hand. No
+    /// interrupt is made. A message marked under the same key and still with its provider answers
+    /// as sent again. Fails as the queue's read, write or hand fails, every row taken back handed
+    /// again first.
     fn send_now(&self, send: SendNow)
     -> BoxFuture<'_, Result<SendNowOutcome, InterruptQueueError>>;
 
@@ -115,10 +119,21 @@ pub(crate) trait InterruptQueue: Send + Sync {
     ) -> BoxFuture<'_, Result<bool, InterruptQueueError>>;
 
     /// Lets go the hold the interrupt `intervention_id` took, and once no interrupt holds the run,
-    /// applies `choice` to the messages of a run that ended first and hands the rest again, once
-    /// the session's queue is free, so a run's end written under the queue's hold may call it. A
-    /// second release of one interrupt changes nothing. Fails when the run cannot be read.
+    /// applies `choice` to the messages of a run that ended first and hands the rest again. Takes
+    /// the session's queue itself, so it is never called under it. A second release of one
+    /// interrupt changes nothing. Fails as the read, the choice's writes or the hand fail.
     fn release_interrupt(
+        &self,
+        run_id: RunId,
+        intervention_id: InterventionId,
+        choice: InterruptChoice,
+    ) -> BoxFuture<'_, Result<(), InterruptQueueError>>;
+
+    /// [`InterruptQueue::release_interrupt`] for a run's end, which may be written under the
+    /// session's queue: answers once the run is read, and the release runs once the queue is free.
+    /// A release that fails then marks the session, and the queue's next hold of it settles the
+    /// release again. Fails when the run cannot be read.
+    fn release_interrupt_at_run_end(
         &self,
         run_id: RunId,
         intervention_id: InterventionId,

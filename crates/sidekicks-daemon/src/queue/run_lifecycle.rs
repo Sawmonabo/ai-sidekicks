@@ -30,6 +30,7 @@ use sidekicks_contracts::run::queue::{QueueItemId, QueueItemState};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 use tracing::Instrument as _;
 
@@ -51,12 +52,15 @@ use crate::session::run::stored_state_change::{
 };
 use crate::uuid_v7::mint_uuid_v7;
 
+#[cfg(test)]
+mod tests;
+
 // The trigger of the newest interrupted end of a run; a person's interrupt stores none.
 static SELECT_INTERRUPT_TRIGGER_SQL: LazyLock<String> = LazyLock::new(|| {
     let interrupted = SessionEventType::AgentRunInterrupted;
     format!(
         "SELECT json_extract(payload, '$.trigger') FROM session_events
-  WHERE run_id = ? AND category = '{}' AND type = '{}'
+  WHERE session_id = ? AND run_id = ? AND category = '{}' AND type = '{}'
   ORDER BY sequence DESC LIMIT 1",
         interrupted.category().as_str(),
         interrupted.as_str()
@@ -103,8 +107,9 @@ struct PendingWork {
     continues: Vec<RunId>,
     // The session's provider process is gone.
     is_process_gone: bool,
-    // The session's waiting messages are read again from the record.
-    is_reconcile: bool,
+    // The session's waiting messages are read again from the record, once for each caller
+    // waiting on the outcome.
+    reconciles: Vec<oneshot::Sender<Result<(), QueueError>>>,
 }
 
 // The lifecycle's state across its drains.
@@ -209,9 +214,15 @@ impl QueueRunLifecycle {
 
     /// Reads the session's waiting messages again from the record, after its drain's earlier
     /// work: a run they wait for that ended is ended as at its end, a queued run no start holds is
-    /// started, and a live run is handed what waits for it.
-    pub(crate) fn reconcile(self: &Arc<Self>, session_id: SessionId) {
-        self.schedule(session_id, |work| work.is_reconcile = true);
+    /// started, and a live run is handed what waits for it. The receiver answers how the read went,
+    /// and a closed one that the lifecycle stopped first.
+    pub(crate) fn reconcile(
+        self: &Arc<Self>,
+        session_id: SessionId,
+    ) -> oneshot::Receiver<Result<(), QueueError>> {
+        let (reconciled, outcome) = oneshot::channel();
+        self.schedule(session_id, |work| work.reconciles.push(reconciled));
+        outcome
     }
 
     /// Settles the end of `run_id` seen while an interrupt of it was under way, once the
@@ -263,7 +274,7 @@ impl QueueRunLifecycle {
         if !is_interrupted || delivery.is_held_for_interrupt(run_id) {
             return Ok(());
         }
-        if !is_by_send && self.rests_for_send(run_id).await? {
+        if !is_by_send && self.rests_for_send(session_id, run_id).await? {
             return Ok(());
         }
         let has_waiting = self
@@ -291,10 +302,20 @@ impl QueueRunLifecycle {
         Ok(())
     }
 
-    /// Stops taking new work and waits for every drain under way.
-    pub(crate) async fn stop(&self) {
+    /// Marks the lifecycle stopping, so [`QueueRunLifecycle::wait`] answers once no drain runs; a
+    /// drain started after still counts.
+    pub(crate) fn close(&self) {
         self.tasks.close();
+    }
+
+    /// Waits, once closed, for every drain under way.
+    pub(crate) async fn wait(&self) {
         self.tasks.wait().await;
+    }
+
+    /// Whether no drain runs.
+    pub(crate) fn is_idle(&self) -> bool {
+        self.tasks.is_empty()
     }
 
     // Notes `add` in the session's pending work and starts its drain when none runs.
@@ -355,14 +376,9 @@ impl QueueRunLifecycle {
         {
             log_failure(session_id, &error, "settling a gone process's runs failed");
         }
-        if work.is_reconcile
-            && let Err(error) = self.reconcile_now(session_id).await
-        {
-            log_failure(
-                session_id,
-                &error,
-                "reading the waiting messages again failed",
-            );
+        for reconciled in work.reconciles {
+            // A caller that stopped waiting has nothing to hear.
+            drop(reconciled.send(self.reconcile_now(session_id).await));
         }
     }
 
@@ -424,8 +440,8 @@ impl QueueRunLifecycle {
         }
     }
 
-    // Ends `run_id` as Table C says, unless an interrupt of it is under way, whose choice is
-    // written first; then settles what its resumes kept, off the lock.
+    // Ends `run_id` by what its end leaves of its place and messages, unless an interrupt of it is
+    // under way, whose choice is written first; then settles what its resumes kept, off the lock.
     async fn end_run(
         self: &Arc<Self>,
         session_id: SessionId,
@@ -816,14 +832,21 @@ impl QueueRunLifecycle {
 
     // Whether `run_id` was interrupted at a limit, so it rests with its messages waiting until a
     // send continues it.
-    async fn rests_for_send(&self, run_id: RunId) -> Result<bool, QueueError> {
+    async fn rests_for_send(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> Result<bool, QueueError> {
         let trigger = self
             .deps
             .pool
             .read(ReadLength::Short, move |reader| {
                 let trigger: Option<Option<String>> = reader
                     .prepare_cached(&SELECT_INTERRUPT_TRIGGER_SQL)?
-                    .query_row([run_id.text().as_str()], |row| row.get(0))
+                    .query_row(
+                        [session_id.text().as_str(), run_id.text().as_str()],
+                        |row| row.get(0),
+                    )
                     .optional()?;
                 Ok::<_, QueueError>(trigger.flatten())
             })

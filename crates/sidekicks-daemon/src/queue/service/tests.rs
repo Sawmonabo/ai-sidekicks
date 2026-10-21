@@ -1,20 +1,24 @@
 //! The run queue's tests, over a test database holding a session whose lead is bound to the
-//! table's first provider, whose driver is a stand-in: a send to a session that takes no change,
-//! the removal of a queued run's last message, `Send now`, and an interrupt's release from inside
-//! the session's hold.
+//! table's first provider, whose driver is a stand-in that records what it is asked: a send to a
+//! session that takes no change and the removal of a queued run's last message here; sends,
+//! run ends and the interrupts' queue in the modules below.
+
+mod interrupt;
+mod run_ends;
+mod sends;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use futures::FutureExt as _;
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::json;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId,
 };
@@ -23,10 +27,8 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tempfile::TempDir;
-use tokio::time::timeout;
 
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
 use crate::admission::memory_gate::{MemoryGate, MemoryGateFigures};
@@ -34,27 +36,26 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::read::DamagedFromSequenceReader;
-use crate::interventions::interrupt_queue::{
-    InterruptChoice, InterruptQueue, SendNow, SendNowOutcome,
-};
 use crate::ipc::domain_error::DomainError;
+use crate::pause_point::PausePoint;
 use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::contract::MockProviderDriver;
+use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderSessionHandle};
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::{
-    ApplyInterventionParams, ApplyInterventionResponse, InterruptPendingChoice,
-    InterventionResultStatus, WithdrawQueuedMessageResult,
+    ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
+    SteerTurnEndedError, WithdrawQueuedMessageResult,
 };
-use crate::provider::driver::test_registry::{
-    bind_run_to_first_provider, registry_of_first_provider,
-};
+use crate::provider::driver::test_registry::registry_of_first_provider;
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
 use crate::queue::error::QueueError;
+use crate::queue::provider_session::test_opening::{
+    record_first_provider_capabilities, test_opening_composer,
+};
 use crate::queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::queue::store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, RecordedQueueItemState,
+    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
     insert_queue_item_statement,
 };
 use crate::session::directory::test_rows::insert_session_row;
@@ -70,12 +71,143 @@ const READ_STATEMENT_CAPACITY: usize = 32;
 /// Bounds every wait a fault could hang.
 const WAIT: Duration = Duration::from_secs(5);
 
+/// How long a call held behind other work is watched to show it waits.
+const HELD_WATCH: Duration = Duration::from_millis(200);
+
 /// A session with no provider process running.
 struct NoProcess;
 
 impl ProviderProcessIds for NoProcess {
     fn process_identity(&self, _session_id: &SessionId) -> Option<ProviderProcessIdentity> {
         None
+    }
+}
+
+/// What the stand-in driver was asked, in order, and how it answers.
+#[derive(Default)]
+struct DriverCalls {
+    /// Each run start or continue, with the message it opened with.
+    starts: Mutex<Vec<(RunId, QueueItemId)>>,
+    /// Each steer, with whether it was marked priority.
+    steers: Mutex<Vec<(QueueItemId, bool)>>,
+    /// Each resume, with the messages it carried.
+    resumes: Mutex<Vec<(RunId, Vec<QueueItemId>)>>,
+    /// Holds a start before it answers.
+    start_pause: PausePoint,
+    /// How many starts fail before one succeeds.
+    start_failures_left: AtomicUsize,
+    /// How many priority steers find their turn ended before one is taken.
+    dropped_priority_steers_left: AtomicUsize,
+}
+
+impl DriverCalls {
+    fn starts(&self) -> Vec<(RunId, QueueItemId)> {
+        lock(&self.starts).clone()
+    }
+
+    fn steers(&self) -> Vec<(QueueItemId, bool)> {
+        lock(&self.steers).clone()
+    }
+
+    fn resumes(&self) -> Vec<(RunId, Vec<QueueItemId>)> {
+        lock(&self.resumes).clone()
+    }
+}
+
+fn lock<Value>(mutex: &Mutex<Value>) -> MutexGuard<'_, Value> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+// Takes one from `left` when any is left.
+fn take_one(left: &AtomicUsize) -> bool {
+    left.try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+        left.checked_sub(1)
+    })
+    .is_ok()
+}
+
+/// A driver whose provider takes messages at once, reads a priority message and gives back what
+/// it was handed, recording each start, steer and resume in `calls`.
+fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_message_handing()
+        .return_const(MessageHanding {
+            hands_at: HandMoment::AtOnce,
+            can_withdraw: true,
+            kept_by_process: false,
+            reads_priority_message: true,
+        });
+    driver
+        .expect_starts_process()
+        .returning(|_| async { false }.boxed());
+    driver.expect_create_session().returning(|_| {
+        async {
+            Ok(ProviderSessionHandle {
+                provider_session_id: "provider-session".to_owned(),
+                resume_handle: "conversation-1".to_owned(),
+            })
+        }
+        .boxed()
+    });
+    let starting = Arc::clone(calls);
+    driver.expect_start_run().returning(move |params| {
+        let calls = Arc::clone(&starting);
+        async move {
+            calls.start_pause.pass().await;
+            lock(&calls.starts).push((params.run_id, params.opening.message_id));
+            if take_one(&calls.start_failures_left) {
+                return Err(DriverError::Internal("the test's start fails".into()));
+            }
+            Ok(())
+        }
+        .boxed()
+    });
+    driver
+        .expect_interrupt_run()
+        .returning(|_| async { Ok(()) }.boxed());
+    let steering = Arc::clone(calls);
+    driver.expect_apply_intervention().returning(move |params| {
+        let ApplyInterventionParams::Steer {
+            target_run_id,
+            client_idempotency_key,
+            payload,
+            ..
+        } = params
+        else {
+            panic!("the queue only steers");
+        };
+        lock(&steering.steers).push((client_idempotency_key, payload.is_priority));
+        let is_dropped = payload.is_priority && take_one(&steering.dropped_priority_steers_left);
+        async move {
+            if is_dropped {
+                return Err(DriverError::SteerTurnEnded(SteerTurnEndedError {
+                    run_id: target_run_id,
+                }));
+            }
+            Ok(applied())
+        }
+        .boxed()
+    });
+    driver
+        .expect_withdraw_queued_message()
+        .returning(|_| async { Ok(WithdrawQueuedMessageResult::Withdrawn {}) }.boxed());
+    let resuming = Arc::clone(calls);
+    driver.expect_resume_run().returning(move |params| {
+        let messages = params.messages.iter().map(|message| message.id).collect();
+        lock(&resuming.resumes).push((params.run_id, messages));
+        async { Ok(()) }.boxed()
+    });
+    driver
+}
+
+/// The steer's answer that delivered the message into its own target.
+fn applied() -> ApplyInterventionResponse {
+    ApplyInterventionResponse {
+        status: InterventionResultStatus::Applied,
+        fallback_action: None,
+        delivered_run_id: None,
+        cancelled: Vec::new(),
     }
 }
 
@@ -102,6 +234,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     ));
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
+    record_first_provider_capabilities(&providers);
     let runtime_bindings = Arc::new(RuntimeBindingStore::new(
         Arc::clone(&pool),
         Arc::clone(&log.writer),
@@ -119,9 +252,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         runtime_bindings,
         binding_cursors,
         providers: Arc::clone(&providers),
-        compose_opening: Arc::new(|session_id| {
-            async move { Err(format!("no test opens session {session_id}").into()) }.boxed()
-        }),
+        compose_opening: test_opening_composer(),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
@@ -181,31 +312,6 @@ fn insert_lead(database: &TestDatabase, session_id: SessionId) {
         .expect("the test creates the session's lead");
 }
 
-/// A driver whose provider takes messages at once, reads a priority message and gives back what
-/// it was handed.
-fn driver_reading_priority() -> MockProviderDriver {
-    let mut driver = MockProviderDriver::new();
-    driver
-        .expect_message_handing()
-        .return_const(MessageHanding {
-            hands_at: HandMoment::AtOnce,
-            can_withdraw: true,
-            kept_by_process: false,
-            reads_priority_message: true,
-        });
-    driver
-}
-
-/// The steer's answer that delivered the message into its own target.
-fn applied() -> ApplyInterventionResponse {
-    ApplyInterventionResponse {
-        status: InterventionResultStatus::Applied,
-        fallback_action: None,
-        delivered_run_id: None,
-        cancelled: Vec::new(),
-    }
-}
-
 fn new_run_id() -> RunId {
     RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
 }
@@ -215,6 +321,56 @@ fn client_key() -> ClientUuid {
 }
 
 impl Fixture {
+    /// Writes a lead run of the session in `state`, at version 1, and answers its id.
+    fn insert_run(&self, state: &str) -> RunId {
+        let run_id = new_run_id();
+        insert_running_run(&self.database, self.session_id, run_id);
+        self.set_run_state(run_id, state);
+        run_id
+    }
+
+    /// Moves `run_id` to `state` as a writer outside the engine would.
+    fn set_run_state(&self, run_id: RunId, state: &str) {
+        self.database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = ?2 WHERE run_id = ?1",
+                params![run_id.text().as_str(), state],
+            )
+            .expect("the test moves the run");
+    }
+
+    /// Writes the interrupted end of `run_id`, `trigger` naming the limit that ended it; a
+    /// person's interrupt names none.
+    fn insert_interrupted_end(&self, run_id: RunId, trigger: Option<&str>) {
+        let event_type = SessionEventType::AgentRunInterrupted;
+        let connection = self.database.reader();
+        let sequence: i64 = connection
+            .query_row(
+                "SELECT COALESCE(MAX(sequence), -1) + 1 FROM session_events WHERE session_id = ?1",
+                [self.session_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the test reads the log's next sequence");
+        connection
+            .execute(
+                "INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
+                   category, type, payload, run_id, run_version)
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, 1)",
+                params![
+                    mint_uuid_v7().to_string(),
+                    self.session_id.text().as_str(),
+                    sequence,
+                    WireInstant::now().as_str(),
+                    event_type.category().as_str(),
+                    event_type.as_str(),
+                    json!({ "runId": run_id.text().as_str(), "trigger": trigger }).to_string(),
+                    run_id.text().as_str(),
+                ],
+            )
+            .expect("the test writes the run's interrupted end");
+    }
+
     /// Queues a message for `run_id`, after every one before it, and answers its id.
     async fn queue_message(&self, run_id: RunId) -> QueueItemId {
         let item_id =
@@ -244,12 +400,47 @@ impl Fixture {
         item_id
     }
 
-    fn stored_state(&self, item_id: QueueItemId) -> RecordedQueueItemState {
+    /// Sends a message to the session's lead as a person does and answers its id. Fails as the
+    /// queue refuses the send.
+    async fn send(&self) -> Result<QueueItemId, QueueError> {
+        let key = client_key();
+        self.queue
+            .create(
+                AgentQueueItemCreateRequest {
+                    session_id: self.session_id,
+                    to: None,
+                    workspace_id: None,
+                    client_idempotency_key: key.clone(),
+                    content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+                    attachments: None,
+                    skills: None,
+                    replaces_queue_item_id: None,
+                    answers_question_id: None,
+                    output_speed_for_turn: None,
+                },
+                DeviceId::new("device-1".to_owned()).expect("a test device id"),
+            )
+            .await?;
+        Ok(QueueItemReader::new(&self.database.reader())
+            .get_by_idempotency_key(&self.session_id, &key)
+            .expect("the test reads its send")
+            .expect("the send is stored")
+            .id)
+    }
+
+    fn stored_item(&self, item_id: QueueItemId) -> QueueItemRecord {
         QueueItemReader::new(&self.database.reader())
             .get(&item_id)
             .expect("the test reads its message")
             .expect("the test's message is stored")
-            .state
+    }
+
+    fn stored_state(&self, item_id: QueueItemId) -> RecordedQueueItemState {
+        self.stored_item(item_id).state
+    }
+
+    fn run_state(&self, run_id: RunId) -> String {
+        stored_run_state(&self.database, &run_id).0
     }
 
     fn count_items(&self) -> i64 {
@@ -283,27 +474,8 @@ async fn a_send_to_a_session_that_takes_no_change_is_refused(
             ],
         )
         .expect("the test moves the session");
-    let request = AgentQueueItemCreateRequest {
-        session_id: fixture.session_id,
-        to: None,
-        workspace_id: None,
-        client_idempotency_key: client_key(),
-        content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-        attachments: None,
-        skills: None,
-        replaces_queue_item_id: None,
-        answers_question_id: None,
-        output_speed_for_turn: None,
-    };
 
-    let refused = fixture
-        .queue
-        .create(
-            request,
-            DeviceId::new("device-1".to_owned()).expect("a test device id"),
-        )
-        .await
-        .expect_err("the send is refused");
+    let refused = fixture.send().await.expect_err("the send is refused");
 
     let QueueError::Refused(DomainError { code: refused, .. }) = refused else {
         panic!("the send is refused by the session's state, got {refused:?}");
@@ -318,15 +490,7 @@ async fn a_send_to_a_session_that_takes_no_change_is_refused(
 #[tokio::test]
 async fn removing_a_queued_runs_last_message_ends_the_run_failed() {
     let fixture = fixture(MockProviderDriver::new()).await;
-    let run_id = new_run_id();
-    fixture
-        .database
-        .reader()
-        .execute(
-            "INSERT INTO runs (run_id, session_id, state, run_version) VALUES (?1, ?2, 'queued', 1)",
-            params![run_id.text().as_str(), fixture.session_id.text().as_str()],
-        )
-        .expect("the test queues the run");
+    let run_id = fixture.insert_run("queued");
     let item_id = fixture.queue_message(run_id).await;
 
     fixture
@@ -338,10 +502,7 @@ async fn removing_a_queued_runs_last_message_ends_the_run_failed() {
         .await
         .expect("the message is removed");
 
-    assert_eq!(
-        stored_run_state(&fixture.database, &run_id).0,
-        "failed".to_owned()
-    );
+    assert_eq!(fixture.run_state(run_id), "failed");
     let detail_events: i64 = fixture
         .database
         .reader()
@@ -357,122 +518,4 @@ async fn removing_a_queued_runs_last_message_ends_the_run_failed() {
         fixture.stored_state(item_id),
         RecordedQueueItemState::Canceled
     );
-}
-
-// `Send now` on a provider that reads a priority message takes back the message ahead, hands the
-// one sent now first marked priority, then the one ahead in its order, and marks the message with
-// the request's key. Killed by answering the interrupt instead, handing in the queue's order, or
-// not marking the message.
-#[tokio::test]
-async fn send_now_hands_the_message_first_and_the_rest_in_order() {
-    let steers = Arc::new(Mutex::new(Vec::new()));
-    let recorded = Arc::clone(&steers);
-    let mut driver = driver_reading_priority();
-    driver.expect_apply_intervention().returning(move |params| {
-        let ApplyInterventionParams::Steer {
-            client_idempotency_key,
-            payload,
-            ..
-        } = params
-        else {
-            panic!("the queue only steers");
-        };
-        recorded
-            .lock()
-            .expect("the steers are recorded")
-            .push((client_idempotency_key, payload.is_priority));
-        async { Ok(applied()) }.boxed()
-    });
-    driver
-        .expect_withdraw_queued_message()
-        .returning(|_| async { Ok(WithdrawQueuedMessageResult::Withdrawn {}) }.boxed());
-    let fixture = fixture(driver).await;
-    let run_id = new_run_id();
-    insert_running_run(&fixture.database, fixture.session_id, run_id);
-    bind_run_to_first_provider(&fixture.database, run_id);
-    let ahead = fixture.queue_message(run_id).await;
-    let sent_now = fixture.queue_message(run_id).await;
-    let key = client_key();
-
-    let outcome = fixture
-        .queue
-        .send_now(SendNow {
-            run_id,
-            expected_run_version: SafeInt::new(1).expect("a test version"),
-            item_id: sent_now,
-            key: key.clone(),
-            intervention_id: InterventionId::new(&mint_uuid_v7().to_string())
-                .expect("a minted UUID is an intervention id"),
-        })
-        .await
-        .expect("the queue answers");
-    fixture.queue.stop().await;
-
-    assert!(matches!(outcome, SendNowOutcome::Sent), "{outcome:?}");
-    assert_eq!(
-        *steers.lock().expect("the steers are readable"),
-        [(sent_now, true), (ahead, false)]
-    );
-    let marked: Option<String> = fixture
-        .database
-        .reader()
-        .query_row(
-            "SELECT send_now_key FROM queue_items WHERE id = ?1",
-            [sent_now.text().as_str()],
-            |row| row.get(0),
-        )
-        .expect("the test reads the message's mark");
-    assert_eq!(marked.as_deref(), Some(key.as_str()));
-}
-
-// An interrupt's release called while the session's queue is held, as a run's end written under
-// that hold calls it, answers without waiting for the hold; once the hold goes, the run's hold is
-// let go and its waiting message handed. Killed by a release that takes the session's lock inline
-// (the test times out), or by one that never settles.
-#[tokio::test]
-async fn a_release_from_inside_the_sessions_hold_settles_once_the_hold_goes() {
-    let steers = Arc::new(AtomicUsize::new(0));
-    let counted = Arc::clone(&steers);
-    let mut driver = driver_reading_priority();
-    driver.expect_apply_intervention().returning(move |_| {
-        counted.fetch_add(1, Ordering::SeqCst);
-        async { Ok(applied()) }.boxed()
-    });
-    let fixture = fixture(driver).await;
-    let run_id = new_run_id();
-    insert_running_run(&fixture.database, fixture.session_id, run_id);
-    bind_run_to_first_provider(&fixture.database, run_id);
-    fixture.queue_message(run_id).await;
-    let intervention_id = InterventionId::new(&mint_uuid_v7().to_string())
-        .expect("a minted UUID is an intervention id");
-    let choice = InterruptChoice {
-        pending: InterruptPendingChoice::KeepWaiting,
-        deliver_first: None,
-    };
-
-    let is_held_inside = {
-        let hold = fixture.queue.session_lock.acquire(fixture.session_id).await;
-        fixture
-            .queue
-            .delivery
-            .hold_for_interrupt(&hold, run_id, intervention_id)
-            .await;
-        timeout(
-            WAIT,
-            fixture
-                .queue
-                .release_interrupt(run_id, intervention_id, choice),
-        )
-        .await
-        .expect("the release answers inside the hold")
-        .expect("the release reads its run");
-        fixture.queue.delivery.is_held_for_interrupt(run_id)
-    };
-    timeout(WAIT, fixture.queue.stop())
-        .await
-        .expect("the release settles once the hold goes");
-
-    assert!(is_held_inside, "the run stays held while the hold is");
-    assert!(!fixture.queue.delivery.is_held_for_interrupt(run_id));
-    assert_eq!(steers.load(Ordering::SeqCst), 1);
 }

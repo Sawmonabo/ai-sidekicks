@@ -79,12 +79,19 @@ pub(crate) struct QueueSendsDeps {
 /// Writes a person's sends, edits and retries; the caller holds the queue's session lock.
 pub(crate) struct QueueSends {
     deps: QueueSendsDeps,
+    /// Holds a send after it read the session's lead runs, before each write.
+    #[cfg(test)]
+    pub(crate) route_write_pause: crate::pause_point::PausePoint,
 }
 
 impl QueueSends {
     /// Sends over `deps`.
     pub(crate) fn new(deps: QueueSendsDeps) -> Self {
-        Self { deps }
+        Self {
+            deps,
+            #[cfg(test)]
+            route_write_pause: crate::pause_point::PausePoint::default(),
+        }
     }
 
     /// A new message from `device_id`: into the lead run that is live, the current one resting
@@ -122,6 +129,8 @@ impl QueueSends {
                 route,
                 retries: retries.clone(),
             };
+            #[cfg(test)]
+            self.route_write_pause.pass().await;
             let recorded = match self.record(send).await {
                 Ok(recorded) => recorded,
                 Err(SendFailure::RouteChanged) if attempt < SEND_ATTEMPTS => {
