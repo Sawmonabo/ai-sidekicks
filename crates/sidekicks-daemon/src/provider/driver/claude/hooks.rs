@@ -3,5 +3,5 @@
 
 pub(super) mod callbacks;
 mod helper_limit;
-mod pause;
+pub(super) mod pause;
 pub(super) mod registration;

@@ -17,6 +17,7 @@ mod capabilities;
 mod capability_probe;
 mod delivery;
 mod event_normalizer;
+mod frame_routing;
 mod handshake_register;
 mod hooks;
 pub(crate) mod inbox_address;

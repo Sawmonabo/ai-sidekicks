@@ -6,6 +6,7 @@
 //! errors a session raises.
 
 pub(super) mod answered_commands;
+pub(super) mod arrivals;
 mod control_requests;
 mod conversation_file;
 pub(crate) mod errors;

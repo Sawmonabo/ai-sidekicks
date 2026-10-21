@@ -13,3 +13,4 @@ pub(crate) mod run_state_publisher;
 pub(crate) mod session_inbox_address;
 pub(crate) mod session_rules;
 pub(crate) mod tool_server_route;
+pub(crate) mod usage_sink;

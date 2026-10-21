@@ -375,10 +375,6 @@ impl ClaudeStreamedBlocks {
 
     /// The key of the block the open turn's assistant frame `message_uuid` finished, if it
     /// streamed.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader keys a finished block's rows by it"
-    )]
     pub(crate) fn block_key_for(&self, message_uuid: &str) -> Option<&ClaudeStreamedBlockKey> {
         self.block_key_by_message_uuid.get(message_uuid)
     }

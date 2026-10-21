@@ -133,13 +133,6 @@ impl ClaudeSentPrompts {
     }
 
     /// Whether a steer written into `run_id`'s turn waits in Claude Code's input, not yet taken.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's turn settlement carries a run with an untaken steer"
-        )
-    )]
     pub(crate) fn has_untaken_steer(&self, run_id: RunId) -> bool {
         self.unreported
             .values()

@@ -39,10 +39,6 @@ const TERMINAL_COMMAND_SCOPE: &str = "terminal";
 /// A run whose output speed settled on its process's handshake, with the state the process declared
 /// it runs at; the run engine compares it with the level the run carried.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader hands it to the run engine's settled output speed"
-)]
 pub(crate) struct ClaudeSettledOutputSpeed {
     /// The run.
     pub(crate) run_id: RunId,

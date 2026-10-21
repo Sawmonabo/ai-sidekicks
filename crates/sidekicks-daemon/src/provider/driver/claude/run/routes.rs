@@ -299,13 +299,6 @@ impl ClaudeRunRoutes {
 
     /// Keeps a run holding its session's turn through the turn's settlement, into the next turn;
     /// a run that holds no turn is left as it is.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's steer marks an untaken steer through it"
-        )
-    )]
     pub(crate) fn carry_turn_over(&self, run_id: RunId) {
         let mut tables = self.lock();
         let Some(&(session_id, _)) = tables.bindings.get(&run_id) else {
@@ -351,10 +344,6 @@ impl ClaudeRunRoutes {
     }
 
     /// The run holding this session's turn with its binding, or `None` when none holds it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's frames are attributed to the lead through it"
-    )]
     pub(crate) fn lead_run_on(&self, session_id: SessionId) -> Option<ClaudeBoundRun> {
         let tables = self.lock();
         let holder = tables.turns.get(&session_id)?.borrow().holder;
@@ -369,10 +358,6 @@ impl ClaudeRunRoutes {
     }
 
     /// Where `run_id` is routed, or `None` for a run the routes do not hold.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's run controls route a run's override and stop through it"
-    )]
     pub(crate) fn route_of(&self, run_id: RunId) -> Option<ClaudeRunRoute> {
         let tables = self.lock();
         if let Some((session_id, binding_id)) = tables.bindings.get(&run_id) {

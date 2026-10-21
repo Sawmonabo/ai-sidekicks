@@ -55,10 +55,6 @@ pub(crate) struct ClaudeHeldHandshake {
 /// thread is the helper's id or else the provider session id, never none, which would quarantine
 /// every ordinary frame.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader routes each frame as it"
-)]
 pub(crate) struct ClaudeRoutableFrame {
     /// The helper's id, or the provider session id.
     pub(crate) thread_id: String,
@@ -83,10 +79,6 @@ impl RoutableProviderFrame for ClaudeRoutableFrame {
 }
 
 /// A session's router and accountant, held together so no frame routes to an unmetered thread.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's session lifecycle keeps each session's router in it"
-)]
 pub(crate) struct ClaudeSessionRoutingBand {
     /// The router.
     pub(crate) router: ThreadFrameRouter<ClaudeRoutableFrame>,
