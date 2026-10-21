@@ -25,7 +25,7 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_platforms::{PathRules, Spawner};
 
 use self::context::{ClaudeSpawnContextError, ClaudeStoredReadError, read_claude_step_bound};
@@ -346,7 +346,7 @@ impl ClaudeSessionEstablishment {
                 },
                 (
                     SessionMode::Build,
-                    params.output_speed.map(|level| level.into_string()),
+                    params.output_speed.map(FreeFormText::into_string),
                 ),
                 ClaudeUsageEstablishment::Fresh,
             )
@@ -407,7 +407,7 @@ impl ClaudeSessionEstablishment {
                 },
                 (
                     params.mode,
-                    params.output_speed.map(|level| level.into_string()),
+                    params.output_speed.map(FreeFormText::into_string),
                 ),
                 ClaudeUsageEstablishment::Resume {
                     prior_emitted_thread_id: resume_handle.clone(),

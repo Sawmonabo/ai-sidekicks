@@ -207,10 +207,6 @@ pub(crate) struct ScriptedSession {
     pub(crate) interventions: Arc<ClaudeInterventions>,
     /// The run controls.
     pub(crate) controls: ClaudeRunControls,
-    /// The session controls.
-    pub(crate) session_controls: Arc<ClaudeSessionControls>,
-    /// Every process start, scripted.
-    pub(crate) starts: Arc<ScriptedStarts>,
     /// The helpers running in the foreground.
     pub(crate) foreground_helpers: Arc<Mutex<ClaudeForegroundHelpers>>,
     /// The words waiting for each helper.
@@ -317,10 +313,9 @@ impl ScriptedSession {
             Arc::clone(&helper_steers),
             Arc::clone(&foreground_helpers),
         ));
-        let starts = Arc::new(ScriptedStarts::default());
         let session_controls = Arc::new(ClaudeSessionControls::new(
             start.clone(),
-            starts.clone(),
+            Arc::new(ScriptedStarts::default()),
             scripted_staged_changes(),
             Arc::new(PortRegistration::new("session rules")),
             Arc::new(PortRegistration::new("in-process tool servers")),
@@ -410,7 +405,7 @@ impl ScriptedSession {
             tool_servers: Arc::new(PortRegistration::new("tool servers")),
             processes: Arc::new(ProviderProcessRegistry::default()),
             restarts,
-            controls: Arc::clone(&session_controls),
+            controls: session_controls,
         });
         let mut task = ClaudeSessionTask::new(services, Arc::clone(&live), Arc::clone(&stream));
         tokio::spawn(async move {
@@ -428,8 +423,6 @@ impl ScriptedSession {
             requests,
             interventions,
             controls,
-            session_controls,
-            starts,
             foreground_helpers,
             helper_steers,
             taken,
@@ -443,19 +436,7 @@ impl ScriptedSession {
 
     /// Hands the reader's next stream frame over, as the process wrote it.
     pub(crate) fn frame(&self, frame: &Value) {
-        let text = frame.to_string();
-        let observation = ClaudeStreamFrameRead::read(&text)
-            .expect("a test frame is an object")
-            .into_observation();
-        let frame = ClaudeStreamFrame { text, observation };
-        // The reader releases the turn's hold as it reads the lead `result` that ends it.
-        if frame.observation.frame_kind.split('/').next() == Some("result")
-            && frame.observation.subagent_id.is_none()
-            && self.listener.is_turn_ending(&frame)
-        {
-            self.start.routes.settle_turn_holds(self.session_id);
-        }
-        self.listener.take_frame(frame);
+        hand_scripted_frame(&self.listener, &self.start.routes, self.session_id, frame);
     }
 
     /// Hands over a `control_request` the process sent.
@@ -528,6 +509,28 @@ impl ScriptedSession {
     pub(crate) fn taken(&self) -> Vec<(String, RunId)> {
         lock(&self.taken).clone()
     }
+}
+
+/// Hands `listener` one stream frame as the reader would: the turn's hold on `session_id` is
+/// released first when it is the lead `result` that ends the turn.
+pub(crate) fn hand_scripted_frame(
+    listener: &dyn ClaudeProcessListener,
+    routes: &ClaudeRunRoutes,
+    session_id: SessionId,
+    frame: &Value,
+) {
+    let text = frame.to_string();
+    let observation = ClaudeStreamFrameRead::read(&text)
+        .expect("a test frame is an object")
+        .into_observation();
+    let frame = ClaudeStreamFrame { text, observation };
+    if frame.observation.frame_kind.split('/').next() == Some("result")
+        && frame.observation.subagent_id.is_none()
+        && listener.is_turn_ending(&frame)
+    {
+        routes.settle_turn_holds(session_id);
+    }
+    listener.take_frame(frame);
 }
 
 /// Lets every task run until all wait: on a paused clock the runtime advances time only once

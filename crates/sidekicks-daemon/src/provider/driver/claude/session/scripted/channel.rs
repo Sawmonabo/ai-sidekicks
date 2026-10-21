@@ -38,14 +38,6 @@ pub(crate) enum ScriptedWrite {
 }
 
 impl ScriptedWrite {
-    /// The control request's subtype, if this is one.
-    pub(crate) fn control_subtype(&self) -> Option<&str> {
-        match self {
-            Self::Control(request) => request.get("subtype").and_then(Value::as_str),
-            Self::Answer { .. } | Self::User(_) | Self::Terminate => None,
-        }
-    }
-
     /// The user message's uuid, if this is one.
     pub(crate) fn user_uuid(&self) -> Option<&str> {
         match self {

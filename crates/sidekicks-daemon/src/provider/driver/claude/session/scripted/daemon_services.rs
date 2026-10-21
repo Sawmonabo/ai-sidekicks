@@ -143,7 +143,7 @@ impl AttachmentResolver for ScriptedAttachments {
 }
 
 /// Opens every daemon turn on one binding.
-pub(super) struct ScriptedBindings;
+pub(crate) struct ScriptedBindings;
 
 impl DaemonTurnBindingResolver for ScriptedBindings {
     fn open_daemon_turn_binding(

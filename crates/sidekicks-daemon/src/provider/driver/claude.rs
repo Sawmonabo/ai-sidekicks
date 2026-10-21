@@ -292,7 +292,7 @@ impl ProviderDriver for ClaudeDriver {
     }
 
     fn pause_run(&self, params: PauseRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        ready(self.pause_run(params)).boxed()
+        ready(self.pause_run(&params)).boxed()
     }
 
     fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
@@ -446,7 +446,7 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>> {
-        self.list_provider_commands(params).boxed()
+        ready(self.list_provider_commands(params)).boxed()
     }
 
     fn observed_output_speed_for(
@@ -509,7 +509,7 @@ impl ProviderDriver for ClaudeDriver {
         params: SubscribeProviderCommandsParams,
         listener: ProviderCommandsListener,
     ) -> ProviderCommandsSubscription {
-        self.subscribe_provider_commands(params, listener)
+        self.subscribe_provider_commands(&params, listener)
     }
 
     fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>> {

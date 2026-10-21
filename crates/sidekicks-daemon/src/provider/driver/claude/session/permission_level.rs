@@ -190,9 +190,10 @@ pub(crate) async fn read_claude_sandbox_support(
         .and_then(|answer| answer);
     match checked {
         Ok(CommandSandboxAvailability::Runs) => true,
-        Ok(CommandSandboxAvailability::CannotRun(_)) => false,
-        // Claude Code has no service of its own to ask, so its descriptor never answers this.
-        Ok(CommandSandboxAvailability::AskTheService) => false,
+        // Claude Code has no service of its own to ask, so its descriptor never answers that.
+        Ok(
+            CommandSandboxAvailability::CannotRun(_) | CommandSandboxAvailability::AskTheService,
+        ) => false,
         Err(error) => {
             record_unheard_claude_failure(
                 DriverDiagnosticKind::ProcessReportFailed,
@@ -300,9 +301,12 @@ pub(crate) async fn move_claude_permission_level(
 /// precedence: the managed settings, then the project's local and shared files, then the person's
 /// own; `can_run` answers whether the session's provider, account and model run a level. Fails
 /// with every settings file that could not be read, since it may have set the mode.
-#[expect(
-    dead_code,
-    reason = "the session create reads its starting level through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the session create reads its starting level through it"
+    )
 )]
 pub(crate) async fn read_claude_starting_level(
     sources: &ClaudeStartingLevelSources<'_>,

@@ -76,24 +76,21 @@ pub(crate) async fn name_claude_session(
         text: compose_naming_prompt(&description),
         origin: OutboundTextOrigin::DriverCommand,
     };
-    let reply = match live {
-        Some(live) => {
-            let legs = super::controls::one_turn_legs(live, None);
-            run_naming_turn(
-                starts,
-                &legs,
-                live.admitted_provider_account_id.clone(),
-                text,
-                &params.cancel,
-            )
-            .await
-        }
-        None => {
-            let (legs, binding) = compose_naming_legs(sources, params.session_id).await?;
-            let reply = run_naming_turn(starts, &legs, None, text, &params.cancel).await;
-            binding.rollback();
-            reply
-        }
+    let reply = if let Some(live) = live {
+        let legs = super::controls::one_turn_legs(live, None);
+        run_naming_turn(
+            starts,
+            &legs,
+            live.admitted_provider_account_id.clone(),
+            text,
+            &params.cancel,
+        )
+        .await
+    } else {
+        let (legs, binding) = compose_naming_legs(sources, params.session_id).await?;
+        let reply = run_naming_turn(starts, &legs, None, text, &params.cancel).await;
+        binding.rollback();
+        reply
     };
     match reply {
         Ok(reply) => Ok(clean_title(&reply)),

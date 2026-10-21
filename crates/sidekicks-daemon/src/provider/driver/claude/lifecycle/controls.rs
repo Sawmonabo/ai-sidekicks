@@ -397,7 +397,7 @@ impl ClaudeDriver {
     /// session is live, so the failure is recorded and the follow, which gets nothing, ends.
     pub(crate) fn subscribe_provider_commands(
         &self,
-        params: SubscribeProviderCommandsParams,
+        params: &SubscribeProviderCommandsParams,
         listener: ProviderCommandsListener,
     ) -> ProviderCommandsSubscription {
         match self.parts() {

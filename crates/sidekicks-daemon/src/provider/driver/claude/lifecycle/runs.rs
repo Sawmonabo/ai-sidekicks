@@ -95,8 +95,8 @@ impl ClaudeDriver {
     }
 
     /// Stops the run after the step in flight.
-    pub(crate) fn pause_run(&self, params: PauseRunParams) -> Result<(), DriverError> {
-        self.parts()?.run_controls.pause_run(&params)
+    pub(crate) fn pause_run(&self, params: &PauseRunParams) -> Result<(), DriverError> {
+        self.parts()?.run_controls.pause_run(params)
     }
 
     /// Continues a paused or pausing run with its waiting messages.
@@ -143,7 +143,7 @@ impl ClaudeDriver {
     }
 
     /// The live session's commands and skills as its process declared them.
-    pub(crate) async fn list_provider_commands(
+    pub(crate) fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
     ) -> Result<ProviderCommandBindingGroup, DriverError> {

@@ -347,6 +347,7 @@ impl ClaudeSessionControls {
         session_id: SessionId,
         listener: ProviderCommandsListener,
     ) -> ProviderCommandsSubscription {
+        let first = Arc::clone(&listener);
         let follower = {
             let mut tables = self.lock();
             let follower = tables.next_follower;
@@ -355,11 +356,11 @@ impl ClaudeSessionControls {
                 .followers
                 .entry(session_id)
                 .or_default()
-                .insert(follower, Arc::clone(&listener));
+                .insert(follower, listener);
             follower
         };
         if let Some(current) = (self.read_commands)(session_id) {
-            listener(current);
+            first(current);
         }
         let tables = Arc::clone(&self.tables);
         ProviderCommandsSubscription::new(move || {
@@ -652,7 +653,7 @@ fn confirmed_advisor_line(
             (display_name_of(live, model) == requested_name)
                 .then(|| format!("Advisor set to {requested_name}."))
         }
-        (None, _) | (Some(_), _) => None,
+        (None | Some(_), _) => None,
     }
 }
 

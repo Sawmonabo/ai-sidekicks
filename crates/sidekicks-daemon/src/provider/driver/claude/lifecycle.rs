@@ -5,6 +5,8 @@
 mod controls;
 mod runs;
 mod sessions;
+#[cfg(test)]
+mod tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
@@ -150,7 +152,7 @@ impl ClaudeDriver {
     pub(crate) fn with_engine(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
-        engine: Arc<dyn ClaudeRunEngine>,
+        engine: &Arc<dyn ClaudeRunEngine>,
     ) -> Result<Self, DriverError> {
         let driver = Self::with_starts(services, starts);
         let parts = driver.compose(engine)?;
@@ -171,7 +173,7 @@ impl ClaudeDriver {
             Arc::clone(engine),
             Arc::clone(dispatch),
         ));
-        let composed = Arc::new(self.compose(delivery)?);
+        let composed = Arc::new(self.compose(&delivery)?);
         // Two first calls may both compose; the one set first is kept, and the other, which
         // started nothing, is dropped.
         Ok(self.parts.get_or_init(|| composed))
@@ -218,7 +220,10 @@ impl ClaudeDriver {
     }
 
     // Every piece a session shares, wired over `engine`.
-    fn compose(&self, engine: Arc<dyn ClaudeRunEngine>) -> Result<ClaudeSessionParts, DriverError> {
+    fn compose(
+        &self,
+        engine: &Arc<dyn ClaudeRunEngine>,
+    ) -> Result<ClaudeSessionParts, DriverError> {
         let ports = &self.sources.ports;
         let bindings = Arc::clone(
             ports
@@ -235,7 +240,7 @@ impl ClaudeDriver {
         let helper_steers = Arc::new(Mutex::new(ClaudeHelperSteers::default()));
         let foreground_helpers = Arc::new(Mutex::new(ClaudeForegroundHelpers::default()));
         let dialogs = Arc::new(ClaudeProviderDialogs::new(ClaudeStreamDialogPorts::new(
-            Arc::clone(&engine),
+            Arc::clone(engine),
             Arc::clone(&routes),
             Arc::clone(&streams),
         )));
@@ -244,7 +249,7 @@ impl ClaudeDriver {
         )));
         let requests = Arc::new(ClaudeInboundRequests::new(
             ClaudeInboundRequestsDependencies {
-                engine: Arc::clone(&engine),
+                engine: Arc::clone(engine),
                 routes: Arc::clone(&routes),
                 permission_asks: Arc::clone(&ports.permission_asks),
                 questions: Arc::clone(&ports.questions),
@@ -261,7 +266,7 @@ impl ClaudeDriver {
         ));
         let message_taken = Arc::clone(&ports.message_taken);
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
-            engine: Arc::clone(&engine),
+            engine: Arc::clone(engine),
             routes: Arc::clone(&routes),
             prompts: Arc::clone(&prompts),
             dialogs: Arc::clone(&dialogs),
@@ -290,7 +295,7 @@ impl ClaudeDriver {
         let establishment = Arc::new_cyclic(|establishment: &Weak<ClaudeSessionEstablishment>| {
             let restarts = ClaudeSessionRestarts::new(
                 Arc::clone(&routes),
-                Arc::clone(&engine),
+                Arc::clone(engine),
                 establishment.clone(),
                 Arc::clone(ports),
             );
@@ -301,7 +306,7 @@ impl ClaudeDriver {
                 streams: Arc::clone(&streams),
                 handshakes: Arc::clone(&handshakes),
                 prompts: Arc::clone(&prompts),
-                engine: Arc::clone(&engine),
+                engine: Arc::clone(engine),
                 attachments: Arc::clone(&self.attachments),
                 bindings,
             };
@@ -347,7 +352,7 @@ impl ClaudeDriver {
                 },
                 settlement: ClaudeTurnSettlement {
                     handshakes: Arc::clone(&handshakes),
-                    engine: Arc::clone(&engine),
+                    engine: Arc::clone(engine),
                     routes: Arc::clone(&routes),
                     helpers: Arc::clone(&helpers),
                     pending_compactions: self.pending_compactions.clone(),

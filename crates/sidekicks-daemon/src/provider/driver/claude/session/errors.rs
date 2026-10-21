@@ -70,9 +70,12 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     /// Claude Code cannot run the session at that permission level.
     PermissionLevelUnavailable,
     /// The installed Claude Code lists no code-review skill for the session.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's review command refuses with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's review command refuses with it"
+        )
     )]
     ReviewSkillAbsent,
     /// Claude Code's model id names its window, so a session takes no larger-window figure.
