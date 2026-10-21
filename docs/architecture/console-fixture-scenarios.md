@@ -241,7 +241,7 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Providers, Codex not installed | Codex's command missing, so reaching Codex sessions started in a terminal is grayed with `Codex is not installed.` on the row and in its own title, which a press on the switch also shows, changing nothing; the switch is drawn under Codex alone and never under Claude Code |
 | Providers, sign-in refused | One provider saying the sign-in did not finish and the other saying it did not accept that token |
 | Providers, keychain locked | A pasted token that could not be sealed because this machine's keychain is locked, the token form saying so and asking for the token again once it is unlocked, and nothing stored anywhere else |
-| Providers, no keychain | A pasted token that could not be sealed because this machine has no keychain the app can use, the token form saying so and pointing to `Sign in` instead |
+| Providers, keychain unusable | A pasted token that could not be sealed because this machine's keychain cannot be used right now, the token form saying so and asking for the token again once it can be |
 | Providers, token in a file | On a machine whose `daemon.status.read` carries `secretsFile`, the paste field reading `The value is stored in a file readable by this account alone and is never shown here again.`, and a token that registers settling with `The token was stored in a file readable by this account alone. It is never shown here again.` |
 | Providers, import settled | One import finished with what it read, the other refused with a try-again |
 | Providers, import unread files | An import that settled with files it could not read, whose row unfolds their paths |

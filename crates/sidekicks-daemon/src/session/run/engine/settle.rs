@@ -157,11 +157,11 @@ impl RunEngine {
             .await
     }
 
-    /// Ends the turns a provider process left when it ended on its own: the run, and each live run
-    /// the provider dispatched beneath it as its own subagent, each in its own write: a live run
-    /// settles by its stops, else fails with the exit, and every open turn ends interrupted with
-    /// the limit that cut it, else failed with the exit. Every run is ended before the failures
-    /// return, together.
+    /// Ends the turns a provider process left when it ended on its own: the run, and each run the
+    /// provider dispatched beneath it as its own subagent, at any depth, that is live or holds a
+    /// turn with no end, each in its own write: a live run settles by its stops, else fails with
+    /// the exit, and every open turn ends interrupted with the limit that cut it, else failed with
+    /// the exit. Every run is ended before the failures return, together.
     #[cfg_attr(
         not(test),
         expect(
@@ -178,7 +178,7 @@ impl RunEngine {
             .pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, RunEngineError>(
-                    RunStateReader::new(reader).list_live_provider_subagents(&run_id)?,
+                    RunStateReader::new(reader).list_unsettled_provider_subagents(&run_id)?,
                 )
             })
             .await?;

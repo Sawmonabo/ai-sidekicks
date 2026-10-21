@@ -269,6 +269,7 @@ impl ClaudeStreamedBlocks {
                             provider_message_id,
                             content_type: None,
                             run_id: run.run_id,
+                            provider_block: None,
                             origin: None,
                             source_epoch: None,
                             source_position: None,

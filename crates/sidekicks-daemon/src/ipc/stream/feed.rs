@@ -41,7 +41,7 @@ pub(crate) trait ChangeRecord: Send + Sync {
         &self,
         cursor: &Self::Cursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<Vec<Self::Change>, Self::Error>>;
+    ) -> BoxFuture<'_, Result<RecordPage<Self::Change>, Self::Error>>;
 
     /// The cursor that resumes after `change`.
     fn cursor_of(change: &Self::Change) -> Self::Cursor;
@@ -54,6 +54,16 @@ pub(crate) trait ChangeRecord: Send + Sync {
     /// Whether `error` is the store closing under the daemon's stop, which ends the stream as
     /// finished rather than as a fault.
     fn is_store_closed(error: &Self::Error) -> bool;
+}
+
+/// One read of a change record: its changes, and whether the read stopped short of its count
+/// because the changes it holds already fill one frame's bytes while more are stored.
+#[derive(Debug)]
+pub(crate) struct RecordPage<Change> {
+    /// The changes, oldest first.
+    pub(crate) changes: Vec<Change>,
+    /// Whether a frame's byte budget cut the read before more stored changes.
+    pub(crate) is_cut_by_size: bool,
 }
 
 /// A subscription's typed emissions: what a subscribe handler answers.

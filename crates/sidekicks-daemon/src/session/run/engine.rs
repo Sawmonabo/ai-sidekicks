@@ -759,9 +759,9 @@ impl RunEngine {
         live.mark_starting_run_ended(run_id);
     }
 
-    // A run being continued reads ended until its continue is written. The wait ends when the
-    // continue's guard settles, which it does on every exit of the continue, its drop included.
-    async fn wait_while_continuing(&self, run_id: &RunId) {
+    /// Waits while `run_id` is being continued, since it reads ended until its continue is
+    /// written; the wait ends when the continue's guard settles, on every exit of the continue.
+    pub(crate) async fn wait_while_continuing(&self, run_id: &RunId) {
         let continuing = lock(&self.live).continuing.get(run_id).cloned();
         if let Some(continuing) = continuing {
             continuing.settled.wait().await;
@@ -828,7 +828,9 @@ impl RunEngine {
         read_run_through(&self.pool, run_id).await
     }
 
-    async fn require_run(&self, run_id: RunId) -> Result<RunRead, RunEngineError> {
+    /// The run `run_id` as it reads now; fails with [`RunRefusal::NotFound`] when it has no row,
+    /// and as the read does.
+    pub(crate) async fn require_run(&self, run_id: RunId) -> Result<RunRead, RunEngineError> {
         self.read_run(run_id)
             .await?
             .ok_or(RunEngineError::Refused(RunRefusal::NotFound { run_id }))

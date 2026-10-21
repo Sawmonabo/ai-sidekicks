@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::provider::driver::codex::service::command_line::CodexHookCommands;
+use crate::provider::driver::codex::app_server_protocol::HooksListParams;
+use crate::provider::driver::codex::service::command_line::{CodexHookCommands, CodexListedHook};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::inbound_json::decode_inbound_json;
@@ -23,10 +24,6 @@ const HOOK_STATE_KEY_PATH: &str = "hooks.state";
 
 /// The source `hooks/list` names for a hook the service's command line set.
 const SESSION_FLAGS_HOOK_SOURCE: &str = "sessionFlags";
-
-// `hooks/list` with no folders, which lists the service's own working folder.
-#[derive(Serialize)]
-struct HooksListParams {}
 
 // The members of a `hooks/list` reply the trust reads.
 #[derive(Deserialize)]
@@ -45,7 +42,9 @@ struct HooksListEntry {
 #[serde(rename_all = "camelCase")]
 struct ListedHook {
     source: Option<String>,
+    event_name: Option<String>,
     command: Option<String>,
+    timeout_sec: Option<u64>,
     key: Option<String>,
     current_hash: Option<String>,
     trust_status: Option<String>,
@@ -77,9 +76,12 @@ struct TrustedHash<'reply> {
 /// the service does not list a daemon hook with its key and hash, its reply cannot be read, or a
 /// daemon hook is still untrusted after the write, since an untrusted hook never runs; a failed
 /// request fails as the connection reports it.
-#[expect(
-    dead_code,
-    reason = "the daemon's start trusts the terminal service's hooks before any conversation"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start trusts the terminal service's hooks before any conversation"
+    )
 )]
 pub(crate) async fn trust_codex_daemon_hooks(
     connection: &CodexAppServerConnection,
@@ -126,10 +128,41 @@ pub(crate) async fn trust_codex_daemon_hooks(
     Ok(())
 }
 
+/// Every command hook the service lists, with its event as the daemon's hooks name it
+/// (`PreToolUse`), for the comparison with the hooks this daemon would start the service with.
+/// Fails as the connection's request does, and with `CodexError::Transport` for an unreadable
+/// reply.
+pub(crate) async fn list_codex_hooks(
+    connection: &CodexAppServerConnection,
+) -> Result<Vec<CodexListedHook>, CodexError> {
+    let reply = list_hooks(connection).await?;
+    Ok(reply
+        .data
+        .into_iter()
+        .flat_map(|entry| entry.hooks)
+        .filter_map(|hook| {
+            Some(CodexListedHook {
+                event_name: hook_event_name(&hook.event_name?),
+                command: hook.command?,
+                timeout_seconds: hook.timeout_sec?,
+            })
+        })
+        .collect())
+}
+
+// The event as a hook's config names it: `hooks/list` writes `preToolUse`, the config
+// `PreToolUse`.
+fn hook_event_name(listed: &str) -> String {
+    let mut characters = listed.chars();
+    characters.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(characters).collect()
+    })
+}
+
 // The service's `hooks/list` reply, read for the members trust needs.
 async fn list_hooks(connection: &CodexAppServerConnection) -> Result<HooksListReply, CodexError> {
     let reply = connection
-        .request(HOOKS_LIST_METHOD, &HooksListParams {})
+        .request(HOOKS_LIST_METHOD, &HooksListParams { cwds: Vec::new() })
         .await?;
     serde_json::from_str(&decode_inbound_json(reply.get().as_bytes())).map_err(|error| {
         CodexError::Transport {

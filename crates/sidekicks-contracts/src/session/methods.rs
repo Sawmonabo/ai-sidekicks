@@ -30,6 +30,8 @@ use crate::session::search::{
     SESSION_SEARCH_HIT_LINE_MAX_LEN, SESSION_SEARCH_PAGE_LIMIT_MAX, SESSION_SEARCH_QUERY_MAX_LEN,
 };
 use crate::tag::TagList;
+use crate::transcript::child_run_summary::ChildRunSummary;
+use crate::transcript::content::{BlockCutFailure, BlockStarts, TranscriptRowContent};
 use crate::transcript::row::TranscriptRunStamp;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
@@ -317,7 +319,9 @@ pub struct SessionEventSubscribeRequest {
 }
 
 /// One change on a session's stream: an event of the session's log, the cursor it sits at and,
-/// exactly when the event belongs to a run, the daemon's run stamp for it.
+/// exactly when the event belongs to a run, the daemon's run stamp for it. A piece of a reply or of
+/// reasoning also carries its text and its place in its row; a child run's event carries the
+/// child's summary; and a change that ends rows carries the rest of their block starts.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -336,6 +340,92 @@ pub struct SessionStreamChange {
     #[schemars(with = "TranscriptRunStamp")]
     #[garde(dive)]
     pub run_stamp: Option<TranscriptRunStamp>,
+    /// On a piece of a reply or of reasoning: its text and where it sits in its row. A tool
+    /// completion is never one: it goes out once, whole, and the parts storing its patches never.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SessionStreamPiece")]
+    #[garde(dive)]
+    pub piece: Option<SessionStreamPiece>,
+    /// On an event of a child run: the child's summary as of this event.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ChildRunSummary")]
+    #[garde(dive)]
+    pub child_run_summary: Option<ChildRunSummary>,
+    /// The rows this event ends, each with the block starts it had not yet sent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedVec<SessionStreamEndedRow, 1, { usize::MAX }>")]
+    pub ended_rows: Option<BoundedVec<SessionStreamEndedRow, 1, { usize::MAX }>>,
+}
+
+/// One piece of a reply or of reasoning on the stream: the row it joins, where its text starts in
+/// that row's whole body, its text, and the block starts the row froze with it. A reader places a
+/// piece it already read in a row by its offset, so a piece the stream and a read both carry is
+/// never drawn twice.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct SessionStreamPiece {
+    /// The row: the id of its first event, which a read and `transcript.body.read` name it by.
+    pub row_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// Where the piece's text starts in the row's whole body, as a UTF-8 byte offset.
+    pub offset: SafeInt<0>,
+    /// The piece's text, or its size alone when it is too large to travel inline.
+    #[garde(dive)]
+    pub content: TranscriptRowContent,
+    /// The row's block starts this piece froze, as UTF-16 offsets into the row's whole drawn
+    /// body; a frozen start never moves.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BlockStarts")]
+    pub block_starts: Option<BlockStarts>,
+    /// Why the row's cut failed with this piece, after which its later pieces carry no starts.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BlockCutFailure")]
+    pub block_cut_failure: Option<BlockCutFailure>,
+}
+
+/// A row an event ended, with the block starts its last pieces left unsent.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionStreamEndedRow {
+    /// The row: the id of its first event.
+    pub row_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// The rest of its block starts, as UTF-16 offsets into its whole drawn body; absent when
+    /// none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BlockStarts")]
+    pub block_starts: Option<BlockStarts>,
+    /// Why the cut of its last text failed; never beside starts.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BlockCutFailure")]
+    pub block_cut_failure: Option<BlockCutFailure>,
 }
 
 stream_frame! {
@@ -759,6 +849,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionStandingEvent>(),
         Definition::read::<SessionReadResponse>().checked(),
         Definition::read::<SessionEventSubscribeRequest>().checked(),
+        Definition::read::<SessionStreamPiece>().checked(),
+        Definition::read::<SessionStreamEndedRow>(),
         Definition::read::<SessionStreamChange>(),
         Definition::read::<SessionStreamFrame>().checked(),
         Definition::read::<SessionTargetRequest>().checked(),

@@ -3,6 +3,8 @@
 //! handed up, and a close that leaves no request waiting.
 
 mod asks;
+#[cfg(test)]
+pub(crate) mod scripted_service;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -22,7 +24,7 @@ use crate::provider::driver::codex::event_normalizer::CODEX_OPT_OUT_NOTIFICATION
 use crate::provider::driver::codex::server_requests::{
     CodexAskKind, CodexRoutedMethod, CodexServerRequestResponder,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::provider::driver::codex::transport::connection::asks::{
     HeldServerRequest, read_dropped_request,
 };
@@ -34,7 +36,7 @@ use crate::provider::driver::codex::transport::socket::{
 };
 use crate::provider::inbound_json::decode_inbound_json;
 
-/// How long a request waits for its answer before it fails with `CodexError::RequestTimeout`.
+/// How long a request waits for its answer before it fails with `CodexError::Unanswered`.
 pub(crate) const CODEX_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The JSON-RPC version every message names.
@@ -65,6 +67,11 @@ pub(crate) trait CodexConnectionEvents: Send + Sync {
     /// The connection closed holding asks for the person. Nothing can answer them on it now, and
     /// Codex asks again, under a new id, on the connection that next resumes their conversation.
     fn held_requests_dropped(&self, dropped: Vec<CodexForgottenRequest>);
+
+    /// The service answered a request that it drains toward its exit, in `message`, its own words:
+    /// it takes no new work, while its running turns, reads and interrupts go on until it closes
+    /// the connection. Called once per such answer, off the reader.
+    fn service_draining(&self, message: &str);
 }
 
 /// What one connection hands up: notifications and its close to `events`, routed asks to
@@ -126,10 +133,6 @@ impl ServiceMessageReader for CodexServiceSocketReceiver {
 /// under `client_name`, answering the connection and the handshake's reply, which carries the
 /// service's version. Fails as a request does when the handshake fails or outlives
 /// `handshake_timeout`; the connection is let go of then, which closes the socket.
-#[expect(
-    dead_code,
-    reason = "the Codex service supervisor opens each service's connection through this"
-)]
 pub(crate) async fn open_codex_connection(
     sender: CodexServiceSocketSender,
     receiver: CodexServiceSocketReceiver,
@@ -201,10 +204,12 @@ struct ConnectionState {
 /// which the request names its method beside.
 type RequestAnswer = Result<Box<RawValue>, ErrorAnswer>;
 
-/// The members of an error answer the request reports; `0` and empty when it sent none usable.
+/// The members of an error answer the request reports; `0` and empty when it sent none usable,
+/// and the `reason` its `data` names as text, when it names one.
 struct ErrorAnswer {
     code: i64,
     message: String,
+    reason: Option<String>,
 }
 
 // The members of a frame the connection reads, each kept raw so one unreadable member never
@@ -223,6 +228,13 @@ struct InboundFrame {
 struct InboundError {
     code: Option<Box<RawValue>>,
     message: Option<Box<RawValue>>,
+    data: Option<Box<RawValue>>,
+}
+
+// The member of an error answer's `data` the connection reads.
+#[derive(Deserialize)]
+struct InboundErrorData {
+    reason: Option<Box<RawValue>>,
 }
 
 #[derive(Serialize)]
@@ -286,8 +298,9 @@ impl CodexAppServerConnection {
     /// Sends a request and answers its `result` (`null` when the answer carried none), waiting at
     /// most `timeout`. Fails with `CodexError::ProviderRequest` when the service answered with an
     /// error, `CodexError::RequestTooLarge`, nothing sent, past the largest message the service
-    /// takes, `CodexError::RequestTimeout` when no answer came in time, and
-    /// `CodexError::Transport` when the connection is closed or closed before the answer.
+    /// takes, `CodexError::Transport` when the connection was closed or the write failed, so
+    /// nothing reached the service, and `CodexError::Unanswered` once the request was written and
+    /// no answer came in time or the connection closed first.
     pub(crate) async fn request_within<Params: Serialize + Sync>(
         &self,
         method: &str,
@@ -309,22 +322,34 @@ impl CodexAppServerConnection {
         self.shared.send_text(method, text).await?;
         let outcome = match tokio::time::timeout(timeout, answer).await {
             Ok(Ok(Ok(result))) => Ok(result),
-            Ok(Ok(Err(ErrorAnswer { code, message }))) => Err(CodexError::ProviderRequest {
-                method: method.to_owned(),
+            Ok(Ok(Err(ErrorAnswer {
                 code,
                 message,
-            }),
+                reason,
+            }))) => {
+                let refusal = CodexError::ProviderRequest {
+                    method: method.to_owned(),
+                    code,
+                    message,
+                    reason,
+                };
+                if let CodexError::ProviderRequest { message, .. } = &refusal
+                    && refusal.is_service_draining()
+                {
+                    self.shared.events.service_draining(message);
+                }
+                Err(refusal)
+            }
             // The close dropped every waiting request's sender.
-            Ok(Err(closed)) => Err(CodexError::Transport {
-                detail: format!(
-                    "The Codex service connection closed before it answered \"{method}\": {}",
-                    self.shared.close_reason()
-                ),
-                cause: Some(Box::new(closed)),
-            }),
-            Err(_elapsed) => Err(CodexError::RequestTimeout {
+            Ok(Err(_closed)) => Err(CodexError::Unanswered {
                 method: method.to_owned(),
-                timeout,
+                cause: CodexUnansweredCause::ConnectionClosed {
+                    reason: self.shared.close_reason(),
+                },
+            }),
+            Err(_elapsed) => Err(CodexError::Unanswered {
+                method: method.to_owned(),
+                cause: CodexUnansweredCause::Deadline { timeout },
             }),
         };
         drop(slot);
@@ -334,10 +359,6 @@ impl CodexAppServerConnection {
     /// Closes the socket, failing every request in flight and letting go of every held ask;
     /// closing again does nothing. Fails with `CodexError::Transport` when the closing handshake
     /// could not be sent; the connection is closed either way.
-    #[expect(
-        dead_code,
-        reason = "the Codex service supervisor closes a connection it ends"
-    )]
     pub(crate) async fn close(&self) -> Result<(), CodexError> {
         self.shared.mark_closed("the daemon closed the connection");
         let writer = self.shared.writer.lock().await.take();
@@ -490,7 +511,10 @@ impl ConnectionShared {
         };
         match CodexRoutedMethod::from_method(&method) {
             Some(routed) => {
-                tokio::spawn(Arc::clone(self).answer_routed_request(id, routed, params));
+                // Handed to the responder here, on the reader, so the ask reaches its session in
+                // its place among the frames around it; only the wait for its answer is spawned.
+                let decision = self.decide_routed_request(&id, routed, &params);
+                tokio::spawn(Arc::clone(self).answer_routed_request(id, routed, params, decision));
             }
             None => {
                 tokio::spawn(Arc::clone(self).refuse_unrouted_request(id, method));
@@ -523,6 +547,11 @@ impl ConnectionShared {
         let answer = match frame.error {
             Some(error) => {
                 let error = read_codex_object::<InboundError>(error.get());
+                let reason = error
+                    .as_ref()
+                    .and_then(|error| error.data.as_deref())
+                    .and_then(|data| read_codex_object::<InboundErrorData>(data.get()))
+                    .and_then(|data| read_member::<String>(data.reason.as_deref()));
                 Err(ErrorAnswer {
                     code: error
                         .as_ref()
@@ -531,6 +560,7 @@ impl ConnectionShared {
                     message: error
                         .and_then(|error| read_member::<String>(error.message.as_deref()))
                         .unwrap_or_default(),
+                    reason,
                 })
             }
             None => Ok(frame.result.unwrap_or_else(|| RawValue::NULL.to_owned())),

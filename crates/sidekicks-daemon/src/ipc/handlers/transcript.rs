@@ -1,21 +1,28 @@
 //! The transcript reads served here: `transcript.read`, one bounded window of a session's
-//! transcript rows; `transcript.body.read`, a row's large body or whole output, part by part; and
-//! `transcript.search`, one session's find over every row it holds, newest first. Each reads only
-//! the session the request names, up to the request's own limit.
+//! transcript rows; `transcript.reasoning.read`, a run's reasoning kept whole;
+//! `transcript.childRun.expand`, one child run's own rows; `transcript.patch.list`, the patches a
+//! tool call's row left out; `transcript.body.read`, a row's large body or whole output, part by
+//! part; and `transcript.search`, one session's find over every row it holds, newest first. Each
+//! reads only the session or run the request names, up to the request's own limit.
 
 use std::sync::Arc;
 
 use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::transcript::content::TranscriptPatchListRequest;
 use sidekicks_contracts::transcript::content::{
-    StoredBodyText, TranscriptBodyReadRequest, TranscriptBodyReadResponse, stored_body_content_of,
+    TranscriptBodyReadRequest, TranscriptBodyReadResponse,
 };
 use sidekicks_contracts::transcript::methods::{
-    TranscriptBodyRead, TranscriptRead, TranscriptSearch,
+    TranscriptBodyRead, TranscriptChildRunExpand, TranscriptPatchList, TranscriptRead,
+    TranscriptReasoningRead, TranscriptSearch,
 };
-use sidekicks_contracts::transcript::operations::TranscriptReadRequest;
+use sidekicks_contracts::transcript::operations::{
+    TranscriptChildRunExpandRequest, TranscriptReadRequest, TranscriptReasoningReadRequest,
+};
 use sidekicks_contracts::transcript::search::TranscriptSearchRequest;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::ipc::domain_error::DomainError;
@@ -25,8 +32,9 @@ use crate::ipc::registry::{
 use crate::session::search::index::live::LiveIndex;
 use crate::session::service::SessionService;
 
-/// Registers `transcript.read` and `transcript.body.read` over `sessions` and `transcript.search`
-/// over `search_index`, each refusing by the codes its method lists. Fails the start when a method
+/// Registers `transcript.read`, `transcript.reasoning.read`, `transcript.childRun.expand`,
+/// `transcript.patch.list` and `transcript.body.read` over `sessions` and `transcript.search` over
+/// `search_index`, each refusing by the codes its method lists. Fails the start when a method
 /// is already registered.
 pub(crate) fn register_transcript_reads(
     registry: &mut MethodRegistryBuilder,
@@ -38,6 +46,32 @@ pub(crate) fn register_transcript_reads(
         move |request: TranscriptReadRequest, _context: HandlerContext| {
             let sessions = Arc::clone(&windows);
             async move { Ok(sessions.read_transcript_window(request).await?) }.boxed()
+        },
+    )?;
+    let reasoning = Arc::clone(&sessions);
+    registry.register::<TranscriptReasoningRead, _>(
+        move |request: TranscriptReasoningReadRequest, _context: HandlerContext| {
+            let sessions = Arc::clone(&reasoning);
+            async move { Ok(sessions.read_reasoning(request).await?) }.boxed()
+        },
+    )?;
+    let expansions = Arc::clone(&sessions);
+    registry.register::<TranscriptChildRunExpand, _>(
+        move |request: TranscriptChildRunExpandRequest, _context: HandlerContext| {
+            let sessions = Arc::clone(&expansions);
+            async move {
+                Ok(sessions
+                    .expand_child_run(request, WireInstant::now())
+                    .await?)
+            }
+            .boxed()
+        },
+    )?;
+    let patches = Arc::clone(&sessions);
+    registry.register::<TranscriptPatchList, _>(
+        move |request: TranscriptPatchListRequest, _context: HandlerContext| {
+            let sessions = Arc::clone(&patches);
+            async move { Ok(sessions.list_patches(request).await?) }.boxed()
         },
     )?;
     let bodies = Arc::clone(&sessions);
@@ -68,25 +102,21 @@ async fn read_body(
     sessions: &SessionService,
     request: TranscriptBodyReadRequest,
 ) -> Result<TranscriptBodyReadResponse, HandlerError> {
-    let stored_row = sessions
-        .read_stored_event_row(request.session_id, request.row_id.as_str().to_owned())
+    let part = sessions
+        .read_row_body(
+            request.session_id,
+            request.row_id.as_str().to_owned(),
+            request.offset.map_or(0, SafeInt::get),
+        )
         .await?;
-    let Some(stored_row) = stored_row else {
-        return Err(DomainError::new(
+    part.ok_or_else(|| {
+        DomainError::new(
             "This session holds no row with that id.",
             RefusalCode::TranscriptRowNotFound,
         )
         .with_detail(json!({ "rowId": request.row_id }))
-        .into());
-    };
-    let stored_body = stored_row
-        .content_payload
-        .map(|body| StoredBodyText::new(body).expect("a stored body within its cap"));
-    Ok(stored_body_content_of(
-        Some(&stored_row.envelope.payload),
-        stored_body.as_ref(),
-        request.offset.map_or(0, SafeInt::get),
-    )?)
+        .into()
+    })
 }
 
 #[cfg(test)]

@@ -11,15 +11,19 @@ use rusqlite::{OptionalExtension as _, named_params};
 use sidekicks_contracts::event::envelope::{EventCategory, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::events::{
     AgentTurnCompletedPayload, AgentTurnFailedPayload, AgentTurnInterruptedPayload,
     AgentTurnStartedPayload, TurnEndCause, TurnEndOrigin,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::ReadLength;
+use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::stored_column::safe_int_column;
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
@@ -35,6 +39,7 @@ use crate::session::run::restart::{TurnCut, limit_turn_cause, read_turn_cuts};
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError,
 };
+use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 // The position among a run change's companions of the guard that the turn it ends has no end yet:
 // the turn's end rides first, so its guard leads the companions.
@@ -79,14 +84,8 @@ static SELECT_TURN_START_FROM_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// The three turn ends as an SQL list, in the order the unique index on turn ends spells them.
-pub(crate) static TURN_END_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "'{}', '{}', '{}'",
-        SessionEventType::AgentTurnCompleted.as_str(),
-        SessionEventType::AgentTurnInterrupted.as_str(),
-        SessionEventType::AgentTurnFailed.as_str()
-    )
-});
+pub(crate) static TURN_END_TYPES_SQL: LazyLock<String> =
+    LazyLock::new(|| sql_list_of(TURN_END_EVENT_TYPES));
 
 // Refuses an end once the turn holds one.
 static SELECT_TURN_END_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -104,11 +103,21 @@ static SELECT_TURN_END_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The run's newest started turn that holds no end.
 static SELECT_OPEN_TURN_SQL: LazyLock<String> =
-    LazyLock::new(|| open_turns_sql("ORDER BY started.turn_number DESC\n  LIMIT 1"));
+    LazyLock::new(|| open_turns_sql("@run_id", "ORDER BY started.turn_number DESC\n  LIMIT 1"));
 
 // Every started turn of the run that holds no end, oldest first.
 static SELECT_OPEN_TURNS_SQL: LazyLock<String> =
-    LazyLock::new(|| open_turns_sql("ORDER BY started.turn_number"));
+    LazyLock::new(|| open_turns_sql("@run_id", "ORDER BY started.turn_number"));
+
+// Matches the run while it has not ended or a turn of it holds no end yet.
+static RUN_LIVE_OR_TURN_OPEN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM runs WHERE run_id = @run_id
+  AND (state NOT IN ({}) OR EXISTS ({}))",
+        *RUN_TERMINAL_STATES_SQL,
+        open_turns_sql("@run_id", "LIMIT 1")
+    )
+});
 
 /// A turn's end its provider's end frame reported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,6 +127,16 @@ pub(crate) struct ProviderTurnEnd {
     /// How it ended, with the cause the delivery knows from the frame; a limit stop's cut of the
     /// turn replaces it.
     pub(crate) outcome: TurnOutcome,
+}
+
+/// A turn the engine opened: its number within its run and the id of its `run.turn_started` event,
+/// which a flag about the whole turn points at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StartedTurn {
+    /// The turn's number within its run.
+    pub(crate) turn_number: SafeInt<1>,
+    /// The id of the event that started it.
+    pub(crate) event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
 }
 
 /// The steps of a run's open turn, counted against its step bound, and whether the turn has
@@ -243,16 +262,15 @@ impl RunEngine {
     /// turn`, which the caller resolves when the turn opens; the engine counts the turn's steps
     /// against it, whatever the provider. Fails with `RunRefusal::NotFound` for an unknown run and
     /// with the append's failure.
-    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn start_turn(
         &self,
         run_id: RunId,
         position: Option<SourcePosition>,
         step_bound: Option<SafeInt<1>>,
-    ) -> Result<Option<SafeInt<1>>, RunEngineError> {
+    ) -> Result<Option<StartedTurn>, RunEngineError> {
         self.wait_while_continuing(&run_id).await;
         let mut attempt = 1;
-        let turn_number = loop {
+        let started = loop {
             let run = self.require_run(run_id).await?;
             if run.state.is_terminal() {
                 return Ok(None);
@@ -273,7 +291,12 @@ impl RunEngine {
                 no_turn_start_from_statement(&run_id, turn_number),
             ];
             match self.append(draft, transactional_prelude, Vec::new()).await {
-                Ok(_receipt) => break turn_number,
+                Ok(receipt) => {
+                    break StartedTurn {
+                        turn_number,
+                        event_id: receipt.id,
+                    };
+                }
                 Err(error)
                     if attempt < TURN_START_ATTEMPTS
                         && matches!(
@@ -288,13 +311,13 @@ impl RunEngine {
         match step_bound {
             Some(bound) => {
                 live.step_counts
-                    .insert(run_id, StepCount::new(turn_number, bound));
+                    .insert(run_id, StepCount::new(started.turn_number, bound));
             }
             None => {
                 live.step_counts.remove(&run_id);
             }
         }
-        Ok(Some(turn_number))
+        Ok(Some(started))
     }
 
     /// Counts one step of the open turn on `run_id`, which the driver's delivery reports, whatever
@@ -710,24 +733,45 @@ fn cut_outcome(
     }
 }
 
-// The run's started turns that hold no end, ordered and bounded by `tail`.
-fn open_turns_sql(tail: &str) -> String {
-    let category = EventCategory::RunLifecycle.as_str();
+/// Holds when the turn start the enclosing query reads as `started` has no end, spelled in the
+/// order the turn ends' unique index is declared so the probe reads that index.
+pub(crate) fn turn_holds_no_end_sql() -> String {
     format!(
-        "SELECT started.turn_number FROM session_events AS started
-  WHERE started.category = '{category}'
-    AND started.type = '{}'
-    AND started.run_id = @run_id
-    AND NOT EXISTS (
+        "NOT EXISTS (
       SELECT 1 FROM session_events AS ended
-       WHERE ended.category = '{category}'
+       WHERE ended.category = '{}'
          AND ended.type IN ({})
          AND ended.run_id = started.run_id
-         AND ended.turn_number = started.turn_number)
-  {tail}",
-        SessionEventType::AgentTurnStarted.as_str(),
+         AND ended.turn_number = started.turn_number)",
+        EventCategory::RunLifecycle.as_str(),
         *TURN_END_TYPES_SQL
     )
+}
+
+/// The started turns that hold no end of the run the SQL expression `run_id` names (a parameter
+/// or a column of an outer query), ordered and bounded by `tail`.
+pub(crate) fn open_turns_sql(run_id: &str, tail: &str) -> String {
+    format!(
+        "SELECT started.turn_number FROM session_events AS started
+  WHERE started.category = '{}'
+    AND started.type = '{}'
+    AND started.run_id = {run_id}
+    AND {}
+  {tail}",
+        EventCategory::RunLifecycle.as_str(),
+        SessionEventType::AgentTurnStarted.as_str(),
+        turn_holds_no_end_sql()
+    )
+}
+
+/// Holds only while `run_id` has not ended or a turn of it is still open, so a piece of its reply
+/// or reasoning is taken until the provider ends the turn it belongs to, even past the run's end.
+pub(crate) fn run_live_or_turn_open_statement(run_id: &RunId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(RUN_LIVE_OR_TURN_OPEN_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
+        expected_row_count: Some(1),
+    }
 }
 
 // Refuses a start numbered `turn_number` once a start holds it or a later number.

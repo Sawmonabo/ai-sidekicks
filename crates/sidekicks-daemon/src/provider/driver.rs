@@ -22,6 +22,7 @@ pub(crate) mod capabilities;
 mod claude;
 mod codex;
 pub(crate) mod contract;
+pub(crate) mod daemon_stop;
 pub(crate) mod delivery_dispatch;
 pub(crate) mod diagnostics;
 pub(crate) mod error_causes;
