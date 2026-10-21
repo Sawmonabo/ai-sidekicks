@@ -5,20 +5,24 @@
 //! decides.
 //!
 //! A person's request whose run moved before its accept expires undispatched, and once dispatched
-//! the driver's verdict is recorded whatever the run did meanwhile. An interrupt holds the run
-//! queue's hands to its run from before its accept until it settles, and its applied or degraded
-//! verdict is written with the run's end; a retry's verdict advances the run's version. A dispatch
-//! that throws ends the request `failed`; one the provider got with no answer back leaves its row
-//! `accepted`, and an interrupt's queue hold held, until the run's end or a turn's end settles
-//! both, and a row such a settle reached while its dispatch was out answers that outcome. Retries
-//! on one run take turns under a per-run lock, and interrupts, the daemon's own at a limit among
-//! them, under another, so a stop never waits behind a retry and a retry still queued when it
-//! lands meets the advanced version and expires.
+//! the driver's verdict is recorded whatever the run did meanwhile. A person's `Send now`, an
+//! interrupt that puts a waiting message first in the next turn, hands that message ahead of what
+//! the provider holds instead where the provider reads a priority message, and records no row: the
+//! message carries the request's key. An interrupt holds the run queue's hands to its run from
+//! before its accept until it settles, and its applied or degraded verdict is written with the
+//! run's end; a retry's verdict advances the run's version. A dispatch that throws ends the request
+//! `failed`; one the provider got with no answer back leaves its row `accepted`, and an interrupt's
+//! queue hold held, until the run's end or a turn's end settles both, and a row such a settle
+//! reached while its dispatch was out answers that outcome. Retries on one run take turns under a
+//! per-run lock, and interrupts, the daemon's own at a limit among them, under another, so a stop
+//! never waits behind a retry and a retry still queued when it lands meets the advanced version and
+//! expires.
 
 pub(crate) mod errors;
 pub(super) mod reached_state;
 mod request;
 mod saved;
+mod send_now;
 #[cfg(test)]
 pub(super) mod tests;
 
@@ -291,6 +295,11 @@ impl InterventionService {
         // of the queue's work; read under the lock, it never sees a request of its type in flight.
         let payload = stored_payload_of(&request);
         let (_, key) = request_guards(&request);
+        if let AgentRunInterveneRequest::Interrupt(interrupt) = &request
+            && let Some(answer) = self.answer_sent_now(interrupt, run_id, &run, key).await?
+        {
+            return Ok(answer);
+        }
         if let Some(saved) = self.read_saved_intervention(run_id, key).await? {
             return self.answer_saved(&request, run_id, saved, &payload).await;
         }
@@ -307,6 +316,9 @@ impl InterventionService {
                 .await
                 .answer;
         };
+        if let Some(answer) = self.send_now(interrupt, &target).await? {
+            return Ok(answer);
+        }
         // The queue's hold comes before the row, so a hold that fails leaves no row to apply.
         let choice = interrupt_choice_of(interrupt);
         self.queue
@@ -621,14 +633,13 @@ impl InterventionService {
         verdict: Verdict,
         end: Option<RunEndOfVerdict>,
     ) -> Result<RowMove<ReachedState>, InterventionError> {
-        let (transition, state, is_degraded, cancelled) = match verdict {
+        let (transition, state, cancelled) = match verdict {
             Verdict::Degraded {
                 fallback_action,
                 cancelled,
             } => (
                 InterventionTransition::Degrade { fallback_action },
                 ReachedState::Degraded,
-                true,
                 cancelled,
             ),
             Verdict::Applied { cancelled } => (
@@ -636,7 +647,6 @@ impl InterventionService {
                     from: UnresolvedInterventionState::Accepted,
                 },
                 ReachedState::Applied,
-                false,
                 cancelled,
             ),
         };
@@ -652,7 +662,6 @@ impl InterventionService {
                     run_id: target.target_run_id,
                     accepted_run_version,
                     cause,
-                    is_degraded,
                     cancelled,
                     verdict: RunStateChangeCompanions {
                         statements: vec![row_move.clone()],

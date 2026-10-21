@@ -63,11 +63,17 @@ CREATE TABLE queue_items (
   position               INTEGER NOT NULL CHECK(position >= 0),
   -- The send's own key, so a retried send returns the saved item; NULL on the system's own.
   client_idempotency_key TEXT,
+  -- The key of the `Send now` that handed the item ahead of what its provider held, and the id its
+  -- answer carries, so a retried `Send now` answers what the first did; NULL on every other item.
+  send_now_key           TEXT,
+  send_now_id            TEXT,
   created_at             TEXT NOT NULL,
   updated_at             TEXT NOT NULL,
   CHECK((state = '{not_delivered}') = (not_delivered_reason IS NOT NULL)),
+  CHECK((send_now_key IS NULL) = (send_now_id IS NULL)),
   -- SQLite treats each NULL as distinct, so only sends dedupe.
-  UNIQUE (session_id, client_idempotency_key)
+  UNIQUE (session_id, client_idempotency_key),
+  UNIQUE (session_id, send_now_key)
 ) STRICT;
 
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
