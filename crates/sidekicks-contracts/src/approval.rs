@@ -52,8 +52,8 @@ branded_uuid_id! {
     ReviewerDenialId
 }
 
-/// What an ask is about. An agent's question and a tool server's question are not asks: they are
-/// the one question record, so neither is a category here.
+/// What an ask is about. A plan, an agent's question and a tool server's question are not asks:
+/// each is its own record, so none is a category here.
 #[derive(
     Clone,
     Copy,
@@ -78,8 +78,6 @@ pub enum ApprovalCategory {
     NetworkAccess,
     /// A git command that destroys work.
     DestructiveGit,
-    /// Approving a plan.
-    PlanApproval,
     /// A workflow gate.
     Gate,
 }

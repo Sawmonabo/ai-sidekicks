@@ -301,6 +301,8 @@ webp = "0.3.1"
 writeable = { version = "0.6.4", default-features = false }
 yaml-edit = "0.3.2"
 zstd = "0.14.2"
+# A JPEG's header read: `image`'s JPEG decoder reads the whole file before its header.
+zune-jpeg = "0.5.15"
 
 # The JavaScript engines: QuickJS and the web APIs the bundled modules call, held at the commit
 # whose crates build against this exact engine release.

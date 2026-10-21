@@ -432,8 +432,7 @@ fn normalize_rule_subject(rule: &ProviderAskRule) -> Result<ProviderAskRule, Cod
         ProviderAskActionKind::Network => {
             normalize_network_rule_host(&rule.subject).map_err(CodexRulesError::RefusedHost)?
         }
-        ProviderAskActionKind::Plan
-        | ProviderAskActionKind::CommandInput
+        ProviderAskActionKind::CommandInput
         | ProviderAskActionKind::FileChange
         | ProviderAskActionKind::FileRead
         | ProviderAskActionKind::Tool => {
@@ -543,8 +542,7 @@ fn compose_rule_lines(rule: &ProviderAskRule) -> Result<Vec<String>, CodexRulesE
                 })
                 .collect())
         }
-        ProviderAskActionKind::Plan
-        | ProviderAskActionKind::CommandInput
+        ProviderAskActionKind::CommandInput
         | ProviderAskActionKind::FileChange
         | ProviderAskActionKind::FileRead
         | ProviderAskActionKind::Tool => Err(CodexRulesError::UnkeptKind(rule.action.into())),

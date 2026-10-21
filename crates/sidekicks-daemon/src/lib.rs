@@ -29,12 +29,14 @@ pub mod operating_system;
 pub mod orchestration;
 #[cfg(test)]
 pub(crate) mod pause_point;
+pub mod plans;
 pub mod policy;
 pub mod process_exit;
 pub mod processor_bound;
 pub mod program;
 pub mod provider;
 pub mod pty;
+pub mod questions;
 pub mod queue;
 pub mod random_hex;
 pub mod read_retry;

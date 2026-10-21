@@ -8451,6 +8451,7 @@ dependencies = [
  "zeroize",
  "zip",
  "zstd",
+ "zune-jpeg",
 ]
 
 [[package]]

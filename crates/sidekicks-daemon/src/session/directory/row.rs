@@ -302,8 +302,8 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentInterventionExpired
         | SessionEventType::AgentInterventionFailed
         | SessionEventType::QuestionAsked
+        | SessionEventType::QuestionCanceled
         | SessionEventType::ArtifactPublished
-        | SessionEventType::ArtifactSuperseded
         | SessionEventType::GitSettled
         | SessionEventType::SessionGoalUpdated
         | SessionEventType::SessionGoalCleared
@@ -341,6 +341,8 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::PlanProposed
         | SessionEventType::PlanAccepted
         | SessionEventType::PlanHandedOff
+        | SessionEventType::PlanKept
+        | SessionEventType::PlanHoldEnded
         | SessionEventType::UsageTokenCountRecorded
         | SessionEventType::UsageCostUpdated
         | SessionEventType::UsageContextWindowUpdated

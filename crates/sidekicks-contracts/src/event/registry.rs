@@ -138,11 +138,11 @@ session_event_types! {
         AgentInterventionFailed = "agent.intervention.failed",
         UserMessageSent = "user.message.sent",
         QuestionAsked = "question.asked",
+        QuestionCanceled = "question.canceled",
     ]
     /// The event types of the `artifactPublication` category.
     ARTIFACT_PUBLICATION_EVENT_TYPES = ArtifactPublication [
         ArtifactPublished = "artifact.published",
-        ArtifactSuperseded = "artifact.superseded",
         GitSettled = "git.settled",
     ]
     /// The event types of the `sessionLifecycle` category: session (including the side
@@ -201,6 +201,8 @@ session_event_types! {
         PlanProposed = "plan.proposed",
         PlanAccepted = "plan.accepted",
         PlanHandedOff = "plan.handedOff",
+        PlanKept = "plan.kept",
+        PlanHoldEnded = "plan.hold.ended",
     ]
     /// The event types of the `usageTelemetry` category.
     USAGE_TELEMETRY_EVENT_TYPES = UsageTelemetry [

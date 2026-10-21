@@ -1,6 +1,6 @@
 //! The ordered pipeline every caller-supplied payload runs before anything of it is kept: the type
-//! is read from the payload's own leading bytes, then the payload is moved into the
-//! content-addressed store under its SHA-256, which is the pipeline's last act. A payload refused
+//! is read from the payload's own leading bytes, a picture's size from its header, then the payload
+//! is moved into the content-addressed store under its SHA-256, which is the pipeline's last act. A payload refused
 //! on the way never reaches the store and leaves no row. No file is refused for its type and none
 //! is rewritten; the type read decides only what the manifest records and whether a picture goes
 //! to a provider as one.
@@ -15,6 +15,9 @@
 use std::future::Future;
 use std::path::PathBuf;
 
+use file_format::FileFormat;
+use serde_json::Value;
+use sidekicks_contracts::artifacts::operations::ArtifactPictureSize;
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::record::JsonRecord;
@@ -24,6 +27,7 @@ use unicode_properties::{GeneralCategory, UnicodeGeneralCategory as _};
 
 use crate::artifacts::detection::{DETECTION_PREFIX_BYTES, detect_media_type};
 use crate::artifacts::payload_store::{ContentHash, PayloadStore};
+use crate::artifacts::picture_size::read_picture_size;
 use crate::artifacts::refusals::ArtifactError;
 use crate::text_cut::cut_to_code_points;
 
@@ -57,6 +61,15 @@ pub(crate) struct SpooledPayload {
     pub(crate) declared_media_type: Option<String>,
 }
 
+/// What the pipeline read of a payload before it is stored: the media type the manifest records,
+/// and a picture's size from its header.
+pub(crate) struct PayloadReading {
+    /// The media type the manifest records.
+    pub(crate) media_type: String,
+    /// A picture's size; `None` for anything else, or a picture whose header does not read.
+    pub(crate) natural_size: Option<ArtifactPictureSize>,
+}
+
 /// What the pipeline settled for an admitted payload.
 pub(crate) struct AdmittedPayload<Recorded> {
     /// The media type the manifest records.
@@ -65,27 +78,39 @@ pub(crate) struct AdmittedPayload<Recorded> {
     pub(crate) recorded: Recorded,
 }
 
-/// Runs the pipeline over `payload`: reads its type, then moves it into `store` and awaits
-/// `record_reference` with that type inside the store's exclusion. Fails with the store's failure
-/// or the record's, as [`PayloadStore::admit`] does.
+/// Runs the pipeline over `payload`: reads its type and a picture's size, then moves it into
+/// `store` and awaits `record_reference` with that reading inside the store's exclusion. Fails as
+/// the size's read of the spool does, with the store's failure or with the record's, as
+/// [`PayloadStore::admit`] does.
 pub(crate) async fn validate_and_store<Recorded, Recording>(
     store: &PayloadStore,
     payload: SpooledPayload,
-    record_reference: impl FnOnce(String) -> Recording,
+    record_reference: impl FnOnce(PayloadReading) -> Recording,
 ) -> Result<AdmittedPayload<Recorded>, ArtifactError>
 where
     Recording: Future<Output = Result<Recorded, ArtifactError>>,
 {
-    let derived_media_type = derive_media_type(
-        &payload.leading_bytes,
+    let format = detect_media_type(&payload.leading_bytes);
+    let derived_media_type = media_type_of(
+        format,
         payload.is_utf8,
         payload.declared_media_type.as_deref(),
     );
+    let natural_size = match format {
+        Some(format) => {
+            let spool_path = payload.spool_path.clone();
+            tokio::task::spawn_blocking(move || read_picture_size(&spool_path, format)).await??
+        }
+        None => None,
+    };
     let recorded = store
         .admit(
             payload.spool_path,
             &payload.content_hash,
-            record_reference(derived_media_type.clone()),
+            record_reference(PayloadReading {
+                media_type: derived_media_type.clone(),
+                natural_size,
+            }),
         )
         .await?;
     Ok(AdmittedPayload {
@@ -101,7 +126,20 @@ pub(crate) fn derive_media_type(
     is_utf8: bool,
     declared_media_type: Option<&str>,
 ) -> String {
-    match detect_media_type(leading_bytes) {
+    media_type_of(
+        detect_media_type(leading_bytes),
+        is_utf8,
+        declared_media_type,
+    )
+}
+
+// The media type recorded for a payload whose leading bytes name `format`, or none.
+fn media_type_of(
+    format: Option<FileFormat>,
+    is_utf8: bool,
+    declared_media_type: Option<&str>,
+) -> String {
+    match format {
         Some(format) => format.media_type().to_owned(),
         None if is_utf8 => text_media_type_of(declared_media_type),
         None => UNKNOWN_MEDIA_TYPE.to_owned(),
@@ -126,6 +164,19 @@ fn text_media_type_of(declared_media_type: Option<&str>) -> String {
         }
         Some(_) | None => PLAIN_TEXT_MEDIA_TYPE.to_owned(),
     }
+}
+
+/// The manifest metadata naming the file at `path`, by its name as [`normalize_file_name`] keeps
+/// it.
+pub(crate) fn file_name_metadata(path: &str) -> JsonRecord {
+    JsonRecord::new(
+        [(
+            FILE_NAME_MEMBER.to_owned(),
+            AnyValue(Value::String(normalize_file_name(path).into_string())),
+        )]
+        .into(),
+    )
+    .expect("a file name member is no __proto__")
 }
 
 /// A caller's file name as the manifest keeps it: its last path segment that is not blank, without

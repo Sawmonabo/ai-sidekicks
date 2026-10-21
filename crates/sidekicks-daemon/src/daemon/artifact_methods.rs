@@ -1,5 +1,5 @@
 //! Builds the artifact store over the daemon's one database and registers the `artifact.*` calls it
-//! answers: the three ingest calls and the publish. The store sits in the data folder, the
+//! answers: the three ingest calls, the publish, the list and the read. The store sits in the data folder, the
 //! content-addressed payloads in `objects/` and the spools of ingests and publishes beside them in
 //! `spool/`, on one volume, so a spool moves into the store by a rename. Its start schedules the
 //! ingest reaper on the daemon's one scheduler: a pass at once, which clears the spools a stopped
@@ -19,9 +19,13 @@ use crate::artifacts::payload_store::PayloadStore;
 use crate::artifacts::publish::ArtifactPublishService;
 use crate::daemon::scheduler::{ScheduleError, ScheduledJobHandle, Scheduler};
 use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::DatabaseWriter;
+use crate::events::log_service::EventLogService;
+use crate::events::session::appender::SessionEventAppender;
+use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::ipc::handlers::artifact::ingest::register_artifact_ingest;
+use crate::ipc::handlers::artifact::list::register_artifact_list;
 use crate::ipc::handlers::artifact::publish::register_artifact_publish;
+use crate::ipc::handlers::artifact::read::register_artifact_read;
 use crate::ipc::registry::{MethodRegistryBuilder, RegistrationError};
 
 const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
@@ -32,8 +36,8 @@ const INGEST_REAPER_INTERVAL: Duration = Duration::from_mins(10);
 
 /// What the artifact store is built from.
 pub(crate) struct ArtifactMethodsDeps {
-    /// The daemon's one database writer.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    /// The daemon's one event log, which each artifact's rows are written with.
+    pub(crate) event_log: Arc<EventLogService>,
     /// The daemon's database readers.
     pub(crate) reads: Arc<DatabaseReadPool>,
     /// The daemon's data folder; the store lives in its `artifacts` folder.
@@ -61,6 +65,8 @@ pub(crate) enum ArtifactMethodsError {
 pub(crate) struct ArtifactMethods {
     /// Binds the files a message carries to their stored copies, for the drivers to hand over.
     pub(crate) attachments: ArtifactAttachmentResolver,
+    /// Stores the daemon's own payloads, for the plan record and a chat's versions.
+    pub(crate) publisher: Arc<ArtifactPublishService>,
     ingest: Arc<ArtifactIngestService>,
 }
 
@@ -105,8 +111,12 @@ pub(crate) fn register_artifact_methods(
         store_folder.join("spool"),
         volume_free_bytes,
     ));
+    let appender = Arc::new(SessionEventAppender::new(
+        deps.event_log,
+        SESSION_EVENT_VERSION.clone(),
+    ));
     let ingest = Arc::new(ArtifactIngestService::new(
-        Arc::clone(&deps.writer),
+        Arc::clone(&appender),
         Arc::clone(&deps.reads),
         Arc::clone(&payloads),
         Arc::clone(&admission),
@@ -114,14 +124,17 @@ pub(crate) fn register_artifact_methods(
     ));
     register_artifact_ingest(registry, Arc::clone(&ingest))?;
     let publisher = Arc::new(ArtifactPublishService::new(
-        deps.writer,
+        appender,
         Arc::clone(&deps.reads),
         Arc::clone(&payloads),
         admission,
         deps.clock,
     ));
-    register_artifact_publish(registry, publisher)?;
+    register_artifact_publish(registry, Arc::clone(&publisher))?;
+    register_artifact_list(registry, Arc::clone(&deps.reads))?;
+    register_artifact_read(registry, Arc::clone(&deps.reads), Arc::clone(&payloads))?;
     Ok(ArtifactMethods {
+        publisher,
         attachments: ArtifactAttachmentResolver::new(deps.reads, payloads),
         ingest,
     })

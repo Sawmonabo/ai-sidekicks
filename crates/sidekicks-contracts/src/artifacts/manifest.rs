@@ -1,5 +1,4 @@
-//! The manifest the daemon keeps for every artifact in a session, and the two closed sets it
-//! carries. A manifest keeps every member and value a newer daemon adds, so an older reader passes
+//! The manifest the daemon keeps for every artifact in a session, and the closed set of its kinds. A manifest keeps every member and value a newer daemon adds, so an older reader passes
 //! them through instead of refusing the whole list.
 
 use std::borrow::Cow;
@@ -49,32 +48,6 @@ pub enum ArtifactType {
     Design,
     /// The output of one workflow phase.
     WorkflowOutput,
-}
-
-/// Where a manifest is in its life: written but not yet published, published, or replaced by a
-/// later manifest.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    VariantArray,
-    IntoStaticStr,
-)]
-#[serde(rename_all = "camelCase")]
-#[strum(serialize_all = "camelCase")]
-pub enum ArtifactState {
-    /// Written, not yet published.
-    Pending,
-    /// Published.
-    Published,
-    /// Replaced by a later manifest.
-    Superseded,
 }
 
 /// A value of a closed set as this reader knows it, or one a newer daemon added, kept as its text
@@ -136,8 +109,6 @@ pub struct ArtifactManifest {
     pub digest: NonEmptyText,
     /// The payload's length in bytes, measured by the daemon rather than declared by the caller.
     pub size: SafeInt<0>,
-    /// Where the manifest is in its life.
-    pub state: Extensible<ArtifactState>,
     /// The artifact's freeform provenance.
     pub metadata: JsonRecord,
     /// When the manifest was written.
@@ -151,11 +122,10 @@ pub struct ArtifactManifest {
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "artifacts/manifest",
-    doc: "The manifest the daemon keeps for every artifact in a session, and the two closed sets \
-          it carries.",
+    doc: "The manifest the daemon keeps for every artifact in a session, and the closed set of \
+          its kinds.",
     definitions: &[
         Definition::read::<ArtifactType>().checked(),
-        Definition::read::<ArtifactState>().checked(),
         Definition::read::<ArtifactManifest>().checked(),
     ],
     constants: &[],
@@ -186,7 +156,6 @@ mod tests {
             "artifactType": "storyboard",
             "digest": "sha256:00",
             "size": 11,
-            "state": "archived",
             "metadata": { "mediaType": "text/plain" },
             "createdAt": "2026-01-01T14:20:00.000Z",
             "addedByNewerDaemon": { "kept": true },
@@ -197,7 +166,6 @@ mod tests {
         json!({
             "sessionId": "550e8400-e29b-41d4-a716-446655440000",
             "artifactId": "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-            "state": "archived",
             "addedByNewerDaemon": { "kept": true },
         }),
         round_trip::<ArtifactPublicationPayload>

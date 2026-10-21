@@ -514,7 +514,7 @@ fn compose_rule_values(
             vec![value("WebFetch", Some(format!("domain:{}", rule.subject)))]
         }
         ProviderAskActionKind::Tool => vec![value(&rule.subject, None)],
-        ProviderAskActionKind::Plan | ProviderAskActionKind::CommandInput => {
+        ProviderAskActionKind::CommandInput => {
             return Err(ClaudeRulesError::UnkeptKind(rule.action.into()));
         }
     })

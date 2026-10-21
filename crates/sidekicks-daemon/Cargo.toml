@@ -32,7 +32,6 @@ ignored = [
   "ed25519-dalek",
   # An attachment's picture, its first page and its covered copy.
   "fast_image_resize",
-  "image",
   "pdfium-render",
   "webp",
   # The channel to each WSL 2 distribution's WSL server, the daemon the client and the WSL server
@@ -203,6 +202,7 @@ yaml-edit.workspace = true
 zeroize.workspace = true
 zip.workspace = true
 zstd.workspace = true
+zune-jpeg.workspace = true
 
 [dev-dependencies]
 dhat.workspace = true

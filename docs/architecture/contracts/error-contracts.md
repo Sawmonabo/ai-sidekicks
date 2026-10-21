@@ -229,6 +229,9 @@ Refusals of the operations on a run's running commands ([Running Command Payload
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
 | `question.answersIncomplete` | A `question.resolve` whose list does not answer every question of the record; nothing is answered and the question stays open ([Spec-011 §Interfaces And Contracts](../../specs/011-transcript-and-reasoning.md#interfaces-and-contracts)) | `invalidArgument` | 422 |
+| `question.answerInvalid` | A `question.resolve` answer its question cannot take; nothing is answered or sent and the question stays open. `data.fields.page` names the question and `data.fields.reason` how: `secretOnPlain` (a secret for a question that is not secret, or anything but a secret or a skip for one that is), `labelNotOffered` (a label the question does not offer), `severalOnSingle` (several labels for a question that takes one) or `textOnChoice` (typed text for a form field whose options are its only values) | `invalidArgument` | 422 |
+| `question.notFound` | `question.resolve` named a question the daemon holds no record of | `notFound` | 404 |
+| `question.notWaiting` | `question.resolve` named a question its agent does not wait for, which a message sent through the queue answers; nothing is answered | `failedPrecondition` | 409 |
 
 ### Agent
 
@@ -244,6 +247,7 @@ Agent-surface codes (Plan-013 D-013-11; the provider axis, D-013-17).
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
 | `approval.notFound` | Approval request does not exist | `notFound` | 404 |
+| `plan.notFound` | `plan.resolve` named a plan the daemon holds no record of | `notFound` | 404 |
 | `approval.alreadyResolved` | Approval request has already been resolved | `failedPrecondition` | 409 |
 | `approval.requestCanceled` | Approval request was canceled (its run ended — an interrupt among the ways it can — its session closed, the provider process ended, or its originating provider ask was retracted before resolution — Plan-009 T2.8's live-leg cancel ingress) and can no longer be resolved; also the late-CREATE refusal — a create arriving for an already-ended run or already-closed session (Plan-009 T2.12). The **late-CREATE refusal shape** carries a typed `reason` extension member — `'runEnded' \| 'sessionClosed'` — per RFC 9457 §3.2 extension-member practice, derived from live terminal state at refusal time (a retraction can never cause a late CREATE — the request already exists when a retraction settles it); the resolve-path 409 for an already-canceled request carries no `reason` (the cancellation cause is not persisted on `approval.canceled` — audit reconstructs it from the adjacent run/session terminal rows on the transcript) | `failedPrecondition` | 409 |
 | `approval.resolutionInvalid` | `approval.resolve` sent an answer its request cannot take, and nothing was recorded; `data.fields.reason` names how: `blockOutsideNetworkAccess` (a block rule on a request that is not `networkAccess`), `ruleNotOffered` (a rule on a request that offers none, or a project rule where only a session rule is offered), `subjectMismatch` (a rule whose subject is not the one the daemon derived for the card), `editNotOffered` (a corrected command or path on a request whose card offers no correction), `editWithRule` (a correction sent with a rule, which would name a subject the card never showed) or `effectiveScopeBroader` (a scope other than the request's own, which is the only one the daemon can show is no broader) | `invalidArgument` | 422 |

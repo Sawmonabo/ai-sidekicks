@@ -14,10 +14,9 @@ use strum::{EnumDiscriminants, IntoStaticStr};
 
 /// What the held call would do, read by the driver from its provider's own ask: run a command,
 /// send input to the running command the ask's tool call names, change files, read one file or
-/// folder, reach a host, leave plan mode with the plan it proposed, or call a tool none of those
-/// covers. Its kind without the subject, as a standing rule names it, is
-/// [`ProviderAskActionKind`], spelled as the approval store writes it; the store keeps the whole
-/// action as JSON tagged by its `kind`.
+/// folder, reach a host, or call a tool none of those covers. Its kind without the subject, as a
+/// standing rule names it, is [`ProviderAskActionKind`], spelled as the approval store writes it;
+/// the store keeps the whole action as JSON tagged by its `kind`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, EnumDiscriminants)]
 #[serde(
     tag = "kind",
@@ -33,8 +32,6 @@ use strum::{EnumDiscriminants, IntoStaticStr};
     strum(serialize_all = "camelCase")
 )]
 pub(crate) enum ProviderAskAction {
-    /// Leave plan mode with the plan it proposed.
-    Plan {},
     /// Run a command.
     Command {
         /// The command line.
