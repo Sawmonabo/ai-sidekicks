@@ -1,5 +1,6 @@
 //! The macOS side of the credential store: the login keychain, its entries built with the store's
-//! own settings, and a locked keychain read from the Security framework's status code.
+//! own settings, its search by service, and a locked keychain read from the Security framework's
+//! status code.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -9,6 +10,9 @@ use std::sync::Arc;
 // (`errSecUserCanceled`), so either way the person is told to unlock it and retry.
 const LOCKED_STATUSES: [i32; 2] = [-25308, -128];
 
+/// What holds the items, for the service log.
+pub(crate) const DESCRIPTION: &str = "the login keychain";
+
 /// The settings every entry is built with: the login keychain's own.
 pub(crate) const ENTRY_MODIFIERS: &[(&str, &str)] = &[];
 
@@ -17,6 +21,12 @@ pub(crate) fn open_store() -> keyring_core::Result<Arc<keyring_core::CredentialS
     let store: Arc<keyring_core::CredentialStore> =
         apple_native_keyring_store::keychain::Store::new()?;
     Ok(store)
+}
+
+/// The search for the items filed under `service`: the keychain matches the service exactly and
+/// leaves out an item that names no service or account.
+pub(crate) fn search_spec(service: &str) -> Vec<(&'static str, String)> {
+    vec![("service", service.to_owned())]
 }
 
 /// Whether the keychain's `failure` says it is locked or its unlock prompt was dismissed; every

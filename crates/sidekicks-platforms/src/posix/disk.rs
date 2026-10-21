@@ -73,15 +73,12 @@ fn unescape_mount_point(written: &str) -> std::path::PathBuf {
                 bytes[index] == b'\\' && digits.iter().all(|digit| (b'0'..=b'7').contains(digit))
             })
             .and_then(|digits| u8::from_str_radix(std::str::from_utf8(digits).ok()?, 8).ok());
-        match escaped {
-            Some(byte) => {
-                unescaped.push(byte);
-                index += 4;
-            }
-            None => {
-                unescaped.push(bytes[index]);
-                index += 1;
-            }
+        if let Some(byte) = escaped {
+            unescaped.push(byte);
+            index += 4;
+        } else {
+            unescaped.push(bytes[index]);
+            index += 1;
         }
     }
     std::ffi::OsString::from_vec(unescaped).into()

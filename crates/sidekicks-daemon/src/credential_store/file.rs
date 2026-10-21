@@ -1,8 +1,9 @@
-//! The keychain entries kept where the operating system's credential store cannot be used, on
-//! Linux with no Secret Service and on a Mac whose service runs while the person is logged out: the
-//! daemon's one items file, `secrets.json` in its data folder, readable by this account alone (mode
-//! 0600). The file holds each value under its keychain service and account, so the daemon's other
-//! secrets can share it, and the values in it are not encrypted.
+//! The items kept where the operating system's credential store is not used, on Linux where no
+//! Secret Service ran when the place was picked and on a Mac whose service runs while the person is
+//! logged out: the daemon's one items file, `secrets.json` in its data folder, readable by this
+//! account alone (mode 0600). The file holds each value under its keychain service and account, so
+//! every service's items share it, and the values in it are not encrypted. It exists exactly while
+//! it holds an item: the write that removes the last one deletes it.
 //!
 //! Every call reads the disk, so no copy of a value stays in memory past the call, and the calls on
 //! one file run one at a time, every service's keychain on it sharing one lock, so two writes never
@@ -26,9 +27,9 @@ use tokio::sync::{Mutex, MutexGuard};
 use zeroize::Zeroizing;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::file::atomic_write::write_file_atomically;
 use crate::missing_entry::MissingEntry;
-use crate::workflow::secrets::store::{SecretKeychain, WorkflowSecretStoreUnavailable};
 
 const ITEMS_FILE_NAME: &str = "secrets.json";
 
@@ -40,16 +41,8 @@ const LEFTOVER_REMOVAL: &str = "removing the leftovers of a write cut short";
 type Items = BTreeMap<String, BTreeMap<String, SecretString>>;
 
 /// The daemon's one `secrets.json` in its data folder: its path and the lock every call on it
-/// holds, whichever service's keychain makes the call. The daemon's start builds one per data
-/// folder and hands every keychain on the file a handle to it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the items file and its keychains when the operating \
-                  system's credential store cannot be used"
-    )
-)]
+/// holds, whichever service's keychain makes the call. One per data folder, every keychain on the
+/// file holding a handle to it.
 pub(crate) struct SecretItemsFile {
     /// The file's full path.
     file_path: PathBuf,
@@ -58,14 +51,6 @@ pub(crate) struct SecretItemsFile {
     calls: Mutex<bool>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the items file and its keychains, and names the file \
-                  to the person while it keeps secrets"
-    )
-)]
 impl SecretItemsFile {
     /// The items file in `data_folder`, an absolute path to a folder that exists and only this
     /// account can read, as the daemon makes its data folder at start.
@@ -76,12 +61,12 @@ impl SecretItemsFile {
         })
     }
 
-    /// The items file's full path, which the daemon names to the person while it keeps secrets.
+    /// The items file's full path, which the daemon names to the person while it holds secrets.
     pub(crate) fn file_path(&self) -> &Path {
         &self.file_path
     }
 
-    /// The entries filed under `service` in this file, sharing its one lock with every other
+    /// The items filed under `service` in this file, sharing its one lock with every other
     /// service's.
     pub(crate) fn keychain(self: &Arc<Self>, service: &str) -> FileSecretKeychain {
         FileSecretKeychain {
@@ -90,9 +75,34 @@ impl SecretItemsFile {
         }
     }
 
+    /// Whether the file holds an item filed under one of `services`; a file that cannot be read
+    /// counts as holding one, since it may.
+    pub(crate) async fn holds_items(&self, services: &[&str]) -> bool {
+        let _held = self.calls.lock().await;
+        match self.read_items().await {
+            Ok(items) => services.iter().any(|service| {
+                items
+                    .get(*service)
+                    .is_some_and(|entries| !entries.is_empty())
+            }),
+            Err(_unreadable) => true,
+        }
+    }
+
+    /// Deletes the file, every item in it with it, and the leftovers of any write cut short; one
+    /// already gone is no failure. Fails with [`KeychainRefusal`] when the file system refuses.
+    pub(crate) async fn remove_all(&self) -> Result<(), KeychainRefusal> {
+        let _held = self.hold().await?;
+        tokio::fs::remove_file(&self.file_path)
+            .await
+            .none_if_missing()
+            .map(drop)
+            .map_err(file_failure)
+    }
+
     // Waits for the file behind every call already holding or waiting for it, then removes the
     // leftovers of a write cut short once per daemon run.
-    async fn hold(&self) -> Result<MutexGuard<'_, bool>, WorkflowSecretStoreUnavailable> {
+    async fn hold(&self) -> Result<MutexGuard<'_, bool>, KeychainRefusal> {
         let mut has_removed_leftovers = self.calls.lock().await;
         if !*has_removed_leftovers {
             self.remove_leftover_temporary_files().await?;
@@ -102,7 +112,7 @@ impl SecretItemsFile {
     }
 
     // A write cut short leaves `secrets.json.<random>.tmp` beside the file.
-    async fn remove_leftover_temporary_files(&self) -> Result<(), WorkflowSecretStoreUnavailable> {
+    async fn remove_leftover_temporary_files(&self) -> Result<(), KeychainRefusal> {
         let folder = self
             .file_path
             .parent()
@@ -118,7 +128,7 @@ impl SecretItemsFile {
 
     // Every service's values in the file, nothing when it does not exist yet. An unreadable file
     // refuses the call and is left as it is.
-    async fn read_items(&self) -> Result<Items, WorkflowSecretStoreUnavailable> {
+    async fn read_items(&self) -> Result<Items, KeychainRefusal> {
         let text = match tokio::fs::read(&self.file_path).await.none_if_missing() {
             Ok(Some(text)) => Zeroizing::new(text),
             Ok(None) => return Ok(Items::new()),
@@ -128,7 +138,7 @@ impl SecretItemsFile {
             Ok(items) => Ok(items),
             // The parser's message can quote the file's text, which holds secret values, so it is
             // never kept.
-            Err(_quotes_the_text) => Err(WorkflowSecretStoreUnavailable::new(
+            Err(_quotes_the_text) => Err(KeychainRefusal::new(
                 KeychainRefusalCause::Unavailable,
                 format!(
                     "{} is not an items file, so it is left as it is",
@@ -139,10 +149,12 @@ impl SecretItemsFile {
     }
 
     // Replaces the file with `items` at once, written from a buffer sized before it is filled so
-    // no partial copy of a value is left behind by its growth.
-    async fn write_items(&self, items: &Items) -> Result<(), WorkflowSecretStoreUnavailable> {
+    // no partial copy of a value is left behind by its growth; with no item left the file is
+    // deleted.
+    async fn write_items(&self, items: &Items) -> Result<(), KeychainRefusal> {
         let exposed: BTreeMap<&str, BTreeMap<&str, &str>> = items
             .iter()
+            .filter(|(_, entries)| !entries.is_empty())
             .map(|(service, entries)| {
                 let values = entries
                     .iter()
@@ -151,6 +163,13 @@ impl SecretItemsFile {
                 (service.as_str(), values)
             })
             .collect();
+        if exposed.is_empty() {
+            return tokio::fs::remove_file(&self.file_path)
+                .await
+                .none_if_missing()
+                .map(drop)
+                .map_err(file_failure);
+        }
         let length = json_utf8_byte_length(&exposed).map_err(file_failure)?;
         let mut text = Zeroizing::new(Vec::with_capacity(length));
         serde_json::to_writer(&mut *text, &exposed).map_err(file_failure)?;
@@ -160,20 +179,12 @@ impl SecretItemsFile {
     }
 }
 
-/// One keychain service's entries in the daemon's items file; see the module doc. Every failure of
+/// One keychain service's items in the daemon's items file; see the module doc. Every failure of
 /// the file refuses the call as the keychain being `unavailable`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the items file and its keychains when the operating \
-                  system's credential store cannot be used"
-    )
-)]
 pub(crate) struct FileSecretKeychain {
     /// The items file, shared with every other service's keychain on it.
     items_file: Arc<SecretItemsFile>,
-    /// The keychain service the entries are filed under.
+    /// The keychain service the items are filed under.
     service: String,
 }
 
@@ -182,7 +193,7 @@ impl SecretKeychain for FileSecretKeychain {
         &'call self,
         account: &'call str,
         value: &'call SecretString,
-    ) -> BoxFuture<'call, Result<(), WorkflowSecretStoreUnavailable>> {
+    ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
         Box::pin(async move {
             let _held = self.items_file.hold().await?;
             let mut items = self.items_file.read_items().await?;
@@ -197,7 +208,7 @@ impl SecretKeychain for FileSecretKeychain {
     fn read<'call>(
         &'call self,
         account: &'call str,
-    ) -> BoxFuture<'call, Result<Option<SecretString>, WorkflowSecretStoreUnavailable>> {
+    ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
         Box::pin(async move {
             let _held = self.items_file.hold().await?;
             let mut items = self.items_file.read_items().await?;
@@ -210,7 +221,7 @@ impl SecretKeychain for FileSecretKeychain {
     fn remove<'call>(
         &'call self,
         account: &'call str,
-    ) -> BoxFuture<'call, Result<bool, WorkflowSecretStoreUnavailable>> {
+    ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
         Box::pin(async move {
             let _held = self.items_file.hold().await?;
             let mut items = self.items_file.read_items().await?;
@@ -223,13 +234,22 @@ impl SecretKeychain for FileSecretKeychain {
             Ok(was_held)
         })
     }
+
+    fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
+        Box::pin(async move {
+            let _held = self.items_file.hold().await?;
+            let items = self.items_file.read_items().await?;
+            Ok(items
+                .get(&self.service)
+                .map(|entries| entries.keys().cloned().collect())
+                .unwrap_or_default())
+        })
+    }
 }
 
 // The refusal for a failure of the file system or of the file's write, kept as the source.
-fn file_failure(
-    failure: impl Into<Box<dyn std::error::Error + Send + Sync>>,
-) -> WorkflowSecretStoreUnavailable {
-    WorkflowSecretStoreUnavailable::new(
+fn file_failure(failure: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> KeychainRefusal {
+    KeychainRefusal::new(
         KeychainRefusalCause::Unavailable,
         "the items file could not be used",
     )
@@ -281,7 +301,7 @@ mod tests {
     use sidekicks_contracts::keychain::KeychainRefusalCause;
 
     use super::SecretItemsFile;
-    use crate::workflow::secrets::store::SecretKeychain;
+    use crate::credential_store::SecretKeychain;
 
     const SERVICE: &str = "ai-sidekicks-workflow-secrets";
     const OTHER_SERVICE: &str = "ai-sidekicks-notification-secrets";

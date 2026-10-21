@@ -513,6 +513,7 @@ mod tests {
         SessionFileSearchEntry, SessionFileSearchEntryKind, SessionFileSearchRequest,
         SessionFileSearchResponse,
     };
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService};
     use crate::database::connection::read_pool::DatabaseReadPool;
@@ -543,7 +544,9 @@ mod tests {
         let session_id = test_session_id();
         let connection = database.reader();
         insert_session_row(&connection, session_id.text().as_str(), None, None);
-        for row in project_and_mount_rows("mount", None) {
+        // The working-folder read takes the attached mount's id as one the daemon minted.
+        let mount_id = mint_uuid_v7().to_string();
+        for row in project_and_mount_rows(&mount_id, None) {
             connection
                 .execute_batch(&row)
                 .expect("the project and its mount are stored");
@@ -552,13 +555,14 @@ mod tests {
             .execute(
                 "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root,
                    state, created_at, updated_at)
-                 VALUES ('workspace', ?1, 'mount', ?2, ?3, ?4, ?5, ?5)",
+                 VALUES ('workspace', ?1, ?6, ?2, ?3, ?4, ?5, ?5)",
                 rusqlite::params![
                     session_id.text().as_str(),
                     <&'static str>::from(ExecutionMode::BoundRoot),
                     folder.to_str().expect("a temporary folder's path is UTF-8"),
                     <&'static str>::from(WorkspaceState::Ready),
-                    PARENT_ROWS_AT
+                    PARENT_ROWS_AT,
+                    mount_id
                 ],
             )
             .expect("the workspace is stored");

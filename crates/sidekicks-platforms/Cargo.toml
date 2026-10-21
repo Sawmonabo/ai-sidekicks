@@ -13,8 +13,6 @@ ignored = [
   "command-fds",
   # The link to an agent's memory folder on Windows.
   "junction",
-  # Keeping the machine awake while work runs.
-  "keepawake",
   # The wake helper's status, read through the system's service management.
   "objc2-foundation",
   "objc2-service-management",
@@ -52,16 +50,18 @@ tree-sitter.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 futures-util.workspace = true
 secret-service.workspace = true
+tokio-util.workspace = true
 zbus.workspace = true
 zbus-secret-service-keyring-store.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true
+block2.workspace = true
 dispatch2 = { workspace = true, features = ["libc", "std"] }
 mach2.workspace = true
 objc2-core-foundation.workspace = true
 objc2-foundation.workspace = true
-objc2-io-kit = { workspace = true, features = ["dispatch2", "libc", "pwr_mgt", "std"] }
+objc2-io-kit = { workspace = true, features = ["dispatch2", "libc", "ps", "pwr_mgt", "std"] }
 objc2-security = { workspace = true, features = ["CSCommon", "SecCode", "SecRequirement", "std"] }
 objc2-service-management.workspace = true
 security-framework.workspace = true

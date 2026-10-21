@@ -32,7 +32,9 @@ use tokio::task::JoinHandle;
 
 use crate::events::session::pending::PendingSessions;
 use crate::file::bounded_read::run_on_own_thread;
-use crate::file_watch::{ChangeFeed, FileWatch, FileWatchError, FileWatchNotice, WalkFilter};
+use crate::file_watch::{
+    ChangeFeed, FileWatch, FileWatchError, FileWatchNotice, WalkFilter, WatchedRoot,
+};
 use crate::missing_entry::is_missing_entry;
 
 const GIT_METADATA_FOLDER_NAME: &str = ".git";
@@ -153,9 +155,12 @@ async fn open_watch<W: Watcher + Send + 'static>(
         relative_path.components().nth(1)
             != Some(Component::Normal(OsStr::new(GIT_METADATA_FOLDER_NAME)))
     });
-    FileWatch::start(vec![workspaces_folder], filter)
-        .await
-        .map_err(ManagedWorkspaceWatchError::NotStarted)
+    FileWatch::start(vec![WatchedRoot {
+        path: workspaces_folder,
+        filter,
+    }])
+    .await
+    .map_err(ManagedWorkspaceWatchError::NotStarted)
 }
 
 // Reads the watch's notices until it fails or the reader of `writes` is gone.

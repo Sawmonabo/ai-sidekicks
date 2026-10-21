@@ -17,8 +17,8 @@ import { countSchema } from "../internal/wire-scalars.js";
 // until it is retried from that step.
 
 /**
- * The longest captured output a setup step carries, in UTF-16 code units; the daemon keeps the
- * tail of a longer output.
+ * The longest captured output a setup step carries; the daemon keeps the tail of a longer output,
+ * cut to this many code points.
  */
 export const WORKTREE_SETUP_OUTPUT_MAX_LEN = 32768;
 

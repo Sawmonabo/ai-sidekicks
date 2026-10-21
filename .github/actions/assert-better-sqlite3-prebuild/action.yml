@@ -21,7 +21,8 @@ runs:
     # Studio 18 install, though the prebuild is in the tarball. Denying it also makes (b)
     # absolute.
     #
-    # The `native-prebuilds` job in `ci.yml` is not a duplicate: this step checks the full
+    # The `native-prebuilds` workflow (`native-prebuilds.yml`, which `ci.yml` calls as its
+    # `native-prebuilds` job) is not a duplicate: this step checks the full
     # workspace install on one platform; that job checks a scoped install on all five target
     # platforms and also reads back the database pragmas.
     - name: Assert better-sqlite3 loads a bundled Node-API prebuild
@@ -35,8 +36,9 @@ runs:
 
         // `pathToFileURL`, not a `file://` template: a Windows cwd is
         // `D:\a\...` and `file://D:\a\...` is not a valid file URL. The `test`
-        // job's matrix is Linux-only, but the `native-prebuilds` job in `ci.yml` runs
-        // the same resolution on `windows-latest`, so the two forms must not drift.
+        // job's matrix is Linux-only, but the `native-prebuilds` workflow
+        // (`native-prebuilds.yml`) runs the same resolution on `windows-latest`, so the two
+        // forms must not drift.
         const daemonRequire = createRequire(
           new URL("packages/runtime-daemon/package.json", pathToFileURL(`${process.cwd()}/`)),
         );
