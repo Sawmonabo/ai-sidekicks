@@ -287,6 +287,15 @@ jobs:
       - name: Install zsh and fish for the shell-mark tests
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends zsh fish
 
+      # The worktree cleanup's test starts git's file-watch daemon and proves the cleanup stops it;
+      # Ubuntu's own git has no daemon on Linux, so the git maintainers' release takes its place.
+      - name: Install a git with its file-watch daemon
+        run: |
+          sudo add-apt-repository -y ppa:git-core/ppa
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends git
+          git version --build-options | grep -F 'feature: fsmonitor--daemon'
+
       # Ubuntu's own zshrc runs compinit, which stops at a question when a completion folder is
       # writable by others, as some on the runner image are; this closes them as a machine would.
       - name: Close zsh's completion folders to other accounts
