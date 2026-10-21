@@ -428,16 +428,6 @@ pub(crate) trait CodexSessionServerRequestResponder: Send + Sync {
     ) -> BoxFuture<'_, Result<CodexServerRequestDecision, DriverError>>;
 }
 
-/// The Codex answer to a held question from the person's `answers`, the typed list a
-/// `ProviderRequestAnswer::Question` carries, one per question in order.
-#[expect(
-    dead_code,
-    reason = "the Codex ask delivery answers a held question with it"
-)]
-pub(crate) fn read_codex_question_answer(answers: Vec<QuestionAnswer>) -> CodexServerRequestAnswer {
-    CodexServerRequestAnswer::Answered { answers }
-}
-
 /// The turn a routed ask names. An over-long id is never resolved, since a cut prefix could match
 /// a shorter live turn, but is recorded cut, since no id would read as an ask that named none.
 #[derive(Clone, Debug, PartialEq, Eq)]

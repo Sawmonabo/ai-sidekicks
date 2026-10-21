@@ -111,11 +111,14 @@ fast_image_resize.workspace = true
 ferriki-textmate.workspace = true
 ferroni.workspace = true
 file-format.workspace = true
+# Unpacks a workflow code step's tools, and writes each PNG chunk's CRC in the picture size tests.
+flate2.workspace = true
 flexi_logger.workspace = true
 form_urlencoded.workspace = true
 futures.workspace = true
 garde.workspace = true
 getrandom.workspace = true
+gif.workspace = true
 h2.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
@@ -145,6 +148,7 @@ p256.workspace = true
 pasetors.workspace = true
 pdfium-render.workspace = true
 percent-encoding.workspace = true
+png.workspace = true
 process-wrap.workspace = true
 psl.workspace = true
 quick_cache.workspace = true
@@ -206,8 +210,6 @@ zstd.workspace = true
 zune-jpeg.workspace = true
 
 [dev-dependencies]
-# The CRC of each chunk the picture size tests write into a PNG.
-flate2.workspace = true
 insta.workspace = true
 mockall.workspace = true
 proptest.workspace = true

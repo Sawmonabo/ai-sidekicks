@@ -34,6 +34,14 @@ use crate::settle_all::{SettleFailures, settle_all};
 #[cfg(test)]
 mod tests;
 
+/// The statements [`PlansService`] prepares on a read connection: the plans of every run still
+/// waiting on a held request (`HELD_PLANS_SQL`).
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which sizes the shared statement cache"
+)]
+pub(crate) const PLANS_STATEMENT_CAPACITY: usize = 1;
+
 /// The media type a plan's artifact is kept under.
 const PLAN_MEDIA_TYPE: &str = "text/markdown";
 

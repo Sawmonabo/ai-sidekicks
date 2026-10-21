@@ -443,6 +443,7 @@ pub(crate) fn compose_claude_wire_frame_kind<'frame>(
 }
 
 /// Claude Code's question tool, by its name on the wire.
+#[expect(dead_code, reason = "the Claude Code driver's question hand-off")]
 pub(crate) const CLAUDE_QUESTION_TOOL_NAME: &str = "AskUserQuestion";
 
 /// The tool Claude Code asks to leave plan mode through, carrying the plan, by its wire name.

@@ -404,6 +404,27 @@ async fn an_answer_its_record_cannot_take_is_refused_with_nothing_sent(
     assert_eq!(fixture.state(question_id), "open");
 }
 
+// An agent's question takes typed text on a page with options, which only a form field refuses:
+// the text reaches the driver and settles the question. Killed by refusing text on every page
+// with options.
+#[tokio::test]
+async fn typed_text_on_an_agents_choice_reaches_the_driver() {
+    let fixture = Fixture::new().await;
+    let question_id = fixture.ask("request-1", json!([choice_page()]), true).await;
+
+    let settled = fixture
+        .answer(question_id, json!([{ "kind": "typed", "text": "Gamma" }]))
+        .await;
+
+    assert_eq!(
+        settled.expect("the text is taken"),
+        QuestionSettledState::Answered
+    );
+    assert_eq!(fixture.handed_count(), 1);
+    let handed = fixture.handed.lock().expect("never poisoned")[0].clone();
+    assert!(matches!(&handed.1[0], QuestionAnswer::Typed { text } if text.as_str() == "Gamma"));
+}
+
 #[tokio::test]
 async fn an_unknown_or_unwaited_question_is_refused_with_nothing_sent() {
     let fixture = Fixture::new().await;
