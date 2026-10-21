@@ -433,13 +433,19 @@ struct StartedFileWatch {
 
 impl Drop for StartedFileWatch {
     fn drop(&mut self) {
-        // Best-effort teardown: the test's body asserts its own stop, and a daemon already ended
-        // makes this stop fail.
-        let _stop_outcome = std::process::Command::new(&self.git)
+        // The test's body asserts its own stop, and a daemon already ended answers with a failed
+        // exit, which needs nothing; only a stop that could not run is logged.
+        if let Err(error) = std::process::Command::new(&self.git)
             .arg("-C")
             .arg(&self.folder)
             .args(["fsmonitor--daemon", "stop"])
-            .output();
+            .output()
+        {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the test's file-watch daemon could not be stopped"
+            );
+        }
     }
 }
 

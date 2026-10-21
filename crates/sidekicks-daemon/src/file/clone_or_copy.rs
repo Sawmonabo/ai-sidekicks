@@ -100,8 +100,7 @@ mod tests {
 
     use super::{clone_or_copy, copy_then_publish};
 
-    // Kills the truncating byte copy the clone falls back to, and a fallback that writes into the
-    // target before the copy is whole.
+    // Kills the truncating byte copy the clone falls back to.
     #[test]
     fn a_failed_copy_leaves_no_target_and_an_existing_target_keeps_its_bytes() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
