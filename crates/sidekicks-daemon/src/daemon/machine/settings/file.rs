@@ -17,6 +17,7 @@ use sidekicks_contracts::machine::settings::{
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::create_private_folder;
+use tokio::sync::watch;
 
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::ipc::stream::latest_value::LatestValueOutlet;
@@ -62,6 +63,8 @@ pub(crate) struct MachineSettingsFile {
 struct Listeners {
     next_id: u64,
     outlets: Vec<(u64, LatestValueOutlet<MachineSettingsReading>)>,
+    /// Every in-process reader's channel, dropped once its last receiver goes.
+    watchers: Vec<watch::Sender<MachineSettings>>,
 }
 
 impl MachineSettingsFile {
@@ -130,6 +133,26 @@ impl MachineSettingsFile {
         })
     }
 
+    /// A receiver holding the settings as they stand and each later change, which any number of
+    /// the service's own readers clone: keep-awake follows its switches from it, and each spawn
+    /// reads its `Every project` rows from it. Fails as [`Self::read`] does.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start hands the settings to keep-awake and to each spawn"
+        )
+    )]
+    pub(crate) async fn watch(
+        &self,
+    ) -> Result<watch::Receiver<MachineSettings>, MachineSettingsFileError> {
+        let mut repair = self.repair.lock().await;
+        let reading = self.read_from_disk(&mut repair).await?;
+        let (watcher, settings) = watch::channel(reading.settings);
+        self.lock_listeners().watchers.push(watcher);
+        Ok(settings)
+    }
+
     async fn read_from_disk(
         &self,
         repair: &mut Option<SettingsFileRepair>,
@@ -174,9 +197,13 @@ impl MachineSettingsFile {
     }
 
     fn announce(&self, reading: &MachineSettingsReading) {
-        for (_, outlet) in &self.lock_listeners().outlets {
+        let mut listeners = self.lock_listeners();
+        for (_, outlet) in &listeners.outlets {
             outlet.send(reading.clone());
         }
+        listeners
+            .watchers
+            .retain(|watcher| watcher.send(reading.settings.clone()).is_ok());
     }
 
     fn lock_listeners(&self) -> std::sync::MutexGuard<'_, Listeners> {
@@ -249,6 +276,9 @@ mod tests {
 
     use super::{MACHINE_SETTINGS_FILE_NAME, MachineSettingsFile};
 
+    // A broken file reads as the defaults with its repair until a change is written, and a
+    // reader of the watch holds the settings and hears the change. Killed by a watch the
+    // change's announce does not reach.
     #[tokio::test]
     async fn an_unparseable_file_is_repaired_and_the_repair_carried_until_the_next_write() {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
@@ -265,12 +295,20 @@ mod tests {
 
         let second = file.read().await.expect("the repaired file reads");
         assert_eq!(second.repair, Some(repair));
+        let mut watched = file.watch().await.expect("the repaired file reads");
+        assert!(watched.borrow_and_update().updates_automatic);
 
         let settings = file
             .update(MachineSettingsChange::UpdatesAutomatic(false))
             .await
             .expect("the change is written");
         assert!(!settings.updates_automatic);
+        assert!(
+            watched
+                .has_changed()
+                .expect("the file keeps the watch's sender")
+        );
+        assert!(!watched.borrow_and_update().updates_automatic);
         let third = file.read().await.expect("the changed file reads");
         assert_eq!(third.repair, None);
         assert!(!third.settings.updates_automatic);
