@@ -1,8 +1,8 @@
-// Builds Sätteri's markdown parser as a WebAssembly module from its released source with our fix:
-// downloads the release's source archive, refuses it unless it matches the pinned hash, unpacks it
-// into `satteri/`, applies `indented-code-block.patch`, and compiles the parser as the release does,
-// with the Rust its `rust-toolchain.toml` pins. `dist/` then holds the module and the notices of
-// everything compiled into it, and `satteri/` stays for the package's tests, which Cargo runs there.
+// Builds Sätteri's markdown parser as a WebAssembly module from its source with our fix: downloads
+// the archive of the fork commit that carries the fix, refuses it unless it matches the pinned hash,
+// unpacks it into `satteri/`, and compiles the parser as the release does, with the Rust its
+// `rust-toolchain.toml` pins. `dist/` then holds the module and the notices of everything compiled
+// into it, and `satteri/` stays for the package's tests, which Cargo runs there.
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -13,10 +13,13 @@ import { fileURLToPath } from "node:url";
 
 import { writeWasmDist } from "../../tools/wasm-dist.ts";
 
-/** The released source: the archive of Sätteri's `satteri-v0.10.5` tag, and its SHA-256. */
+/**
+ * The source: the archive of the fork commit holding Sätteri's `satteri-v0.10.5` release with our
+ * indented-code-block fix, the same commit the Cargo workspace reads, and its SHA-256.
+ */
 const SOURCE_ARCHIVE_URL =
-  "https://github.com/bruits/satteri/archive/refs/tags/satteri-v0.10.5.tar.gz";
-const SOURCE_ARCHIVE_SHA256 = "2193132300046ebacdc791d757986741e86abbb6306068dff39d2e4fada68db3";
+  "https://github.com/Sawmonabo/satteri/archive/e16b7bcd04445ce2435fa3f0efbd21835821294d.tar.gz";
+const SOURCE_ARCHIVE_SHA256 = "c74cdf22af0759b1f30e640fe3b6107f62ade12c097cee9e37add7c25adf00bf";
 
 const PACKAGE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_DIRECTORY = path.join(PACKAGE_DIRECTORY, "satteri");
@@ -44,17 +47,6 @@ execFileSync("tar", ["-xzf", "-", "--strip-components=1", "-C", SOURCE_DIRECTORY
   input: archive,
   stdio: ["pipe", "inherit", "inherit"],
 });
-// Applied as to a folder outside any repository: inside this one, `git apply` would read the
-// patch's paths from the repository's root and skip every file without failing.
-execFileSync(
-  "git",
-  ["apply", "--verbose", path.join(PACKAGE_DIRECTORY, "indented-code-block.patch")],
-  {
-    cwd: SOURCE_DIRECTORY,
-    env: { ...process.env, GIT_CEILING_DIRECTORIES: PACKAGE_DIRECTORY },
-    stdio: "inherit",
-  },
-);
 
 // The Rust the source's `rust-toolchain.toml` pins, and its WebAssembly target, unless installed.
 execFileSync("rustup", ["toolchain", "install"], { cwd: SOURCE_DIRECTORY, stdio: "inherit" });

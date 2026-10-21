@@ -13,6 +13,11 @@ ignored = [
   # checker's hash maps (getrandom 0.3, through `ahash`) take is read from `crypto.getRandomValues`.
   "getrandom",
   "getrandom_03",
+  # The statement chain's check (its hash links and its Ed25519 and P-256 signatures), built later
+  # in this crate.
+  "ed25519-dalek",
+  "p256",
+  "sha2",
 ]
 
 [dependencies]

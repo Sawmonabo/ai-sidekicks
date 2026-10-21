@@ -31,6 +31,9 @@ jobs:
     runs-on: macos-26-intel
     permissions:
       contents: read
+    env:
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -52,6 +55,9 @@ jobs:
     runs-on: macos-latest
     permissions:
       contents: read
+    env:
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
         uses: actions/checkout@v5

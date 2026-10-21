@@ -75,34 +75,32 @@ uds_windows.workspace = true
 walkdir.workspace = true
 windows = { workspace = true, features = ["UI_Notifications", "Win32_System_Threading"] }
 windows-native-keyring-store.workspace = true
-windows-sys = {
-  workspace = true,
-  features = [
-    "Wdk_Storage_FileSystem",
-    "Wdk_System_SystemServices",
-    "Win32_Foundation",
-    "Win32_Globalization",
-    "Win32_Graphics_Gdi",
-    "Win32_Networking_WinSock",
-    "Win32_Security",
-    "Win32_Security_Authorization",
-    "Win32_Storage_FileSystem",
-    "Win32_System_Com",
-    "Win32_System_Console",
-    "Win32_System_IO",
-    "Win32_System_JobObjects",
-    "Win32_System_LibraryLoader",
-    "Win32_System_Pipes",
-    "Win32_System_Power",
-    "Win32_System_ProcessStatus",
-    "Win32_System_SystemInformation",
-    "Win32_System_SystemServices",
-    "Win32_System_Threading",
-    "Win32_System_WindowsProgramming",
-    "Win32_UI_Shell",
-    "Win32_UI_WindowsAndMessaging",
-  ]
-}
+windows-sys.workspace = true
+windows-sys.features = [
+  "Wdk_Storage_FileSystem",
+  "Wdk_System_SystemServices",
+  "Win32_Foundation",
+  "Win32_Globalization",
+  "Win32_Graphics_Gdi",
+  "Win32_Networking_WinSock",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_Console",
+  "Win32_System_IO",
+  "Win32_System_JobObjects",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Pipes",
+  "Win32_System_Power",
+  "Win32_System_ProcessStatus",
+  "Win32_System_SystemInformation",
+  "Win32_System_SystemServices",
+  "Win32_System_Threading",
+  "Win32_System_WindowsProgramming",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging"
+]
 
 [target."cfg(unix)".dependencies]
 command-fds.workspace = true
