@@ -1,4 +1,4 @@
-//! The errors the Codex driver raises: transport, size, timeout, provider, rewind-boundary, slot
+//! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary, slot
 //! and configuration failures, and how each reaches the daemon as a driver error.
 
 use std::error::Error;
@@ -17,7 +17,7 @@ use crate::provider::driver::contract::{
     DriverError, PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, bound_failure_detail,
 };
 use crate::provider::driver::error_causes::{
-    UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
+    RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
 };
 use crate::provider::driver::registry::provider_capability_refused;
 
@@ -30,6 +30,16 @@ const REWIND_BOUNDARY_FIELD: &str = "lastTurnId";
 /// The refusal phrases that name a field rather than a method: a missing parameter and an
 /// undeclared one. `unknown variant` is left out because it names a method.
 const FIELD_LEVEL_REFUSAL_PHRASES: &[&str] = &["missing field", "unknown field"];
+
+/// The error code the service answers a request with when its inbound queue is full: the request
+/// never reached it, and the connection stays.
+const CODEX_OVERLOADED_CODE: i64 = -32001;
+
+/// JSON-RPC's invalid-request code, which the service's draining answer carries.
+pub(crate) const CODEX_INVALID_REQUEST_CODE: i64 = -32600;
+
+/// The `data.reason` of the service's answer while it drains toward its exit.
+pub(crate) const CODEX_DRAINING_REASON: &str = "serverShuttingDown";
 
 /// Which state holds a session's slot when a create is refused; a create is refused in all three,
 /// since a second start would orphan a process.
@@ -98,13 +108,14 @@ pub(crate) enum CodexError {
         /// The most the service takes in one message, in bytes.
         limit: usize,
     },
-    /// A request outlived its deadline.
-    #[error("The Codex service did not answer \"{method}\" within {timeout:?}.")]
-    RequestTimeout {
+    /// A request was written and no answer came: its deadline passed or the connection closed
+    /// first, so the service may still act on it.
+    #[error("The Codex service did not answer \"{method}\": {cause}")]
+    Unanswered {
         /// The request's method.
         method: String,
-        /// How long the request waited.
-        timeout: Duration,
+        /// Why no answer came.
+        cause: CodexUnansweredCause,
     },
     /// The service answered a request with a JSON-RPC error.
     #[error("Codex app-server rejected \"{method}\": {message}")]
@@ -115,6 +126,8 @@ pub(crate) enum CodexError {
         code: i64,
         /// The error answer's message, as the service wrote it.
         message: String,
+        /// The `reason` member of the error answer's `data`, when it sent one as text.
+        reason: Option<String>,
     },
     /// The build takes `thread/fork` but refuses its boundary member, which the static rollback
     /// flag cannot see, since a build the driver admits may predate it.
@@ -151,6 +164,47 @@ pub(crate) enum CodexError {
     },
 }
 
+/// Why a written request got no answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CodexUnansweredCause {
+    /// Its deadline passed.
+    Deadline {
+        /// How long the request waited.
+        timeout: Duration,
+    },
+    /// The connection closed before the answer.
+    ConnectionClosed {
+        /// How the connection closed, in words.
+        reason: String,
+    },
+}
+
+impl std::fmt::Display for CodexUnansweredCause {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Deadline { timeout } => write!(formatter, "no answer came within {timeout:?}"),
+            Self::ConnectionClosed { reason } => {
+                write!(
+                    formatter,
+                    "the connection closed before the answer: {reason}"
+                )
+            }
+        }
+    }
+}
+
+impl CodexError {
+    /// Whether this is the service's answer that it is draining toward its exit and takes no new
+    /// work, while its running turns, reads and interrupts go on.
+    pub(crate) fn is_service_draining(&self) -> bool {
+        matches!(
+            self,
+            Self::ProviderRequest { code: CODEX_INVALID_REQUEST_CODE, reason: Some(reason), .. }
+                if reason == CODEX_DRAINING_REASON
+        )
+    }
+}
+
 /// Turns a refused `thread/fork` that names the rewind boundary member into
 /// `RewindBoundaryUnsupported`, the service's words bounded as a failure detail; any other error
 /// is returned unchanged.
@@ -183,8 +237,10 @@ fn refusal_names_rewind_boundary_field(provider_message: &str) -> bool {
 }
 
 impl From<CodexError> for DriverError {
-    /// A transport failure and an over-large request answer `provider.unavailable` and a timeout
-    /// `provider.timeout`, each with the failure's words bounded as `providerFailureDetail`; a
+    /// A transport failure, an over-large request, and the service's overloaded (`-32001`) and
+    /// draining answers refuse `provider.unavailable`; a written request with no answer is
+    /// `Unanswered`, `provider.timeout` past its deadline and `provider.unavailable` once the
+    /// connection closed; each carries the failure's words bounded as `providerFailureDetail`; a
     /// refused fork boundary answers `provider.capability.unsupported` on the rollback flag with
     /// Codex's refusal bounded as `providerFailureDetail`, and a session closed under a wait
     /// `session.alreadyClosed`; the rest are internal failures.
@@ -202,12 +258,43 @@ impl From<CodexError> for DriverError {
                 RefusalCode::ProviderUnavailable,
                 error,
             )),
-            CodexError::RequestTimeout { .. } => Self::Refused(provider_failure_refusal(
+            CodexError::Unanswered { cause, .. } => {
+                let (message, code) = match cause {
+                    CodexUnansweredCause::Deadline { .. } => (
+                        "The Codex service did not answer in time",
+                        RefusalCode::ProviderTimeout,
+                    ),
+                    CodexUnansweredCause::ConnectionClosed { .. } => (
+                        "The Codex service's connection closed before it answered",
+                        RefusalCode::ProviderUnavailable,
+                    ),
+                };
+                Self::Unanswered(RequestUnanswered {
+                    refusal: provider_failure_refusal(
+                        &DESCRIPTOR.provider_id(),
+                        message,
+                        code,
+                        error,
+                    ),
+                })
+            }
+            CodexError::ProviderRequest {
+                code: CODEX_OVERLOADED_CODE,
+                ..
+            } => Self::Refused(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
-                "The Codex service did not answer in time",
-                RefusalCode::ProviderTimeout,
+                "The Codex service is overloaded and did not take the request",
+                RefusalCode::ProviderUnavailable,
                 error,
             )),
+            CodexError::ProviderRequest { .. } if error.is_service_draining() => {
+                Self::Refused(provider_failure_refusal(
+                    &DESCRIPTOR.provider_id(),
+                    "The Codex service is shutting down and takes no new work",
+                    RefusalCode::ProviderUnavailable,
+                    error,
+                ))
+            }
             CodexError::RewindBoundaryUnsupported {
                 provider_failure_detail,
             } => {

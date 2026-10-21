@@ -583,18 +583,26 @@ impl InterventionService {
                         cancelled: Vec::new(),
                     })),
                     InterruptRoute::Ended => Ok(DispatchOutcome::Unapplied(Resolution::Expired)),
-                    InterruptRoute::Driver => self
-                        .interrupt_through_driver(
+                    InterruptRoute::Driver => {
+                        let choice = interrupt_choice_of(interrupt);
+                        let reorders_waiting = self
+                            .queue
+                            .reorders_waiting(run_id, choice.deliver_first)
+                            .await
+                            .map_err(DispatchError::Queue)?;
+                        self.interrupt_through_driver(
                             run_id,
                             expected_run_version,
                             key.clone(),
                             InterruptPayload {
-                                pending: interrupt_choice_of(interrupt).pending,
+                                pending: choice.pending,
+                                reorders_waiting,
                                 reason: interrupt_reason(interrupt).cloned(),
                             },
                         )
                         .await
-                        .map(DispatchOutcome::Carried),
+                        .map(DispatchOutcome::Carried)
+                    }
                 }
             }
         }

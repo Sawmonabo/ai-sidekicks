@@ -1,7 +1,8 @@
 //! Reads a run's current state and version from its `runs` row; the runs not yet ended across
 //! every session, and those of one session with the agent each runs for; the ended runs that hold
-//! a turn with no end; the live provider subagents beneath one run; and the provider a run runs on,
-//! from its runtime binding or the binding of the parent whose provider process it runs in.
+//! a turn with no end; the provider subagents beneath one run that are live or hold a turn with no
+//! end; and the provider a run runs on, from its runtime binding or the binding of the parent whose
+//! provider process it runs in.
 
 use std::sync::LazyLock;
 
@@ -25,7 +26,7 @@ use crate::database::stored_column::{
 };
 use crate::events::session::read::readable_event_sql;
 use crate::provider::runtime_binding::store::StoredBindingIdInvalid;
-use crate::session::run::engine::turns::TURN_END_TYPES_SQL;
+use crate::session::run::engine::turns::{open_turns_sql, turn_holds_no_end_sql};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// A run as it stands now. `version` counts every progression of the run, state changes and
@@ -71,22 +72,23 @@ const SELECT_RUN_PROVIDER_SQL: &str = "WITH RECURSIVE lineage(run_id, depth) AS 
   ORDER BY lineage.depth, runtime_bindings.created_at DESC, runtime_bindings.id DESC
   LIMIT 1";
 
-// Walks down `idx_runs_parent` through live provider subagents only, so the read scales with the
-// one run's tree and a subagent that has ended cuts its branch off.
-static SELECT_LIVE_PROVIDER_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
+// Walks down `idx_runs_parent` through every provider subagent of the one run's tree, ended ones
+// included, since a run beneath an ended one still runs in the same process; it keeps those live
+// or holding a turn with no end.
+static SELECT_UNSETTLED_PROVIDER_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
     let terminal_states = &*RUN_TERMINAL_STATES_SQL;
     let provider_subagent = <&'static str>::from(ChildRunProvenance::ProviderSubagent);
+    let open_turn = open_turns_sql("subagents.run_id", "LIMIT 1");
     format!(
-        "WITH RECURSIVE subagents(run_id) AS (
-    SELECT run_id FROM runs
+        "WITH RECURSIVE subagents(run_id, state) AS (
+    SELECT run_id, state FROM runs
       WHERE parent_run_id = @run_id AND reached_by = '{provider_subagent}'
-        AND state NOT IN ({terminal_states})
     UNION ALL
-    SELECT runs.run_id FROM runs JOIN subagents ON runs.parent_run_id = subagents.run_id
+    SELECT runs.run_id, runs.state FROM runs JOIN subagents ON runs.parent_run_id = subagents.run_id
       WHERE runs.reached_by = '{provider_subagent}'
-        AND runs.state NOT IN ({terminal_states})
   )
-  SELECT run_id FROM subagents"
+  SELECT run_id FROM subagents
+  WHERE state NOT IN ({terminal_states}) OR EXISTS ({open_turn})"
     )
 });
 
@@ -151,15 +153,10 @@ static SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL: LazyLock<String> = LazyLock::new(|
   WHERE runs.state IN ({terminal_states})
     AND started.category = '{category}'
     AND started.type = '{started}'
-    AND NOT EXISTS (
-      SELECT 1 FROM session_events AS ended
-       WHERE ended.category = '{category}'
-         AND ended.type IN ({turn_ends})
-         AND ended.run_id = started.run_id
-         AND ended.turn_number = started.turn_number)",
+    AND {no_end}",
         terminal_states = *RUN_TERMINAL_STATES_SQL,
         started = SessionEventType::AgentTurnStarted.as_str(),
-        turn_ends = *TURN_END_TYPES_SQL,
+        no_end = turn_holds_no_end_sql(),
     )
 });
 
@@ -223,14 +220,15 @@ impl<'connection> RunStateReader<'connection> {
             .collect()
     }
 
-    /// The live runs `run_id`'s provider dispatched beneath it as its own subagents, at any depth
-    /// through live ones; they share its process. A child reached any other way is not one.
-    pub(crate) fn list_live_provider_subagents(
+    /// The runs `run_id`'s provider dispatched beneath it as its own subagents, at any depth, that
+    /// are live or hold a turn with no end; they share its process. A child reached any other way
+    /// is not one.
+    pub(crate) fn list_unsettled_provider_subagents(
         &self,
         run_id: &RunId,
     ) -> rusqlite::Result<Vec<RunId>> {
         self.reader
-            .prepare_cached(&SELECT_LIVE_PROVIDER_SUBAGENTS_SQL)?
+            .prepare_cached(&SELECT_UNSETTLED_PROVIDER_SUBAGENTS_SQL)?
             .query_map(named_params! { "@run_id": run_id.text().as_str() }, |row| {
                 text_column(row, 0, |text| RunId::new(&text))
             })?

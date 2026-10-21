@@ -14,6 +14,8 @@ use nix::sys::signal::Signal;
 use nix::unistd::{Pid, getsid};
 use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
 use polling::{PollMode, Poller};
+use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
 use crate::macos::processes::{
@@ -176,6 +178,60 @@ impl PinnedProcess {
         )
     }
 
+    /// Stops the process and the group it leads: `SIGTERM` to it and to the rest of its group,
+    /// unless its id has passed to another process, then as [`Self::stop`] once `grace` passes.
+    /// Blocking, so it runs in `spawn_blocking`; answers and fails as [`Self::stop`] does.
+    pub fn stop_group(&self, grace: Duration) -> io::Result<ChildEnd> {
+        let exit_watch = ExitWatch::attach(self.id)?;
+        stop_pinned_process(
+            grace,
+            |signal| {
+                if signal == Signal::SIGKILL {
+                    return self.send_signal(signal);
+                }
+                let is_running = self.send_checked_signal(signal);
+                let group_end = self.signal_rest_of_own_group(signal);
+                let is_running = is_running?;
+                group_end?;
+                Ok(is_running)
+            },
+            |bound| exit_watch.wait(bound),
+        )
+    }
+
+    /// Asks the process to end by itself: `SIGHUP`, naming it by its id version, so no process
+    /// given its id meanwhile is signaled; `false` when it has ended. Fails with the system's
+    /// error, and with `Unsupported` on a macOS without the checked read.
+    pub fn hang_up(&self) -> io::Result<bool> {
+        self.send_checked_signal(Signal::SIGHUP)
+    }
+
+    /// Waits with no bound and no thread for the process's end, an end before the wait included:
+    /// the runtime watches the descriptor of a `kqueue` holding the process's exit filter, which
+    /// reads ready once the filter posts. Dropping the wait calls it off. Must be called within the
+    /// runtime. Fails with the system's error.
+    pub async fn wait_for_end(&self) -> io::Result<()> {
+        let Some(poller) = ExitWatch::attach(self.id)?.poller else {
+            return Ok(());
+        };
+        // Attached by id alone, so a process given the id after this one ended is checked off
+        // once the filter is on: the end came before the wait.
+        if !is_running(self)? {
+            return Ok(());
+        }
+        // SAFETY: the poller's descriptor stays open for as long as the `AsyncFd` owns the poller,
+        // and `as_raw_fd` answers that one descriptor every time.
+        let exit = unsafe { AsyncFd::register_with_interest(poller, Interest::READABLE) }?;
+        loop {
+            let mut ready = exit.readable().await?;
+            // The ready read takes the posted exit off the queue; a wake with none waits again.
+            if wait_for_event(exit.get_ref(), Duration::ZERO)? {
+                return Ok(());
+            }
+            ready.clear_ready();
+        }
+    }
+
     // Sends `signal` to the process; `false` when it has ended. A `SIGKILL` first lists every
     // descendant, since a command a lasting child starts in a session of its own leaves its group,
     // then kills the process, the rest of its group and each descendant, in that order; the group
@@ -188,7 +244,7 @@ impl PinnedProcess {
         }
         let descendants = list_descendants(self);
         let is_running = self.send_checked_signal(signal);
-        let group_end = self.kill_rest_of_own_group();
+        let group_end = self.signal_rest_of_own_group(signal);
         // Every descendant is signaled, and the first refusal is kept.
         let mut descendant_end = Ok(());
         for descendant in &descendants {
@@ -201,14 +257,14 @@ impl PinnedProcess {
         Ok(is_running)
     }
 
-    // Sends `SIGKILL` to the rest of the group the process leads by its id, unless another process
+    // Sends `signal` to the rest of the group the process leads by its id, unless another process
     // holds that id, which it takes only once the group has ended; `false` when nothing was
     // signaled.
-    fn kill_rest_of_own_group(&self) -> io::Result<bool> {
+    fn signal_rest_of_own_group(&self, signal: Signal) -> io::Result<bool> {
         if pin_running_process(self.id)?.is_some_and(|holder| holder.unique_id != self.unique_id) {
             return Ok(false);
         }
-        signal_group(self.id, Signal::SIGKILL)
+        signal_group(self.id, signal)
     }
 
     // Sends `signal` to the process the id still names, by the id version read in the same check

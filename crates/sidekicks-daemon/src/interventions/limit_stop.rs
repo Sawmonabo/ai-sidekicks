@@ -304,6 +304,7 @@ impl InterventionService {
                     mint_client_key(),
                     InterruptPayload {
                         pending: InterruptPendingChoice::KeepWaiting,
+                        reorders_waiting: false,
                         reason: None,
                     },
                 )

@@ -4,12 +4,13 @@
 //! sequences, each in sequence order, one row by its event id with its stored body, and the check
 //! of a cursor against the head. A row crosses in from the database file, so each one is checked
 //! against the envelope contract on the way out. A range the session skipped past as damaged is
-//! never read, and while its history is damaged no read goes past its last good point.
+//! never read, and while its history is damaged no read goes past its last good point. A stored
+//! part of a tool completion's patched files is no event, so no read of events takes it.
 
 use std::sync::LazyLock;
 
 use garde::Validate as _;
-use rusqlite::{Connection, OptionalExtension, Row, named_params, params};
+use rusqlite::{Connection, Row, named_params, params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::{
     EventCategory, EventEnvelope, EventEnvelopeType, EventOccurredAt, HydratedSessionEvent,
@@ -26,6 +27,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::events::content::read::{StoredEventContentRow, hydrate_stored_event};
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
+use crate::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 
 /// A stored event row that is not a well-formed event envelope, which only a write outside the
 /// append path can leave; it names the row by its stored event id, session id and sequence.
@@ -89,8 +91,11 @@ pub(crate) struct SessionEventFilter<'types> {
     pub(crate) before_sequence: Option<i64>,
 }
 
-const SELECTED_COLUMNS: &str = "id, session_id, sequence, occurred_at, category, type, actor, \
-                                payload, correlation_id, causation_id, version";
+/// The envelope's columns, in the order [`SessionEventReads::read_envelopes`] reads them; a
+/// statement naming them reads its rows' table as `event`.
+pub(crate) const SELECTED_COLUMNS: &str = "event.id, event.session_id, event.sequence, \
+     event.occurred_at, event.category, event.type, event.actor, event.payload, \
+     event.correlation_id, event.causation_id, event.version";
 
 // The bound of a read that has none: no session's log reaches this sequence.
 const NO_SEQUENCE_BOUND: i64 = MAX_SAFE_SIGNED_INTEGER;
@@ -102,10 +107,11 @@ static AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {SELECTED_COLUMNS}
        FROM session_events AS event
       WHERE session_id = ? AND sequence > ? AND sequence < ?
-        AND {}
+        AND {} AND NOT {}
       ORDER BY sequence ASC
       LIMIT ?",
-        outside_skipped_ranges_sql("event")
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
@@ -115,23 +121,11 @@ static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
        FROM session_events AS event
       WHERE session_id = ? AND sequence > ? AND sequence < ?
         AND type IN (SELECT value FROM json_each(?))
-        AND {}
+        AND {} AND NOT {}
       ORDER BY sequence ASC
       LIMIT ?",
-        outside_skipped_ranges_sql("event")
-    )
-});
-
-// Newest first so the limit keeps the rows nearest the position; the read reverses them.
-static BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT {SELECTED_COLUMNS}
-       FROM session_events AS event
-      WHERE session_id = ? AND sequence <= ? AND sequence < ?
-        AND {}
-      ORDER BY sequence DESC
-      LIMIT ?",
-        outside_skipped_ranges_sql("event")
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
@@ -140,9 +134,10 @@ static WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {SELECTED_COLUMNS}
        FROM session_events AS event
       WHERE session_id = ? AND sequence BETWEEN ? AND ? AND sequence < ?
-        AND {}
+        AND {} AND NOT {}
       ORDER BY sequence ASC",
-        outside_skipped_ranges_sql("event")
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
@@ -151,37 +146,48 @@ static AT_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {SELECTED_COLUMNS}
        FROM session_events AS event
       WHERE session_id = ? AND sequence IN (SELECT value FROM json_each(?)) AND sequence < ?
-        AND {}
+        AND {} AND NOT {}
       ORDER BY sequence ASC",
-        outside_skipped_ranges_sql("event")
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
-// One run's readable rows of the given types after a position, through the event log's
-// run-and-type index, each with its stored body, in sequence order.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the provider switch's hand-over brief")
 )]
+// A run's rows of the given types, each with its body: its own stored body and those of the
+// readable pieces that join it after it, in log order.
 static RUN_AFTER_OF_TYPES_HYDRATED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {SELECTED_COLUMNS}, content_payload
+        "SELECT {SELECTED_COLUMNS},
+            (SELECT CAST(group_concat(member.content_payload, '' ORDER BY member.sequence) AS BLOB)
+               FROM session_events AS member
+              WHERE member.session_id = event.session_id
+                AND (member.sequence = event.sequence
+                  OR (member.joins_sequence = coalesce(event.joins_sequence, event.sequence)
+                      AND member.sequence > event.sequence))
+                AND {readable_member})
        FROM session_events AS event
       WHERE session_id = @session_id AND run_id = @run_id AND sequence > @after_position
         AND type IN (SELECT value FROM json_each(@event_types))
-        AND {}
+        AND {readable_event} AND {row}
       ORDER BY sequence ASC",
-        readable_event_sql("event")
+        readable_member = readable_event_sql("member"),
+        readable_event = readable_event_sql("event"),
+        row = row_condition_sql("event"),
     )
 });
 
-static STORED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
+static EVENT_BY_ID_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {SELECTED_COLUMNS}, content_payload
+        "SELECT {SELECTED_COLUMNS}
        FROM session_events AS event
       WHERE session_id = ? AND id = ? AND sequence < ?
-        AND {}",
-        outside_skipped_ranges_sql("event")
+        AND {} AND NOT {}",
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
@@ -261,11 +267,11 @@ where
     ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
         let before = self.read_bound(session_id, filter.before_sequence);
         match filter.event_types {
-            None => self.read_rows(
+            None => self.read_envelopes(
                 &AFTER_SQL,
                 params![session_id.text().as_str(), after_position, before, limit],
             ),
-            Some(event_types) => self.read_rows(
+            Some(event_types) => self.read_envelopes(
                 &AFTER_OF_TYPES_SQL,
                 params![
                     session_id.text().as_str(),
@@ -278,9 +284,9 @@ where
         }
     }
 
-    /// Every event of run `run_id` of one of `event_types` with a sequence greater than
-    /// `after_position` and, where `before_sequence` is given, below it, each paired with its
-    /// stored body.
+    /// Every row of run `run_id` of one of `event_types` with a sequence greater than
+    /// `after_position` and, where `before_sequence` is given, below it, each paired with its body:
+    /// its own stored body joined with those of the pieces that continue it, below the same bound.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the provider switch's hand-over brief")
@@ -307,26 +313,6 @@ where
         )
     }
 
-    /// The newest `limit` events with a sequence at or below `before_position`.
-    pub(crate) fn read_before(
-        &self,
-        session_id: &SessionId,
-        before_position: i64,
-        limit: i64,
-    ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
-        let mut rows = self.read_rows(
-            &BEFORE_SQL,
-            params![
-                session_id.text().as_str(),
-                before_position,
-                self.read_bound(session_id, None),
-                limit
-            ],
-        )?;
-        rows.reverse();
-        Ok(rows)
-    }
-
     /// The events with a sequence from `from_sequence` to `to_sequence`, both included.
     pub(crate) fn read_window(
         &self,
@@ -334,7 +320,7 @@ where
         from_sequence: i64,
         to_sequence: i64,
     ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
-        self.read_rows(
+        self.read_envelopes(
             &WINDOW_SQL,
             params![
                 session_id.text().as_str(),
@@ -351,7 +337,7 @@ where
         session_id: &SessionId,
         sequences: &[i64],
     ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
-        self.read_rows(
+        self.read_envelopes(
             &AT_SEQUENCES_SQL,
             params![
                 session_id.text().as_str(),
@@ -361,30 +347,26 @@ where
         )
     }
 
-    /// The event `event_id` with its stored body, or `None` when the session reads none.
-    pub(crate) fn read_stored_row(
+    /// The event `event_id`, without its body, or `None` when the session reads none.
+    pub(crate) fn read_event(
         &self,
         session_id: &SessionId,
         event_id: &str,
-    ) -> Result<Option<StoredEventContentRow>, SessionLogReadError> {
-        let stored = self
-            .reader
-            .prepare_cached(&STORED_ROW_SQL)?
-            .query_row(
+    ) -> Result<Option<EventEnvelope>, SessionLogReadError> {
+        Ok(self
+            .read_envelopes(
+                &EVENT_BY_ID_SQL,
                 params![
                     session_id.text().as_str(),
                     event_id,
                     self.read_bound(session_id, None)
                 ],
-                StoredEventRow::from_row_with_content,
-            )
-            .optional()?;
-        Ok(stored
-            .map(|(row, content_payload)| row.into_content_row(content_payload))
-            .transpose()?)
+            )?
+            .pop())
     }
 
-    fn read_bound(&self, session_id: &SessionId, before_sequence: Option<i64>) -> i64 {
+    /// The sequence a read of `session_id` stops before, as [`session_read_bound`] answers it.
+    pub(crate) fn read_bound(&self, session_id: &SessionId, before_sequence: Option<i64>) -> i64 {
         session_read_bound(
             &self.read_damaged_from_sequence,
             session_id,
@@ -415,8 +397,9 @@ where
         Ok(events)
     }
 
-    /// Runs one of the row-list statements and checks each row as an envelope, in the order read.
-    fn read_rows(
+    /// Runs a statement selecting [`SELECTED_COLUMNS`] and checks each row as an envelope, in the
+    /// order read.
+    pub(crate) fn read_envelopes(
         &self,
         sql: &str,
         bindings: impl rusqlite::Params,

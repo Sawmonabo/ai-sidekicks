@@ -242,6 +242,109 @@ async fn a_process_exit_keeps_a_run_that_is_not_live_and_ends_its_open_turns(#[c
     assert_eq!(interrupt_state(&database, &step_row), "accepted");
 }
 
+// The provider subagents beneath the lead run at a process exit.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SubagentTree {
+    /// One ended child holding an open turn.
+    Ended,
+    /// An ended child with no turn, above an ended grandchild holding an open turn.
+    EndedTwoDeep,
+    /// An ended child with no turn, above a running grandchild with no open turn.
+    LiveBeneathEnded,
+}
+
+// Killed by the exit's subagent read cutting off a subagent that has ended, at the first level
+// (`ended`) or deeper (`ended_two_deep`), by its walk stopping at an ended subagent
+// (`ended_two_deep`, `live_beneath_ended`), by its read keeping only the subagents holding an open
+// turn (`live_beneath_ended`), and by an ended run's open turn left without its end, or with its
+// state or version moved (`ended`, `ended_two_deep`).
+#[rstest]
+#[case::ended(SubagentTree::Ended)]
+#[case::ended_two_deep(SubagentTree::EndedTwoDeep)]
+#[case::live_beneath_ended(SubagentTree::LiveBeneathEnded)]
+#[tokio::test]
+async fn a_process_exit_ends_the_open_turns_of_every_provider_subagent_beneath_its_run(
+    #[case] tree: SubagentTree,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let lead = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, lead);
+    let engine = test_engine(&database, log.service, home.path());
+    let new_subagent = |parent: &RunId| {
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        database
+            .reader()
+            .execute(
+                "INSERT INTO runs (run_id, session_id, parent_run_id, reached_by, state,
+                   run_version)
+                 VALUES (?1, ?2, ?3, 'providerSubagent', 'running', 1)",
+                [
+                    run_id.text().as_str(),
+                    session_id.text().as_str(),
+                    parent.text().as_str(),
+                ],
+            )
+            .expect("the test writes the subagent");
+        run_id
+    };
+    let end_run = |run_id: &RunId| {
+        database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = 'interrupted' WHERE run_id = ?1",
+                [run_id.text().as_str()],
+            )
+            .expect("the test ends the subagent");
+    };
+    let child = new_subagent(&lead);
+    let subagent = if tree == SubagentTree::Ended {
+        child
+    } else {
+        end_run(&child);
+        new_subagent(&child)
+    };
+    if tree != SubagentTree::LiveBeneathEnded {
+        append(
+            &engine,
+            session_id,
+            &turn_started_at(session_id, subagent, 1, 1),
+        )
+        .await;
+        end_run(&subagent);
+    }
+
+    engine
+        .end_turn_on_process_exit(lead, process_exit())
+        .await
+        .expect("the exit ends the run and its subagents' open turns");
+
+    if tree == SubagentTree::LiveBeneathEnded {
+        assert_eq!(
+            stored_events(&database, &subagent),
+            events(&[("agent.run.failed", None, None)])
+        );
+        assert_eq!(
+            stored_run_state(&database, &subagent),
+            ("failed".to_owned(), 2)
+        );
+    } else {
+        assert_eq!(
+            stored_events(&database, &subagent),
+            events(&[
+                ("agent.turn.started", None, None),
+                ("agent.turn.failed", Some("processExit"), Some("daemon")),
+            ])
+        );
+        assert_eq!(
+            stored_run_state(&database, &subagent),
+            ("interrupted".to_owned(), 1)
+        );
+    }
+}
+
 // Killed by a process exit that returns its first refusal, which leaves the run running with the
 // step limit's row pending, and by one that decides again from its first read, which the guard
 // refuses once more since the person's interrupt that turn 1's end brought is still unread.

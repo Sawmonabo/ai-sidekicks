@@ -5,6 +5,7 @@
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
@@ -23,7 +24,7 @@ use crate::provider::driver::codex::transport::connection::{
     read_codex_object, read_member,
 };
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::bound_failure_detail;
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 
 /// Stands in for a responder failure that carries no words, as the refusal's reason.
 static RESPONDER_FAILURE_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -206,18 +207,36 @@ impl ConnectionShared {
         }
     }
 
-    // Answers one routed ask through the responder, or holds it for the person. An ask with no
-    // responder, a failing one, or an answer that does not fit it answers the method's own
-    // refusal, never `-32601` and never an allow.
+    // Hands one routed ask to the responder, synchronously on the reader, and answers the wait
+    // for its decision; `None` when no responder is bound.
+    pub(super) fn decide_routed_request(
+        &self,
+        id: &RawValue,
+        method: CodexRoutedMethod,
+        params: &RawValue,
+    ) -> Option<BoxFuture<'static, Result<CodexServerRequestDecision, DriverError>>> {
+        let responder = self.responder.as_ref()?;
+        Some(responder.answer(CodexInboundServerRequest {
+            // Keyed by its JSON, so a string id and a number with the same digits stay apart.
+            request_id: id.get().to_owned(),
+            method,
+            ask_kind: method.classify_ask(params),
+            params: params.to_owned(),
+        }))
+    }
+
+    // Answers one routed ask with its responder's decision, or holds it for the person. An ask
+    // with no responder, a failing one, or an answer that does not fit it answers the method's
+    // own refusal, never `-32601` and never an allow.
     pub(super) async fn answer_routed_request(
         self: Arc<Self>,
         id: Box<RawValue>,
         method: CodexRoutedMethod,
         params: Box<RawValue>,
+        decision: Option<BoxFuture<'static, Result<CodexServerRequestDecision, DriverError>>>,
     ) {
-        // Keyed by its JSON, so a string id and a number with the same digits stay apart.
         let request_id = id.get().to_owned();
-        let result = match &self.responder {
+        let result = match decision {
             None => {
                 CodexTransportDiagnostic::UnroutedServerRequestRefused {
                     method: method.method().to_owned(),
@@ -225,33 +244,25 @@ impl ConnectionShared {
                 .report();
                 method.compose_unadjudicated_result(CodexUnadjudicatedAsk::NoResponder)
             }
-            Some(responder) => {
-                let request = CodexInboundServerRequest {
-                    request_id: request_id.clone(),
-                    method,
-                    ask_kind: method.classify_ask(&params),
-                    params: params.clone(),
-                };
-                match responder.answer(request).await {
-                    Ok(CodexServerRequestDecision::Held { on_held }) => {
-                        self.hold_request(request_id, HeldServerRequest { id, method, params });
-                        if let Some(on_held) = on_held {
-                            on_held();
-                        }
-                        return;
+            Some(decision) => match decision.await {
+                Ok(CodexServerRequestDecision::Held { on_held }) => {
+                    self.hold_request(request_id, HeldServerRequest { id, method, params });
+                    if let Some(on_held) = on_held {
+                        on_held();
                     }
-                    Ok(CodexServerRequestDecision::Answer(answer)) => {
-                        match method.compose_answer_result(&params, &answer) {
-                            Some(result) => result,
-                            None => refuse_undecided(
-                                method,
-                                "The daemon's answer does not fit this request.".into(),
-                            ),
-                        }
-                    }
-                    Err(error) => refuse_undecided(method, Box::new(error)),
+                    return;
                 }
-            }
+                Ok(CodexServerRequestDecision::Answer(answer)) => {
+                    match method.compose_answer_result(&params, &answer) {
+                        Some(result) => result,
+                        None => refuse_undecided(
+                            method,
+                            "The daemon's answer does not fit this request.".into(),
+                        ),
+                    }
+                }
+                Err(error) => refuse_undecided(method, Box::new(error)),
+            },
         };
         if let Err(error) = self.send_answer(&id, method, &result).await {
             // A failed answer leaves the service waiting on the ask.

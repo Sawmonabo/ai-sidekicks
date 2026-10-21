@@ -6,6 +6,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::session::directory::{SessionListChange, SessionListEntry};
 use sidekicks_contracts::session::id::SessionId;
@@ -132,8 +133,13 @@ impl SessionListSubscriber {
             .drain(..self.unsent.len().min(PAGE_CANDIDATE_LIMIT))
             .collect();
         let (candidates, current_ids) = self.list.newest_of(&held);
-        let count = count_entries_fitting_one_frame(&candidates, candidates.len(), PAGE_MAX_BYTES)
-            .expect("a list entry writes as JSON");
+        let count = count_entries_fitting_one_frame(
+            &candidates,
+            candidates.len(),
+            PAGE_MAX_BYTES,
+            json_utf8_byte_length,
+        )
+        .expect("a list entry writes as JSON");
         for unsent in held[count..].iter().rev() {
             self.unsent.push_front(Arc::clone(unsent));
         }

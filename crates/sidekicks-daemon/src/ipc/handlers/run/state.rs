@@ -36,7 +36,7 @@ use crate::database::connection::read_pool::DatabaseReadError;
 use crate::events::log_service::{EventLogReadError, EventLogService, FollowStart};
 use crate::ipc::handlers::run::safety_holds::{RunSafetyHolds, SafetyHoldsFollow};
 use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::ipc::stream::feed::{ChangeRecord, Feed};
+use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use crate::ipc::stream::frame_batcher::ChangeFeed;
 use crate::session::run::stored_state_change::{
     StoredRunStateChange, read_stored_run_state_change,
@@ -198,7 +198,7 @@ impl ChangeRecord for RunStateRecord {
         &self,
         cursor: &EventCursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<Vec<RunStateStreamChange>, RunStateStreamError>> {
+    ) -> BoxFuture<'_, Result<RecordPage<RunStateStreamChange>, RunStateStreamError>> {
         let cursor = cursor.clone();
         async move {
             let after_position = decode_event_cursor(&cursor).map_err(EventLogReadError::from)?;
@@ -250,7 +250,11 @@ impl ChangeRecord for RunStateRecord {
                     }
                 }));
             }
-            Ok(changes)
+            // A run's state changes are small, so a read is cut by its count alone.
+            Ok(RecordPage {
+                changes,
+                is_cut_by_size: false,
+            })
         }
         .boxed()
     }

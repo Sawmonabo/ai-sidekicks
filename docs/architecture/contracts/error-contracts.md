@@ -189,6 +189,7 @@ Every namespace below follows the same rules:
 | --- | --- | --- | --- |
 | `agent.run.invalidTransition` | Requested state transition is not allowed from the current run state | `failedPrecondition` | 409 |
 | `agent.run.versionStale` | An `agent.run.pause` or `agent.run.resume` whose `expectedRunVersion` is not the run's current version, older or newer; nothing is written and the run is left as it was | `aborted` | 409 |
+| `agent.run.notChild` | A read of a child run's rows named a run that has no parent | `failedPrecondition` | 409 |
 | `agent.run.notFound` | Run does not exist | `notFound` | 404 |
 | `agent.run.recoveryFailed` | Run recovery failed due to an internal error | `internal` | 500 |
 | `agent.childRun.controlRefused` | A control on one named child of a run — `agent.childRun.steer`, `agent.childRun.interrupt` or `agent.childRun.paused.update`, or a queue verb carrying `childHandle` — refused. `data.fields.reason` is `childEnded` (the child has already ended) or `providerRefused` (the provider declined the control). A child the daemon bridges is its own run and is controlled through that run's own verbs; a lost hold is a result on the reply, never this refusal | `failedPrecondition` | 409 |

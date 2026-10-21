@@ -9,6 +9,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -58,6 +59,27 @@ impl InterruptQueue for RunQueue {
         send: SendNow,
     ) -> BoxFuture<'_, Result<SendNowOutcome, InterruptQueueError>> {
         async move { Ok(self.send_now_under_hold(send).await?) }.boxed()
+    }
+
+    fn reorders_waiting(
+        &self,
+        run_id: RunId,
+        deliver_first: Option<QueueItemId>,
+    ) -> BoxFuture<'_, Result<bool, InterruptQueueError>> {
+        async move {
+            let Some(first_id) = deliver_first else {
+                return Ok(false);
+            };
+            let movable: Vec<QueueItemRecord> = self
+                .read_waiting(run_id)
+                .await?
+                .into_iter()
+                .filter(|item| !self.delivery.is_handed(&item.id))
+                .collect();
+            Ok(movable.first().is_some_and(|first| first.id != first_id)
+                && movable.iter().any(|item| item.id == first_id))
+        }
+        .boxed()
     }
 
     fn hold_for_interrupt(

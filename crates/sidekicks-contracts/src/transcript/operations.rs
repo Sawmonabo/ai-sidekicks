@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::run::id::RunId;
@@ -29,7 +30,7 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt, count_bound};
 use crate::wire::list::BoundedVec;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{BoundedText, FreeFormText};
 use crate::wire::{False, True, literal};
 
 /// Refuses entries that go backwards in sequence: a page runs oldest to newest, nondecreasing.
@@ -96,17 +97,23 @@ fn require_one_fact_per_named_run(
 }
 
 /// Holds an expansion to its own run: a row attributed to another run would render as this run's
-/// activity. A `general` row carries no run and rides as context.
+/// activity. A `general` row carries no run and rides as context, and a child of this run is
+/// drawn as a child: its summarized row, which names this run as its parent.
 fn require_entries_to_belong_to_run(
     run_id: &RunId,
     entries: &[TranscriptReadRow],
 ) -> garde::Result {
-    if entries
-        .iter()
-        .any(|entry| entry.run_id().is_some_and(|named| named != run_id))
-    {
+    let is_own_child_row = |entry: &TranscriptReadRow| {
+        entry
+            .child_run_summary()
+            .is_some_and(|summary| summary.parent_run_id == *run_id)
+    };
+    if entries.iter().any(|entry| {
+        entry.run_id().is_some_and(|named| named != run_id) && !is_own_child_row(entry)
+    }) {
         return Err(garde::Error::new(
-            "a child-run expansion carries only that run's rows, and an entry names another run",
+            "a child-run expansion carries only that run's rows and its children's summarized \
+             rows, and an entry names another run",
         ));
     }
     Ok(())
@@ -214,6 +221,10 @@ pub struct TranscriptReadContinuing {
     pub has_more: True,
     /// Where to continue.
     pub next_cursor: EventCursor,
+    /// The newest event the page's rows joined their pieces through. A reader opens its stream at
+    /// the earliest page's, so a piece stored after it reaches the reader on the stream, placed in
+    /// its row by its offset.
+    pub joined_through: EventCursor,
 }
 
 /// The last read window: possibly empty, and possibly saying where the window ended.
@@ -243,6 +254,15 @@ pub struct TranscriptReadTerminal {
     )]
     #[schemars(with = "EventCursor")]
     pub next_cursor: Option<EventCursor>,
+    /// The newest event the page's rows joined their pieces through; absent on a session with no
+    /// readable event.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "EventCursor")]
+    pub joined_through: Option<EventCursor>,
 }
 
 /// One read window, split on `hasMore`.
@@ -285,15 +305,18 @@ pub struct TranscriptReasoningReadRequest {
     pub after_cursor: Option<EventCursor>,
 }
 
-/// One normalized reasoning entry, ordered by its originating `sequence`.
+/// One reasoning entry: consecutive pieces of one reasoning row, joined, up to one entry's cap. A
+/// text longer than that spans consecutive entries of the same row, which a reader joins.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ReasoningEntry {
-    /// The sequence of the event it was projected from.
+    /// The sequence of the last event it holds, so a page continues exactly after it.
     pub sequence: SafeInt<0>,
-    /// The reasoning text.
-    pub content: FreeFormText<REASONING_ENTRY_CONTENT_MAX_LEN>,
+    /// The row it belongs to: the id of the row's first event.
+    pub row_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// The reasoning text, whitespace kept as the provider sent it.
+    pub content: BoundedText<1, REASONING_ENTRY_CONTENT_MAX_LEN>,
     /// When it was produced.
     #[garde(dive)]
     pub timestamp: WireInstant,
@@ -448,6 +471,15 @@ macro_rules! child_run_expand_arm {
                 "type": "object",
                 "properties": { "runId": { "not": { "const": { "$data": "3/runId" } } } },
                 "required": ["runId"],
+                "not": {
+                    "type": "object",
+                    "properties": { "childRunSummary": {
+                        "type": "object",
+                        "properties": { "parentRunId": { "const": { "$data": "4/runId" } } },
+                        "required": ["parentRunId"],
+                    } },
+                    "required": ["childRunSummary"],
+                },
             } }))]
             pub entries: ReadEntries<$min>,
             $($arm_member)*
@@ -463,6 +495,8 @@ child_run_expand_arm! {
         pub has_more: True,
         /// Where to continue.
         pub next_cursor: EventCursor,
+        /// The newest event the page's rows joined their pieces through.
+        pub joined_through: EventCursor,
     }
 }
 
@@ -480,6 +514,15 @@ child_run_expand_arm! {
         )]
         #[schemars(with = "EventCursor")]
         pub next_cursor: Option<EventCursor>,
+        /// The newest event the page's rows joined their pieces through; absent on a session with
+        /// no readable event.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "EventCursor")]
+        pub joined_through: Option<EventCursor>,
     }
 }
 

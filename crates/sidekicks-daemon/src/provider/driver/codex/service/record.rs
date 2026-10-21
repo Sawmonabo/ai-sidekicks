@@ -1,12 +1,18 @@
-//! Where a daemon keeps the record of the lasting Codex service on a Codex folder, so a later
-//! daemon finds the same process again: one JSON file per folder under the daemon's data folder,
-//! never in the Codex folder itself, replaced whole through a temporary file and read or written
-//! only under a lock on the file beside it, so two daemons never start two services on one folder.
+//! Where a daemon keeps the record of each lasting Codex service on a Codex folder, so a later
+//! daemon finds the same processes again: one JSON file per service, named for the socket it
+//! listens on, holding its process, where its socket really is and whether it was asked to drain,
+//! in a folder per Codex folder under the daemon's data folder, never in the Codex folder itself;
+//! each is replaced whole through a temporary file and read or written only under the one lock of
+//! its Codex folder's records, so two daemons never start two services on one socket. The lock's
+//! file is never removed: a lock follows the open file, so removing a file someone waits on would
+//! hand the next taker a lock on another file.
 
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
     ProcessRecord, create_private_folder, real_path, replace_file_atomically,
 };
@@ -16,11 +22,42 @@ use crate::provider::service_log::provider_home_key;
 /// The folder in the data folder that holds the lasting services' records.
 const RECORD_FOLDER_NAME: &str = "codex-services";
 
+/// The end of a record file's name, after the socket's own name.
+const RECORD_FILE_SUFFIX: &str = ".json";
+
+/// The file whose lock guards every record of one Codex folder, beside them.
+const RECORDS_LOCK_NAME: &str = "records.lock";
+
 /// The mode a record is written with, before the umask: the user's alone.
 const RECORD_FILE_MODE: u32 = 0o600;
 
-/// The record file of the lasting service on one Codex folder.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What a record keeps of one lasting service.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct LastingServiceRecord {
+    /// What a later daemon re-pins the service's process from.
+    pub(crate) process: ProcessRecord,
+    /// Where the service's socket really is, which the home's link names while the service holds
+    /// it; `None` from the launch until the service answers on it.
+    pub(crate) physical_socket: Option<PathBuf>,
+    /// Whether the service was asked to drain, so it ends by itself once its running replies
+    /// finish; such a service is never joined, nor is the home's link pointed at it.
+    pub(crate) is_draining: bool,
+}
+
+impl LastingServiceRecord {
+    /// The record of a service just launched as `process`, before it answers.
+    pub(crate) fn launched(process: ProcessRecord) -> Self {
+        Self {
+            process,
+            physical_socket: None,
+            is_draining: false,
+        }
+    }
+}
+
+/// The record file of the lasting service on one socket of a Codex folder.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LastingServiceRecordFile {
     record: PathBuf,
     lock: PathBuf,
@@ -34,23 +71,50 @@ pub(crate) struct LastingServiceRecordFile {
     )
 )]
 impl LastingServiceRecordFile {
-    /// The record file of the service on `codex_home`, in `data_folder`; `codex_home` is resolved
-    /// first, so two spellings of one folder share one record. Fails with the resolve's error, a
-    /// missing folder among them.
-    pub(crate) fn of_home(data_folder: &Path, codex_home: &Path) -> io::Result<Self> {
-        let key = provider_home_key(&real_path(codex_home)?);
-        let record = data_folder
-            .join(RECORD_FOLDER_NAME)
-            .join(format!("{key}.json"));
-        let lock = record.with_extension("json.lock");
-        Ok(Self { record, lock })
+    /// The record file of the service on `codex_home` listening on `socket`, in `data_folder`;
+    /// `codex_home` is resolved first, so two spellings of one folder share one record. Fails with
+    /// the resolve's error, a missing folder among them, and with `InvalidInput` for a socket path
+    /// that names no file.
+    pub(crate) fn of_socket(
+        data_folder: &Path,
+        codex_home: &Path,
+        socket: &Path,
+    ) -> io::Result<Self> {
+        let socket_name = socket.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a Codex service's socket path names no file",
+            )
+        })?;
+        let record = home_record_folder(data_folder, codex_home)?.join(format!(
+            "{}{RECORD_FILE_SUFFIX}",
+            socket_name.to_string_lossy()
+        ));
+        Ok(Self::at(record))
     }
 
-    /// Takes the record's lock, waiting while another daemon holds it; blocking, so it runs in
-    /// `spawn_blocking`. The lock is released when the answer drops, the holder's crash
-    /// included. Fails with the system's error from making the folder, opening the lock file or
-    /// taking the lock.
-    pub(crate) fn lock(&self) -> io::Result<LockedServiceRecord<'_>> {
+    // The record at `record`, with its folder's lock beside it.
+    fn at(record: PathBuf) -> Self {
+        let lock = record.with_file_name(RECORDS_LOCK_NAME);
+        Self { record, lock }
+    }
+
+    /// Removes the record once the service whose process is `ended` has ended, when the record
+    /// still names that process; a record a later start wrote is left. Takes the folder's lock, so
+    /// it is blocking. Fails as the lock, the read or the removal does.
+    pub(crate) fn remove_if_naming(&self, ended: &ProcessRecord) -> io::Result<()> {
+        let locked = self.lock()?;
+        if locked.read()?.is_some_and(|kept| kept.process == *ended) {
+            locked.remove()?;
+        }
+        Ok(())
+    }
+
+    /// Takes the lock of the Codex folder's records, waiting while another daemon or another
+    /// start holds it; blocking, so it runs in `spawn_blocking`. The lock is released when the
+    /// answer and every record held through it drop, the holder's crash included. Fails with the
+    /// system's error from making the folder, opening the lock file or taking the lock.
+    pub(crate) fn lock(&self) -> io::Result<LockedServiceRecord> {
         let folder = self
             .lock
             .parent()
@@ -63,16 +127,22 @@ impl LastingServiceRecordFile {
             .open(&self.lock)?;
         lock.lock()?;
         Ok(LockedServiceRecord {
-            file: self,
-            _lock: lock,
+            file: self.clone(),
+            hold: Arc::new(lock),
         })
     }
 }
 
-/// The record file while its lock is held; reads and writes need the hold.
-pub(crate) struct LockedServiceRecord<'file> {
-    file: &'file LastingServiceRecordFile,
-    _lock: File,
+/// A record file while its Codex folder's lock is held; reads and writes need the hold.
+pub(crate) struct LockedServiceRecord {
+    file: LastingServiceRecordFile,
+    hold: Arc<File>,
+}
+
+/// The folder of the records of the services on `codex_home`, named for the folder resolved.
+fn home_record_folder(data_folder: &Path, codex_home: &Path) -> io::Result<PathBuf> {
+    let key = provider_home_key(&real_path(codex_home)?);
+    Ok(data_folder.join(RECORD_FOLDER_NAME).join(key))
 }
 
 #[cfg_attr(
@@ -82,10 +152,47 @@ pub(crate) struct LockedServiceRecord<'file> {
         reason = "the daemon's start reads, writes and removes the lasting Codex service's record"
     )
 )]
-impl LockedServiceRecord<'_> {
+impl LockedServiceRecord {
+    /// The record file the hold is on.
+    pub(crate) fn file(&self) -> &LastingServiceRecordFile {
+        &self.file
+    }
+
+    /// The record `file` of the same Codex folder under this same hold.
+    pub(crate) fn sibling(&self, file: LastingServiceRecordFile) -> Self {
+        Self {
+            file,
+            hold: Arc::clone(&self.hold),
+        }
+    }
+
+    /// Every other record file kept for the same Codex folder, each under this same hold, so no
+    /// second lock is taken while this one is held. Blocking. Fails with the folder's read error.
+    pub(crate) fn others(&self) -> io::Result<Vec<Self>> {
+        let folder = self
+            .file
+            .record
+            .parent()
+            .expect("a record file sits in its folder");
+        let mut others = Vec::new();
+        for entry in std::fs::read_dir(folder)? {
+            let path = entry?.path();
+            let is_record = path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().ends_with(RECORD_FILE_SUFFIX));
+            if is_record && path != self.file.record {
+                others.push(Self {
+                    file: LastingServiceRecordFile::at(path),
+                    hold: Arc::clone(&self.hold),
+                });
+            }
+        }
+        Ok(others)
+    }
+
     /// The record kept, or `None` when none is. Blocking. Fails with the read's error, and with
     /// `InvalidData` for a file that does not read as a record.
-    pub(crate) fn read(&self) -> io::Result<Option<ProcessRecord>> {
+    pub(crate) fn read(&self) -> io::Result<Option<LastingServiceRecord>> {
         let text = match std::fs::read(&self.file.record) {
             Ok(text) => text,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -98,7 +205,7 @@ impl LockedServiceRecord<'_> {
 
     /// Keeps `record` in place of any record kept before, whole or not at all. Blocking. Fails
     /// with the replace's error.
-    pub(crate) fn write(&self, record: &ProcessRecord) -> io::Result<()> {
+    pub(crate) fn write(&self, record: &LastingServiceRecord) -> io::Result<()> {
         let text = serde_json::to_vec(record).expect("a process record writes as JSON");
         replace_file_atomically(&self.file.record, &text, RECORD_FILE_MODE)
             .map_err(io::Error::other)
@@ -119,20 +226,28 @@ impl LockedServiceRecord<'_> {
 mod tests {
     use sidekicks_platforms::pin_child_process;
 
-    use super::LastingServiceRecordFile;
+    use super::{LastingServiceRecord, LastingServiceRecordFile};
 
     // Fails when the record reads back as anything but what was written, or a removed record
     // still reads.
     #[test]
     fn codex_service_record_reads_back_what_was_written_and_nothing_once_removed() {
         let data_folder = tempfile::tempdir().expect("a scratch folder is made");
-        let record = pin_child_process(std::process::id())
-            .expect("this process pins")
-            .record()
-            .expect("the record reads")
-            .expect("this process runs");
-        let file = LastingServiceRecordFile::of_home(data_folder.path(), data_folder.path())
-            .expect("the folder resolves");
+        let record = LastingServiceRecord {
+            process: pin_child_process(std::process::id())
+                .expect("this process pins")
+                .record()
+                .expect("the record reads")
+                .expect("this process runs"),
+            physical_socket: Some(data_folder.path().join("real.sock")),
+            is_draining: true,
+        };
+        let file = LastingServiceRecordFile::of_socket(
+            data_folder.path(),
+            data_folder.path(),
+            &data_folder.path().join("app-server-control.sock"),
+        )
+        .expect("the folder resolves");
 
         let locked = file.lock().expect("the lock is taken");
         let before = locked.read().expect("a missing record reads");

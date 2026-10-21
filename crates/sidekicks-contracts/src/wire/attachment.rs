@@ -223,12 +223,19 @@ fn read_with_attachments<T, Read>(
 /// Writes one message: its JSON with a placeholder for each byte member, and the attachments in
 /// placeholder order. Fails only where `value`'s own `Serialize` fails.
 pub fn write<T: Serialize>(value: &T) -> Result<(Vec<u8>, Vec<ByteBuffer>), serde_json::Error> {
+    let (json, attachments) = collect_attachments(|| serde_json::to_vec(value));
+    Ok((json?, attachments))
+}
+
+/// Runs `serialize` as one message's write, so every byte member it serializes writes its
+/// placeholder, and returns its result with the attachments those members wrote, in order.
+pub(crate) fn collect_attachments<R>(serialize: impl FnOnce() -> R) -> (R, Vec<ByteBuffer>) {
     let guard = ContextGuard::enter(&OUTGOING, Vec::new());
-    let json = serde_json::to_vec(value);
+    let written = serialize();
     let attachments = guard
         .take()
         .expect("the guard holds this write's attachments");
-    Ok((json?, attachments))
+    (written, attachments)
 }
 
 /// The placeholder every byte member is written as, `$defs/Bytes` in the schemas; TypeScript reads

@@ -18,7 +18,7 @@ use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
 
 use crate::ipc::registry::HandlerError;
-use crate::ipc::stream::feed::{ChangeRecord, Feed, SendGate};
+use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage, SendGate};
 
 /// How long the first change of a frame waits for others before the frame goes out.
 pub(crate) const STREAM_WINDOW: Duration = Duration::from_millis(16);
@@ -88,15 +88,18 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
     }
 
     /// Reads the changes after the cursor and moves the cursor past them; `None` when none is
-    /// stored. A full read leaves the next one due.
+    /// stored. A read full by count, or cut by a frame's bytes, leaves the next one due.
     async fn read(&mut self) -> Result<Option<Vec<Record::Change>>, Record::Error> {
         // Marked before the read, so a change appended after it is signaled to the wait.
         self.seen = *self.change_count.borrow_and_update();
-        let changes = self
+        let RecordPage {
+            changes,
+            is_cut_by_size,
+        } = self
             .record
             .read_after(&self.cursor, STREAM_FRAME_MAX_CHANGES)
             .await?;
-        self.is_read_due = changes.len() == STREAM_FRAME_MAX_CHANGES;
+        self.is_read_due = changes.len() == STREAM_FRAME_MAX_CHANGES || is_cut_by_size;
         let Some(last) = changes.last() else {
             return Ok(None);
         };
@@ -231,7 +234,7 @@ mod tests {
             &self,
             cursor: &u64,
             max: usize,
-        ) -> BoxFuture<'_, Result<Vec<u64>, Infallible>> {
+        ) -> BoxFuture<'_, Result<RecordPage<u64>, Infallible>> {
             let changes = self
                 .changes
                 .lock()
@@ -242,7 +245,10 @@ mod tests {
                 .filter(|change| change > cursor)
                 .take(max)
                 .collect();
-            Box::pin(std::future::ready(Ok(after)))
+            Box::pin(std::future::ready(Ok(RecordPage {
+                changes: after,
+                is_cut_by_size: false,
+            })))
         }
 
         fn cursor_of(change: &u64) -> u64 {
