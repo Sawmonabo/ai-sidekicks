@@ -322,9 +322,12 @@ pub(crate) fn is_codex_server_request_method(method: &str) -> bool {
 }
 
 /// The daemon's answer to one routed ask.
-#[expect(
-    dead_code,
-    reason = "the daemon's responder and the held-ask answer compose it for the connection"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's responder and the held-ask answer compose it for the connection"
+    )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServerRequestAnswer {
@@ -390,11 +393,13 @@ pub(crate) struct CodexInboundServerRequest {
 /// The port the daemon binds to answer routed asks: the callback-tool host for a tool call, the
 /// approval pipeline otherwise. With none bound every routed ask answers its own refusal.
 pub(crate) trait CodexServerRequestResponder: Send + Sync {
-    /// Answers or holds one ask; a failure leaves the ask undecided, so it is refused.
+    /// Answers or holds one ask; a failure leaves the ask undecided, so it is refused. Called on
+    /// the connection's reader in arrival order, so whatever it does before it returns happens
+    /// between the frames around the ask; the future it returns is awaited off the reader.
     fn answer(
         &self,
         request: CodexInboundServerRequest,
-    ) -> BoxFuture<'_, Result<CodexServerRequestDecision, DriverError>>;
+    ) -> BoxFuture<'static, Result<CodexServerRequestDecision, DriverError>>;
 }
 
 /// One routed ask with the session and run it belongs to. `run_id` is `None`, never invented,

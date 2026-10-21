@@ -149,6 +149,26 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The conversation it named, or `None` when it named none.
         thread_id: Option<String>,
     },
+    /// A frame named a conversation no session on the service holds and no start or fork in
+    /// flight claimed, so it reached no session.
+    UnroutedThreadFrame {
+        /// The frame's method.
+        method: String,
+        /// The conversation it named.
+        thread_id: String,
+    },
+    /// A frame held for a start or fork in flight was pushed out by the hold's bound.
+    PendingThreadFrameDropped {
+        /// The frame's method.
+        method: String,
+        /// The conversation it named.
+        thread_id: String,
+    },
+    /// A notification arrived on a connection no session reads, such as the capability probe's.
+    UnconsumedServerNotification {
+        /// The notification's method.
+        method: String,
+    },
     /// An answer to an ask was larger, encoded, than the service takes in one message, so the
     /// service gets a refusal instead, and nothing when the refusal does not fit either.
     ServerRequestAnswerOversized {
@@ -430,6 +450,20 @@ impl CodexTransportDiagnostic {
                 turn_id = turn_id.as_deref(),
                 is_turn_id_cut,
                 "A Codex ask named a turn with no live run and was refused"
+            ),
+            Self::UnroutedThreadFrame { method, thread_id } => tracing::warn!(
+                method = method.as_str(),
+                thread_id = thread_id.as_str(),
+                "A Codex frame named a conversation no session holds and reached none"
+            ),
+            Self::PendingThreadFrameDropped { method, thread_id } => tracing::warn!(
+                method = method.as_str(),
+                thread_id = thread_id.as_str(),
+                "A Codex frame held for a conversation's claim was pushed out by the hold's bound"
+            ),
+            Self::UnconsumedServerNotification { method } => tracing::debug!(
+                method = method.as_str(),
+                "A Codex notification arrived on a connection no session reads"
             ),
             Self::RoutedAskThreadUnresolved { method, thread_id } => tracing::warn!(
                 method = method.as_str(),

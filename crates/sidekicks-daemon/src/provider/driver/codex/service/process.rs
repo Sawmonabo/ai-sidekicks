@@ -8,9 +8,11 @@ use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
-use futures::{SinkExt, StreamExt};
+use futures::future::{BoxFuture, Shared};
+use futures::{FutureExt as _, SinkExt, StreamExt};
 use process_wrap::tokio::ChildWrapper;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::ProcessExit;
@@ -30,6 +32,17 @@ use crate::provider::service_log::{open_provider_service_log, read_provider_serv
 /// The variable that opens a lasting service's shutdown socket; Codex reads it only on Windows.
 const CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME: &str = "CODEX_DAEMON_SHUTDOWN_SOCKET";
 
+/// The value that variable takes.
+const CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE: &str = "1";
+
+/// The `NAME=value` entry every lasting service and what it starts carries, which marks what a
+/// former daemon's service left running for `ProcessRecord::end_survivors`.
+pub(crate) fn codex_lasting_service_environment_entry() -> String {
+    format!(
+        "{CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME}={CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE}"
+    )
+}
+
 /// The address Codex answers a shutdown request at, over its control socket.
 const CODEX_SHUTDOWN_ADDRESS: &str = "ws://localhost/daemon/shutdown";
 
@@ -37,9 +50,12 @@ const CODEX_SHUTDOWN_ADDRESS: &str = "ws://localhost/daemon/shutdown";
 const CODEX_CONTROL_SOCKET_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// What one Codex process runs: a service start or a short command.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds each Codex launch from the program and the environment"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start builds each Codex launch from the program and the environment"
+    )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexProcessLaunch {
@@ -68,20 +84,22 @@ impl CodexProcessLaunch {
     }
 }
 
-/// A service's exit, read once from the task that waits on it.
-struct ServiceExit(Option<oneshot::Receiver<io::Result<ProcessExit>>>);
+/// How a Codex service the daemon started ended, answered once it has: its code or signal and the
+/// tail of what it printed. Every clone answers the same exit, so the supervisor's exit watch and
+/// a stop's wait both read it. Fails when the wait or a read failed.
+pub(crate) type CodexServiceExit = Shared<BoxFuture<'static, Result<ProcessExit, Arc<io::Error>>>>;
 
-impl ServiceExit {
-    async fn read(&mut self) -> io::Result<ProcessExit> {
-        let Some(answer) = self.0.as_mut() else {
-            return Err(io::Error::other(
-                "the Codex service's exit was already read",
-            ));
-        };
-        let answered = answer.await;
-        self.0 = None;
-        answered.map_err(io::Error::other).and_then(|exit| exit)
+// The exit the task waiting on the process answers, shared by every reader.
+fn share_service_exit(answer: oneshot::Receiver<io::Result<ProcessExit>>) -> CodexServiceExit {
+    async move {
+        answer
+            .await
+            .map_err(io::Error::other)
+            .and_then(|exit| exit)
+            .map_err(Arc::new)
     }
+    .boxed()
+    .shared()
 }
 
 /// One Codex service on an account home the daemon manages: a child that ends with the daemon,
@@ -90,13 +108,9 @@ pub(crate) struct ManagedCodexService {
     process_id: Option<u32>,
     // The end asked last; a kill is never replaced by a stop.
     ends: watch::Sender<Option<ChildEnd>>,
-    exit: ServiceExit,
+    exit: CodexServiceExit,
 }
 
-#[expect(
-    dead_code,
-    reason = "the Codex driver's sessions stop, kill and read the exit of their managed service"
-)]
 impl ManagedCodexService {
     /// The process's id, or `None` when the system gave it none.
     pub(crate) fn process_id(&self) -> Option<u32> {
@@ -113,11 +127,9 @@ impl ManagedCodexService {
         self.ask_to_end(ChildEnd::Kill);
     }
 
-    /// How the service ended: its code or signal and the tail of what it printed, answered once
-    /// it has exited and both its outputs have ended. Fails when the wait or a read failed, or
-    /// when the exit was already read.
-    pub(crate) async fn exited(&mut self) -> io::Result<ProcessExit> {
-        self.exit.read().await
+    /// How the service ended, answered once it has exited and both its outputs have ended.
+    pub(crate) fn exited(&self) -> CodexServiceExit {
+        self.exit.clone()
     }
 
     fn ask_to_end(&self, end: ChildEnd) {
@@ -134,9 +146,12 @@ impl ManagedCodexService {
 /// Starts a Codex service on an account home the daemon manages, on `spawner`'s thread, armed to
 /// end with the daemon, its standard input closed and both outputs kept in one tail. Fails with
 /// the spawn's error, or the spawner's when its thread has ended.
-#[expect(
-    dead_code,
-    reason = "the daemon starts a Codex service on each account home it manages"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon starts a Codex service on each account home it manages"
+    )
 )]
 pub(crate) async fn start_managed_codex_service(
     spawner: &Spawner,
@@ -159,7 +174,7 @@ pub(crate) async fn start_managed_codex_service(
     Ok(ManagedCodexService {
         process_id,
         ends,
-        exit: ServiceExit(Some(exit_received)),
+        exit: share_service_exit(exit_received),
     })
 }
 
@@ -258,13 +273,9 @@ pub(crate) struct LastingCodexService {
     process: PinnedProcess,
     record: ProcessRecord,
     // Only for a service this daemon started, which is still its child.
-    exit: Option<ServiceExit>,
+    exit: Option<CodexServiceExit>,
 }
 
-#[expect(
-    dead_code,
-    reason = "the daemon's start and planned restart keep, read and stop the lasting service"
-)]
 impl LastingCodexService {
     /// What a later daemon re-pins this service from, which the daemon keeps in the service's
     /// record file.
@@ -275,10 +286,15 @@ impl LastingCodexService {
     /// How a service this daemon started ended: its code or signal and the tail of its log's
     /// current start, or `None` for one a former daemon started, whose end reads as its
     /// connection's end and its log's tail. The exit arrives once the process ends, which can be
-    /// while a `stop` is still under way, since one exit wakes both. Fails when the wait or the
-    /// log's read failed, or when the exit was already read.
-    pub(crate) async fn exited(&mut self) -> Option<io::Result<ProcessExit>> {
-        Some(self.exit.as_mut()?.read().await)
+    /// while a `stop` is still under way, since one exit wakes both.
+    pub(crate) fn exited(&self) -> Option<CodexServiceExit> {
+        self.exit.clone()
+    }
+
+    /// Whether the process has ended, read from the system through its pin; for a service a former
+    /// daemon started, whose exit no wait answers. Fails with the system's error.
+    pub(crate) fn has_ended(&self) -> io::Result<bool> {
+        Ok(self.process.record()?.is_none())
     }
 
     /// Stops the service and answers how it ended: on macOS and Linux `SIGTERM`, then `SIGKILL`
@@ -328,9 +344,12 @@ struct UnrecordedServiceError {
 /// the daemon's scope where the system has one. The caller keeps its record in the folder's record
 /// file. Fails when the log cannot be opened, or the start cannot be spawned or pinned (on Windows
 /// a refused breakaway from the daemon's job among them), with the log's tail beside the cause.
-#[expect(
-    dead_code,
-    reason = "the daemon's start runs the lasting Codex service on the person's Codex folder"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start runs the lasting Codex service on the person's Codex folder"
+    )
 )]
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
@@ -340,7 +359,7 @@ pub(crate) async fn start_lasting_codex_service(
     let error_output = open_provider_service_log(log_file).await?;
     launch.environment.push((
         CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME.to_owned(),
-        "1".to_owned(),
+        CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE.to_owned(),
     ));
     let command = LastingCommand {
         program: launch.program,
@@ -393,16 +412,19 @@ pub(crate) async fn start_lasting_codex_service(
     Ok(LastingCodexService {
         process,
         record,
-        exit: Some(ServiceExit(Some(exit_received))),
+        exit: Some(share_service_exit(exit_received)),
     })
 }
 
 /// Finds again the lasting service a former daemon started, from the record it kept: `None` when
 /// that process has ended or another now holds its id. Fails when the system's process read
 /// fails.
-#[expect(
-    dead_code,
-    reason = "the daemon's start finds a former daemon's lasting Codex service from its record"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start finds a former daemon's lasting Codex service from its record"
+    )
 )]
 pub(crate) fn repin_lasting_codex_service(
     record: ProcessRecord,

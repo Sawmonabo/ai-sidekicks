@@ -45,9 +45,12 @@ const CODEX_MAX_UNFRAGMENTED_MESSAGE_BYTES_HEADER: &str =
     "x-codex-websocket-max-unfragmented-message-bytes";
 
 /// Whether a dial waits for the service to listen.
-#[expect(
-    dead_code,
-    reason = "the Codex service supervisor dials a service it started and the person's own"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex service supervisor dials a service it started and the person's own"
+    )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexSocketWait {
@@ -132,9 +135,12 @@ impl CodexServiceSocketReceiver {
 /// until the service listens. Fails with `CodexError::Transport` when `cancel` fires, when the
 /// socket cannot be reached (for a service the daemon just started, for another reason than not
 /// listening yet), when the system cannot name the serving process, or when the upgrade fails.
-#[expect(
-    dead_code,
-    reason = "the Codex service supervisor opens each service's connection through this"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex service supervisor opens each service's connection through this"
+    )
 )]
 pub(crate) async fn dial_codex_service_socket(
     socket_path: &Path,

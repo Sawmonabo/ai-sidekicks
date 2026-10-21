@@ -85,10 +85,6 @@ pub(crate) enum DriverError {
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The request went out and no answer came, so the provider may still act on it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the drivers' request deadlines and lost links")
-    )]
     #[error(transparent)]
     Unanswered(RequestUnanswered),
     /// The turn a steer was handed for ended before it was sent.
@@ -446,13 +442,31 @@ pub(crate) trait ProviderDriver: Send + Sync {
         listener: ProviderCommandsListener,
     ) -> ProviderCommandsSubscription;
 
-    /// Stops every provider process and service this driver started, as a deliberate stop; the
-    /// daemon calls it once while it stops. A service the person runs themselves is never stopped.
-    fn shutdown(&self) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// Stops every provider process this driver started; under `Restart` a service that outlives
+    /// the daemon is only disconnected. The daemon calls it once while it stops; a service the
+    /// person runs themselves is never stopped.
+    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
+}
+
+/// Why the daemon stops: a restart, after which the daemon starts again and a service that
+/// outlives it keeps running, or a stop, which ends that service too.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's stop and restart hand their intent to each driver"
+    )
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DaemonStopIntent {
+    /// The daemon starts again: a service that outlives it keeps running.
+    Restart,
+    /// The daemon stops: every service it started ends.
+    Stop,
 }
 
 /// A follow of a session's live command list, ended when this drops.

@@ -76,9 +76,12 @@ impl CodexNativeProgram {
     /// Sets the launcher's variables over `environment` as the launcher does, every
     /// `CODEX_MANAGED_BY_*` taken off first so one package manager is named; leaves it alone for a
     /// start that runs the native program already.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start sets the launcher's variables on the lasting Codex service"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start sets the launcher's variables on the lasting Codex service"
+        )
     )]
     pub(crate) fn set_launcher_environment(&self, environment: &mut Vec<(String, String)>) {
         if self.launcher_environment.is_empty() {

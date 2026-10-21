@@ -5,14 +5,14 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde_json::Value;
+use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 
 /// One service's config warnings and the sessions each was delivered to.
 #[derive(Debug, Default)]
 pub(crate) struct CodexConfigWarnings {
     /// The current connection's warnings, keyed by their JSON text, in arrival order.
-    current: Vec<(String, Value)>,
+    current: Vec<(String, Box<RawValue>)>,
     /// The sessions told each warning, by its JSON text; kept across connections.
     told_by_warning: HashMap<String, HashSet<SessionId>>,
 }
@@ -27,10 +27,10 @@ impl CodexConfigWarnings {
     /// have not been told it, marking them told.
     pub(crate) fn record_warning(
         &mut self,
-        params: Value,
+        params: Box<RawValue>,
         session_ids: &[SessionId],
     ) -> Vec<SessionId> {
-        let key = params.to_string();
+        let key = params.get().to_owned();
         let told = self.told_by_warning.entry(key.clone()).or_default();
         let owed: Vec<SessionId> = session_ids
             .iter()
@@ -52,7 +52,7 @@ impl CodexConfigWarnings {
 
     /// The current warnings a session has not been told, in arrival order, marking it told of
     /// each.
-    pub(crate) fn take_owed(&mut self, session_id: &SessionId) -> Vec<Value> {
+    pub(crate) fn take_owed(&mut self, session_id: &SessionId) -> Vec<Box<RawValue>> {
         let mut owed = Vec::new();
         for (key, params) in &self.current {
             let told = self.told_by_warning.entry(key.clone()).or_default();

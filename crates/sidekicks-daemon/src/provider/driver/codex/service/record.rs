@@ -50,7 +50,7 @@ impl LastingServiceRecordFile {
     /// `spawn_blocking`. The lock is released when the answer drops, the holder's crash
     /// included. Fails with the system's error from making the folder, opening the lock file or
     /// taking the lock.
-    pub(crate) fn lock(&self) -> io::Result<LockedServiceRecord<'_>> {
+    pub(crate) fn lock(&self) -> io::Result<LockedServiceRecord> {
         let folder = self
             .lock
             .parent()
@@ -63,15 +63,15 @@ impl LastingServiceRecordFile {
             .open(&self.lock)?;
         lock.lock()?;
         Ok(LockedServiceRecord {
-            file: self,
+            file: self.clone(),
             _lock: lock,
         })
     }
 }
 
 /// The record file while its lock is held; reads and writes need the hold.
-pub(crate) struct LockedServiceRecord<'file> {
-    file: &'file LastingServiceRecordFile,
+pub(crate) struct LockedServiceRecord {
+    file: LastingServiceRecordFile,
     _lock: File,
 }
 
@@ -82,7 +82,7 @@ pub(crate) struct LockedServiceRecord<'file> {
         reason = "the daemon's start reads, writes and removes the lasting Codex service's record"
     )
 )]
-impl LockedServiceRecord<'_> {
+impl LockedServiceRecord {
     /// The record kept, or `None` when none is. Blocking. Fails with the read's error, and with
     /// `InvalidData` for a file that does not read as a record.
     pub(crate) fn read(&self) -> io::Result<Option<ProcessRecord>> {

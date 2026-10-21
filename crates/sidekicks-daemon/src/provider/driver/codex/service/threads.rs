@@ -5,18 +5,26 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use serde_json::Value;
+use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 
 /// A frame the service sent, held while a start or fork that may claim its thread is in flight.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct CodexHeldThreadFrame {
     /// The frame's method.
     pub(crate) method: String,
-    /// The frame's params.
-    pub(crate) params: Value,
+    /// The frame's params, as the service sent them.
+    pub(crate) params: Box<RawValue>,
     /// The thread the frame names.
     pub(crate) thread_id: String,
+}
+
+impl PartialEq for CodexHeldThreadFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.method == other.method
+            && self.params.get() == other.params.get()
+            && self.thread_id == other.thread_id
+    }
 }
 
 /// Where the frames no claim took go once the last open claim closes: the supervisor reports
@@ -172,14 +180,15 @@ impl Drop for ThreadClaim {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use serde_json::json;
+    use serde_json::value::RawValue;
 
     use super::{CodexHeldThreadFrame, CodexServiceThreads, CodexThreadFrameHold};
 
     fn frame(method: &str) -> CodexHeldThreadFrame {
         CodexHeldThreadFrame {
             method: method.to_owned(),
-            params: json!({"threadId": "thread-unknown"}),
+            params: RawValue::from_string(r#"{"threadId":"thread-unknown"}"#.to_owned())
+                .expect("the params are JSON"),
             thread_id: "thread-unknown".to_owned(),
         }
     }
