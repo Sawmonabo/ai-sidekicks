@@ -18,7 +18,6 @@ use crate::provider::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener,
     ClaudeStreamFrame,
 };
-use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
@@ -98,7 +97,7 @@ impl ClaudeShortProcess {
     /// does.
     pub(crate) async fn start(
         launcher: &ClaudeProcessLauncher,
-        executable: ResolvedProviderExecutable,
+        executable: &ResolvedProviderExecutable,
         arguments: Vec<String>,
         working_folder: PathBuf,
     ) -> Result<Self, ClaudeLaunchError> {
@@ -106,9 +105,9 @@ impl ClaudeShortProcess {
         let process = launcher
             .start(
                 ClaudeProcessLaunch {
-                    start: executable.start,
+                    start: executable.start.clone(),
                     arguments,
-                    environment: executable.environment,
+                    environment: executable.environment.clone(),
                     working_folder,
                     provider_session_id: mint_uuid_v7().to_string(),
                     provider_account_id: None,
@@ -127,7 +126,7 @@ impl ClaudeShortProcess {
     /// `None`, on `model` where given. Fails as the launcher's start does.
     pub(crate) async fn start_control_only(
         launcher: &ClaudeProcessLauncher,
-        executable: ResolvedProviderExecutable,
+        executable: &ResolvedProviderExecutable,
         working_folder: Option<PathBuf>,
         model: Option<&str>,
     ) -> Result<Self, ClaudeLaunchError> {
@@ -170,7 +169,7 @@ impl ClaudeShortProcess {
     /// Closes the process as a session closes: its input closed, then stopped past the request
     /// deadline.
     pub(crate) async fn close(self) {
-        self.process.stop(CLAUDE_REQUEST_DEADLINE).await;
+        self.process.close().await;
     }
 }
 
@@ -201,7 +200,7 @@ struct AccountSources {
 )]
 pub(crate) async fn probe_claude_sign_in(
     launcher: &ClaudeProcessLauncher,
-    executable: ResolvedProviderExecutable,
+    executable: &ResolvedProviderExecutable,
 ) -> Result<String, ClaudeLaunchError> {
     let short = ClaudeShortProcess::start_control_only(launcher, executable, None, None).await?;
     let reply = short.initialize().await;
@@ -240,7 +239,7 @@ pub(crate) async fn probe_claude_sign_in(
 )]
 pub(crate) async fn read_claude_model_catalog(
     launcher: &ClaudeProcessLauncher,
-    executable: ResolvedProviderExecutable,
+    executable: &ResolvedProviderExecutable,
 ) -> Result<ClaudeModelCatalogReading, ClaudeLaunchError> {
     let short = ClaudeShortProcess::start_control_only(launcher, executable, None, None).await?;
     let read = async {
@@ -252,29 +251,4 @@ pub(crate) async fn read_claude_model_catalog(
     .await;
     short.close().await;
     Ok(read?)
-}
-
-/// Reads the build's `get_binary_version` reply from a process that keeps nothing, the reply as
-/// Claude Code sent it. Fails as the start or the request does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's build read reads the version through it"
-    )
-)]
-pub(crate) async fn read_claude_binary_version(
-    launcher: &ClaudeProcessLauncher,
-    executable: ResolvedProviderExecutable,
-) -> Result<Value, ClaudeLaunchError> {
-    let short = ClaudeShortProcess::start_control_only(launcher, executable, None, None).await?;
-    let reply = short
-        .process
-        .send_control_request(ClaudeControlRequest::GetBinaryVersion {})
-        .await;
-    short.close().await;
-    Ok(reply?
-        .response
-        .and_then(|reply| serde_json::from_str(reply.get()).ok())
-        .unwrap_or(Value::Null))
 }

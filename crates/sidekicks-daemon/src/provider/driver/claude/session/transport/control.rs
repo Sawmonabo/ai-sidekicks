@@ -113,15 +113,6 @@ pub(crate) enum ClaudeControlRequest {
         /// The session the title is for, so a process that moved to another session refuses it.
         session_id: String,
     },
-    /// Asks a side question beside the conversation, which the conversation never shows.
-    #[expect(dead_code, reason = "the Claude driver's side question sends it")]
-    SideQuestion {
-        /// The question.
-        question: String,
-        /// Earlier side questions and answers, relayed as messages; absent when there are none.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        history: Option<Vec<Box<RawValue>>>,
-    },
     /// Reads the settings that took effect.
     #[expect(dead_code, reason = "the Claude driver's settings read sends it")]
     GetSettings {},
@@ -151,11 +142,30 @@ pub(crate) enum ClaudeControlRequest {
         model: String,
     },
     /// Reads the build's version.
-    #[expect(dead_code, reason = "the Claude driver's build read sends it")]
     GetBinaryVersion {},
+    /// A subtype Claude Code knows nothing of, which the capability probe sends to check that an
+    /// unknown subtype is refused.
+    #[serde(rename = "zzq_nonexistent_subtype")]
+    NegativeControl {},
 }
 
 impl ClaudeControlRequest {
+    /// The request a capability probe named `probe_name` sends: `initialize` re-sent with nothing,
+    /// which answers what the process holds, else the negative control.
+    pub(crate) fn probe(probe_name: &str) -> Self {
+        if probe_name == ClaudeControlSubtype::Initialize.as_str() {
+            Self::Initialize {
+                hooks: None,
+                agents: None,
+                supported_dialog_kinds: None,
+                per_task_stop_affordance: None,
+                sdk_mcp_servers: None,
+            }
+        } else {
+            Self::NegativeControl {}
+        }
+    }
+
     /// The request's subtype.
     pub(crate) fn subtype(&self) -> ClaudeControlSubtype {
         match self {
@@ -175,7 +185,7 @@ impl ClaudeControlRequest {
             Self::BackgroundTasks { .. } => ClaudeControlSubtype::BackgroundTasks,
             Self::GenerateSessionTitle { .. } => ClaudeControlSubtype::GenerateSessionTitle,
             Self::RenameSession { .. } => ClaudeControlSubtype::RenameSession,
-            Self::SideQuestion { .. } => ClaudeControlSubtype::SideQuestion,
+            Self::NegativeControl {} => ClaudeControlSubtype::NegativeControl,
         }
     }
 }
@@ -215,13 +225,13 @@ pub(crate) enum ClaudeControlSubtype {
     GenerateSessionTitle,
     /// `rename_session`.
     RenameSession,
-    /// `side_question`.
-    SideQuestion,
+    /// The capability probe's negative control.
+    NegativeControl,
 }
 
 impl ClaudeControlSubtype {
     /// The subtype as the wire spells it.
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Initialize => "initialize",
             Self::Interrupt => "interrupt",
@@ -239,7 +249,7 @@ impl ClaudeControlSubtype {
             Self::BackgroundTasks => "background_tasks",
             Self::GenerateSessionTitle => "generate_session_title",
             Self::RenameSession => "rename_session",
-            Self::SideQuestion => "side_question",
+            Self::NegativeControl => "zzq_nonexistent_subtype",
         }
     }
 }

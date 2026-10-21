@@ -7,6 +7,7 @@ pub(crate) mod bring_up;
 pub(crate) mod control_only;
 pub(crate) mod figures;
 mod initialize_reply;
+pub(crate) mod installed_build;
 pub(crate) mod one_turn;
 
 use std::io;
@@ -22,6 +23,7 @@ use crate::provider::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
 };
 use crate::provider::driver::claude::session::rules::ClaudeRulesError;
+use crate::provider::driver::contract::DriverError;
 use crate::provider::process_registry::ProviderProcessRegistry;
 
 /// The data folder's folder a process that keeps nothing runs in: empty, so Claude Code reads no
@@ -70,6 +72,29 @@ pub(crate) enum ClaudeLaunchError {
         /// What it did not answer.
         what: String,
     },
+    /// The build the command names could not be resolved, or its version not read.
+    #[error(transparent)]
+    Build(#[from] DriverError),
+}
+
+impl From<ClaudeLaunchError> for DriverError {
+    /// A failure of the build or of a request keeps its own answer; every other start failure is
+    /// internal.
+    fn from(error: ClaudeLaunchError) -> Self {
+        match error {
+            ClaudeLaunchError::Build(error) => error,
+            ClaudeLaunchError::Session(error) => error.into(),
+            error @ (ClaudeLaunchError::Stopping
+            | ClaudeLaunchError::Spawn(_)
+            | ClaudeLaunchError::ControlOnlyFolder(_)
+            | ClaudeLaunchError::Settings(_)
+            | ClaudeLaunchError::CommandRanTurn { .. }
+            | ClaudeLaunchError::MessageUnwritten(_)
+            | ClaudeLaunchError::TurnErrored { .. }
+            | ClaudeLaunchError::TurnStopped
+            | ClaudeLaunchError::Unanswered { .. }) => Self::Internal(Box::new(error)),
+        }
+    }
 }
 
 /// Starts every Claude Code process and keeps the live ones, so the daemon's stop ends them all.

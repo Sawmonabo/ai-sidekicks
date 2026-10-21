@@ -49,9 +49,6 @@ const CLAUDE_MANAGED_MCP_FILE: &str = "managed-mcp.json";
 pub(crate) struct ClaudeSessionSpawn<'a> {
     /// The legs the process starts with.
     pub(crate) legs: &'a ClaudeSpawnBoundLegs,
-    /// The build to run, resolved from the configured command at this spawn, so a relaunch runs
-    /// whatever the command names now.
-    pub(crate) executable: ResolvedProviderExecutable,
     /// The account the process runs on; `None` on the person's own home.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The session's own standing rules, carried in its `--settings`.
@@ -65,13 +62,6 @@ pub(crate) struct ClaudeSessionSpawn<'a> {
 }
 
 /// What one session process is brought up from.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's create, resume and rewind bring each process up from it"
-    )
-)]
 pub(crate) struct ClaudeBringUpRequest<'a> {
     /// What the session's processes are spawned from.
     pub(crate) spawn: ClaudeSessionSpawn<'a>,
@@ -96,35 +86,21 @@ pub(crate) struct ClaudeSettingsReadback {
 }
 
 /// A process brought up, with what it declared.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's create, resume and rewind read what each process declared"
-    )
-)]
 pub(crate) struct ClaudeBroughtUp {
     /// The process.
     pub(crate) process: Arc<ClaudeCodeProcess>,
     /// What its `initialize` reply declared.
     pub(crate) initialize: ClaudeInitializeDeclaration,
-    /// The `initialize` reply, relayed as sent.
-    pub(crate) initialize_reply: Option<Box<RawValue>>,
     /// What its settings read back.
     pub(crate) settings_readback: ClaudeSettingsReadback,
 }
 
-/// Brings one session process up. Fails with the settings' composition error, the start's error,
-/// or a request's failure or refusal, the process then terminated.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's create, resume and rewind bring each process up through it"
-    )
-)]
+/// Brings one session process up on `executable`, the build resolved at this spawn, so a relaunch
+/// runs whatever the command names now. Fails with the settings' composition error, the start's
+/// error, or a request's failure or refusal, the process then terminated.
 pub(crate) async fn bring_up_claude_process(
     launcher: &ClaudeProcessLauncher,
+    executable: &ResolvedProviderExecutable,
     request: ClaudeBringUpRequest<'_>,
 ) -> Result<ClaudeBroughtUp, ClaudeLaunchError> {
     let spawn = request.spawn;
@@ -163,9 +139,9 @@ pub(crate) async fn bring_up_claude_process(
     let process = launcher
         .start(
             ClaudeProcessLaunch {
-                start: spawn.executable.start,
+                start: executable.start.clone(),
                 arguments,
-                environment: spawn.executable.environment,
+                environment: executable.environment.clone(),
                 working_folder: legs.working_directory.clone(),
                 provider_session_id: request.provider_session_id,
                 provider_account_id: spawn.provider_account_id,
@@ -177,7 +153,6 @@ pub(crate) async fn bring_up_claude_process(
     match configure(&process, legs.subagent_policy.as_ref(), in_process_servers).await {
         Ok((initialize_reply, settings_readback)) => Ok(ClaudeBroughtUp {
             initialize: read_claude_initialize_declaration(initialize_reply.as_deref()),
-            initialize_reply,
             settings_readback,
             process,
         }),

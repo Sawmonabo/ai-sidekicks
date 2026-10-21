@@ -13,13 +13,17 @@ use sidekicks_contracts::provider::driver::capabilities::{
     CredentialPolicyRef, ExecutionPosture, ProviderMode,
 };
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
-use sidekicks_platforms::PathRules;
+use sidekicks_platforms::{PathRules, Spawner};
 use strum::VariantArray;
 
 use crate::ipc::domain_error::DomainError;
 use crate::policy::execution_posture_service::CURATED_CREDENTIAL_POLICY_REF;
+use crate::provider::driver::CommandSandboxAvailability;
+use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::provider::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
 };
@@ -36,6 +40,7 @@ use crate::provider::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
 };
 use crate::provider::driver::claude::spawn::settings::compose_claude_sandbox_settings;
+use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::session_control::{
     UpdatePermissionLevelParams, permission_level_not_offered,
 };
@@ -155,6 +160,39 @@ pub(crate) fn list_claude_modes(can_run_sandbox: bool) -> Vec<ProviderMode> {
             .expect("a permission mode's name is a short word"),
         })
         .collect()
+}
+
+/// Whether Claude Code's command sandbox runs in the place `spawn_environment` and
+/// `working_folder` name, checked on the spawner thread, which the namespace check needs. A check
+/// that fails is recorded against `session_id` and answers no, so Sandboxed is never offered on a
+/// guess.
+pub(crate) async fn read_claude_sandbox_support(
+    spawner: &Spawner,
+    spawn_environment: &[(String, String)],
+    working_folder: &Path,
+    session_id: SessionId,
+) -> bool {
+    let environment = spawn_environment.to_vec();
+    let folder = working_folder.to_path_buf();
+    let checked = spawner
+        .run(move || DESCRIPTOR.can_run_command_sandbox(&environment, &folder, &[]))
+        .await
+        .and_then(|answer| answer);
+    match checked {
+        Ok(CommandSandboxAvailability::Runs) => true,
+        Ok(CommandSandboxAvailability::CannotRun(_)) => false,
+        // Claude Code has no service of its own to ask, so its descriptor never answers this.
+        Ok(CommandSandboxAvailability::AskTheService) => false,
+        Err(error) => {
+            record_unheard_claude_failure(
+                DriverDiagnosticKind::ProcessReportFailed,
+                session_id,
+                "the command sandbox check",
+                &error,
+            );
+            false
+        }
+    }
 }
 
 /// Whether a process on `running_model` can run at `level`: Reviewed only on a model whose

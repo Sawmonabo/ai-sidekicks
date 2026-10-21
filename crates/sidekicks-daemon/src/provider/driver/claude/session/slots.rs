@@ -75,6 +75,30 @@ impl ClaudeSessionSlots {
         }
     }
 
+    /// Every session whose process is live now.
+    pub(crate) fn live_sessions(&self) -> Vec<Arc<LiveClaudeSession>> {
+        self.lock()
+            .by_session
+            .values()
+            .filter_map(|slot| match slot {
+                ClaudeSessionSlot::Live { session } => Some(Arc::clone(session)),
+                ClaudeSessionSlot::Establishing { .. }
+                | ClaudeSessionSlot::Closing { .. }
+                | ClaudeSessionSlot::Quarantined { .. } => None,
+            })
+            .collect()
+    }
+
+    /// Every session holding a slot, in any state.
+    pub(crate) fn session_ids(&self) -> Vec<SessionId> {
+        self.lock().by_session.keys().copied().collect()
+    }
+
+    /// Whether the session holds a slot, in any state.
+    pub(crate) fn holds_slot(&self, session_id: SessionId) -> bool {
+        self.lock().by_session.contains_key(&session_id)
+    }
+
     /// Whether `channel` still writes this session's transcript: its live process, or a rewind's
     /// predecessor while the fork comes up. A process the slot no longer binds acts on nothing.
     pub(crate) fn binds_channel(

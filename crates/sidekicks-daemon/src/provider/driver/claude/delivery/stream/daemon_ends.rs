@@ -22,7 +22,7 @@ use crate::provider::driver::claude::delivery::run_readings::{
 use crate::provider::driver::claude::delivery::turn_end::ClaudeTurnEnd;
 use crate::provider::driver::claude::run::routes::{ClaudeRunRoute, ClaudeRunRoutes};
 use crate::provider::driver::claude::session::arrivals::{
-    ClaudeDeliveryPlace, ClaudeOwnDelivery, ClaudeSessionArrival,
+    ClaudeOwnDelivery, ClaudeSessionArrival, deliver_in_current_place,
 };
 use crate::session::run::engine::turns::TurnOutcome;
 use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
@@ -310,13 +310,7 @@ impl ClaudeStreamDialogPorts {
 
 impl ClaudeDialogPorts for ClaudeStreamDialogPorts {
     fn deliver(&self, delivery: InboundDelivery<'static>) -> BoxFuture<'_, Option<InboundOutcome>> {
-        match ClaudeDeliveryPlace::current() {
-            Some(ClaudeDeliveryPlace::Queue(arrivals)) => arrivals.dispatch(delivery).boxed(),
-            Some(ClaudeDeliveryPlace::SessionTask {
-                provider_account_id,
-            }) => self.engine.deliver(provider_account_id, None, delivery),
-            None => self.engine.deliver(None, None, delivery),
-        }
+        deliver_in_current_place(&*self.engine, delivery)
     }
 
     fn event_ids_for_messages(

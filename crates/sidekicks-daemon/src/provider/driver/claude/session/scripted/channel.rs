@@ -209,6 +209,11 @@ impl ClaudeProcessChannel for ScriptedChannel {
         self.record(ScriptedWrite::Terminate);
         async {}.boxed()
     }
+
+    fn close(&self) -> BoxFuture<'_, ()> {
+        self.record(ScriptedWrite::Terminate);
+        async {}.boxed()
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

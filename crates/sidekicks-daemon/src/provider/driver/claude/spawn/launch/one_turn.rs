@@ -6,17 +6,18 @@
 use std::sync::Arc;
 
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio_util::sync::CancellationToken;
 
+use crate::provider::driver::claude::delivery::messages::ClaudeMessageFrame;
+use crate::provider::driver::claude::delivery::system::read_claude_assistant_refusal;
 use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::provider::driver::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
 use crate::provider::driver::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
 };
-use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::provider::driver::claude::session::transport::inbound::{
     ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
@@ -34,6 +35,7 @@ use crate::provider::driver::claude::spawn::launch::control_only::{
 use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::provider::lenient_json::read_lenient;
 use crate::provider::outbound_text::OutboundText;
+use crate::provider::spawned_version::ResolvedProviderExecutable;
 
 /// What a one-turn process answers a tool ask with: it has no one to ask.
 const CLAUDE_ONE_TURN_ASK_DENIAL: &str =
@@ -51,24 +53,17 @@ pub(crate) struct ClaudeOneTurnRequest<'a> {
     pub(crate) stop: CancellationToken,
 }
 
-/// What one lead frame says about the turn's reply, as the session's frame readers read it.
+// What the lead frames so far say about the turn's reply.
 #[derive(Debug, Default)]
-pub(crate) struct ClaudeOneTurnFrameReading {
-    /// The id of the assistant message the frame is a piece of.
-    pub(crate) provider_message_id: Option<String>,
-    /// The refusal the frame carries.
-    pub(crate) refusal: Option<RunFailureCause>,
+struct OneTurnReading {
+    // The id of the last assistant message.
+    provider_message_id: Option<String>,
+    // The last refusal.
+    refusal: Option<RunFailureCause>,
 }
 
 /// The reply of one unkept turn.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's side question and staged review read the reply"
-    )
-)]
 pub(crate) struct ClaudeOneTurnReply {
     /// The `result` text, empty where it carries none.
     pub(crate) text: String,
@@ -87,22 +82,15 @@ struct ResultFrame {
     is_error: Option<bool>,
 }
 
-/// Runs one unkept turn: brings the process up, sends the message, and reads until the lead
-/// `result`, handing each other lead frame to `read_frame`. The process is closed as a session
+/// Runs one unkept turn on `executable`: brings the process up, sends the message, and reads the
+/// lead's assistant messages and refusals until its `result`. The process is closed as a session
 /// closes once the turn ends, or terminated at once on a stop. Fails with `TurnStopped` on a stop,
 /// `TurnErrored` on an error `result` with no refusal, `Unanswered` when the process exits first,
 /// `MessageUnwritten` when the message could not be written, and as the bring-up does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's side question and staged review run their turn through it"
-    )
-)]
 pub(crate) async fn run_claude_one_turn(
     launcher: &ClaudeProcessLauncher,
+    executable: &ResolvedProviderExecutable,
     request: ClaudeOneTurnRequest<'_>,
-    read_frame: &(dyn Fn(&ClaudeStreamFrame) -> ClaudeOneTurnFrameReading + Sync),
 ) -> Result<ClaudeOneTurnReply, ClaudeLaunchError> {
     let session_id = request.spawn.legs.session_id;
     let servers = request.spawn.in_process_servers.cloned();
@@ -110,6 +98,7 @@ pub(crate) async fn run_claude_one_turn(
     let (listener, mut arrivals) = ForwardedArrivals::open();
     let brought_up = bring_up_claude_process(
         launcher,
+        executable,
         ClaudeBringUpRequest {
             spawn: request.spawn,
             provider_session_id: mint_uuid_v7().to_string(),
@@ -129,7 +118,7 @@ pub(crate) async fn run_claude_one_turn(
         if let ClaudeWriteAttempt::Failed { cause, .. } = process.write_user_frame(frame).await {
             return Err(ClaudeLaunchError::MessageUnwritten(cause));
         }
-        let mut reading = ClaudeOneTurnFrameReading::default();
+        let mut reading = OneTurnReading::default();
         while let Some(arrival) = arrivals.recv().await {
             match arrival {
                 ClaudeShortProcessArrival::Frame(frame) => {
@@ -139,11 +128,9 @@ pub(crate) async fn run_claude_one_turn(
                     if frame.observation.frame_kind.split('/').next() == Some("result") {
                         return read_reply(&frame, reading);
                     }
-                    let frame_reading = read_frame(&frame);
-                    reading.provider_message_id = frame_reading
-                        .provider_message_id
-                        .or(reading.provider_message_id);
-                    reading.refusal = frame_reading.refusal.or(reading.refusal);
+                    if frame.observation.frame_kind == "assistant" {
+                        read_assistant_frame(&frame.text, &mut reading);
+                    }
                 }
                 ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Request(asked)) => {
                     let context = ClaudeToolServerCallContext {
@@ -204,9 +191,23 @@ async fn answer_unwatched(
     .await;
 }
 
+// An assistant frame's message id and the refusal its message ends on, where it carries them.
+fn read_assistant_frame(text: &str, reading: &mut OneTurnReading) {
+    if let Ok(frame) = serde_json::from_str::<ClaudeMessageFrame>(text)
+        && let Some(id) = frame.provider_message_id()
+    {
+        reading.provider_message_id = Some(id.to_owned());
+    }
+    if let Ok(Value::Object(members)) = serde_json::from_str::<Value>(text)
+        && let Some(refusal) = read_claude_assistant_refusal(&members)
+    {
+        reading.refusal = Some(refusal);
+    }
+}
+
 fn read_reply(
     frame: &ClaudeStreamFrame,
-    reading: ClaudeOneTurnFrameReading,
+    reading: OneTurnReading,
 ) -> Result<ClaudeOneTurnReply, ClaudeLaunchError> {
     let result = serde_json::from_str::<ResultFrame>(&frame.text).ok();
     let text = result
@@ -229,6 +230,6 @@ async fn end_process(process: &ClaudeCodeProcess, is_stopped: bool) {
     if is_stopped {
         process.terminate().await;
     } else {
-        process.stop(CLAUDE_REQUEST_DEADLINE).await;
+        process.close().await;
     }
 }

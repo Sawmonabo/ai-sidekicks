@@ -10,6 +10,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -55,6 +56,8 @@ pub(crate) enum EngineCall {
     RecordTurnEnd(RunId, TurnOutcome),
     /// A turn the daemon or Claude Code started itself, as the minted run.
     StartDaemonTurn(RunId),
+    /// A run's turn ended on its process's exit.
+    EndTurnOnProcessExit(RunId),
 }
 
 /// A run engine that records each call and answers as the real one would on success: every ask is
@@ -83,7 +86,8 @@ impl RecordingRunEngine {
                 EngineCall::StartTurn(_)
                 | EngineCall::CountStep(_)
                 | EngineCall::RecordTurnEnd(..)
-                | EngineCall::StartDaemonTurn(_) => None,
+                | EngineCall::StartDaemonTurn(_)
+                | EngineCall::EndTurnOnProcessExit(_) => None,
             })
             .collect()
     }
@@ -225,6 +229,15 @@ impl ClaudeRunEngine for RecordingRunEngine {
             Ok(run_id)
         }
         .boxed()
+    }
+
+    fn end_turn_on_process_exit(
+        &self,
+        run_id: RunId,
+        _process_exit: ProcessExit,
+    ) -> BoxFuture<'_, Result<(), RunEngineError>> {
+        self.record(EngineCall::EndTurnOnProcessExit(run_id));
+        async { Ok(()) }.boxed()
     }
 }
 

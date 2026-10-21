@@ -3,16 +3,18 @@
 //! disposal failed.
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::SetOnce;
 
+use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
 };
@@ -25,6 +27,7 @@ use crate::provider::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
 };
 use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
+use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The router's bounds. The hold covers a helper's frames arriving ahead of its start; the short
 /// timeout means a frame held longer names a helper never announced.
@@ -208,6 +211,15 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,
     /// What the session runs with now.
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
+    /// The process's identity in the daemon's spawn count, removed from the process registry at
+    /// its exit.
+    pub(crate) process_identity: ProviderProcessIdentity,
+    /// The spawn's callback-tool registry, released once no process of the session holds it; a
+    /// rewind's fork shares its predecessor's.
+    pub(crate) callback_tool_binding: Arc<CallbackToolSpawnBinding>,
+    /// The exit the process ended with, set once it ended, for a rewind's predecessor whose exit
+    /// is taken up only once its fork fails.
+    pub(crate) process_exit: OnceLock<ProcessExit>,
 }
 
 /// A slot's transition in flight, set once its slot write is made or the transition ends without
@@ -286,69 +298,23 @@ impl ClaudeSessionSlot {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use futures::FutureExt;
-    use sidekicks_contracts::session::controls::methods::SessionMode;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use tokio::sync::SetOnce;
 
-    use super::{
-        ClaudeLiveSettings, ClaudeSessionSlot, ClaudeSpawnBinding, ClaudeUsageEstablishment,
-        LiveClaudeSession,
-    };
-    use crate::provider::driver::claude::session::answered_commands::{
-        ClaudeAttachedAdvisor, unreadable_claude_command_choices,
-    };
+    use super::{ClaudeSessionSlot, LiveClaudeSession};
+    use crate::provider::driver::claude::session::scripted::scripted_live_session;
     use crate::provider::driver::claude::session::transport::channel::MockClaudeProcessChannel;
-    use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
-    use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn live_session() -> Arc<LiveClaudeSession> {
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
-        let choices = unreadable_claude_command_choices("unread");
-        Arc::new(LiveClaudeSession {
+        Arc::new(scripted_live_session(
             session_id,
-            provider_session_id: "provider-session".to_owned(),
-            channel: Arc::new(MockClaudeProcessChannel::new()),
-            spawn_binding: ClaudeSpawnBinding {
-                execution_posture: None,
-                output_schema_digest: None,
-            },
-            spawn_bound_legs: ClaudeSpawnBoundLegs {
-                session_id,
-                model: "opus".to_owned(),
-                execution_posture: None,
-                working_directory: PathBuf::from("/work"),
-                callback_tools: None,
-                subagent_policy: None,
-                tool_servers: Vec::new(),
-                output_schema: None,
-                on_callback_tool_call: None,
-                on_mcp_server_status: None,
-                credential_deny_paths: Vec::new(),
-                memory_folders: Vec::new(),
-                spawn_environment: Vec::new(),
-                advisor_model: None,
-                output_style: None,
-            },
-            initialize: ClaudeInitializeDeclaration::default(),
-            command_choices: async move { choices }.boxed().shared(),
-            establishment: ClaudeUsageEstablishment::Fresh,
-            admitted_provider_account_id: None,
-            settings: Mutex::new(ClaudeLiveSettings {
-                execution_posture: None,
-                session_mode: SessionMode::Build,
-                advisor_model: None,
-                output_style: None,
-                running_model: "opus".to_owned(),
-                attached_advisor: ClaudeAttachedAdvisor::Unreported,
-                applied_output_speed: None,
-            }),
-        })
+            Arc::new(MockClaudeProcessChannel::new()),
+        ))
     }
 
     // Killed by a failed rewind that empties the slot, losing a live process, or by a failed

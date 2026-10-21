@@ -154,10 +154,6 @@ impl ProviderDescriptor {
     /// [`CommandSandboxAvailability::AskTheService`]. It reads the file system and starts a short
     /// check process, so it runs on the daemon's spawner thread; the WSL server, a Linux build,
     /// answers Linux's. Fails with the system's error from the namespace check.
-    #[expect(
-        dead_code,
-        reason = "the sandboxed permission level's check asks it before offering that level"
-    )]
     pub(crate) fn can_run_command_sandbox(
         &self,
         environment: &[(String, String)],

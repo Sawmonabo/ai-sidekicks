@@ -8,6 +8,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -61,6 +62,13 @@ pub(crate) trait ClaudeRunEngine: Send + Sync {
         &self,
         request: DaemonTurnStartRequest,
     ) -> BoxFuture<'_, Result<RunId, RunEngineError>>;
+
+    /// Ends `run_id`'s turn, and the helpers beneath it, on the exit of the process that ran it.
+    fn end_turn_on_process_exit(
+        &self,
+        run_id: RunId,
+        process_exit: ProcessExit,
+    ) -> BoxFuture<'_, Result<(), RunEngineError>>;
 }
 
 /// The daemon's run engine and its inbound dispatch.
@@ -148,5 +156,15 @@ impl ClaudeRunEngine for RunEngineDelivery {
         request: DaemonTurnStartRequest,
     ) -> BoxFuture<'_, Result<RunId, RunEngineError>> {
         self.engine.start_daemon_turn(request).boxed()
+    }
+
+    fn end_turn_on_process_exit(
+        &self,
+        run_id: RunId,
+        process_exit: ProcessExit,
+    ) -> BoxFuture<'_, Result<(), RunEngineError>> {
+        self.engine
+            .end_turn_on_process_exit(run_id, process_exit)
+            .boxed()
     }
 }

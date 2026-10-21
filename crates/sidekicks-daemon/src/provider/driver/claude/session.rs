@@ -8,8 +8,10 @@
 pub(super) mod answered_commands;
 pub(super) mod arrivals;
 mod control_requests;
+pub(super) mod controls;
 mod conversation_file;
 pub(crate) mod errors;
+pub(super) mod establishment;
 pub(super) mod frame_observation;
 pub(super) mod ignored_settings;
 pub(super) mod model_figures;
@@ -20,6 +22,7 @@ pub(super) mod posture;
 pub(super) mod process;
 pub(super) mod purge;
 pub(super) mod reply_reserve;
+pub(super) mod restart;
 pub(super) mod rules;
 #[cfg(test)]
 pub(super) mod scripted;

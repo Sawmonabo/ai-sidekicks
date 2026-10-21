@@ -1,17 +1,23 @@
-//! The errors a Claude session raises, the refusal each reaches a caller as, and the recovery
-//! condition a failure leaves the session in.
+//! The errors a Claude session raises, the refusal each reaches a caller as, the recovery
+//! condition a failure leaves the session in, and the record of a failure no caller hears.
 
+use std::error::Error;
 use std::io;
 
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::error_description::describe_error;
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
 use crate::provider::driver::contract::{DriverError, bound_failure_detail};
+use crate::provider::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+};
 use crate::provider::driver::error_causes::{
     RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
 };
@@ -367,8 +373,28 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::BackgroundTasks
         | ClaudeControlSubtype::GenerateSessionTitle
         | ClaudeControlSubtype::RenameSession
-        | ClaudeControlSubtype::SideQuestion => None,
+        | ClaudeControlSubtype::NegativeControl => None,
     }
+}
+
+/// Records a failure no caller hears, as `kind`'s diagnostic on `session_id`: `step` names in plain
+/// words what failed, and the reason carries `error` with its causes.
+pub(crate) fn record_unheard_claude_failure(
+    kind: DriverDiagnosticKind,
+    session_id: SessionId,
+    step: &str,
+    error: &(dyn Error + 'static),
+) {
+    emit_driver_diagnostic(&DriverDiagnosticRecord {
+        provider: DESCRIPTOR.provider_id(),
+        provider_account_id: None,
+        kind,
+        raw_wire_type: None,
+        disposition_reason: format!("{step} failed: {}", describe_error(error)),
+        details: [("sessionId".to_owned(), json!(session_id))]
+            .into_iter()
+            .collect(),
+    });
 }
 
 #[cfg(test)]

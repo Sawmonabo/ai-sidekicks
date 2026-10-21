@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use futures::FutureExt;
@@ -18,9 +18,18 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::binding_id;
+use crate::provider::callback_tools::host::{
+    CallbackToolActivityRecord, CallbackToolActivitySink, CallbackToolExecutor, CallbackToolHost,
+    CallbackToolPortError, CallbackToolSpawnRequest,
+};
+use crate::provider::callback_tools::spawn_binding::{
+    CallbackToolSpawnBinding, bind_callback_tools_for_spawn,
+};
 use crate::provider::driver::attachments::{
     AttachmentResolver, ProviderAttachment, UnresolvedAttachmentCause, UnresolvedAttachmentMarker,
 };
+use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
+use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
@@ -154,7 +163,7 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
 }
 
 /// A machine with no repositories.
-pub(super) struct NoRepositories;
+pub(crate) struct NoRepositories;
 
 impl RepositoryReader for NoRepositories {
     fn read_repository<'a>(
@@ -166,6 +175,49 @@ impl RepositoryReader for NoRepositories {
 
     fn is_owned_by_user<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, bool> {
         async { false }.boxed()
+    }
+}
+
+/// A callback-tool host with no approval seam, so every spawn's registry is withheld.
+pub(crate) fn test_callback_tool_host() -> Arc<CallbackToolHost> {
+    Arc::new(CallbackToolHost::new(
+        Arc::new(NoCallbackTools),
+        Arc::new(NoCallbackTools),
+        None,
+    ))
+}
+
+/// The callback-tool binding of a spawn of `session_id` that offers none.
+pub(crate) fn test_callback_tool_binding(session_id: SessionId) -> Arc<CallbackToolSpawnBinding> {
+    Arc::new(bind_callback_tools_for_spawn(
+        &test_callback_tool_host(),
+        CallbackToolSpawnRequest {
+            session_id,
+            provider: DESCRIPTOR.provider_id(),
+            requested_tools: Vec::new(),
+            provider_registration_unavailable: None,
+        },
+    ))
+}
+
+// Runs no tool and records nothing: no seam is registered, so no call reaches either.
+struct NoCallbackTools;
+
+impl CallbackToolExecutor for NoCallbackTools {
+    fn execute(
+        &self,
+        _invocation: CallbackToolInvocation,
+    ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
+        async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
+    }
+}
+
+impl CallbackToolActivitySink for NoCallbackTools {
+    fn record<'a>(
+        &'a self,
+        _record: &'a CallbackToolActivityRecord,
+    ) -> BoxFuture<'a, Result<(), CallbackToolPortError>> {
+        async { Ok(()) }.boxed()
     }
 }
 

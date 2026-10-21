@@ -10,6 +10,7 @@ pub(super) mod task;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
@@ -17,6 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::provider::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
@@ -119,6 +121,21 @@ impl ClaudeDeliveryPlace {
     /// Runs `work` with this place, so the deliveries it makes go there.
     pub(crate) async fn scope<Output>(self, work: impl Future<Output = Output>) -> Output {
         CLAUDE_DELIVERY_PLACE.scope(self, work).await
+    }
+}
+
+/// Delivers `delivery` where the code running now is: in place on a session's task, queued to it
+/// from a scope off it, or straight to `engine` outside any session's place.
+pub(crate) fn deliver_in_current_place<'engine>(
+    engine: &'engine dyn ClaudeRunEngine,
+    delivery: InboundDelivery<'static>,
+) -> BoxFuture<'engine, Option<InboundOutcome>> {
+    match ClaudeDeliveryPlace::current() {
+        Some(ClaudeDeliveryPlace::Queue(arrivals)) => arrivals.dispatch(delivery).boxed(),
+        Some(ClaudeDeliveryPlace::SessionTask {
+            provider_account_id,
+        }) => engine.deliver(provider_account_id, None, delivery),
+        None => engine.deliver(None, None, delivery),
     }
 }
 

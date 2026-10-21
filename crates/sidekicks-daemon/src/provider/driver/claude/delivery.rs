@@ -5,7 +5,7 @@
 
 mod ask_action;
 pub(super) mod dialogs;
-mod messages;
+pub(super) mod messages;
 mod patches;
 pub(super) mod requests;
 pub(super) mod reviewer;
@@ -13,5 +13,5 @@ pub(super) mod run_engine;
 pub(super) mod run_readings;
 pub(super) mod stream;
 mod streamed_blocks;
-mod system;
+pub(super) mod system;
 mod turn_end;

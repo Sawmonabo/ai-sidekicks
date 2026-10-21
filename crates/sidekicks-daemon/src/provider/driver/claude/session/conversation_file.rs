@@ -1,9 +1,11 @@
 //! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
 //! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands, which
-//! message a fork keeps up to and which messages an ended process took; deleted on a purge with
-//! every other file Claude Code keeps for the conversation under the same config folder and the
-//! daemon's scratch folder, a batch of conversations of one home listing each folder it searches
-//! once.
+//! message a fork keeps up to and which messages an ended process took; titled anew at rest;
+//! deleted on a purge with every other file Claude Code keeps for the conversation under the same
+//! config folder and the daemon's scratch folder, a batch of conversations of one home listing
+//! each folder it searches once.
+
+pub(crate) mod title;
 
 use std::collections::HashSet;
 use std::fmt;
@@ -34,6 +36,8 @@ use crate::provider::lenient_json::{
 pub(crate) struct ClaudeConversationOutline {
     /// Index `n` is the uuid of the last entry of turn `n + 1`, so the length is the turn count.
     pub(crate) turn_end_uuids: Vec<String>,
+    /// Index `n` is the uuid of the person's prompt that opens turn `n + 1`.
+    pub(crate) prompt_uuids: Vec<String>,
 }
 
 /// Where Claude Code and the daemon keep the conversations' files of one Claude Code home.
@@ -75,10 +79,6 @@ pub(crate) struct ClaudeConversation<'a> {
 /// Finds the conversation's file under any project folder of `config_folder`, or `None`. Fails
 /// with any read failure but a missing projects folder, and with `InvalidInput` for an id that is
 /// not one plain path component.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's resume and rewind find a conversation's file through it"
-)]
 pub(crate) async fn find_claude_conversation_file(
     config_folder: &Path,
     provider_session_id: &str,
@@ -114,13 +114,6 @@ async fn list_project_folders(config_folder: &Path) -> io::Result<Vec<PathBuf>> 
 
 /// Reads a conversation file's turns line by line; a line that is not a JSON object is skipped.
 /// Holds one line at a time, in a buffer up to twice the longest line, as the buffer doubles.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's rewind reads a conversation's turns through it"
-    )
-)]
 pub(crate) async fn read_claude_conversation_outline(
     file: &Path,
 ) -> io::Result<ClaudeConversationOutline> {
@@ -133,6 +126,9 @@ pub(crate) async fn read_claude_conversation_outline(
                 outline.turn_end_uuids.push(uuid.clone());
             }
             is_prompt_seen = true;
+            outline
+                .prompt_uuids
+                .push(entry.uuid.clone().unwrap_or_default());
         }
         if let Some(uuid) = entry.uuid.filter(|uuid| !uuid.is_empty()) {
             last_uuid = Some(uuid);
@@ -573,6 +569,7 @@ mod tests {
             outline,
             ClaudeConversationOutline {
                 turn_end_uuids: vec!["a2".to_owned(), "a3".to_owned()],
+                prompt_uuids: vec!["u1".to_owned(), "u2".to_owned()],
             }
         );
     }

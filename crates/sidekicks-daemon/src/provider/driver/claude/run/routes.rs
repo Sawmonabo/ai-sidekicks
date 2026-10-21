@@ -337,6 +337,19 @@ impl ClaudeRunRoutes {
         })
     }
 
+    /// Every lead run bound to the session, with its binding, whether or not it holds the turn.
+    pub(crate) fn bound_runs_on(&self, session_id: SessionId) -> Vec<ClaudeBoundRun> {
+        self.lock()
+            .bindings
+            .iter()
+            .filter(|(_, (bound, _))| *bound == session_id)
+            .map(|(run_id, (_, binding_id))| ClaudeBoundRun {
+                run_id: *run_id,
+                binding_id: binding_id.clone(),
+            })
+            .collect()
+    }
+
     /// Where `run_id` is routed, or `None` for a run the routes do not hold.
     pub(crate) fn route_of(&self, run_id: RunId) -> Option<ClaudeRunRoute> {
         let tables = self.lock();

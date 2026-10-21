@@ -51,7 +51,7 @@ use crate::provider::spawned_version::ResolvedProviderExecutable;
 )]
 pub(crate) async fn read_claude_creation_figures(
     launcher: &ClaudeProcessLauncher,
-    executable: ResolvedProviderExecutable,
+    executable: &ResolvedProviderExecutable,
     place: &ClaudeSessionFolderReadRequest,
     read_models: HashSet<String>,
 ) -> Result<ClaudeCreationFiguresReading, ClaudeLaunchError> {
@@ -102,7 +102,7 @@ pub(crate) async fn read_claude_creation_figures(
 )]
 pub(crate) async fn read_claude_reply_reserve(
     launcher: &ClaudeProcessLauncher,
-    executable: ResolvedProviderExecutable,
+    executable: &ResolvedProviderExecutable,
     place: &ClaudeSessionFolderReadRequest,
 ) -> Result<ClaudeReplyReserveReads, ClaudeLaunchError> {
     let short = ClaudeShortProcess::start_control_only(

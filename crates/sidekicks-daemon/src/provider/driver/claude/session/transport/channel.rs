@@ -41,4 +41,8 @@ pub(crate) trait ClaudeProcessChannel: Send + Sync {
     /// Stops the process as the system stops a child, ending a running turn without answering
     /// what is queued, and settles once it exited.
     fn terminate(&self) -> BoxFuture<'_, ()>;
+
+    /// Closes the process as a session closes: its input ends, so Claude Code finishes writing its
+    /// conversation, and it is stopped once the request deadline passes; settles once it exited.
+    fn close(&self) -> BoxFuture<'_, ()>;
 }

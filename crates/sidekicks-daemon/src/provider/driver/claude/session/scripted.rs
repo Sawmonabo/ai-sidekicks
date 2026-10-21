@@ -6,9 +6,10 @@
 pub(crate) mod channel;
 pub(crate) mod daemon_services;
 pub(crate) mod run_engine;
+pub(crate) mod starts;
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 
 use futures::FutureExt;
@@ -19,13 +20,18 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::PathRules;
+use sidekicks_platforms::{PathRules, Spawner};
+use tokio::runtime::Handle;
 
 use self::channel::ScriptedChannel;
 use self::daemon_services::{
     NoRepositories, RecordingPorts, ScriptedAttachments, ScriptedBindings,
+    test_callback_tool_binding,
 };
 use self::run_engine::RecordingRunEngine;
+use self::starts::ScriptedStarts;
+use crate::git::process::{GitLimits, GitRunner};
+use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::claude::DESCRIPTOR;
@@ -63,9 +69,10 @@ use crate::provider::driver::claude::session::arrivals::task::{
 use crate::provider::driver::claude::session::arrivals::{
     ClaudeSessionListener, claude_session_arrivals, drain_claude_session_arrivals,
 };
+use crate::provider::driver::claude::session::controls::ClaudeSessionControls;
 use crate::provider::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::provider::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
-use crate::provider::driver::claude::session::slots::ClaudeSessionSlots;
+use crate::provider::driver::claude::session::restart::ClaudeSessionRestarts;
 use crate::provider::driver::claude::session::state::{
     CLAUDE_THREAD_FRAME_ROUTER_CONFIG, ClaudeLiveSettings, ClaudeSessionRoutingBand,
     ClaudeSpawnBinding, ClaudeUsageEstablishment, LiveClaudeSession,
@@ -76,13 +83,25 @@ use crate::provider::driver::claude::session::transport::inbound::{
     ClaudeControlFrameReader, ClaudeInboundRequestEvent,
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::provider::driver::ports::DriverPorts;
 use crate::provider::port::permission_ask::PermissionAskPort;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::repository_reader::RepositoryReader;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::port::session_rules::SessionRulePort;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::thread_frame_router::ThreadFrameRouter;
 use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
+use crate::queue::delivery::ProviderProcessIdentity;
+
+/// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
+pub(crate) fn scripted_staged_changes() -> StagedChangesWorktrees {
+    let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
+    StagedChangesWorktrees::new(
+        &std::env::temp_dir().join("sidekicks-scripted-worktrees"),
+        GitRunner::new(spawner, None, Arc::from([]), GitLimits::DAEMON),
+    )
+}
 
 /// The provider session every scripted process runs under.
 pub(crate) const SCRIPTED_PROVIDER_SESSION_ID: &str = "provider-session";
@@ -151,6 +170,12 @@ pub(crate) fn scripted_live_session(
             attached_advisor: ClaudeAttachedAdvisor::Unreported,
             applied_output_speed: None,
         }),
+        process_identity: ProviderProcessIdentity {
+            process_id: 1,
+            spawn_sequence: 0,
+        },
+        callback_tool_binding: test_callback_tool_binding(session_id),
+        process_exit: OnceLock::new(),
     }
 }
 
@@ -180,6 +205,10 @@ pub(crate) struct ScriptedSession {
     pub(crate) interventions: Arc<ClaudeInterventions>,
     /// The run controls.
     pub(crate) controls: ClaudeRunControls,
+    /// The session controls.
+    pub(crate) session_controls: Arc<ClaudeSessionControls>,
+    /// Every process start, scripted.
+    pub(crate) starts: Arc<ScriptedStarts>,
     /// The helpers running in the foreground.
     pub(crate) foreground_helpers: Arc<Mutex<ClaudeForegroundHelpers>>,
     /// The words waiting for each helper.
@@ -263,8 +292,14 @@ impl ScriptedSession {
                 lock(&taken_report).push((uuid.to_owned(), run_id));
             }),
         }));
+        let restarts = ClaudeSessionRestarts::new(
+            Arc::clone(&routes),
+            Arc::clone(&engine_port),
+            Weak::new(),
+            Arc::new(DriverPorts::new()),
+        );
         let start = ClaudeRunStart {
-            slots: ClaudeSessionSlots::new(Arc::new(|_predecessor| {})),
+            slots: restarts.slots().clone(),
             routes: Arc::clone(&routes),
             streams: Arc::clone(&streams),
             handshakes: Arc::clone(&handshakes),
@@ -279,6 +314,15 @@ impl ScriptedSession {
             Arc::clone(&requests),
             Arc::clone(&helper_steers),
             Arc::clone(&foreground_helpers),
+        ));
+        let starts = Arc::new(ScriptedStarts::default());
+        let session_controls = Arc::new(ClaudeSessionControls::new(
+            start.clone(),
+            starts.clone(),
+            scripted_staged_changes(),
+            Arc::new(PortRegistration::new("session rules")),
+            Arc::new(PortRegistration::new("in-process tool servers")),
+            Box::new(|_session_id| None),
         ));
         let channel_port: Arc<dyn ClaudeProcessChannel> = channel.clone();
         let live = Arc::new(scripted_live_session(session_id, channel_port));
@@ -362,6 +406,9 @@ impl ScriptedSession {
             }),
             shell_lines: Arc::new(ShellLineReadingBound::new(1 << 20)),
             tool_servers: Arc::new(PortRegistration::new("tool servers")),
+            processes: Arc::new(ProviderProcessRegistry::default()),
+            restarts,
+            controls: Arc::clone(&session_controls),
         });
         let mut task = ClaudeSessionTask::new(services, Arc::clone(&live), Arc::clone(&stream));
         tokio::spawn(async move {
@@ -379,6 +426,8 @@ impl ScriptedSession {
             requests,
             interventions,
             controls,
+            session_controls,
+            starts,
             foreground_helpers,
             helper_steers,
             taken,

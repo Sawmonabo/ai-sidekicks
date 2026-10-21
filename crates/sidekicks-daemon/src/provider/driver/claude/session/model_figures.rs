@@ -25,7 +25,6 @@ use futures::future::{BoxFuture, Shared};
 use sidekicks_platforms::PathRules;
 
 use crate::provider::driver::claude::session::answered_commands::ClaudeCommandChoices;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
 use crate::provider::driver::claude::session::reply_reserve::{
     ClaudeReplyReserve, read_context_reply,
 };
@@ -33,6 +32,7 @@ use crate::provider::driver::claude::session::transport::readings::{
     ClaudeModelContextRead, ClaudeSessionFolderReadRequest,
 };
 use crate::provider::driver::claude::spawn::environment::claude_config_folder;
+use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::provider::record_readers::{read_count, read_non_empty_string};
 
 /// The variables that point Claude Code at an API endpoint other than its default: the switch to
@@ -52,7 +52,7 @@ const CLAUDE_ENDPOINT_VARIABLES: [&str; 11] = [
 ];
 
 /// A figure read every waiter shares: its process's result, a failure shared whole.
-pub(crate) type ClaudeFigureResult<T> = Result<T, Arc<ClaudeSessionError>>;
+pub(crate) type ClaudeFigureResult<T> = Result<T, Arc<ClaudeLaunchError>>;
 
 // A read in flight or done, cloned by each waiter.
 type SharedRead<T> = Shared<BoxFuture<'static, ClaudeFigureResult<T>>>;
@@ -149,7 +149,7 @@ impl ClaudeModelFigures {
         read: impl FnOnce() -> Read,
     ) -> ClaudeFigureResult<ClaudeCommandChoices>
     where
-        Read: Future<Output = Result<ClaudeCommandChoices, ClaudeSessionError>> + Send + 'static,
+        Read: Future<Output = ClaudeFigureResult<ClaudeCommandChoices>> + Send + 'static,
     {
         let key = ClaudeChoicesKey {
             working_directory: place.working_directory.clone(),
@@ -173,7 +173,7 @@ impl ClaudeModelFigures {
         read: impl FnOnce() -> Read,
     ) -> ClaudeFigureResult<ClaudeReplyReserve>
     where
-        Read: Future<Output = Result<ClaudeReplyReserve, ClaudeSessionError>> + Send + 'static,
+        Read: Future<Output = ClaudeFigureResult<ClaudeReplyReserve>> + Send + 'static,
     {
         let key = ClaudeModelKey {
             endpoint: ClaudeEndpoint::of(&place.spawn_environment, self.rules),
@@ -252,7 +252,7 @@ async fn read_once<K, T, Read>(
 where
     K: Clone + Eq + Hash,
     T: Clone + Send + Sync + 'static,
-    Read: Future<Output = Result<T, ClaudeSessionError>> + Send + 'static,
+    Read: Future<Output = ClaudeFigureResult<T>> + Send + 'static,
 {
     let shared = {
         let mut reads = lock(held);
@@ -271,7 +271,6 @@ where
             let shared = async move {
                 task.await
                     .expect("a figure read is never aborted, and a panic ends the daemon")
-                    .map_err(Arc::new)
             }
             .boxed()
             .shared();
@@ -314,6 +313,7 @@ mod tests {
     use crate::provider::driver::claude::session::reply_reserve::ClaudeReplyReserve;
     use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
     use crate::provider::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
+    use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 
     fn place() -> ClaudeSessionFolderReadRequest {
         ClaudeSessionFolderReadRequest {
@@ -321,6 +321,16 @@ mod tests {
             working_directory: PathBuf::from("/work"),
             model: "claude-opus-5".to_owned(),
         }
+    }
+
+    fn unanswered() -> Arc<ClaudeLaunchError> {
+        Arc::new(
+            ClaudeSessionError::Unanswered {
+                subtype: ClaudeControlSubtype::GetContextUsage,
+                cause: ClaudeUnansweredCause::Deadline,
+            }
+            .into(),
+        )
     }
 
     fn reserve() -> ClaudeReplyReserve {
@@ -339,10 +349,7 @@ mod tests {
             let reads = Arc::clone(&reads);
             move || async move {
                 reads.fetch_add(1, Ordering::SeqCst);
-                Err(ClaudeSessionError::Unanswered {
-                    subtype: ClaudeControlSubtype::GetContextUsage,
-                    cause: ClaudeUnansweredCause::Deadline,
-                })
+                Err(unanswered())
             }
         };
         let place = place();
@@ -400,10 +407,7 @@ mod tests {
         let mut first = Box::pin(figures.reply_reserve(&place, move || async move {
             released.await.expect("the test releases the read");
             finish.send(()).expect("the test waits for the read");
-            Err(ClaudeSessionError::Unanswered {
-                subtype: ClaudeControlSubtype::GetContextUsage,
-                cause: ClaudeUnansweredCause::Deadline,
-            })
+            Err(unanswered())
         }));
         assert!(futures::poll!(&mut first).is_pending());
         drop(first);

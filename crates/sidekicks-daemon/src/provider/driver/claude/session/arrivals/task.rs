@@ -37,12 +37,18 @@ use crate::provider::driver::claude::run::rewind::ClaudeConversationCuts;
 use crate::provider::driver::claude::run::routes::ClaudeRunRoute;
 use crate::provider::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
 use crate::provider::driver::claude::run::settlement::ClaudeTurnSettlement;
+use crate::provider::driver::claude::session::controls::ClaudeSessionControls;
 use crate::provider::driver::claude::session::permission_level::permission_level_of;
+use crate::provider::driver::claude::session::process::ClaudeProcessEnd;
+use crate::provider::driver::claude::session::restart::{
+    ClaudeSessionRestarts, claude_process_exit_of,
+};
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
@@ -82,6 +88,12 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// The in-process tool servers, once registered.
     pub(crate) tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
+    /// Which process runs each session, each removed at its exit.
+    pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// The restarts of a process that ended on its own, and the build moves a turn held back.
+    pub(crate) restarts: Arc<ClaudeSessionRestarts>,
+    /// The session controls, which follow the lead's command lists and reviews.
+    pub(crate) controls: Arc<ClaudeSessionControls>,
 }
 
 /// One live process's task: its session, its stream and its in-process tool-server calls.
@@ -144,6 +156,10 @@ impl ClaudeSessionTask {
             services
                 .goals
                 .observe_lead_frame(session_id, frame_kind, text);
+            services
+                .controls
+                .observe_lead_frame(session_id, frame_kind)
+                .await;
         }
         lock(&services.foreground_helpers).observe_frame(session_id, frame_kind, text);
         let is_reviewed = self.level() == Some(PermissionLevel::Reviewed);
@@ -239,25 +255,41 @@ impl ClaudeSessionTask {
     }
 
     // The process is gone: what it held is forgotten, its stream's last rows sent, and its slot
-    // let go unless a close or rewind already took it.
-    async fn end(&self) {
+    // let go unless a close or rewind already took it. An exit nothing asked for restarts the
+    // session; a rewind's fork that took the session keeps what it holds.
+    async fn end(&self, end: &ClaudeProcessEnd) {
         let services = &self.services;
         let session_id = self.live.session_id;
+        let slots = &services.self_started.start.slots;
         services.delivery.end_session(&self.stream).await;
+        services.streams.remove(&self.stream);
+        services
+            .processes
+            .remove_exited(session_id, self.live.process_identity);
+        // Set before the slot is read, so a fork that fails after this finds the exit.
+        let exit = self
+            .live
+            .process_exit
+            .get_or_init(|| claude_process_exit_of(end))
+            .clone();
+        let is_superseded = slots
+            .live_session(session_id)
+            .is_some_and(|held| !Arc::ptr_eq(&held.channel, &self.live.channel));
+        if is_superseded {
+            return;
+        }
         services.requests.forget_session(session_id);
         services.dialogs.forget_session(session_id);
         services.reviewer.forget_session(session_id);
         services.goals.forget_session(session_id);
         services.interventions.forget_session(session_id);
+        services.controls.forget_process(session_id).await;
         lock(&services.prompts).forget_session(session_id);
         lock(&services.pauses).forget_session(&session_id);
         lock(&services.helpers).forget_session(&session_id);
-        services.streams.remove(&self.stream);
-        services
-            .self_started
-            .start
-            .slots
-            .release_exited(session_id, &self.live.channel);
+        if let Some(live) = slots.release_exited(session_id, &self.live.channel) {
+            services.restarts.process_exited(live, exit).await;
+        }
     }
 }
 
@@ -267,10 +299,12 @@ impl ClaudeSessionArrivalHandler for ClaudeSessionTask {
             match arrival {
                 ClaudeSessionArrival::Frame(routed) => self.take_frame(*routed).await,
                 ClaudeSessionArrival::Terminal => {
-                    self.services.settlement.settle_turn(&self.live).await;
+                    if self.services.settlement.settle_turn(&self.live).await {
+                        self.services.restarts.turn_settled(&self.live);
+                    }
                 }
                 ClaudeSessionArrival::Request(event) => self.take_request(event).await,
-                ClaudeSessionArrival::Exit(_) => self.end().await,
+                ClaudeSessionArrival::Exit(end) => self.end(&end).await,
                 ClaudeSessionArrival::Deliver(delivery) => {
                     self.services
                         .delivery

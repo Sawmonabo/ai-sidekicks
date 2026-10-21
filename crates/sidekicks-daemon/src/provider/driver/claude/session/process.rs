@@ -367,6 +367,10 @@ impl ClaudeProcessChannel for ClaudeCodeProcess {
         }
         .boxed()
     }
+
+    fn close(&self) -> BoxFuture<'_, ()> {
+        self.stop(CLAUDE_REQUEST_DEADLINE).boxed()
+    }
 }
 
 #[derive(Serialize)]
