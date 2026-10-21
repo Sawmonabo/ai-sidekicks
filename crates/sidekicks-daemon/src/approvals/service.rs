@@ -110,15 +110,12 @@ pub(crate) struct RaisedCard {
     pub(crate) settled: ArmedWait<RaisedCardKey, RaisedRequestSettlement>,
 }
 
-/// One answer as [`ApprovalService::resolve`] settled it: what the caller is answered, whether this
-/// call recorded it (false for the same answer sent again, which hands nothing on), and the ask as
-/// it was read before the answer.
+/// One answer as [`ApprovalService::resolve`] settled it: what the caller is answered, and the ask
+/// as it was read before the answer.
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedAnswer {
     /// What the caller is answered.
     pub(crate) response: ApprovalResolveResponse,
-    /// Whether this call recorded the answer.
-    pub(crate) was_recorded: bool,
     /// The ask the answer settled.
     pub(crate) request: StoredApprovalRequest,
 }
@@ -367,7 +364,6 @@ impl ApprovalService {
         if stored.state != ApprovalState::Pending {
             return Ok(ResolvedAnswer {
                 response: answer_settled(&stored, &answer)?,
-                was_recorded: false,
                 request: stored,
             });
         }
@@ -419,7 +415,6 @@ impl ApprovalService {
                         .ok_or_else(|| approval_not_found(approval_request_id))?;
                     Ok(ResolvedAnswer {
                         response: answer_settled(&settled, &answer)?,
-                        was_recorded: false,
                         request: settled,
                     })
                 }
@@ -454,7 +449,6 @@ impl ApprovalService {
                 effective_scope,
                 resolved_at,
             },
-            was_recorded: true,
             request: stored,
         })
     }

@@ -396,7 +396,6 @@ async fn one_answer_settles_a_card(
                 .resolve(&first, device())
                 .await
                 .expect("the first answer is recorded");
-            assert!(resolved.was_recorded);
             Some(resolved.response)
         }
     };
@@ -408,7 +407,6 @@ async fn one_answer_settles_a_card(
     match code {
         None => {
             let replayed = outcome.expect("the replay is answered");
-            assert!(!replayed.was_recorded);
             assert_eq!(Some(replayed.response), saved);
         }
         Some(code) => {

@@ -7,10 +7,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::approval::ApprovalResolveRequest;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use super::{CHECK_FAILED_REFUSAL, PermissionAsks, PermissionAsksDeps};
+use super::{CHECK_FAILED_REFUSAL, PermissionAskError, PermissionAsks, PermissionAsksDeps};
 use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
 use crate::approvals::service::tests::{SETTLE_WAIT, from_json};
 use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
@@ -99,17 +100,17 @@ impl AsksFixture {
 
     /// Every card's state, oldest first.
     fn card_states(&self) -> Vec<String> {
-        self.read_cards("SELECT state FROM approval_requests ORDER BY created_at, id")
+        self.read_texts("SELECT state FROM approval_requests ORDER BY created_at, id")
     }
 
     /// The ids of the cards still pending, oldest first.
     pub(crate) fn pending_cards(&self) -> Vec<String> {
-        self.read_cards(
+        self.read_texts(
             "SELECT id FROM approval_requests WHERE state = 'pending' ORDER BY created_at, id",
         )
     }
 
-    fn read_cards(&self, sql: &str) -> Vec<String> {
+    fn read_texts(&self, sql: &str) -> Vec<String> {
         self.check
             .approvals
             .database
@@ -117,9 +118,9 @@ impl AsksFixture {
             .prepare(sql)
             .expect("the test's read prepares")
             .query_map([], |row| row.get(0))
-            .expect("the test reads the cards")
+            .expect("the test reads its rows")
             .collect::<Result<_, _>>()
-            .expect("each card reads")
+            .expect("each row reads")
     }
 
     fn handed(&self) -> Vec<ProviderPermissionAnswer> {
@@ -230,8 +231,9 @@ async fn a_held_ask_raises_one_card_which_its_withdrawal_cancels() {
 
 // A delivery under a held request id that names another action is another ask: the waiting
 // card is withdrawn and the new one's raised, and an answer kept for the one held never goes to
-// it. Killed by replacing a waiting ask without withdrawing its card, and by answering the new
-// ask from the held one.
+// it; a card whose ask is no longer held takes no answer. Killed by replacing a waiting ask
+// without withdrawing its card, by answering the new ask from the held one, and by recording an
+// answer to a card no ask holds.
 #[tokio::test]
 async fn another_action_under_a_held_request_id_is_another_ask() {
     let fixture = AsksFixture::new().await;
@@ -253,6 +255,15 @@ async fn another_action_under_a_held_request_id_is_another_ask() {
         .expect("the ask is taken");
     assert_eq!(fixture.card_states(), ["canceled", "approved", "pending"]);
     assert_eq!(fixture.handed(), [plain_allow()]);
+    fixture.asks.forget_run(fixture.check.approvals.run_id);
+    let [unheld] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
+    let refused = fixture.asks.resolve(&approval(&unheld), device()).await;
+    assert!(matches!(
+        refused,
+        Err(PermissionAskError::Refused(refusal))
+            if refusal.code == RefusalCode::ApprovalRequestCanceled
+    ));
+    assert_eq!(fixture.card_states(), ["canceled", "approved", "pending"]);
 }
 
 // An ask whose check failed is refused at its provider with the check-failed line, and the
@@ -366,8 +377,9 @@ async fn after_an_unanswered_hand_only_the_providers_redelivery_hands_the_answer
 }
 
 // The session rule an answer made on a card the daemon raised itself, whose record failed, is
-// recorded when the same answer is sent again. Killed by recording a daemon card's rule only
-// when the answer is first recorded.
+// recorded when the same answer is sent again, and a resend after that record leaves the one rule
+// in force. Killed by recording a daemon card's rule only when the answer is first recorded, and
+// by a record that counts the card's own rule as one it replaces.
 #[tokio::test]
 async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
     let fixture = AsksFixture::new().await;
@@ -408,6 +420,11 @@ async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
         .resolve(&answer, device())
         .await
         .expect("the resend records the rule");
+    fixture
+        .asks
+        .resolve(&answer, device())
+        .await
+        .expect("a resend after the record is answered");
     let rule = fixture
         .check
         .rules
@@ -420,4 +437,15 @@ async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
         .await
         .expect("the rules read");
     assert!(rule.is_some());
+    let in_force = fixture
+        .check
+        .rules
+        .list(approvals.session_id)
+        .await
+        .expect("the rules list");
+    assert_eq!(in_force.rules.len(), 1);
+    let revoked = fixture.read_texts(
+        "SELECT id FROM session_events WHERE type = 'approval.rule.revoked' ORDER BY id",
+    );
+    assert_eq!(revoked, Vec::<String>::new());
 }

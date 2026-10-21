@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use futures::future::BoxFuture;
 use sidekicks_contracts::approval::{
     ApprovalDecision, ApprovalRequestId, ApprovalResolveRequest, ApprovalResolveResponse,
-    RememberedScope, RememberedScopeKind,
+    ApprovalState, RememberedScope, RememberedScopeKind,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -34,7 +34,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio_util::sync::CancellationToken;
 
-use crate::approvals::refusals::approval_rule_not_kept;
+use crate::approvals::refusals::{approval_request_canceled, approval_rule_not_kept};
 use crate::approvals::rules::{ApprovalRuleError, ApprovalRules};
 use crate::approvals::service::{
     ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer,
@@ -326,8 +326,10 @@ impl PermissionAsks {
     /// then records the rule it made once the provider kept it; a card the daemon raised itself
     /// records its rule at once. The same answer sent again hands it again only where no earlier
     /// hand reached, or may have reached, the provider, and records a daemon card's rule whose
-    /// record failed. Fails with the approval service's refusals; `approval.rule.notKept` when the
-    /// call was answered but its provider could not keep the rule, which is then not recorded;
+    /// record failed. Fails with the approval service's refusals; `approval.requestCanceled`, the
+    /// answer not recorded, for a provider's pending card whose ask is no longer held;
+    /// `approval.rule.notKept` when the call was answered but its provider could not keep the rule,
+    /// which is then not recorded;
     /// [`PermissionAskError::RuleWithoutAction`] for a daemon card that names no action for its
     /// rule; and as reaching the provider or recording the rule fails, the answer kept.
     pub(crate) async fn resolve(
@@ -335,21 +337,28 @@ impl PermissionAsks {
         request: &ApprovalResolveRequest,
         device_id: DeviceId,
     ) -> Result<ApprovalResolveResponse, PermissionAskError> {
+        let answer = ResolveAnswer::of(request);
+        // A provider's card whose ask is no longer held, its withdrawal or its replacement not
+        // kept, has no call left to answer, so the answer is refused before it is recorded.
+        if let Some(stored) = self
+            .deps
+            .approvals
+            .read_request(answer.approval_request_id)
+            .await?
+            && stored.state == ApprovalState::Pending
+            && let Some(ask_id) = &stored.ask_id
+            && self.find_held(stored.run_id, ask_id).is_none()
+        {
+            return Err(approval_request_canceled(stored.approval_request_id).into());
+        }
         let ResolvedAnswer {
             response,
-            was_recorded,
             request: stored,
         } = self.deps.approvals.resolve(request, device_id).await?;
-        let answer = ResolveAnswer::of(request);
         let Some(ask_id) = stored.ask_id.clone() else {
-            // The answer sent again records the rule whose record failed the first time.
-            let is_rule_recorded = stored
-                .resolution
-                .as_ref()
-                .is_some_and(|resolution| resolution.remembered_scope.is_some());
-            if let Some(scope) = answer.remembered_scope
-                && (was_recorded || !is_rule_recorded)
-            {
+            // A card's rule is recorded once, so the answer sent again records the rule whose
+            // record failed the first time and leaves a recorded one as it stands.
+            if let Some(scope) = answer.remembered_scope {
                 self.record_daemon_rule(&stored, scope).await?;
             }
             return Ok(response);

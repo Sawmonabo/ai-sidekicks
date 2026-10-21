@@ -6,8 +6,8 @@
 //!   and a task the holder spawns is handed the hold, since a hold on a `'static` lock is itself
 //!   `'static`.
 //! - The hold ends when it drops, by a value, an error or a cancel alike.
-//! - Each key's queue is a FIFO mutex, removed once no caller holds or waits on it, so the map never
-//!   grows with every key ever locked.
+//! - Each key's queue is a FIFO mutex, removed once no caller holds or waits on it, so the map
+//!   never grows with every key ever locked.
 
 use std::collections::HashMap;
 use std::hash::Hash;

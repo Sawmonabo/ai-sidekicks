@@ -171,8 +171,8 @@ fn allow(basis: CallbackToolApprovalBasis) -> CallbackToolApprovalOutcome {
 // posture: a tool with no gate is refused, a read runs, a provider that asks itself has asked,
 // a level that asks raises the card, whose decline sends the person's words and whose "Always
 // allow" keeps a session rule the daemon alone keeps, hands no provider and answers no provider's
-// ask, Sandboxed runs the call, and the daemon's stop fails the call waiting on its card. Killed
-// by dropping the refusal of a tool with no gate, by reading the run's posture in place of the
+// ask, Sandboxed runs the call, and a card's wait settled stopped fails the call. Killed by
+// dropping the refusal of a tool with no gate, by reading the run's posture in place of the
 // session's level, by not recording the daemon card's rule, by inverting which keeper a rule
 // has, and by handing a rule the daemon keeps to a provider.
 #[tokio::test]
