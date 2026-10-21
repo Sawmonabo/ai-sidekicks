@@ -229,19 +229,16 @@ impl TranscriptStreamState {
     ) -> rusqlite::Result<Option<ChildRunSummary>> {
         let is_own_event = transcript_own_run_id_of(Some(&event.payload))
             .is_some_and(|own| own == run_id.to_string());
-        let tally = match self.runs.get_mut(&run_id) {
-            Some(tally) => {
-                if let Some(tally) = tally.as_mut().filter(|_| is_own_event) {
-                    tally.total += 1;
-                    tally.readable += 1;
-                    tally.state = read_state(reader, &run_id)?.unwrap_or(tally.state);
-                }
-                tally
+        let tally = if let Some(tally) = self.runs.get_mut(&run_id) {
+            if let Some(tally) = tally.as_mut().filter(|_| is_own_event) {
+                tally.total += 1;
+                tally.readable += 1;
+                tally.state = read_state(reader, &run_id)?.unwrap_or(tally.state);
             }
-            None => {
-                let tally = seed_child_tally(reader, read_bound, event, &run_id)?;
-                self.runs.entry(run_id).or_insert(tally)
-            }
+            tally
+        } else {
+            let tally = seed_child_tally(reader, read_bound, event, &run_id)?;
+            self.runs.entry(run_id).or_insert(tally)
         };
         let Some(tally) = tally else {
             return Ok(None);
