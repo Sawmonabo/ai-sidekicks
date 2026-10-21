@@ -7624,6 +7624,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "satteri-arena"
+version = "0.3.1"
+source = "git+https://github.com/Sawmonabo/satteri?rev=e16b7bcd04445ce2435fa3f0efbd21835821294d#e16b7bcd04445ce2435fa3f0efbd21835821294d"
+dependencies = [
+ "memchr",
+ "rustc-hash 2.1.3",
+]
+
+[[package]]
+name = "satteri-ast"
+version = "0.5.3"
+source = "git+https://github.com/Sawmonabo/satteri?rev=e16b7bcd04445ce2435fa3f0efbd21835821294d#e16b7bcd04445ce2435fa3f0efbd21835821294d"
+dependencies = [
+ "rustc-hash 2.1.3",
+ "satteri-arena",
+ "satteri-property-info",
+ "serde",
+ "serde_json",
+ "stacker",
+]
+
+[[package]]
+name = "satteri-property-info"
+version = "0.2.0"
+source = "git+https://github.com/Sawmonabo/satteri?rev=e16b7bcd04445ce2435fa3f0efbd21835821294d#e16b7bcd04445ce2435fa3f0efbd21835821294d"
+
+[[package]]
+name = "satteri-pulldown-cmark"
+version = "0.6.3"
+source = "git+https://github.com/Sawmonabo/satteri?rev=e16b7bcd04445ce2435fa3f0efbd21835821294d#e16b7bcd04445ce2435fa3f0efbd21835821294d"
+dependencies = [
+ "bitflags 2.13.2",
+ "memchr",
+ "rustc-hash 2.1.3",
+ "satteri-arena",
+ "satteri-ast",
+ "unicase",
+ "unicode-id-start",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8400,6 +8441,7 @@ dependencies = [
  "rstest",
  "rusqlite",
  "rustls-platform-verifier",
+ "satteri-pulldown-cmark",
  "schemars 1.2.3",
  "secrecy",
  "semver",
@@ -9900,6 +9942,12 @@ name = "unicode-general-category"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b993bddc193ae5bd0d623b49ec06ac3e9312875fdae725a975c51db1cc1677f"
+
+[[package]]
+name = "unicode-id-start"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0825d2e09dcae814a4273c1e1435979d414ede25b2ee235b1545da6682483765"
 
 [[package]]
 name = "unicode-ident"
