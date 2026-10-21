@@ -180,6 +180,7 @@ mod tests {
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::TestDatabase;
     use crate::ipc::call_fixtures::{context, request};
+    use crate::ipc::domain_error::DomainError;
     use crate::ipc::registry::{
         Dispatch as _, DispatchError, EncodedFeed, MethodRegistry, MethodRegistryBuilder, Reply,
     };
@@ -256,15 +257,15 @@ mod tests {
         }
     }
 
-    fn refusal_code(reply: Result<Reply, DispatchError>) -> RefusalCode {
+    fn refusal_of(reply: Result<Reply, DispatchError>) -> DomainError {
         let Err(DispatchError::Refused(refusal)) = reply else {
             panic!("the call is refused");
         };
-        refusal.code
+        refusal
     }
 
-    // An erase the keychain cannot carry out is refused with `daemon.data.storeUnavailable`
-    // before anything stops or goes. Killed by an erase that starts before the keychain check,
+    // An erase the keychain cannot carry out is refused with `daemon.data.storeUnavailable`,
+    // naming its cause, before anything stops or goes. Killed by an erase that starts before the keychain check,
     // and by the refusal answered under another code.
     #[tokio::test]
     async fn an_erase_the_keychain_refuses_answers_store_unavailable_and_erases_nothing() {
@@ -276,9 +277,11 @@ mod tests {
                 context(1),
             )
             .await;
+        let refusal = refusal_of(refused);
+        assert_eq!(refusal.code, RefusalCode::DaemonDataStoreUnavailable);
         assert_eq!(
-            refusal_code(refused),
-            RefusalCode::DaemonDataStoreUnavailable
+            refusal.detail.expect("the refusal names its cause")["cause"],
+            "unavailable"
         );
         tokio::task::yield_now().await;
         assert!(!verbs.has_work_stopped.load(Ordering::SeqCst));
@@ -340,7 +343,10 @@ mod tests {
                     context(1),
                 )
                 .await;
-            assert_eq!(refusal_code(refused), RefusalCode::DaemonDataExportNotFound);
+            assert_eq!(
+                refusal_of(refused).code,
+                RefusalCode::DaemonDataExportNotFound
+            );
         }
     }
 
