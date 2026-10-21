@@ -1,4 +1,2 @@
-# Sätteri's sources are LF; a CRLF checkout of the patch would not apply to them.
-packages/markdown-parser/indented-code-block.patch text eol=lf
 # SQLite's shell, kept byte for byte from its release; `build.rs` checks its hash on every checkout.
 crates/sidekicks-daemon/vendor/** -text linguist-vendored

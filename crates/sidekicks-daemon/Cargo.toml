@@ -66,6 +66,8 @@ ignored = [
   "opentelemetry-proto",
   # The passkey relying party's and the relay channel's tokens.
   "pasetors",
+  # The transcript's markdown cut, built next.
+  "satteri-pulldown-cmark",
   # The redaction set built from each secret of a run.
   "base64",
   "form_urlencoded",
@@ -158,6 +160,7 @@ rmcp.workspace = true
 rquickjs.workspace = true
 rusqlite.workspace = true
 rustls-platform-verifier.workspace = true
+satteri-pulldown-cmark.workspace = true
 schemars.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
 semver.workspace = true

@@ -170,7 +170,7 @@ const repositoryConfig = defineConfig(
       // The search index's loader and declarations, which its addon build writes.
       "packages/search-index/index.js",
       "packages/search-index/index.d.ts",
-      // Sätteri's released source, which the markdown parser's build unpacks and patches.
+      // Sätteri's source with our fix, which the markdown parser's build unpacks.
       "packages/markdown-parser/satteri/**",
     ],
   },
