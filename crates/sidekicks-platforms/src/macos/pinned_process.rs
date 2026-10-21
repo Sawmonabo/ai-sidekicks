@@ -7,7 +7,6 @@
 use std::ffi::CStr;
 use std::io::{self, ErrorKind};
 use std::sync::OnceLock;
-use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use nix::errno::Errno;
@@ -15,12 +14,14 @@ use nix::sys::signal::Signal;
 use nix::unistd::{Pid, getsid};
 use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
 use polling::{PollMode, Poller};
+use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
 use crate::macos::processes::{
     list_child_process_ids, list_group_process_ids, read_process_environment,
 };
-use crate::pinned_process::{ProcessEndWait, ProcessRecord};
+use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
 use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
@@ -198,18 +199,32 @@ impl PinnedProcess {
         )
     }
 
-    /// Asks the process to end by itself: `SIGHUP`, naming it by its id version, its exit watched
-    /// first so it is never missed; answers the wait for its end, which answers at once for a
-    /// process already gone. Blocking, so it runs in `spawn_blocking`. Fails with the system's
+    /// Asks the process to end by itself: `SIGHUP`, naming it by its id version, so no process
+    /// given its id meanwhile is signaled; `false` when it has ended. Fails with the system's
     /// error, and with `Unsupported` on a macOS without the checked read.
-    pub fn hang_up(&self) -> io::Result<ProcessEndWait> {
-        let exit_watch = ExitWatch::attach(self.id)?;
-        self.send_checked_signal(Signal::SIGHUP)?;
-        Ok(ProcessEndWait {
-            poller: exit_watch.poller,
-            is_called_off: AtomicBool::new(false),
-            _process: self.clone(),
-        })
+    pub fn hang_up(&self) -> io::Result<bool> {
+        self.send_checked_signal(Signal::SIGHUP)
+    }
+
+    /// Waits with no bound and no thread for the process's end, an end before the wait included:
+    /// the runtime watches the descriptor of a `kqueue` holding the process's exit filter, which
+    /// reads ready once the filter posts. Dropping the wait calls it off. Must be called within the
+    /// runtime. Fails with the system's error.
+    pub async fn wait_for_end(&self) -> io::Result<()> {
+        let Some(poller) = ExitWatch::attach(self.id)?.poller else {
+            return Ok(());
+        };
+        // SAFETY: the poller's descriptor stays open for as long as the `AsyncFd` owns the poller,
+        // and `as_raw_fd` answers that one descriptor every time.
+        let exit = unsafe { AsyncFd::register_with_interest(poller, Interest::READABLE) }?;
+        loop {
+            let mut ready = exit.readable().await?;
+            // The ready read takes the posted exit off the queue; a wake with none waits again.
+            if wait_for_event(exit.get_ref(), Duration::ZERO)? {
+                return Ok(());
+            }
+            ready.clear_ready();
+        }
     }
 
     // Sends `signal` to the process; `false` when it has ended. A `SIGKILL` first lists every

@@ -16,6 +16,10 @@ use crate::windows::pinned_process::KILLED_EXIT_CODE;
 /// first asks the program to stop by the program's own means, then calls `PinnedProcess::stop`.
 pub const CAN_SIGNAL_A_STOP: bool = false;
 
+/// Whether a socket's path can be a link to the socket bound elsewhere: none can here, where the
+/// path is the socket itself, so its one listener is the one bound on it.
+pub const CAN_LINK_A_SOCKET: bool = false;
+
 /// Prepares `command` to start a child of the daemon: it opens no console window, which a daemon
 /// with no console of its own would otherwise show for each child. The child joins the daemon's
 /// own job, which ends it at the daemon's end, a crash included, so `daemon_pid` is not read.

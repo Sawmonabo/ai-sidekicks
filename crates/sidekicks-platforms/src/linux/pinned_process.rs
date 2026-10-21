@@ -6,16 +6,17 @@
 use std::io::{self, ErrorKind};
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use nix::sys::signal::Signal;
 use polling::{Event, Poller};
+use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
 use crate::linux::processes::read_process_environment;
 use crate::linux::{read_process_file, read_process_stat_fields};
-use crate::pinned_process::{ProcessEndWait, ProcessRecord};
+use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
 use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
@@ -98,20 +99,22 @@ impl PinnedProcess {
         )
     }
 
-    /// Asks the process to end by itself: `SIGHUP` through its descriptor, its exit watched first;
-    /// answers the wait for its end, which answers at once for a process already gone. Blocking,
-    /// so it runs in `spawn_blocking`. Fails with the system's error.
-    pub fn hang_up(&self) -> io::Result<ProcessEndWait> {
-        let poller = Poller::new()?;
-        // SAFETY: the descriptor is held by the wait's own copy of `self`, which it drops after
-        // the poller.
-        unsafe { poller.add(&*self.descriptor, Event::readable(EXIT_KEY)) }?;
-        self.send_through_descriptor(Signal::SIGHUP, 0)?;
-        Ok(ProcessEndWait {
-            poller: Some(poller),
-            is_called_off: AtomicBool::new(false),
-            _process: self.clone(),
-        })
+    /// Asks the process to end by itself: `SIGHUP` through its descriptor, so no process given its
+    /// id meanwhile is signaled; `false` when it has ended. Fails with the system's error.
+    pub fn hang_up(&self) -> io::Result<bool> {
+        self.send_through_descriptor(Signal::SIGHUP, 0)
+    }
+
+    /// Waits with no bound and no thread for the process's end, an end before the wait included:
+    /// the runtime watches a copy of its descriptor, which reads ready once it has exited. Dropping
+    /// the wait calls it off. Must be called within the runtime. Fails with the system's error.
+    pub async fn wait_for_end(&self) -> io::Result<()> {
+        let descriptor = self.descriptor.try_clone()?;
+        // SAFETY: the copy is the descriptor the `AsyncFd` owns from here, open until the `AsyncFd`
+        // drops it, and `as_raw_fd` answers that one descriptor every time.
+        let exit = unsafe { AsyncFd::register_with_interest(descriptor, Interest::READABLE) }?;
+        let _ended = exit.readable().await?;
+        Ok(())
     }
 
     // Sends `signal` through the descriptor, `SIGKILL` to the process and then to the whole group
@@ -407,7 +410,7 @@ mod tests {
     use std::sync::mpsc;
 
     use super::{current_boot, pin_recorded, pin_running_process};
-    use crate::pinned_process::{ProcessEndWait, ProcessRecord};
+    use crate::pinned_process::ProcessRecord;
 
     // Fails when a descriptor's open refused for a thread's id reads as a failure, which fails the
     // orphan sweep, and with it every start, while a thread holds a recorded shell's old id.

@@ -196,7 +196,7 @@ pub use own_root::run_test_as_own_root;
 pub use path::program_output::path_from_program_output;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
-pub use pinned_process::{ProcessEndWait, ProcessRecord};
+pub use pinned_process::ProcessRecord;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use posix::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
@@ -205,8 +205,8 @@ pub use posix::allocator::{
 pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
 pub use posix::child_command::{
-    CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
-    spawn_lasting_child, wrap_child_command, wrap_session_child_command,
+    CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
+    prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_session_child_command,
 };
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
@@ -339,8 +339,8 @@ pub use windows::caller_process::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
-    CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
-    wrap_child_command, wrap_session_child_command,
+    CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
+    prepare_child_command, wrap_child_command, wrap_session_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
