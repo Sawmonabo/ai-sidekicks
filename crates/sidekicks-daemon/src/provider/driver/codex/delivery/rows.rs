@@ -277,7 +277,7 @@ pub(crate) fn compose_codex_prose_piece(
         provider_message_id: event_text(item_id)?,
         content_type: None,
         content_length: None,
-        content_truncated: None,
+        content_encoding: None,
         run_id: run.run_id,
         provider_block: None,
         origin: None,
@@ -321,7 +321,7 @@ fn tool_activity(
         duration_ms: duration_ms.and_then(SafeInt::new),
         omitted_patches: omitted_patches.and_then(BoundedVec::new),
         content_length: None,
-        content_truncated: None,
+        content_encoding: None,
         source_epoch: None,
         source_position: None,
     })

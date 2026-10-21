@@ -6,6 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -40,9 +41,10 @@ pub struct DaemonRetentionBounds {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct DaemonRetentionPurgePreview {
-    /// How many archived sessions the purge would remove.
+    /// How many sessions the purge would remove: those archived or closed before the cutoff, and
+    /// every one a failed purge left marked.
     pub archived_session_count: SafeInt<0>,
-    /// Sessions archived before this moment are the ones counted.
+    /// Sessions archived or closed before this moment are the ones counted.
     #[garde(dive)]
     pub cutoff_at: WireInstant,
 }
@@ -114,11 +116,20 @@ methods! {
             result: DaemonRetentionBounds,
             refusals: [],
         },
-        /// Removes the sessions archived before the confirmed cutoff.
+        /// Removes the finished sessions before the confirmed cutoff, and every session a failed
+        /// purge left marked.
         DaemonRetentionPurge = mutation "daemon.retention.purge" {
             mutating: true,
             params: DaemonRetentionPurgeRequest,
             result: DaemonRetentionPurgeResponse,
+            refusals: [],
+        },
+        /// The first emission is the bounds as they stand; each change follows.
+        DaemonRetentionSubscribe = subscription "daemon.retention.subscribe" {
+            mutating: false,
+            params: EmptyPayload,
+            result: SubscribeAcknowledgmentResponse,
+            emission: DaemonRetentionBounds,
             refusals: [],
         },
     ];

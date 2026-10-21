@@ -22,7 +22,7 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::{calendar_date_pattern, stored_instant_text};
 use crate::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use crate::wire::text::FreeFormText;
-use crate::wire::{NullableSchema, True, named_scalar};
+use crate::wire::{NullableSchema, named_scalar};
 
 /// The category a session event belongs to; every event type maps to exactly one, so a mismatched
 /// pair fails the strict parse. Adding a category is a minor version bump.
@@ -488,7 +488,7 @@ pub enum HydratedContentUnavailableReason {
 pub enum HydratedSessionEventContent {
     /// The body was stored.
     Available {
-        /// The opened body; a prefix when `contentTruncated` is `true`.
+        /// The opened body, whole.
         body: String,
         /// The whole body's UTF-8 byte length, echoed from the stored payload, never recomputed
         /// from `body`.
@@ -499,14 +499,6 @@ pub enum HydratedSessionEventContent {
         )]
         #[schemars(with = "SafeInt<0>")]
         content_length: Option<SafeInt<0>>,
-        /// Present when the stored body is a prefix of a longer one.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "True")]
-        content_truncated: Option<True>,
     },
     /// No body can be read.
     Unavailable {

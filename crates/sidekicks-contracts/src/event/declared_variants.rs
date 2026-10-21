@@ -1,10 +1,10 @@
 //! The payloads of the session events this module declares itself: event compaction and agent
 //! and tool activity, with the members the append path owns on every body-bearing payload.
 //!
-//! An agent or tool row's body lives outside the canonical bytes, in the stored row's content;
-//! its payload carries only the body's length and whether it was cut, and a reader pairs the two.
-//! The strict payloads refuse a spliced body. `contentType` is the producer's; the length and the
-//! cut mark are the append path's, which refuses a producer that sends either.
+//! An agent or tool row's body lives outside the canonical bytes, in the stored row's content,
+//! always whole; its payload carries only the body's length and how it is stored, and a reader
+//! pairs the two. The strict payloads refuse a spliced body. `contentType` is the producer's; the
+//! length and the encoding are the append path's, which refuses a producer that sends either.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -24,18 +24,20 @@ use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 
+/// How a stored body's bytes are encoded when they are not its UTF-8 as it is: a body of 1 KiB or
+/// more is compressed, and its payload names the encoding so a reader decodes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ContentEncoding {
+    /// A zstd stream of one frame per page of text.
+    Zstd,
+}
+
 ts_constants! {
-    /// The payload key carrying the body's UTF-8 byte length before any cut, so a cut row still
-    /// reports how much was dropped.
+    /// The payload key carrying the stored body's UTF-8 byte length, the whole body's.
     pub const CONTENT_LENGTH_PAYLOAD_KEY: &str = "contentLength";
-    /// The payload key marking a body stored as a prefix. Present only as `true`, never `false`,
-    /// so a complete row's canonical bytes are what they would be without the bound.
-    pub const CONTENT_TRUNCATED_PAYLOAD_KEY: &str = "contentTruncated";
-    /// The largest body one stored row keeps, in code points. A longer body is cut at a code point
-    /// boundary, never refused, so the turn is never lost. A tool completion whose body holds its
-    /// file patches is the one exception: each file is stored in parts of at most this many code
-    /// points, so every patch reads back whole.
-    pub const CONTENT_PAYLOAD_PLAINTEXT_MAX: usize = 262_144;
+    /// The payload key naming the stored body's encoding, present only on a compressed body.
+    pub const CONTENT_ENCODING_PAYLOAD_KEY: &str = "contentEncoding";
 }
 
 /// Refuses a deleted range that ends before it starts.
@@ -87,14 +89,15 @@ pub struct SessionEventCompactedPayload {
 }
 
 /// Declares a body-bearing payload: the struct as written, followed by the two members the append
-/// path owns, `contentLength` and `contentTruncated`, each optional because a row may have no body.
+/// path owns, `contentLength` and `contentEncoding`, each optional because a row may have no body
+/// and a small body is stored as it is.
 /// The struct's attributes come with it and include `#[garde(allow_unvalidated)]`.
 macro_rules! with_machine_content_descriptor {
     ($(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
         $(#[$meta])*
         pub struct $name {
             $($members)*
-            /// The stored body's UTF-8 byte length before any cut.
+            /// The stored body's UTF-8 byte length.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
@@ -102,14 +105,14 @@ macro_rules! with_machine_content_descriptor {
             )]
             #[schemars(with = "crate::wire::integer::SafeInt<0>")]
             pub content_length: Option<$crate::wire::integer::SafeInt<0>>,
-            /// Present, as `true`, only when the stored body is a prefix; never `false`.
+            /// How the stored body is encoded, present only when it is compressed.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
                 deserialize_with = "crate::wire::present"
             )]
-            #[schemars(with = "crate::wire::True")]
-            pub content_truncated: Option<$crate::wire::True>,
+            #[schemars(with = "crate::event::declared_variants::ContentEncoding")]
+            pub content_encoding: Option<$crate::event::declared_variants::ContentEncoding>,
         }
     };
 }
@@ -329,6 +332,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The payloads of the session events this module declares itself: event compaction and \
           agent and tool activity.",
     definitions: &[
+        Definition::read::<ContentEncoding>(),
         Definition::read::<SessionEventCompactedRemovedSession>(),
         Definition::read::<SessionEventCompactedPayload>().checked(),
         Definition::read::<ProviderBlock>(),

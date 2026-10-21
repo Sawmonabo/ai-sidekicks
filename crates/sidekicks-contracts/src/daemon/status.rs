@@ -244,6 +244,18 @@ pub struct CrashStackFrame {
     pub offset: SafeInt<0>,
 }
 
+/// What a panic said: its message and the place in the source it was raised at, each stripped as
+/// the rest of the report is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CrashPanic {
+    /// The panic's message, with file paths cut to their names and session ids replaced by
+    /// stable hashes.
+    pub message: StatusText,
+    /// The source file's name and the line and column the panic was raised at.
+    pub location: StatusText,
+}
+
 /// A report the service built on this machine from a crash's dump, with personal data stripped:
 /// file paths cut to their names and session ids replaced by stable hashes. The dump itself never
 /// leaves the machine.
@@ -264,6 +276,14 @@ pub struct CrashReport {
     pub platform: StatusText,
     /// The crashing thread's stack, at most [`CRASH_REPORT_STACK_MAX_FRAMES`] frames.
     pub stack: BoundedVec<CrashStackFrame, 0, CRASH_REPORT_STACK_MAX_FRAMES>,
+    /// What the panic said, on a crash the service's own panic ended.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "CrashPanic")]
+    pub panic: Option<CrashPanic>,
 }
 
 /// The reports this machine keeps, newest first; kept as long as its diagnostic logs.
@@ -311,6 +331,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonStatusReadResponse>().checked(),
         Definition::read::<CrashModuleFileName>(),
         Definition::read::<CrashStackFrame>(),
+        Definition::read::<CrashPanic>(),
         Definition::read::<CrashReport>(),
         Definition::read::<DaemonCrashReportListResponse>().checked(),
     ],

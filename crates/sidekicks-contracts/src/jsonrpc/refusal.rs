@@ -348,6 +348,16 @@ refusal_codes! {
     ConnectionVersionFloorExceeded = "connection.version.floorExceeded" (FailedPrecondition);
     /// A mutating call on a connection whose handshake settled as incompatible.
     ConnectionVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
+    /// `daemon.dataExport.start` while another export runs; `data.fields.jobId` names the running
+    /// one, whose progress the caller can follow instead.
+    DaemonDataExportAlreadyRunning = "daemon.dataExport.alreadyRunning" (FailedPrecondition, 409);
+    /// `daemon.dataExport.start` named a folder that already exists; an export writes only into a
+    /// new folder.
+    DaemonDataExportDestinationAlreadyExists = "daemon.dataExport.destination.alreadyExists"
+        (AlreadyExists, 409);
+    /// `daemon.dataExport.subscribe` or `daemon.dataExport.cancel` named a job this service does
+    /// not know: never started, or started before the service last restarted.
+    DaemonDataExportNotFound = "daemon.dataExport.notFound" (NotFound, 404);
     /// A request would pass a daemon limit.
     DaemonLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
     /// The answer to a `connection.initialize` carrying the start's session token while the service
