@@ -891,3 +891,6 @@ fn record_unattributed(session: &ClaudeRequestSession<'_>, subtype: &str, reques
         ]),
     });
 }
+
+#[cfg(test)]
+mod tests;

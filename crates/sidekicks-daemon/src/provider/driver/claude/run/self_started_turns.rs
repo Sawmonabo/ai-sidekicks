@@ -41,19 +41,23 @@ pub(crate) struct ClaudeSelfStartedTurns {
 }
 
 impl ClaudeSelfStartedTurns {
-    /// Reads one frame on the session's task: a turn's `system/init` while nothing holds the
-    /// session's turn (a helper's aside) gets its run before the frame goes on. A run that cannot
-    /// open is recorded, and the turn interrupted unless a run started meanwhile holds it or the
-    /// process is gone; the interrupt's failure is recorded too.
+    /// Reads one frame on the session's task: a turn's `system/init` that nothing held the
+    /// session's turn for, as it was read and now (a helper's aside), gets its run before the frame
+    /// goes on. A run that cannot open is recorded, and the turn interrupted unless a run started
+    /// meanwhile holds it or the process is gone; the interrupt's failure is recorded too.
     pub(crate) async fn open_for_frame(
         &self,
         live: &Arc<LiveClaudeSession>,
         frame_kind: &str,
         text: &str,
+        is_held_at_read: bool,
     ) {
         let session_id = live.session_id;
         let routes = &self.start.routes;
-        if frame_kind != CLAUDE_TURN_START_FRAME_KIND || routes.is_turn_held(session_id) {
+        if frame_kind != CLAUDE_TURN_START_FRAME_KIND
+            || is_held_at_read
+            || routes.is_turn_held(session_id)
+        {
             return;
         }
         let frame = serde_json::from_str::<TurnStartFrame>(text).unwrap_or_default();
@@ -110,4 +114,84 @@ fn report(live: &LiveClaudeSession, what: &str, cause: &str) {
             ("cause".to_owned(), Value::from(cause)),
         ]),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
+    use crate::provider::driver::claude::session::scripted::{
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
+    };
+    use crate::session::run::state_change::RunStateEntry;
+
+    fn turn() -> [Value; 3] {
+        [
+            json!({"type": "system", "subtype": "init", "session_id": SCRIPTED_PROVIDER_SESSION_ID}),
+            json!({
+                "type": "assistant",
+                "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+                "message": {
+                    "id": "message-1",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "id": "call-1", "name": "Bash", "input": {"command": "ls"}},
+                    ],
+                },
+            }),
+            json!({
+                "type": "result",
+                "subtype": "success",
+                "is_error": false,
+                "result": "done",
+                "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            }),
+        ]
+    }
+
+    // Killed by letting the turn's next frames go before its run exists, which drops them as a
+    // turn no run holds, and by leaving a turn whose run could not open running with none.
+    #[tokio::test(start_paused = true)]
+    async fn a_turn_claude_code_starts_itself_runs_on_its_own_run_or_is_interrupted() {
+        let session = ScriptedSession::new();
+        for frame in turn() {
+            session.frame(&frame);
+        }
+        settle().await;
+
+        let calls = session.engine.calls();
+        let Some(EngineCall::StartDaemonTurn(run_id)) = calls.first().cloned() else {
+            unreachable!("the turn's run opens before anything else")
+        };
+        assert!(calls.contains(&EngineCall::CountStep(run_id)));
+        let deliveries = session.engine.deliveries();
+        assert!(
+            deliveries
+                .iter()
+                .all(|delivery| delivery.binding_id == Some(binding_id("daemon-turn")))
+        );
+        let moves: Vec<_> = deliveries
+            .into_iter()
+            .filter_map(|delivery| delivery.change)
+            .map(|change| (change.run_id, change.entry))
+            .collect();
+        assert_eq!(
+            moves,
+            [(
+                run_id,
+                RunStateEntry::Completed {
+                    intended_close: None
+                }
+            )]
+        );
+
+        let refused = ScriptedSession::new();
+        refused.engine.fail_daemon_turns();
+        refused.frame(&turn()[0]);
+        settle().await;
+        let requests = refused.channel.control_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["subtype"], "interrupt");
+    }
 }

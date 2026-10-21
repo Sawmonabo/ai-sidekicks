@@ -391,3 +391,6 @@ fn turn_in_flight(session_id: SessionId) -> ClaudeSessionError {
         None,
     )
 }
+
+#[cfg(test)]
+mod tests;

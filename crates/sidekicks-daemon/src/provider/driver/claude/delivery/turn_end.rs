@@ -319,3 +319,103 @@ fn describe_turn_failure(frame: Option<&Map<String, Value>>) -> String {
         .or_else(|| read_non_empty_string(frame, "subtype").map(str::to_owned))
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sidekicks_contracts::orchestration::InterruptReason;
+    use sidekicks_contracts::run::control::RunFailureCategory;
+    use sidekicks_contracts::run::events::TurnEndCause;
+
+    use super::{ClaudeTurnEndMarks, compose_claude_turn_end};
+    use crate::provider::driver::claude::session::scripted::mint_run_id;
+    use crate::session::run::engine::turns::TurnOutcome;
+    use crate::session::run::state_change::RunStateEntry;
+
+    // Killed by ending a turn stopped at its step bound `failed`, as a declared failure would.
+    #[test]
+    fn a_turn_stopped_at_its_step_bound_ends_interrupted_at_the_step_limit() {
+        let run_id = mint_run_id();
+        let frame = json!({"type": "result", "subtype": "error_max_turns", "is_error": true});
+
+        let end = compose_claude_turn_end(&frame, run_id, ClaudeTurnEndMarks::default());
+
+        let change = end.change.expect("the run moves");
+        assert_eq!(
+            change.entry,
+            RunStateEntry::Interrupted {
+                intended_close: None,
+                trigger: Some(InterruptReason::StepLimit),
+            }
+        );
+        assert_eq!(
+            end.outcome,
+            TurnOutcome::Interrupted(Some(TurnEndCause::StepLimit))
+        );
+        assert!(!end.is_daemon_interrupt_end);
+    }
+
+    // Killed by reading an execution error as the daemon's interrupt without its mark, and by
+    // failing the run the daemon's own interrupt stopped.
+    #[test]
+    fn an_execution_error_ends_interrupted_only_under_the_daemons_interrupt() {
+        let run_id = mint_run_id();
+        let frame = json!({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": true,
+            "terminal_reason": "aborted_streaming",
+        });
+
+        let held = compose_claude_turn_end(
+            &frame,
+            run_id,
+            ClaudeTurnEndMarks {
+                is_held_for_interrupt: true,
+                ..ClaudeTurnEndMarks::default()
+            },
+        );
+        let unmarked = compose_claude_turn_end(&frame, run_id, ClaudeTurnEndMarks::default());
+
+        assert_eq!(held.outcome, TurnOutcome::Interrupted(None));
+        assert!(held.is_daemon_interrupt_end);
+        assert!(matches!(
+            held.change.expect("the run moves").entry,
+            RunStateEntry::Interrupted { trigger: None, .. }
+        ));
+        assert_eq!(unmarked.outcome, TurnOutcome::Failed(None));
+        assert!(!unmarked.is_daemon_interrupt_end);
+    }
+
+    // Killed by completing a `success` that carries `is_error`, as the refill breaker's does.
+    #[test]
+    fn a_success_carrying_is_error_fails_the_run_with_claude_codes_words() {
+        let run_id = mint_run_id();
+        let frame = json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": true,
+            "result": "the request was stopped in a tight loop",
+        });
+
+        let end = compose_claude_turn_end(&frame, run_id, ClaudeTurnEndMarks::default());
+
+        let change = end.change.expect("the run moves");
+        assert_eq!(
+            change.failure_category,
+            Some(RunFailureCategory::ProviderFailure)
+        );
+        let RunStateEntry::Failed {
+            provider_failure_detail,
+            ..
+        } = change.entry
+        else {
+            unreachable!("the run fails")
+        };
+        assert_eq!(
+            provider_failure_detail.map(|detail| detail.as_str().to_owned()),
+            Some("the request was stopped in a tight loop".to_owned())
+        );
+        assert_eq!(end.outcome, TurnOutcome::Failed(None));
+    }
+}

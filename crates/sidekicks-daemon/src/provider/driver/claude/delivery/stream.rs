@@ -50,7 +50,9 @@ use crate::provider::driver::claude::delivery::turn_end::read_claude_result_mess
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::provider::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
-use crate::provider::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeRoutedFrame};
+use crate::provider::driver::claude::session::arrivals::{
+    ClaudeArrivalSender, ClaudeRoutedFrame, ClaudeTurnAtRead,
+};
 use crate::provider::driver::claude::spent_retries_signal::classify_claude_spent_retries;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -184,6 +186,14 @@ impl ClaudeSessionStream {
         true
     }
 
+    /// The session's turn now, which the reader stamps on each frame as it reads it.
+    pub(crate) fn turn_at_read(&self) -> ClaudeTurnAtRead {
+        ClaudeTurnAtRead {
+            lead: self.routes.lead_run_on(self.session_id),
+            is_held: self.routes.is_turn_held(self.session_id),
+        }
+    }
+
     /// Records a steer written with Claude Code's `now` mark, whose turn's own `result` alone ends
     /// the turn; recorded before the write.
     pub(crate) fn mark_now_steer(&self, message_uuid: &str) {
@@ -308,6 +318,7 @@ impl ClaudeDeliveryStream {
             frame,
             routed,
             is_turn_ending,
+            turn_at_read,
         } = routed;
         let mut after = ClaudeFrameAfter::default();
         if let Some(settled) = routed.settled_output_speed
@@ -320,7 +331,8 @@ impl ClaudeDeliveryStream {
             report_engine_failure(session, "the settled output speed", &error);
         }
         for emission in routed.helper_lifecycle {
-            self.deliver_helper_lifecycle(session, emission).await;
+            self.deliver_helper_lifecycle(session, turn_at_read.lead.clone(), emission)
+                .await;
         }
         if !matches!(
             routed.route,
@@ -352,7 +364,8 @@ impl ClaudeDeliveryStream {
             return after;
         }
         // The reader released the turn as it read a turn-ending `result`, so that frame ends the
-        // turn the stream opened.
+        // turn the stream opened; any other frame belongs to the run that held the turn as it was
+        // read, the reader being ahead of this task.
         let open_turn = (frame_type == "result")
             .then(|| session.lock().turn.clone())
             .flatten()
@@ -360,8 +373,9 @@ impl ClaudeDeliveryStream {
                 run_id: turn.run_id,
                 binding_id: turn.binding_id,
             });
-        let Some(lead) =
-            open_turn.or_else(|| self.dependencies.routes.lead_run_on(session.session_id))
+        let Some(lead) = open_turn
+            .or(turn_at_read.lead)
+            .or_else(|| self.dependencies.routes.lead_run_on(session.session_id))
         else {
             // A frame of a turn no daemon run holds, such as one Claude Code started itself
             // whose run never opened.
@@ -865,3 +879,6 @@ fn stream_event(session: &ClaudeSessionStream, lead: &ClaudeBoundRun, text: &str
         .streamed_blocks
         .observe(text, run, Instant::now());
 }
+
+#[cfg(test)]
+mod tests;

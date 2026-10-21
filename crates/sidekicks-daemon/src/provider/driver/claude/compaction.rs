@@ -152,3 +152,59 @@ fn record_wait_end(
         details,
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_contracts::provider::driver::compaction::{
+        AgentRunContextCompactResponse, CompactionFailure,
+    };
+
+    use super::compact_claude_context;
+    use crate::provider::compaction_wait::PendingCompactionRegistry;
+    use crate::provider::driver::claude::session::scripted::{
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession,
+    };
+    use crate::provider::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
+    use crate::provider::driver::claude::session::transport::user_message::ClaudeWriteDelivery;
+
+    // Killed by keeping the command's hold after a write that never left, which would refuse every
+    // later run on the session, and by releasing it after one Claude Code may still run.
+    #[tokio::test(start_paused = true)]
+    async fn a_compaction_that_never_reached_claude_code_releases_the_session_turn() {
+        for (delivery, is_held_after) in [
+            (ClaudeWriteDelivery::Unsent, false),
+            (ClaudeWriteDelivery::Indeterminate, true),
+        ] {
+            let session = ScriptedSession::new();
+            session.start.handshakes.observe_handshake_declaration(
+                session.session_id,
+                SCRIPTED_PROVIDER_SESSION_ID,
+                ClaudeHandshakeDeclaration {
+                    slash_commands: vec!["compact".to_owned()],
+                    ..ClaudeHandshakeDeclaration::default()
+                },
+            );
+            session.channel.fail_next_user_write(delivery);
+
+            let response = compact_claude_context(
+                &session.live,
+                &session.start.handshakes,
+                &session.start.routes,
+                &PendingCompactionRegistry::default(),
+            )
+            .await
+            .expect("the compaction answers");
+
+            assert_eq!(
+                response,
+                AgentRunContextCompactResponse::Failed {
+                    reason: CompactionFailure::ProviderError
+                }
+            );
+            assert_eq!(
+                session.start.routes.is_turn_held(session.session_id),
+                is_held_after
+            );
+        }
+    }
+}

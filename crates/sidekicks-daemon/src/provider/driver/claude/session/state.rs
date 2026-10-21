@@ -28,9 +28,12 @@ use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
 
 /// The router's bounds. The hold covers a helper's frames arriving ahead of its start; the short
 /// timeout means a frame held longer names a helper never announced.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's session lifecycle builds each session's router with it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's session lifecycle builds each session's router with it"
+    )
 )]
 pub(crate) const CLAUDE_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig =
     ThreadFrameRouterConfig {
@@ -171,16 +174,22 @@ pub(crate) struct LiveClaudeSession {
     /// The process.
     pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
     /// What the process was started with, for a later run's check.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's run start checks a run against it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's run start checks a run against it"
+        )
     )]
     pub(crate) spawn_binding: ClaudeSpawnBinding,
     /// The legs the process was started with; a rewind starts its fork from these, since
     /// deriving them again would guess, and a guess without the posture runs unsandboxed.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's rewind starts its fork from it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's rewind starts its fork from it"
+        )
     )]
     pub(crate) spawn_bound_legs: ClaudeSpawnBoundLegs,
     /// What the process's `initialize` reply declared.
@@ -220,13 +229,6 @@ pub(crate) enum ClaudeSessionSlot {
     )]
     Establishing {
         /// The bring-up.
-        #[cfg_attr(
-            test,
-            expect(
-                dead_code,
-                reason = "the Claude driver's session lifecycle waits on it"
-            )
-        )]
         settled: ClaudeSlotSettled,
         /// The session a rewind forks from; `None` for a create or resume.
         predecessor: Option<Arc<LiveClaudeSession>>,
@@ -237,9 +239,12 @@ pub(crate) enum ClaudeSessionSlot {
         session: Arc<LiveClaudeSession>,
     },
     /// The process is being disposed of; Empty once that succeeds, Quarantined when it fails.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle holds a disposal in it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's session lifecycle holds a disposal in it"
+        )
     )]
     Closing {
         /// The disposal.
@@ -247,9 +252,12 @@ pub(crate) enum ClaudeSessionSlot {
     },
     /// The disposal failed, so the process still lives and this is the only handle on it, kept
     /// until a later close disposes of it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle holds a failed disposal in it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's session lifecycle holds a failed disposal in it"
+        )
     )]
     Quarantined {
         /// The process.

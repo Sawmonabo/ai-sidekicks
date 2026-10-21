@@ -4,10 +4,11 @@
 //!
 //! Left out of the census: the frames the delivery side reads itself (the `assistant` and `user`
 //! messages, the `stream_event` frames of a response being written, the `task_*` helper frames,
-//! `informational`, `status`, `permission_denied` and the four model switches), which the router
-//! still classifies below; and, so the diagnostic default branch reports them instead of a guessed
-//! row, `command_lifecycle`, `queued_notification` (daemon-to-CLI, so anomalous inbound),
-//! `prompt_suggestion`, and the `set_effort`, `rewind` and `compact` control subtypes.
+//! `informational`, `status`, `permission_denied`, the four model switches and the
+//! `command_lifecycle` of each message the session was sent), which the router still classifies
+//! below; and, so the diagnostic default branch reports them instead of a guessed row,
+//! `queued_notification` (daemon-to-CLI, so anomalous inbound), `prompt_suggestion`, and the
+//! `set_effort`, `rewind` and `compact` control subtypes.
 
 use std::borrow::Cow;
 use std::str::FromStr;
@@ -658,7 +659,8 @@ fn classify_claude_frame_kind_for_routing(frame_kind: &str) -> ThreadFrameFamily
         | "system/model_refusal_no_fallback"
         | "assistant"
         | "stream_event"
-        | "user" => ThreadFrameFamilyClass::Thread {
+        | "user"
+        | "command_lifecycle" => ThreadFrameFamilyClass::Thread {
             capability: ThreadScopedFrameCapability::Content,
         },
         _ => ThreadFrameFamilyClass::Unknown,

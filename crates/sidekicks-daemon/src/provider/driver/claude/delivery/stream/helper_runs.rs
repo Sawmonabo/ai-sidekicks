@@ -21,14 +21,16 @@ use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, InboundOutcome};
 
 impl ClaudeDeliveryStream {
-    // A helper's start gets a child run beneath the lead run, and both ends get their row on it.
+    // A helper's start gets a child run beneath the lead run, the one holding the turn as the
+    // frame was read, and both ends get their row on it.
     pub(super) async fn deliver_helper_lifecycle(
         &self,
         session: &ClaudeSessionStream,
+        lead_at_read: Option<ClaudeBoundRun>,
         emission: SubagentLifecycleEmission,
     ) {
         let routes = &self.dependencies.routes;
-        let lead = routes.lead_run_on(session.session_id);
+        let lead = lead_at_read.or_else(|| routes.lead_run_on(session.session_id));
         let is_lead_turn = lead.is_some();
         let Some(lead) = lead.or_else(|| self.helper_parent_run(session, &emission)) else {
             record_unheld(session, lifecycle_wire_type(emission.event_type));

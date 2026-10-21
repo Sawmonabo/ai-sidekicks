@@ -250,9 +250,12 @@ impl ClaudeRunRoutes {
 
     /// Holds the session's turn for a command Claude Code runs as a turn of its own; the turn's
     /// settlement releases it. Fails with [`TurnHeld`] when a run holds it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's command dispatch holds the turn through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's command dispatch holds the turn through it"
+        )
     )]
     pub(crate) fn hold_turn_for_command(&self, session_id: SessionId) -> Result<(), TurnHeld> {
         self.lock()
@@ -267,9 +270,12 @@ impl ClaudeRunRoutes {
     }
 
     /// Releases a command's hold whose text never reached Claude Code.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's command dispatch releases a failed write"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's command dispatch releases a failed write"
+        )
     )]
     pub(crate) fn release_command_turn(&self, session_id: SessionId) {
         self.lock()
@@ -455,9 +461,12 @@ impl ClaudeRunRoutes {
 
     /// Stops a run bound apart from its session's process, answering `false` for any other run;
     /// `is_end_written` as [`ClaudeApartRunStop`] takes it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stop reaches an apart run through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's stop reaches an apart run through it"
+        )
     )]
     pub(crate) fn stop_apart_run(&self, run_id: RunId, is_end_written: bool) -> bool {
         // Taken out under the lock and called after it, so the stop may reach the routes again.

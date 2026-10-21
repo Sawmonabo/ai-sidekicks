@@ -465,3 +465,83 @@ impl ClaudeRunControls {
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sidekicks_contracts::provider::driver::capabilities::{
+        CredentialPolicyRef, ExecutionPosture,
+    };
+
+    use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
+    use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
+    use crate::provider::driver::claude::session::scripted::{ScriptedSession, settle};
+    use crate::provider::driver::run_control::OverrideDenialParams;
+
+    // Killed by attributing a helper's block to the lead run, and by writing the `Allow once` for
+    // it into the lead's turn instead of handing it to the helper.
+    #[tokio::test(start_paused = true)]
+    async fn a_helpers_block_and_its_allow_once_stay_the_helpers() {
+        let session = ScriptedSession::new();
+        session
+            .live
+            .settings
+            .lock()
+            .expect("the settings' lock holds")
+            .execution_posture = Some(ExecutionPosture::Reviewed {
+            credential_policy_ref: CredentialPolicyRef::new("policy".to_owned())
+                .expect("a test policy reference fits"),
+            writable_roots: Vec::new(),
+        });
+        let lead = session.hold_lead_turn("lead");
+        let helper = session.bind_helper(lead, "helper");
+        let tool_input = json!({"command": "rm -rf build"});
+        session.request(
+            "denied",
+            &json!({
+                "subtype": "hook_callback",
+                "callback_id": "sidekicks-permission-denied",
+                "input": {
+                    "hook_event_name": "PermissionDenied",
+                    "agent_id": "helper",
+                    "tool_name": "Bash",
+                    "tool_use_id": "call-1",
+                    "tool_input": tool_input,
+                    "reason": "it deletes the build",
+                },
+            }),
+        );
+        settle().await;
+        assert_eq!(session.ports.calls(), [PortCall::Denial(helper)]);
+
+        session
+            .controls
+            .override_denial(&OverrideDenialParams {
+                session_id: session.session_id,
+                run_id: helper,
+                provider_denial: serde_json::value::to_raw_value(&json!({
+                    "tool_name": "Bash",
+                    "tool_input": tool_input,
+                    "tool_use_id": "call-1",
+                }))
+                .expect("a denial serializes"),
+            })
+            .await
+            .expect("the override reaches the helper");
+
+        assert_eq!(
+            session.channel.user_frames(),
+            Vec::<serde_json::Value>::new()
+        );
+        let answer = session
+            .helper_steers
+            .lock()
+            .expect("the helper steers' lock holds")
+            .answer_after_tool(session.session_id, Some("helper"));
+        assert!(matches!(
+            answer,
+            ClaudeHookAnswer::AddContext { context, .. }
+                if context.contains("Permission granted for: Bash(rm -rf build)")
+        ));
+    }
+}

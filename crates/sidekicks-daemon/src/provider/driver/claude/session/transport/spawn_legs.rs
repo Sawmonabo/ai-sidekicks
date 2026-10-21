@@ -26,7 +26,10 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) execution_posture: Option<ExecutionPosture>,
     /// The folder the process runs in; a resume from any other folder starts a new conversation.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's launch reads it")
+    )]
     pub(crate) working_directory: PathBuf,
     /// The daemon's callback tools.
     #[expect(dead_code, reason = "the Claude driver's launch reads it")]
@@ -47,10 +50,16 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
     /// The curated credential paths, canonical and absolute, denied to every file tool.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's launch reads it")
+    )]
     pub(crate) credential_deny_paths: Vec<CredentialDenyPath>,
     /// Each spelling of the agent-memory folder, which an agent reads and edits at Sandboxed.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's launch reads it")
+    )]
     pub(crate) memory_folders: Vec<PathBuf>,
     /// The process's whole environment.
     #[expect(dead_code, reason = "the Claude driver's launch reads it")]

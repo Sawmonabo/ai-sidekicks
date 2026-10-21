@@ -1,0 +1,216 @@
+//! A scripted Claude Code process: it records everything the driver writes to it and answers each
+//! control request as scripted.
+
+use std::collections::{HashMap, VecDeque};
+use std::io;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use serde_json::Value;
+use serde_json::value::RawValue;
+use tokio::sync::oneshot;
+
+use crate::provider::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
+use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
+use crate::provider::driver::claude::session::transport::inbound::ClaudeControlAnswer;
+use crate::provider::driver::claude::session::transport::user_message::{
+    ClaudeUserFrame, ClaudeWriteAttempt, ClaudeWriteDelivery,
+};
+
+/// One thing the driver wrote to the scripted process, in the order written.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum ScriptedWrite {
+    /// A control request, as it serializes on the wire.
+    Control(Value),
+    /// An answer to a request the process sent.
+    Answer {
+        /// The request answered.
+        request_id: String,
+        /// The answer's payload.
+        answer: Value,
+    },
+    /// A user message line, as it serializes on the wire.
+    User(Value),
+    /// The process was stopped.
+    Terminate,
+}
+
+impl ScriptedWrite {
+    /// The control request's subtype, if this is one.
+    pub(crate) fn control_subtype(&self) -> Option<&str> {
+        match self {
+            Self::Control(request) => request.get("subtype").and_then(Value::as_str),
+            Self::Answer { .. } | Self::User(_) | Self::Terminate => None,
+        }
+    }
+
+    /// The user message's uuid, if this is one.
+    pub(crate) fn user_uuid(&self) -> Option<&str> {
+        match self {
+            Self::User(frame) => frame.get("uuid").and_then(Value::as_str),
+            Self::Control(_) | Self::Answer { .. } | Self::Terminate => None,
+        }
+    }
+}
+
+/// How the scripted process answers one control request.
+pub(crate) enum ScriptedAnswer {
+    /// An answer carrying this response.
+    Reply(Value),
+    /// Claude Code's refusal.
+    Refused,
+    /// No answer before the request's deadline.
+    Deadline,
+}
+
+/// A Claude Code process that records what the driver writes and answers as scripted: a control
+/// request with no scripted answer is answered with an empty response, and a user line is written
+/// unless a hold or a failure was scripted for it.
+#[derive(Default)]
+pub(crate) struct ScriptedChannel {
+    writes: Mutex<Vec<ScriptedWrite>>,
+    answers: Mutex<HashMap<String, VecDeque<ScriptedAnswer>>>,
+    user_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    user_failures: Mutex<VecDeque<ClaudeWriteDelivery>>,
+}
+
+impl ScriptedChannel {
+    /// Scripts the next answer to a control request of `subtype`.
+    pub(crate) fn answer(&self, subtype: &str, answer: ScriptedAnswer) {
+        lock(&self.answers)
+            .entry(subtype.to_owned())
+            .or_default()
+            .push_back(answer);
+    }
+
+    /// Holds the next user line's write until the returned sender fires or drops; the line is
+    /// recorded as its write starts.
+    pub(crate) fn hold_next_user_write(&self) -> oneshot::Sender<()> {
+        let (release, held) = oneshot::channel();
+        lock(&self.user_holds).push_back(held);
+        release
+    }
+
+    /// Fails the next user line's write as `delivery`.
+    pub(crate) fn fail_next_user_write(&self, delivery: ClaudeWriteDelivery) {
+        lock(&self.user_failures).push_back(delivery);
+    }
+
+    /// Everything written so far, in order.
+    pub(crate) fn writes(&self) -> Vec<ScriptedWrite> {
+        lock(&self.writes).clone()
+    }
+
+    /// The control requests written so far, in order.
+    pub(crate) fn control_requests(&self) -> Vec<Value> {
+        self.writes()
+            .into_iter()
+            .filter_map(|write| match write {
+                ScriptedWrite::Control(request) => Some(request),
+                ScriptedWrite::Answer { .. }
+                | ScriptedWrite::User(_)
+                | ScriptedWrite::Terminate => None,
+            })
+            .collect()
+    }
+
+    /// The user lines written so far, in order.
+    pub(crate) fn user_frames(&self) -> Vec<Value> {
+        self.writes()
+            .into_iter()
+            .filter_map(|write| match write {
+                ScriptedWrite::User(frame) => Some(frame),
+                ScriptedWrite::Control(_)
+                | ScriptedWrite::Answer { .. }
+                | ScriptedWrite::Terminate => None,
+            })
+            .collect()
+    }
+
+    fn record(&self, write: ScriptedWrite) {
+        lock(&self.writes).push(write);
+    }
+}
+
+impl ClaudeProcessChannel for ScriptedChannel {
+    fn send_control_request(
+        &self,
+        request: ClaudeControlRequest,
+    ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>> {
+        let wire = serde_json::to_value(&request).expect("a control request serializes");
+        let subtype = wire
+            .get("subtype")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        self.record(ScriptedWrite::Control(wire));
+        let answer = lock(&self.answers)
+            .get_mut(&subtype)
+            .and_then(VecDeque::pop_front);
+        let control_subtype = request.subtype();
+        async move {
+            match answer {
+                None => Ok(ClaudeControlAnswer::default()),
+                Some(ScriptedAnswer::Reply(response)) => Ok(ClaudeControlAnswer {
+                    response: Some(
+                        serde_json::value::to_raw_value(&response)
+                            .expect("a scripted response serializes"),
+                    ),
+                    pending_user_dialog_requests: None,
+                }),
+                Some(ScriptedAnswer::Refused) => Err(ClaudeSessionError::ControlRequestRefused {
+                    subtype: control_subtype,
+                    provider_error: "refused".to_owned(),
+                }),
+                Some(ScriptedAnswer::Deadline) => Err(ClaudeSessionError::Unanswered {
+                    subtype: control_subtype,
+                    cause: ClaudeUnansweredCause::Deadline,
+                }),
+            }
+        }
+        .boxed()
+    }
+
+    fn answer_inbound_request(
+        &self,
+        request_id: String,
+        answer: Box<RawValue>,
+    ) -> BoxFuture<'_, ClaudeWriteAttempt> {
+        let answer = serde_json::from_str(answer.get()).expect("an answer is JSON");
+        self.record(ScriptedWrite::Answer { request_id, answer });
+        async { ClaudeWriteAttempt::Written }.boxed()
+    }
+
+    fn write_user_frame(&self, frame: ClaudeUserFrame) -> BoxFuture<'_, ClaudeWriteAttempt> {
+        self.record(ScriptedWrite::User(
+            serde_json::to_value(&frame).expect("a user frame serializes"),
+        ));
+        let hold = lock(&self.user_holds).pop_front();
+        let failure = lock(&self.user_failures).pop_front();
+        async move {
+            if let Some(hold) = hold {
+                // A dropped sender releases the write too.
+                hold.await.unwrap_or(());
+            }
+            match failure {
+                None => ClaudeWriteAttempt::Written,
+                Some(delivery) => ClaudeWriteAttempt::Failed {
+                    delivery,
+                    cause: io::Error::from(io::ErrorKind::BrokenPipe),
+                },
+            }
+        }
+        .boxed()
+    }
+
+    fn terminate(&self) -> BoxFuture<'_, ()> {
+        self.record(ScriptedWrite::Terminate);
+        async {}.boxed()
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}

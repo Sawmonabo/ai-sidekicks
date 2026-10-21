@@ -139,7 +139,7 @@ impl ClaudeSessionTask {
         if observation.subagent_id.is_none() {
             services
                 .self_started
-                .open_for_frame(live, frame_kind, text)
+                .open_for_frame(live, frame_kind, text, routed.turn_at_read.is_held)
                 .await;
             services
                 .goals

@@ -38,21 +38,36 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     /// No live session is bound to the session.
     NoLiveSession,
     /// No live session is bound to the run.
-    #[expect(dead_code, reason = "the Claude driver's run controls refuse with it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's run controls refuse with it")
+    )]
     NoLiveRun,
     /// The run's turn is already dispatched and has not settled.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's run start refuses with it")
+    )]
     RunAlreadyDispatched,
     /// Another run's turn is still in flight on the session.
     SessionTurnInFlight,
     /// The run's execution posture differs from the one the session was spawned with.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's run start refuses with it")
+    )]
     ExecutionPostureMismatch,
     /// The run requires schema-constrained output and the session was spawned without a schema.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's run start refuses with it")
+    )]
     OutputSchemaUnbound,
     /// The run's output schema differs from the one the session was spawned with.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's run start refuses with it")
+    )]
     OutputSchemaMismatch,
     /// The request named a provider account that is present but empty.
     #[expect(
@@ -148,21 +163,30 @@ impl ClaudeSessionUnavailableReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeSessionSlotState {
     /// A create or resume is in flight.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+        )
     )]
     Establishing,
     /// A live session holds the slot.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+        )
     )]
     Live,
     /// The session is still being torn down.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+        )
     )]
     Closing,
 }
@@ -228,9 +252,12 @@ pub(crate) enum ClaudeSessionError {
     },
     /// A process already holds the session's slot.
     #[error("a Claude session already holds this session's slot ({holder_state:?})")]
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle refuses a second process with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's session lifecycle refuses a second process with it"
+        )
     )]
     SessionAlreadyLive {
         /// The state the slot is in.

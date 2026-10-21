@@ -450,3 +450,71 @@ pub(crate) fn claude_session_unavailable(
         run_id,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sidekicks_contracts::agent::definition::AgentId;
+    use sidekicks_contracts::run::queue::QueueItemId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_contracts::wire::text::FreeFormText;
+
+    use crate::provider::driver::claude::session::scripted::{
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
+    };
+    use crate::provider::driver::contract::{RunOpening, StartRunParams};
+
+    // Killed by releasing an ended turn's hold on the session's task: a continue of the run that
+    // the interrupt stopped would wait on the task, which is itself waiting on that run's turn.
+    #[tokio::test(start_paused = true)]
+    async fn a_continued_run_starts_while_the_session_task_is_still_opening_its_last_turn() {
+        let session = ScriptedSession::new();
+        let run_id = session.hold_lead_turn("lead");
+        session.stream.mark_interrupted(run_id);
+        let turn_start = session.engine.hold_next_turn_start();
+        session.frame(&json!({
+            "type": "system",
+            "subtype": "init",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        }));
+        session.frame(&json!({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": true,
+            "terminal_reason": "aborted_tools",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        }));
+        settle().await;
+        let message_id =
+            QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an item id");
+
+        session
+            .start
+            .start_run(&StartRunParams {
+                run_id,
+                opening: RunOpening {
+                    session_id: session.session_id,
+                    binding_id: binding_id("lead"),
+                    agent_id: AgentId::new(&mint_uuid_v7().to_string())
+                        .expect("a minted UUID is an agent id"),
+                    content: FreeFormText::new("go on".to_owned()).expect("the words fit"),
+                    attachments: Vec::new(),
+                    message_id,
+                    skills: Vec::new(),
+                },
+                conversation_history: None,
+                output_speed: None,
+                options: Vec::new(),
+                output_speed_for_turn: None,
+                execution_posture: None,
+                output_schema: None,
+            })
+            .await
+            .expect("the run starts without waiting on the session's task");
+
+        let written = session.channel.user_frames();
+        assert_eq!(written.len(), 1);
+        assert_eq!(written[0]["uuid"], message_id.to_string());
+        drop(turn_start);
+    }
+}

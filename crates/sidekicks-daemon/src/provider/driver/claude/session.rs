@@ -21,6 +21,8 @@ pub(super) mod process;
 pub(super) mod purge;
 pub(super) mod reply_reserve;
 pub(super) mod rules;
+#[cfg(test)]
+pub(super) mod scripted;
 pub(super) mod settings_file;
 pub(super) mod slots;
 pub(super) mod state;

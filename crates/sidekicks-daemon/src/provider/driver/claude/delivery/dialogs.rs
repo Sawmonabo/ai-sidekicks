@@ -410,9 +410,12 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// the interrupt's place: a refusal is answered `cancelled` and ends refused, so no interrupt
     /// is sent; a usage-credits choice is recorded `interrupted` and the turn's own interrupt still
     /// goes. Fails as the cancel's write fails, the choice held again.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's interrupt and undo settle a held choice"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's interrupt and undo settle a held choice"
+        )
     )]
     pub(crate) async fn settle_for_interrupt(
         &self,
@@ -444,9 +447,12 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// a usage-credits choice is left for Claude Code, whose own settlement is recorded
     /// `unanswered`. Answers `true` when a refusal was canceled, so the message starts the
     /// session's next turn; fails as the cancel's write fails, the choice held again.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's message send settles a held refusal"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's message send settles a held refusal"
+        )
     )]
     pub(crate) async fn settle_for_queued_message(
         &self,

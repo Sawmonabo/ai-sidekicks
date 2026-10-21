@@ -20,6 +20,7 @@ use tokio::time::Instant;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::provider::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
+use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
 use crate::provider::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
 };
@@ -50,7 +51,8 @@ pub(crate) enum ClaudeSessionArrival {
 }
 
 /// A stream frame as the reader routed it: the routing band's decision, the helper starts and ends
-/// read off it, the output speed its handshake settled, and whether a lead `result` ends the turn.
+/// read off it, the output speed its handshake settled, whether a lead `result` ends the turn, and
+/// the session's turn as the reader read it.
 pub(crate) struct ClaudeRoutedFrame {
     /// The frame.
     pub(crate) frame: ClaudeStreamFrame,
@@ -58,6 +60,18 @@ pub(crate) struct ClaudeRoutedFrame {
     pub(crate) routed: ClaudeRoutedObservation,
     /// Whether it is the lead's `result` that ends the turn; a `now` steer's abort ends none.
     pub(crate) is_turn_ending: bool,
+    /// The session's turn as the reader read the frame, which the task reads it under: the reader
+    /// releases a turn's hold as it reads the turn's end, ahead of the task.
+    pub(crate) turn_at_read: ClaudeTurnAtRead,
+}
+
+/// The session's turn as the reader read a frame.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ClaudeTurnAtRead {
+    /// The run holding it, if a run did.
+    pub(crate) lead: Option<ClaudeBoundRun>,
+    /// Whether anything held it: a run or a command.
+    pub(crate) is_held: bool,
 }
 
 /// A delivery a caller off a session's task hands the task.
@@ -340,11 +354,13 @@ impl ClaudeProcessListener for ClaudeSessionListener {
             .take();
         let is_turn_ending =
             is_lead_result && decided.unwrap_or_else(|| self.stream.is_turn_ending(&frame.text));
+        let turn_at_read = self.stream.turn_at_read();
         self.arrivals
             .push(ClaudeSessionArrival::Frame(Box::new(ClaudeRoutedFrame {
                 frame,
                 routed,
                 is_turn_ending,
+                turn_at_read,
             })));
         if is_turn_ending {
             self.arrivals.push(ClaudeSessionArrival::Terminal);
@@ -366,5 +382,118 @@ impl ClaudeProcessListener for ClaudeSessionListener {
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(is_turn_ending);
         is_turn_ending
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use futures::FutureExt;
+    use futures::future::BoxFuture;
+    use tokio::time::Instant;
+
+    use super::{
+        ClaudeOwnDelivery, ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler,
+        ClaudeTurnAtRead, claude_session_arrivals, drain_claude_session_arrivals,
+    };
+    use crate::provider::driver::claude::frame_routing::ClaudeRoutedObservation;
+    use crate::provider::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+    use crate::provider::driver::claude::session::process::ClaudeStreamFrame;
+    use crate::provider::driver::claude::session::scripted::{binding_id, mint_session_id};
+    use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+    use crate::provider::thread_frame_router::ThreadFrameRoute;
+    use crate::session::run::inbound::InboundDelivery;
+
+    // Names each arrival as it is handled; a frame takes a second, so an arrival dispatched beside
+    // it rather than after it is handled first.
+    #[derive(Default)]
+    struct ArrivalLog {
+        handled: Vec<String>,
+    }
+
+    impl ClaudeSessionArrivalHandler for ArrivalLog {
+        fn arrive(&mut self, arrival: ClaudeSessionArrival) -> BoxFuture<'_, ()> {
+            async move {
+                let name = match arrival {
+                    ClaudeSessionArrival::Frame(routed) => {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        routed.frame.text
+                    }
+                    ClaudeSessionArrival::Request(_) => "request".to_owned(),
+                    ClaudeSessionArrival::Deliver(ClaudeOwnDelivery::Dispatch {
+                        outcome, ..
+                    }) => {
+                        outcome.send(None).unwrap_or(());
+                        "delivery".to_owned()
+                    }
+                    ClaudeSessionArrival::Deliver(_)
+                    | ClaudeSessionArrival::Terminal
+                    | ClaudeSessionArrival::Exit(_) => "other".to_owned(),
+                };
+                self.handled.push(name);
+            }
+            .boxed()
+        }
+
+        fn next_deadline(&self) -> Option<Instant> {
+            None
+        }
+
+        fn deadline_reached(&mut self, _now: Instant) -> BoxFuture<'_, ()> {
+            async {}.boxed()
+        }
+    }
+
+    fn frame(text: &str) -> ClaudeSessionArrival {
+        ClaudeSessionArrival::Frame(Box::new(ClaudeRoutedFrame {
+            frame: ClaudeStreamFrame {
+                text: text.to_owned(),
+                observation: ClaudeStreamFrameRead::read(r#"{"type":"assistant"}"#)
+                    .expect("a test frame reads")
+                    .into_observation(),
+            },
+            routed: ClaudeRoutedObservation {
+                route: ThreadFrameRoute::Project,
+                helper_lifecycle: Vec::new(),
+                settled_output_speed: None,
+            },
+            is_turn_ending: false,
+            turn_at_read: ClaudeTurnAtRead::default(),
+        }))
+    }
+
+    // Killed by handling arrivals on spawned tasks (the second frame would overtake the first) and
+    // by a caller dispatching its delivery itself rather than in its place among the frames.
+    #[tokio::test(start_paused = true)]
+    async fn arrivals_are_handled_whole_in_the_order_they_came() {
+        let (sender, receiver) = claude_session_arrivals(mint_session_id());
+        sender.push(frame("first frame"));
+        sender.push(ClaudeSessionArrival::Request(
+            ClaudeInboundRequestEvent::Cancel {
+                request_id: "request".to_owned(),
+            },
+        ));
+        sender.push(frame("second frame"));
+        let dispatched = sender.dispatch(InboundDelivery::TurnBoundary {
+            binding_id: binding_id("binding"),
+        });
+        sender.push(frame("third frame"));
+        drop(sender);
+
+        let mut log = ArrivalLog::default();
+        drain_claude_session_arrivals(receiver, &mut log, None).await;
+
+        assert_eq!(dispatched.await, None);
+        assert_eq!(
+            log.handled,
+            [
+                "first frame",
+                "request",
+                "second frame",
+                "delivery",
+                "third frame"
+            ]
+        );
     }
 }

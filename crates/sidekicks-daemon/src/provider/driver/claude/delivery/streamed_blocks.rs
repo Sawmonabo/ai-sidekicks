@@ -192,9 +192,12 @@ pub(crate) struct ClaudeStreamedBlocks {
 
 impl ClaudeStreamedBlocks {
     /// The blocks of a process running on `provider_account_id`'s home.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader keeps one per session's process"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code stream reader keeps one per session's process"
+        )
     )]
     pub(crate) fn new(provider_account_id: Option<ProviderAccountId>) -> Self {
         Self {

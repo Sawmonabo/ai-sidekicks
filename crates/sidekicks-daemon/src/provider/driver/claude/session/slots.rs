@@ -408,3 +408,100 @@ fn settle(settled: &SetOnce<()>) {
 fn lock(table: &Mutex<SlotTable>) -> MutexGuard<'_, SlotTable> {
     table.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::{ClaudeCloseStart, ClaudeSessionSlots};
+    use crate::provider::driver::claude::session::errors::{
+        ClaudeSessionError, ClaudeSessionSlotState,
+    };
+    use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
+    use crate::provider::driver::claude::session::scripted::{
+        mint_session_id, scripted_live_session,
+    };
+    use crate::provider::driver::claude::session::state::LiveClaudeSession;
+    use sidekicks_contracts::session::id::SessionId;
+
+    fn live(session_id: SessionId) -> Arc<LiveClaudeSession> {
+        Arc::new(scripted_live_session(
+            session_id,
+            Arc::new(ScriptedChannel::default()),
+        ))
+    }
+
+    fn install(slots: &ClaudeSessionSlots, live: &Arc<LiveClaudeSession>) {
+        let installed = slots
+            .claim_bring_up(live.session_id)
+            .expect("the slot is free")
+            .install(Arc::clone(live));
+        assert!(installed.is_ok(), "a fresh claim installs");
+    }
+
+    // Killed by a create taking a slot mid-disposal, and by a failed disposal emptying the slot,
+    // which loses the only handle on a process that may still run.
+    #[test]
+    fn a_closing_slot_refuses_a_create_and_a_failed_disposal_quarantines_its_process() {
+        let slots = ClaudeSessionSlots::new(Arc::new(|_predecessor| {}));
+        let session_id = mint_session_id();
+        let live = live(session_id);
+        install(&slots, &live);
+
+        let ClaudeCloseStart::Closing(close) = slots.begin_close(session_id) else {
+            unreachable!("a live slot is the close's")
+        };
+        let refused = |slots: &ClaudeSessionSlots| {
+            matches!(
+                slots.claim_bring_up(session_id),
+                Err(ClaudeSessionError::SessionAlreadyLive {
+                    holder_state: ClaudeSessionSlotState::Closing
+                })
+            )
+        };
+        assert!(refused(&slots));
+        drop(close);
+        assert!(refused(&slots));
+
+        let ClaudeCloseStart::Closing(close) = slots.begin_close(session_id) else {
+            unreachable!("a quarantined process is the next close's")
+        };
+        assert!(Arc::ptr_eq(close.channel(), &live.channel));
+        close.finish();
+        assert!(slots.claim_bring_up(session_id).is_ok());
+    }
+
+    // Killed by restoring a rewind's predecessor live after it exited while the fork held its
+    // slot, which would leave a dead process serving the session.
+    #[test]
+    fn a_failed_rewind_hands_a_predecessor_that_exited_to_the_exit_path() {
+        let exited = Arc::new(Mutex::new(Vec::new()));
+        let slots = ClaudeSessionSlots::new({
+            let exited = Arc::clone(&exited);
+            Arc::new(move |predecessor| {
+                exited
+                    .lock()
+                    .expect("the exits' lock holds")
+                    .push(predecessor);
+            })
+        });
+        let session_id = mint_session_id();
+        let predecessor = live(session_id);
+        install(&slots, &predecessor);
+
+        let fork = slots
+            .claim_rewind(&predecessor)
+            .expect("the predecessor is live");
+        assert!(
+            slots
+                .release_exited(session_id, &predecessor.channel)
+                .is_none()
+        );
+        drop(fork);
+
+        let exited = exited.lock().expect("the exits' lock holds");
+        assert_eq!(exited.len(), 1);
+        assert!(Arc::ptr_eq(&exited[0], &predecessor));
+        assert!(slots.live_session(session_id).is_none());
+    }
+}

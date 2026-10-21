@@ -76,9 +76,12 @@ pub(crate) struct ClaudeProjectRuleRemoval<'a> {
 
 /// The session's own standing rules, oldest first; none while the approval pipeline has not
 /// registered its port. Fails as the port's read fails.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's launch, level move and rule answers read the session's rules"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's launch, level move and rule answers read the session's rules"
+    )
 )]
 pub(crate) async fn read_claude_session_rules(
     registration: &PortRegistration<Arc<dyn SessionRulePort>>,
@@ -116,9 +119,12 @@ pub(crate) fn compose_live_claude_permissions(
 /// Resends the live session's whole permissions document at the level it runs at, with the rules
 /// in force, `session_rules`, from the process's next call; a rule the person revoked is left out
 /// of them. Fails when the document cannot be composed or Claude Code refuses it.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's rule revoke takes a session rule out of force through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's rule revoke takes a session rule out of force through it"
+    )
 )]
 pub(crate) async fn resend_claude_permissions(
     live: &LiveClaudeSession,
@@ -156,9 +162,12 @@ pub(crate) async fn resend_claude_permissions(
 /// Hands Claude Code the session rule an answer made, once the answer went: the permissions
 /// document is resent with the rules in force, `session_rules`, the made rule in place of any with
 /// its kind, action and subject. Fails as [`resend_claude_permissions`] does.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's approval answers keep a session rule through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's approval answers keep a session rule through it"
+    )
 )]
 pub(crate) async fn keep_claude_session_rule(
     live: &LiveClaudeSession,
@@ -181,9 +190,12 @@ pub(crate) async fn keep_claude_session_rule(
 /// working folders, except the session's own file for an allow, which rode the answer for Claude
 /// Code to write; a failed write takes the rule back out of the files already written. Fails with
 /// the write's failure and any of taking it back.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's approval answers keep a project rule through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's approval answers keep a project rule through it"
+    )
 )]
 pub(crate) async fn keep_claude_project_rule(
     rule: &ProviderAskRule,

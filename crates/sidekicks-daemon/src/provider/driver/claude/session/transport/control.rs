@@ -83,9 +83,12 @@ pub(crate) enum ClaudeControlRequest {
     },
     /// Moves running foreground work (a command, a helper) to the background, answered by a
     /// [`ClaudeBackgroundTasksReply`].
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's background-work control sends it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's background-work control sends it"
+        )
     )]
     BackgroundTasks {
         /// The one tool call whose work moves; absent, all of it.
@@ -346,7 +349,10 @@ pub(crate) struct ClaudeInterruptReceipt {
     pub(crate) still_queued: Option<LenientList<String>>,
     /// The messages the interrupt dropped, by uuid; sent only for `cancel_queued`.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's interrupt reads it")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Claude driver's interrupt reads it")
+    )]
     pub(crate) cancelled: Option<LenientList<String>>,
 }
 
@@ -355,9 +361,12 @@ pub(crate) struct ClaudeInterruptReceipt {
 pub(crate) struct ClaudeBackgroundTasksReply {
     /// Whether work moved; absent from a build that does not say.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's background-work control reads it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's background-work control reads it"
+        )
     )]
     pub(crate) backgrounded: Option<bool>,
 }
