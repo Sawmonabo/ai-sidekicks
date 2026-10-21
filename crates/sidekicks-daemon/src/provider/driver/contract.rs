@@ -85,10 +85,6 @@ pub(crate) enum DriverError {
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The request went out and no answer came, so the provider may still act on it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the drivers' request deadlines and lost links")
-    )]
     #[error(transparent)]
     Unanswered(RequestUnanswered),
     /// The turn a steer was handed for ended before it was sent.

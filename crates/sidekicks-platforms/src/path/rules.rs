@@ -122,6 +122,17 @@ impl PathRules {
             .collect()
     }
 
+    /// `path` in the POSIX spelling a tool that matches paths in that form reads: on macOS and
+    /// Linux the path as written, and on Windows each `\` written `/` with a drive (`C:\x`)
+    /// written as a folder named for its lower-cased letter (`/c/x`). `path` is read by these rules.
+    pub fn posix_form(self, path: &Path) -> String {
+        let text = path.to_string_lossy();
+        match self {
+            Self::Posix => text.into_owned(),
+            Self::Windows => windows::posix_form(&text),
+        }
+    }
+
     /// Whether `path` names a place strictly inside `folder`, read lexically with no link
     /// followed and compared by [`comparable_components`], so a sibling that shares a prefix
     /// (`/repo-old` beside `/repo`) and the folder itself are not inside it. Both paths come
@@ -255,6 +266,20 @@ mod tests {
             rules.is_within(Path::new(folder), Path::new(path)),
             is_within
         );
+    }
+
+    // Fails when the drive is kept as `C:`, its letter keeps its case, or a `\` is left in place.
+    #[rstest]
+    #[case::posix_as_written(PathRules::Posix, "/Users/alice/notes", "/Users/alice/notes")]
+    #[case::windows_drive(PathRules::Windows, r"C:\Users\alice", "/c/Users/alice")]
+    #[case::windows_forward_slashes(PathRules::Windows, "D:/repos/app", "/d/repos/app")]
+    #[case::windows_share(PathRules::Windows, r"\\server\share\x", "//server/share/x")]
+    fn posix_form_writes_a_path_as_a_posix_matcher_reads_it(
+        #[case] rules: PathRules,
+        #[case] path: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(rules.posix_form(Path::new(path)), expected);
     }
 
     // Fails when the `'` escape, the `%` escape or the `"` doubling is dropped.

@@ -1,9 +1,11 @@
 //! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
-//! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands and which
-//! message a fork keeps up to; deleted on a purge with every other file Claude Code keeps for the
-//! conversation under the same config folder and the daemon's scratch folder, a batch of
-//! conversations of one home listing each folder it searches once.
+//! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands, which
+//! message a fork keeps up to and which messages an ended process took; deleted on a purge with
+//! every other file Claude Code keeps for the conversation under the same config folder and the
+//! daemon's scratch folder, a batch of conversations of one home listing each folder it searches
+//! once.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::io;
 use std::marker::PhantomData;
@@ -11,7 +13,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use serde::de::{self, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -23,6 +25,9 @@ use crate::provider::driver::claude::session::rules::{
 };
 use crate::provider::driver::claude::spawn::environment::compose_claude_scratch_folder;
 use crate::provider::inbound_json::decode_inbound_json;
+use crate::provider::lenient_json::{
+    Lenient, LenientElement, LenientVisitor, lenient_object, read_lenient, skip_other_shapes,
+};
 
 /// The turns one conversation file holds.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -32,6 +37,13 @@ pub(crate) struct ClaudeConversationOutline {
 }
 
 /// Where Claude Code and the daemon keep the conversations' files of one Claude Code home.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's conversation purge names its folders in it"
+    )
+)]
 pub(crate) struct ClaudeConversationFolders<'a> {
     /// The configuration folder of the Claude Code home the conversations ran on.
     pub(crate) config_folder: &'a Path,
@@ -46,6 +58,13 @@ pub(crate) struct ClaudeConversationFolders<'a> {
 }
 
 /// One conversation a purge deletes.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's conversation purge names each conversation in it"
+    )
+)]
 pub(crate) struct ClaudeConversation<'a> {
     /// Claude Code's id for it, which names its files.
     pub(crate) provider_session_id: &'a str,
@@ -56,6 +75,10 @@ pub(crate) struct ClaudeConversation<'a> {
 /// Finds the conversation's file under any project folder of `config_folder`, or `None`. Fails
 /// with any read failure but a missing projects folder, and with `InvalidInput` for an id that is
 /// not one plain path component.
+#[expect(
+    dead_code,
+    reason = "the Claude driver's resume and rewind find a conversation's file through it"
+)]
 pub(crate) async fn find_claude_conversation_file(
     config_folder: &Path,
     provider_session_id: &str,
@@ -91,6 +114,13 @@ async fn list_project_folders(config_folder: &Path) -> io::Result<Vec<PathBuf>> 
 
 /// Reads a conversation file's turns line by line; a line that is not a JSON object is skipped.
 /// Holds one line at a time, in a buffer up to twice the longest line, as the buffer doubles.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's rewind reads a conversation's turns through it"
+    )
+)]
 pub(crate) async fn read_claude_conversation_outline(
     file: &Path,
 ) -> io::Result<ClaudeConversationOutline> {
@@ -116,6 +146,48 @@ pub(crate) async fn read_claude_conversation_outline(
     Ok(outline)
 }
 
+/// Which of `message_uuids` the conversation file holds on a `user` entry, in their given order:
+/// the messages Claude Code took. Read only once the process that held them has ended, since a
+/// live process keeps a message past its turn's end and takes it later; the caller retries a read
+/// that fails. Opens nothing for an empty list, stops once every uuid is found, and fails with
+/// the file's open or read failure.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's taken-message lookup after a process ends reads through it"
+    )
+)]
+pub(crate) async fn find_claude_taken_messages(
+    file: &Path,
+    message_uuids: &[String],
+) -> io::Result<Vec<String>> {
+    if message_uuids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut unfound: HashSet<&str> = message_uuids.iter().map(String::as_str).collect();
+    let mut found = HashSet::new();
+    read_entries(file, |entry| {
+        if entry.entry_type.as_deref() == Some("user")
+            && let Some(uuid) = entry.uuid
+            && unfound.remove(uuid.as_str())
+        {
+            found.insert(uuid);
+        }
+        if unfound.is_empty() {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    })
+    .await?;
+    Ok(message_uuids
+        .iter()
+        .filter(|uuid| found.contains(*uuid))
+        .cloned()
+        .collect())
+}
+
 /// Deletes every file Claude Code keeps for each of `conversations`, where each exists: under the
 /// config folder its file history, session environment, task list, debug log, uploads, dev mods,
 /// image cache and plan files (in the plans folder the settings of the config folder and of the
@@ -123,10 +195,17 @@ pub(crate) async fn read_claude_conversation_outline(
 /// them), and in every project folder the conversation's files, the copies set aside and its folder
 /// of helper transcripts and tool results; under the home's scratch folder, the daemon's
 /// `CLAUDE_CODE_TMPDIR`, the conversation's folder in each project. Each project folder, scratch
-/// folder and plans folder is listed once for the whole batch. The conversations' files go last, since they name the
-/// plan files a purge that fails must find again. Fails with `InvalidInput`, before anything is
-/// listed or removed, for an id that is not one plain path component, else with the first read or
-/// removal failure.
+/// folder and plans folder is listed once for the whole batch. The conversations' files go last,
+/// since they name the plan files a purge that fails must find again. Fails with `InvalidInput`,
+/// before anything is listed or removed, for an id that is not one plain path component, else with
+/// the first read or removal failure.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's conversation purge deletes through it"
+    )
+)]
 pub(crate) async fn delete_claude_conversations(
     folders: &ClaudeConversationFolders<'_>,
     conversations: &[ClaudeConversation<'_>],
@@ -322,8 +401,8 @@ async fn read_entries(
     }
 }
 
-// The members of an entry the outline and the purge read, each read leniently: a member of another
-// type reads as absent rather than dropping the line, and nothing else is kept.
+// The members of an entry the outline, the taken read and the purge read, each read leniently: a
+// member of another type reads as absent rather than dropping the line, and nothing else is kept.
 #[derive(Deserialize)]
 struct ConversationEntry {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
@@ -373,140 +452,6 @@ struct ContentBlock {
     block_type: Option<String>,
 }
 
-// A value read leniently: the shape `T` takes, or `None` for any other, whose contents are skipped
-// without being kept.
-trait Lenient: Sized {
-    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error>;
-}
-
-fn read_lenient<'de, D: Deserializer<'de>, T: Lenient>(
-    deserializer: D,
-) -> Result<Option<T>, D::Error> {
-    T::read(deserializer)
-}
-
-// Skips any value but the one shape `Wanted` reads, which each impl below names.
-struct LenientVisitor<Wanted>(PhantomData<Wanted>);
-
-macro_rules! skip_other_shapes {
-    ($($skipped:ident($($argument:ty)?)),* $(,)?) => {$(
-        fn $skipped<E: de::Error>(self $(, _value: $argument)?) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-    )*};
-}
-
-macro_rules! skip_sequence {
-    () => {
-        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
-            while sequence.next_element::<IgnoredAny>()?.is_some() {}
-            Ok(None)
-        }
-    };
-}
-
-macro_rules! skip_map {
-    () => {
-        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-            while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-            Ok(None)
-        }
-    };
-}
-
-impl<'de> Visitor<'de> for LenientVisitor<String> {
-    type Value = Option<String>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-        Ok(Some(value.to_owned()))
-    }
-
-    fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
-        Ok(Some(value))
-    }
-
-    skip_other_shapes!(
-        visit_bool(bool),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit()
-    );
-    skip_sequence!();
-    skip_map!();
-}
-
-impl<'de> Visitor<'de> for LenientVisitor<bool> {
-    type Value = Option<bool>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
-        Ok(Some(value))
-    }
-
-    skip_other_shapes!(
-        visit_str(&str),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit()
-    );
-    skip_sequence!();
-    skip_map!();
-}
-
-impl<'de> Visitor<'de> for LenientVisitor<ConversationEntry> {
-    type Value = Option<ConversationEntry>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    // Only an object is an entry: serde's derive would read an array's items by position.
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        ConversationEntry::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
-    }
-
-    skip_other_shapes!(
-        visit_bool(bool),
-        visit_str(&str),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit(),
-    );
-    skip_sequence!();
-}
-
-impl<'de> Visitor<'de> for LenientVisitor<ConversationMessage> {
-    type Value = Option<ConversationMessage>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        ConversationMessage::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
-    }
-
-    skip_other_shapes!(
-        visit_bool(bool),
-        visit_str(&str),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit(),
-    );
-    skip_sequence!();
-}
-
 impl<'de> Visitor<'de> for LenientVisitor<MessageContent> {
     type Value = Option<MessageContent>;
 
@@ -520,7 +465,7 @@ impl<'de> Visitor<'de> for LenientVisitor<MessageContent> {
 
     fn visit_seq<A: SeqAccess<'de>>(self, mut blocks: A) -> Result<Self::Value, A::Error> {
         let mut has_tool_result = false;
-        while let Some(block) = blocks.next_element::<LenientBlock>()? {
+        while let Some(block) = blocks.next_element::<LenientElement<ContentBlock>>()? {
             has_tool_result |= block
                 .0
                 .is_some_and(|block| block.block_type.as_deref() == Some("tool_result"));
@@ -535,59 +480,16 @@ impl<'de> Visitor<'de> for LenientVisitor<MessageContent> {
         visit_f64(f64),
         visit_unit()
     );
-    skip_map!();
+    skip_other_shapes!(@map);
 }
 
-impl<'de> Visitor<'de> for LenientVisitor<ContentBlock> {
-    type Value = Option<ContentBlock>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        ContentBlock::deserialize(de::value::MapAccessDeserializer::new(map)).map(Some)
-    }
-
-    skip_other_shapes!(
-        visit_bool(bool),
-        visit_str(&str),
-        visit_i64(i64),
-        visit_u64(u64),
-        visit_f64(f64),
-        visit_unit(),
-    );
-    skip_sequence!();
-}
-
-// One content block, read leniently.
-struct LenientBlock(Option<ContentBlock>);
-
-impl<'de> Deserialize<'de> for LenientBlock {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer
-            .deserialize_any(LenientVisitor::<ContentBlock>(PhantomData))
-            .map(Self)
+impl Lenient for MessageContent {
+    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
+        deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
     }
 }
 
-macro_rules! lenient {
-    ($($wanted:ty),*) => {$(
-        impl Lenient for $wanted {
-            fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
-                deserializer.deserialize_any(LenientVisitor::<$wanted>(PhantomData))
-            }
-        }
-    )*};
-}
-
-lenient!(
-    String,
-    bool,
-    ConversationEntry,
-    ConversationMessage,
-    MessageContent
-);
+lenient_object!(ConversationEntry, ConversationMessage, ContentBlock);
 
 #[cfg(test)]
 mod tests {
@@ -598,12 +500,42 @@ mod tests {
 
     use super::{
         ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
-        delete_claude_conversations, read_claude_conversation_outline,
+        delete_claude_conversations, find_claude_taken_messages, read_claude_conversation_outline,
     };
     use crate::provider::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
     const OTHER_SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000002";
+
+    // Killed by a read that answers an id the file lacks, counts an assistant entry as taken, or
+    // answers an empty list for a file it cannot open.
+    #[tokio::test]
+    async fn the_taken_read_answers_only_the_user_entries_the_file_holds() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let file = folder.path().join("conversation.jsonl");
+        fs::write(
+            &file,
+            concat!(
+                r#"{"type":"user","uuid":"taken","message":{"content":"steer"}}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"answer","message":{"content":"done"}}"#,
+                "\n",
+            ),
+        )
+        .expect("the conversation is written");
+        let asked = ["kept".to_owned(), "taken".to_owned(), "answer".to_owned()];
+
+        let taken = find_claude_taken_messages(&file, &asked)
+            .await
+            .expect("the file reads");
+
+        assert_eq!(taken, vec!["taken".to_owned()]);
+        assert!(
+            find_claude_taken_messages(&folder.path().join("absent.jsonl"), &asked)
+                .await
+                .is_err()
+        );
+    }
 
     #[tokio::test]
     async fn a_tool_result_or_an_entry_claude_code_wrote_starts_no_turn() {
