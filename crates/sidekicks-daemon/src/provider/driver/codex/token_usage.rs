@@ -25,6 +25,10 @@ struct TokenUsage {
 
 /// One set of counts, each axis as Codex names it.
 #[derive(Deserialize)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each count is named as Codex names it"
+)]
 #[serde(rename_all = "camelCase")]
 struct TokenCounts {
     input_tokens: Option<u64>,

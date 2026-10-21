@@ -3,17 +3,22 @@
 //! serves every session on the service and Codex drops a client that falls 32,768 messages behind,
 //! so the queue is unbounded, as Codex's own client keeps its event queue, and its depth is logged
 //! once it passes a mark and again at each doubling. One task per session drains it, awaiting each
-//! item before the next, so the session's events keep their order.
+//! item before the next, so the session's events keep their order, and the driver's calls on the
+//! session's record take their place among its frames.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use crate::provider::driver::codex::run::steer::CodexSteerSend;
+use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnWait, CodexTurnWaitAnswer};
 use crate::provider::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
@@ -60,6 +65,47 @@ pub(crate) enum CodexSessionInbound {
         reason = "the Codex session's recovery waits for the frames a reply trailed"
     )]
     Barrier(oneshot::Sender<()>),
+    /// A call the driver makes on the session's record, run on the session's task in its place
+    /// among the frames.
+    #[expect(
+        dead_code,
+        reason = "the Codex driver's run control and waits reach the session's record through it"
+    )]
+    Call(CodexSessionCall),
+}
+
+/// A call on a session's record, each answering on its own `reply`; a dropped `reply` means the
+/// session's task let the record go first.
+#[expect(
+    dead_code,
+    reason = "the Codex run's steer and the waits of undo, retry and `Allow once` send these calls"
+)]
+pub(crate) enum CodexSessionCall {
+    /// Registers a steer on the run's live turn before it is written.
+    RegisterSteer {
+        /// The run the steer goes to.
+        run_id: RunId,
+        /// The turn the steer names to Codex, where the caller pins one.
+        expected_turn_id: Option<String>,
+        /// The steered message's id.
+        message_id: QueueItemId,
+        /// Where the registered steer, or its refusal, goes.
+        reply: oneshot::Sender<Result<CodexSteerSend, DriverError>>,
+    },
+    /// Takes back a steer Codex did not take.
+    WithdrawSteer {
+        /// The turn it was registered on.
+        turn_id: String,
+        /// The steered message's id.
+        message_id: QueueItemId,
+    },
+    /// Registers a wait on the session's turns.
+    WaitForTurns {
+        /// What the wait waits for.
+        wait: CodexTurnWait,
+        /// Where the wait's own answer channel goes.
+        reply: oneshot::Sender<oneshot::Receiver<CodexTurnWaitAnswer>>,
+    },
 }
 
 /// The sending half of one session's queue, which each service the session runs on holds.
@@ -164,6 +210,9 @@ pub(crate) trait CodexSessionInboundHandler: Send {
     /// Admits a held conversation's frames as the session's own, or stops admitting them.
     fn held_thread(&mut self, thread_id: String, is_held: bool);
 
+    /// Runs one call on the session's record.
+    fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()>;
+
     /// When timed work next comes due, `None` when none waits.
     fn next_deadline(&self) -> Option<Instant>;
 
@@ -214,6 +263,7 @@ pub(crate) async fn drain_codex_session_inbound(
                 // A caller that stopped waiting needs no answer.
                 let _unheard = reached.send(());
             }
+            CodexSessionInbound::Call(call) => handler.call(call).await,
         }
     }
 }

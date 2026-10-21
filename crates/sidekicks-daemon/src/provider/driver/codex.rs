@@ -27,6 +27,7 @@ mod input_limit;
 mod intervention;
 mod model_windows;
 mod native_program;
+mod notification_routing;
 mod output_speed;
 mod permission_level;
 mod rules;

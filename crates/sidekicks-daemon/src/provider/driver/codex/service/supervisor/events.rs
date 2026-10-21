@@ -7,13 +7,16 @@ use sidekicks_contracts::run::control::ProcessExit;
 
 use crate::provider::driver::codex::service::supervisor::CodexService;
 
-/// Why a service's conversations need resuming without anyone asking.
+/// Why a service's conversations need resuming.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServiceRecoveryCause {
     /// The service's process ended and a new one runs: every running turn on it ended.
     Crash,
     /// The connection came back to the same process: its turns ran on.
     Reconnect,
+    /// The person restarted a service the crash loop left down: every running turn on it ended,
+    /// and each session it brings back is told.
+    PersonRestart,
 }
 
 /// What one service tells the session's recovery, called from the service's runner, never under

@@ -4,19 +4,19 @@
 //! its helper limit and its helpers' role files. A resume and a fork send them all again, so a
 //! conversation never falls back to what Codex persisted. Also the `turn/start` and
 //! `thread/settings/update` params, whose members carry absent, `null` and a value as three
-//! meanings, and the item-injection method a loaded conversation takes changed instructions
-//! through.
+//! meanings, the Build or Plan collaboration mode they carry, and the item-injection method a
+//! loaded conversation takes changed instructions through.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::driver::codex::app_server_protocol::{
-    ApprovalsReviewer, AskForApproval, CollaborationMode, ThreadForkParams, ThreadResumeParams,
-    ThreadStartParams, UserInput,
+    ApprovalsReviewer, AskForApproval, CollaborationMode, ModeKind, Settings, ThreadForkParams,
+    ThreadResumeParams, ThreadStartParams, UserInput,
 };
 use crate::provider::driver::codex::permission_level::{
     CodexApprovalPolicy, CodexApprovalsReviewer, CodexProfileFolders,
@@ -288,6 +288,31 @@ pub(crate) struct CodexThreadSettingsUpdateParams {
         reason = "absent, `null` and a tier are three meanings the wire keeps apart"
     )]
     pub(crate) service_tier: Option<Option<String>>,
+}
+
+/// Codex's collaboration mode for Build or Plan on `model` at `reasoning_effort`, with the mode's
+/// built-in instructions. It takes precedence over a request's own model and effort, so both are
+/// carried; an effort Codex reported that this build's schema does not list is left out.
+#[expect(
+    dead_code,
+    reason = "the Codex mode move and the run start send the session's mode with it"
+)]
+pub(crate) fn compose_codex_collaboration_mode(
+    mode: SessionMode,
+    model: String,
+    reasoning_effort: Option<&str>,
+) -> CollaborationMode {
+    CollaborationMode {
+        mode: match mode {
+            SessionMode::Build => ModeKind::Default,
+            SessionMode::Plan => ModeKind::Plan,
+        },
+        settings: Settings {
+            developer_instructions: None,
+            model,
+            reasoning_effort: reasoning_effort.and_then(|effort| effort.parse().ok()),
+        },
+    }
 }
 
 /// Codex's item-injection method: appends items to a loaded thread's model-visible history, one

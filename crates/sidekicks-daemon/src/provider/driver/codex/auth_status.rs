@@ -45,6 +45,10 @@ struct AccountReadParams {
 #[serde(rename_all = "camelCase")]
 struct AccountReadReply {
     #[serde(default, with = "serde_with::rust::double_option")]
+    #[expect(
+        clippy::option_option,
+        reason = "an absent account and a `null` one are two different answers"
+    )]
     account: Option<Option<Box<RawValue>>>,
     requires_openai_auth: Option<bool>,
 }
@@ -71,7 +75,7 @@ pub(crate) async fn read_codex_auth_status(
 }
 
 /// Reads an `account/read` reply into the probe's answer: an account names its sign-in kind as the
-/// detail; no account is signed out, worded by whether the service's provider needs an OpenAI
+/// detail; no account is signed out, worded by whether the service's provider needs an `OpenAI`
 /// sign-in at all; a reply that cannot be read is indeterminate, never a verdict on the sign-in.
 fn classify_codex_auth_status(reply: &RawValue) -> DriverAuthProbeResult {
     let Some(reply) = read_codex_object::<AccountReadReply>(reply.get()) else {

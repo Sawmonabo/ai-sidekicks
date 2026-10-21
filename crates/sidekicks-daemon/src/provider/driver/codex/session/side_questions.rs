@@ -198,7 +198,8 @@ impl CodexSideQuestions {
             Err(error) => Err(error),
         };
         if let Err(error) = started {
-            if let Some(question) = self.lock().remove(&copy_thread_id) {
+            let question = self.lock().remove(&copy_thread_id);
+            if let Some(question) = question {
                 let_go(&question.service, &copy_thread_id).await;
             }
             return Err(error);
@@ -332,7 +333,7 @@ async fn finish(
         .is_some_and(|turn| turn.status.as_deref() == Some(CODEX_COMPLETED_TURN_STATUS));
     match answer {
         Some(answer) if is_completed => {
-            dispatch_delivery(
+            Box::pin(dispatch_delivery(
                 &dispatch,
                 DeliveryOrigin {
                     provider: DESCRIPTOR.provider_id(),
@@ -349,7 +350,7 @@ async fn finish(
                         },
                     ),
                 },
-            )
+            ))
             .await;
         }
         Some(_) | None => {

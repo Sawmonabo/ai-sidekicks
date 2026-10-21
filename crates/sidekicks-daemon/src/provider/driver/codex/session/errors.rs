@@ -1,5 +1,6 @@
-//! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary, slot
-//! and configuration failures, and how each reaches the daemon as a driver error.
+//! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary, slot,
+//! turn-in-flight, larger-window, port and configuration failures, and how each reaches the daemon
+//! as a driver error; and the readers of Codex's active-writer and restart refusals.
 
 use std::error::Error;
 use std::time::Duration;
@@ -41,11 +42,23 @@ pub(crate) const CODEX_INVALID_REQUEST_CODE: i64 = -32600;
 /// The `data.reason` of the service's answer while it drains toward its exit.
 pub(crate) const CODEX_DRAINING_REASON: &str = "serverShuttingDown";
 
+/// The words of Codex's refusal to resume a conversation another runtime still writes.
+const CODEX_ACTIVE_WRITER_MESSAGE: &str = "active writer";
+
+/// The words of Codex's refusal of a catalog read that asks for the service to restart first.
+const CODEX_RESTART_REQUESTED_MESSAGE: &str = "Restart Codex";
+
+/// The `data.reason` a turn refused while another of the session's turns is in flight carries.
+const SESSION_TURN_IN_FLIGHT_REASON: &str = "sessionTurnInFlight";
+
 /// Which state holds a session's slot when a create is refused; a create is refused in all three,
 /// since a second start would orphan a process.
-#[expect(
-    dead_code,
-    reason = "the Codex session slots refuse a second create in the state they hold"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex session slots refuse a second create in the state they hold"
+    )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexSessionSlotState {
@@ -151,6 +164,26 @@ pub(crate) enum CodexError {
         /// The state the slot is held in.
         holder_state: CodexSessionSlotState,
     },
+    /// A turn the daemon would start found another of the session's turns running, starting or
+    /// still ending, which the turn would fold into.
+    #[error("A turn of Codex session \"{session_id}\" is still in flight, so this turn waits.")]
+    SessionTurnInFlight {
+        /// The session.
+        session_id: SessionId,
+    },
+    /// A session asked for a larger window its model's catalog does not offer at that figure now;
+    /// no conversation was started.
+    #[error(
+        "Codex's catalog does not offer the {requested}-token window for model \"{model}\" now."
+    )]
+    LargerWindowUnavailable {
+        /// The model.
+        model: String,
+        /// The window asked for, in tokens.
+        requested: u64,
+        /// The larger window the catalog offers the model now, in tokens, if any.
+        offered: Option<u64>,
+    },
     /// A port the daemon wired, which the driver reads or hands work to, failed.
     #[error("the {port} port failed")]
     PortFailed {
@@ -203,6 +236,34 @@ impl std::fmt::Display for CodexUnansweredCause {
 }
 
 impl CodexError {
+    /// Whether this is Codex's refusal to resume a conversation another runtime still writes.
+    #[expect(
+        dead_code,
+        reason = "the Codex session's resume tells a conversation another runtime holds apart"
+    )]
+    pub(crate) fn is_active_writer_refusal(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_ACTIVE_WRITER_MESSAGE)
+    }
+
+    /// Whether this is Codex's refusal of a catalog read that asks for the service to restart
+    /// before it answers.
+    #[expect(
+        dead_code,
+        reason = "the Codex model list restarts the service when its catalog read asks for it"
+    )]
+    pub(crate) fn asks_for_restart(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_RESTART_REQUESTED_MESSAGE)
+    }
+
+    // A `-32600` answer whose message holds `words`.
+    fn is_invalid_request_saying(&self, words: &str) -> bool {
+        matches!(
+            self,
+            Self::ProviderRequest { code: CODEX_INVALID_REQUEST_CODE, message, .. }
+                if message.contains(words)
+        )
+    }
+
     /// Whether this is the service's answer that it is draining toward its exit and takes no new
     /// work, while its running turns, reads and interrupts go on.
     pub(crate) fn is_service_draining(&self) -> bool {
@@ -319,6 +380,33 @@ impl From<CodexError> for DriverError {
                 Self::Refused(
                     DomainError::new(error.to_string(), RefusalCode::SessionAlreadyClosed)
                         .with_detail(json!({ "sessionId": session_id }))
+                        .with_source(error),
+                )
+            }
+            CodexError::SessionTurnInFlight { session_id } => {
+                let session_id = *session_id;
+                Self::Refused(
+                    DomainError::new(error.to_string(), RefusalCode::ProviderUnavailable)
+                        .with_detail(json!({
+                            "sessionId": session_id,
+                            "reason": SESSION_TURN_IN_FLIGHT_REASON,
+                        }))
+                        .with_source(error),
+                )
+            }
+            CodexError::LargerWindowUnavailable {
+                model,
+                requested,
+                offered,
+            } => {
+                let detail = json!({
+                    "model": model,
+                    "largerWindow": requested,
+                    "offeredLargerWindow": offered,
+                });
+                Self::Refused(
+                    DomainError::new(error.to_string(), RefusalCode::ProviderUnavailable)
+                        .with_detail(detail)
                         .with_source(error),
                 )
             }

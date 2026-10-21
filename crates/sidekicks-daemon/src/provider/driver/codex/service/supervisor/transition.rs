@@ -305,8 +305,9 @@ impl Supervision {
         }
     }
 
-    // A start that failed at `at`: one after a crash counts as another crash, any other leaves
-    // the service stopped with the failure for its callers.
+    // A start that failed at `at`: one after a crash or the person's restart of a crash loop
+    // counts as another crash, any other leaves the service stopped with the failure for its
+    // callers.
     fn fail_start(
         &mut self,
         recovery: Option<CodexServiceRecoveryCause>,
@@ -314,7 +315,10 @@ impl Supervision {
         failure: Arc<CodexError>,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
-        if recovery == Some(CodexServiceRecoveryCause::Crash) {
+        if matches!(
+            recovery,
+            Some(CodexServiceRecoveryCause::Crash | CodexServiceRecoveryCause::PersonRestart)
+        ) {
             actions.push(SupervisorAction::ReportStartFailed(failure));
             return self.crash(at, actions);
         }
@@ -785,7 +789,7 @@ impl Supervision {
             ),
             (State::CrashLoop, Event::Restart) => {
                 self.crash_window.clear();
-                self.start(Some(CodexServiceRecoveryCause::Crash), Vec::new())
+                self.start(Some(CodexServiceRecoveryCause::PersonRestart), Vec::new())
             }
 
             (State::Stopping { launch, then, .. }, Event::StopDone { ticket })

@@ -189,9 +189,14 @@ impl CodexCallChecks {
         let command = tool_input
             .and_then(|tool_input| tool_input.command)
             .and_then(|command| match command {
-                Value::String(command) if !command.is_empty() => Some(command),
-                _ => None,
-            });
+                Value::String(command) => Some(command),
+                Value::Null
+                | Value::Bool(_)
+                | Value::Number(_)
+                | Value::Array(_)
+                | Value::Object(_) => None,
+            })
+            .filter(|command| !command.is_empty());
         let Some(action) = read_hook_action(input, command.as_deref()) else {
             return Ok(None);
         };

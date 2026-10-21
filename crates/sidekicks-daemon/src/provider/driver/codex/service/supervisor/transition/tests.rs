@@ -5,6 +5,7 @@ use rstest::rstest;
 
 use super::{Supervision, SupervisorEvent, SupervisorState};
 use crate::provider::driver::codex::service::home::CodexServiceKind;
+use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
@@ -441,7 +442,7 @@ fn the_supervisor_table(
 
 // Fails when the crash path stops counting on the crash window, which restarts a dying service
 // without bound, or a start is taken while the service is down for it, or the person's restart
-// does not start it again.
+// does not start it again under its own cause, which tells the sessions it brings back.
 #[test]
 fn a_fifth_crash_within_three_minutes_leaves_the_service_down() {
     let start = Instant::now();
@@ -474,6 +475,9 @@ fn a_fifth_crash_within_three_minutes_leaves_the_service_down() {
     assert_eq!(format!("{refused:?}"), "[Publish(CrashLoop)]");
     assert!(matches!(
         supervision.state(),
-        SupervisorState::Starting { .. }
+        SupervisorState::Starting {
+            recovery: Some(CodexServiceRecoveryCause::PersonRestart),
+            ..
+        }
     ));
 }

@@ -12,6 +12,7 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -144,6 +145,10 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) interrupted_run_by_turn_id: Vec<(String, RunId)>,
     /// Turns whose `turn/interrupt` is on the wire: no steer is sent into one.
     pub(crate) interrupting_turn_ids: HashSet<String>,
+    /// The steers sent into each live turn whose `userMessage` echo has yet to arrive, by turn id,
+    /// each registered before its `turn/steer` is written: an echo takes one, and an interrupt
+    /// cancels what its turn still holds.
+    pub(crate) unechoed_steers_by_turn_id: HashMap<String, Vec<QueueItemId>>,
     /// The newest steer sent on the conversation, settled either way; the next waits for it, so
     /// steers reach Codex one at a time in the order they were handed over.
     pub(crate) last_steer_send: Option<Shared<BoxFuture<'static, ()>>>,

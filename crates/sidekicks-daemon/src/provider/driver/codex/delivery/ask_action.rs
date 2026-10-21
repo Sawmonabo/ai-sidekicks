@@ -111,23 +111,22 @@ fn read_command_ask(params: &Map<String, Value>, reader: &mut ShellLineReader) -
         .get("networkApprovalContext")
         .and_then(Value::as_object)
         .and_then(|network| read_non_empty_string(network, "host"));
-    let (action, command_refusal) = match host {
-        Some(host) => (
+    let (action, command_refusal) = if let Some(host) = host {
+        (
             ProviderAskAction::Network {
                 host: host.to_owned(),
             },
             None,
-        ),
+        )
+    } else {
         // Never the rule words Codex proposes, which may name one command of several or a prefix.
-        None => {
-            let reading = reader.read(command);
-            (
-                ProviderAskAction::Command {
-                    command: unwrap_shell_command_line(command).into_owned(),
-                },
-                refuse_background_work(reader, &reading),
-            )
-        }
+        let reading = reader.read(command);
+        (
+            ProviderAskAction::Command {
+                command: unwrap_shell_command_line(command).into_owned(),
+            },
+            refuse_background_work(reader, &reading),
+        )
     };
     CodexAskReading {
         action,

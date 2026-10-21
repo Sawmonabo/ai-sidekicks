@@ -15,8 +15,8 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
 use crate::provider::driver::codex::session::inbound::{
-    CodexSessionInboundHandler, CodexSessionInboundReceiver, codex_session_inbound,
-    drain_codex_session_inbound,
+    CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
+    codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::contract::DriverError;
@@ -56,6 +56,10 @@ impl CodexSessionInboundHandler for SessionFrames {
 
     fn deadline_reached(&mut self, _now: Instant) -> BoxFuture<'_, ()> {
         unreachable!("no deadline waits")
+    }
+
+    fn call(&mut self, _call: CodexSessionCall) -> BoxFuture<'_, ()> {
+        unreachable!("the driver makes no call")
     }
 }
 

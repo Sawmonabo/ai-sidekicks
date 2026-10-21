@@ -39,6 +39,10 @@ pub(crate) struct CodexSettledOutputSpeed {
 #[serde(rename_all = "camelCase")]
 struct ServiceTierCarrier {
     #[serde(default, with = "serde_with::rust::double_option")]
+    #[expect(
+        clippy::option_option,
+        reason = "a reply with no tier declares nothing, where a `null` tier declares standard"
+    )]
     service_tier: Option<Option<Value>>,
 }
 
