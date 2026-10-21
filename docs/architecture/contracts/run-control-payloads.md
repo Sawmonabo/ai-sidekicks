@@ -99,6 +99,7 @@ interface QueueItemSummary {
   content: string;
   attachments?: ArtifactId[];
   childHandle?: ChildHandle; // the child whose queue holds it; absent on the lead's
+  isSentNow: boolean; // `Send now` marked it: the row reads as sent now while the daemon holds it
   notDeliveredReason?: QueueItemNotDeliveredReason; // present exactly on a notDelivered item
   createdAt: string;
   updatedAt: string;
