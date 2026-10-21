@@ -97,14 +97,15 @@ impl SecretServiceWatch {
             read_is_unlocked(&connection),
         )
         .await
+        .map(|read| read.map_err(zbus::fdo::Error::from))
         {
             Ok(Ok(is_unlocked)) => Ok(is_unlocked),
-            Ok(Err(failure)) => Err(match zbus::fdo::Error::from(failure) {
-                zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_) => {
-                    CredentialStoreUnreachable::NoSecretService
-                }
-                failure => CredentialStoreUnreachable::SecretServiceFailed(Arc::new(failure)),
-            }),
+            Ok(Err(zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_))) => {
+                Err(CredentialStoreUnreachable::NoSecretService)
+            }
+            Ok(Err(failure)) => Err(CredentialStoreUnreachable::SecretServiceFailed(Arc::new(
+                failure,
+            ))),
             Err(_elapsed) => Err(CredentialStoreUnreachable::NoAnswer),
         }
     }
@@ -125,9 +126,10 @@ impl SecretServiceWatch {
                         format!("no Secret Service: nothing owns {SECRET_SERVICE_NAME}")
                     }
                     Ok(Err(failure)) => format!("the Secret Service, its holder unread: {failure}"),
-                    Err(_elapsed) => {
-                        "the Secret Service, its holder unread: no answer within 2 s".to_owned()
-                    }
+                    Err(_elapsed) => format!(
+                        "the Secret Service, its holder unread: no answer within {} s",
+                        CredentialStore::QUICK_ANSWER_LIMIT.as_secs()
+                    ),
                 }
             }
             Err(unreachable) => format!("no Secret Service: {unreachable}"),
@@ -162,7 +164,8 @@ impl SecretServiceWatch {
                 Ok(Err(failure)) => CredentialStoreUnreachable::SessionBusFailed(Arc::new(failure)),
                 Err(_elapsed) => CredentialStoreUnreachable::NoAnswer,
             };
-        self.reachability.send_replace(Err(failure.clone()));
+        self.reachability
+            .send_modify(|held| *held = Err(failure.clone()));
         Err(failure)
     }
 
@@ -185,7 +188,7 @@ impl SecretServiceWatch {
             Some(_owner) => Ok(()),
             None => Err(CredentialStoreUnreachable::NoSecretService),
         };
-        self.reachability.send_replace(reachability);
+        self.reachability.send_modify(|held| *held = reachability);
         let hearing = tokio::spawn(hear(
             owner_changes,
             collection_changes,
@@ -215,12 +218,14 @@ async fn hear(
                 };
                 match owner_change.args() {
                     Ok(change) if change.new_owner().is_some() => {
-                        reachability.send_replace(Ok(()));
+                        reachability.send_modify(|held| *held = Ok(()));
                         moments.send_replace(());
                     }
                     // A name given up makes nothing usable.
                     Ok(_released) => {
-                        reachability.send_replace(Err(CredentialStoreUnreachable::NoSecretService));
+                        reachability.send_modify(|held| {
+                            *held = Err(CredentialStoreUnreachable::NoSecretService);
+                        });
                     }
                     Err(failure) => break Arc::new(failure),
                 }
@@ -234,7 +239,8 @@ async fn hear(
             },
         }
     };
-    reachability.send_replace(Err(CredentialStoreUnreachable::SessionBusFailed(closed)));
+    reachability
+        .send_modify(|held| *held = Err(CredentialStoreUnreachable::SessionBusFailed(closed)));
 }
 
 // Whether the default collection exists and is unlocked, each question flagged so that the bus

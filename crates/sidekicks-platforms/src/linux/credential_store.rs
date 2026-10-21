@@ -65,7 +65,10 @@ pub(crate) async fn login_state() -> String {
     match tokio::time::timeout(CredentialStore::QUICK_ANSWER_LIMIT, read_login_state()).await {
         Ok(Ok(state)) => state,
         Ok(Err(failure)) => format!("unread: {failure}"),
-        Err(_elapsed) => "unread: no answer within 2 s".to_owned(),
+        Err(_elapsed) => format!(
+            "unread: no answer within {} s",
+            CredentialStore::QUICK_ANSWER_LIMIT.as_secs()
+        ),
     }
 }
 

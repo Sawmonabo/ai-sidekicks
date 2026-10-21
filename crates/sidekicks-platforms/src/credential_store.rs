@@ -232,8 +232,11 @@ pub enum CredentialStoreUnreachable {
          it runs and is not stuck"
     )]
     SecretServiceFailed(#[source] Arc<dyn Error + Send + Sync>),
-    /// The session bus gave no answer within 2 s.
-    #[error("the session bus gave no answer within 2 s; check that the session bus is not stuck")]
+    /// The session bus gave no answer within [`CredentialStore::QUICK_ANSWER_LIMIT`].
+    #[error(
+        "the session bus gave no answer within {limit} s; check that the session bus is not stuck",
+        limit = CredentialStore::QUICK_ANSWER_LIMIT.as_secs()
+    )]
     NoAnswer,
 }
 
