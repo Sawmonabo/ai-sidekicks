@@ -126,6 +126,7 @@ jobs:
               # implicit build is what the native-prebuild matrix asserts.
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/native-prebuilds.yml'
               - '.github/actions/assert-native-prebuild/**'
               # The daemon's SQLite shell, which every leg builds, and the repair that runs it.
               - 'packages/runtime-daemon/sqlite-shell/**'
@@ -766,89 +767,19 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-  # The daemon's `better-sqlite3` must load the tarball's bundled Node-API prebuild on every
-  # platform the product ships to, not just the one the `test` job runs on (linux-x64). A missing or
-  # unloadable prebuild elsewhere would otherwise surface first on a developer's machine or in a
-  # release build, as a silent source compile or a crash at first open. The same install builds the
-  # daemon's SQLite shell from that binding's source, and each leg repairs a damaged database with
-  # it, so the repair path is proven on every platform too.
-  #
-  # Matrix: the five target platforms, on hosted-runner labels generally available for public
-  # repositories:
-  #   ubuntu-latest    → linux-x64
-  #   ubuntu-24.04-arm → linux-arm64
-  #   macos-latest     → darwin-arm64
-  #   macos-15-intel   → darwin-x64
-  #   windows-latest   → win32-x64
-  # `win32-arm64` and the two `linuxmusl-*` prebuilds ship in the same tarball and are not covered:
-  # `windows-11-arm` is not a target, and no hosted musl runner exists, so a musl check would need a
-  # container leg.
-  #
-  # The install is scoped to the daemon and its workspace dependencies: the question is where one
-  # binding comes from, and a full install would download an Electron binary per leg for nothing.
-  # `--frozen-lockfile` still applies, so lockfile drift fails here as everywhere else.
+  # The daemon's native prebuild on every platform the product ships to, in its own workflow.
+  # Five runners across three operating systems. Only the dependency graph (the lockfile, a
+  # package.json, or the npm client config) can change which binding resolves, and only the
+  # shell's build or the code that runs it can change the repair each leg proves. It runs only
+  # where `slow-jobs` is set; there a pull request touching none of those files skips it, and
+  # `ci-gate` reads the skip as success. The nightly and manual runs run it unconditionally.
   native-prebuilds:
-    name: native prebuild (${{ matrix.prebuild }})
-    # Five runners across three operating systems. Only the dependency graph (the lockfile, a
-    # package.json, or the npm client config) can change which binding resolves, and only the
-    # shell's build or the code that runs it can change the repair each leg proves. It runs only
-    # where `slow-jobs` is set; there a pull request touching none of those files skips it, and
-    # `ci-gate` reads the skip as success. The nightly and manual runs run it unconditionally.
+    name: native prebuilds
     needs: [changes]
     if: needs.changes.outputs.slow-jobs == 'true' && needs.changes.outputs.deps == 'true'
-    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            prebuild: linux-x64
-          - os: ubuntu-24.04-arm
-            prebuild: linux-arm64
-          - os: macos-latest
-            prebuild: darwin-arm64
-          - os: macos-15-intel
-            prebuild: darwin-x64
-          - os: windows-latest
-            prebuild: win32-x64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ env.SWEEP_REF }}
-
-      - name: Setup pnpm
-        # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
-        with:
-          version: 10.33.2
-          run_install: false
-
-      # Runs on the Node floor because asserting the prebuild on another version would not assert
-      # the shipped configuration. The 13.x prebuilds are Node-API 10: a Node-API-9 host (22.12,
-      # 22.13) cannot load the binding at all, seen as a silent SIGSEGV at the first
-      # `new Database()` rather than Node's documented load-time throw.
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: "pnpm"
-
-      - name: Install (runtime-daemon and its workspace dependencies only)
-        run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/runtime-daemon..."
-
-      - name: Assert prebuild provenance and the SQLite pragma readback
-        uses: ./.github/actions/assert-native-prebuild
-        with:
-          expected-prebuild: ${{ matrix.prebuild }}
-
-      # The install built the daemon's SQLite shell from the binding's own source; its repair tests
-      # damage a database and recover it with that shell, so each platform runs the path it ships.
-      - name: Repair a damaged database with the daemon's SQLite shell
-        working-directory: packages/runtime-daemon
-        run: pnpm exec vitest run src/recovery/database-file
+    uses: ./.github/workflows/native-prebuilds.yml
 
   # The Rust crates' tests on macOS, in their own workflow: the search addon's crate when it, the
   # Cargo workspace files or that workflow change, and the operating-system crate on every run.
