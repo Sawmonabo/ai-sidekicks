@@ -76,6 +76,7 @@ mod memory;
 mod own_root;
 mod path;
 mod pinned_process;
+mod pipe_reader;
 #[cfg(unix)]
 mod posix;
 mod process_containment;
@@ -199,6 +200,7 @@ pub use path::program_output::path_from_program_output;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
 pub use pinned_process::ProcessRecord;
+pub use pipe_reader::async_pipe_reader;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use posix::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,

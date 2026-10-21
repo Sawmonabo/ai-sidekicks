@@ -4,9 +4,9 @@
 //! output's tail kept, given up on at its time limit and ended with every process it started.
 
 use std::error::Error;
-use std::io::{self, Read as _};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -18,10 +18,12 @@ use sidekicks_contracts::worktree::setup::{
     WORKTREE_SETUP_OUTPUT_MAX_LEN, WorktreeSetupStage, WorktreeSetupStep, WorktreeSetupStepState,
 };
 use sidekicks_platforms::{
-    ChildTree, Spawner, read_child_exit, shell_line_command, start_child_tree,
+    ChildTree, Spawner, async_pipe_reader, read_child_exit, shell_line_command, start_child_tree,
 };
+use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::AbortOnDropHandle;
 
 use crate::error_description::describe_error;
 use crate::git::worktree::copy::{TreeCopyPolicy, copy_tree};
@@ -36,7 +38,7 @@ const MAKE_TREE_LABEL: &str = "git worktree add";
 const WARM_LABEL: &str = "git status";
 
 // The label of the project's steps' read when it fails.
-const READ_PROJECT_STEPS_LABEL: &str = "Read the project's setup steps";
+const READ_PROJECT_STEPS_LABEL: &str = "Setup steps";
 
 /// The size of one read of a command's output.
 const OUTPUT_READ_CHUNK: usize = 64 * 1024;
@@ -106,16 +108,18 @@ impl CardStep {
         )
     }
 
-    /// The read of the project's steps, failed with `error`, so the card names it and a retry
+    /// The read of the project's steps, failed for `reason`, so the card names it and a retry
     /// reads them again.
-    pub(super) fn project_steps_unread(error: &str) -> Self {
+    pub(super) fn project_steps_unread(reason: &str) -> Self {
         let mut unread = Self::of(
             WorktreeSetupStage::ProjectSteps,
             READ_PROJECT_STEPS_LABEL,
             WorktreeSetupStepState::Failed,
             StepAction::ReadProjectSteps,
         );
-        unread.step.error = Some(step_error(error));
+        unread.step.error = Some(step_error(&format!(
+            "Could not read the setup steps: {reason}"
+        )));
         unread
     }
 
@@ -376,15 +380,16 @@ pub(super) struct SetupCommand<'a> {
 
 // How the wait on a running command ended.
 enum CommandWait {
-    Exited(io::Result<ExitStatus>),
+    Exited(io::Result<()>),
     TimeLimit,
     EndAsked,
 }
 
 /// Runs `command` in its tree with standard input empty and its standard output and error read
-/// into one tail; it leads a process tree of its own, so its time limit and an end reach every
-/// process it started. Answers how its step ends once the command has exited and its output has
-/// closed, what it left holding the output past a second being ended first, or once it was ended.
+/// into one tail; it leads a process tree of its own, so its exit, its time limit and an end each
+/// end every process it started that is still in that tree. Answers how its step ends once the
+/// command has exited and its output has closed or a second has passed, or once it was ended; the
+/// output's read end is closed then, so a process that left the tree and writes later fails.
 pub(super) async fn run_command(
     command: SetupCommand<'_>,
     running: &RunningCommand,
@@ -403,12 +408,13 @@ async fn run_started_command(
     }
     let output = Arc::new(Mutex::new(CommandOutput::default()));
     let output_closed = CancellationToken::new();
-    let (mut tree, time_limit) = match start_command(command, &output, &output_closed).await {
-        Ok(started) => started,
-        Err(error) => return (StepOutcome::failed(describe_error(&error)), Ok(())),
-    };
+    let (mut tree, reading, time_limit) =
+        match start_command(command, &output, &output_closed).await {
+            Ok(started) => started,
+            Err(error) => return (StepOutcome::failed(describe_error(&error)), Ok(())),
+        };
     let wait = {
-        let exited = tree.wait();
+        let exited = tree.wait_for_exit();
         let limit = async {
             match time_limit {
                 Some(limit) => tokio::time::sleep(limit).await,
@@ -416,14 +422,22 @@ async fn run_started_command(
             }
         };
         tokio::select! {
-            status = exited => CommandWait::Exited(status),
+            exited = exited => CommandWait::Exited(exited),
             () = limit => CommandWait::TimeLimit,
             () = running.is_end_asked.cancelled() => CommandWait::EndAsked,
         }
     };
-    match wait {
+    let outcome = match wait {
         CommandWait::Exited(exited) => {
-            let mut error = match exited {
+            // Whatever the command left running is ended once its output closes or a second
+            // passes, while the exited command still holds its group's id; its own exit stays its
+            // result.
+            let is_output_closed = linger_for_output(&output_closed).await;
+            let ended = tree.end_tree().await;
+            if !is_output_closed {
+                linger_for_output(&output_closed).await;
+            }
+            let exit_words = match exited.and(tree.wait().await) {
                 Ok(status) => (!status.success()).then(|| {
                     let exit = read_child_exit(&status, None);
                     exit.signal_name.map_or_else(
@@ -433,19 +447,23 @@ async fn run_started_command(
                 }),
                 Err(error) => Some(describe_error(&error)),
             };
-            // A process the command left running holds the output open: it is ended, and the
-            // command's own exit stays its result.
-            if !linger_for_output(&output_closed).await {
-                if let Err(end_error) = tree.end_tree().await {
-                    error.get_or_insert_with(|| {
-                        format!(
-                            "Could not end what the command left running: {}",
-                            describe_error(&end_error)
-                        )
-                    });
+            let error = match ended {
+                Ok(()) => exit_words,
+                Err(end_error) => {
+                    tracing::warn!(
+                        error = &end_error as &(dyn Error + 'static),
+                        "what a setup command left running could not be ended"
+                    );
+                    let end_words = format!(
+                        "Could not end what the command left running: {}",
+                        describe_error(&end_error)
+                    );
+                    Some(match exit_words {
+                        Some(exit_words) => format!("{exit_words}. {end_words}"),
+                        None => end_words,
+                    })
                 }
-                linger_for_output(&output_closed).await;
-            }
+            };
             (take_outcome(error, &output), Ok(()))
         }
         CommandWait::TimeLimit => {
@@ -471,16 +489,21 @@ async fn run_started_command(
             linger_for_output(&output_closed).await;
             (take_outcome(Some(end.reason.to_owned()), &output), ended)
         }
-    }
+    };
+    // Closes the output's read end, so a process that left the tree and still holds the output
+    // fails its next write instead of keeping a reader waiting.
+    drop(reading);
+    outcome
 }
 
-// Starts the command with one pipe for both its output streams, read on a blocking thread until
-// every process holding it has closed it; answers the started tree and the command's time limit.
+// Starts the command with one pipe for both its output streams, read in a task until every
+// process holding it has closed it or the task is dropped; answers the started tree, the read's
+// task and the command's time limit.
 async fn start_command(
     command: SetupCommand<'_>,
     output: &Arc<Mutex<CommandOutput>>,
     output_closed: &CancellationToken,
-) -> io::Result<(ChildTree, Option<Duration>)> {
+) -> io::Result<(ChildTree, AbortOnDropHandle<()>, Option<Duration>)> {
     let (reader, writer) = io::pipe()?;
     let error_writer = writer.try_clone()?;
     let mut child = shell_line_command(command.shell, command.line);
@@ -498,13 +521,14 @@ async fn start_command(
         .spawner
         .run(move || start_child_tree(child, daemon_pid))
         .await??;
+    let reader = async_pipe_reader(reader)?;
     let output = Arc::clone(output);
     let output_closed = output_closed.clone();
-    tokio::task::spawn_blocking(move || {
-        read_output(reader, &output);
+    let reading = AbortOnDropHandle::new(tokio::spawn(async move {
+        read_output(reader, &output).await;
         output_closed.cancel();
-    });
-    Ok((tree, command.time_limit))
+    }));
+    Ok((tree, reading, command.time_limit))
 }
 
 // Waits at most the linger for the command's output to close; answers whether it closed.
@@ -514,8 +538,9 @@ async fn linger_for_output(output_closed: &CancellationToken) -> bool {
         .is_ok()
 }
 
-// Asks `tree` to stop, then ends it once `grace` passes before it has exited and its output has
-// closed; a tree whose ask fails is ended at once. Fails with the ask's or the end's error.
+// Asks `tree` to stop, waits up to `grace` for it to exit and its output to close, then ends what
+// is left of it while the exited command still holds its group's id; a tree whose ask fails is
+// ended at once. Fails with the ask's, the wait's or the end's error.
 async fn end_asked(
     tree: &mut ChildTree,
     grace: Duration,
@@ -526,15 +551,13 @@ async fn end_asked(
         return Err(error);
     }
     let settled = tokio::time::timeout(grace, async {
-        tree.wait().await?;
+        tree.wait_for_exit().await?;
         output_closed.cancelled().await;
         Ok::<_, io::Error>(())
     })
     .await;
-    match settled {
-        Ok(exited) => exited,
-        Err(_) => tree.end_tree().await,
-    }
+    let ended = tree.end_tree().await;
+    settled.unwrap_or(Ok(())).and(ended)
 }
 
 // The tail of a command's output and whether it printed anything.
@@ -553,10 +576,10 @@ impl Default for CommandOutput {
     }
 }
 
-fn read_output(mut reader: io::PipeReader, output: &Mutex<CommandOutput>) {
+async fn read_output(mut reader: impl AsyncRead + Unpin, output: &Mutex<CommandOutput>) {
     let mut chunk = vec![0_u8; OUTPUT_READ_CHUNK];
     loop {
-        match reader.read(&mut chunk) {
+        match reader.read(&mut chunk).await {
             Ok(0) => return,
             Ok(read) => {
                 let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);

@@ -8,6 +8,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use notify::NullWatcher;
+use rstest::rstest;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::project::ProjectSetup;
 use sidekicks_contracts::repo::mount::RepoMountId;
@@ -287,8 +288,8 @@ async fn a_failed_command_stops_the_run_and_a_retry_runs_on_from_it_keeping_the_
     );
 }
 
-// Kills a time limit that leaves a process the command started running, and the tail taken
-// without waiting for the output that came before the end.
+// Kills a time limit that leaves a process the command started running, and a time-limit failure
+// that drops its tail.
 #[tokio::test]
 async fn a_command_past_its_time_limit_is_ended_with_every_process_it_started() {
     let fixture = SetupFixture::new(setup_of(
@@ -320,10 +321,17 @@ async fn a_command_past_its_time_limit_is_ended_with_every_process_it_started() 
 }
 
 // Kills the wait for the output left unbounded after the command exits, which a process it left
-// running holds open, and that process left running once the step ends.
+// running holds open, and that process left running once the step ends, whether it holds the
+// output or closed it.
+#[rstest]
+#[case::holding_the_output("(sleep 5; touch outlived) &", 6)]
+#[case::output_closed("(sleep 3; touch outlived) > /dev/null 2>&1 &", 4)]
 #[tokio::test]
-async fn a_command_that_leaves_a_process_running_succeeds_within_the_linger() {
-    let fixture = SetupFixture::new(setup_of(&[], &["(sleep 5; touch outlived) &"], None)).await;
+async fn a_command_that_leaves_a_process_running_succeeds_within_the_linger(
+    #[case] line: &str,
+    #[case] checked_at_seconds: u64,
+) {
+    let fixture = SetupFixture::new(setup_of(&[], &[line], None)).await;
     let started = tokio::time::Instant::now();
 
     let (_, succeeded) = fixture.make().await;
@@ -333,9 +341,32 @@ async fn a_command_that_leaves_a_process_running_succeeds_within_the_linger() {
         started.elapsed() < Duration::from_secs(4),
         "the step ends within the linger, not when the process exits"
     );
-    tokio::time::sleep_until(started + Duration::from_secs(6)).await;
+    tokio::time::sleep_until(started + Duration::from_secs(checked_at_seconds)).await;
     assert!(
         !fixture.tree().join("outlived").exists(),
         "the process the command left running was ended"
+    );
+}
+
+// Kills the output read on a thread that stays waiting on the pipe after the step ends: a process
+// that left the command's tree and still holds the output writes after the step's end, and that
+// write must fail on the closed pipe before it leaves its mark.
+#[tokio::test]
+async fn a_process_that_left_the_tree_cannot_write_to_the_output_after_the_step() {
+    let fixture = SetupFixture::new(setup_of(
+        &[],
+        &["perl -MPOSIX -e 'setsid; exec @ARGV' sh -c 'sleep 4; echo late && touch survived' &"],
+        None,
+    ))
+    .await;
+    let started = tokio::time::Instant::now();
+
+    let (_, succeeded) = fixture.make().await;
+
+    assert_eq!(succeeded.state, WorktreeSetupState::Succeeded);
+    tokio::time::sleep_until(started + Duration::from_secs(6)).await;
+    assert!(
+        !fixture.tree().join("survived").exists(),
+        "the process that left the tree wrote to an output still read"
     );
 }
