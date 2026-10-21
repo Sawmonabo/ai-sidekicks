@@ -48,7 +48,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Test the addon's crate
-        run: cargo test -p sidekicks-search --locked
+        run: cargo test -p search-index --locked
 
   platforms-macos:
     name: platforms (macOS)
