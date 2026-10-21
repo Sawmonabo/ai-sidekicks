@@ -1,8 +1,8 @@
 //! The database writer's thread: it opens the one read-write connection, then runs each request
 //! the write queue sends, one at a time: a batch as one transaction, each write in it under a
 //! savepoint of its own, so a refused or failed write rolls back alone while the batch commits
-//! whole or not at all; or a WAL checkpoint. It closes its connection and exits once the queue lets
-//! it go.
+//! whole or not at all; or a WAL checkpoint; or the repack. It closes its connection and exits once
+//! the queue lets it go.
 
 use rusqlite::config::DbConfig;
 use rusqlite::types::Value;
@@ -21,6 +21,7 @@ use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
     WriteJobFailure, WriteJobOutcome,
 };
+use crate::database::writer::repack::repack;
 use crate::database::writer::{ThreadStop, is_interrupt, sqlite_error_code};
 use crate::events::content::codec::BodyEncoder;
 use crate::events::session::insert::insert_session_event;
@@ -92,6 +93,7 @@ fn serve(
             ThreadRequest::Checkpoint { mode, reply } => {
                 reply.send(checkpoint(connection, mode)).is_ok()
             }
+            ThreadRequest::Repack { reply } => reply.send(repack(connection)).is_ok(),
         };
         if !is_answered {
             // The queue is gone, so no request follows.
@@ -489,7 +491,7 @@ fn run_bound(
 /// older snapshot, which would hold the connection, and every write behind it, for the whole busy
 /// timeout; with none it answers busy at once. The timeout is put back whatever the checkpoint
 /// does.
-fn checkpoint(connection: &Connection, mode: CheckpointMode) -> CheckpointAnswer {
+pub(super) fn checkpoint(connection: &Connection, mode: CheckpointMode) -> CheckpointAnswer {
     let alone = |failure: rusqlite::Error| -> CleanupFailures<rusqlite::Error> {
         CleanupFailures::new(failure, Vec::new(), CHECKPOINT_OPERATION)
     };

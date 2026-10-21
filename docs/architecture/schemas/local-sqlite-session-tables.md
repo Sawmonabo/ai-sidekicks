@@ -18,7 +18,8 @@ A session's groups, links and tags are the three layers of [Spec-001 §Groups, L
 ```sql
 -- Owner: Plan-001
 CREATE TABLE session_groups (
-  id           TEXT NOT NULL PRIMARY KEY,
+  rowid        INTEGER PRIMARY KEY,        -- declared, so a VACUUM keeps the search index's keys
+  id           TEXT NOT NULL UNIQUE,
   project_id   TEXT NOT NULL,              -- the project record the group belongs to; a chat has no groups
   name         TEXT NOT NULL,              -- the person's own casing, for display
   name_folded  TEXT NOT NULL,              -- the full-Unicode case fold of name, written by the store on every insert and rename
@@ -30,7 +31,8 @@ CREATE TABLE session_groups (
 CREATE UNIQUE INDEX idx_session_groups_name_folded ON session_groups(project_id, name_folded);
 
 CREATE TABLE sessions (
-  id                         TEXT NOT NULL PRIMARY KEY,
+  rowid                      INTEGER PRIMARY KEY,  -- declared, so a VACUUM keeps the search index's keys
+  id                         TEXT NOT NULL UNIQUE,
   shape                      TEXT NOT NULL CHECK (shape IN ('chat', 'project')),
   state                      TEXT NOT NULL
                              CHECK (state IN ('provisioning', 'active', 'archived', 'closed', 'purgeRequested')),
@@ -78,10 +80,11 @@ CREATE INDEX idx_session_links_target ON session_links(target_session_id, source
 -- Any number of tags per session, across projects, nested with '/'. The fold key makes a tag match
 -- ignoring case, and a prefix match on it finds a parent's children ('billing' finds 'billing/stripe').
 CREATE TABLE session_tags (
+  rowid       INTEGER PRIMARY KEY,           -- declared, so a VACUUM keeps the search index's keys
   session_id  TEXT NOT NULL,
   tag         TEXT NOT NULL,                 -- as written, for display
   tag_folded  TEXT NOT NULL,
-  PRIMARY KEY (session_id, tag_folded)
+  UNIQUE (session_id, tag_folded)
 ) STRICT;
 
 -- Covers the tags in use, which `Add tag` suggests: one spelling per fold, read from the index alone.

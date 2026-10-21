@@ -42,7 +42,8 @@ The transaction that creates the schema writes its fingerprint, the first 31 bit
 ```sql
 -- Owner: Plan-001 | Extended by: Plan-004 (event taxonomy), Plan-025 (received-row provenance marker), Plan-012 (projection cursors)
 CREATE TABLE session_events (
-  id                     TEXT PRIMARY KEY,           -- ULID or UUID
+  rowid                  INTEGER PRIMARY KEY,        -- declared, so a VACUUM keeps the search index's keys
+  id                     TEXT NOT NULL UNIQUE,       -- ULID or UUID
   session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved daemon-scope sentinel for daemon-scope events (no FK; see Spec-005 §Daemon-Scope Event Binding)
   sequence               INTEGER NOT NULL,           -- monotonic per session
   occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)

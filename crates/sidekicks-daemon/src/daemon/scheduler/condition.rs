@@ -17,7 +17,7 @@ pub(crate) enum JobCondition {
     /// Only while no run is live.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the repack job the daemon's start registers")
+        expect(dead_code, reason = "the repack `Delete old data` schedules")
     )]
     NoTurnRunning,
     /// While no run is live, or once it has waited this long past its due time, whatever runs.

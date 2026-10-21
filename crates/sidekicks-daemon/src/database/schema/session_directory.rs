@@ -96,7 +96,9 @@ CREATE TABLE session_review_notes (
 -- ---------------------------------------------------------------------------
 -- A project's named groups. A chat has none.
 CREATE TABLE session_groups (
-  id           TEXT NOT NULL PRIMARY KEY,
+  -- The rowid, declared so a VACUUM keeps it: the search index keys its rows on it.
+  rowid        INTEGER PRIMARY KEY,
+  id           TEXT NOT NULL UNIQUE,
   project_id   TEXT NOT NULL,                   -- the project record the group belongs to
   name         TEXT NOT NULL,                   -- the person's own casing, for display
   -- The full-Unicode case fold of name, written by the store on every insert and rename.
@@ -108,7 +110,9 @@ CREATE TABLE session_groups (
 CREATE UNIQUE INDEX idx_session_groups_name_folded ON session_groups(project_id, name_folded);
 
 CREATE TABLE sessions (
-  id                         TEXT NOT NULL PRIMARY KEY,
+  -- The rowid, declared so a VACUUM keeps it: the search index keys its rows on it.
+  rowid                      INTEGER PRIMARY KEY,
+  id                         TEXT NOT NULL UNIQUE,
   -- Set at creation; changes only when a chat is converted to a project.
   shape                      TEXT NOT NULL CHECK(shape IN ({shapes})),
   state                      TEXT NOT NULL CHECK(state IN ({states})),
@@ -213,10 +217,12 @@ CREATE INDEX idx_session_links_target ON session_links(target_session_id, source
 -- Any number of tags per session, nested with '/'; a prefix match on the fold finds a parent's
 -- children.
 CREATE TABLE session_tags (
+  -- The rowid, declared so a VACUUM keeps it: the search index keys its rows on it.
+  rowid       INTEGER PRIMARY KEY,
   session_id  TEXT NOT NULL,
   tag         TEXT NOT NULL,                    -- as written, for display
   tag_folded  TEXT NOT NULL,
-  PRIMARY KEY (session_id, tag_folded)
+  UNIQUE (session_id, tag_folded)
 ) STRICT;
 
 -- Covers the tags-in-use read, which takes one spelling per fold from the index alone.

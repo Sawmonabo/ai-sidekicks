@@ -67,16 +67,18 @@ const WAIT: Duration = Duration::from_secs(10);
 // Text no row of the daemon writes on its own, and shorter than a body the log stores compressed.
 const MARKER: &str = "purge-marker-7f3a9c51";
 
-struct PurgeFixture {
-    database: TestDatabase,
-    log: TestLog,
-    purge: SessionPurge,
-    truncation: Arc<WriteAheadLogTruncation>,
-    _shells: TableFixture,
-    _home: TempDir,
+/// A purge over a fresh database whose file steps all succeed, and what it writes through.
+pub(crate) struct PurgeFixture {
+    pub(crate) database: TestDatabase,
+    pub(crate) log: TestLog,
+    pub(crate) purge: SessionPurge,
+    pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    pub(crate) _shells: TableFixture,
+    pub(crate) _home: TempDir,
 }
 
-async fn purge_fixture() -> PurgeFixture {
+/// A purge over a fresh database; a provider driver it calls fails the test.
+pub(crate) async fn purge_fixture() -> PurgeFixture {
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;
     let reads = Arc::new(DatabaseReadPool::new(
@@ -171,7 +173,8 @@ async fn purge_fixture() -> PurgeFixture {
     }
 }
 
-fn store_session(connection: &Connection, session_id: SessionId, state: SessionState) {
+/// Stores a chat session in `state`.
+pub(crate) fn store_session(connection: &Connection, session_id: SessionId, state: SessionState) {
     insert_session_row(connection, session_id.text().as_str(), None, None);
     connection
         .execute(

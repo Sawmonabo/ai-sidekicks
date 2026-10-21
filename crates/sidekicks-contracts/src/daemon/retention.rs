@@ -14,7 +14,7 @@ use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 
 /// `Keep diagnostic logs for` as the app starts out: seven days.
-const DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS: u64 = 7;
+pub const DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS: u64 = 7;
 
 ts_constants! {
     /// `Keep diagnostic logs for` as the app starts out, seven days, in milliseconds.

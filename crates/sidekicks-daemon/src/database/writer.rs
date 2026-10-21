@@ -12,6 +12,7 @@
 mod backpressure;
 pub(crate) mod messages;
 mod queue;
+pub(crate) mod repack;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_file;
 #[cfg(test)]
@@ -40,6 +41,7 @@ use crate::database::writer::messages::{
     BatchFailure, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
 };
 use crate::database::writer::queue::{ThreadLink, WriteQueue};
+use crate::database::writer::repack::RepackReport;
 use crate::events::session::insert::SessionEventRow;
 
 /// The most entries the write queue holds; each event is one entry, and a write with none is one.
@@ -150,17 +152,18 @@ impl WriteError {
     }
 }
 
-/// Why a checkpoint did not run or did not finish.
+/// Why a checkpoint or a repack, the writer's work on its connection between batches, did not run
+/// or did not finish.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum CheckpointError {
-    /// SQLite failed the checkpoint, or putting the busy timeout back after it.
-    #[error("the WAL checkpoint failed")]
+pub(crate) enum MaintenanceError {
+    /// SQLite failed the work, or putting the busy timeout back after it.
+    #[error("the database's maintenance failed")]
     Failed(#[source] CleanupFailures<rusqlite::Error>),
-    /// The writer was ended; the checkpoint did not run.
-    #[error("the database writer was ended; the checkpoint did not run")]
+    /// The writer was ended; the work did not run.
+    #[error("the database writer was ended; its maintenance did not run")]
     Ended(#[source] EndReason),
-    /// The writer is closed; the checkpoint did not run.
-    #[error("the database writer is closed; the checkpoint did not run")]
+    /// The writer is closed; the work did not run.
+    #[error("the database writer is closed; its maintenance did not run")]
     Closed,
     /// The writer holds its writes, so a passive checkpoint did not run rather than wait.
     #[error("the database writer holds its writes; the passive checkpoint did not run")]
@@ -411,7 +414,7 @@ impl DatabaseWriter {
     /// Runs `work` once every write sent before this call has committed or failed, with no commit
     /// and no checkpoint reaching the file while it runs: the writes and truncating checkpoints
     /// asked for meanwhile wait until it ends, and a passive one fails with
-    /// [`CheckpointError::Held`]. Returns what `work` returns. Dropping the future mid-hold, or
+    /// [`MaintenanceError::Held`]. Returns what `work` returns. Dropping the future mid-hold, or
     /// before the hold started, still lets the writes go.
     pub(crate) async fn hold_while<Work: Future>(
         &self,
@@ -441,20 +444,33 @@ impl DatabaseWriter {
 
     /// Runs a WAL checkpoint in `mode` on the writer's connection, between batches and never
     /// while the writer holds its writes: a truncating one waits the hold out, and a passive one
-    /// fails at once with [`CheckpointError::Held`]. It never waits for a reader holding an older
+    /// fails at once with [`MaintenanceError::Held`]. It never waits for a reader holding an older
     /// snapshot: it answers busy at once. Fails with SQLite's error, or once the writer is ended
     /// or closed.
     pub(crate) async fn checkpoint(
         &self,
         mode: CheckpointMode,
-    ) -> Result<CheckpointResult, CheckpointError> {
+    ) -> Result<CheckpointResult, MaintenanceError> {
         let (reply, answer) = oneshot::channel();
         self.messages
             .send(QueueMessage::Checkpoint { mode, reply })
-            .map_err(|_unsent| CheckpointError::Closed)?;
+            .map_err(|_unsent| MaintenanceError::Closed)?;
         answer
             .await
-            .unwrap_or_else(|_closed| Err(CheckpointError::Closed))
+            .unwrap_or_else(|_closed| Err(MaintenanceError::Closed))
+    }
+
+    /// Repacks the file on the writer's connection between batches, as
+    /// [`repack`](crate::database::writer::repack) describes, waiting out a hold as a truncating
+    /// checkpoint does. Fails with SQLite's error, or once the writer is ended or closed.
+    pub(crate) async fn repack(&self) -> Result<RepackReport, MaintenanceError> {
+        let (reply, answer) = oneshot::channel();
+        self.messages
+            .send(QueueMessage::Repack(reply))
+            .map_err(|_unsent| MaintenanceError::Closed)?;
+        answer
+            .await
+            .unwrap_or_else(|_closed| Err(MaintenanceError::Closed))
     }
 
     /// The body of the scheduler's passive WAL checkpoint job, run every
@@ -480,7 +496,7 @@ impl DatabaseWriter {
                         checkpointed_frames = result.checkpointed_frames,
                         "the passive WAL checkpoint ran"
                     ),
-                    Err(CheckpointError::Held) => tracing::debug!(
+                    Err(MaintenanceError::Held) => tracing::debug!(
                         "the passive WAL checkpoint did not run: the writer holds its writes"
                     ),
                     Err(failure) => return Err(failure.into()),
@@ -573,8 +589,10 @@ enum QueueMessage {
     /// Run a checkpoint between batches.
     Checkpoint {
         mode: CheckpointMode,
-        reply: oneshot::Sender<Result<CheckpointResult, CheckpointError>>,
+        reply: oneshot::Sender<Result<CheckpointResult, MaintenanceError>>,
     },
+    /// Repack the file between batches.
+    Repack(oneshot::Sender<Result<RepackReport, MaintenanceError>>),
     /// The writer was ended: fail what is queued and let the thread go.
     End,
     /// Close, within a bound when one is given.

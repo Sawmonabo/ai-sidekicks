@@ -9,9 +9,16 @@
 use std::error::Error;
 use std::ffi::OsStr;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
+use tokio_util::sync::CancellationToken;
+
+use crate::daemon::configuration::ConfigurationStore;
+use crate::daemon::scheduler::ScheduledJobOutcome;
 use crate::daemon::service_log::is_service_log_file_name;
 use crate::missing_entry::MissingEntry;
 use crate::provider::service_log::{
@@ -19,7 +26,56 @@ use crate::provider::service_log::{
 };
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start registers the hourly expiry")
+)]
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
+
+const DAY: Duration = Duration::from_hours(24);
+
+/// Names, at each pass, the files the expiry leaves alone: the one the service log holds open and
+/// each running provider service's log.
+pub(crate) type LiveDiagnosticFiles = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
+
+/// What the expiry job reads.
+pub(crate) struct DiagnosticExpiryDeps {
+    /// The folder of the service's logs.
+    pub(crate) logs_folder: PathBuf,
+    /// The files each pass leaves alone.
+    pub(crate) live_files: LiveDiagnosticFiles,
+    /// The configuration holding `Keep diagnostic logs for`, read at each pass.
+    pub(crate) configuration: Arc<ConfigurationStore>,
+}
+
+/// The body of the hourly expiry job, run every [`DIAGNOSTIC_LOG_EXPIRY_INTERVAL`] with
+/// `Keep diagnostic logs for` as it stands at each pass. Never fails, as
+/// [`expire_diagnostic_logs`] never does.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start registers the hourly expiry")
+)]
+pub(crate) fn diagnostic_expiry_job(
+    deps: Arc<DiagnosticExpiryDeps>,
+) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
+    move |_stop| {
+        let deps = Arc::clone(&deps);
+        async move {
+            let days = deps
+                .configuration
+                .current()
+                .retention
+                .keep_diagnostic_logs_days
+                .get();
+            let keep = DAY.saturating_mul(u32::try_from(days).unwrap_or(u32::MAX));
+            let live_files = (deps.live_files)();
+            let live_files: Vec<&Path> = live_files.iter().map(PathBuf::as_path).collect();
+            expire_diagnostic_logs(&deps.logs_folder, &live_files, keep, SystemTime::now()).await;
+            Ok(())
+        }
+        .boxed()
+    }
+}
 
 /// Deletes each diagnostic log in `logs_folder` last written before `now` less `keep`, except
 /// `live_files`, the one the service log holds open and the log of each provider service still

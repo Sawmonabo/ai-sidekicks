@@ -8,6 +8,7 @@ use tokio::sync::oneshot;
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementResult, WriteStatement};
+use crate::database::writer::repack::RepackAnswer;
 use crate::events::session::insert::{SessionEventInsertError, SessionEventRow};
 
 /// One write: its statements, then its event rows in order, run as one unit under a savepoint of
@@ -138,5 +139,10 @@ pub(crate) enum ThreadRequest {
         mode: CheckpointMode,
         /// Where the answer goes.
         reply: oneshot::Sender<CheckpointAnswer>,
+    },
+    /// Repack the file: truncate the log, then `VACUUM`.
+    Repack {
+        /// Where the answer goes.
+        reply: oneshot::Sender<RepackAnswer>,
     },
 }

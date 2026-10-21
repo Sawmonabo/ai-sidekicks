@@ -19,7 +19,7 @@ use crate::database::writer::messages::{
 };
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
 use crate::database::writer::{
-    CheckpointError, CommittedWrite, DatabaseWriter, DatabaseWriterOptions, PendingWrite,
+    CommittedWrite, DatabaseWriter, DatabaseWriterOptions, MaintenanceError, PendingWrite,
     ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriterThread,
     WritesHeldError,
 };
@@ -284,7 +284,7 @@ async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
     ));
     assert!(matches!(
         writer.checkpoint(CheckpointMode::Passive).await,
-        Err(CheckpointError::Held)
+        Err(MaintenanceError::Held)
     ));
     release.send(Ok(())).expect("the writer waits on its hold");
     let Some(ThreadRequest::Checkpoint {

@@ -1,7 +1,7 @@
 //! The write queue: the one task that owns the writer's queue. It takes every message the writer's
 //! handles send, in the order they sent them, admits writes up to the queue's cap and keeps the
-//! rest waiting in order, sends the thread one batch or checkpoint at a time, settles each write
-//! from the thread's answer, and closes the writer. A batch holds whatever has been sent when the
+//! rest waiting in order, sends the thread one batch, checkpoint or repack at a time, settles each
+//! write from the thread's answer, and closes the writer. A batch holds whatever has been sent when the
 //! thread is free, so writes that arrive during a commit form the next one.
 
 use std::collections::VecDeque;
@@ -18,11 +18,11 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::writer::backpressure::BackpressureAlert;
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
-    WriteJobOutcome,
+    BatchAnswer, BatchFailure, FailedBatch, ThreadExit, ThreadRequest, WriteJob, WriteJobOutcome,
 };
+use crate::database::writer::repack::RepackReport;
 use crate::database::writer::{
-    CheckpointError, CloseOutcome, CommitHook, CommittedWrite, DatabaseWriterOptions, EndReason,
+    CloseOutcome, CommitHook, CommittedWrite, DatabaseWriterOptions, EndReason, MaintenanceError,
     QueueMessage, StopKind, ThreadJoinError, WRITE_QUEUE_CAPACITY, WriteError,
     WriteFailureListener, WriteRequest, WriterCloseError, WriterShared, WritesHeldError,
     is_interrupt, join_thread,
@@ -74,12 +74,14 @@ pub(super) struct WriteQueue {
     /// Entries queued and not yet sent.
     queued_size: usize,
     batch: Option<InFlightBatch>,
-    checkpoint: Option<InFlightCheckpoint>,
+    checkpoint: Option<InFlightMaintenance<CheckpointResult>>,
+    repack: Option<InFlightMaintenance<RepackReport>>,
     backpressure: BackpressureAlert,
     flushes: VecDeque<PendingFlush>,
     pending_holds: VecDeque<PendingHold>,
     active_holds: Vec<u64>,
     checkpoints: VecDeque<PendingCheckpoint>,
+    repacks: VecDeque<MaintenanceReply<RepackReport>>,
     closing: Option<Closing>,
 }
 
@@ -102,9 +104,15 @@ struct InFlightBatch {
     answer: oneshot::Receiver<BatchAnswer>,
 }
 
-struct InFlightCheckpoint {
-    reply: oneshot::Sender<Result<CheckpointResult, CheckpointError>>,
-    answer: oneshot::Receiver<CheckpointAnswer>,
+/// Where a checkpoint's or a repack's caller hears how it went.
+type MaintenanceReply<Report> = oneshot::Sender<Result<Report, MaintenanceError>>;
+
+/// The thread's answer to a checkpoint or a repack.
+type MaintenanceAnswer<Report> = Result<Report, CleanupFailures<rusqlite::Error>>;
+
+struct InFlightMaintenance<Report> {
+    reply: MaintenanceReply<Report>,
+    answer: oneshot::Receiver<MaintenanceAnswer<Report>>,
 }
 
 /// A flush, answered once every write before `ticket` has settled.
@@ -122,7 +130,7 @@ struct PendingHold {
 
 struct PendingCheckpoint {
     mode: CheckpointMode,
-    reply: oneshot::Sender<Result<CheckpointResult, CheckpointError>>,
+    reply: MaintenanceReply<CheckpointResult>,
 }
 
 struct Closing {
@@ -137,7 +145,8 @@ struct Closing {
 /// What woke the queue.
 enum Wake {
     BatchAnswered(Result<BatchAnswer, RecvError>),
-    CheckpointAnswered(Result<CheckpointAnswer, RecvError>),
+    CheckpointAnswered(Result<MaintenanceAnswer<CheckpointResult>, RecvError>),
+    RepackAnswered(Result<MaintenanceAnswer<RepackReport>, RecvError>),
     ThreadExited(Result<ThreadExit, RecvError>),
     DrainBoundPassed,
     HoldEnded(Result<Result<(), WritesHeldError>, RecvError>),
@@ -180,11 +189,13 @@ impl WriteQueue {
             queued_size: 0,
             batch: None,
             checkpoint: None,
+            repack: None,
             backpressure: BackpressureAlert::default(),
             flushes: VecDeque::new(),
             pending_holds: VecDeque::new(),
             active_holds: Vec::new(),
             checkpoints: VecDeque::new(),
+            repacks: VecDeque::new(),
             closing: None,
         }
     }
@@ -216,6 +227,9 @@ impl WriteQueue {
             answer = output_of(self.checkpoint.as_mut().map(|flight| &mut flight.answer)) => {
                 Wake::CheckpointAnswered(answer)
             }
+            answer = output_of(self.repack.as_mut().map(|flight| &mut flight.answer)) => {
+                Wake::RepackAnswered(answer)
+            }
             exit = output_of(self.thread_exit.as_mut()) => Wake::ThreadExited(exit),
             () = output_of(drain_bound.map(tokio::time::sleep_until)) => Wake::DrainBoundPassed,
             held = output_of(self.writes_held_until.as_mut()) => Wake::HoldEnded(held),
@@ -237,7 +251,14 @@ impl WriteQueue {
                     .checkpoint
                     .take()
                     .expect("a checkpoint is answered only while it is in flight");
-                self.settle_checkpoint(checkpoint.reply, answer);
+                self.settle_maintenance(checkpoint.reply, answer);
+            }
+            Wake::RepackAnswered(answer) => {
+                let repack = self
+                    .repack
+                    .take()
+                    .expect("a repack is answered only while it is in flight");
+                self.settle_maintenance(repack.reply, answer);
             }
             Wake::ThreadExited(exit) => self.thread_exited(exit).await,
             Wake::DrainBoundPassed => self.stop_at_drain_bound(),
@@ -279,16 +300,25 @@ impl WriteQueue {
             }
             QueueMessage::Checkpoint { mode, reply } => {
                 if let Some(reason) = self.shared.end_reason() {
-                    send_answer(reply, Err(CheckpointError::Ended(reason)));
+                    send_answer(reply, Err(MaintenanceError::Ended(reason)));
                 } else if self.closing.is_some() {
-                    send_answer(reply, Err(CheckpointError::Closed));
+                    send_answer(reply, Err(MaintenanceError::Closed));
                 } else if mode == CheckpointMode::Passive
                     && (self.writes_held_until.is_some() || !self.active_holds.is_empty())
                 {
-                    send_answer(reply, Err(CheckpointError::Held));
+                    send_answer(reply, Err(MaintenanceError::Held));
                 } else {
                     self.checkpoints
                         .push_back(PendingCheckpoint { mode, reply });
+                }
+            }
+            QueueMessage::Repack(reply) => {
+                if let Some(reason) = self.shared.end_reason() {
+                    send_answer(reply, Err(MaintenanceError::Ended(reason)));
+                } else if self.closing.is_some() {
+                    send_answer(reply, Err(MaintenanceError::Closed));
+                } else {
+                    self.repacks.push_back(reply);
                 }
             }
             QueueMessage::End => self.end_writes(),
@@ -362,12 +392,12 @@ impl WriteQueue {
     }
 
     /// Answers what has come due and sends the thread its next request when none is in flight: a
-    /// hold whose writes have settled starts first, then a checkpoint, then whatever is queued,
-    /// and neither a checkpoint nor a batch goes while the writer holds its writes. A close whose
-    /// writes have all settled lets the thread go.
+    /// hold whose writes have settled starts first, then a checkpoint, then a repack, then whatever
+    /// is queued, and none of them goes while the writer holds its writes. A close whose writes have
+    /// all settled lets the thread go.
     fn advance(&mut self) {
         self.answer_settled_flushes();
-        if self.batch.is_some() || self.checkpoint.is_some() {
+        if self.is_thread_busy() {
             return;
         }
         self.start_ready_holds();
@@ -387,6 +417,14 @@ impl WriteQueue {
         }
         if let Some(checkpoint) = self.checkpoints.pop_front() {
             self.send_checkpoint(checkpoint);
+            return;
+        }
+        if let Some(reply) = self.repacks.pop_front() {
+            let (thread_reply, answer) = oneshot::channel();
+            self.send_to_thread(ThreadRequest::Repack {
+                reply: thread_reply,
+            });
+            self.repack = Some(InFlightMaintenance { reply, answer });
             return;
         }
         if !self.queued.is_empty() {
@@ -424,7 +462,7 @@ impl WriteQueue {
                     .partition(|checkpoint| checkpoint.mode == CheckpointMode::Passive);
             self.checkpoints = truncating;
             for checkpoint in passive {
-                send_answer(checkpoint.reply, Err(CheckpointError::Held));
+                send_answer(checkpoint.reply, Err(MaintenanceError::Held));
             }
         }
     }
@@ -456,10 +494,15 @@ impl WriteQueue {
             mode: checkpoint.mode,
             reply,
         });
-        self.checkpoint = Some(InFlightCheckpoint {
+        self.checkpoint = Some(InFlightMaintenance {
             reply: checkpoint.reply,
             answer,
         });
+    }
+
+    /// Whether the thread runs a request: a batch, a checkpoint or a repack.
+    fn is_thread_busy(&self) -> bool {
+        self.batch.is_some() || self.checkpoint.is_some() || self.repack.is_some()
     }
 
     /// Sends the thread its one request in flight, so the channel's one slot is always free. A
@@ -587,14 +630,14 @@ impl WriteQueue {
         }
     }
 
-    fn settle_checkpoint(
+    fn settle_maintenance<Report>(
         &mut self,
-        reply: oneshot::Sender<Result<CheckpointResult, CheckpointError>>,
-        answer: Result<CheckpointAnswer, RecvError>,
+        reply: MaintenanceReply<Report>,
+        answer: Result<MaintenanceAnswer<Report>, RecvError>,
     ) {
         let result = match answer {
             Ok(Ok(result)) => Ok(result),
-            // The stop interrupted the checkpoint, which fails as the stop's writes do.
+            // The stop interrupted the work, which fails as the stop's writes do.
             Ok(Err(failure))
                 if self.shared.stop.is_stopped() && is_interrupt(failure.original()) =>
             {
@@ -604,13 +647,13 @@ impl WriteQueue {
                 Err(self
                     .shared
                     .end_reason()
-                    .map_or(CheckpointError::Closed, CheckpointError::Ended))
+                    .map_or(MaintenanceError::Closed, MaintenanceError::Ended))
             }
             Ok(Err(failure)) => {
                 self.report_failure(&failure);
-                Err(CheckpointError::Failed(failure))
+                Err(MaintenanceError::Failed(failure))
             }
-            Err(_unanswered) => Err(CheckpointError::Ended(
+            Err(_unanswered) => Err(MaintenanceError::Ended(
                 self.end_writer(Arc::new(ThreadStopped)),
             )),
         };
@@ -647,7 +690,7 @@ impl WriteQueue {
         self.shared.end_reason().unwrap_or(reason)
     }
 
-    /// Fails every write and checkpoint not yet sent with the end's reason and lets the thread
+    /// Fails every write, checkpoint and repack not yet sent with the end's reason and lets the thread
     /// go; the batch in flight settles from the thread's answer.
     fn end_writes(&mut self) {
         let Some(reason) = self.shared.end_reason() else {
@@ -658,8 +701,11 @@ impl WriteQueue {
         for checkpoint in self.checkpoints.drain(..) {
             send_answer(
                 checkpoint.reply,
-                Err(CheckpointError::Ended(Arc::clone(&reason))),
+                Err(MaintenanceError::Ended(Arc::clone(&reason))),
             );
+        }
+        for reply in self.repacks.drain(..) {
+            send_answer(reply, Err(MaintenanceError::Ended(Arc::clone(&reason))));
         }
         self.release_thread();
     }
@@ -713,7 +759,10 @@ impl WriteQueue {
             unfinished = self.fail_unsent(|| WriteError::ClosedWhileHeld);
         }
         for checkpoint in self.checkpoints.drain(..) {
-            send_answer(checkpoint.reply, Err(CheckpointError::Closed));
+            send_answer(checkpoint.reply, Err(MaintenanceError::Closed));
+        }
+        for reply in self.repacks.drain(..) {
+            send_answer(reply, Err(MaintenanceError::Closed));
         }
         self.closing = Some(Closing {
             deadline: drain_within.map(|bound| Instant::now() + bound),
@@ -736,7 +785,7 @@ impl WriteQueue {
         self.shared.stop.stop(StopKind::DrainBound);
         // With nothing running, an interrupt would stay pending and cut the closing checkpoint
         // short.
-        if self.batch.is_some() || self.checkpoint.is_some() {
+        if self.is_thread_busy() {
             self.shared.stop.cut_at_bound();
             self.shared.interrupt_thread();
         }
@@ -803,8 +852,9 @@ impl WriteQueue {
                 // Nothing reaches the file any more, so a hold holds at once.
                 QueueMessage::Hold { started, .. } => send_answer(started, ()),
                 QueueMessage::Checkpoint { reply, .. } => {
-                    send_answer(reply, Err(CheckpointError::Closed));
+                    send_answer(reply, Err(MaintenanceError::Closed));
                 }
+                QueueMessage::Repack(reply) => send_answer(reply, Err(MaintenanceError::Closed)),
                 QueueMessage::Release(_) | QueueMessage::End | QueueMessage::Close { .. } => {}
             }
         }

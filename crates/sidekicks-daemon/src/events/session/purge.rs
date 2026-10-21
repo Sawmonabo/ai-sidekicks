@@ -22,7 +22,7 @@
 pub(crate) mod checkpoint;
 pub(crate) mod rows;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::collections::HashSet;
 use std::error::Error;
