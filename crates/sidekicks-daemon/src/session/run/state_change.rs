@@ -113,7 +113,6 @@ pub(crate) enum RunStateEntry {
     #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     WaitingForApproval,
     /// Into `waitingForInput`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     WaitingForInput,
     /// Into `pausing`.
     Pausing,
