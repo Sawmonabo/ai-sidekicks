@@ -349,7 +349,7 @@ refusal_codes! {
     /// `daemon.data.erase` refused before its answer, so nothing was erased: the keychain the erase
     /// must empty is locked or cannot be used. `data.fields.cause` is `locked` (drawn `This
     /// computer's keychain is locked. Unlock it, then try again.`) or `unavailable` (drawn `This
-    /// computer's keychain cannot be used right now, so nothing was erased. Try again later.`).
+    /// computer's keychain can't be used right now, so nothing was erased.`).
     DaemonDataStoreUnavailable = "daemon.data.storeUnavailable" (Unavailable, 503);
     /// A request would pass a daemon limit.
     DaemonLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
@@ -444,8 +444,8 @@ refusal_codes! {
     /// The operating system's keychain would not take the token, so registration refuses and the
     /// token is stored nowhere else. `data.fields.cause` is `locked` (drawn `This computer's
     /// keychain is locked, so the token was not stored. Unlock it, then paste the token again.`)
-    /// or `unavailable` (drawn `This computer's keychain cannot be used right now, so the token was
-    /// not stored. Unlock it or sign in to this computer, then paste the token again.`).
+    /// or `unavailable` (drawn `This computer's keychain can't be used right now, so the token
+    /// wasn't stored. Unlock it, then try again.`).
     ProviderAccountCredentialSealRefused = "provider.account.credentialSealRefused"
         (Unavailable, 503);
     /// A concurrent `provider.account.current.update` lost the partial-unique-index race.
