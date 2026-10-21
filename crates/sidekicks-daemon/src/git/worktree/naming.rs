@@ -243,7 +243,7 @@ pub(crate) trait WorktreeNamingSources: Send + Sync {
 }
 
 /// One candidate name: the whole branch, the tree's folder, and the tail both were made from.
-#[expect(dead_code, reason = "worktree creation and status")]
+#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorktreeName {
     /// The branch.
@@ -255,7 +255,7 @@ pub(crate) struct WorktreeName {
 }
 
 /// What every plan for one session's tree on one project shares.
-#[expect(dead_code, reason = "worktree creation and status")]
+#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 pub(crate) struct WorktreeNameBase {
     /// The project's or the machine's pattern.
@@ -267,7 +267,7 @@ pub(crate) struct WorktreeNameBase {
 }
 
 // Where a plan's branch name comes from.
-#[expect(dead_code, reason = "worktree creation and status")]
+#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 enum PlannedBranch {
     // A tail the pattern fills in.
@@ -279,7 +279,7 @@ enum PlannedBranch {
 /// The names one tree can take, in collision order: ordinal 1 is the name itself, and ordinal `n`
 /// puts `-n` on the tail, so the branch and the folder stay in step. A tail too long to take its
 /// suffix within the folder name's bound is cut first.
-#[expect(dead_code, reason = "worktree creation and status")]
+#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 pub(crate) struct WorktreeNamePlan {
     base: WorktreeNameBase,
@@ -287,7 +287,7 @@ pub(crate) struct WorktreeNamePlan {
     folder_tail: String,
 }
 
-#[expect(dead_code, reason = "worktree creation and status")]
+#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 impl WorktreeNamePlan {
     /// The plan for a tail the pattern fills in.
     pub(crate) fn for_tail(base: WorktreeNameBase, tail: String) -> Self {
@@ -355,24 +355,29 @@ impl WorktreeNamePlan {
     }
 
     /// The create form's parts: the branch's fixed part before the tail, the tail at `ordinal`,
-    /// and the folder up to that tail. Fails with the text check's refusal when the tail is empty,
-    /// which the form's tail cannot carry, or the folder is not a path the wire takes.
+    /// and the folder up to that tail. A typed branch name the pattern did not make has no tail,
+    /// so the suggestion carries none. Fails with the text check's refusal when the folder is not
+    /// a path the wire takes.
     pub(crate) fn describe_at(&self, ordinal: u32) -> Result<NewWorktreeSuggestion, TextError> {
         let (fixed_part, _after) = split_pattern(&self.base.pattern, &self.base.session_short_id);
         let folder_before = self
             .base
             .project_folder
             .join(format!("{}-", self.base.session_short_id));
+        let suggested_tail = match self.branch {
+            PlannedBranch::Tail(_) => Some(FreeFormText::new(self.name_at(ordinal).tail)?),
+            PlannedBranch::Supplied(_) => None,
+        };
         Ok(NewWorktreeSuggestion {
             fixed_part,
-            suggested_tail: FreeFormText::new(self.name_at(ordinal).tail)?,
+            suggested_tail,
             folder_before: FilesystemPath::new(folder_before.to_string_lossy().into_owned())?,
         })
     }
 }
 
 // The pattern's text before and after `{title}`, each with `{session}` filled in.
-#[expect(dead_code, reason = "worktree creation and status")]
+#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 fn split_pattern(pattern: &BranchNamePattern, session_short_id: &str) -> (String, String) {
     let (before, after) = pattern
         .as_str()
@@ -447,7 +452,15 @@ impl WorktreeNaming {
 mod tests {
     use rstest::rstest;
 
-    use super::{SessionTitleSource, derive_run_tail, read_taken_branch_line, suggest_tail_for};
+    use std::path::PathBuf;
+
+    use sidekicks_contracts::machine::settings::{BranchNamePattern, BranchNamePatternChange};
+    use sidekicks_contracts::wire::text::FreeFormText;
+
+    use super::{
+        SessionTitleSource, WorktreeNameBase, WorktreeNamePlan, derive_run_tail,
+        read_taken_branch_line, suggest_tail_for,
+    };
 
     // Kills the 246-byte cut on a derived tail, the collapse or the trailing trim left out, and the
     // run fallback taken while a word remains.
@@ -528,5 +541,34 @@ mod tests {
         #[case] expected: Option<&str>,
     ) {
         assert_eq!(read_taken_branch_line(stderr), expected);
+    }
+
+    // Kills a typed branch name the pattern did not make described with an empty tail, which the
+    // wire refuses, and a tail the pattern fills in left out of the suggestion.
+    #[test]
+    fn a_typed_branch_name_outside_the_pattern_suggests_no_tail() {
+        let base = WorktreeNameBase {
+            pattern: BranchNamePattern::new(
+                BranchNamePatternChange::new("sidekicks/{session}/{title}".to_owned())
+                    .expect("a bounded pattern"),
+            )
+            .expect("a pattern holding {title}"),
+            session_short_id: "7b8c9d0e".to_owned(),
+            project_folder: PathBuf::from("/worktrees/project"),
+        };
+
+        let typed = WorktreeNamePlan::for_branch_name(base.clone(), "release/next")
+            .describe_at(1)
+            .expect("a typed name is described");
+        assert_eq!(typed.suggested_tail, None);
+        assert_eq!(typed.fixed_part, "sidekicks/7b8c9d0e/");
+
+        let made = WorktreeNamePlan::for_branch_name(base, "sidekicks/7b8c9d0e/fix-login")
+            .describe_at(2)
+            .expect("a pattern-made name is described");
+        assert_eq!(
+            made.suggested_tail.as_ref().map(FreeFormText::as_str),
+            Some("fix-login-2")
+        );
     }
 }
