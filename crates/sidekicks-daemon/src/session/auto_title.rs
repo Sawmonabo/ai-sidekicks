@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
@@ -28,6 +28,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::text_column;
+use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::{NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams};
@@ -67,10 +68,15 @@ const FIRST_COMPLETED_RUN_SQL: &str = "SELECT event.run_id, event.sequence
 const NAMING_SOURCE_SQL: &str = "SELECT name, first_message_preview FROM sessions
   WHERE id = @sessionId";
 
-const RUN_REPLY_SQL: &str = "SELECT content_payload FROM session_events
-  WHERE session_id = @sessionId AND type = @messageType AND run_id = @runId
-    AND content_payload IS NOT NULL
-  ORDER BY sequence";
+static RUN_REPLY_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {} FROM session_events AS event
+  WHERE event.session_id = @sessionId AND event.type = @messageType AND event.run_id = @runId
+    AND event.content_payload IS NOT NULL
+  ORDER BY event.sequence",
+        stored_body_columns_sql("event"),
+    )
+});
 
 // An unnamed session whose lead run completed an exchange, a cleared one among them. Oldest
 // first: the daemon mints session ids as UUIDv7s, whose text sorts by the millisecond each session
@@ -555,7 +561,7 @@ fn read_run_reply(
     session_id: &SessionId,
     run_id: &RunId,
 ) -> rusqlite::Result<String> {
-    let mut statement = reader.prepare_cached(RUN_REPLY_SQL)?;
+    let mut statement = reader.prepare_cached(&RUN_REPLY_SQL)?;
     let mut rows = statement.query(named_params! {
         "@sessionId": session_id.text().as_str(),
         "@messageType": SessionEventType::AgentMessageSent.as_str(),
@@ -565,11 +571,14 @@ fn read_run_reply(
     while reply.len() < NAME_SESSION_REPLY_MAX_BYTES
         && let Some(row) = rows.next()?
     {
-        let body: Vec<u8> = row.get(0)?;
         if !reply.is_empty() {
             reply.push_str(REPLY_MESSAGE_SEPARATOR);
         }
-        reply.push_str(&String::from_utf8_lossy(&body));
+        // Only the reply's opening is named from, so a long reply decodes only its first frames.
+        let wanted = NAME_SESSION_REPLY_MAX_BYTES - reply.len().min(NAME_SESSION_REPLY_MAX_BYTES);
+        if let Some(stretch) = StoredBodyColumns::read(row, 0)?.decode_stretch(0, 0, wanted)? {
+            reply.push_str(&stretch.text);
+        }
     }
     let end = reply.floor_char_boundary(NAME_SESSION_REPLY_MAX_BYTES);
     reply.truncate(end);

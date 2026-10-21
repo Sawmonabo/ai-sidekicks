@@ -28,6 +28,7 @@ use crate::events::content::append::{
     ContentPartitionRefusedError, PatchFilesRefusedError, PatchPartPlace, compose_content_payload,
     compose_patch_file_rows, is_patch_bearing,
 };
+use crate::events::content::codec::StoredBody;
 use crate::events::log_service::{
     EventAppendError, EventLogAppendOptions, EventLogAppendReceipt, EventLogService,
 };
@@ -106,7 +107,7 @@ impl SessionEventDraft {
 }
 
 /// An event's envelope beside the bytes its row stores as its body.
-pub(crate) type EnvelopeWithBody = (UnsequencedEventEnvelope, Vec<u8>);
+pub(crate) type EnvelopeWithBody = (UnsequencedEventEnvelope, StoredBody);
 
 /// What makes a row a stored part of a patch-bearing completion rather than an event of its own:
 /// it joins the completion's row and is never published, streamed or counted as an event.
@@ -212,11 +213,11 @@ impl UnsequencedEventEnvelope {
     }
 
     /// Adds to the payload the description of `body`, the event's machine-authored prose, and
-    /// returns the bytes `content_payload` holds. Fails on a type that carries no body.
+    /// returns the body `content_payload` stores. Fails on a type that carries no body.
     pub(crate) fn describe_content(
         &mut self,
-        body: &str,
-    ) -> Result<Vec<u8>, ContentPartitionRefusedError> {
+        body: String,
+    ) -> Result<StoredBody, ContentPartitionRefusedError> {
         compose_content_payload(self.event_type, &mut self.payload, body)
     }
 
@@ -233,13 +234,13 @@ impl UnsequencedEventEnvelope {
     }
 
     /// Cuts `body`, this patch-bearing completion's file list, into its rows: adds to the payload
-    /// the description of, and returns, the bytes its own row holds, then each stored part's
+    /// the description of, and returns, the body its own row stores, then each stored part's
     /// envelope, beside this one under a freshly minted id, with its stored body. Fails when the
     /// body is not the file list the payload names.
     pub(crate) fn describe_patch_files(
         &mut self,
         body: &str,
-    ) -> Result<(Vec<u8>, Vec<EnvelopeWithBody>), PatchFilesRefusedError> {
+    ) -> Result<(StoredBody, Vec<EnvelopeWithBody>), PatchFilesRefusedError> {
         let rows = compose_patch_file_rows(&mut self.payload, body)?;
         let parts = rows
             .parts

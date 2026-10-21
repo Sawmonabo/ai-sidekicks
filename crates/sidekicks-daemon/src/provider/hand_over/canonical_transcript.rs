@@ -513,6 +513,7 @@ mod tests {
         fold_canonical_transcript,
     };
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+    use crate::events::content::codec::BodyEncoder;
     use crate::events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now};
     use crate::events::session::read::SessionEventReads;
     use crate::transcript::test_log::TranscriptTestLog;
@@ -531,7 +532,7 @@ mod tests {
         let mut envelope = test_envelope(*session_id, &event);
         let content_payload = body.map(|body| {
             envelope
-                .describe_content(body)
+                .describe_content(body.to_owned())
                 .expect("the event carries a body")
         });
         let row = SessionEventRow {
@@ -540,7 +541,8 @@ mod tests {
             monotonic_ns: monotonic_ns_now(),
             content_payload,
         };
-        insert_session_event(writer, &row).expect("the test writes its row");
+        insert_session_event(writer, &mut BodyEncoder::new(), &row)
+            .expect("the test writes its row");
     }
 
     #[test]

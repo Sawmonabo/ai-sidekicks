@@ -16,6 +16,9 @@ use sidekicks_search::index::{IndexRow, IndexRowKind, IndexRowTag};
 
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{optional_text_column, rowid_column};
+use crate::events::content::codec::{
+    StoredBodyColumns, stored_body_encoding_sql, stored_body_length_sql,
+};
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::session::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
 
@@ -93,8 +96,8 @@ pub(crate) struct LogRowPosition {
     pub(crate) sequence: i64,
 }
 
-// A log row's text: a person's words, an agent's reply, or a tool's name then its arguments;
-// none for a payload that is not JSON, which `json_extract` would refuse with an error.
+// A log row's text before its body: a person's words, nothing before an agent's reply, or a tool's
+// name; none for a payload that is not JSON, which `json_extract` would refuse with an error.
 static EVENT_TEXT_SQL: LazyLock<String> = LazyLock::new(|| {
     let user_message = SessionEventType::UserMessageSent.as_str();
     let agent_message = SessionEventType::AgentMessageSent.as_str();
@@ -103,15 +106,37 @@ static EVENT_TEXT_SQL: LazyLock<String> = LazyLock::new(|| {
         "CASE
            WHEN NOT json_valid(event.payload) THEN NULL
            WHEN event.type = '{user_message}' THEN json_extract(event.payload, '$.message')
-           WHEN event.type = '{agent_message}' THEN CAST(event.content_payload AS TEXT)
+           WHEN event.type = '{agent_message}' AND event.content_payload IS NOT NULL THEN ''
            WHEN event.type = '{tool_call}' THEN json_extract(event.payload, '$.toolName')
-             || coalesce(' ' || CAST(event.content_payload AS TEXT), '')
          END"
+    )
+});
+
+// A log row's body, which the read decodes and joins after its text: an agent's reply, or a
+// tool's arguments after a space; the separator, then the stored bytes, encoding and length.
+static EVENT_BODY_SQL: LazyLock<String> = LazyLock::new(|| {
+    let agent_message = SessionEventType::AgentMessageSent.as_str();
+    let tool_call = SessionEventType::AgentToolCallInvoked.as_str();
+    format!(
+        "CASE WHEN event.type = '{tool_call}' THEN ' ' ELSE '' END,
+           CASE WHEN json_valid(event.payload)
+                 AND event.type IN ('{agent_message}', '{tool_call}')
+                THEN event.content_payload END,
+           CASE WHEN json_valid(event.payload) THEN {encoding} END,
+           CASE WHEN json_valid(event.payload) THEN {length} END",
+        encoding = stored_body_encoding_sql("event"),
+        length = stored_body_length_sql("event"),
     )
 });
 
 // The columns a row other than a tag holds none of.
 const NO_TAG_SQL: &str = "NULL AS tag_fold, NULL AS session_last_activity_at";
+
+// The body columns a row other than a log row holds none of.
+const NO_BODY_SQL: &str = "NULL, NULL, NULL, NULL";
+
+// Where the body columns start, after the key, owner, text, log position and tag columns.
+const BODY_COLUMN: usize = 7;
 
 // How a read chooses its rows: the rows at some keys, or the next rows in order within a range of
 // rowids.
@@ -148,7 +173,8 @@ fn row_sql(kind: IndexRowKind, choice: RowChoice) -> String {
     match kind {
         IndexRowKind::Event => format!(
             "SELECT {key} AS key, session.rowid AS owner_key,
-           {event_text} AS text, event.id AS event_id, event.sequence, {NO_TAG_SQL}
+           {event_text} AS text, event.id AS event_id, event.sequence, {NO_TAG_SQL},
+           {event_body}
       FROM session_events AS event
       JOIN sessions AS session ON session.id = event.session_id
      WHERE event.type IN ({types}) AND ({event_text}) IS NOT NULL
@@ -156,13 +182,14 @@ fn row_sql(kind: IndexRowKind, choice: RowChoice) -> String {
        {chosen}",
             key = index_key_sql("event.rowid", IndexRowKind::Event),
             event_text = EVENT_TEXT_SQL.as_str(),
+            event_body = EVENT_BODY_SQL.as_str(),
             types = INDEXED_EVENT_TYPES_SQL.as_str(),
             outside_skipped = outside_skipped_ranges_sql("event"),
             chosen = chosen_rows_sql(choice, "event.rowid"),
         ),
         IndexRowKind::Title => format!(
             "SELECT {key} AS key, rowid AS owner_key, name AS text,
-           NULL AS event_id, NULL AS sequence, {NO_TAG_SQL}
+           NULL AS event_id, NULL AS sequence, {NO_TAG_SQL}, {NO_BODY_SQL}
       FROM sessions
      WHERE name IS NOT NULL {chosen}",
             key = index_key_sql("rowid", IndexRowKind::Title),
@@ -170,7 +197,7 @@ fn row_sql(kind: IndexRowKind, choice: RowChoice) -> String {
         ),
         IndexRowKind::Group => format!(
             "SELECT {key} AS key, rowid AS owner_key, name AS text,
-           NULL AS event_id, NULL AS sequence, {NO_TAG_SQL}
+           NULL AS event_id, NULL AS sequence, {NO_TAG_SQL}, {NO_BODY_SQL}
       FROM session_groups
      WHERE TRUE {chosen}",
             key = index_key_sql("rowid", IndexRowKind::Group),
@@ -179,7 +206,7 @@ fn row_sql(kind: IndexRowKind, choice: RowChoice) -> String {
         IndexRowKind::Tag => format!(
             "SELECT {key} AS key, session.rowid AS owner_key, tag.tag AS text,
            NULL AS event_id, NULL AS sequence, tag.tag_folded AS tag_fold,
-           session.last_activity_at AS session_last_activity_at
+           session.last_activity_at AS session_last_activity_at, {NO_BODY_SQL}
       FROM session_tags AS tag
       JOIN sessions AS session ON session.id = tag.session_id
      WHERE TRUE {chosen}",
@@ -302,11 +329,16 @@ fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRo
     let sequence: Option<i64> = row.get(4)?;
     let tag_fold: Option<String> = row.get(5)?;
     let session_last_activity_ms = optional_text_column(row, 6, |text| last_activity_ms(&text))?;
+    let mut text: String = row.get(2)?;
+    if let Some(body) = StoredBodyColumns::read(row, BODY_COLUMN + 1)?.decode(BODY_COLUMN + 1)? {
+        text.push_str(row.get_ref(BODY_COLUMN)?.as_str()?);
+        text.push_str(&body);
+    }
     Ok(SourceRow {
         key: rowid_column(row, 0)?,
         kind,
         owner_key: rowid_column(row, 1)?,
-        text: row.get(2)?,
+        text,
         log_row: event_id
             .zip(sequence)
             .map(|(event_id, sequence)| LogRowPosition { event_id, sequence }),
@@ -325,4 +357,50 @@ fn last_activity_ms(text: &str) -> Result<u64, jiff::Error> {
     let instant: jiff::Timestamp = text.parse()?;
     // The index only orders by it, so an instant before 1970 holds 0 and sorts first.
     Ok(u64::try_from(instant.as_millisecond()).unwrap_or(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sidekicks_search::index::IndexRowKind;
+
+    use super::{IndexRowReader, empty_index_batch_room};
+    use crate::session::directory::test_rows::insert_session_row;
+    use crate::transcript::test_log::TranscriptTestLog;
+
+    // A reply and a tool call's arguments past 1 KiB are stored compressed, and the index takes
+    // their decoded text whole, a word at their end among it. Killed by indexing the stored bytes
+    // or a body cut short.
+    #[test]
+    fn the_index_takes_a_compressed_body_as_its_whole_text() {
+        let log = TranscriptTestLog::new();
+        insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+        let reply = format!("{} quokka", "words ".repeat(400));
+        log.reply("m1", None, &reply);
+        let arguments = format!(
+            "{{\"path\": \"{}\", \"note\": \"wombat\"}}",
+            "a/".repeat(700)
+        );
+        log.write(
+            json!({
+                "type": "agent.toolCall.invoked",
+                "payload": {
+                    "sessionId": log.session_id,
+                    "runId": log.run_id,
+                    "toolName": "edit",
+                },
+            }),
+            Some(&arguments),
+        );
+
+        let reader = log.reader();
+        let mut room = empty_index_batch_room();
+        let texts: Vec<String> = IndexRowReader::new(&reader)
+            .read_rows_between(IndexRowKind::Event, 0, i64::MAX, &mut room, |_| true)
+            .expect("the rows read")
+            .into_iter()
+            .map(|row| row.text)
+            .collect();
+        assert_eq!(texts, [reply, format!("edit {arguments}")]);
+    }
 }

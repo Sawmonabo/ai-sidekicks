@@ -26,6 +26,7 @@ use super::{QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionsService};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
@@ -326,17 +327,24 @@ async fn a_held_questions_answer_goes_to_the_driver_then_settles_it_in_one_write
     assert_eq!(turns[0]["answersQuestionId"], json!(question_id));
     assert_eq!(turns[0]["deviceId"], "device-1");
     assert_eq!(turns[0]["message"], "Beta\nAnswered (secret)");
-    let holding_rows: i64 = fixture
-        .database
-        .reader()
-        .query_row(
-            "SELECT count(*) FROM session_events
-              WHERE instr(payload, ?1) > 0 OR instr(CAST(content_payload AS TEXT), ?1) > 0",
-            [SECRET],
-            |row| row.get(0),
-        )
+    // A stored body may be compressed, so each is decoded before it is searched.
+    let reader = fixture.database.reader();
+    let mut statement = reader
+        .prepare(&format!(
+            "SELECT event.payload, {} FROM session_events AS event",
+            stored_body_columns_sql("event"),
+        ))
+        .expect("the log's read prepares");
+    let holding_rows = statement
+        .query_map([], |row| {
+            let payload: String = row.get(0)?;
+            let body = StoredBodyColumns::read(row, 1)?.decode(1)?;
+            Ok(payload.contains(SECRET) || body.is_some_and(|body| body.contains(SECRET)))
+        })
+        .expect("the log reads")
+        .collect::<rusqlite::Result<Vec<bool>>>()
         .expect("the log reads");
-    assert_eq!(holding_rows, 0);
+    assert!(!holding_rows.contains(&true));
 }
 
 // The answers are checked against the record before anything goes out: a short list is refused

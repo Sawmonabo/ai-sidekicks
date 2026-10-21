@@ -22,6 +22,7 @@ use crate::database::writer::messages::{
     WriteJobFailure, WriteJobOutcome,
 };
 use crate::database::writer::{ThreadStop, is_interrupt, sqlite_error_code};
+use crate::events::content::codec::BodyEncoder;
 use crate::events::session::insert::insert_session_event;
 
 /// Prepared statements the connection keeps, least recently used dropped first; bounded, since a
@@ -60,7 +61,7 @@ pub(super) fn run<OpenError>(
     // An opener that stopped waiting dropped the request channel with it, so nothing is served and
     // the connection closes at once.
     if opened.send(Ok(connection.get_interrupt_handle())).is_ok() {
-        serve(&mut connection, requests, stop);
+        serve(&mut connection, &mut BodyEncoder::new(), requests, stop);
     }
     let closed = close(connection, stop.skips_checkpoint());
     if stop.is_cut_at_bound() && !stop.is_ended() {
@@ -79,14 +80,15 @@ pub(super) fn run<OpenError>(
 // Runs each request as it comes, until the queue drops its sender or stops waiting for answers.
 fn serve(
     connection: &mut Connection,
+    encoder: &mut BodyEncoder,
     mut requests: mpsc::Receiver<ThreadRequest>,
     stop: &ThreadStop,
 ) {
     while let Some(request) = requests.blocking_recv() {
         let is_answered = match request {
-            ThreadRequest::Batch { jobs, reply } => {
-                reply.send(run_batch(connection, &jobs, stop)).is_ok()
-            }
+            ThreadRequest::Batch { jobs, reply } => reply
+                .send(run_batch(connection, encoder, &jobs, stop))
+                .is_ok(),
             ThreadRequest::Checkpoint { mode, reply } => {
                 reply.send(checkpoint(connection, mode)).is_ok()
             }
@@ -184,9 +186,14 @@ impl UnkeptWrite {
 
 /// Runs `jobs` as one immediate transaction and answers every write's outcome once it committed,
 /// or the batch's failure beside the failures of the writes that failed alone before it.
-fn run_batch(connection: &mut Connection, jobs: &[WriteJob], stop: &ThreadStop) -> BatchAnswer {
+fn run_batch(
+    connection: &mut Connection,
+    encoder: &mut BodyEncoder,
+    jobs: &[WriteJob],
+    stop: &ThreadStop,
+) -> BatchAnswer {
     let mut outcomes = Vec::with_capacity(jobs.len());
-    match run_transaction(connection, jobs, stop, &mut outcomes) {
+    match run_transaction(connection, encoder, jobs, stop, &mut outcomes) {
         Ok(()) => Ok(outcomes),
         Err(failure) => Err(Box::new(FailedBatch {
             failure: *failure,
@@ -206,6 +213,7 @@ fn run_batch(connection: &mut Connection, jobs: &[WriteJob], stop: &ThreadStop) 
 /// statements, where SQLite's interrupt does not reach, still keeps the batch from committing.
 fn run_transaction(
     connection: &mut Connection,
+    encoder: &mut BodyEncoder,
     jobs: &[WriteJob],
     stop: &ThreadStop,
     outcomes: &mut Vec<WriteJobOutcome>,
@@ -237,7 +245,7 @@ fn run_transaction(
                 stop,
             )));
         }
-        match run_job(&transaction, job, stop) {
+        match run_job(&transaction, encoder, job, stop) {
             JobEnd::Settled(outcome) => outcomes.push(outcome),
             JobEnd::Stopped => {
                 return Err(Box::new(roll_back(
@@ -332,7 +340,12 @@ fn batch_failure(
 /// Runs one write under a savepoint of its own: released once its work is done, rolled back when
 /// a statement refuses or fails it. The savepoint's statements run on the connection itself, so
 /// each end is explicit and its failure seen.
-fn run_job(connection: &Connection, job: &WriteJob, stop: &ThreadStop) -> JobEnd {
+fn run_job(
+    connection: &Connection,
+    encoder: &mut BodyEncoder,
+    job: &WriteJob,
+    stop: &ThreadStop,
+) -> JobEnd {
     if let Err(failure) = connection.execute_batch(OPEN_JOB_SAVEPOINT_SQL) {
         return settle_unkept(
             connection,
@@ -340,7 +353,7 @@ fn run_job(connection: &Connection, job: &WriteJob, stop: &ThreadStop) -> JobEnd
             UnkeptWrite::Failed(WriteJobFailure::Savepoint(failure)),
         );
     }
-    match run_job_work(connection, job, stop) {
+    match run_job_work(connection, encoder, job, stop) {
         Ok(outcome) => match connection.execute_batch(RELEASE_JOB_SAVEPOINT_SQL) {
             Ok(()) => JobEnd::Settled(outcome),
             Err(release_failure) if connection.is_autocommit() => {
@@ -378,9 +391,10 @@ fn settle_unkept(connection: &Connection, has_savepoint: bool, unkept: UnkeptWri
 }
 
 /// Runs a write's statements in order, then inserts its event rows in order, each at its
-/// session's next sequence.
+/// session's next sequence with its body encoded by `encoder`.
 fn run_job_work(
     connection: &Connection,
+    encoder: &mut BodyEncoder,
     job: &WriteJob,
     stop: &ThreadStop,
 ) -> Result<WriteJobOutcome, JobFault> {
@@ -411,7 +425,7 @@ fn run_job_work(
         if stop.is_stopped() {
             return Err(JobFault::Stopped);
         }
-        let sequence = insert_session_event(connection, event).map_err(|failure| {
+        let sequence = insert_session_event(connection, encoder, event).map_err(|failure| {
             JobFault::Unkept(UnkeptWrite::Failed(WriteJobFailure::EventRow(failure)))
         })?;
         sequences.push(sequence);

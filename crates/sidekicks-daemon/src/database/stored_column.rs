@@ -39,18 +39,6 @@ where
         .map_err(|failure| conversion_failure(index, failure))
 }
 
-/// The nullable BLOB column at `index` read as the UTF-8 text its bytes hold, `None` for `NULL`;
-/// fails with `rusqlite::Error::FromSqlConversionFailure` keeping why the bytes are not UTF-8.
-pub(crate) fn optional_utf8_blob_column(
-    row: &Row<'_>,
-    index: usize,
-) -> rusqlite::Result<Option<String>> {
-    let bytes: Option<Vec<u8>> = row.get(index)?;
-    bytes.map(String::from_utf8).transpose().map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(error))
-    })
-}
-
 /// The TEXT column at `index` read as a JSON object, as every stored payload is; fails as
 /// [`text_column`] does, keeping a [`StoredJsonFault`].
 pub(crate) fn json_object_column(

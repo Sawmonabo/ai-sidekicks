@@ -21,6 +21,7 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
 #[cfg(test)]
 use crate::{
+    events::content::codec::BodyEncoder,
     events::log_service::compose_rows,
     events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope},
     events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now},
@@ -129,10 +130,14 @@ pub(crate) fn insert_test_event(
         SESSION_EVENT_VERSION.clone(),
     );
     let id = envelope.id.as_str().to_owned();
-    let rows = compose_rows(envelope, body, monotonic_ns_now()).expect("the test's rows compose");
+    let rows = compose_rows(envelope, body.map(str::to_owned), monotonic_ns_now())
+        .expect("the test's rows compose");
+    let mut encoder = BodyEncoder::new();
     let sequences: Vec<SafeInt<0>> = rows
         .iter()
-        .map(|row| insert_session_event(writer, row).expect("the test's row is written"))
+        .map(|row| {
+            insert_session_event(writer, &mut encoder, row).expect("the test's row is written")
+        })
         .collect();
     (i64::from(sequences[0]), id)
 }

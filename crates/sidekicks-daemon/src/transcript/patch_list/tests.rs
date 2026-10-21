@@ -2,13 +2,14 @@
 
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::event::declared_variants::CONTENT_PAYLOAD_PLAINTEXT_MAX;
+use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::TranscriptPatchListRequest;
 use sidekicks_contracts::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 
 use super::{PatchListError, list_patches};
+use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::transcript::block_cut::MARKDOWN_PARSE;
 use crate::transcript::body::read_row_body;
 use crate::transcript::test_log::{TranscriptTestLog, wire_message};
@@ -78,24 +79,27 @@ fn text_parts(
     log: &TranscriptTestLog,
     completion: i64,
     file_index: i64,
-) -> Vec<(i64, usize, usize, Vec<u8>)> {
+) -> Vec<(i64, usize, usize, String, Vec<u8>)> {
     let reader = log.reader();
     let mut statement = reader
-        .prepare(
-            "SELECT sequence, patch_text_offset, content_payload FROM session_events
-              WHERE joins_sequence = ?1 AND patch_file_index = ?2
-                AND patch_text_offset IS NOT NULL
-              ORDER BY sequence",
-        )
+        .prepare(&format!(
+            "SELECT event.sequence, event.patch_text_offset, {}
+               FROM session_events AS event
+              WHERE event.joins_sequence = ?1 AND event.patch_file_index = ?2
+                AND event.patch_text_offset IS NOT NULL
+              ORDER BY event.sequence",
+            stored_body_columns_sql("event"),
+        ))
         .expect("the test's read prepares");
     statement
         .query_map([completion, file_index], |row| {
-            let body: Vec<u8> = row.get(2)?;
-            let text = text_of_part(std::str::from_utf8(&body).expect("a part is UTF-8"))
-                .expect("a part reads as string content");
+            let columns = StoredBodyColumns::read(row, 2)?;
+            let stored = columns.stored.clone().expect("a part stores a body");
+            let body = columns.decode(2)?.expect("a part stores a body");
+            let text = text_of_part(&body).expect("a part reads as string content");
             let offset: i64 = row.get(1)?;
             let offset = usize::try_from(offset).expect("an offset is not negative");
-            Ok((row.get(0)?, offset, text.len(), body))
+            Ok((row.get(0)?, offset, text.len(), body, stored))
         })
         .expect("the test reads the parts")
         .collect::<rusqlite::Result<_>>()
@@ -137,7 +141,7 @@ fn pages_of(log: &TranscriptTestLog, tool_call_id: &str, file_index: u64) -> Vec
     }
 }
 
-// Killed by a moved file's old path dropped, by a text part over the stored cap or cut inside
+// Killed by a moved file's old path dropped, by a text part over a page or cut inside
 // an escape or a character, by a cursor inside a character accepted, by the parts' bodies not
 // joining back into the file list, by an absent file read as another, by a page loading a part
 // of the text it does not answer beyond the one after it, by a malformed part read as text,
@@ -146,9 +150,9 @@ fn pages_of(log: &TranscriptTestLog, tool_call_id: &str, file_index: u64) -> Vec
 fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each_answers() {
     let log = TranscriptTestLog::new();
     let patch = "@@ -1 +1 @@\n-old\n+new\n";
-    // Twelve code points stored per five characters: an astral one, two short escapes and a
-    // six-character one; several parts past the cap.
-    let raw_patch = "\u{1f600}\"\n\u{1}x".repeat(80_000);
+    // Fifteen bytes stored per five characters: an astral one, two short escapes and a six-byte
+    // one; several parts past a page.
+    let raw_patch = "\u{1f600}\"\n\u{1}x".repeat(160_000);
     let files = [
         json!({
             "path": "/repo/new.rs",
@@ -164,9 +168,8 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
 
     let parts = text_parts(&log, completion, 1);
     assert!(parts.len() > 2);
-    for (_, _, _, body) in &parts {
-        let body = std::str::from_utf8(body).expect("a part is UTF-8");
-        assert!(body.chars().count() <= CONTENT_PAYLOAD_PLAINTEXT_MAX);
+    for (_, _, _, body, _) in &parts {
+        assert!(body.len() <= PAGE_MAX_BYTES);
     }
     let window = window(&log);
     assert_eq!(window["entries"].as_array().map(Vec::len), Some(1));
@@ -224,7 +227,7 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
         };
         let unanswered: Vec<i64> = parts
             .iter()
-            .filter(|&&(_, offset, length, _)| {
+            .filter(|&&(_, offset, length, ..)| {
                 let is_answered = offset < end && offset + length > start;
                 !is_answered && offset != end
             })
@@ -239,11 +242,11 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
                 .expect("the test breaks a part");
         }
         assert_eq!(&list(&log, "call-1", cursor.as_ref()), page);
-        for (sequence, _, _, body) in &parts {
+        for (sequence, _, _, _, stored) in &parts {
             log.writer
                 .execute(
                     "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
-                    (body.as_slice(), sequence),
+                    (stored.as_slice(), sequence),
                 )
                 .expect("the test restores a part");
         }
@@ -256,9 +259,13 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
         &request(&log, "call-1", Some(&inside_a_character)),
     );
     assert!(matches!(refused, Err(PatchListError::Cursor(_))));
+    // A part that decodes but is no JSON string content, stored as it is with its own length.
     log.writer
         .execute(
-            "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
+            "UPDATE session_events SET content_payload = ?1,
+                    payload = json_remove(json_set(payload, '$.contentLength', 2),
+                                          '$.contentEncoding')
+              WHERE sequence = ?2",
             (br"\q".as_slice(), parts[0].0),
         )
         .expect("the test breaks a part");

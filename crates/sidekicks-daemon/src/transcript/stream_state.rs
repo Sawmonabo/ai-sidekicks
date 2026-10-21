@@ -30,8 +30,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::stored_column::{
-    closed_word, optional_text_column, optional_utf8_blob_column, text_column,
+use crate::database::stored_column::{closed_word, optional_text_column, text_column};
+use crate::events::content::codec::{
+    StoredBodyColumns, stored_body_columns_sql, stored_body_encoding_sql, stored_body_length_sql,
 };
 use crate::events::session::read::readable_event_sql;
 use crate::session::run::transitions::is_run_terminal_event_type;
@@ -41,39 +42,49 @@ use crate::transcript::projector::TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES;
 use crate::transcript::rejoin::is_row_ending_event_type;
 
 // Each page event's place in the rows: the row it continues, whether it is a piece of a run's
-// reply or reasoning, which only those types are, and its body's size, with its text when it can
-// travel inline.
+// reply or reasoning, which only those types are, and its body's length as its payload states it,
+// with its stored body when it can travel inline.
 static PAGE_PIECES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT sequence, joins_sequence,
-            join_key IS NOT NULL AND type IN ('{reply}', '{reasoning}'),
-            octet_length(content_payload),
-            CASE WHEN octet_length(content_payload) <= @inline_max THEN content_payload END
-       FROM session_events
-      WHERE session_id = @session_id AND sequence IN (SELECT value FROM json_each(@sequences))",
+        "SELECT event.sequence, event.joins_sequence,
+            event.join_key IS NOT NULL AND event.type IN ('{reply}', '{reasoning}'),
+            CASE WHEN event.content_payload IS NOT NULL THEN {length} END,
+            CASE WHEN {length} <= @inline_max THEN event.content_payload END, {encoding}, {length}
+       FROM session_events AS event
+      WHERE event.session_id = @session_id
+        AND event.sequence IN (SELECT value FROM json_each(@sequences))",
         reply = SessionEventType::AgentMessageSent.as_str(),
         reasoning = SessionEventType::AgentThinkingUpdated.as_str(),
+        length = stored_body_length_sql("event"),
+        encoding = stored_body_encoding_sql("event"),
     )
 });
 
-// The text of the pieces at the given sequences, which their rows' block cuts read.
-const PIECE_TEXTS_SQL: &str = "SELECT sequence, content_payload FROM session_events
- WHERE session_id = @session_id AND sequence IN (SELECT value FROM json_each(@sequences))";
+// The stored bodies of the pieces at the given sequences, which their rows' block cuts read.
+static PIECE_TEXTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT event.sequence, {} FROM session_events AS event
+ WHERE event.session_id = @session_id
+   AND event.sequence IN (SELECT value FROM json_each(@sequences))",
+        stored_body_columns_sql("event"),
+    )
+});
 
-// The text of a row's readable pieces before a piece, in order, which seeds its block cut.
+// The stored bodies of a row's readable pieces before a piece, in order, which seed its block cut.
 static ROW_TEXT_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT event.content_payload FROM session_events AS event
+        "SELECT {body} FROM session_events AS event
       WHERE event.session_id = @session_id
         AND (event.sequence = @anchor_sequence OR event.joins_sequence = @anchor_sequence)
         AND event.sequence < @sequence AND {readable}
       ORDER BY event.sequence",
+        body = stored_body_columns_sql("event"),
         readable = readable_event_sql("event"),
     )
 });
 
 // Where a piece first met partway through its row sits: the row's id, which is its first event's
-// or, when that one cannot be read, the row's first readable piece's, and the bytes of the row's
+// or, when that one cannot be read, the row's first readable piece's, and the length of the row's
 // readable pieces before it.
 static ROW_PLACE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -85,13 +96,14 @@ static ROW_PLACE_SQL: LazyLock<String> = LazyLock::new(|| {
               WHERE earlier.session_id = @session_id AND earlier.joins_sequence = @anchor_sequence
                 AND {readable_earlier}
               ORDER BY earlier.sequence LIMIT 1)),
-          coalesce((SELECT sum(octet_length(event.content_payload)) FROM session_events AS event
+          coalesce((SELECT sum({length}) FROM session_events AS event
              WHERE event.session_id = @session_id
                AND (event.sequence = @anchor_sequence OR event.joins_sequence = @anchor_sequence)
                AND event.sequence < @sequence AND {readable_event}), 0)",
         readable_anchor = readable_event_sql("anchor"),
         readable_earlier = readable_event_sql("earlier"),
         readable_event = readable_event_sql("event"),
+        length = stored_body_length_sql("event"),
     )
 });
 
@@ -106,7 +118,7 @@ pub(crate) struct StreamedPiece {
     joins_sequence: Option<i64>,
     /// Whether the event is a piece of a run's reply or reasoning, the only events placed in a row.
     is_piece: bool,
-    /// Its body's UTF-8 size and its text when it can travel inline; `None` with no body.
+    /// Its body's UTF-8 length and its text when it can travel inline; `None` with no body.
     body: Option<(u64, Option<String>)>,
 }
 
@@ -162,13 +174,11 @@ pub(crate) fn read_streamed_pieces(
     })?;
     let mut pieces = HashMap::new();
     while let Some(row) = rows.next()? {
-        let byte_length: Option<i64> = row.get(3)?;
-        let body = byte_length
-            .map(|length| {
-                Ok::<_, rusqlite::Error>((
-                    u64::try_from(length).expect("a size is not negative"),
-                    optional_utf8_blob_column(row, 4)?,
-                ))
+        let has_body = row.get_ref(3)?.data_type() != rusqlite::types::Type::Null;
+        let body = has_body
+            .then(|| {
+                let body = StoredBodyColumns::read(row, 4)?;
+                Ok::<_, rusqlite::Error>((body.stated_length(4)?, body.decode(4)?))
             })
             .transpose()?;
         pieces.insert(
@@ -194,7 +204,7 @@ pub(crate) fn load_piece_texts(
     if sequences.is_empty() {
         return Ok(());
     }
-    let mut statement = reader.prepare_cached(PIECE_TEXTS_SQL)?;
+    let mut statement = reader.prepare_cached(&PIECE_TEXTS_SQL)?;
     let mut rows = statement.query(named_params! {
         "@session_id": session_id.text().as_str(),
         "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
@@ -205,7 +215,7 @@ pub(crate) fn load_piece_texts(
             .get_mut(&sequence)
             .and_then(|piece| piece.body.as_mut())
         {
-            *text = optional_utf8_blob_column(row, 1)?;
+            *text = StoredBodyColumns::read(row, 1)?.decode(1)?;
         }
     }
     Ok(())
@@ -506,7 +516,11 @@ fn read_row_text_before(
     })?;
     let mut text = String::new();
     while let Some(row) = rows.next()? {
-        text.push_str(&optional_utf8_blob_column(row, 0)?.unwrap_or_default());
+        text.push_str(
+            &StoredBodyColumns::read(row, 0)?
+                .decode(0)?
+                .unwrap_or_default(),
+        );
     }
     Ok(text)
 }

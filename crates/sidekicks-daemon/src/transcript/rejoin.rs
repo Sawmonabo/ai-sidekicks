@@ -3,17 +3,16 @@
 //! with the sequence of the row's first piece, so a read takes only the events that stand as rows
 //! and joins each row's later pieces into its body through the head it read. A row whose first
 //! piece lies in a range the session skipped stands at its first readable piece. A body's size is
-//! the sum of its pieces' own lengths, so a large one is never loaded. A row stops taking pieces at
-//! its run's turn end or rollback, one set of events for the join and the end alike.
+//! the sum of the lengths its pieces' payloads state, so a large one is never loaded to size it. A
+//! row stops taking pieces at its run's turn end or rollback, one set of events for the join and
+//! the end alike.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
 use serde_json::{Map, Value};
-use sidekicks_contracts::event::declared_variants::{
-    CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_TRUNCATED_PAYLOAD_KEY,
-};
+use sidekicks_contracts::event::declared_variants::CONTENT_LENGTH_PAYLOAD_KEY;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
@@ -25,7 +24,10 @@ use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::sql_list::sql_list_of;
-use crate::database::stored_column::optional_utf8_blob_column;
+use crate::events::content::codec::{
+    DecodedStretch, StoredBodyColumns, stored_body_columns_sql, stored_body_encoding_sql,
+    stored_body_length_sql,
+};
 use crate::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, readable_event_sql,
 };
@@ -148,38 +150,41 @@ static ROW_OF_ANCHOR_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Each row's body pieces through the head, in order: the row's own event, then every later
-// readable piece of its row, each with its stored size, the length and cut mark its payload states,
-// and its text when the row's whole body is no larger than `@load_max_bytes`.
+// readable piece of its row, each with the length and encoding its payload states, and its stored
+// body when the row's whole body is no longer than `@load_max_bytes`.
 static ROW_MEMBERS_SQL: LazyLock<String> = LazyLock::new(|| {
+    let member_columns = format!(
+        "event.sequence, event.content_payload, {}, {}",
+        stored_body_encoding_sql("event"),
+        stored_body_length_sql("event"),
+    );
     format!(
         "WITH row_anchor(row_sequence, anchor_sequence) AS (
          SELECT sequence, coalesce(joins_sequence, sequence) FROM session_events
           WHERE session_id = @session_id AND sequence IN (SELECT value FROM json_each(@rows))
        ),
-       member(row_sequence, sequence, content_payload, payload) AS (
-         SELECT row_anchor.row_sequence, event.sequence, event.content_payload, NULL
+       member(row_sequence, sequence, content_payload, content_encoding, content_length) AS (
+         SELECT row_anchor.row_sequence, {member_columns}
            FROM row_anchor
            JOIN session_events AS event
              ON event.session_id = @session_id AND event.sequence = row_anchor.row_sequence
          UNION ALL
-         SELECT row_anchor.row_sequence, event.sequence, event.content_payload, event.payload
+         SELECT row_anchor.row_sequence, {member_columns}
            FROM row_anchor
            JOIN session_events AS event
              ON event.session_id = @session_id
             AND event.joins_sequence = row_anchor.anchor_sequence
             AND event.sequence > row_anchor.row_sequence
-          WHERE event.sequence <= @head AND {}
+          WHERE event.sequence <= @head AND {readable}
        )
-     SELECT row_sequence, sequence, octet_length(content_payload),
-            json_extract(payload, '$.{CONTENT_LENGTH_PAYLOAD_KEY}'),
-            coalesce(json_extract(payload, '$.{CONTENT_TRUNCATED_PAYLOAD_KEY}'), 0),
-            CASE WHEN sum(octet_length(content_payload)) OVER (PARTITION BY row_sequence)
-                      <= @load_max_bytes
-                 THEN content_payload END
+     SELECT row_sequence, sequence,
+            CASE WHEN sum(content_length) OVER (PARTITION BY row_sequence) <= @load_max_bytes
+                 THEN content_payload END,
+            content_encoding, content_length
        FROM member
       WHERE content_payload IS NOT NULL
       ORDER BY row_sequence, sequence",
-        readable_event_sql("event"),
+        readable = readable_event_sql("event"),
     )
 });
 
@@ -205,11 +210,25 @@ static UNENDED_ROWS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The stored text of the pieces at the given sequences, in log order.
-const PIECE_TEXTS_SQL: &str = "SELECT content_payload FROM session_events
-  WHERE session_id = @session_id AND content_payload IS NOT NULL
-    AND sequence IN (SELECT value FROM json_each(@sequences))
-  ORDER BY sequence";
+// The stored bodies of the pieces at the given sequences, in log order.
+static PIECE_TEXTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {} FROM session_events AS event
+  WHERE event.session_id = @session_id AND event.content_payload IS NOT NULL
+    AND event.sequence IN (SELECT value FROM json_each(@sequences))
+  ORDER BY event.sequence",
+        stored_body_columns_sql("event"),
+    )
+});
+
+// The stored body of the piece at one sequence.
+static PIECE_BODY_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {} FROM session_events AS event
+  WHERE event.session_id = @session_id AND event.sequence = @sequence",
+        stored_body_columns_sql("event"),
+    )
+});
 
 /// Which rows a read takes: the whole session's, or one run's with its children's creation rows.
 #[derive(Clone, Copy, Debug)]
@@ -225,13 +244,8 @@ pub(crate) enum RowScope<'run> {
 pub(crate) struct RowMember {
     /// The piece's sequence.
     pub(crate) sequence: i64,
-    /// Its stored body's UTF-8 size.
-    pub(crate) byte_length: u64,
-    /// The length its payload states, read for every piece but the row's own event, whose payload
-    /// the row already holds.
-    pub(crate) content_length: Option<u64>,
-    /// Whether its payload marks its body as cut.
-    pub(crate) is_truncated: bool,
+    /// Its body's UTF-8 length, as its payload states it.
+    pub(crate) content_length: u64,
     /// Its text, when the read loaded it.
     pub(crate) text: Option<String>,
 }
@@ -347,7 +361,9 @@ where
     }
 
     /// The body pieces of each row in `row_sequences` through `head`, by row, in order; each
-    /// piece's text is loaded only when its row's whole stored body is at most `load_max_bytes`.
+    /// piece's text is loaded and decoded only when its row's whole body is at most
+    /// `load_max_bytes` long. Fails on a piece whose payload states no length or whose body does
+    /// not decode to it.
     pub(crate) fn row_members(
         &self,
         row_sequences: &[i64],
@@ -364,15 +380,12 @@ where
             "@load_max_bytes": load_max_bytes,
         })?;
         while let Some(row) = rows.next()? {
-            let byte_length: i64 = row.get(2)?;
-            let content_length: Option<i64> = row.get(3)?;
-            let is_truncated: bool = row.get(4)?;
+            let body = StoredBodyColumns::read(row, 2)?;
+            let content_length = body.stated_length(2)?;
             members.entry(row.get(0)?).or_default().push(RowMember {
                 sequence: row.get(1)?,
-                byte_length: u64::try_from(byte_length).unwrap_or_default(),
-                content_length: content_length.and_then(|length| u64::try_from(length).ok()),
-                is_truncated,
-                text: optional_utf8_blob_column(row, 5)?,
+                content_length,
+                text: body.decode(2)?,
             });
         }
         Ok(members)
@@ -402,81 +415,81 @@ where
             .collect()
     }
 
-    /// The stored text of the pieces at `sequences`, joined in log order.
+    /// The text of the pieces at `sequences`, decoded and joined in log order; fails on a body
+    /// that does not decode to the length its payload states.
     pub(crate) fn piece_texts(&self, sequences: &[i64]) -> rusqlite::Result<String> {
-        let mut statement = self.reader.prepare_cached(PIECE_TEXTS_SQL)?;
+        let mut statement = self.reader.prepare_cached(&PIECE_TEXTS_SQL)?;
         let mut rows = statement.query(named_params! {
             "@session_id": self.session_id.text().as_str(),
             "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
         })?;
         let mut text = String::new();
         while let Some(row) = rows.next()? {
-            if let Some(piece) = optional_utf8_blob_column(row, 0)? {
+            if let Some(piece) = StoredBodyColumns::read(row, 0)?.decode(0)? {
                 text.push_str(&piece);
             }
         }
         Ok(text)
     }
+
+    /// The stretch covering `from..to` of the body of the piece at `sequence`, decoding only the
+    /// frames it falls in; `None` when the piece has no body. Fails as [`RowReads::piece_texts`]
+    /// does.
+    pub(crate) fn piece_stretch(
+        &self,
+        sequence: i64,
+        from: usize,
+        to: usize,
+    ) -> rusqlite::Result<Option<DecodedStretch>> {
+        self.reader
+            .prepare_cached(&PIECE_BODY_SQL)?
+            .query_row(
+                named_params! {
+                    "@session_id": self.session_id.text().as_str(),
+                    "@sequence": sequence,
+                },
+                |row| StoredBodyColumns::read(row, 0)?.decode_stretch(0, from, to),
+            )
+            .optional()
+            .map(Option::flatten)
+    }
 }
 
-/// A row's body facts and text, joined from its pieces: the payload to echo its length and cut
-/// mark from, which is the row event's own when the row is one piece, and the text, when every
-/// piece's text was loaded.
+/// A row's body joined from its pieces: the whole body's length, and its text when every piece's
+/// text was loaded.
 pub(crate) struct JoinedBody {
-    /// The payload whose `contentLength` and `contentTruncated` describe the whole body.
-    pub(crate) facts: Map<String, Value>,
-    /// The body's stored UTF-8 size.
-    pub(crate) byte_length: u64,
+    /// The whole body's UTF-8 length.
+    pub(crate) content_length: u64,
     /// The whole text, when loaded.
     pub(crate) text: Option<String>,
 }
 
-/// The body of the row at `row_sequence` whose event carries `payload`, from its `members`;
-/// `None` when the row has no body.
-pub(crate) fn joined_body_of(
-    row_sequence: i64,
-    payload: &Map<String, Value>,
-    members: Vec<RowMember>,
-) -> Option<JoinedBody> {
-    let is_one_piece = members.len() == 1 && members[0].sequence == row_sequence;
-    if is_one_piece {
-        let member = members.into_iter().next().expect("one piece");
-        return Some(JoinedBody {
-            facts: payload.clone(),
-            byte_length: member.byte_length,
-            text: member.text,
-        });
+impl JoinedBody {
+    /// The payload members that describe the whole body, which a read echoes.
+    pub(crate) fn facts(&self) -> Map<String, Value> {
+        Map::from_iter([(
+            CONTENT_LENGTH_PAYLOAD_KEY.to_owned(),
+            Value::from(self.content_length),
+        )])
     }
+}
+
+/// A row's body from its `members`; `None` when the row has no body.
+pub(crate) fn joined_body_of(members: Vec<RowMember>) -> Option<JoinedBody> {
     if members.is_empty() {
         return None;
     }
-    let (row_content_length, row_is_truncated) = echoed_facts_of(payload);
-    let mut facts = Map::new();
     let mut content_length = 0;
-    let mut byte_length = 0;
-    let mut is_truncated = false;
     let mut text = Some(String::new());
     for member in members {
-        let (member_length, member_is_truncated) = if member.sequence == row_sequence {
-            (row_content_length, row_is_truncated)
-        } else {
-            (member.content_length, member.is_truncated)
-        };
-        content_length += member_length.unwrap_or(member.byte_length);
-        byte_length += member.byte_length;
-        is_truncated |= member_is_truncated;
+        content_length += member.content_length;
         text = text.zip(member.text).map(|(mut joined, piece)| {
             joined.push_str(&piece);
             joined
         });
     }
-    facts.insert(CONTENT_LENGTH_PAYLOAD_KEY.to_owned(), content_length.into());
-    if is_truncated {
-        facts.insert(CONTENT_TRUNCATED_PAYLOAD_KEY.to_owned(), Value::Bool(true));
-    }
     Some(JoinedBody {
-        facts,
-        byte_length,
+        content_length,
         text,
     })
 }
@@ -491,23 +504,11 @@ pub(crate) fn joined_row_content_of(
         return transcript_row_content_of(Some(payload), None);
     };
     transcript_row_content_of(
-        Some(&body.facts),
+        Some(&body.facts()),
         Some(StoredRowBody {
-            byte_length: SafeInt::new(body.byte_length).expect("a body's size is a safe integer"),
+            byte_length: SafeInt::new(body.content_length)
+                .expect("a body's length is a safe integer"),
             body: body.text.as_deref(),
         }),
-    )
-}
-
-/// The length and cut mark `payload` states for its own body.
-fn echoed_facts_of(payload: &Map<String, Value>) -> (Option<u64>, bool) {
-    (
-        payload
-            .get(CONTENT_LENGTH_PAYLOAD_KEY)
-            .and_then(Value::as_u64),
-        payload
-            .get(CONTENT_TRUNCATED_PAYLOAD_KEY)
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
     )
 }

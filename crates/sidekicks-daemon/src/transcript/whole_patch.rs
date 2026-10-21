@@ -7,8 +7,8 @@
 
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
-use sidekicks_contracts::event::declared_variants::CONTENT_PAYLOAD_PLAINTEXT_MAX;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_contracts::transcript::content::{
     TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
 };
@@ -172,7 +172,7 @@ pub(crate) struct PatchFilePart {
 
 /// The stored parts of `file`, file `index` of a list of `count`: a file with no text as one part;
 /// else its header, through its text member's opening quote, the parts of its text, each JSON
-/// string content of at most [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points cut between two
+/// string content of at most a page of UTF-8 ([`PAGE_MAX_BYTES`]) cut between two
 /// characters, so never inside an escape, and its tail. The first part opens with a separator
 /// unless the file is the list's first, and the last closes the list when it is its last.
 pub(crate) fn patch_file_parts(
@@ -213,14 +213,14 @@ pub(crate) fn patch_file_parts(
             body: quoted[1..quoted.len() - 1].to_owned(),
         });
     };
-    let (mut start, mut code_points) = (0, 0);
+    let (mut start, mut escaped_bytes) = (0, 0);
     for (at, character) in text.char_indices() {
-        let width = escaped_code_points(character);
-        if code_points + width > CONTENT_PAYLOAD_PLAINTEXT_MAX {
+        let width = escaped_byte_length(character);
+        if escaped_bytes + width > PAGE_MAX_BYTES {
             text_part(start, at);
-            (start, code_points) = (at, 0);
+            (start, escaped_bytes) = (at, 0);
         }
-        code_points += width;
+        escaped_bytes += width;
     }
     if start < text.len() {
         text_part(start, text.len());
@@ -232,14 +232,14 @@ pub(crate) fn patch_file_parts(
     parts
 }
 
-// How many code points JSON writes `character` as inside a string, as `serde_json` escapes it: a
+// How many UTF-8 bytes JSON writes `character` as inside a string, as `serde_json` escapes it: a
 // quote, a reverse solidus and the five short control escapes as two, any other control character
-// as a six-character `\u` escape, and every other character as itself.
-fn escaped_code_points(character: char) -> usize {
+// as a six-byte `\u` escape, and every other character as its own UTF-8.
+fn escaped_byte_length(character: char) -> usize {
     match character {
         '"' | '\\' | '\u{8}' | '\t' | '\n' | '\u{c}' | '\r' => 2,
         '\0'..='\u{1f}' => 6,
-        _ => 1,
+        _ => character.len_utf8(),
     }
 }
 

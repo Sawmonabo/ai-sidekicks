@@ -25,6 +25,7 @@ use sidekicks_contracts::wire::integer::{MAX_SAFE_SIGNED_INTEGER, SafeInt};
 use sidekicks_contracts::wire::record::RecordKey;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::events::content::codec::{StoredBodyColumns, decode_body, stored_body_columns_sql};
 use crate::events::content::read::{StoredEventContentRow, hydrate_stored_event};
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
@@ -157,23 +158,25 @@ static AT_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     not(test),
     expect(dead_code, reason = "the provider switch's hand-over brief")
 )]
-// A run's rows of the given types, each with its body: its own stored body and those of the
-// readable pieces that join it after it, in log order.
+// A run's rows of the given types, each once per stored body it joins: its own and those of the
+// readable pieces that join it after it, in log order, or once with no body when none has one.
 static RUN_AFTER_OF_TYPES_HYDRATED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {SELECTED_COLUMNS},
-            (SELECT CAST(group_concat(member.content_payload, '' ORDER BY member.sequence) AS BLOB)
-               FROM session_events AS member
-              WHERE member.session_id = event.session_id
-                AND (member.sequence = event.sequence
-                  OR (member.joins_sequence = coalesce(event.joins_sequence, event.sequence)
-                      AND member.sequence > event.sequence))
-                AND {readable_member})
+        "SELECT {SELECTED_COLUMNS}, {member_body}
        FROM session_events AS event
-      WHERE session_id = @session_id AND run_id = @run_id AND sequence > @after_position
-        AND type IN (SELECT value FROM json_each(@event_types))
+       LEFT JOIN session_events AS member
+         ON member.session_id = event.session_id
+        AND (member.sequence = event.sequence
+          OR (member.joins_sequence = coalesce(event.joins_sequence, event.sequence)
+              AND member.sequence > event.sequence))
+        AND member.content_payload IS NOT NULL
+        AND {readable_member}
+      WHERE event.session_id = @session_id AND event.run_id = @run_id
+        AND event.sequence > @after_position
+        AND event.type IN (SELECT value FROM json_each(@event_types))
         AND {readable_event} AND {row}
-      ORDER BY sequence ASC",
+      ORDER BY event.sequence ASC, member.sequence ASC",
+        member_body = stored_body_columns_sql("member"),
         readable_member = readable_event_sql("member"),
         readable_event = readable_event_sql("event"),
         row = row_condition_sql("event"),
@@ -374,8 +377,9 @@ where
         )
     }
 
-    /// Runs one of the statements that select a row's body after its columns, checks each row as
-    /// an envelope and pairs it with its body, in the order read.
+    /// Runs one of the statements that select a row once per stored body it joins, those columns
+    /// after its own, checks each row as an envelope and pairs it with its bodies decoded and
+    /// joined, in the order read.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the provider switch's hand-over brief")
@@ -388,11 +392,21 @@ where
         let mut statement = self.reader.prepare_cached(sql)?;
         let mut rows = statement.query(bindings)?;
         let mut events = Vec::new();
+        let mut held: Option<(StoredEventRow, Vec<StoredBodyColumns>)> = None;
         while let Some(row) = rows.next()? {
-            let (stored, content_payload) = StoredEventRow::from_row_with_content(row)?;
-            events.push(hydrate_stored_event(
-                stored.into_content_row(content_payload)?,
-            ));
+            let stored = StoredEventRow::from_row(row)?;
+            let body = StoredBodyColumns::read(row, STORED_EVENT_COLUMN_COUNT)?;
+            match &mut held {
+                Some((event, bodies)) if event.sequence == stored.sequence => bodies.push(body),
+                _ => {
+                    if let Some((event, bodies)) = held.replace((stored, vec![body])) {
+                        events.push(hydrate_stored_event(event.into_content_row(bodies)?));
+                    }
+                }
+            }
+        }
+        if let Some((event, bodies)) = held {
+            events.push(hydrate_stored_event(event.into_content_row(bodies)?));
         }
         Ok(events)
     }
@@ -470,14 +484,6 @@ impl StoredEventRow {
         })
     }
 
-    /// The row and the stored body a statement selects after its columns.
-    fn from_row_with_content(row: &Row<'_>) -> rusqlite::Result<(Self, Option<Vec<u8>>)> {
-        Ok((
-            Self::from_row(row)?,
-            row.get::<_, Option<Vec<u8>>>(STORED_EVENT_COLUMN_COUNT)?,
-        ))
-    }
-
     /// The row as an envelope, each column through its member's own check, then the envelope's
     /// checks; a type this build does not know is kept as a stub. Storage keeps an absent
     /// correlation or causation id, and an absent actor, as NULL.
@@ -534,23 +540,28 @@ impl StoredEventRow {
         Ok(envelope)
     }
 
-    /// The row as an envelope beside its stored body, the UTF-8 bytes `content_payload` holds;
-    /// fails as [`StoredEventRow::into_envelope`] does, and on a body that is not UTF-8.
+    /// The row as an envelope beside the text of `bodies` decoded and joined in order, `None` when
+    /// none holds a body; fails as [`StoredEventRow::into_envelope`] does, and on a body that does
+    /// not decode to the length its payload states.
     fn into_content_row(
         self,
-        content_payload: Option<Vec<u8>>,
+        bodies: Vec<StoredBodyColumns>,
     ) -> Result<StoredEventContentRow, MalformedStoredEventError> {
         let envelope = self.into_envelope()?;
-        let content_payload =
-            content_payload
-                .map(String::from_utf8)
-                .transpose()
-                .map_err(|error| MalformedStoredEventError {
-                    event_id: envelope.id.as_str().to_owned(),
-                    session_id: envelope.session_id.text().as_str().to_owned(),
-                    sequence: i64::from(envelope.sequence),
-                    fault: column_fault("content_payload", Some(error)),
+        let mut content_payload: Option<String> = None;
+        for body in bodies {
+            let Some(stored) = body.stored else { continue };
+            let text =
+                decode_body(stored, body.encoding, body.content_length).map_err(|error| {
+                    MalformedStoredEventError {
+                        event_id: envelope.id.as_str().to_owned(),
+                        session_id: envelope.session_id.text().as_str().to_owned(),
+                        sequence: i64::from(envelope.sequence),
+                        fault: column_fault("content_payload", Some(error)),
+                    }
                 })?;
+            content_payload.get_or_insert_default().push_str(&text);
+        }
         Ok(StoredEventContentRow {
             envelope,
             content_payload,
@@ -585,8 +596,14 @@ mod tests {
     use rusqlite::params;
     use sidekicks_contracts::session::id::SessionId;
 
+    use sidekicks_contracts::event::envelope::{
+        HydratedContentUnavailableReason, HydratedSessionEventContent,
+    };
+    use sidekicks_contracts::wire::integer::SafeInt;
+
     use super::{MalformedStoredEventFault, SessionEventReads, SessionLogReadError};
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::transcript::test_log::TranscriptTestLog;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     const WELL_FORMED_INSTANT: &str = "2026-10-14T09:00:00.000Z";
@@ -648,5 +665,59 @@ mod tests {
         let message = malformed.to_string();
         assert!(message.contains(&event_id), "{message}");
         assert!(message.contains(session_id.text().as_str()), "{message}");
+    }
+
+    // A hydrated read decodes each stored piece of a row, a compressed one among them, and joins
+    // them after the row's own, leaves the event's payload as stored, and reads a row with no body
+    // as absent. Killed by joining the stored bytes undecoded, by dropping a piece, and by reading
+    // a missing body as an empty one.
+    #[test]
+    fn a_hydrated_read_joins_each_rows_decoded_bodies() {
+        let log = TranscriptTestLog::new();
+        let opening = "\u{e9}".repeat(1_500);
+        let (row, _) = log.reply("m1", Some(0), &opening);
+        log.reply("m1", Some(0), " and the rest.");
+        let (bare, _) = log.tool_completion(log.run_id, "call-1", None, None);
+        let reader = log.reader();
+        let stored_payload: String = reader
+            .query_row(
+                "SELECT payload FROM session_events WHERE sequence = ?1",
+                [row],
+                |row| row.get(0),
+            )
+            .expect("the row reads");
+
+        let reads = SessionEventReads::new(&reader, |_: &SessionId| None);
+        let events = reads
+            .read_after_hydrated(
+                &log.session_id,
+                &log.run_id,
+                -1,
+                &["agent.message.sent", "agent.toolCall.completed"],
+                None,
+            )
+            .expect("the run reads");
+        let sequences: Vec<i64> = events
+            .iter()
+            .map(|event| i64::from(event.event.sequence))
+            .collect();
+        assert_eq!(sequences, [row, bare]);
+        assert_eq!(
+            serde_json::to_string(&events[0].event.payload).expect("a payload serializes"),
+            stored_payload
+        );
+        assert_eq!(
+            events[0].content,
+            HydratedSessionEventContent::Available {
+                body: format!("{opening} and the rest."),
+                content_length: SafeInt::new(opening.len() as u64),
+            }
+        );
+        assert_eq!(
+            events[1].content,
+            HydratedSessionEventContent::Unavailable {
+                reason: HydratedContentUnavailableReason::Absent,
+            }
+        );
     }
 }

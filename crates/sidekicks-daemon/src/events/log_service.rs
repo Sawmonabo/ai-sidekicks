@@ -578,15 +578,11 @@ impl EventLogService {
                     session_id: envelope.session_id(),
                 });
             }
-            rows.extend(compose_rows(
-                preceding,
-                preceding_body.as_deref(),
-                monotonic_ns,
-            )?);
+            rows.extend(compose_rows(preceding, preceding_body, monotonic_ns)?);
         }
         // The event's receipt names its own row, which any stored parts of its files follow.
         let row_index = rows.len();
-        let event_rows = compose_rows(envelope, content_body.as_deref(), monotonic_ns)?;
+        let event_rows = compose_rows(envelope, content_body, monotonic_ns)?;
         let id = event_rows[0].envelope.id.clone();
         rows.extend(event_rows);
 
@@ -667,7 +663,7 @@ fn publish_on_commit(
 /// caller's input.
 pub(crate) fn compose_rows(
     mut envelope: UnsequencedEventEnvelope,
-    content_body: Option<&str>,
+    content_body: Option<String>,
     monotonic_ns: i64,
 ) -> Result<Vec<SessionEventRow>, EventAppendError> {
     // Checked before the content picks the branch: a seeded `contentLength` without content would
@@ -677,7 +673,7 @@ pub(crate) fn compose_rows(
     let (content_payload, parts) = match content_body {
         None => (None, Vec::new()),
         Some(body) if envelope.is_patch_bearing() => {
-            let (opening, parts) = envelope.describe_patch_files(body)?;
+            let (opening, parts) = envelope.describe_patch_files(&body)?;
             (Some(opening), parts)
         }
         Some(body) => (Some(envelope.describe_content(body)?), Vec::new()),

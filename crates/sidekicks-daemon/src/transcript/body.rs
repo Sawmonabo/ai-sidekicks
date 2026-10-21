@@ -1,8 +1,9 @@
 //! The part of a row's body `transcript.body.read` answers: the row named by the id of the event it
 //! stands at, its body the pieces the provider sent it in, joined through the read's head. A body
-//! that is not drawn as markdown is read only through the stored pieces one part covers, so a long
-//! body read part by part is read once; a reply drawn as markdown is read whole for each part,
-//! since its cut needs the whole text, and each part carries the block starts that fall in it.
+//! that is not drawn as markdown is read only through the stored pieces one part covers, and of a
+//! compressed piece only the frames it covers, so a long body read part by part is decoded once; a
+//! reply drawn as markdown is read whole for each part, since its cut needs the whole text, and
+//! each part carries the block starts that fall in it.
 
 use rusqlite::Connection;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
@@ -116,12 +117,13 @@ where
     let piece_bounds: Vec<(i64, usize)> = members
         .iter()
         .map(|member| {
-            let length = usize::try_from(member.byte_length).expect("a piece's size fits memory");
+            let length =
+                usize::try_from(member.content_length).expect("a piece's length fits memory");
             (member.sequence, length)
         })
         .collect();
     let last_piece = members.last().map(|member| member.sequence);
-    let Some(joined) = joined_body_of(sequence, payload, members) else {
+    let Some(joined) = joined_body_of(members) else {
         return Ok(Some(stored_body_content_of(
             Some(payload),
             None,
@@ -156,7 +158,7 @@ where
             BodyBlockCut::NotCut
         };
         stored_body_content_of(
-            Some(&joined.facts),
+            Some(&joined.facts()),
             Some(BodyWindow::whole(&whole)),
             offset,
             block_cut,
@@ -164,28 +166,34 @@ where
     } else {
         let body_length: usize = piece_bounds.iter().map(|(_, length)| length).sum();
         let wanted_from = usize::try_from(offset).unwrap_or(usize::MAX);
-        // One part holds at most a page of text, so the pieces from the one holding `offset`
-        // through a page past it hold the whole part.
+        // One part holds at most a page of text, so the stretches of the pieces from the one
+        // holding `offset` through a page past it hold the whole part.
         let wanted_to = wanted_from.saturating_add(PAGE_MAX_BYTES);
-        let mut window_start = body_length;
-        let mut wanted_sequences = Vec::new();
+        let mut window_start = None;
+        let mut text = String::new();
         let mut piece_start = 0;
         for &(piece_sequence, length) in &piece_bounds {
             let piece_end = piece_start + length;
             if piece_end > wanted_from && piece_start < wanted_to {
-                window_start = window_start.min(piece_start);
-                wanted_sequences.push(piece_sequence);
+                let stretch = rows_of
+                    .piece_stretch(
+                        piece_sequence,
+                        wanted_from.saturating_sub(piece_start),
+                        wanted_to - piece_start,
+                    )
+                    .map_err(TranscriptReadError::from)?;
+                if let Some(stretch) = stretch {
+                    window_start.get_or_insert(piece_start + stretch.start);
+                    text.push_str(&stretch.text);
+                }
             }
             piece_start = piece_end;
         }
-        let text = rows_of
-            .piece_texts(&wanted_sequences)
-            .map_err(TranscriptReadError::from)?;
         stored_body_content_of(
-            Some(&joined.facts),
+            Some(&joined.facts()),
             Some(BodyWindow {
                 text: &text,
-                start: window_start,
+                start: window_start.unwrap_or(body_length),
                 body_length,
             }),
             offset,

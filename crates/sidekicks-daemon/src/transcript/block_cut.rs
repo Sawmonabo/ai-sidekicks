@@ -170,7 +170,6 @@ pub(crate) fn with_block_starts(
         TranscriptRowContent::Available {
             body,
             content_length,
-            content_truncated,
             block_starts: _,
             block_cut_failure: _,
         } => {
@@ -186,7 +185,6 @@ pub(crate) fn with_block_starts(
             TranscriptRowContent::Available {
                 body,
                 content_length,
-                content_truncated,
                 block_starts,
                 block_cut_failure,
             }
