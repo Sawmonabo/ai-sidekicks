@@ -104,12 +104,12 @@ impl DataExportProgress {
     }
 }
 
-/// The details of `daemon.data.keychainUnavailable`: why the keychain the erase must empty could
-/// not be used. The erase is refused before anything is erased, so it can be sent again.
+/// The details of `daemon.data.storeUnavailable`: why the keychain the erase must empty could not
+/// be used. The erase is refused before anything is erased, so it can be sent again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DaemonDataKeychainUnavailableDetails {
-    /// Why.
+pub struct DaemonDataStoreUnavailableDetails {
+    /// Why the keychain could not be used: `locked`, or it cannot be used (`unavailable`).
     pub cause: KeychainRefusalCause,
 }
 
@@ -137,7 +137,7 @@ methods! {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
-            refusals: [DaemonDataKeychainUnavailable],
+            refusals: [DaemonDataStoreUnavailable],
         },
     ];
 }
@@ -153,7 +153,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonDataExportStartResponse>().checked(),
         Definition::read::<DaemonDataExportSubscribeRequest>().checked(),
         Definition::read::<DataExportProgress>().checked(),
-        Definition::read::<DaemonDataKeychainUnavailableDetails>().checked(),
+        Definition::read::<DaemonDataStoreUnavailableDetails>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_DATA_METHOD_DESCRIPTORS],
