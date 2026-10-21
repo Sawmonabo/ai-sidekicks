@@ -48,6 +48,12 @@ pub(crate) const CODEX_ITEM_STARTED_METHOD: &str = "item/started";
 /// The `item/completed` method: the end of one step of a turn.
 pub(crate) const CODEX_ITEM_COMPLETED_METHOD: &str = "item/completed";
 
+/// Sent when a conversation's status changes, `idle` at each turn's end.
+pub(crate) const CODEX_THREAD_STATUS_CHANGED_METHOD: &str = "thread/status/changed";
+
+/// What every item frame's method starts with.
+pub(crate) const CODEX_ITEM_METHOD_PREFIX: &str = "item/";
+
 /// The `thread/compacted` method, which settles a compaction the person asked for.
 pub(crate) const CODEX_THREAD_COMPACTED_METHOD: &str = "thread/compacted";
 
@@ -105,7 +111,7 @@ const AUTH_RECOVERY_READING: &str = "Codex recovering its own sign-in, written t
 
 /// Every method the daemon reads from the Codex service, one variant each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, VariantArray)]
-enum CodexInboundMethod {
+pub(crate) enum CodexInboundMethod {
     ItemToolCall,
     ItemToolRequestUserInput,
     McpServerElicitationRequest,
@@ -129,6 +135,7 @@ enum CodexInboundMethod {
     ThreadTokenUsageUpdated,
     ThreadCompacted,
     ThreadClosed,
+    ThreadStatusChanged,
     ServerRequestResolved,
     SkillsChanged,
     ThreadGoalUpdated,
@@ -204,6 +211,7 @@ impl CodexInboundMethod {
             Self::ThreadTokenUsageUpdated => CODEX_THREAD_TOKEN_USAGE_METHOD,
             Self::ThreadCompacted => CODEX_THREAD_COMPACTED_METHOD,
             Self::ThreadClosed => "thread/closed",
+            Self::ThreadStatusChanged => CODEX_THREAD_STATUS_CHANGED_METHOD,
             Self::ServerRequestResolved => "serverRequest/resolved",
             Self::SkillsChanged => CODEX_SKILLS_CHANGED_METHOD,
             Self::ThreadGoalUpdated => "thread/goal/updated",
@@ -302,6 +310,13 @@ impl CodexInboundMethod {
                 Reads(
                     "the service unloaded the conversation, which a move to another service \
                      waits for",
+                ),
+            ),
+            Self::ThreadStatusChanged => notification(
+                LIFECYCLE,
+                Reads(
+                    "a conversation gone idle, at which one a session moved off reads its \
+                     running commands again",
                 ),
             ),
             Self::ServerRequestResolved => notification(
@@ -462,13 +477,6 @@ pub(crate) enum CodexFrameEmissionRoute {
 /// account `provider_account_id` names. Never fails: a method outside the table, or an opted-out
 /// notification that arrived anyway, is routed to a diagnostic logged once per method on the
 /// connection `reports` belongs to, never forced into an event or dropped.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex connection's reader routes each inbound frame through it"
-    )
-)]
 pub(crate) fn resolve_codex_frame_emission_route(
     method: &str,
     provider_account_id: Option<ProviderAccountId>,
@@ -578,10 +586,6 @@ const CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS: &[&str] = &[
 /// thread id, the parent thread it declares and its thread source kind. The child's thread id
 /// doubles as the subagent identity on a subagent-attributed kind; any other kind, a compaction
 /// child or one a newer service adds, has none, so its spend attributes to the parent run.
-#[expect(
-    dead_code,
-    reason = "the Codex connection's reader announces each child thread to the router"
-)]
 pub(crate) fn derive_codex_child_thread_announcement(
     thread_id: String,
     parent_thread_id: Option<String>,

@@ -8,17 +8,19 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-/// One tool call the provider's reviewer blocked: the call, the reviewer's reason (absent where it
-/// gave none), whether the provider lets it be allowed once, and the provider's own record of the
-/// block, kept verbatim so `override_denial` hands it back unchanged.
+/// One action the provider's reviewer blocked: the tool call it stopped, where it stopped one, the
+/// reviewer's reason (absent where it gave none), whether the provider lets it be allowed once, and
+/// the provider's own record of the block, kept verbatim so `override_denial` hands it back
+/// unchanged.
 #[derive(Debug)]
 pub(crate) struct ProviderReviewerDenial {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The run.
     pub(crate) run_id: RunId,
-    /// The blocked tool call.
-    pub(crate) tool_call_id: String,
+    /// The blocked tool call; `None` for a block on an action that is no tool call of its own, such
+    /// as a network access a command made, which stands as a block of its own.
+    pub(crate) tool_call_id: Option<String>,
     /// The reviewer's reason.
     pub(crate) reason: Option<String>,
     /// Whether the provider lets the block be allowed once.
