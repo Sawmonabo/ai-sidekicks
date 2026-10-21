@@ -3,7 +3,8 @@
 //! confirm was read against, a session's finish being its latest archive or close, together with
 //! every session a failed purge left marked; the read's count is taken with the same selection, so
 //! the confirm names exactly what the purge removes. A purge that removed a session schedules the
-//! file's repack, which waits until no run is live.
+//! file's repack, which waits until no run is live, and a backup, which runs while `Back up
+//! automatically` is on.
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
@@ -26,6 +27,7 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
+use crate::daemon::backup::run::{BackupTrigger, Backups};
 use crate::daemon::configuration::{ConfigurationChange, ConfigurationStore};
 use crate::daemon::scheduler::{JobCondition, Scheduler};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -100,6 +102,9 @@ pub(crate) struct RetentionMethodsDeps {
     pub(crate) scheduler: Arc<Scheduler>,
     /// What the repack runs through.
     pub(crate) repack: Arc<RepackJobDeps>,
+    /// The backups, one of which runs after a purge that removed something while `Back up
+    /// automatically` is on.
+    pub(crate) backups: Arc<Backups>,
 }
 
 /// Why the selection could not be read.
@@ -245,18 +250,27 @@ async fn purge_old_data(
             ),
         }
     }
-    if deleted > 0
-        && let Err(failure) = deps.scheduler.schedule(
+    if deleted > 0 {
+        if let Err(failure) = deps.scheduler.schedule(
             "repack",
             JobCondition::NoTurnRunning,
             Duration::ZERO,
             repack_job(Arc::clone(&deps.repack)),
-        )
-    {
-        tracing::warn!(
-            error = &failure as &(dyn Error + 'static),
-            "the database's repack could not be scheduled"
-        );
+        ) {
+            tracing::warn!(
+                error = &failure as &(dyn Error + 'static),
+                "the database's repack could not be scheduled"
+            );
+        }
+        if let Err(failure) = deps
+            .backups
+            .request(&deps.scheduler, BackupTrigger::AfterPurge)
+        {
+            tracing::warn!(
+                error = &failure as &(dyn Error + 'static),
+                "the backup after the purge could not be scheduled"
+            );
+        }
     }
     Ok(DaemonRetentionPurgeResponse {
         deleted_session_count: SafeInt::new(deleted)
@@ -324,6 +338,7 @@ fn follow_bounds(
 
 #[cfg(test)]
 mod tests {
+    use futures::FutureExt as _;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
@@ -349,6 +364,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::artifacts::admission::VolumeFreeBytesReader;
+    use crate::daemon::backup::run::tests::test_backups;
     use crate::daemon::scheduler::Scheduler;
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::statement::{StatementBindings, WriteStatement};
@@ -419,6 +435,12 @@ mod tests {
                 purge: Arc::new(purge),
                 scheduler: Arc::clone(&scheduler),
                 repack: repack_deps(&log.writer, &truncation, &database.path(), |_| Ok(u64::MAX)),
+                backups: test_backups(
+                    &database,
+                    &log,
+                    home.path().join(".ai-sidekicks"),
+                    Arc::new(|| async { Ok(Vec::new()) }.boxed()),
+                ),
             },
         )
         .expect("the retention methods register");

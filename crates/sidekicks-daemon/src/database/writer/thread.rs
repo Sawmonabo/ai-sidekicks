@@ -1,8 +1,9 @@
 //! The database writer's thread: it opens the one read-write connection, then runs each request
 //! the write queue sends, one at a time: a batch as one transaction, each write in it under a
 //! savepoint of its own, so a refused or failed write rolls back alone while the batch commits
-//! whole or not at all; or a WAL checkpoint; or the repack. It closes its connection and exits once
-//! the queue lets it go.
+//! whole or not at all; or a WAL checkpoint; or the repack; or the online copy, serving the
+//! requests that come while it lives. It closes its connection and exits once the queue lets it
+//! go.
 
 use rusqlite::config::DbConfig;
 use rusqlite::types::Value;
@@ -17,6 +18,7 @@ use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{
     StatementBindings, StatementResult, WriteStatement, named_bindings,
 };
+use crate::database::writer::backup::copy_database;
 use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
     WriteJobFailure, WriteJobOutcome,
@@ -49,7 +51,7 @@ pub(super) fn run<OpenError>(
     stop: &ThreadStop,
     exit: oneshot::Sender<ThreadExit>,
 ) {
-    let mut connection = match open() {
+    let connection = match open() {
         Ok(connection) => connection,
         Err(open_failure) => {
             if opened.send(Err(open_failure)).is_err() {
@@ -62,7 +64,7 @@ pub(super) fn run<OpenError>(
     // An opener that stopped waiting dropped the request channel with it, so nothing is served and
     // the connection closes at once.
     if opened.send(Ok(connection.get_interrupt_handle())).is_ok() {
-        serve(&mut connection, &mut BodyEncoder::new(), requests, stop);
+        serve(&connection, &mut BodyEncoder::new(), requests, stop);
     }
     let closed = close(connection, stop.skips_checkpoint());
     if stop.is_cut_at_bound() && !stop.is_ended() {
@@ -80,22 +82,13 @@ pub(super) fn run<OpenError>(
 
 // Runs each request as it comes, until the queue drops its sender or stops waiting for answers.
 fn serve(
-    connection: &mut Connection,
+    connection: &Connection,
     encoder: &mut BodyEncoder,
     mut requests: mpsc::Receiver<ThreadRequest>,
     stop: &ThreadStop,
 ) {
     while let Some(request) = requests.blocking_recv() {
-        let is_answered = match request {
-            ThreadRequest::Batch { jobs, reply } => reply
-                .send(run_batch(connection, encoder, &jobs, stop))
-                .is_ok(),
-            ThreadRequest::Checkpoint { mode, reply } => {
-                reply.send(checkpoint(connection, mode)).is_ok()
-            }
-            ThreadRequest::Repack { reply } => reply.send(repack(connection)).is_ok(),
-        };
-        if !is_answered {
+        if !serve_request(connection, encoder, request, &mut requests, stop) {
             // The queue is gone, so no request follows.
             break;
         }
@@ -186,10 +179,35 @@ impl UnkeptWrite {
     }
 }
 
+/// Runs one request and answers it; false once the queue is gone, so no request follows. A copy
+/// serves the requests that come while it lives, each through here.
+pub(super) fn serve_request(
+    connection: &Connection,
+    encoder: &mut BodyEncoder,
+    request: ThreadRequest,
+    requests: &mut mpsc::Receiver<ThreadRequest>,
+    stop: &ThreadStop,
+) -> bool {
+    match request {
+        ThreadRequest::Batch { jobs, reply } => reply
+            .send(run_batch(connection, encoder, &jobs, stop))
+            .is_ok(),
+        ThreadRequest::Checkpoint { mode, reply } => {
+            reply.send(checkpoint(connection, mode)).is_ok()
+        }
+        ThreadRequest::Repack { reply } => reply.send(repack(connection)).is_ok(),
+        ThreadRequest::Backup { destination, reply } => {
+            let (answer, is_queue_gone) =
+                copy_database(connection, encoder, &destination, requests, stop);
+            reply.send(answer).is_ok() && !is_queue_gone
+        }
+    }
+}
+
 /// Runs `jobs` as one immediate transaction and answers every write's outcome once it committed,
 /// or the batch's failure beside the failures of the writes that failed alone before it.
 fn run_batch(
-    connection: &mut Connection,
+    connection: &Connection,
     encoder: &mut BodyEncoder,
     jobs: &[WriteJob],
     stop: &ThreadStop,
@@ -212,9 +230,10 @@ fn run_batch(
 
 /// Runs `jobs` in one transaction, pushing each write's outcome onto `outcomes`, and commits. The
 /// stop is read before each write, each statement and the commit, so a stop that lands between
-/// statements, where SQLite's interrupt does not reach, still keeps the batch from committing.
+/// statements, where SQLite's interrupt does not reach, still keeps the batch from committing. It
+/// opens through the shared connection, which a copy borrows while it lives.
 fn run_transaction(
-    connection: &mut Connection,
+    connection: &Connection,
     encoder: &mut BodyEncoder,
     jobs: &[WriteJob],
     stop: &ThreadStop,
@@ -227,8 +246,7 @@ fn run_transaction(
             stop,
         )));
     }
-    let mut transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+    let mut transaction = Transaction::new_unchecked(connection, TransactionBehavior::Immediate)
         .map_err(|failure| {
             Box::new(batch_failure(
                 BatchFailure::Begin(failure),

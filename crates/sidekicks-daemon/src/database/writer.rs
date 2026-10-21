@@ -10,6 +10,7 @@
 //! without running.
 
 mod backpressure;
+pub(crate) mod backup;
 pub(crate) mod messages;
 mod queue;
 pub(crate) mod repack;
@@ -20,6 +21,7 @@ mod tests;
 mod thread;
 
 use std::error::Error;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
@@ -37,6 +39,7 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::scheduler::ScheduledJobOutcome;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementResult, WriteStatement};
+use crate::database::writer::backup::BackupCopy;
 use crate::database::writer::messages::{
     BatchFailure, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
 };
@@ -263,7 +266,8 @@ impl DatabaseWriter {
     where
         OpenError: Error + Send + Sync + 'static,
     {
-        let (requests, thread_requests) = mpsc::channel(1);
+        // A copy and the one request it serves beside it.
+        let (requests, thread_requests) = mpsc::channel(2);
         let (opened, has_opened) = oneshot::channel();
         let (exit, exited) = oneshot::channel();
         let stop = Arc::new(ThreadStop::new());
@@ -473,6 +477,23 @@ impl DatabaseWriter {
             .unwrap_or_else(|_closed| Err(MaintenanceError::Closed))
     }
 
+    /// Copies the database into the new file at `destination` through SQLite's online backup on
+    /// the writer's connection, as [`backup`](crate::database::writer::backup) describes, while
+    /// writes go on; it waits out a hold before it starts. Fails with SQLite's error, or once the
+    /// writer is ended or closed.
+    pub(crate) async fn backup(
+        &self,
+        destination: PathBuf,
+    ) -> Result<BackupCopy, MaintenanceError> {
+        let (reply, answer) = oneshot::channel();
+        self.messages
+            .send(QueueMessage::Backup { destination, reply })
+            .map_err(|_unsent| MaintenanceError::Closed)?;
+        answer
+            .await
+            .unwrap_or_else(|_closed| Err(MaintenanceError::Closed))
+    }
+
     /// The body of the scheduler's passive WAL checkpoint job, run every
     /// [`PASSIVE_CHECKPOINT_INTERVAL`]; each run fails as [`DatabaseWriter::checkpoint`] does.
     pub(crate) fn passive_checkpoint_job(
@@ -593,6 +614,11 @@ enum QueueMessage {
     },
     /// Repack the file between batches.
     Repack(oneshot::Sender<Result<RepackReport, MaintenanceError>>),
+    /// Copy the database into a new file, beside the writes.
+    Backup {
+        destination: PathBuf,
+        reply: oneshot::Sender<Result<BackupCopy, MaintenanceError>>,
+    },
     /// The writer was ended: fail what is queued and let the thread go.
     End,
     /// Close, within a bound when one is given.

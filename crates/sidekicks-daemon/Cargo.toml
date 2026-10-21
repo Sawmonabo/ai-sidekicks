@@ -200,6 +200,7 @@ unicode-segmentation.workspace = true
 url.workspace = true
 uuid.workspace = true
 vte = { workspace = true, features = ["ansi"] }
+walkdir.workspace = true
 web-push-native.workspace = true
 webp.workspace = true
 x25519-dalek.workspace = true

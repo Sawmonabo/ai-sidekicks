@@ -43,6 +43,11 @@ ts_constants! {
 pub struct BackupId(FreeFormText<BACKUP_LABEL_MAX_LEN>);
 
 impl BackupId {
+    /// The id `text`, which the service mints.
+    pub fn new(text: FreeFormText<BACKUP_LABEL_MAX_LEN>) -> Self {
+        Self(text)
+    }
+
     /// The id's text.
     pub fn as_str(&self) -> &str {
         self.0.as_str()

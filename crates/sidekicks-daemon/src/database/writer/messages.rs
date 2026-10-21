@@ -2,12 +2,15 @@
 //! what the pump asks of the thread, and the thread's answers. Each request carries its own reply,
 //! answered once; the thread's exit is answered last.
 
+use std::path::PathBuf;
+
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::oneshot;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementResult, WriteStatement};
+use crate::database::writer::backup::BackupAnswer;
 use crate::database::writer::repack::RepackAnswer;
 use crate::events::session::insert::{SessionEventInsertError, SessionEventRow};
 
@@ -144,5 +147,12 @@ pub(crate) enum ThreadRequest {
     Repack {
         /// Where the answer goes.
         reply: oneshot::Sender<RepackAnswer>,
+    },
+    /// Copy the database into the file at `destination`, serving the requests that come meanwhile.
+    Backup {
+        /// The copy's file, which must not exist yet.
+        destination: PathBuf,
+        /// Where the answer goes.
+        reply: oneshot::Sender<BackupAnswer>,
     },
 }

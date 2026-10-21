@@ -1,10 +1,10 @@
 //! The `sidekicks-daemon` program's dispatch: what one run of the program is, read from the name it
 //! was started by and then from its arguments. A link named for the clone's askpass runs that;
 //! otherwise the first words choose a helper mode, `shell <daemon pid>`, `console <pid>`, `console
-//! input <pid>`, `environment <marker>`, `index`, `database copy` or `database shell`; with no
-//! words it is the service. The `hook`, `wsl`, `banners` and `minidump` modes and the
-//! `sidekicks-command-wrapper` and `sidekicks-command-askpass` links are their own features' to add
-//! here.
+//! input <pid>`, `environment <marker>`, `index`, `database copy`, `database restore <backup
+//! folder>` or `database shell`; with no words it is the service. The `hook`, `wsl`, `banners` and
+//! `minidump` modes and the `sidekicks-command-wrapper` and `sidekicks-command-askpass` links are
+//! their own features' to add here.
 
 use std::ffi::{CString, OsString, c_int};
 use std::io::{self, Write as _};
@@ -16,6 +16,7 @@ use crate::daemon::start::run_service;
 use crate::pty::console::{CONSOLE_MODE, run_console_mode};
 use crate::pty::shell::mode::{SHELL_MODE, run_shell_mode};
 use crate::recovery::database_file::copy::{DATABASE_COPY_MODE, run_database_copy};
+use crate::recovery::database_file::restore::{DATABASE_RESTORE_MODE, run_database_restore};
 use crate::recovery::database_file::sqlite_shell::DATABASE_SHELL_MODE;
 use crate::session::search::index::build_mode::{SEARCH_INDEX_BUILD_MODE, run_search_index_build};
 use crate::workspace::clone::askpass::program::{GIT_ASKPASS_PROGRAM_NAME, run_git_askpass};
@@ -49,6 +50,9 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
         [ENVIRONMENT_MODE, marker] => run_environment_mode(marker),
         [SEARCH_INDEX_BUILD_MODE, ..] => run_search_index_build(),
         [first, second, ..] if [*first, *second] == DATABASE_COPY_MODE => run_database_copy(),
+        [first, second, ..] if [*first, *second] == DATABASE_RESTORE_MODE => {
+            run_database_restore(&arguments[2..])
+        }
         [first, second, ..] if [*first, *second] == DATABASE_SHELL_MODE => {
             run_database_shell(run_sqlite_shell, &program_name, &arguments[2..])
         }

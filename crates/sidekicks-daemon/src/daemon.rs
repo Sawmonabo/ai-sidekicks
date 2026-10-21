@@ -5,6 +5,7 @@
 pub(crate) mod already_running_error;
 pub(crate) mod app_diagnostic_methods;
 pub(crate) mod artifact_methods;
+pub(crate) mod backup;
 pub(crate) mod config_methods;
 pub(crate) mod configuration;
 pub(crate) mod data_folder_lock;
