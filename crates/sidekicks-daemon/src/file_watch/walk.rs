@@ -41,7 +41,8 @@ pub(super) struct WalkRequest {
 }
 
 impl WalkRequest {
-    /// Whether this walk, still waiting, covers `later`: it starts at or above it, watches the
+    /// Whether this walk, still waiting, covers `later`: inside the same root (a nested root's
+    /// walk hands over what its parent's filter refuses), it starts at or above it, watches the
     /// root again when `later` would, and hands over every entry `later` would.
     pub(super) fn covers(&self, later: &Self) -> bool {
         let covers_entries = match (self.modified_since, later.modified_since) {
@@ -49,7 +50,8 @@ impl WalkRequest {
             (Some(_), None) => false,
             (Some(since), Some(later_since)) => since <= later_since,
         };
-        later.start.starts_with(&self.start)
+        self.root == later.root
+            && later.start.starts_with(&self.start)
             && (self.rearms_root || !later.rearms_root)
             && covers_entries
     }

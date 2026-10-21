@@ -30,7 +30,7 @@ use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_contracts::worktree::setup::{
-    WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
+    WorktreeSetupStage, WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
 };
 use sidekicks_platforms::Spawner;
 use tokio::task::{JoinError, JoinHandle};
@@ -222,6 +222,9 @@ struct Card {
     made: Option<MadeWorktree>,
     state: WorktreeSetupState,
     steps: Vec<CardStep>,
+    // The project steps that succeeded before a re-read failed, kept off the card until the next
+    // read that succeeds matches them, so a retry never runs them again.
+    succeeded_unshown: Vec<CardStep>,
     began_at: Instant,
     listeners: HashMap<u64, WorktreeSetupListener>,
     is_running: bool,
@@ -294,6 +297,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
                 made: None,
                 state: WorktreeSetupState::Running,
                 steps: vec![CardStep::make_tree()],
+                succeeded_unshown: Vec::new(),
                 began_at: Instant::now(),
                 listeners: HashMap::new(),
                 is_running: false,
@@ -416,7 +420,8 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// and answers the card as it ends. The steps are matched by what they do, not their place, so
     /// an edited list resumes at its first step that has not succeeded; a failed warm step runs
     /// again alone. A card that is running or did not fail is answered as it stands, and one whose
-    /// project's steps cannot be read again is answered failed at its read. Fails with
+    /// project's steps cannot be read again is answered failed at its read, its succeeded steps
+    /// kept for the next read that succeeds. Fails with
     /// `worktree.notFound` when the tree has no card, and `TreeNeverMade` when its tree was never
     /// made.
     #[cfg_attr(
@@ -473,15 +478,25 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             let read_again = match read_again {
                 Ok(read_again) => read_again,
                 Err(error) => {
-                    // The card stands failed at its read, as when the first read fails.
-                    card.steps.truncate(1);
+                    // The card stands failed at its read, as when the first read fails; the steps
+                    // that succeeded wait off the card for the next read.
+                    let succeeded = card.steps.drain(1..).filter(|entry| {
+                        entry.step.stage == WorktreeSetupStage::ProjectSteps
+                            && entry.step.state == WorktreeSetupStepState::Succeeded
+                    });
+                    card.succeeded_unshown.extend(succeeded);
                     card.steps
                         .push(CardStep::project_steps_unread(&describe_error(&error)));
                     card.emit(worktree_id);
                     return Ok(card.status(worktree_id));
                 }
             };
-            let (kept, kept_count) = keep_succeeded_steps(&card.steps, read_again);
+            let current: Vec<CardStep> = card
+                .succeeded_unshown
+                .drain(..)
+                .chain(card.steps.iter().cloned())
+                .collect();
+            let (kept, kept_count) = keep_succeeded_steps(&current, read_again);
             let make_tree = card.steps[0].clone();
             card.steps = std::iter::once(make_tree)
                 .chain(kept)

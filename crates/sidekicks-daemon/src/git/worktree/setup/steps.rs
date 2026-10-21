@@ -389,7 +389,8 @@ enum CommandWait {
 /// into one tail; it leads a process tree of its own, so its exit, its time limit and an end each
 /// end every process it started that is still in that tree. Answers how its step ends once the
 /// command has exited and its output has closed or a second has passed, or once it was ended; the
-/// output's read end is closed then, so a process that left the tree and writes later fails.
+/// output's reader is dropped then, so a process that left the tree and writes later fails where
+/// the system closes the read end at once.
 pub(super) async fn run_command(
     command: SetupCommand<'_>,
     running: &RunningCommand,
@@ -490,8 +491,9 @@ async fn run_started_command(
             (take_outcome(Some(end.reason.to_owned()), &output), ended)
         }
     };
-    // Closes the output's read end, so a process that left the tree and still holds the output
-    // fails its next write instead of keeping a reader waiting.
+    // Drops the output's reader, so a process that left the tree and still holds the output fails
+    // its next write instead of keeping a reader waiting, where the system closes the read end at
+    // once; elsewhere the read end closes once the tree's end has closed every writer.
     drop(reading);
     outcome
 }

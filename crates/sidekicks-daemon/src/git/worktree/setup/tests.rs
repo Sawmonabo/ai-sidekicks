@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -47,9 +48,11 @@ fn no_ceiling() -> io::Result<Option<u64>> {
     Ok(None)
 }
 
-// The project's setup as the test saves it, read again at each read.
+// The project's setup as the test saves it, read again at each read; a read refused while
+// `is_unreadable` is set, as a settings file that cannot be read refuses one.
 struct SavedSetup {
     setup: Mutex<ProjectSetup>,
+    is_unreadable: AtomicBool,
 }
 
 impl WorktreeSetupSources for SavedSetup {
@@ -76,7 +79,17 @@ impl WorktreeSetupSources for SavedSetup {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
-        async move { Ok(setup) }.boxed()
+        let is_unreadable = self.is_unreadable.load(Ordering::SeqCst);
+        async move {
+            if is_unreadable {
+                return Err(WorktreeSetupError::Read(
+                    io::Error::new(io::ErrorKind::InvalidData, "the settings file is not JSON")
+                        .into(),
+                ));
+            }
+            Ok(setup)
+        }
+        .boxed()
     }
 
     fn read_command_environment<'a>(
@@ -93,6 +106,7 @@ struct SetupFixture {
     // Held for the runner's watcher, whose events it writes.
     _database: TestDatabase,
     _log: TestLog,
+    sources: Arc<SavedSetup>,
     runner: WorktreeSetupRunner<NullWatcher>,
 }
 
@@ -159,20 +173,23 @@ impl SetupFixture {
                 slow_tick_interval: Duration::from_secs(180),
             },
         ));
+        let sources = Arc::new(SavedSetup {
+            setup: Mutex::new(setup),
+            is_unreadable: AtomicBool::new(false),
+        });
         let runner = WorktreeSetupRunner::new(WorktreeSetupRunnerDeps {
             git,
             spawner: Spawner::new(tokio::runtime::Handle::current())
                 .expect("the spawner thread starts"),
             watcher,
-            sources: Arc::new(SavedSetup {
-                setup: Mutex::new(setup),
-            }),
+            sources: Arc::clone(&sources) as _,
             command_shell: command_shell().expect("the account's shell reads"),
         });
         Self {
             scratch,
             _database: database,
             _log: log,
+            sources,
             runner,
         }
     }
@@ -285,6 +302,54 @@ async fn a_failed_command_stops_the_run_and_a_retry_runs_on_from_it_keeping_the_
         read("ran.log"),
         "ran\n",
         "a step that succeeded is not run again"
+    );
+}
+
+// Kills a failed re-read that drops the record of the steps that succeeded, so the next good
+// retry runs a command that already ran once more.
+#[tokio::test]
+async fn a_retry_whose_read_fails_keeps_the_succeeded_steps_for_the_next_read() {
+    let fixture = SetupFixture::new(setup_of(
+        &[],
+        &["echo ran >> ran.log", "test -f fixed"],
+        None,
+    ))
+    .await;
+    let tree = fixture.tree();
+    let (worktree_id, failed) = fixture.make().await;
+    assert_eq!(states_of(&failed), [Succeeded, Succeeded, Failed, Pending]);
+
+    fixture.sources.is_unreadable.store(true, Ordering::SeqCst);
+    let unread = fixture
+        .runner
+        .retry(worktree_id)
+        .await
+        .expect("the retry answers the card");
+
+    assert_eq!(unread.state, WorktreeSetupState::Failed);
+    assert_eq!(states_of(&unread), [Succeeded, Failed]);
+    assert_eq!(
+        unread.steps[1].error.as_ref().map(FreeFormText::as_str),
+        Some(
+            "Could not read the setup steps: the setup's records could not be read: the settings \
+             file is not JSON"
+        )
+    );
+
+    fixture.sources.is_unreadable.store(false, Ordering::SeqCst);
+    fs::write(tree.join("fixed"), "").expect("written");
+    let retried = fixture
+        .runner
+        .retry(worktree_id)
+        .await
+        .expect("the retry runs");
+
+    assert_eq!(retried.state, WorktreeSetupState::Succeeded);
+    assert_eq!(states_of(&retried), [Succeeded; 4]);
+    assert_eq!(
+        fs::read_to_string(tree.join("ran.log")).expect("the tree's file reads"),
+        "ran\n",
+        "a step that succeeded before the failed read is not run again"
     );
 }
 

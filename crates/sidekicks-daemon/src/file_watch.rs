@@ -547,10 +547,12 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
         }
     }
 
-    // A rescan with a path walks that subtree, clipped to the roots: a path above a root walks
-    // each root under it, never more, and leaves the instant the feed was last whole. A rescan
-    // without one walks every root and makes the feed whole again from now. Each reports entries
-    // changed at or after the rescan instant.
+    // A rescan with a path walks that subtree, clipped to the roots: the root holding the path
+    // from the path down, and every root under the path whole, a root nested inside the holding
+    // one among them (a linked tree's own git folder sits inside the common folder, whose filter
+    // refuses it); it leaves the instant the feed was last whole. A rescan without one walks every
+    // root and makes the feed whole again from now. Each reports entries changed at or after the
+    // rescan instant.
     fn take_rescan(&mut self, paths: &[PathBuf]) {
         if paths.is_empty() {
             let since = self.take_rescan_instant();
@@ -559,28 +561,28 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
         }
         let since = self.rescan_instant();
         for path in paths {
-            if let Some(root) = self.root_holding(path) {
+            let holding = self.root_holding(path);
+            if let Some(root) = holding.clone() {
                 self.queue_walk(WalkRequest {
                     root,
                     start: path.clone(),
                     rearms_root: false,
                     modified_since: Some(since),
                 });
-            } else {
-                let roots_below: Vec<PathBuf> = self
-                    .roots
-                    .iter()
-                    .filter(|root| root.starts_with(path))
-                    .cloned()
-                    .collect();
-                for root in roots_below {
-                    self.queue_walk(WalkRequest {
-                        start: root.clone(),
-                        root,
-                        rearms_root: false,
-                        modified_since: Some(since),
-                    });
-                }
+            }
+            let roots_below: Vec<PathBuf> = self
+                .roots
+                .iter()
+                .filter(|root| root.starts_with(path) && Some(*root) != holding.as_ref())
+                .cloned()
+                .collect();
+            for root in roots_below {
+                self.queue_walk(WalkRequest {
+                    start: root.clone(),
+                    root,
+                    rearms_root: false,
+                    modified_since: Some(since),
+                });
             }
         }
     }

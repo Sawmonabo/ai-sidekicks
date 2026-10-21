@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use notify::event::{DataChange, ModifyKind};
+use notify::event::{DataChange, Flag, ModifyKind};
 use notify::{Event, EventHandler, EventKind, NullWatcher};
 use rstest::rstest;
 use rusqlite::params;
@@ -563,6 +563,46 @@ async fn a_linked_tree_is_marked_stale_by_a_shared_ref_not_by_the_main_checkout_
         .join("refs")
         .join("heads")
         .join("linked")])));
+
+    assert_eq!(next_change(&mut changes).await.session_id, session_id);
+}
+
+// Kills a rescan of the common folder that walks only the common root, whose filter refuses
+// `worktrees/`, and a pending common walk that swallows the nested root's: the linked tree's own
+// HEAD, moved before the rescan, is reported through its own root's walk.
+#[tokio::test]
+async fn a_rescan_of_the_common_folder_walks_the_linked_tree_s_own_git_folder() {
+    let fixture = Fixture::new(no_ceiling, Duration::from_secs(180)).await;
+    let repository = fixture.repository("one").await;
+    let tree = fixture.scratch.path().join("linked");
+    fixture
+        .git_in(
+            &repository,
+            &["worktree", "add", "-b", "linked", &tree.to_string_lossy()],
+        )
+        .await;
+    let session_id = fixture.session(Some(&tree), "linked");
+    let (on_change, mut changes) = listener();
+    let _subscription = fixture
+        .watcher
+        .subscribe(&session_id, on_change)
+        .await
+        .expect("subscribed");
+    let common_folder = canonical_folder_path(&repository.join(".git"))
+        .await
+        .expect("the common folder resolves");
+    let mut git_folders = fixture
+        .feeds(&tree)
+        .await
+        .git_folder
+        .expect("the git folders are watched");
+
+    fixture
+        .git_in(&tree, &["checkout", "--quiet", "-b", "moved"])
+        .await;
+    git_folders.handle_event(Ok(Event::new(EventKind::Other)
+        .set_flag(Flag::Rescan)
+        .add_path(common_folder)));
 
     assert_eq!(next_change(&mut changes).await.session_id, session_id);
 }
