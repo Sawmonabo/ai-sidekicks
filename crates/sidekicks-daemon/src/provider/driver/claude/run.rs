@@ -2,4 +2,4 @@
 //! each run takes to its session.
 
 mod prompts;
-mod routes;
+pub(super) mod routes;

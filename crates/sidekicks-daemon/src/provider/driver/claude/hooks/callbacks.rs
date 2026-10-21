@@ -201,9 +201,12 @@ pub(crate) async fn answer_background_work_check(
 /// Answers one request Claude Code holds through `channel`. An answer that cannot be written
 /// leaves Claude Code waiting on it for good, so it is recorded as `ControlAnswerFailed` and the
 /// process is stopped, for the restart path to bring the session back.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's session task writes every hook and request answer through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's session task writes every hook and request answer through it"
+    )
 )]
 pub(crate) async fn answer_claude_request(
     channel: &dyn ClaudeProcessChannel,
