@@ -52,13 +52,6 @@ pub(crate) struct EpochBinding {
 /// The provider-side operation a delivery belongs to (a tool call, a message item, an artifact),
 /// by the key the provider correlates its deliveries with. The first delivery of every operation
 /// is passed as its opening; a later one that finds no opening held is read as one evicted.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the provider's event delivery names the operation each delivery belongs to"
-    )
-)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DeliveryOperation<'key> {
     /// The provider's key for the operation.

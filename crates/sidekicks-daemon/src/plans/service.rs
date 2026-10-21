@@ -97,13 +97,6 @@ impl PlansService {
     /// Records `plan` `waiting`: its artifact, `artifact.published`, the plan's row and
     /// `plan.proposed` naming the artifact, in one write. Answers the minted plan id. Fails with
     /// `session.notFound` or `agent.run.notFound`, as the store fails, or as the write does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code and Codex drivers, which hand a finished plan over"
-        )
-    )]
     pub(crate) async fn take_plan(&self, plan: ProviderPlan) -> Result<PlanId, PlanError> {
         let metadata = match &plan.plan_file_path {
             Some(path) => file_name_metadata(path.as_str()),

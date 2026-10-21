@@ -28,10 +28,6 @@ pub(crate) fn resolve_claude_output_speed(level: &str) -> &'static str {
 /// Answers the level the process now runs at, or `None` when Claude Code refused, which leaves it
 /// on what it held and is recorded as a diagnostic. Fails when the request went unanswered or could
 /// not be written.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's spawn and run start apply the output speed through it"
-)]
 pub(crate) async fn apply_claude_output_speed(
     channel: &dyn ClaudeProcessChannel,
     session_id: SessionId,

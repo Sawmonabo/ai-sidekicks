@@ -1,0 +1,452 @@
+//! A run's start on Claude Code: its opening words written to the session's live process as typed,
+//! with its staged files, one turn at a time, after the output-speed level the run asks for is
+//! applied. A turn the daemon starts itself (a goal, a review, an `Allow once` with no run) or one
+//! Claude Code started by itself is started as the session's own run through the run engine before
+//! anything is written, at the session's current posture, so every row of the turn has a run.
+
+use std::error::Error;
+use std::sync::{Arc, Mutex, PoisonError};
+
+use futures::FutureExt;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
+
+use crate::provider::driver::attachments::AttachmentResolver;
+use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::driver::claude::attachments::compose_claude_attachment_blocks;
+use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
+use crate::provider::driver::claude::delivery::stream::ClaudeSessionStreams;
+use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::provider::driver::claude::intervention::interrupt_claude_turn;
+use crate::provider::driver::claude::output_speed::{
+    apply_claude_output_speed, resolve_claude_output_speed,
+};
+use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
+use crate::provider::driver::claude::run::routes::{
+    ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes,
+};
+use crate::provider::driver::claude::session::errors::{
+    ClaudeSessionError, ClaudeSessionUnavailableReason,
+};
+use crate::provider::driver::claude::session::slots::ClaudeSessionSlots;
+use crate::provider::driver::claude::session::state::LiveClaudeSession;
+use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+use crate::provider::driver::claude::session::transport::user_message::{
+    ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
+};
+use crate::provider::driver::claude::spawn::legs::assert_claude_spawn_bound_realization;
+use crate::provider::driver::contract::{DriverError, StartRunParams};
+use crate::provider::driver::run_control::DaemonTurnBindingResolver;
+use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::session::run::start_request::DaemonTurnStartRequest;
+
+/// What a turn the daemon starts on a session itself opens with: words, with the blocks of the
+/// files a person's message carries, written to the session's own process under the message id a
+/// later cut names; a turn run apart from that process, started once its run is bound; or the turn
+/// Claude Code started by itself, which its run takes with nothing written.
+pub(crate) enum ClaudeDaemonTurnOpening {
+    /// Words written to the session's process.
+    Text {
+        /// The words.
+        text: OutboundText,
+        /// The message's id.
+        message_id: String,
+        /// The blocks of its files, in staging order.
+        attachment_blocks: Vec<ClaudeUserContentBlock>,
+    },
+    /// A turn run apart from the session's process.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's staged review starts its own turn with it"
+        )
+    )]
+    Apart {
+        /// Starts the turn once its run is bound.
+        start: Arc<dyn Fn(ClaudeBoundRun) + Send + Sync>,
+    },
+    /// The turn Claude Code started by itself.
+    Provider,
+}
+
+/// Starts runs on live Claude Code sessions; clones share everything.
+#[derive(Clone)]
+pub(crate) struct ClaudeRunStart {
+    /// Every session's slot.
+    pub(crate) slots: ClaudeSessionSlots,
+    /// The runs bound to each session.
+    pub(crate) routes: Arc<ClaudeRunRoutes>,
+    /// Each live session's stream.
+    pub(crate) streams: Arc<ClaudeSessionStreams>,
+    /// Each process's handshake, which settles a run's output speed.
+    pub(crate) handshakes: Arc<ClaudeHandshakeRegister>,
+    /// The messages written and not yet reported taken.
+    pub(crate) prompts: Arc<Mutex<ClaudeSentPrompts>>,
+    /// The run engine, which starts a turn the daemon starts itself.
+    pub(crate) engine: Arc<dyn ClaudeRunEngine>,
+    /// Resolves a message's files.
+    pub(crate) attachments: Arc<dyn AttachmentResolver>,
+    /// Opens the binding of a turn the daemon starts itself.
+    pub(crate) bindings: Arc<dyn DaemonTurnBindingResolver>,
+}
+
+impl ClaudeRunStart {
+    /// Writes the run's opening words to its session's live process, as typed, with its staged
+    /// files. Claude Code takes one turn at a time, so a run already holding the turn is refused
+    /// `RunAlreadyDispatched` and one while another holds it `SessionTurnInFlight`; a run whose
+    /// last turn an interrupt is ending first waits, within the request deadline, for that turn's
+    /// end. Fails with no live session, a run the session's process cannot carry, files that
+    /// cannot be read (before anything is held), and the failed write; nothing is resent.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's run start writes each opening through it"
+        )
+    )]
+    pub(crate) async fn start_run(&self, params: &StartRunParams) -> Result<(), DriverError> {
+        let opening = &params.opening;
+        let session_id = opening.session_id;
+        let run_id = params.run_id;
+        let is_ending_for_interrupt = self
+            .streams
+            .get(session_id)
+            .is_some_and(|stream| stream.is_turn_ending_for_interrupt(run_id));
+        if is_ending_for_interrupt
+            && !self
+                .routes
+                .when_turn_released(session_id, CLAUDE_REQUEST_DEADLINE)
+                .await
+        {
+            return Err(claude_session_unavailable(
+                ClaudeSessionUnavailableReason::SessionTurnInFlight,
+                session_id,
+                Some(run_id),
+            )
+            .into());
+        }
+        let live = self.slots.live_session(session_id).ok_or_else(|| {
+            claude_session_unavailable(
+                ClaudeSessionUnavailableReason::NoLiveSession,
+                session_id,
+                Some(run_id),
+            )
+        })?;
+        assert_claude_spawn_bound_realization(params, &live)?;
+        // Read before the turn is held, so a file that cannot be read holds nothing.
+        let attachment_blocks =
+            compose_claude_attachment_blocks(&*self.attachments, &session_id, &opening.attachments)
+                .await
+                .map_err(|error| DriverError::Internal(Box::new(error)))?;
+        if self
+            .routes
+            .lead_run_on(session_id)
+            .is_some_and(|lead| lead.run_id == run_id)
+        {
+            return Err(claude_session_unavailable(
+                ClaudeSessionUnavailableReason::RunAlreadyDispatched,
+                session_id,
+                Some(run_id),
+            )
+            .into());
+        }
+        // The next run carries the agent's own level, which differs and so is sent again.
+        let output_speed = params
+            .output_speed_for_turn
+            .as_ref()
+            .or(params.output_speed.as_ref())
+            .map(|level| level.as_str().to_owned());
+        self.open_turn(
+            &live,
+            ClaudeBoundRun {
+                run_id,
+                binding_id: opening.binding_id.clone(),
+            },
+            &OutboundText {
+                text: opening.content.as_str().to_owned(),
+                origin: OutboundTextOrigin::HumanText,
+            },
+            opening.message_id.to_string(),
+            attachment_blocks,
+            output_speed.as_deref(),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Starts a turn the daemon starts on a session itself, or one Claude Code started by itself,
+    /// as the session's own run at its current posture, and answers the run's id once its opening
+    /// is written and the run is running. A text opening is refused `SessionTurnInFlight`, before
+    /// any run exists, while anything holds the session's turn; every opening is refused
+    /// `ExecutionPostureAbsent` on a session holding no posture. Fails as the run engine's start
+    /// fails, the run then ended `failed` by the engine.
+    pub(crate) async fn start_daemon_turn(
+        &self,
+        session_id: SessionId,
+        opening: ClaudeDaemonTurnOpening,
+    ) -> Result<RunId, DriverError> {
+        let live = self.live_session(session_id)?;
+        let execution_posture = live
+            .settings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .execution_posture
+            .clone()
+            .ok_or_else(|| {
+                claude_session_unavailable(
+                    ClaudeSessionUnavailableReason::ExecutionPostureAbsent,
+                    session_id,
+                    None,
+                )
+            })?;
+        let is_provider_started = matches!(opening, ClaudeDaemonTurnOpening::Provider);
+        let is_apart = matches!(opening, ClaudeDaemonTurnOpening::Apart { .. });
+        if matches!(opening, ClaudeDaemonTurnOpening::Text { .. })
+            && self.routes.is_turn_held(session_id)
+        {
+            return Err(claude_session_unavailable(
+                ClaudeSessionUnavailableReason::SessionTurnInFlight,
+                session_id,
+                None,
+            )
+            .into());
+        }
+        let opening = Arc::new(Mutex::new(Some(opening)));
+        let start = self.clone();
+        let interrupt = self.clone();
+        let request = DaemonTurnStartRequest {
+            session_id,
+            provider: DESCRIPTOR.provider_id(),
+            admitted_provider_account_id: live.admitted_provider_account_id.clone(),
+            execution_posture,
+            is_provider_started,
+            is_apart,
+            start_turn: Box::new(move |run_id| {
+                let start = start.clone();
+                let opening = opening
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
+                async move { start.start_turn(session_id, run_id, opening).await }.boxed()
+            }),
+            interrupt_turn: Box::new(move |run_id| {
+                let interrupt = interrupt.clone();
+                async move {
+                    let live = interrupt.live_session(session_id)?;
+                    let stream = interrupt.streams.get(session_id);
+                    interrupt_claude_turn(&live, stream.as_deref(), run_id).await?;
+                    Ok(())
+                }
+                .boxed()
+            }),
+        };
+        self.engine
+            .start_daemon_turn(request)
+            .await
+            .map_err(|error| DriverError::Internal(Box::new(error)))
+    }
+
+    // The engine's start of a daemon turn under its new run: the run's binding opened, then the
+    // opening carried out once.
+    async fn start_turn(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        opening: Option<ClaudeDaemonTurnOpening>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let binding = self
+            .bindings
+            .open_daemon_turn_binding(run_id, session_id)
+            .await?;
+        let run = ClaudeBoundRun {
+            run_id,
+            binding_id: binding.binding_id,
+        };
+        match opening {
+            Some(ClaudeDaemonTurnOpening::Apart { start }) => start(run),
+            Some(ClaudeDaemonTurnOpening::Provider) => {
+                self.routes
+                    .hold_turn(run_id, session_id, run.binding_id)
+                    .map_err(|_held| {
+                        claude_session_unavailable(
+                            ClaudeSessionUnavailableReason::SessionTurnInFlight,
+                            session_id,
+                            Some(run_id),
+                        )
+                    })?;
+            }
+            Some(ClaudeDaemonTurnOpening::Text {
+                text,
+                message_id,
+                attachment_blocks,
+            }) => {
+                // Read again: the session may have closed or moved to another process meanwhile.
+                let live = self.slots.live_session(session_id).ok_or_else(|| {
+                    claude_session_unavailable(
+                        ClaudeSessionUnavailableReason::NoLiveSession,
+                        session_id,
+                        Some(run_id),
+                    )
+                })?;
+                self.open_turn(&live, run, &text, message_id, attachment_blocks, None)
+                    .await?;
+            }
+            // The engine starts each run's turn once.
+            None => {}
+        }
+        Ok(())
+    }
+
+    // Holds the session's turn for the run and writes its opening words and files, after the
+    // output-speed level it asks for. The hold is taken before any await, so it covers the level's
+    // request, and before the write, since an interrupt racing the words must find the run.
+    async fn open_turn(
+        &self,
+        live: &Arc<LiveClaudeSession>,
+        run: ClaudeBoundRun,
+        text: &OutboundText,
+        message_id: String,
+        attachment_blocks: Vec<ClaudeUserContentBlock>,
+        output_speed: Option<&str>,
+    ) -> Result<(), DriverError> {
+        let ClaudeBoundRun { run_id, binding_id } = run;
+        let session_id = live.session_id;
+        self.routes
+            .hold_turn(run_id, session_id, binding_id)
+            .map_err(|_held| {
+                DriverError::from(claude_session_unavailable(
+                    ClaudeSessionUnavailableReason::SessionTurnInFlight,
+                    session_id,
+                    Some(run_id),
+                ))
+            })?;
+        if let Some(level) = output_speed {
+            self.apply_output_speed(live, run_id, level).await?;
+        }
+        // Armed before the write, so the turn's handshake cannot outrun it; recorded before the
+        // write, since Claude Code may report the message taken before the write returns.
+        self.handshakes
+            .arm_run_output_speed(session_id, &live.provider_session_id, run_id);
+        self.lock_prompts()
+            .record_written(session_id, run_id, &message_id, false);
+        let frame = compose_claude_user_frame(text, message_id.clone(), attachment_blocks);
+        match live.channel.write_user_frame(frame).await {
+            ClaudeWriteAttempt::Written => Ok(()),
+            ClaudeWriteAttempt::Failed { delivery, cause } => {
+                self.handshakes.disarm_run_output_speed(session_id);
+                // Bytes that may have been taken can still start a turn, whose end releases the
+                // hold; a write that never left releases it now. Nothing is resent.
+                Err(match delivery {
+                    ClaudeWriteDelivery::Unsent => {
+                        self.lock_prompts().record_dropped(session_id, &message_id);
+                        self.routes.unbind_run(run_id);
+                        ClaudeSessionError::InputUnwritable(cause).into()
+                    }
+                    ClaudeWriteDelivery::Indeterminate => DriverError::Internal(Box::new(cause)),
+                })
+            }
+        }
+    }
+
+    // Sends the run's output-speed level once, before the turn it governs, only when it differs
+    // from the level the process took; a refusal runs the turn on the level the process holds.
+    async fn apply_output_speed(
+        &self,
+        live: &Arc<LiveClaudeSession>,
+        run_id: RunId,
+        level: &str,
+    ) -> Result<(), ClaudeSessionError> {
+        let session_id = live.session_id;
+        let applied = live
+            .settings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .applied_output_speed
+            .clone();
+        if applied.as_deref() == Some(resolve_claude_output_speed(level)) {
+            return Ok(());
+        }
+        match apply_claude_output_speed(&*live.channel, session_id, level).await {
+            Ok(Some(level)) => {
+                live.settings
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .applied_output_speed = Some(level.to_owned());
+            }
+            Ok(None) => {}
+            Err(error) => {
+                self.routes.unbind_run(run_id);
+                return Err(error);
+            }
+        }
+        // A close or rewind during the request retired this process and its routes, so nothing is
+        // armed or written on it.
+        if !self
+            .slots
+            .live_session(session_id)
+            .is_some_and(|current| Arc::ptr_eq(&current, live))
+        {
+            self.routes.unbind_run(run_id);
+            return Err(claude_session_unavailable(
+                ClaudeSessionUnavailableReason::NoLiveSession,
+                session_id,
+                Some(run_id),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The live process of a lead run or of a helper's child run. Fails `NoLiveRun` for a run
+    /// apart from its session's process or bound to none.
+    pub(crate) fn live_session_for_run(
+        &self,
+        run_id: RunId,
+    ) -> Result<Arc<LiveClaudeSession>, ClaudeSessionError> {
+        let session_id = match self.routes.route_of(run_id) {
+            Some(ClaudeRunRoute::Lead { session_id, .. }) => Some(session_id),
+            Some(ClaudeRunRoute::Child(route)) => Some(route.session_id),
+            Some(ClaudeRunRoute::Apart) | None => None,
+        };
+        session_id
+            .and_then(|session_id| self.slots.live_session(session_id))
+            .ok_or(ClaudeSessionError::Unavailable {
+                reason: ClaudeSessionUnavailableReason::NoLiveRun,
+                detail: None,
+                session_id,
+                run_id: Some(run_id),
+            })
+    }
+
+    /// The session's live process. Fails `NoLiveSession`.
+    pub(crate) fn live_session(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Arc<LiveClaudeSession>, ClaudeSessionError> {
+        self.slots.live_session(session_id).ok_or_else(|| {
+            claude_session_unavailable(
+                ClaudeSessionUnavailableReason::NoLiveSession,
+                session_id,
+                None,
+            )
+        })
+    }
+
+    fn lock_prompts(&self) -> std::sync::MutexGuard<'_, ClaudeSentPrompts> {
+        self.prompts.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The refusal of an operation the session cannot carry out now, for `reason`.
+pub(crate) fn claude_session_unavailable(
+    reason: ClaudeSessionUnavailableReason,
+    session_id: SessionId,
+    run_id: Option<RunId>,
+) -> ClaudeSessionError {
+    ClaudeSessionError::Unavailable {
+        reason,
+        detail: None,
+        session_id: Some(session_id),
+        run_id,
+    }
+}

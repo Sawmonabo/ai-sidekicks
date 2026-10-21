@@ -10,6 +10,7 @@ use std::sync::PoisonError;
 use serde_json::Value;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
@@ -165,7 +166,7 @@ impl ClaudeDeliveryStream {
             let reader_carried = readings.reader_carried_run.take() == Some(lead.run_id);
             let decision = readings.gate.admit_terminal_frame(&TerminalRunFrame {
                 run_id: lead.run_id,
-                run_version: turn_number.map_or(0, |number| number.get()),
+                run_version: turn_number.map_or(0, SafeInt::get),
                 route,
             });
             let TerminalEmissionDecision::Emit { intended_close } = decision else {

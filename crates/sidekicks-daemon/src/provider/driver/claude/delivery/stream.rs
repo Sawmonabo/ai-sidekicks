@@ -483,7 +483,7 @@ impl ClaudeDeliveryStream {
                         .insert(tool_call_id.to_owned(), message.to_owned());
                 }
             }
-            "stream_event" => self.stream_event(session, &lead, &frame.text).await,
+            "stream_event" => stream_event(session, &lead, &frame.text),
             "assistant" => self.assistant(session, &lead, &frame.text, &members).await,
             "user" => self.user(session, &lead, &frame.text, &members).await,
             _ => {}
@@ -602,18 +602,6 @@ impl ClaudeDeliveryStream {
         )
         .await;
         running_model
-    }
-
-    async fn stream_event(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun, text: &str) {
-        let run = ClaudeStreamedRun {
-            session_id: session.session_id,
-            run_id: lead.run_id,
-        };
-        // The piece waits for its interval; the session's timer sends it.
-        session
-            .lock()
-            .streamed_blocks
-            .observe(text, run, Instant::now());
     }
 
     async fn assistant(
@@ -864,4 +852,16 @@ fn report_engine_failure(
         error,
         "the run engine could not take what a Claude Code session reported"
     );
+}
+
+// A streamed piece waits for its interval; the session's timer sends it.
+fn stream_event(session: &ClaudeSessionStream, lead: &ClaudeBoundRun, text: &str) {
+    let run = ClaudeStreamedRun {
+        session_id: session.session_id,
+        run_id: lead.run_id,
+    };
+    session
+        .lock()
+        .streamed_blocks
+        .observe(text, run, Instant::now());
 }

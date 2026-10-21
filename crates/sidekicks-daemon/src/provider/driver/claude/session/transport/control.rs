@@ -42,14 +42,12 @@ pub(crate) enum ClaudeControlRequest {
         sdk_mcp_servers: Option<Vec<String>>,
     },
     /// Stops the running turn; with `cancel_queued` it also drops what is queued behind it.
-    #[expect(dead_code, reason = "the Claude driver's interrupt sends it")]
     Interrupt {
         /// Whether the messages queued behind the turn are dropped too.
         #[serde(skip_serializing_if = "is_false")]
         cancel_queued: bool,
     },
     /// Changes the flag settings layer of a live process.
-    #[expect(dead_code, reason = "the Claude driver's session controls send it")]
     ApplyFlagSettings {
         /// The keys changed, each merged whole.
         settings: ClaudeFlagSettings,
@@ -125,7 +123,6 @@ pub(crate) enum ClaudeControlRequest {
     #[expect(dead_code, reason = "the Claude driver's settings read sends it")]
     GetSettings {},
     /// Cuts the conversation back to before one message.
-    #[expect(dead_code, reason = "the Claude driver's rewind sends it")]
     RewindConversation {
         /// The message the cut removes, with all after it.
         target_message_uuid: String,
@@ -259,9 +256,15 @@ pub(crate) struct ClaudeHooks {
     /// Before each tool call.
     #[serde(rename = "PreToolUse", skip_serializing_if = "Vec::is_empty")]
     pub(crate) pre_tool_use: Vec<ClaudeHookMatcher>,
+    /// After each tool call.
+    #[serde(rename = "PostToolUse", skip_serializing_if = "Vec::is_empty")]
+    pub(crate) post_tool_use: Vec<ClaudeHookMatcher>,
     /// After each batch of tool calls.
     #[serde(rename = "PostToolBatch", skip_serializing_if = "Vec::is_empty")]
     pub(crate) post_tool_batch: Vec<ClaudeHookMatcher>,
+    /// As a helper finishes.
+    #[serde(rename = "SubagentStop", skip_serializing_if = "Vec::is_empty")]
+    pub(crate) subagent_stop: Vec<ClaudeHookMatcher>,
     /// When a tool call is denied.
     #[serde(rename = "PermissionDenied", skip_serializing_if = "Vec::is_empty")]
     pub(crate) permission_denied: Vec<ClaudeHookMatcher>,
@@ -379,49 +382,14 @@ lenient_object!(
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ClaudePermissionMode {
     /// Asks before each change.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's launch and session controls send it"
-        )
-    )]
     Default,
     /// Takes file changes unasked.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's launch and session controls send it"
-        )
-    )]
     AcceptEdits,
     /// Claude Code's own reviewer decides.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's launch and session controls send it"
-        )
-    )]
     Auto,
     /// Refuses whatever would ask.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's launch and session controls send it"
-        )
-    )]
     DontAsk,
     /// Asks nothing.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's launch and session controls send it"
-        )
-    )]
     BypassPermissions,
     /// Plans without changing anything.
     #[expect(

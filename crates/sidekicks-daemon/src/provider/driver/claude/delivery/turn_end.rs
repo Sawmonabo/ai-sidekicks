@@ -108,6 +108,10 @@ pub(crate) fn read_claude_result_message_uuids(text: &str) -> Vec<String> {
 
 /// What decided a turn's end besides its `result` frame.
 #[derive(Clone, Debug, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each mark is its own fact about the turn, read alone"
+)]
 pub(crate) struct ClaudeTurnEndMarks {
     /// The driver's own interrupt is stopping the run's turn.
     pub(crate) is_interrupted: bool,

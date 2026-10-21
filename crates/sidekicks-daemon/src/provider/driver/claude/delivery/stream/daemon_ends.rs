@@ -249,9 +249,9 @@ impl ClaudeDeliveryStream {
     ) {
         match delivery {
             ClaudeOwnDelivery::Dispatch { delivery, outcome } => {
-                let answered = self.send(session, delivery, None).await;
+                let answered = self.send(session, *delivery, None).await;
                 // A caller that stopped waiting needs no outcome.
-                outcome.send(answered).ok();
+                outcome.send(answered).unwrap_or(());
             }
             ClaudeOwnDelivery::DaemonEnd { run_id, settlement } => {
                 let settled =

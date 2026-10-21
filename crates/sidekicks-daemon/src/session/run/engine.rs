@@ -102,7 +102,6 @@ pub(crate) enum InterruptRoute {
 /// session and version when it records it. A turn's start is no marker: [`RunEngine::start_turn`]
 /// numbers it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(dead_code, reason = "the provider's event delivery")]
 pub(crate) enum RunMarker {
     /// The provider process reported its start for the run (`agent.run.providerInitialized`).
     ProviderInitialized {

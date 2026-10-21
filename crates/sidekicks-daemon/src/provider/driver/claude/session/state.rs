@@ -11,6 +11,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
+use tokio::sync::SetOnce;
 
 use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
@@ -129,10 +130,6 @@ pub(crate) type ClaudeHeldCommandChoices = Shared<BoxFuture<'static, ClaudeComma
 #[derive(Clone, Debug)]
 pub(crate) struct ClaudeLiveSettings {
     /// The posture the session runs at; a relaunch starts at this one.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) execution_posture: Option<ExecutionPosture>,
     /// Whether the next turns build or plan; a fresh process builds.
     #[expect(
@@ -153,10 +150,6 @@ pub(crate) struct ClaudeLiveSettings {
     )]
     pub(crate) output_style: Option<String>,
     /// The model the session runs on; a relaunch and a fork pass this one as `--model`.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) running_model: String,
     /// The advisor Claude Code says it attaches, read after the start and after each change.
     #[expect(
@@ -166,23 +159,16 @@ pub(crate) struct ClaudeLiveSettings {
     pub(crate) attached_advisor: ClaudeAttachedAdvisor,
     /// The output-speed level the process last took, which a rewind applies to its fork; `None`
     /// when it took none.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) applied_output_speed: Option<String>,
 }
 
 /// A session whose Claude Code process is running, with the legs it was started with.
 pub(crate) struct LiveClaudeSession {
     /// The session.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) session_id: SessionId,
     /// The provider session the process runs under.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) provider_session_id: String,
     /// The process.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
     /// What the process was started with, for a later run's check.
     #[expect(
@@ -198,7 +184,6 @@ pub(crate) struct LiveClaudeSession {
     )]
     pub(crate) spawn_bound_legs: ClaudeSpawnBoundLegs,
     /// What the process's `initialize` reply declared.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) initialize: ClaudeInitializeDeclaration,
     /// The style descriptions and advisors Claude Code offers, kept across a rewind.
     #[expect(dead_code, reason = "the Claude driver's session task reads it")]
@@ -211,15 +196,14 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) establishment: ClaudeUsageEstablishment,
     /// The account the process was admitted against, captured when it came up, since the
     /// registry can move; a rewind inherits it. `None` on the machine's own home.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,
     /// What the session runs with now.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
 }
 
-/// A slot's transition in flight; it never fails.
-pub(crate) type ClaudeSlotSettled = Shared<BoxFuture<'static, ()>>;
+/// A slot's transition in flight, set once its slot write is made or the transition ends without
+/// it; a waiter then reads the slot again.
+pub(crate) type ClaudeSlotSettled = Arc<SetOnce<()>>;
 
 /// One session's slot. No slot is Empty, the only state a create or resume may start from; every
 /// other state is held in one registry so a slot mid-disposal never reads as Empty.
@@ -250,10 +234,6 @@ pub(crate) enum ClaudeSessionSlot {
     /// A process is up; the only state a run starts in.
     Live {
         /// The session.
-        #[cfg_attr(
-            not(test),
-            expect(dead_code, reason = "the Claude driver's session task reads it")
-        )]
         session: Arc<LiveClaudeSession>,
     },
     /// The process is being disposed of; Empty once that succeeds, Quarantined when it fails.
@@ -280,13 +260,6 @@ pub(crate) enum ClaudeSessionSlot {
 impl ClaudeSessionSlot {
     /// The slot once a bring-up from this one failed: a rewind's predecessor is live again, and a
     /// create or resume leaves the slot Empty (`None`); any other slot is left as it is.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's lifecycle settles a failed bring-up through it"
-        )
-    )]
     pub(crate) fn after_failed_bring_up(self) -> Option<Self> {
         match self {
             Self::Establishing {
@@ -311,6 +284,7 @@ mod tests {
     use futures::FutureExt;
     use sidekicks_contracts::session::controls::methods::SessionMode;
     use sidekicks_contracts::session::id::SessionId;
+    use tokio::sync::SetOnce;
 
     use super::{
         ClaudeLiveSettings, ClaudeSessionSlot, ClaudeSpawnBinding, ClaudeUsageEstablishment,
@@ -374,7 +348,7 @@ mod tests {
     #[test]
     fn a_failed_rewind_restores_its_predecessor_and_a_failed_create_empties_the_slot() {
         let predecessor = live_session();
-        let settled = async {}.boxed().shared();
+        let settled = Arc::new(SetOnce::new());
 
         let rewound = ClaudeSessionSlot::Establishing {
             settled: settled.clone(),

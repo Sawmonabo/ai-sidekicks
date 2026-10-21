@@ -36,10 +36,6 @@ pub(crate) trait ClaudeProcessChannel: Send + Sync {
     ) -> BoxFuture<'_, ClaudeWriteAttempt>;
 
     /// Writes one user message line, reporting how far the write got.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's run start, steer and resume write each message through it"
-    )]
     fn write_user_frame(&self, frame: ClaudeUserFrame) -> BoxFuture<'_, ClaudeWriteAttempt>;
 
     /// Stops the process as the system stops a child, ending a running turn without answering

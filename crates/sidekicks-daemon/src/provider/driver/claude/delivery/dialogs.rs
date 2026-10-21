@@ -147,13 +147,6 @@ struct DialogPayload {
 lenient_object!(DialogPayload);
 
 /// Every held choice of one driver's sessions, at most one per run.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's stream reader and run controls settle dialogs through it"
-    )
-)]
 pub(crate) struct ClaudeProviderDialogs<P: ClaudeDialogPorts> {
     ports: P,
     held_by_run: Mutex<HashMap<RunId, HeldDialog>>,
@@ -182,13 +175,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// refused, and a dialog naming no model is answered `cancelled`. A request id the session's
     /// process already asked (a re-delivery or a replay) is taken once, and a kind the daemon never
     /// declared is left unanswered, as Claude Code requires.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's stream reader takes each dialog"
-        )
-    )]
     pub(crate) async fn take_dialog(
         &self,
         session: &ClaudeDialogSession<'_>,
@@ -484,10 +470,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// Records a choice Claude Code settled itself and withdrew with `control_cancel_request`: a
     /// refusal as `canceled`, ending refused; a usage-credits choice as `unanswered`, the run
     /// running again until its turn ends. Answers whether the request was a held choice.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader withdraws a canceled dialog"
-    )]
     pub(crate) async fn withdraw(&self, session_id: SessionId, request_id: &str) -> bool {
         let held = {
             let mut held_by_run = self.lock();
@@ -505,13 +487,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
 
     /// Reads the error of an `assistant` frame of `run_id`: the one Claude Code ends a turn with
     /// when a message settled the usage-credits choice records that choice `unanswered`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's stream reader reads each turn error"
-        )
-    )]
     pub(crate) async fn observe_assistant_error(&self, run_id: RunId, error: Option<&str>) {
         if error != Some(CLAUDE_CONSENT_UNANSWERED_ERROR) {
             return;
@@ -533,13 +508,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// A frame of `run_id`'s turn arrived: answers whether the run held an answer no write or check
     /// settled, which the frame shows Claude Code took, so the caller reports the run `running`
     /// first and the run engine settles that answer.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's stream reader reports a settled answer"
-        )
-    )]
     pub(crate) fn observe_turn_frame(&self, run_id: RunId) -> bool {
         let mut held_by_run = self.lock();
         if held_by_run
@@ -553,10 +521,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     }
 
     /// Forgets every choice of a session whose process is gone; its requests went with it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's process end forgets its dialogs"
-    )]
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         self.lock()
             .retain(|_run_id, held| held.session_id != session_id);

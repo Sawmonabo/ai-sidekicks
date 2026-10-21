@@ -224,13 +224,6 @@ impl ClaudeInboundRequests {
     /// Takes one request event the daemon's own hooks did not answer, on the session's task. A
     /// withdrawal settles what it withdrew: a tool server's call is cancelled, a pending ask's card
     /// settles canceled, and a choice is recorded by the dialogs.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session task hands each forwarded request to it"
-        )
-    )]
     pub(crate) async fn take_request(
         &self,
         session: &ClaudeRequestSession<'_>,
@@ -387,13 +380,6 @@ impl ClaudeInboundRequests {
     /// Forgets the requests of a session whose process is gone; each one a service holds is
     /// withdrawn there, since nothing can answer it any more, and every waiter on its open asks
     /// is let go unanswered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session task forgets a gone process's requests"
-        )
-    )]
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let requests = self.lock().by_session.remove(&session_id);
         for (request_id, pending) in requests
@@ -604,7 +590,9 @@ impl ClaudeInboundRequests {
                 RegisteredHook::PauseBeforeTool
                 | RegisteredHook::PauseAfterBatch
                 | RegisteredHook::HelperLimit
-                | RegisteredHook::BackgroundWork,
+                | RegisteredHook::BackgroundWork
+                | RegisteredHook::HelperSteerAfterTool
+                | RegisteredHook::HelperSteerAtStop,
             )
             | None => record_unattributed(session, "hook_callback", &request_id),
         }
@@ -767,7 +755,7 @@ impl ClaudeInboundRequests {
         if requests.pending.is_empty() {
             for waiter in requests.on_closed.drain(..) {
                 // A waiter that stopped waiting needs no word.
-                drop(waiter.send(()));
+                waiter.send(()).unwrap_or(());
             }
         }
         Some(closed)

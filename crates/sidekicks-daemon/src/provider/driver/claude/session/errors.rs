@@ -36,10 +36,6 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     )]
     SessionIdPinDiverged,
     /// No live session is bound to the session.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session and run controls refuse with it"
-    )]
     NoLiveSession,
     /// No live session is bound to the run.
     #[expect(dead_code, reason = "the Claude driver's run controls refuse with it")]
@@ -48,7 +44,6 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     RunAlreadyDispatched,
     /// Another run's turn is still in flight on the session.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     SessionTurnInFlight,
     /// The run's execution posture differs from the one the session was spawned with.
     #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
@@ -74,7 +69,6 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     /// The process exited before it answered.
     ProcessExited,
     /// The session holds no execution posture, so a turn the daemon starts has no level to run at.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     ExecutionPostureAbsent,
     /// Claude Code cannot run the session at that permission level.
     #[expect(

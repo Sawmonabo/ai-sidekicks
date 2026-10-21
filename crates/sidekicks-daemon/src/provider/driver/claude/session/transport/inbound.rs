@@ -45,32 +45,17 @@ pub(crate) struct ClaudeInboundRequest {
 #[derive(Debug)]
 pub(crate) enum ClaudeInboundRequestBody {
     /// Whether a tool call may run.
-    CanUseTool(
-        #[cfg_attr(
-            not(test),
-            expect(dead_code, reason = "the Claude driver's tool ask reads it")
-        )]
-        ClaudeToolUseAsk,
-    ),
+    CanUseTool(ClaudeToolUseAsk),
     /// One of the daemon's own hooks fired.
     HookCallback(ClaudeHookCallback),
     /// A choice Claude Code asks the person.
-    RequestUserDialog(
-        #[expect(dead_code, reason = "the Claude driver's dialogs take it")] ClaudeUserDialog,
-    ),
+    RequestUserDialog(ClaudeUserDialog),
     /// A message for a tool server the daemon hosts in-process, answered with a
     /// [`ClaudeMcpMessageAnswer`].
-    McpMessage(
-        #[expect(
-            dead_code,
-            reason = "the Claude driver's in-process tool servers take it"
-        )]
-        ClaudeMcpMessage,
-    ),
+    McpMessage(ClaudeMcpMessage),
     /// A request the daemon does not answer, which stays pending at the provider.
     Unrouted {
         /// Its subtype, as sent.
-        #[expect(dead_code, reason = "the Claude driver's session task reads it")]
         subtype: String,
     },
 }
@@ -80,41 +65,27 @@ pub(crate) enum ClaudeInboundRequestBody {
 pub(crate) struct ClaudeToolUseAsk {
     /// The tool.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's tool ask reads it")
-    )]
     pub(crate) tool_name: Option<String>,
     /// The call's input, relayed as sent.
     #[serde(default)]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's tool ask reads it")
-    )]
     pub(crate) input: Option<Box<RawValue>>,
     /// The call's id.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) tool_use_id: Option<String>,
     /// The helper that asks, absent for the lead.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) agent_id: Option<String>,
     /// The ask's own words, where Claude Code wrote any.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) title: Option<String>,
     /// The ask's description, where Claude Code wrote one.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) description: Option<String>,
     /// What sent the call to an ask: a rule, a mode, a safety check.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) decision_reason_type: Option<String>,
     /// Whether Claude Code's own safety check flagged the call, so no standing allow answers it.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) suppress_always_allow_rule: Option<bool>,
 }
 
@@ -152,35 +123,14 @@ pub(crate) struct ClaudeUserDialog {
 pub(crate) struct ClaudeMcpMessage {
     /// The server, as `initialize` or `mcp_set_servers` named it.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's in-process tool servers read it"
-        )
-    )]
     pub(crate) server_name: Option<String>,
     /// The JSON-RPC message for it, relayed as sent.
     #[serde(default)]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's in-process tool servers read it"
-        )
-    )]
     pub(crate) message: Option<Box<RawValue>>,
 }
 
 /// The success an `mcp_message` request is answered with: the server's JSON-RPC reply.
 #[derive(Debug, Serialize)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's in-process tool servers answer with it"
-    )
-)]
 pub(crate) struct ClaudeMcpMessageAnswer {
     /// The reply, relayed as the server wrote it.
     pub(crate) mcp_response: Box<RawValue>,
@@ -226,7 +176,6 @@ pub(crate) enum ClaudeControlOutcome {
 #[derive(Debug, Default)]
 pub(crate) struct ClaudeControlAnswer {
     /// The answer's payload, relayed as sent.
-    #[expect(dead_code, reason = "the Claude driver's control answers read it")]
     pub(crate) response: Option<Box<RawValue>>,
     /// The ids of the dialogs the process is still blocked on, where the answer lists them.
     pub(crate) pending_user_dialog_requests: Option<Vec<String>>,

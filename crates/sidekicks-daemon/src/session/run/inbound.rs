@@ -244,10 +244,6 @@ pub(crate) enum InboundOutcome {
 
 impl InboundOutcome {
     /// The id of the event a delivery was written as; `None` where nothing was written.
-    #[expect(
-        dead_code,
-        reason = "the provider's event delivery reads the event a delivery was written as"
-    )]
     pub(crate) fn event_id(&self) -> Option<&FreeFormText<EVENT_FIELD_MAX_LEN>> {
         match self {
             Self::Appended { event_id } | Self::AppendedStamped { event_id, .. } => Some(event_id),

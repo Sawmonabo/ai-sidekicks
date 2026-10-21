@@ -5,6 +5,8 @@
 //! turn's hold itself and never waits on the task, so the queue is unbounded, as Codex's own
 //! client keeps its event queue; its depth is logged once it passes a mark and at each doubling.
 
+pub(super) mod task;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -62,8 +64,8 @@ pub(crate) struct ClaudeRoutedFrame {
 pub(crate) enum ClaudeOwnDelivery {
     /// A delivery dispatched in its place; `outcome` takes what the dispatch answered.
     Dispatch {
-        /// The delivery.
-        delivery: InboundDelivery<'static>,
+        /// The delivery, boxed since it is far larger than the other arrivals.
+        delivery: Box<InboundDelivery<'static>>,
         /// Where the dispatch's outcome goes; a caller that stopped waiting needs none.
         outcome: oneshot::Sender<Option<InboundOutcome>>,
     },
@@ -197,7 +199,7 @@ impl ClaudeArrivalSender {
     ) -> impl Future<Output = Option<InboundOutcome>> + Send + 'static {
         let (outcome, answered) = oneshot::channel();
         let is_queued = self.push(ClaudeSessionArrival::Deliver(ClaudeOwnDelivery::Dispatch {
-            delivery,
+            delivery: Box::new(delivery),
             outcome,
         }));
         async move {

@@ -156,10 +156,6 @@ pub(crate) enum ClaudeMessagePriority {
 /// files' blocks in staging order. Only text the daemon composed to tell the agent what happened is
 /// marked composed: the person's text and a command the daemon sends for Claude Code to run stay
 /// unmarked, since the mark expands no `@path` and stops a command from running.
-#[expect(
-    dead_code,
-    reason = "a run's start, a steer and a resume write each message through it"
-)]
 pub(crate) fn compose_claude_user_frame(
     outbound_text: &OutboundText,
     message_uuid: String,

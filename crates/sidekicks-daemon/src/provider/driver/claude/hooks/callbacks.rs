@@ -16,6 +16,7 @@ use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::hooks::helper_limit::{
     ClaudeHelperLimit, ClaudeHelperStartAnswer,
 };
+use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::provider::driver::claude::hooks::pause::{
     ClaudeHookAnswer, ClaudePauseAnswer, ClaudeRunPauses,
 };
@@ -33,10 +34,6 @@ use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::lenient_json::{lenient_object, read_lenient};
 
 /// Where one request a process sent goes.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's session task acts on each route it reads"
-)]
 #[derive(Debug)]
 pub(crate) enum ClaudeRequestRoute {
     /// Answer it now.
@@ -86,19 +83,17 @@ lenient_object!(HookInput, ShellToolInput);
 
 /// Routes one request event off a session's process, at the session's `level`: a withdrawal also
 /// withdraws a held pause or helper start; a pause or helper-limit callback is answered or held
-/// here; the background-work callback is checked; the question hook goes on only at Sandboxed and
+/// here; a helper's post-tool and stop callbacks carry its waiting words; the background-work
+/// callback is checked; the question hook goes on only at Sandboxed and
 /// the denial hook only at Reviewed, both registered at every level since a live process can move,
 /// and pass with no decision off them; anything else goes on.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's session task routes each request event through it"
-)]
 pub(crate) fn route_claude_request(
     event: ClaudeInboundRequestEvent,
     session_id: &SessionId,
     level: Option<PermissionLevel>,
     pauses: &mut ClaudeRunPauses,
     helpers: &mut ClaudeHelperLimit,
+    helper_steers: &mut ClaudeHelperSteers,
 ) -> ClaudeRequestRoute {
     let request = match event {
         ClaudeInboundRequestEvent::Cancel { request_id } => {
@@ -163,6 +158,14 @@ pub(crate) fn route_claude_request(
                 ClaudeHelperStartAnswer::Hold => ClaudeRequestRoute::Held { helper_held: None },
             }
         }
+        RegisteredHook::HelperSteerAfterTool => ClaudeRequestRoute::Answer {
+            answer: helper_steers.answer_after_tool(*session_id, agent_id.as_deref()),
+            request_id: request.request_id,
+        },
+        RegisteredHook::HelperSteerAtStop => ClaudeRequestRoute::Answer {
+            answer: helper_steers.answer_at_stop(*session_id, agent_id.as_deref()),
+            request_id: request.request_id,
+        },
         RegisteredHook::QuestionBridge => pass_off_level(PermissionLevel::Sandboxed, request),
         RegisteredHook::PermissionDenied => pass_off_level(PermissionLevel::Reviewed, request),
     }
@@ -172,13 +175,6 @@ pub(crate) fn route_claude_request(
 /// the agent reads, when the line starts some provider's background work, at every level, since a
 /// level that never asks never reaches the answer to an ask; any other call passes. The line is
 /// read once, on `shell_lines`' blocking thread.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's session task answers the background-work hook through it"
-    )
-)]
 pub(crate) async fn answer_background_work_check(
     shell_lines: &ShellLineReadingBound,
     command: Option<String>,
@@ -201,13 +197,6 @@ pub(crate) async fn answer_background_work_check(
 /// Answers one request Claude Code holds through `channel`. An answer that cannot be written
 /// leaves Claude Code waiting on it for good, so it is recorded as `ControlAnswerFailed` and the
 /// process is stopped, for the restart path to bring the session back.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's session task writes every hook and request answer through it"
-    )
-)]
 pub(crate) async fn answer_claude_request(
     channel: &dyn ClaudeProcessChannel,
     session_id: &SessionId,

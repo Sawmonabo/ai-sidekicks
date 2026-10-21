@@ -18,14 +18,6 @@ struct UnreportedPrompt {
 
 /// Every message written to a live Claude Code process and not yet reported taken, by the uuid
 /// its user frame carried, with the uuids each session's process already settled.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's run start, steer and stream reader record and report \
-                  messages through it"
-    )
-)]
 #[derive(Default)]
 pub(crate) struct ClaudeSentPrompts {
     unreported: HashMap<String, UnreportedPrompt>,
@@ -37,13 +29,6 @@ pub(crate) struct ClaudeSentPrompts {
 impl ClaudeSentPrompts {
     /// Records a message written to the session's process for `run_id` (a start, a steer, a
     /// resume's kept message or an override sentence) as its newest, not yet reported taken.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's run start, steer and resume record each write"
-        )
-    )]
     pub(crate) fn record_written(
         &mut self,
         session_id: SessionId,
@@ -66,13 +51,6 @@ impl ClaudeSentPrompts {
     /// Claude Code took `message_uuid` (its `started` state, a turn's `user_message_uuids` or its
     /// replayed echo): answers the run to report it under, the run recorded at the write or, for a
     /// message this process never recorded, `lead_run`; `None` once the message is settled.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's stream reader reports each taken message through it"
-        )
-    )]
     pub(crate) fn record_taken(
         &mut self,
         session_id: SessionId,
@@ -91,13 +69,6 @@ impl ClaudeSentPrompts {
 
     /// Claude Code dropped `message_uuid` before taking it (`discarded`, `refused`, `cancelled`,
     /// an interrupt receipt's `cancelled` list): it is settled with no report.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's stream reader and interrupt drop messages through it"
-        )
-    )]
     pub(crate) fn record_dropped(&mut self, session_id: SessionId, message_uuid: &str) {
         self.settled_by_session
             .entry(session_id)
@@ -140,23 +111,12 @@ impl ClaudeSentPrompts {
     }
 
     /// The newest message sent to the session's process, if one is known.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's conversation cut and context overflow read it"
-        )
-    )]
     pub(crate) fn newest_for(&self, session_id: SessionId) -> Option<&str> {
         self.newest_by_session.get(&session_id).map(String::as_str)
     }
 
     /// Forgets the session's messages, its process gone; the session's conversation file decides
     /// which of them were taken.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's process end clears a session")
-    )]
     pub(crate) fn forget_session(&mut self, session_id: SessionId) {
         self.newest_by_session.remove(&session_id);
         self.settled_by_session.remove(&session_id);

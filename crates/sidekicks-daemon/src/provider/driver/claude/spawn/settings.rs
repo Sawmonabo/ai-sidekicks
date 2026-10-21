@@ -85,10 +85,6 @@ pub(crate) fn claude_advisor_setting(advisor_model: Option<&str>) -> String {
 
 /// Whether a tool ask is a removal the Reviewed ask rule matches: the shell tool running a command
 /// that starts with `rm` and its arguments. `input` is the provider's own.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's tool-ask reader marks a Reviewed removal through it"
-)]
 pub(crate) fn matches_claude_reviewed_removal_rule(
     tool_name: &str,
     input: &Map<String, Value>,

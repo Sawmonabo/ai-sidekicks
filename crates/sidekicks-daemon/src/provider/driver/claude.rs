@@ -15,12 +15,15 @@ use crate::provider::driver::{
 mod attachments;
 mod capabilities;
 mod capability_probe;
+mod compaction;
 mod delivery;
 mod event_normalizer;
 mod frame_routing;
+mod goals;
 mod handshake_register;
 mod hooks;
 pub(crate) mod inbox_address;
+mod intervention;
 mod output_speed;
 mod run;
 mod session;

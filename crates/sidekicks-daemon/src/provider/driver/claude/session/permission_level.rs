@@ -115,13 +115,6 @@ pub(crate) enum ClaudeLevelMoveError {
 
 /// The permission mode Claude Code runs a level in, `--permission-mode` at a start and
 /// `set_permission_mode` on a move; a session with no level runs in Read-only's.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's command line and live level move send each level's mode"
-    )
-)]
 pub(crate) fn claude_permission_mode_for(level: Option<PermissionLevel>) -> ClaudePermissionMode {
     match level {
         None | Some(PermissionLevel::Readonly) => ClaudePermissionMode::Default,

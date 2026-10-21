@@ -203,7 +203,6 @@ pub(super) struct TurnEnd {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TurnOutcome {
     /// `agent.turn.completed`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     Completed,
     /// `agent.turn.interrupted`.
     Interrupted(Option<TurnEndCause>),

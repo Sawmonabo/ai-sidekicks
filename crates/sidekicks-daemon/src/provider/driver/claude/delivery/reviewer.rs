@@ -13,6 +13,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::error_description::describe_error;
 use crate::provider::driver::claude::DESCRIPTOR;
@@ -27,6 +28,10 @@ use crate::provider::record_readers::read_non_empty_string;
 /// The action as Claude Code's `PermissionDenied` hook received it, kept with the block so an
 /// `Allow once` still names it after a restart.
 #[derive(Serialize)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the members carry the names Claude Code's hook sends"
+)]
 struct ClaudeProviderDenial<'input> {
     tool_name: &'input str,
     tool_input: &'input Value,
@@ -122,7 +127,7 @@ pub(crate) fn compose_claude_override_sentence(provider_denial: &RawValue) -> Op
 fn read_reason(reason: Option<&str>) -> Option<String> {
     reason
         .and_then(read_provider_words)
-        .map(|words| words.into_string())
+        .map(FreeFormText::into_string)
 }
 
 fn compose_provider_denial(
