@@ -52,6 +52,7 @@ tree-sitter.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 futures-util.workspace = true
 secret-service.workspace = true
+tokio-util.workspace = true
 zbus.workspace = true
 zbus-secret-service-keyring-store.workspace = true
 

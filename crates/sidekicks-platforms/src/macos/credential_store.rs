@@ -5,12 +5,13 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use crate::credential_store::CredentialStoreUnreachable;
-
 // The statuses of a locked keychain: a call that would prompt where no prompt can be shown
 // (`errSecInteractionNotAllowed`), and an unlock prompt the person dismissed
 // (`errSecUserCanceled`), so either way the person is told to unlock it and retry.
 const LOCKED_STATUSES: [i32; 2] = [-25308, -128];
+
+/// What holds the items, for the service log.
+pub(crate) const DESCRIPTION: &str = "the login keychain";
 
 /// The settings every entry is built with: the login keychain's own.
 pub(crate) const ENTRY_MODIFIERS: &[(&str, &str)] = &[];
@@ -26,25 +27,6 @@ pub(crate) fn open_store() -> keyring_core::Result<Arc<keyring_core::CredentialS
 /// leaves out an item that names no service or account.
 pub(crate) fn search_spec(service: &str) -> Vec<(&'static str, String)> {
     vec![("service", service.to_owned())]
-}
-
-/// Always reachable: the login keychain needs nothing running first, and whether it answers is
-/// read from its own calls.
-#[expect(
-    clippy::unused_async,
-    reason = "one signature with Linux's, which asks the session bus"
-)]
-pub(crate) async fn check_reachable() -> Result<(), CredentialStoreUnreachable> {
-    Ok(())
-}
-
-/// The login keychain, for the service log.
-#[expect(
-    clippy::unused_async,
-    reason = "one signature with Linux's, which asks the session bus and logind"
-)]
-pub(crate) async fn description() -> String {
-    "the login keychain".to_owned()
 }
 
 /// Whether the keychain's `failure` says it is locked or its unlock prompt was dismissed; every

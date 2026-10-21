@@ -5,7 +5,9 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use crate::credential_store::CredentialStoreUnreachable;
+/// What holds the items, for the service log.
+pub(crate) const DESCRIPTION: &str =
+    "the Credential Manager, each item kept at local-machine persistence";
 
 /// The settings every entry is built with: local persistence, since the store otherwise writes
 /// enterprise persistence, which roams with the account to other machines.
@@ -22,25 +24,6 @@ pub(crate) fn open_store() -> keyring_core::Result<Arc<keyring_core::CredentialS
 /// `.<service>`.
 pub(crate) fn search_spec(service: &str) -> Vec<(&'static str, String)> {
     vec![("pattern", format!("^.*\\.{}$", regex::escape(service)))]
-}
-
-/// Always reachable: the Credential Manager needs nothing running first, and whether it answers is
-/// read from its own calls.
-#[expect(
-    clippy::unused_async,
-    reason = "one signature with Linux's, which asks the session bus"
-)]
-pub(crate) async fn check_reachable() -> Result<(), CredentialStoreUnreachable> {
-    Ok(())
-}
-
-/// The Credential Manager at local-machine persistence, for the service log.
-#[expect(
-    clippy::unused_async,
-    reason = "one signature with Linux's, which asks the session bus and logind"
-)]
-pub(crate) async fn description() -> String {
-    "the Credential Manager, each item kept at local-machine persistence".to_owned()
 }
 
 /// Always `false`: the store's errors cannot be read, so each one means the store cannot be used,

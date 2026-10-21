@@ -1,8 +1,9 @@
 //! The operating system's credential store, as one interface: the macOS login keychain, the
 //! Secret Service on Linux and the Windows Credential Manager, each platform's module supplying its
-//! store, the settings an entry is built with, how its search names a service, whether the store
-//! can be reached, the name of what holds the items, and the reading of a locked store from the
-//! store's own error.
+//! store, the settings an entry is built with, how its search names a service, the name of what
+//! holds the items, and the reading of a locked store from the store's own error. Whether the store
+//! can be reached and whether it takes items without a prompt are the watch's, which holds the one
+//! session-bus connection that asks.
 //!
 //! Every call on a store blocks until the store answers, which on a locked store is when the person
 //! answers its unlock prompt, so a caller runs it on a blocking thread under its own time limit.
@@ -15,6 +16,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 use keyring_core::Entry;
 use keyring_core::error::PlatformError;
@@ -40,6 +42,10 @@ pub struct CredentialStore {
 }
 
 impl CredentialStore {
+    /// How long the store is given for an answer that must never wait on the person: the Secret
+    /// Service's reachability and lock reads, and each store call of a move into it.
+    pub const QUICK_ANSWER_LIMIT: Duration = Duration::from_secs(2);
+
     /// Opens this system's credential store. Blocks: on Linux it connects to the Secret Service
     /// over the session bus. Fails with [`CredentialStoreError`] when the store cannot be built or
     /// reached, as on Linux when no Secret Service answers.
@@ -50,20 +56,6 @@ impl CredentialStore {
             modifiers: native::ENTRY_MODIFIERS,
             search_spec: native::search_spec,
         })
-    }
-
-    /// Whether this system's credential store can be reached now, without opening it: on Linux the
-    /// session bus is named, connects, and a program owns the Secret Service's name, all within
-    /// 2 s; always on macOS and Windows. Fails with [`CredentialStoreUnreachable`] naming the
-    /// condition that failed and its remedy.
-    pub async fn check_reachable() -> Result<(), CredentialStoreUnreachable> {
-        native::check_reachable().await
-    }
-
-    /// What holds this system's items, in words for the service log: on Linux the Secret Service's
-    /// owning program and this account's login state, as far as each can be read.
-    pub async fn description() -> String {
-        native::description().await
     }
 
     /// A credential store over `store`, which a test supplies in place of the system's, its entries
@@ -213,7 +205,7 @@ impl StoreAccount {
 
 /// Why this system's credential store cannot be reached now; each says which condition failed and
 /// what makes it hold.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum CredentialStoreUnreachable {
     /// `DBUS_SESSION_BUS_ADDRESS` is not set, so the service runs outside any session bus.
     #[error(
@@ -227,13 +219,19 @@ pub enum CredentialStoreUnreachable {
         "the session bus at DBUS_SESSION_BUS_ADDRESS failed; check that the variable names the \
          running session bus"
     )]
-    SessionBusFailed(#[source] Box<dyn Error + Send + Sync>),
+    SessionBusFailed(#[source] Arc<dyn Error + Send + Sync>),
     /// No program owns the Secret Service's name on the session bus.
     #[error(
         "no Secret Service is running: nothing owns org.freedesktop.secrets on the session bus; \
          start one, such as GNOME Keyring, KDE Wallet or KeePassXC"
     )]
     NoSecretService,
+    /// The Secret Service refused a question about its default collection.
+    #[error(
+        "the Secret Service refused to say whether its default collection is unlocked; check that \
+         it runs and is not stuck"
+    )]
+    SecretServiceFailed(#[source] Arc<dyn Error + Send + Sync>),
     /// The session bus gave no answer within 2 s.
     #[error("the session bus gave no answer within 2 s; check that the session bus is not stuck")]
     NoAnswer,

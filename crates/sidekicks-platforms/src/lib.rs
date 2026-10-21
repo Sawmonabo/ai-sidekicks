@@ -119,7 +119,7 @@ pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
 #[cfg(any(test, feature = "test-support"))]
 pub use credential_store::blocking::BlockingCredentialStore;
-pub use credential_store::watch::{CredentialStoreWatch, CredentialStoreWatchError};
+pub use credential_store::watch::CredentialStoreWatch;
 pub use credential_store::{
     CredentialStore, CredentialStoreError, CredentialStoreUnreachable, StoreAccount,
 };
