@@ -373,28 +373,33 @@ impl SessionService {
     }
 
     /// The part from `offset` of the body of `session_id`'s row standing at the event `row_id`,
-    /// `None` when no row of the session stands there. Fails with [`BodyReadError`] for a session
-    /// this daemon holds no events for (`session.notFound`), an offset that is no place to resume
-    /// from, or a read that failed.
+    /// `None` when no row of the session stands there. A short read answers it, except for a
+    /// reply drawn as markdown, whose whole body a long read loads to cut it into blocks. Fails
+    /// with [`BodyReadError`] for a session this daemon holds no events for (`session.notFound`),
+    /// an offset that is no place to resume from, or a read that failed.
     pub(crate) async fn read_row_body(
         &self,
         session_id: SessionId,
         row_id: String,
         offset: u64,
     ) -> Result<Option<TranscriptBodyReadResponse>, BodyReadError> {
-        self.run_read(
-            ReadLength::Short,
-            move |reader, read_damaged_from_sequence| {
+        let read_with = |length, may_load_whole_body| {
+            let row_id = row_id.clone();
+            self.run_read(length, move |reader, read_damaged_from_sequence| {
                 read_row_body(
                     reader,
                     read_damaged_from_sequence,
                     &session_id,
                     &row_id,
                     offset,
+                    may_load_whole_body,
                 )
-            },
-        )
-        .await
+            })
+        };
+        match read_with(ReadLength::Short, false).await {
+            Err(BodyReadError::NeedsWholeBody) => read_with(ReadLength::Long, true).await,
+            read => read,
+        }
     }
 
     /// One page of a run's reasoning. Fails with [`TranscriptReadError::Refused`] for a run this

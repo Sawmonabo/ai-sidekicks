@@ -31,6 +31,41 @@ pub type StoredBodyText = BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>;
 /// attachment and are charged against the page budget with the JSON.
 pub type BlockStarts = Bytes<4, PAGE_MAX_BYTES>;
 
+/// Why a prose body carries no block starts: its markdown cut failed, so the screen draws the row
+/// with the failure rather than leaving it out. A failed cut fails that row alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum BlockCutFailure {
+    /// The cut stopped advancing through the text.
+    Stalled,
+    /// The starts one piece froze take more than one page.
+    OverPage,
+}
+
+/// Where one block of a prose body starts: in the stored body, as a UTF-8 byte offset, which
+/// decides the part of a body read that carries it, and in the text the screen draws, as the UTF-16
+/// offset the wire carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BodyBlockStart {
+    /// The block's first character in the stored body, as a UTF-8 byte offset.
+    pub stored_offset: usize,
+    /// The block's start in the drawn text, as a UTF-16 offset.
+    pub drawn_offset: u32,
+}
+
+/// What a body read carries of its body's markdown cut: nothing for a body that is not prose, the
+/// starts of the whole body, of which each part carries those that fall in it, or why the cut
+/// failed, which every part says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyBlockCut<'starts> {
+    /// The body is not cut into blocks.
+    NotCut,
+    /// Every start of the whole body, ascending.
+    Starts(&'starts [BodyBlockStart]),
+    /// The cut failed.
+    Failed(BlockCutFailure),
+}
+
 /// What a row read from history carries of its body: the body itself, why there is none, or the
 /// size alone of a large one. An `available` body serializes to at most 32,768 JSON bytes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -67,7 +102,8 @@ pub enum TranscriptRowContent {
         )]
         #[schemars(with = "True")]
         content_truncated: Option<True>,
-        /// The body's block starts, on a prose body.
+        /// The body's block starts, on a prose body; on a row whose reply is still arriving, only
+        /// those no later text can move.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -75,6 +111,14 @@ pub enum TranscriptRowContent {
         )]
         #[schemars(with = "BlockStarts")]
         block_starts: Option<BlockStarts>,
+        /// Why a prose body carries no block starts, when its cut failed; never beside them.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "BlockCutFailure")]
+        block_cut_failure: Option<BlockCutFailure>,
     },
     /// No body can be read.
     Unavailable {
@@ -174,14 +218,14 @@ impl<'text> BodyWindow<'text> {
 /// through `window`, which must start at or before `offset`. A part holds as much of the window as
 /// fits one page, and no more than one stored body's cap, and names where the next part starts, so
 /// a client reading from each `nextOffset` until it is `null` joins the whole body. The length and
-/// truncation mark are the payload's own. `block_starts`, the whole body's starts on a first part,
-/// travel with the part and are charged against its page. Refuses an offset outside the window or
-/// inside a character.
+/// truncation mark are the payload's own. Each part carries the block starts of `block_cut` whose
+/// stored offset falls in it, charged against its page, or the cut's failure. Refuses an offset
+/// outside the window or inside a character.
 pub fn stored_body_content_of(
     payload: Option<&Map<String, Value>>,
     window: Option<BodyWindow<'_>>,
     offset: u64,
-    block_starts: Option<BlockStarts>,
+    block_cut: BodyBlockCut<'_>,
 ) -> Result<TranscriptBodyReadResponse, BodyReadOffsetRefused> {
     let Some(window) = window else {
         return Ok(TranscriptBodyReadResponse::Unavailable {
@@ -199,10 +243,28 @@ pub fn stored_body_content_of(
             body_length: window.body_length,
         });
     };
-    let starts_bytes = block_starts
-        .as_ref()
-        .map_or(0, |starts| starts.as_bytes().len());
-    let end = page_end(text, start, PAGE_MAX_BYTES.saturating_sub(starts_bytes));
+    let (starts, block_cut_failure) = match block_cut {
+        BodyBlockCut::NotCut => (&[][..], None),
+        BodyBlockCut::Starts(starts) => (starts, None),
+        BodyBlockCut::Failed(failure) => (&[][..], Some(failure)),
+    };
+    // The starts before a place in the window, by the stored offsets they are sorted on.
+    let starts_before = |end: usize| {
+        starts.partition_point(|block_start| block_start.stored_offset < window.start + end)
+    };
+    let first_start = starts_before(start);
+    // A part's text and the four bytes of each start it carries share one page.
+    let end = page_end(text, start, |end, text_bytes| {
+        text_bytes + 4 * (starts_before(end) - first_start) <= PAGE_MAX_BYTES
+    });
+    let part_starts = &starts[first_start..starts_before(end)];
+    let block_starts = (!part_starts.is_empty()).then(|| {
+        let bytes: Vec<u8> = part_starts
+            .iter()
+            .flat_map(|block_start| block_start.drawn_offset.to_le_bytes())
+            .collect();
+        BlockStarts::new(bytes.into()).expect("a part's starts fit the page it was cut to fit")
+    });
     let (content_length, content_truncated) = echoed_body_facts_of(payload);
     let next = window.start + end;
     Ok(TranscriptBodyReadResponse::Available {
@@ -213,6 +275,7 @@ pub fn stored_body_content_of(
         content_length,
         content_truncated,
         block_starts,
+        block_cut_failure,
     })
 }
 
@@ -225,16 +288,17 @@ fn byte_offset(offset: usize) -> SafeInt<0> {
 }
 
 /// Where the part of `body` that starts at `offset` ends: the furthest character boundary at most
-/// [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points on whose stretch's JSON fits `budget_bytes`,
-/// measured as the reply's check measures it. One character's JSON is at most eight bytes, so a
-/// part short of the end holds at least one.
-fn page_end(body: &str, offset: usize, budget_bytes: usize) -> usize {
+/// [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points on for which `fits` holds of the end and the
+/// stretch's JSON bytes, measured as the reply's check measures them; `fits` grows stricter as the
+/// end moves on. One character's JSON and its one start fit a page, so a part short of the end
+/// holds at least one character.
+fn page_end(body: &str, offset: usize, fits: impl Fn(usize, usize) -> bool) -> usize {
     let cap_end = body[offset..]
         .char_indices()
         .nth(CONTENT_PAYLOAD_PLAINTEXT_MAX)
         .map_or(body.len(), |(index, _)| offset + index);
     let fits = |end: usize| {
-        json_utf8_byte_length(&&body[offset..end]).is_ok_and(|length| length <= budget_bytes)
+        json_utf8_byte_length(&&body[offset..end]).is_ok_and(|length| fits(end, length))
     };
     if fits(cap_end) {
         return cap_end;
@@ -291,6 +355,7 @@ pub fn transcript_row_content_of(
             content_length,
             content_truncated,
             block_starts: None,
+            block_cut_failure: None,
         };
     }
     TranscriptRowContent::Large {
@@ -361,7 +426,9 @@ pub enum TranscriptBodyReadResponse {
         )]
         #[schemars(with = "True")]
         content_truncated: Option<True>,
-        /// The block starts of the whole body, on the first part of a prose body.
+        /// The block starts of a prose body that fall in this part, as UTF-16 offsets into the
+        /// whole drawn body; on a body whose reply is still arriving, only those no later text
+        /// can move.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -369,6 +436,14 @@ pub enum TranscriptBodyReadResponse {
         )]
         #[schemars(with = "BlockStarts")]
         block_starts: Option<BlockStarts>,
+        /// Why a prose body carries no block starts, when its cut failed; never beside them.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "BlockCutFailure")]
+        block_cut_failure: Option<BlockCutFailure>,
     },
     /// No body can be read.
     Unavailable {
@@ -589,7 +664,7 @@ mod tests {
     use rstest::rstest;
 
     use super::{
-        BodyReadOffsetRefused, BodyWindow, StoredRowBody, TranscriptBodyReadResponse,
+        BodyBlockCut, BodyReadOffsetRefused, BodyWindow, StoredRowBody, TranscriptBodyReadResponse,
         TranscriptPatchFile, TranscriptRowContent, stored_body_content_of,
         transcript_row_content_of,
     };
@@ -627,8 +702,13 @@ mod tests {
                 .as_ref()
                 .and_then(|stored| stored.body.as_deref());
             assert_eq!(
-                stored_body_content_of(payload, body.map(BodyWindow::whole), 0, None)
-                    .expect("the body's start is an offset"),
+                stored_body_content_of(
+                    payload,
+                    body.map(BodyWindow::whole),
+                    0,
+                    BodyBlockCut::NotCut
+                )
+                .expect("the body's start is an offset"),
                 case.body_read,
                 "{}",
                 case.note
@@ -655,7 +735,12 @@ mod tests {
         while let Some(offset) = next {
             let TranscriptBodyReadResponse::Available {
                 body, next_offset, ..
-            } = stored_body_content_of(None, Some(BodyWindow::whole(body)), offset, None)?
+            } = stored_body_content_of(
+                None,
+                Some(BodyWindow::whole(body)),
+                offset,
+                BodyBlockCut::NotCut,
+            )?
             else {
                 panic!("a stored body is available");
             };

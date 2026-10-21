@@ -4,7 +4,7 @@
 //! read. A row whose first piece lies in a range the session skipped stands at its first readable
 //! piece. A body's size is the sum of its pieces' own lengths, so a large one is never loaded.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -19,13 +19,16 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::{
     StoredRowBody, TranscriptRowContent, transcript_row_content_of,
 };
+use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::integer::SafeInt;
 
+use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::optional_utf8_blob_column;
 use crate::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, readable_event_sql,
 };
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
+use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 /// Whether the event aliased `event_alias` stands as a row: it starts one, or it continues a row
 /// whose first piece is unreadable and no readable piece of that row comes before it.
@@ -149,6 +152,35 @@ static ROW_MEMBERS_SQL: LazyLock<String> = LazyLock::new(|| {
       WHERE content_payload IS NOT NULL
       ORDER BY row_sequence, sequence",
         readable_event_sql("event"),
+    )
+});
+
+// The rows of a run, each given as its sequence and its last piece's, that nothing has ended
+// through the head: no turn end or end of its run, and no later row of its run starting, after its
+// last piece. Each probe is one search of an index, so a long row costs no more than a short one.
+static UNENDED_ROWS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT row.sequence
+       FROM json_each(@rows) AS given
+       JOIN session_events AS row
+         ON row.session_id = @session_id AND row.sequence = json_extract(given.value, '$[0]')
+      WHERE row.run_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM session_events AS ended
+           WHERE ended.session_id = @session_id AND ended.type IN ({turn_ends}, {run_ends})
+             AND ended.run_id = row.run_id
+             AND ended.sequence > json_extract(given.value, '$[1]') AND ended.sequence <= @head
+             AND {readable_ended})
+        AND NOT EXISTS (
+          SELECT 1 FROM session_events AS later
+           WHERE later.session_id = @session_id AND later.run_id = row.run_id
+             AND later.join_key IS NOT NULL AND later.joins_sequence IS NULL
+             AND later.sequence > json_extract(given.value, '$[1]') AND later.sequence <= @head
+             AND {readable_later})",
+        turn_ends = sql_list_of(TURN_END_EVENT_TYPES),
+        run_ends = *RUN_TERMINAL_EVENT_TYPES_SQL,
+        readable_ended = readable_event_sql("ended"),
+        readable_later = readable_event_sql("later"),
     )
 });
 
@@ -323,6 +355,31 @@ where
             });
         }
         Ok(members)
+    }
+
+    /// Which of `rows`, each a row's sequence and its last piece's through `head`, still take
+    /// pieces: a row of a run that no turn end or end of its run, and no later row of its run, has
+    /// followed.
+    pub(crate) fn unended_rows(
+        &self,
+        rows: &[(i64, i64)],
+        head: i64,
+    ) -> rusqlite::Result<HashSet<i64>> {
+        if rows.is_empty() {
+            return Ok(HashSet::new());
+        }
+        self.reader
+            .prepare_cached(&UNENDED_ROWS_SQL)?
+            .query_map(
+                named_params! {
+                    "@session_id": self.session_id.text().as_str(),
+                    "@rows": serde_json::to_string(rows).expect("pairs of integers serialize"),
+                    "@head": head,
+                    "@read_bound": self.reads.read_bound(self.session_id, None),
+                },
+                |row| row.get(0),
+            )?
+            .collect()
     }
 
     /// The stored text of the pieces at `sequences`, joined in log order.

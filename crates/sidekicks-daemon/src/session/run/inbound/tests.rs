@@ -308,8 +308,9 @@ async fn inbound_absorbs_a_late_report_on_a_resumed_run(#[case] entry: RunStateE
     );
 }
 
-// Killed by a long reasoning text stored as one piece over an entry's length, by a piece left
-// out, and by the pieces read back out of order.
+// Killed by a long reasoning text stored as one piece over an entry's length, by a text cut by
+// bytes rather than characters, by a piece left out, by the pieces read back out of order, and by
+// an empty text stored as no piece.
 #[tokio::test]
 async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back() {
     let harness = Harness::new(RunState::Running).await;
@@ -323,9 +324,17 @@ async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back()
         )
         .map(|text| SessionId::new(&text).expect("the run's session is a session id"))
         .expect("the test reads the run's session");
-    let text: String = (0..40_000)
-        .map(|index| char::from_u32(0x61 + index % 26).expect("a letter"))
+    // An astral character sits across the first cut, so a cut by bytes would split it.
+    let letters: String = (0..2 * REASONING_ENTRY_CONTENT_MAX_LEN)
+        .map(|index| {
+            let index = u32::try_from(index % 26).expect("a letter's index fits");
+            char::from_u32(0x61 + index).expect("a letter")
+        })
         .collect();
+    let text = format!(
+        "{}\u{1f600}{letters}",
+        "a".repeat(REASONING_ENTRY_CONTENT_MAX_LEN - 1)
+    );
     let payload: RunAgentOutputPayload = serde_json::from_value(json!({
         "sessionId": session_id,
         "runId": harness.run_id,
@@ -336,7 +345,7 @@ async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back()
     harness
         .dispatched(InboundDelivery::ThinkingUpdate {
             binding: harness.on_binding(None),
-            payload,
+            payload: payload.clone(),
             content: text.clone(),
         })
         .await;
@@ -360,4 +369,13 @@ async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back()
         .map(|entry| entry["content"].as_str().expect("an entry holds text"))
         .collect();
     assert_eq!(read_back, text);
+
+    harness
+        .dispatched(InboundDelivery::ThinkingUpdate {
+            binding: harness.on_binding(None),
+            payload,
+            content: String::new(),
+        })
+        .await;
+    assert_eq!(harness.stored_event_count(), 4);
 }

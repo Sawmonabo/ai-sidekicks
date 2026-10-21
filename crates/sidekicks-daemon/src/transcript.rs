@@ -4,6 +4,7 @@
 pub(crate) mod block_cut;
 pub(crate) mod body;
 pub(crate) mod child_run;
+pub(crate) mod escape_sequences;
 pub(crate) mod patch_list;
 pub(crate) mod projector;
 pub(crate) mod reasoning;

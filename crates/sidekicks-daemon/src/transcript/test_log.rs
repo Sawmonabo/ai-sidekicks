@@ -182,6 +182,22 @@ impl TranscriptTestLog {
         );
     }
 
+    /// Writes the start of turn `turn_number` of `run_id`.
+    pub(crate) fn turn_start(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
+        self.write(
+            json!({
+                "type": "agent.turn.started",
+                "payload": {
+                    "sessionId": self.session_id,
+                    "runId": run_id,
+                    "runVersion": 1,
+                    "turnNumber": turn_number,
+                },
+            }),
+            None,
+        )
+    }
+
     /// A second connection, to read what the writer committed.
     pub(crate) fn reader(&self) -> Connection {
         self.database.reader()
@@ -195,4 +211,18 @@ pub(crate) fn wire_message<T: Serialize>(value: &T) -> (Value, Vec<bytes::Bytes>
         serde_json::from_slice(&json).expect("a written message reads as JSON"),
         attachments,
     )
+}
+
+/// The block starts `member` holds, as [`wire_message`] wrote it beside `attachments`: the UTF-16
+/// offsets its attachment packs, none when it is absent.
+pub(crate) fn wire_block_starts(member: &Value, attachments: &[bytes::Bytes]) -> Vec<u32> {
+    member["$bytes"].as_u64().map_or_else(Vec::new, |index| {
+        let index = usize::try_from(index).expect("an attachment index fits");
+        attachments[index]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&start| u32::from_le_bytes(start))
+            .collect()
+    })
 }

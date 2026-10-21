@@ -19,7 +19,7 @@ use crate::run::id::RunId;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::transcript::child_run_summary::ChildRunSummary;
-use crate::transcript::content::TranscriptRowContent;
+use crate::transcript::content::{BlockCutFailure, TranscriptRowContent};
 use crate::transcript::run_attribution::{
     TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcript_run_id_of,
 };
@@ -525,6 +525,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<SupersededMarker>().checked(),
         Definition::read::<TranscriptOmittedPatch>(),
+        Definition::read::<BlockCutFailure>(),
         Definition::read::<TranscriptRowContent>().checked(),
         Definition::read::<TranscriptReadRow>().checked(),
         Definition::read::<TranscriptRunStamp>().checked(),

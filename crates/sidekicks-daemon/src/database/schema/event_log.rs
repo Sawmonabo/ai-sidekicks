@@ -67,6 +67,8 @@ CREATE TABLE {SESSION_EVENTS_TABLE} (
   -- The run an event is filed under without being that run's own event, an intervention's
   -- target among them; NULL on an event of a run and on a session-level one.
   target_run_id     TEXT,
+  -- The tool call a run's tool completion completes; NULL on every other event.
+  tool_call_id      TEXT,
   UNIQUE (session_id, sequence)
 ) STRICT;
 
@@ -86,12 +88,22 @@ CREATE INDEX idx_session_events_run_sequence ON {SESSION_EVENTS_TABLE}(session_i
 CREATE INDEX idx_session_events_target_run
   ON {SESSION_EVENTS_TABLE}(session_id, target_run_id, sequence)
   WHERE target_run_id IS NOT NULL;
+-- A tool call's completions, newest last, for the read of the patches it left out.
+CREATE INDEX idx_session_events_tool_call
+  ON {SESSION_EVENTS_TABLE}(session_id, tool_call_id, sequence)
+  WHERE tool_call_id IS NOT NULL;
 -- A run's newest piece of one type under one message and block, which a later piece joins.
 CREATE INDEX idx_session_events_join_key
   ON {SESSION_EVENTS_TABLE}(session_id, run_id, type, join_key, sequence, joins_sequence)
   WHERE join_key IS NOT NULL;
+-- One run's reply and reasoning rows by their first pieces, in log order, for the read that finds
+-- whether a later row of the run has started.
+CREATE INDEX idx_session_events_run_anchor
+  ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)
+  WHERE join_key IS NOT NULL AND joins_sequence IS NULL;
 -- Every piece continuing a row, by the row's first piece, in log order.
-CREATE INDEX idx_session_events_joins ON {SESSION_EVENTS_TABLE}(session_id, joins_sequence, sequence)
+CREATE INDEX idx_session_events_joins
+  ON {SESSION_EVENTS_TABLE}(session_id, joins_sequence, sequence)
   WHERE joins_sequence IS NOT NULL;
 -- One run's events that name an actor, in log order, for the read that finds who acts for a run.
 CREATE INDEX idx_session_events_run_actor ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)

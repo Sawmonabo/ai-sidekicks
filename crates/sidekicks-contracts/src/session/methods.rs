@@ -31,7 +31,7 @@ use crate::session::search::{
 };
 use crate::tag::TagList;
 use crate::transcript::child_run_summary::ChildRunSummary;
-use crate::transcript::content::{BlockStarts, TranscriptRowContent};
+use crate::transcript::content::{BlockCutFailure, BlockStarts, TranscriptRowContent};
 use crate::transcript::row::TranscriptRunStamp;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
@@ -383,8 +383,8 @@ pub struct SessionStreamPiece {
     /// The piece's text, or its size alone when it is too large to travel inline.
     #[garde(dive)]
     pub content: TranscriptRowContent,
-    /// The row's block starts this piece froze, as UTF-16 offsets into the row's whole body; a
-    /// frozen start never moves.
+    /// The row's block starts this piece froze, as UTF-16 offsets into the row's whole drawn
+    /// body; a frozen start never moves.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -392,6 +392,14 @@ pub struct SessionStreamPiece {
     )]
     #[schemars(with = "BlockStarts")]
     pub block_starts: Option<BlockStarts>,
+    /// Why the row's cut failed with this piece, after which its later pieces carry no starts.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BlockCutFailure")]
+    pub block_cut_failure: Option<BlockCutFailure>,
 }
 
 /// A row an event ended, with the block starts its last pieces left unsent.
@@ -400,7 +408,8 @@ pub struct SessionStreamPiece {
 pub struct SessionStreamEndedRow {
     /// The row: the id of its first event.
     pub row_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    /// The rest of its block starts, as UTF-16 offsets into its whole body; absent when none.
+    /// The rest of its block starts, as UTF-16 offsets into its whole drawn body; absent when
+    /// none.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -408,6 +417,14 @@ pub struct SessionStreamEndedRow {
     )]
     #[schemars(with = "BlockStarts")]
     pub block_starts: Option<BlockStarts>,
+    /// Why the cut of its last text failed; never beside starts.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BlockCutFailure")]
+    pub block_cut_failure: Option<BlockCutFailure>,
 }
 
 stream_frame! {

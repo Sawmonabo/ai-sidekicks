@@ -4,14 +4,16 @@
 //! an event moves is written in that event's own write. The run an event belongs to, which its
 //! typed event names, is written to its own columns, so no write or read parses the payload for
 //! it. A piece of a run's reply or reasoning is stamped with the row it joins: the newest earlier
-//! piece of the same run, type, provider message and block, unless the run rolled back since,
-//! decided here once so every read sees the same rows. It also owns the clock a row's
-//! `monotonic_ns` reads.
+//! piece of the same run, type, provider message and block within the run's current turn, unless
+//! the run rolled back since, decided here once so every read sees the same rows. A tool completion
+//! is stamped with the call it completes, so the call's patch read finds it by an index. It also
+//! owns the clock a row's `monotonic_ns` reads.
 
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
+use serde_json::Value;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::run_attribution::transcript_run_id_of;
@@ -73,12 +75,13 @@ const INSERT_SESSION_EVENT_SQL: &str = "INSERT INTO session_events (
        id, session_id, sequence, occurred_at, monotonic_ns,
        category, type, actor, payload,
        correlation_id, causation_id, version, content_payload,
-       run_id, run_version, turn_number, join_key, joins_sequence, target_run_id
+       run_id, run_version, turn_number, join_key, joins_sequence, target_run_id, tool_call_id
      ) VALUES (
        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
        @category, @type, @actor, @payload,
        @correlation_id, @causation_id, @version, @content_payload,
-       @run_id, @run_version, @turn_number, @join_key, @joins_sequence, @target_run_id
+       @run_id, @run_version, @turn_number, @join_key, @joins_sequence, @target_run_id,
+       @tool_call_id
      )";
 
 const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
@@ -87,13 +90,16 @@ const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
       ORDER BY sequence DESC
       LIMIT 1";
 
-// The payload members that name the provider message and block a piece belongs to.
+// The payload members that name the provider message and block a piece belongs to, and the call a
+// tool completion completes.
 const PROVIDER_MESSAGE_ID_PAYLOAD_KEY: &str = "providerMessageId";
 const PROVIDER_BLOCK_PAYLOAD_KEY: &str = "providerBlock";
+const TOOL_CALL_ID_PAYLOAD_KEY: &str = "toolCallId";
 
 // The row a new piece joins: the run's newest piece of its type under its key, newer than the
-// run's last rollback, as its row's first piece's sequence. Each half is one search of a covering
-// index: the key's, and the run-and-type one.
+// start of the run's current turn, since a provider message never spans turns, and than the run's
+// last rollback, as its row's first piece's sequence. Each part is one search of a covering index:
+// the key's, and the run-and-type one twice.
 static JOINED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT coalesce(piece.joins_sequence, piece.sequence)
@@ -102,12 +108,18 @@ static JOINED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
         AND piece.join_key = @join_key
         AND piece.sequence > coalesce(
           (SELECT max(rollback.sequence) FROM session_events AS rollback
-            WHERE rollback.session_id = @session_id AND rollback.type = '{}'
+            WHERE rollback.session_id = @session_id AND rollback.type = '{rolled_back}'
               AND rollback.run_id = @run_id),
+          -1)
+        AND piece.sequence > coalesce(
+          (SELECT max(turn.sequence) FROM session_events AS turn
+            WHERE turn.session_id = @session_id AND turn.type = '{turn_started}'
+              AND turn.run_id = @run_id),
           -1)
       ORDER BY piece.sequence DESC
       LIMIT 1",
-        SessionEventType::AgentRunRolledBack.as_str()
+        rolled_back = SessionEventType::AgentRunRolledBack.as_str(),
+        turn_started = SessionEventType::AgentTurnStarted.as_str(),
     )
 });
 
@@ -175,6 +187,11 @@ pub(crate) fn insert_session_event(
         .is_none()
         .then(|| transcript_run_id_of(Some(event.payload())))
         .flatten();
+    let tool_call_id = (run.is_some()
+        && event.event_type() == SessionEventType::AgentToolCallCompleted)
+        .then(|| event.payload().get(TOOL_CALL_ID_PAYLOAD_KEY))
+        .flatten()
+        .and_then(Value::as_str);
     connection
         .prepare_cached(INSERT_SESSION_EVENT_SQL)?
         .execute(named_params! {
@@ -197,6 +214,7 @@ pub(crate) fn insert_session_event(
             "@join_key": join_key,
             "@joins_sequence": joins_sequence,
             "@target_run_id": target_run_id,
+            "@tool_call_id": tool_call_id,
         })?;
     // Runs for the service's own sentinel session too, whose cursor is written and never read.
     connection

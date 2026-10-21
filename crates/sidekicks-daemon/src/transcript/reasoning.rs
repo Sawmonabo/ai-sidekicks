@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::session::event_cursor::{EventCursor, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
@@ -160,9 +161,13 @@ where
         .into_iter()
         .map(entry_of)
         .collect::<Result<Vec<_>, _>>()?;
-    let page_count =
-        count_entries_fitting_one_frame(&entries, REASONING_SURFACE_ENTRIES_MAX, PAGE_MAX_BYTES)
-            .expect("a reasoning entry serializes");
+    let page_count = count_entries_fitting_one_frame(
+        &entries,
+        REASONING_SURFACE_ENTRIES_MAX,
+        PAGE_MAX_BYTES,
+        json_utf8_byte_length,
+    )
+    .expect("a reasoning entry serializes");
     let has_more = is_cut || page_count < entries.len();
     let mut entries = entries;
     entries.truncate(page_count);
@@ -223,9 +228,8 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::event_cursor::encode_event_cursor;
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 
-    use super::{read_reasoning, split_reasoning_text};
+    use super::read_reasoning;
     use crate::transcript::test_log::{AT, TranscriptTestLog, wire_message};
 
     const THINKING: &str = "agent.thinking.updated";
@@ -295,24 +299,5 @@ mod tests {
         assert_eq!(at_end["availability"], "available");
         assert_eq!(at_end["reasoningEntries"], json!([]));
         assert_eq!(at_end["hasMore"], false);
-    }
-
-    #[test]
-    fn a_long_text_splits_on_scalar_boundaries_into_parts_of_at_most_one_entry() {
-        // An astral character sits across the first cut, so a cut by bytes would split it.
-        let text = format!(
-            "{}\u{1f600}{}",
-            "a".repeat(REASONING_ENTRY_CONTENT_MAX_LEN - 1),
-            "b".repeat(2 * REASONING_ENTRY_CONTENT_MAX_LEN)
-        );
-        let parts = split_reasoning_text(&text);
-        assert_eq!(parts.len(), 3);
-        assert!(
-            parts
-                .iter()
-                .all(|part| part.chars().count() <= REASONING_ENTRY_CONTENT_MAX_LEN)
-        );
-        assert_eq!(parts.concat(), text);
-        assert_eq!(split_reasoning_text(""), [""]);
     }
 }

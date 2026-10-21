@@ -11,8 +11,6 @@ use rusqlite::{Connection, OptionalExtension, named_params};
 use serde::Deserialize;
 use serde_json::json;
 use sidekicks_contracts::event::declared_variants::CONTENT_PAYLOAD_PLAINTEXT_MAX;
-use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -30,24 +28,20 @@ use crate::database::stored_column::optional_utf8_blob_column;
 use crate::events::session::read::{SessionEventReads, readable_event_sql};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
-use crate::transcript::whole_patch::WholePatchFile;
+use crate::transcript::whole_patch::{OMITTED_PATCHES_PAYLOAD_KEY, WholePatchFile};
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
-/// The payload member of a tool completion that names the files its body's patches cover.
-const OMITTED_PATCHES_PAYLOAD_KEY: &str = "omittedPatches";
-
-// The call's newest readable completion: whether it names patches, and its body.
+// The call's newest readable completion, found by the call the insert stamped on it: whether it
+// names patches, and its body.
 static COMPLETION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT json_type(event.payload, '$.{OMITTED_PATCHES_PAYLOAD_KEY}') IS NOT NULL,
             event.content_payload
        FROM session_events AS event
-      WHERE event.session_id = @session_id AND event.type = '{completed}'
-        AND event.run_id IS NOT NULL
-        AND json_extract(event.payload, '$.toolCallId') = @tool_call_id AND {readable}
+      WHERE event.session_id = @session_id AND event.tool_call_id = @tool_call_id
+        AND {readable}
       ORDER BY event.sequence DESC
       LIMIT 1",
-        completed = SessionEventType::AgentToolCallCompleted.as_str(),
         readable = readable_event_sql("event"),
     )
 });
@@ -94,70 +88,7 @@ impl From<DatabaseReadError> for PatchListError {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredPatchFiles {
-    files: Vec<StoredPatchFile>,
-}
-
-/// One stored file: its patch, no patch, or the text a provider sent that could not be read.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum StoredPatchFile {
-    Read {
-        path: FilesystemPath,
-        #[serde(default, rename = "oldPath")]
-        old_path: Option<FilesystemPath>,
-        patch: String,
-        additions: u64,
-        deletions: u64,
-    },
-    Unreadable {
-        path: FilesystemPath,
-        #[serde(default, rename = "oldPath")]
-        old_path: Option<FilesystemPath>,
-        unavailable: TranscriptPatchUnreadableReason,
-        #[serde(rename = "rawPatch")]
-        raw_patch: String,
-    },
-    Absent {
-        path: FilesystemPath,
-        #[serde(default, rename = "oldPath")]
-        old_path: Option<FilesystemPath>,
-        unavailable: TranscriptPatchAbsentReason,
-    },
-}
-
-impl From<StoredPatchFile> for WholePatchFile {
-    fn from(file: StoredPatchFile) -> Self {
-        match file {
-            StoredPatchFile::Read {
-                path,
-                old_path,
-                patch,
-                additions,
-                deletions,
-            } => Self::Read {
-                path,
-                old_path,
-                patch,
-                additions,
-                deletions,
-            },
-            StoredPatchFile::Unreadable {
-                path,
-                old_path,
-                unavailable: TranscriptPatchUnreadableReason::Value,
-                raw_patch,
-            } => Self::Unreadable {
-                path,
-                old_path,
-                raw_patch,
-            },
-            StoredPatchFile::Absent {
-                path,
-                old_path,
-                unavailable: TranscriptPatchAbsentReason::Value,
-            } => Self::Absent { path, old_path },
-        }
-    }
+    files: Vec<WholePatchFile>,
 }
 
 /// Reads one page of the patches `request`'s tool call left out, on `reader`;
@@ -206,15 +137,14 @@ where
     };
     let files: Vec<WholePatchFile> = match body.filter(|_| names_patches) {
         None => Vec::new(),
-        Some(body) => serde_json::from_str::<StoredPatchFiles>(&body)
-            .map_err(|cause| PatchListError::StoredFiles {
-                tool_call_id: request.tool_call_id.as_str().to_owned(),
-                cause,
-            })?
-            .files
-            .into_iter()
-            .map(WholePatchFile::from)
-            .collect(),
+        Some(body) => {
+            serde_json::from_str::<StoredPatchFiles>(&body)
+                .map_err(|cause| PatchListError::StoredFiles {
+                    tool_call_id: request.tool_call_id.as_str().to_owned(),
+                    cause,
+                })?
+                .files
+        }
     };
     Ok(patch_page_of(&files, request.cursor)?)
 }
@@ -391,6 +321,8 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::transcript::content::TranscriptPatchListRequest;
 
+    use sidekicks_contracts::event::declared_variants::CONTENT_PAYLOAD_PLAINTEXT_MAX;
+
     use super::{PatchListError, list_patches};
     use crate::transcript::test_log::{TranscriptTestLog, wire_message};
     use crate::transcript::window::{TranscriptReadError, read_transcript_window};
@@ -415,14 +347,16 @@ mod tests {
     }
 
     // Killed by a moved file's old path dropped from the row or the read, by a part cut inside a
-    // character or a cursor there accepted, by a file left out of the joined read, and by a call
-    // the session does not hold read as one with no patches.
+    // character or a cursor there accepted, by a file left out of the joined read, by a completion
+    // that names patches cut at the stored cap, and by a call the session does not hold read as one
+    // with no patches.
     #[test]
     fn patch_list_reads_every_left_out_file_whole_across_pages() {
         let log = TranscriptTestLog::new();
         let patch = "@@ -1 +1 @@\n-old\n+new\n";
-        // Four bytes a character, so the raw text is over one page and under the stored cut.
-        let raw_patch = "\u{1f600}".repeat(250_000);
+        // Four bytes a character and past the stored cut, which a patch-bearing completion is
+        // stored whole outside of.
+        let raw_patch = "\u{1f600}".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX + 10_000);
         let body = json!({
             "files": [
                 {

@@ -210,9 +210,13 @@ where
         let stretch_runs = self.run_facts_of(head, &rows)?;
         // Counted from the oldest end, so a budget cut keeps the rows nearest `afterCursor`,
         // whether or not `beforeCursor` bounds the window.
-        let page_count =
-            count_entries_fitting_one_frame(&rows, limit, row_budget_beside(&stretch_runs))
-                .expect("a transcript row serializes");
+        let page_count = count_entries_fitting_one_frame(
+            &rows,
+            limit,
+            row_budget_beside(&stretch_runs),
+            json_utf8_byte_length,
+        )
+        .expect("a transcript row serializes");
         rows.truncate(page_count);
         let runs = runs_named_by(&rows, stretch_runs);
         let joined_through = head.map(cursor_at);
@@ -259,9 +263,13 @@ where
         let stretch_runs = self.run_facts_of(head, &rows)?;
         // Counted from the newest end, so a budget cut drops the rows farthest from the cursor.
         let newest_first: Vec<&TranscriptReadRow> = rows.iter().rev().collect();
-        let page_count =
-            count_entries_fitting_one_frame(&newest_first, limit, row_budget_beside(&stretch_runs))
-                .expect("a transcript row serializes");
+        let page_count = count_entries_fitting_one_frame(
+            &newest_first,
+            limit,
+            row_budget_beside(&stretch_runs),
+            json_utf8_byte_length,
+        )
+        .expect("a transcript row serializes");
         let entries = rows.split_off(rows.len() - page_count);
         let runs = runs_named_by(&entries, stretch_runs);
         let joined_through = head.map(cursor_at);
@@ -352,9 +360,13 @@ where
             .collect();
         let nearest_rows: Vec<&TranscriptReadRow> =
             nearest_first.iter().map(|&index| &rows[index]).collect();
-        let page_count =
-            count_entries_fitting_one_frame(&nearest_rows, limit, row_budget_beside(&stretch_runs))
-                .expect("a transcript row serializes");
+        let page_count = count_entries_fitting_one_frame(
+            &nearest_rows,
+            limit,
+            row_budget_beside(&stretch_runs),
+            json_utf8_byte_length,
+        )
+        .expect("a transcript row serializes");
         let kept = &nearest_first[..page_count];
         let oldest_kept = *kept.iter().min().expect("a page keeps the anchor");
         let newest_kept = *kept.iter().max().expect("a page keeps the anchor");
@@ -413,7 +425,7 @@ where
             stretch,
             head,
             &self.observed_at,
-        )?;
+        );
         Ok(rows)
     }
 

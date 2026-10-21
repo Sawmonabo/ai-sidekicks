@@ -103,7 +103,7 @@ const LOST_AND_FOUND_TABLE_PATTERN: &str = r"lost\_and\_found%";
 // The stored columns of an event, every one but none SQLite computes, in the append's order.
 const STORED_EVENT_COLUMNS: &str = "id, session_id, sequence, occurred_at, monotonic_ns, category,
   type, actor, payload, correlation_id, causation_id, version, content_payload, run_id,
-  run_version, turn_number, join_key, joins_sequence, target_run_id";
+  run_version, turn_number, join_key, joins_sequence, target_run_id, tool_call_id";
 
 const SNAPSHOT_COLUMNS: &str = "id, session_id, as_of_sequence, state_blob, created_at";
 

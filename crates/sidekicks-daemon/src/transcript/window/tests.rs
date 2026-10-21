@@ -8,11 +8,10 @@ use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, Transcr
 
 use super::{TranscriptReadError, read_transcript_window};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
+use crate::transcript::block_cut::STALLING_TEXT;
 use crate::transcript::body::read_row_body;
-use crate::transcript::test_log::{TranscriptTestLog, wire_message};
+use crate::transcript::test_log::{AT, TranscriptTestLog, wire_block_starts, wire_message};
 use crate::uuid_v7::mint_uuid_v7;
-
-const AT: &str = "2026-10-14T09:00:00.000Z";
 
 fn anchored_read(session_id: &SessionId, sequence: i64) -> TranscriptReadRequest {
     serde_json::from_value(json!({
@@ -112,18 +111,23 @@ fn cursor(position: i64) -> Value {
     json!(encode_event_cursor(position).expect("a test position is a cursor"))
 }
 
-// The page `request` reads on `log`'s session, as JSON.
-fn read(log: &TranscriptTestLog, request: Value) -> Value {
+// The page `request` reads on `log`'s session, as JSON, beside its attachments.
+fn read_with_attachments(log: &TranscriptTestLog, request: Value) -> (Value, Vec<bytes::Bytes>) {
     let mut request = request;
     request["sessionId"] = json!(log.session_id);
     let request: TranscriptReadRequest =
         serde_json::from_value(request).expect("the test's request reads");
     let response = read_transcript_window(&log.reader(), &|_: &SessionId| None, &request)
         .expect("the window reads");
-    wire_message(&response).0
+    wire_message(&response)
 }
 
-// Each row of `page`: a tool row as `tool`, any other as its inline body.
+// The page `request` reads on `log`'s session, as JSON.
+fn read(log: &TranscriptTestLog, request: Value) -> Value {
+    read_with_attachments(log, request).0
+}
+
+// Each row of `page`: a tool row as `tool`, a turn's start as `turn`, any other as its inline body.
 fn row_bodies(page: &Value) -> Vec<String> {
     page["entries"]
         .as_array()
@@ -132,6 +136,8 @@ fn row_bodies(page: &Value) -> Vec<String> {
         .map(|row| {
             if row["type"] == "agent.toolCall.completed" {
                 "tool".to_owned()
+            } else if row["type"] == "agent.turn.started" {
+                "turn".to_owned()
             } else {
                 row["content"]["body"]
                     .as_str()
@@ -177,16 +183,27 @@ enum Step {
     Reply(&'static str, Option<u64>, &'static str),
     // A completed tool call.
     Tool,
+    // The start of the run's next turn.
+    Turn,
 }
 
-// Killed by keying the join on the message alone, on the block alone, or on adjacency.
+// Killed by keying the join on the message alone, on the block alone, or on adjacency, and by a
+// join that reaches past the run's current turn.
 #[rstest]
 #[case::blocks_of_one_message_stay_apart(
-    &[Step::Reply("m1", Some(0), "Let me look."), Step::Tool, Step::Reply("m1", Some(2), "Found it.")],
+    &[
+        Step::Reply("m1", Some(0), "Let me look."),
+        Step::Tool,
+        Step::Reply("m1", Some(2), "Found it."),
+    ],
     &["Let me look.", "tool", "Found it."]
 )]
 #[case::a_tool_result_inside_a_block(
-    &[Step::Reply("m1", Some(0), "Reading "), Step::Tool, Step::Reply("m1", Some(0), "the file.")],
+    &[
+        Step::Reply("m1", Some(0), "Reading "),
+        Step::Tool,
+        Step::Reply("m1", Some(0), "the file."),
+    ],
     &["Reading the file.", "tool"]
 )]
 #[case::a_plan_block_inside_a_message(
@@ -201,11 +218,16 @@ enum Step {
     &[Step::Reply("m1", Some(0), "First."), Step::Reply("m2", Some(0), "Second.")],
     &["First.", "Second."]
 )]
+#[case::the_same_message_and_block_in_two_turns(
+    &[Step::Reply("m1", Some(0), "Turn one."), Step::Turn, Step::Reply("m1", Some(0), "Turn two.")],
+    &["Turn one.", "turn", "Turn two."]
+)]
 fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
     #[case] steps: &[Step],
     #[case] rows: &[&str],
 ) {
     let log = TranscriptTestLog::new();
+    let mut turn_number = 1;
     for step in steps {
         match *step {
             Step::Reply(message_id, block, body) => {
@@ -213,6 +235,10 @@ fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
             }
             Step::Tool => {
                 log.tool_completion(log.run_id, "call-1", None, Some("ok"));
+            }
+            Step::Turn => {
+                turn_number += 1;
+                log.turn_start(log.run_id, turn_number);
             }
         }
     }
@@ -279,6 +305,7 @@ fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
             &log.session_id,
             &row_id,
             part_offset,
+            true,
         )
         .expect("the body reads")
         .expect("a row stands at the anchor");
@@ -316,4 +343,109 @@ fn an_intervention_row_stands_on_its_target_runs_arm(
     assert_eq!(row["kind"], "run");
     assert_eq!(row["runId"], json!(log.run_id));
     assert_eq!(row["type"], format!("agent.intervention.{state}"));
+    let stored_target: String = log
+        .writer
+        .query_row(
+            "SELECT target_run_id FROM session_events WHERE id = ?",
+            [&id],
+            |stored| stored.get(0),
+        )
+        .expect("the intervention's target run is stored");
+    assert_eq!(stored_target, log.run_id.to_string());
+}
+
+// The first row of `page` whose inline body is `body`.
+fn row_with_body<'page>(page: &'page Value, body: &str) -> &'page Value {
+    page["entries"]
+        .as_array()
+        .expect("a page holds entries")
+        .iter()
+        .find(|row| row["content"]["body"] == body)
+        .expect("the row is on the page")
+}
+
+// Killed by the window's cut call removed, by an open row cut as ended, whose last starts could
+// still move, by a later row of the run not ending it, and by one row's failed cut failing the
+// page or another row.
+#[test]
+fn a_window_cuts_reply_rows_into_blocks_and_a_failed_cut_fails_its_row_alone() {
+    let log = TranscriptTestLog::new();
+    let text = "First.\n\nSecond.\n\nThird.\n\nFourth.\n";
+    log.reply("m1", Some(0), &text[..17]);
+    log.reply("m1", Some(0), &text[17..]);
+
+    let (open_page, open_attachments) = read_with_attachments(&log, json!({}));
+    let open = wire_block_starts(
+        &row_with_body(&open_page, text)["content"]["blockStarts"],
+        &open_attachments,
+    );
+    let stalling = format!("Before.\n\n{STALLING_TEXT}\n");
+    log.reply("m2", Some(0), &stalling);
+    let (page, attachments) = read_with_attachments(&log, json!({}));
+    let ended = wire_block_starts(
+        &row_with_body(&page, text)["content"]["blockStarts"],
+        &attachments,
+    );
+    assert_eq!(ended, [0, 8, 17, 25]);
+    assert!(!open.is_empty() && open.len() < ended.len());
+    assert_eq!(open, ended[..open.len()]);
+    let failed = &row_with_body(&page, &stalling)["content"];
+    assert_eq!(failed["blockCutFailure"], "stalled");
+    assert!(failed.get("blockStarts").is_none());
+}
+
+// Killed by the body read's cut call removed, by a part carrying starts outside its own text, and
+// by starts over a page answered with a panic rather than spread across the parts.
+#[test]
+fn a_body_read_spreads_starts_past_a_page_across_its_parts() {
+    let log = TranscriptTestLog::new();
+    let paragraphs = 300_000;
+    let whole = "a\n\n".repeat(paragraphs);
+    // Four pieces, each under the stored cut, take a body whose starts alone pass one page.
+    let piece_length = whole.len() / 4;
+    let (_, row_id) = log.reply("long", Some(0), &whole[..piece_length]);
+    for index in 1..4 {
+        log.reply(
+            "long",
+            Some(0),
+            &whole[index * piece_length..(index + 1) * piece_length],
+        );
+    }
+    // A later row of the run ends this one, so every start is final.
+    log.reply("next", Some(0), "Done.");
+    assert!(4 * paragraphs > sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES);
+
+    let reader = log.reader();
+    let mut starts = Vec::new();
+    let mut offset = Some(0);
+    while let Some(part_offset) = offset {
+        let part = read_row_body(
+            &reader,
+            &|_: &SessionId| None,
+            &log.session_id,
+            &row_id,
+            part_offset,
+            true,
+        )
+        .expect("the body reads")
+        .expect("a row stands at the anchor");
+        let (part, attachments) = wire_message(&part);
+        let part_start = part["offset"].as_u64().expect("a part names its offset");
+        let part_end = part_start
+            + u64::try_from(part["body"].as_str().expect("the part is available").len())
+                .expect("a part's length fits");
+        let part_starts = wire_block_starts(&part["blockStarts"], &attachments);
+        // Every character is one UTF-16 unit, so a drawn offset is a stored one.
+        assert!(
+            part_starts
+                .iter()
+                .all(|&start| (part_start..part_end).contains(&u64::from(start)))
+        );
+        starts.extend(part_starts);
+        offset = part["nextOffset"].as_u64();
+    }
+    let expected: Vec<u32> = (0..paragraphs)
+        .map(|index| u32::try_from(3 * index).expect("an offset fits"))
+        .collect();
+    assert_eq!(starts, expected);
 }

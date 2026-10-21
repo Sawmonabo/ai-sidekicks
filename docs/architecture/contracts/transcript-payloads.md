@@ -112,10 +112,20 @@ interface TranscriptEventRowBase {
 // neighbors out of a page. Chat services size a single message in the same range (a few thousand
 // characters recommended, 40,000 before a message is cut, 65,535 bytes for a whole event), so a
 // reply of ordinary length travels whole. The daemon reads a large body's size, never its bytes.
+type BlockCutFailure = "stalled" | "overPage";
 type TranscriptRowContent =
-  // blockStarts: on a prose body, the body's block starts as UTF-16 offsets, each a little-endian
-  // u32, sent as an attachment and charged against the page budget with the JSON.
-  | { status: "available"; body: string; contentLength?: number; blockStarts?: Uint8Array }
+  // blockStarts: on a prose body, the body's block starts as UTF-16 offsets into the text drawn
+  // with its escape sequences left out, each a little-endian u32, sent as an attachment and charged
+  // against the page budget with the JSON. A row whose reply is still arriving carries only the
+  // starts no later text can move. blockCutFailure: why a prose body's cut failed, in place of its
+  // starts; a failed cut fails that row alone.
+  | {
+      status: "available";
+      body: string;
+      contentLength?: number;
+      blockStarts?: Uint8Array;
+      blockCutFailure?: BlockCutFailure;
+    }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason }
   // The body's size in bytes, its bytes left out; transcript.body.read reads it whole.
   | { status: "large"; contentLength: number };
@@ -399,7 +409,11 @@ type TranscriptBodyReadResponse =
       offset: number;
       nextOffset: number | null;
       contentLength?: number;
-      blockStarts?: Uint8Array; // the whole body's block starts, on the first part of a prose body
+      // On a prose body, the block starts that fall in this part, as UTF-16 offsets into the
+      // whole drawn body, charged with the part against one page; or why the cut failed, on every
+      // part.
+      blockStarts?: Uint8Array;
+      blockCutFailure?: BlockCutFailure;
     }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason };
 
