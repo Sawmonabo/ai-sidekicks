@@ -39,41 +39,26 @@ futures = { version = "0.3.34", default-features = false, features = ["async-awa
 futures-util = { version = "0.3.34", default-features = false }
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
 mimalloc = "0.1.52"
-opentelemetry-proto = {
-  version = "0.33.1",
-  default-features = false,
-  features = [
-    "gen-tonic-messages",
-    "logs",
-    "trace",
-    "with-serde",
-  ]
-}
+opentelemetry-proto.version = "0.33.1"
+opentelemetry-proto.default-features = false
+opentelemetry-proto.features = ["gen-tonic-messages", "logs", "trace", "with-serde"]
 thiserror = "2.0.21"
-tokio = {
-  version = "1.53.3",
-  features = [
-    "fs",
-    "io-util",
-    "macros",
-    "net",
-    "process",
-    "rt-multi-thread",
-    "signal",
-    "sync",
-    "time",
-  ]
-}
+tokio.version = "1.53.3"
+tokio.features = [
+  "fs",
+  "io-util",
+  "macros",
+  "net",
+  "process",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time"
+]
 tracing = "0.1.44"
-tracing-subscriber = {
-  version = "0.3.23",
-  default-features = false,
-  features = [
-    "fmt",
-    "std",
-    "tracing-log",
-  ]
-}
+tracing-subscriber.version = "0.3.23"
+tracing-subscriber.default-features = false
+tracing-subscriber.features = ["fmt", "std", "tracing-log"]
 
 # Storage.
 deadpool = { version = "0.13.1", default-features = false, features = ["managed"] }
@@ -92,33 +77,15 @@ junction = "2.1.0"
 keepawake = "0.6.1"
 libc = "0.2.190"
 mach2 = "0.7.0"
-nix = {
-  version = "0.31.3",
-  features = [
-    "event",
-    "feature",
-    "fs",
-    "hostname",
-    "process",
-    "signal",
-    "time",
-    "user",
-  ]
-}
+nix.version = "0.31.3"
+nix.features = ["event", "feature", "fs", "hostname", "process", "signal", "time", "user"]
 objc2-core-foundation = "0.3.2"
 objc2-foundation = { version = "0.3.2", features = ["NSString", "NSURL"] }
 objc2-io-kit = { version = "0.3.2", default-features = false }
 objc2-security = { version = "0.3.2", default-features = false }
-objc2-service-management = {
-  version = "0.3.2",
-  default-features = false,
-  features = [
-    "SMAppService",
-    "objc2",
-    "objc2-foundation",
-    "std",
-  ]
-}
+objc2-service-management.version = "0.3.2"
+objc2-service-management.default-features = false
+objc2-service-management.features = ["SMAppService", "objc2", "objc2-foundation", "std"]
 polling = "3.8"
 process-wrap = { version = "10.0.1", features = ["tokio1"] }
 # Ends the command line as a Ctrl-C does once it has flushed: SIGINT's default action put back and
@@ -141,11 +108,9 @@ zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-tokio-c
 
 # Files, folders and git.
 cc = "1.8.0"
-flate2 = {
-  version = "1.1.10",
-  default-features = false,
-  features = ["runtime_detection", "zlib-rs"]
-}
+flate2.version = "1.1.10"
+flate2.default-features = false
+flate2.features = ["runtime_detection", "zlib-rs"]
 ignore = "0.4.33"
 notify = "=9.0.0-rc.6"
 reflink-copy = "0.1.30"
@@ -234,17 +199,15 @@ ferroni = "2.1.3"
 # A payload's media type from its leading bytes. ZIP, CFB and ID3v2 need bytes past that prefix and
 # ASF overflows on a crafted size, so those readers stay off and their formats are named by their
 # signatures alone. The daemon and its fuzz target take this one reader list.
-file-format = {
-  version = "0.29.0",
-  features = [
-    "reader-ebml",
-    "reader-exe",
-    "reader-mp4",
-    "reader-pdf",
-    "reader-sqlite3",
-    "reader-xml",
-  ]
-}
+file-format.version = "0.29.0"
+file-format.features = [
+  "reader-ebml",
+  "reader-exe",
+  "reader-mp4",
+  "reader-pdf",
+  "reader-sqlite3",
+  "reader-xml"
+]
 icu_casemap = "2.3.0"
 icu_collator = "2.3.1"
 icu_datetime = "2.3.0"
@@ -256,30 +219,27 @@ image = { version = "0.25.10", default-features = false, features = ["gif", "jpe
 jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
 jsonata-core = { version = "2.2.11", default-features = false }
 jsonc-parser = { version = "0.34.0", features = ["cst"] }
-lettre = {
-  version = "0.11.23",
-  default-features = false,
-  features = [
-    "aws-lc-rs",
-    "builder",
-    "hostname",
-    "pool",
-    "rustls-platform-verifier",
-    "smtp-transport",
-    "tokio1-rustls",
-  ]
-}
+lettre.version = "0.11.23"
+lettre.default-features = false
+lettre.features = [
+  "aws-lc-rs",
+  "builder",
+  "hostname",
+  "pool",
+  "rustls-platform-verifier",
+  "smtp-transport",
+  "tokio1-rustls"
+]
 lru = "0.19.0"
-lz4_flex = {
-  version = "0.14.0",
-  default-features = false,
-  features = ["safe-decode", "safe-encode"]
-}
+lz4_flex.version = "0.14.0"
+lz4_flex.default-features = false
+lz4_flex.features = ["safe-decode", "safe-encode"]
 memchr = "2.8.3"
 pdfium-render = "0.9.4"
 pulldown-cmark = { version = "0.13.4", default-features = false }
 quick_cache = "0.7.0"
 regex = "1.13.1"
+satteri-pulldown-cmark = { version = "0.6.3", default-features = false, features = ["std"] }
 serde-saphyr = "1.3.0"
 # 2.0 kept 1.3's `split`, `try_join` and quoting byte for byte and dropped only the deprecated
 # `join` and `quote`, so a line joined by 1.3 reads back exactly, and the build holds one copy.
@@ -291,11 +251,9 @@ toml_edit = { version = "0.25.17", features = ["serde"] }
 tree-sitter = "0.27.1"
 tree-sitter-bash = "0.25.1"
 unicode-normalization = "0.1.25"
-unicode-properties = {
-  version = "0.1.4",
-  default-features = false,
-  features = ["general-category"]
-}
+unicode-properties.version = "0.1.4"
+unicode-properties.default-features = false
+unicode-properties.features = ["general-category"]
 unicode-segmentation = "1.13.3"
 webp = "0.3.1"
 writeable = { version = "0.6.4", default-features = false }
@@ -304,14 +262,10 @@ zstd = "0.14.2"
 
 # The JavaScript engines: QuickJS and the web APIs the bundled modules call, held at the commit
 # whose crates build against this exact engine release.
-llrt_buffer = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
-llrt_crypto = {
-  git = "https://github.com/awslabs/llrt",
-  rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
-}
+llrt_buffer.git = "https://github.com/awslabs/llrt"
+llrt_buffer.rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
+llrt_crypto.git = "https://github.com/awslabs/llrt"
+llrt_crypto.rev = "71dab66c9074d64ff3243de936b67ebdc1c67196"
 rquickjs = { version = "=0.14.0", features = ["futures", "rust-alloc"] }
 
 # Crash reports.
@@ -319,16 +273,9 @@ crash-handler = "0.8.1"
 minidumper = "0.11.0"
 
 # The desktop's Node-API addon.
-napi = {
-  version = "3.14.2",
-  default-features = false,
-  features = [
-    "async",
-    "napi10",
-    "serde-json",
-    "tokio_rt",
-  ]
-}
+napi.version = "3.14.2"
+napi.default-features = false
+napi.features = ["async", "napi10", "serde-json", "tokio_rt"]
 napi-build = "2.6.0"
 napi-derive = "3.6.12"
 
@@ -339,7 +286,6 @@ worker = { version = "0.8.7", features = ["axum", "http"] }
 
 # Tests.
 caseless = "0.2.2"
-dhat = "0.3.3"
 insta = { version = "1.49.0", features = ["json"] }
 libfuzzer-sys = "0.4.13"
 mockall = "0.15.0"
@@ -396,15 +342,17 @@ unused_lifetimes = "warn"
 [workspace.metadata]
 name = "sidekicks-crates"
 
+[patch.crates-io]
+# Sätteri's markdown parser is its 0.10.5 release with our indented-code-block fix, one commit on
+# the user's fork, which the markdown parser's WebAssembly build reads too.
+satteri-pulldown-cmark.git = "https://github.com/Sawmonabo/satteri"
+satteri-pulldown-cmark.rev = "e16b7bcd04445ce2435fa3f0efbd21835821294d"
 # The bash grammar's scanner reads a run of `)` or `|` in time quadratic in its length; this is
 # upstream's pull-request commit fixing it, the 0.25.1 release but for that one guard
 # (https://github.com/tree-sitter/tree-sitter-bash/issues/357). The line goes when a release
 # carries the fix.
-[patch.crates-io]
-tree-sitter-bash = {
-  git = "https://github.com/tree-sitter/tree-sitter-bash",
-  rev = "35cc06e9e460a6c8066eae72df1698bb42c3d756",
-}
+tree-sitter-bash.git = "https://github.com/tree-sitter/tree-sitter-bash"
+tree-sitter-bash.rev = "35cc06e9e460a6c8066eae72df1698bb42c3d756"
 
 # The WebAssembly builds: small and fast, with no unwinding to carry. The release profile the other
 # crates build with stays as it is.

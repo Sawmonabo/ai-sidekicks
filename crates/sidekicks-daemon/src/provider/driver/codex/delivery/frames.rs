@@ -24,11 +24,13 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider::compaction_wait::PendingCompactionRegistry;
+use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
 use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::provider::driver::codex::server_requests::CodexAskKind;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
 use crate::provider::driver::run_control::RunToolBoundary;
 use crate::provider::port::command_output_publisher::CommandOutputPublisher;
@@ -295,21 +297,12 @@ impl CodexFrameDelivery {
         delivery: InboundDelivery<'_>,
         method: &str,
     ) -> Option<InboundOutcome> {
-        let delivery_kind = delivery_kind(&delivery);
-        match self.dependencies.dispatch.dispatch(delivery).await {
-            Ok(outcome) => Some(outcome),
-            Err(error) => {
-                CodexTransportDiagnostic::DeliveryDispatchFailed {
-                    provider_account_id: record.provider_account_id.clone(),
-                    method: Some(method.to_owned()),
-                    delivery_kind: delivery_kind.to_owned(),
-                    session_id: record.session_id,
-                    error: Box::new(error),
-                }
-                .report();
-                None
-            }
-        }
+        let origin = DeliveryOrigin {
+            provider: DESCRIPTOR.provider_id(),
+            provider_account_id: record.provider_account_id.clone(),
+            raw_wire_type: Some(method),
+        };
+        dispatch_delivery(&self.dependencies.dispatch, origin, delivery).await
     }
 
     // Sends one row, keeping the event and run of a tool call's start, which a reviewer flag and
@@ -415,22 +408,4 @@ fn report_unattributed(method: &str, turn_id: Option<&str>) {
         turn_id: turn_id.map(str::to_owned),
     }
     .report();
-}
-
-/// The kind of delivery a failure names.
-fn delivery_kind(delivery: &InboundDelivery<'_>) -> &'static str {
-    match delivery {
-        InboundDelivery::TurnBoundary { .. } => "turn_boundary",
-        InboundDelivery::RunLifecycle { .. } => "run_lifecycle",
-        InboundDelivery::RunContinued { .. } => "run_continued",
-        InboundDelivery::ChildRun { .. } => "child_run",
-        InboundDelivery::RunMarker { .. } => "run_marker",
-        InboundDelivery::LiveRunState { .. } => "live_run_state",
-        InboundDelivery::ThinkingUpdate { .. } => "thinking_update",
-        InboundDelivery::SessionNotice { .. } => "session_notice",
-        InboundDelivery::SessionEvent { .. } => "session_event",
-        InboundDelivery::PermissionAsk { .. } => "permission_ask",
-        InboundDelivery::SessionRow { .. } => "session_row",
-        InboundDelivery::UnstampedRow { .. } => "unstamped_row",
-    }
 }

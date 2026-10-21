@@ -1,9 +1,11 @@
-//! The refusal a save answers with when a document breaks a rule, and the check over the
-//! document's graph that the builder runs while a connection is dragged and the daemon runs again
-//! at save, so both refuse the same shapes.
+//! The refusal a save answers with when a document breaks a rule, the check over the document's
+//! graph that the builder runs before a save and the daemon runs again at save, and the check of
+//! one connection the builder runs while it is dragged, which answers only what that connection
+//! adds.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
+use std::iter;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -118,8 +120,12 @@ const LOOP_KIND: &str = "flow.loopItems";
 /// One node's category and the handles it has. For a kind whose outputs derive from its params,
 /// `outputs` is what this node's params give; a node that routes failures to an error output lists
 /// that output too.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "wasm",
+    derive(Deserialize),
+    serde(rename_all = "camelCase", deny_unknown_fields)
+)]
 pub struct WorkflowNodeHandles {
     /// The kind's category.
     pub category: WorkflowNodeKindCategory,
@@ -169,14 +175,9 @@ pub fn check_workflow_graph<S: BuildHasher>(
             node_ids: duplicate_trigger_ids,
         });
     }
-    let mut refused_edges = HashSet::new();
-    for (edge_index, parsed_edge) in graph.edges.iter().enumerate() {
-        let edge_findings = graph.edge_findings(parsed_edge);
-        if !edge_findings.is_empty() {
-            refused_edges.insert(edge_index);
-        }
-        findings.extend(edge_findings);
-    }
+    let findings_by_edge = graph.findings_by_edge();
+    let refused_edges = refused_edge_indices(&findings_by_edge);
+    findings.extend(findings_by_edge.into_iter().flatten());
     findings.extend(graph.connection_limit_findings(&refused_edges));
     findings.extend(
         graph
@@ -195,20 +196,67 @@ pub fn check_workflow_graph<S: BuildHasher>(
     findings
 }
 
-/// The findings one connection raises on its own, the rules the builder checks while it is
-/// dragged: an end naming a node the document does not hold, an edge into the trigger or out of a
-/// node with no outputs, a `tool` edge into a node with no `tool` input, an end that is not a
-/// declared handle of its node, and a `main` end joined to a `tool` end. Empty when the connection
-/// is accepted. The arguments read as `check_workflow_graph`'s, which raises the same findings for
-/// each of the document's edges.
+/// The findings a connection dragged onto the document adds, which the builder refuses while it
+/// is dragged: the edge's own rules, the cycle it closes (the edge closing a loop body excepted)
+/// and the input limit it passes. One graph is built over the document's edges and the
+/// connection; a cycle is the connection's when the connection is a `main` edge whose two ends it
+/// holds, and an input past its limit when it is the connection's target handle and the connection
+/// is not refused for its own fault. Empty when the connection is accepted.
 pub fn check_workflow_connection<S: BuildHasher>(
     trigger: Option<&WorkflowNode>,
     document_nodes: &[WorkflowNode],
+    edges: &[WorkflowEdge],
     edge: &WorkflowEdge,
     node_handles: &HashMap<WorkflowNodeId, WorkflowNodeHandles, S>,
 ) -> Vec<WorkflowDefinitionFinding> {
-    GraphFacts::new(trigger, document_nodes, &[], node_handles)
-        .edge_findings(&ParsedEdge::new(edge))
+    let edges_with_connection: Vec<WorkflowEdge> =
+        edges.iter().chain(iter::once(edge)).cloned().collect();
+    let graph = GraphFacts::new(
+        trigger,
+        document_nodes,
+        &edges_with_connection,
+        node_handles,
+    );
+    let mut findings_by_edge = graph.findings_by_edge();
+    let refused_edges = refused_edge_indices(&findings_by_edge);
+    let mut findings = findings_by_edge
+        .pop()
+        .expect("the connection is the last edge");
+    let is_refused = !findings.is_empty();
+    let connection = graph.edges.last().expect("the connection is the last edge");
+    if connection.is_main() && !is_refused {
+        findings.extend(
+            graph
+                .cycles()
+                .into_iter()
+                .filter(|node_ids| {
+                    node_ids.contains(&edge.source) && node_ids.contains(&edge.target)
+                })
+                .map(|node_ids| WorkflowDefinitionFinding::Cycle { node_ids }),
+        );
+    }
+    if !is_refused {
+        let target_input = graph.handles_of(&edge.target).and_then(|handles| {
+            handles
+                .inputs
+                .iter()
+                .find(|input| input.id_text() == edge.target_handle.as_str())
+        });
+        if let Some(input) = target_input {
+            findings.extend(graph.input_limit_finding(&edge.target, input, &refused_edges));
+        }
+    }
+    findings
+}
+
+// The indices of the edges refused for their own fault, which no input limit counts.
+fn refused_edge_indices(findings_by_edge: &[Vec<WorkflowDefinitionFinding>]) -> HashSet<usize> {
+    findings_by_edge
+        .iter()
+        .enumerate()
+        .filter(|(_, edge_findings)| !edge_findings.is_empty())
+        .map(|(edge_index, _)| edge_index)
+        .collect()
 }
 
 /// A rule one edge can break.
@@ -308,14 +356,23 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
             .is_some_and(|handles| handles.category != WorkflowNodeKindCategory::Trigger)
     }
 
+    // Each edge's own findings, in document order.
+    fn findings_by_edge(&self) -> Vec<Vec<WorkflowDefinitionFinding>> {
+        self.edges
+            .iter()
+            .map(|parsed_edge| self.edge_findings(parsed_edge))
+            .collect()
+    }
+
     // The edge's findings, each marking the ends the document holds.
     fn edge_findings(&self, parsed_edge: &ParsedEdge<'_>) -> Vec<WorkflowDefinitionFinding> {
         let WorkflowEdge { source, target, .. } = parsed_edge.edge;
-        let held_end_ids: Vec<WorkflowNodeId> = [source, target]
+        let mut held_end_ids: Vec<WorkflowNodeId> = [source, target]
             .into_iter()
             .filter(|node_id| self.node_by_id.contains_key(node_id))
             .cloned()
             .collect();
+        held_end_ids.dedup();
         self.edge_rules(parsed_edge)
             .into_iter()
             .map(|rule| rule.finding(held_end_ids.clone()))
@@ -385,9 +442,9 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
         (!is_declared).then_some(EdgeRule::HandleTypeUnknown)
     }
 
-    /// One finding for each input handle holding more edges than its `maxConnections`, marking the
-    /// node and the sources of the edges past the limit in document order. An edge already refused
-    /// for its own fault is not counted, so one bad edge never raises two findings.
+    /// One finding for each input handle holding more edges than its `maxConnections`, in document
+    /// order. An edge already refused for its own fault is not counted, so one bad edge never
+    /// raises two findings.
     fn connection_limit_findings(
         &self,
         refused_edges: &HashSet<usize>,
@@ -398,36 +455,45 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
                 continue;
             };
             for input in &handles.inputs {
-                let Some(max_connections) = input.max_connections() else {
-                    continue;
-                };
-                let input_id = input.id_text();
-                let source_ids: Vec<&WorkflowNodeId> = self
-                    .edges
-                    .iter()
-                    .enumerate()
-                    .filter(|(edge_index, parsed_edge)| {
-                        !refused_edges.contains(edge_index)
-                            && parsed_edge.edge.target == node.id
-                            && parsed_edge.edge.target_handle.as_str() == input_id
-                    })
-                    .map(|(_, parsed_edge)| &parsed_edge.edge.source)
-                    .collect();
-                let limit = usize::try_from(max_connections).unwrap_or(usize::MAX);
-                if source_ids.len() > limit {
-                    let mut marked: Vec<WorkflowNodeId> = vec![node.id.clone()];
-                    for source_id in &source_ids[limit..] {
-                        if !marked.contains(*source_id) {
-                            marked.push((*source_id).clone());
-                        }
-                    }
-                    findings.push(WorkflowDefinitionFinding::InputConnectionsExceeded {
-                        node_ids: marked,
-                    });
-                }
+                findings.extend(self.input_limit_finding(&node.id, input, refused_edges));
             }
         }
         findings
+    }
+
+    /// The finding for one input of `node_id` holding more edges than its `maxConnections`,
+    /// marking the node and the sources of the edges past the limit in document order; `None`
+    /// within the limit or for an input with none. Edges in `refused_edges` are not counted.
+    fn input_limit_finding(
+        &self,
+        node_id: &WorkflowNodeId,
+        input: &WorkflowInputHandleSpec,
+        refused_edges: &HashSet<usize>,
+    ) -> Option<WorkflowDefinitionFinding> {
+        let max_connections = input.max_connections()?;
+        let input_id = input.id_text();
+        let source_ids: Vec<&WorkflowNodeId> = self
+            .edges
+            .iter()
+            .enumerate()
+            .filter(|(edge_index, parsed_edge)| {
+                !refused_edges.contains(edge_index)
+                    && parsed_edge.edge.target == *node_id
+                    && parsed_edge.edge.target_handle.as_str() == input_id
+            })
+            .map(|(_, parsed_edge)| &parsed_edge.edge.source)
+            .collect();
+        let limit = usize::try_from(max_connections).unwrap_or(usize::MAX);
+        if source_ids.len() <= limit {
+            return None;
+        }
+        let mut marked: Vec<WorkflowNodeId> = vec![node_id.clone()];
+        for source_id in &source_ids[limit..] {
+            if !marked.contains(*source_id) {
+                marked.push((*source_id).clone());
+            }
+        }
+        Some(WorkflowDefinitionFinding::InputConnectionsExceeded { node_ids: marked })
     }
 
     /// Every cycle among `main` edges as its nodes in document order, found as the strongly
@@ -657,147 +723,4 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 };
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use rstest::rstest;
-    use serde_json::{Value, json};
-
-    use super::{WorkflowNodeHandles, check_workflow_graph};
-    use crate::workflow::definition::document::{
-        WorkflowDraftDocument, WorkflowNode, WorkflowNodeId, node,
-    };
-    use crate::workflow::kind::WorkflowNodeKindCategory;
-
-    fn edge(source: &str, source_handle: &str, target: &str, target_handle: &str) -> Value {
-        json!({
-            "id": format!("{source}-{target}"),
-            "source": source,
-            "sourceHandle": source_handle,
-            "target": target,
-            "targetHandle": target_handle,
-        })
-    }
-
-    fn main_edge(source: &str, target: &str) -> Value {
-        edge(source, "outputs/main/0", target, "inputs/main/0")
-    }
-
-    // The handles of the kinds the cases place; any other kind is one the catalog does not list.
-    fn handles_of(node: &WorkflowNode) -> Option<WorkflowNodeHandles> {
-        let main_in = json!({ "type": "main", "id": "inputs/main/0", "label": "In" });
-        let limited_in =
-            json!({ "type": "main", "id": "inputs/main/0", "label": "In", "maxConnections": 1 });
-        let main_out = json!({ "type": "main", "id": "outputs/main/0", "label": "Out" });
-        let (category, inputs, outputs) = match node.kind.0.as_str() {
-            "trigger.manual" => (
-                WorkflowNodeKindCategory::Trigger,
-                json!([]),
-                json!([main_out]),
-            ),
-            "agent.run" => (
-                WorkflowNodeKindCategory::Agent,
-                json!([main_in, { "type": "tool", "id": "inputs/tool/0", "label": "Tools" }]),
-                json!([main_out]),
-            ),
-            "developer.mcpTool" => (
-                WorkflowNodeKindCategory::Developer,
-                json!([]),
-                json!([{ "type": "tool", "id": "outputs/tool/0", "label": "Tool" }]),
-            ),
-            "flow.loopItems" => (
-                WorkflowNodeKindCategory::Flow,
-                json!([main_in]),
-                json!([main_out, { "type": "main", "id": "outputs/main/1", "label": "Each" }]),
-            ),
-            "output.notify" => (
-                WorkflowNodeKindCategory::Output,
-                json!([limited_in]),
-                json!([]),
-            ),
-            _ => return None,
-        };
-        Some(WorkflowNodeHandles {
-            category,
-            inputs: serde_json::from_value(inputs).expect("the inputs read"),
-            outputs: serde_json::from_value(outputs).expect("the outputs read"),
-        })
-    }
-
-    #[rstest]
-    #[case::a_cycle_of_main_edges(
-        json!([node("a", "agent.run"), node("b", "agent.run")]),
-        json!([main_edge("t", "a"), main_edge("a", "b"), main_edge("b", "a")]),
-        json!([{ "rule": "cycle", "nodeIds": ["a", "b"] }]),
-    )]
-    #[case::an_edge_back_into_a_loop_closes_its_body(
-        json!([node("l", "flow.loopItems"), node("x", "agent.run")]),
-        json!([
-            main_edge("t", "l"),
-            edge("l", "outputs/main/1", "x", "inputs/main/0"),
-            main_edge("x", "l"),
-        ]),
-        json!([]),
-    )]
-    #[case::a_loop_into_itself_is_a_cycle(
-        json!([node("l", "flow.loopItems")]),
-        json!([main_edge("t", "l"), main_edge("l", "l")]),
-        json!([{ "rule": "cycle", "nodeIds": ["l"] }]),
-    )]
-    #[case::a_tool_is_reached_through_the_agent_it_serves(
-        json!([node("a", "agent.run"), node("m", "developer.mcpTool")]),
-        json!([main_edge("t", "a"), edge("m", "outputs/tool/0", "a", "inputs/tool/0")]),
-        json!([]),
-    )]
-    #[case::an_input_past_its_connection_limit(
-        json!([node("a", "agent.run"), node("n", "output.notify")]),
-        json!([main_edge("t", "a"), main_edge("t", "n"), main_edge("a", "n")]),
-        json!([{ "rule": "inputConnectionsExceeded", "nodeIds": ["n", "a"] }]),
-    )]
-    #[case::an_edge_into_the_trigger(
-        json!([node("a", "agent.run"), node("b", "agent.run")]),
-        json!([main_edge("t", "a"), main_edge("b", "t")]),
-        json!([
-            { "rule": "edgeIntoTrigger", "nodeIds": ["b", "t"] },
-            { "rule": "orphan", "nodeIds": ["b"] },
-        ]),
-    )]
-    #[case::a_kind_the_catalog_does_not_list_keeps_only_the_handle_grammar(
-        json!([node("u", "custom.thing"), node("a", "agent.run")]),
-        json!([
-            edge("t", "outputs/main/0", "u", "inputs/main/3"),
-            edge("u", "outputs/weird/0", "a", "inputs/main/0"),
-        ]),
-        json!([{ "rule": "handleTypeUnknown", "nodeIds": ["u", "a"] }]),
-    )]
-    fn the_graph_check_finds_what_the_save_refuses(
-        #[case] nodes: Value,
-        #[case] edges: Value,
-        #[case] findings: Value,
-    ) {
-        let document: WorkflowDraftDocument = serde_json::from_value(json!({
-            "schemaVersion": "2",
-            "name": "Graph",
-            "trigger": node("t", "trigger.manual"),
-            "nodes": nodes,
-            "edges": edges,
-        }))
-        .expect("the document reads");
-        let trigger = document.trigger.as_ref().map(WorkflowNode::from);
-        let node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles> = trigger
-            .iter()
-            .chain(&document.nodes)
-            .filter_map(|node| Some((node.id.clone(), handles_of(node)?)))
-            .collect();
-        let found = check_workflow_graph(
-            trigger.as_ref(),
-            &document.nodes,
-            &document.edges,
-            &node_handles,
-        );
-        assert_eq!(
-            serde_json::to_value(found).expect("the findings write"),
-            findings
-        );
-    }
-}
+mod tests;

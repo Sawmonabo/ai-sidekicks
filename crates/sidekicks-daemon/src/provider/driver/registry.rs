@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -41,6 +42,25 @@ pub(crate) fn provider_capability_unsupported(
     .with_detail(json!({ "providerId": provider.as_str(), "flag": flag }))
 }
 
+/// The refusal for a call the provider itself refused for want of `flag`'s capability, beyond what
+/// the static flag shows: [`provider_capability_unsupported`]'s detail with the provider's own words
+/// as `providerFailureDetail`.
+pub(crate) fn provider_capability_refused(
+    provider: &ProviderId,
+    flag: DriverCapabilityFlag,
+    provider_failure_detail: &FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+) -> DomainError {
+    DomainError::new(
+        PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE,
+        RefusalCode::ProviderCapabilityUnsupported,
+    )
+    .with_detail(json!({
+        "providerId": provider.as_str(),
+        "flag": flag,
+        "providerFailureDetail": provider_failure_detail.as_str(),
+    }))
+}
+
 /// A driver, its provider's fixed facts and the capability snapshot recorded for it.
 struct RegisteredDriver {
     /// The provider the driver answers.
@@ -64,6 +84,13 @@ pub(crate) struct ProviderRegistry {
 impl ProviderRegistry {
     /// Builds every provider in `table`, in its order, from the one bundle of shared services. A
     /// build does no I/O and starts no process, so it cannot fail.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start registers every provider through it"
+        )
+    )]
     pub(crate) fn register_from(table: &[ProviderRegistration], services: &DriverServices) -> Self {
         Self {
             drivers: table

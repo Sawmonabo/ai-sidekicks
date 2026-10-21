@@ -44,15 +44,30 @@ impl<Answer> PausePoint<Answer> {
     /// Holds the call here when a hold is armed, until the test releases it, and answers what the
     /// test sent; `None` when no hold was armed.
     pub(crate) async fn pass(&self) -> Option<Answer> {
-        let armed = self
+        let released = self.reach()?;
+        Some(released.await.expect("the test releases the held call"))
+    }
+
+    /// [`PausePoint::pass`] for a call on a blocking thread, such as a read on the pool's thread.
+    pub(crate) fn pass_blocking(&self) -> Option<Answer> {
+        let released = self.reach()?;
+        Some(
+            released
+                .blocking_recv()
+                .expect("the test releases the held call"),
+        )
+    }
+
+    // Takes the oldest armed hold and reports the call there; `None` when no hold was armed.
+    fn reach(&self) -> Option<oneshot::Receiver<Answer>> {
+        let (reached, released) = self
             .armed
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .pop_front();
-        let (reached, released) = armed?;
+            .pop_front()?;
         reached
             .send(())
             .expect("the test waits for the call to arrive");
-        Some(released.await.expect("the test releases the held call"))
+        Some(released)
     }
 }

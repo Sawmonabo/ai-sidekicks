@@ -143,6 +143,13 @@ pub(crate) struct ClaudeSessionRuleLists {
 }
 
 /// A working folder of the project, with what Claude Code reads to place its local settings.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's remembered rules name each working folder in it"
+    )
+)]
 pub(crate) struct ClaudeProjectFolder<'a> {
     /// The folder a session starts in, a worktree's root or the project's checkout.
     pub(crate) working_folder: &'a Path,
@@ -151,6 +158,13 @@ pub(crate) struct ClaudeProjectFolder<'a> {
 }
 
 /// What Claude Code reads of a working folder's repository.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's remembered rules name each repository in it"
+    )
+)]
 pub(crate) struct ClaudeRepository<'a> {
     /// The repository's root, the main checkout's for a worktree.
     pub(crate) root: &'a Path,
@@ -222,6 +236,13 @@ pub(crate) fn compose_claude_session_rule_lists(
 
 /// The update an approval's answer carries so Claude Code writes the project allow `rule`, or
 /// `None` for an allow never handed over. Refuses a kind Claude Code keeps no rule on.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's approval answers compose a project allow through it"
+    )
+)]
 pub(crate) fn compose_claude_project_allow_update(
     rule: &ProviderAskRule,
     path_rules: PathRules,
@@ -240,6 +261,13 @@ pub(crate) fn compose_claude_project_allow_update(
 /// (the repository root's in the normal case), is skipped, and taken back with the rest when a
 /// later file fails. A file the daemon creates in a repository is first listed in its exclude list,
 /// each repository's list read once per call. One edit at a time on each file.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's remembered rules are written through it"
+    )
+)]
 pub(crate) async fn write_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,
@@ -313,6 +341,13 @@ pub(crate) async fn write_claude_project_rule(
 /// `managed_settings_file`, the user settings of `config_folder` and each folder's shared
 /// `.claude/settings.json`: where one keeps the rule it answers `RuleInUneditedFile` and changes
 /// nothing, since the rule would still apply. Refuses a rule no file holds with `RuleNotFound`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's remembered rules are removed through it"
+    )
+)]
 pub(crate) async fn remove_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     managed_settings_file: &Path,
@@ -366,6 +401,13 @@ pub(crate) async fn remove_claude_project_rule(
 /// Removes every allow and block over a removed tool server's tools from the local settings of
 /// each of `folders`, both of each folder's files as [`remove_claude_project_rule`] reads them.
 /// The server is named as Claude Code names it in its tools, so only that server's rules go.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's tool-server removal clears its rules through it"
+    )
+)]
 pub(crate) async fn remove_claude_tool_server_rules(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,
@@ -549,24 +591,12 @@ fn rule_entries(
         .collect())
 }
 
-// A rule's path as Claude Code matches it: in POSIX form, as Claude Code reads every path, so a
-// Windows place's `C:\Users\a` is `/c/Users/a`; an absolute one written with a leading `//`, which
-// roots it at `/`; and each gitignore special escaped, so the rule matches only that path.
-fn compose_path_content(path: &str, path_rules: PathRules) -> String {
+/// A rule's path as Claude Code matches it: in POSIX form, as Claude Code reads every path, so a
+/// Windows place's `C:\Users\a` is `/c/Users/a`; an absolute one written with a leading `//`,
+/// which roots it at `/`; and each gitignore special escaped, so the rule matches only that path.
+pub(crate) fn compose_path_content(path: &str, path_rules: PathRules) -> String {
     let is_absolute = path_rules.is_absolute(path);
-    let posix_path = match path_rules {
-        PathRules::Posix => path.to_owned(),
-        PathRules::Windows => {
-            let mut characters = path.chars();
-            let separated: String = match (characters.next(), characters.next()) {
-                (Some(drive), Some(':')) if drive.is_ascii_alphabetic() => {
-                    format!("/{}{}", drive.to_ascii_lowercase(), characters.as_str())
-                }
-                _ => path.to_owned(),
-            };
-            separated.replace('\\', "/")
-        }
-    };
+    let posix_path = path_rules.posix_form(Path::new(path));
     let mut content = String::with_capacity(posix_path.len() + 2);
     if is_absolute {
         content.push('/');

@@ -25,7 +25,9 @@ use crate::provider::driver::codex::delivery::notices::{provider_words, release_
 use crate::provider::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::provider::driver::codex::delivery::rows::CodexRowRun;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::provider::driver::codex::transport::diagnostics::{
+    CodexDeliveryPort, CodexTransportDiagnostic,
+};
 use crate::provider::driver::codex::turn_evidence::{
     CodexTurnTerminalInput, compose_codex_turn_terminal,
 };
@@ -135,11 +137,10 @@ impl CodexFrameDelivery {
             }
             // The run ended before its turn opened, so the turn has no run to number it.
             Ok(None) => report_unattributed("turn/started", Some(turn_id)),
-            Err(error) => CodexTransportDiagnostic::DeliveryDispatchFailed {
+            Err(error) => CodexTransportDiagnostic::PortDeliveryFailed {
                 provider_account_id: record.provider_account_id.clone(),
-                method: Some("turn/started".to_owned()),
-                delivery_kind: "turn_start".to_owned(),
-                session_id: record.session_id,
+                port: CodexDeliveryPort::TurnStart,
+                session_id: Some(record.session_id),
                 error: Box::new(error),
             }
             .report(),

@@ -11,10 +11,6 @@ use strum::VariantArray as _;
 use crate::database::sql_list::sql_list_of;
 
 /// Whether `event_type` enters a terminal state.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the transcript's turn attribution")
-)]
 pub(crate) fn is_run_terminal_event_type(event_type: &str) -> bool {
     RunStateEventType::from_wire_name(event_type).is_some_and(|known| known.state().is_terminal())
 }

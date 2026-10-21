@@ -2,32 +2,24 @@
 //! and configuration failures, and how each reaches the daemon as a driver error.
 
 use std::error::Error;
-use std::sync::LazyLock;
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::error_description::describe_error;
 use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::contract::{
     DriverError, PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, bound_failure_detail,
 };
-use crate::provider::driver::error_causes::RequestUnanswered;
-use crate::provider::driver::registry::provider_capability_unsupported;
-
-/// Stands in for a provider failure that carries no usable words.
-static UNSPECIFIED_PROVIDER_FAILURE_DETAIL: LazyLock<
-    FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
-> = LazyLock::new(|| {
-    FreeFormText::new("Codex app-server reported a failure with no diagnostic message.".to_owned())
-        .expect("the fallback is non-blank and within the cap")
-});
+use crate::provider::driver::error_causes::{
+    RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
+};
+use crate::provider::driver::registry::provider_capability_refused;
 
 /// The request that forks a conversation, the one whose boundary member a build may refuse.
 const THREAD_FORK_METHOD: &str = "thread/fork";
@@ -142,7 +134,7 @@ pub(crate) enum CodexError {
     #[error("{}", PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE)]
     RewindBoundaryUnsupported {
         /// The service's refusal, bounded as a failure detail.
-        provider_failure_detail: String,
+        provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
     /// A wait on a session's turns that the session's close ended: none of its turns will end
     /// now.
@@ -231,8 +223,7 @@ pub(crate) fn classify_rewind_fork_failure(error: CodexError) -> CodexError {
             provider_failure_detail: bound_failure_detail(
                 message,
                 UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-            )
-            .into_string(),
+            ),
         };
     }
     error
@@ -255,16 +246,18 @@ impl From<CodexError> for DriverError {
     /// `session.alreadyClosed`; the rest are internal failures.
     fn from(error: CodexError) -> Self {
         match &error {
-            CodexError::Transport { .. } => provider_failure_refusal(
+            CodexError::Transport { .. } => Self::Refused(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
                 "The Codex service failed",
                 RefusalCode::ProviderUnavailable,
                 error,
-            ),
-            CodexError::RequestTooLarge { .. } => provider_failure_refusal(
+            )),
+            CodexError::RequestTooLarge { .. } => Self::Refused(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
                 "The request is larger than the Codex service takes in one message",
                 RefusalCode::ProviderUnavailable,
                 error,
-            ),
+            )),
             CodexError::Unanswered { cause, .. } => {
                 let (message, code) = match cause {
                     CodexUnansweredCause::Deadline { .. } => (
@@ -276,36 +269,39 @@ impl From<CodexError> for DriverError {
                         RefusalCode::ProviderUnavailable,
                     ),
                 };
-                let Self::Refused(refusal) = provider_failure_refusal(message, code, error) else {
-                    unreachable!("a provider failure always answers a refusal")
-                };
-                Self::Unanswered(RequestUnanswered { refusal })
+                Self::Unanswered(RequestUnanswered {
+                    refusal: provider_failure_refusal(
+                        &DESCRIPTOR.provider_id(),
+                        message,
+                        code,
+                        error,
+                    ),
+                })
             }
             CodexError::ProviderRequest {
                 code: CODEX_OVERLOADED_CODE,
                 ..
-            } => provider_failure_refusal(
+            } => Self::Refused(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
                 "The Codex service is overloaded and did not take the request",
                 RefusalCode::ProviderUnavailable,
                 error,
-            ),
+            )),
             CodexError::ProviderRequest { .. } if error.is_service_draining() => {
-                provider_failure_refusal(
+                Self::Refused(provider_failure_refusal(
+                    &DESCRIPTOR.provider_id(),
                     "The Codex service is shutting down and takes no new work",
                     RefusalCode::ProviderUnavailable,
                     error,
-                )
+                ))
             }
             CodexError::RewindBoundaryUnsupported {
                 provider_failure_detail,
             } => {
-                let mut refusal = provider_capability_unsupported(
+                let refusal = provider_capability_refused(
                     &DESCRIPTOR.provider_id(),
                     DriverCapabilityFlag::Rollback,
-                );
-                refusal.detail.get_or_insert_default().insert(
-                    "providerFailureDetail".to_owned(),
-                    Value::String(provider_failure_detail.clone()),
+                    provider_failure_detail,
                 );
                 Self::Refused(refusal.with_source(error))
             }
@@ -322,21 +318,4 @@ impl From<CodexError> for DriverError {
             | CodexError::DriverConfig { .. } => Self::Internal(Box::new(error)),
         }
     }
-}
-
-// A provider failure's refusal with `code`: the provider and the failure's words, bounded, as its
-// fields, and the failure kept as its source.
-fn provider_failure_refusal(message: &str, code: RefusalCode, error: CodexError) -> DriverError {
-    let provider_failure_detail = bound_failure_detail(
-        &describe_error(&error),
-        UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-    );
-    DriverError::Refused(
-        DomainError::new(message, code)
-            .with_detail(json!({
-                "providerId": DESCRIPTOR.provider_id().as_str(),
-                "providerFailureDetail": provider_failure_detail.as_str(),
-            }))
-            .with_source(error),
-    )
 }

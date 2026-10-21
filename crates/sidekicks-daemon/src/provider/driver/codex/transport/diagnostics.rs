@@ -77,6 +77,10 @@ pub(crate) enum CodexDeliveryPort {
     ServerPrompts,
     /// A run's output speed.
     OutputSpeed,
+    /// The run engine opening a turn Codex started.
+    TurnStart,
+    /// The run engine counting a step a tool call ended.
+    StepCount,
 }
 
 /// Why the frames held while a turn Codex started opens its run went on before the run opened.
@@ -327,19 +331,6 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The session the delivery was for; `None` where it belongs to no one session.
         session_id: Option<SessionId>,
         /// The port's failure.
-        error: DiagnosticCause,
-    },
-    /// The run engine refused or failed a delivery.
-    DeliveryDispatchFailed {
-        /// The account the service runs on; `None` on the machine's default home.
-        provider_account_id: Option<ProviderAccountId>,
-        /// The provider frame the delivery came from; `None` for the driver's own.
-        method: Option<String>,
-        /// The delivery's kind.
-        delivery_kind: String,
-        /// The session the delivery was for.
-        session_id: SessionId,
-        /// The dispatch's failure.
         error: DiagnosticCause,
     },
     /// A session's command list could not be read for a listener following it.
@@ -616,23 +607,6 @@ impl CodexTransportDiagnostic {
                         "sessionId",
                         json!(session_id.as_ref().map(ToString::to_string)),
                     ),
-                    ("detail", json!(describe_error(&**error))),
-                ],
-            ),
-            Self::DeliveryDispatchFailed {
-                provider_account_id,
-                method,
-                delivery_kind,
-                session_id,
-                error,
-            } => emit_shared(
-                DriverDiagnosticKind::DeliveryDispatchFailed,
-                provider_account_id.as_ref(),
-                method.as_deref(),
-                "the run engine refused or failed a Codex delivery",
-                [
-                    ("deliveryKind", json!(delivery_kind)),
-                    ("sessionId", json!(session_id.to_string())),
                     ("detail", json!(describe_error(&**error))),
                 ],
             ),

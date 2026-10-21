@@ -22,7 +22,9 @@ use crate::provider::driver::codex::delivery::rows::{
     read_codex_item_completed_row, read_codex_item_prose, read_codex_tool_start_row,
 };
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::provider::driver::codex::transport::diagnostics::{
+    CodexDeliveryPort, CodexTransportDiagnostic,
+};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -168,11 +170,10 @@ impl CodexFrameDelivery {
             run_id,
         });
         if let Err(error) = self.dependencies.engine.count_step(run_id).await {
-            CodexTransportDiagnostic::DeliveryDispatchFailed {
+            CodexTransportDiagnostic::PortDeliveryFailed {
                 provider_account_id: record.provider_account_id.clone(),
-                method: Some("item/completed".to_owned()),
-                delivery_kind: "step_count".to_owned(),
-                session_id: record.session_id,
+                port: CodexDeliveryPort::StepCount,
+                session_id: Some(record.session_id),
                 error: Box::new(error),
             }
             .report();
