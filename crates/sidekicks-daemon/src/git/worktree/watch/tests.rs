@@ -497,9 +497,11 @@ async fn a_moved_head_writes_the_branch_back_to_each_session_not_on_it() {
 }
 
 // Kills the common folder's refs left unwatched or filtered out, which leaves a linked tree's
-// changes pane stale after a branch tip moves without its HEAD or index.
+// changes pane stale after a branch tip moves without its HEAD or index, and the common folder
+// keeping the main checkout's HEAD and index, which marks every linked tree stale at each of its
+// adds and status reads.
 #[tokio::test]
-async fn a_branch_tip_moved_in_the_common_folder_marks_a_linked_tree_stale() {
+async fn a_linked_tree_is_marked_stale_by_a_shared_ref_not_by_the_main_checkout_s_head_or_index() {
     let fixture = Fixture::new(no_ceiling, Duration::from_secs(180)).await;
     let repository = fixture.repository("one").await;
     let tree = fixture.scratch.path().join("linked");
@@ -516,22 +518,51 @@ async fn a_branch_tip_moved_in_the_common_folder_marks_a_linked_tree_stale() {
         .subscribe(&session_id, on_change)
         .await
         .expect("subscribed");
+    let common_folder = canonical_folder_path(&repository.join(".git"))
+        .await
+        .expect("the common folder resolves");
+    let mut git_folders = fixture
+        .feeds(&tree)
+        .await
+        .git_folder
+        .expect("the git folders are watched");
+
+    std::fs::write(repository.join("added.txt"), "added").expect("written");
+    fixture.git_in(&repository, &["add", "added.txt"]).await;
+    let added_object = fixture
+        .git
+        .run(
+            None,
+            GitCall::read(in_folder(&repository, &["hash-object", "added.txt"])),
+        )
+        .await
+        .expect("git hashes the added file");
+    let added_object = String::from_utf8_lossy(&added_object.stdout)
+        .trim()
+        .to_owned();
+    let (object_folder, object_file) = added_object.split_at(2);
+    git_folders.handle_event(Ok(written([
+        common_folder.join("index"),
+        common_folder
+            .join("objects")
+            .join(object_folder)
+            .join(object_file),
+        common_folder.join("HEAD"),
+    ])));
+    assert!(
+        timeout(Duration::from_secs(1), changes.recv())
+            .await
+            .is_err(),
+        "the main checkout's HEAD, index and objects raise no change for the linked tree"
+    );
 
     fixture
         .git_in(&tree, &["update-ref", "refs/heads/linked", "HEAD"])
         .await;
-    let common_folder = canonical_folder_path(&repository.join(".git"))
-        .await
-        .expect("the common folder resolves");
-    fixture
-        .feeds(&tree)
-        .await
-        .git_folder
-        .expect("the git folders are watched")
-        .handle_event(Ok(written([common_folder
-            .join("refs")
-            .join("heads")
-            .join("linked")])));
+    git_folders.handle_event(Ok(written([common_folder
+        .join("refs")
+        .join("heads")
+        .join("linked")])));
 
     assert_eq!(next_change(&mut changes).await.session_id, session_id);
 }

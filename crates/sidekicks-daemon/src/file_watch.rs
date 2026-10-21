@@ -74,9 +74,18 @@ const PENDING_WALK_LIMIT: usize = 256;
 // answers in place of the system.
 type NetworkFileSystemCheck = fn(&Path) -> io::Result<bool>;
 
+/// A root a watch covers, with the filter deciding which entries under it are covered.
+pub(crate) struct WatchedRoot {
+    /// The root as the owner names it.
+    pub(crate) path: PathBuf,
+    /// Which entries under the root are covered.
+    pub(crate) filter: WalkFilter,
+}
+
 /// Which entries under a watched root the watch covers, asked with each entry's path relative to
-/// its root. It must refuse every path under a folder it refuses, since a walk never enters that
-/// folder while a change inside it is asked about by its whole path.
+/// its root, the root itself as the empty path. It must refuse every path under a folder it
+/// refuses, since a walk never enters that folder while a change inside it is asked about by its
+/// whole path.
 #[derive(Clone)]
 pub(crate) struct WalkFilter {
     keeps: Arc<dyn Fn(&Path) -> bool + Send + Sync>,
@@ -181,7 +190,8 @@ pub(crate) struct FileWatch<W = RecommendedWatcher> {
     ceiling_retry_sender: mpsc::Sender<CeilingRetryOutcome>,
     retries: TaskTracker,
     retry_stop: CancellationToken,
-    filter: WalkFilter,
+    // Each root's filter, in the roots' order.
+    filters: Vec<WalkFilter>,
     events: mpsc::Receiver<notify::Result<Event>>,
     has_lost_events: Arc<AtomicBool>,
     has_unreported_incomplete: bool,
@@ -207,31 +217,37 @@ enum Next {
 
 impl<W: Watcher + Send + 'static> FileWatch<W> {
     /// Watches each of `roots` through the backend `W`, resolving each to its real path first,
-    /// with `filter` deciding which entries under them are covered, and polls a root on a network
-    /// file system instead; also hands back the feed the backend calls, through which a test tells
-    /// changes without the system's own feed. Fails when a root cannot be resolved or watched for
-    /// a reason other than the system's ceiling, or the backend's watch cannot be made.
+    /// with each root's filter deciding which entries under it are covered, and polls a root on a
+    /// network file system instead; also hands back the feed the backend calls, through which a
+    /// test tells changes without the system's own feed. A changed path is read against the first
+    /// root holding it. Fails when a root cannot be resolved or watched for a reason other than
+    /// the system's ceiling, or the backend's watch cannot be made.
     pub(crate) async fn start(
-        roots: Vec<PathBuf>,
-        filter: WalkFilter,
+        roots: Vec<WatchedRoot>,
     ) -> Result<(Self, ChangeFeed), FileWatchError> {
-        Self::start_checking(roots, filter, is_on_network_file_system).await
+        Self::start_checking(roots, is_on_network_file_system).await
     }
 
     // `start`, with `is_on_network` answering which roots are polled.
     async fn start_checking(
-        roots: Vec<PathBuf>,
-        filter: WalkFilter,
+        roots: Vec<WatchedRoot>,
         is_on_network: NetworkFileSystemCheck,
     ) -> Result<(Self, ChangeFeed), FileWatchError> {
         let whole_since_clock = Instant::now();
         let whole_since = whole_seconds_now();
         let mut resolved_roots = Vec::with_capacity(roots.len());
+        let mut filters = Vec::with_capacity(roots.len());
         for root in roots {
-            match resolve_real_path(&root).await {
+            match resolve_real_path(&root.path).await {
                 Ok(resolved) => resolved_roots.push(resolved),
-                Err(source) => return Err(FileWatchError::RootUnresolved { root, source }),
+                Err(source) => {
+                    return Err(FileWatchError::RootUnresolved {
+                        root: root.path,
+                        source,
+                    });
+                }
             }
+            filters.push(root.filter);
         }
         let roots = resolved_roots;
         let mut polled_roots = Vec::new();
@@ -267,11 +283,11 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
             Arc::clone(&watcher),
             Arc::clone(&ceiling_misses),
             roots.clone(),
-            filter.clone(),
+            filters.clone(),
         );
         let has_reached_ceiling = run_on_own_thread("file watch start", move || {
-            let (watcher, ceiling_misses, roots, filter) = arming;
-            arm_roots(&watcher, &ceiling_misses, &roots, &filter)
+            let (watcher, ceiling_misses, roots, filters) = arming;
+            arm_roots(&watcher, &ceiling_misses, &roots, &filters)
         })
         .await
         .map_err(FileWatchError::Interrupted)??;
@@ -288,7 +304,7 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
             ceiling_retry_sender,
             retries: TaskTracker::new(),
             retry_stop: CancellationToken::new(),
-            filter,
+            filters,
             events,
             has_lost_events: Arc::clone(&feed.has_lost_events),
             has_unreported_incomplete: has_reached_ceiling,
@@ -515,7 +531,7 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
             };
             if relative_path.as_os_str().is_empty() {
                 named_roots.push(root);
-            } else if self.filter.keeps(relative_path) {
+            } else if self.filter_of(&root).keeps(relative_path) {
                 if may_bring_a_folder && arms_each_folder(&self.polled_roots, &root) {
                     // The walk reports the entry itself, and watches it first when it is a folder.
                     self.queue_walk(WalkRequest {
@@ -699,6 +715,16 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
             .cloned()
     }
 
+    // The filter of `root`, one of the watch's roots.
+    fn filter_of(&self, root: &Path) -> &WalkFilter {
+        let index = self
+            .roots
+            .iter()
+            .position(|watched| watched == root)
+            .expect("a root the watch names is one of its roots");
+        &self.filters[index]
+    }
+
     // A walk of every root in place of every waiting walk, reporting entries changed at or after
     // the earliest of `since` and the instants the waiting walks report from, or every entry when
     // any of them has none.
@@ -743,7 +769,7 @@ impl<W: Watcher + Send + 'static> FileWatch<W> {
         let modified_since = request.modified_since;
         let watcher = Arc::clone(&self.watcher);
         let misses = Arc::clone(&self.ceiling_misses);
-        let filter = self.filter.clone();
+        let filter = self.filter_of(&request.root).clone();
         let started = std::thread::Builder::new()
             .name("file watch walk".to_owned())
             .spawn(move || {

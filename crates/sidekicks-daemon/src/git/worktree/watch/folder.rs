@@ -18,12 +18,12 @@ use tokio::sync::{Notify, watch};
 use super::branch_write_back::BranchWriteBack;
 use super::ignored_paths::{
     IGNORE_FILE_NAME, IgnoredPaths, TreeCoverage, count_git_folder_watches, count_kept_folders,
-    git_folder_filter, is_git_head, is_git_pointer, read_ignored_paths,
+    git_folder_roots, is_git_pointer, may_move_head, read_ignored_paths,
 };
 use super::slow_tick::{StatusEntry, read_status_digest};
 use super::{FolderKey, FolderSignals, FolderStartError, StartOutcome, WatchTarget, WatcherShared};
 use crate::daemon::scheduler::ScheduledJobHandle;
-use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice};
+use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice, WatchedRoot};
 use crate::git::process::{GitError, read_git_common_folder};
 use crate::git::worktree::reads::read_tree_git_folder;
 use crate::missing_entry::is_missing_entry;
@@ -158,7 +158,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 false
             }
         };
-        let (git_watch, git_feed) = FileWatch::<W>::start(git_folders.clone(), git_folder_filter())
+        let (git_watch, git_feed) = FileWatch::<W>::start(git_folder_roots(&git_folders))
             .await
             .map_err(FolderStartError::GitFolderWatch)?;
         self.git_folders = git_folders;
@@ -257,12 +257,21 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         }
     }
 
-    // A HEAD change checks the branch before the change goes out; an index or ref change is a
-    // change.
+    // A change that may move the tree's own HEAD checks the branch before the change goes out; an
+    // index, config or ref change is a change.
     async fn take_git_folder_notice(&mut self, notice: Option<FileWatchNotice>) {
         match notice {
             Some(FileWatchNotice::Changed(paths)) => {
-                if paths.iter().any(|path| is_git_head(path)) {
+                let own_git_folder = self
+                    .git_watch
+                    .as_ref()
+                    .and_then(|watch| watch.roots().first().cloned());
+                let is_branch_check_due = own_git_folder.is_some_and(|own_git_folder| {
+                    paths
+                        .iter()
+                        .any(|path| path.strip_prefix(&own_git_folder).is_ok_and(may_move_head))
+                });
+                if is_branch_check_due {
                     self.branch
                         .check(&self.shared, &self.folder.key, &self.target)
                         .await;
@@ -404,7 +413,11 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
             }
             WatchTake::Closed => return,
         }
-        match FileWatch::<W>::start(vec![self.folder.key.clone()], coverage.filter()).await {
+        let tree_root = WatchedRoot {
+            path: self.folder.key.clone(),
+            filter: coverage.filter(),
+        };
+        match FileWatch::<W>::start(vec![tree_root]).await {
             Ok((tree_watch, tree_feed)) => {
                 #[cfg(test)]
                 {

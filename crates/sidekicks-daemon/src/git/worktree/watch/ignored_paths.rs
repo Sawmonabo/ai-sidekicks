@@ -1,6 +1,7 @@
-//! What a working folder's watches cover: the tree less what git ignores and less the git folder,
-//! and in the tree's own git folder and the repository's common one only HEAD, the index and the
-//! refs; and the count of the folders each watch keeps, which is what a watch per folder costs.
+//! What a working folder's watches cover: the tree less what git ignores and less the git folder;
+//! in the tree's own git folder its HEAD, index, config and refs, and in a linked tree's common
+//! folder only the shared config and refs; and the count of the folders each watch keeps, which is
+//! what a watch per folder costs.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -11,7 +12,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 use ignore::WalkBuilder;
 use sidekicks_contracts::place::Place;
 
-use crate::file_watch::WalkFilter;
+use crate::file_watch::{WalkFilter, WatchedRoot};
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
 use crate::missing_entry::is_missing_entry;
 
@@ -20,12 +21,25 @@ const GIT_FOLDER_NAME: &str = ".git";
 /// The file whose change may change what git ignores in the tree.
 pub(super) const IGNORE_FILE_NAME: &str = ".gitignore";
 
-// The entries in a git folder whose change the tree's readers must see: its HEAD and index, and
-// the refs, packed, loose or in a reftable, where a branch tip moves without either.
+// The entries in a git folder whose change the tree's readers must see: its HEAD and index, the
+// config naming each branch's upstream, and the refs, packed, loose or in a reftable, where a
+// branch tip moves without either.
 const HEAD_FILE_NAME: &str = "HEAD";
 const INDEX_FILE_NAME: &str = "index";
+const CONFIG_FILE_NAME: &str = "config";
 const PACKED_REFS_FILE_NAME: &str = "packed-refs";
-const REF_FOLDER_NAMES: [&str; 2] = ["refs", "reftable"];
+const REFTABLE_FOLDER_NAME: &str = "reftable";
+const REF_FOLDER_NAMES: [&str; 2] = ["refs", REFTABLE_FOLDER_NAME];
+
+// The files a tree's own git folder keeps; a linked tree's common folder keeps only the shared
+// ones, since its HEAD and index are the main checkout's.
+const OWN_GIT_FOLDER_FILE_NAMES: [&str; 4] = [
+    HEAD_FILE_NAME,
+    INDEX_FILE_NAME,
+    CONFIG_FILE_NAME,
+    PACKED_REFS_FILE_NAME,
+];
+const COMMON_FOLDER_FILE_NAMES: [&str; 2] = [CONFIG_FILE_NAME, PACKED_REFS_FILE_NAME];
 
 // What starts an ignored path's entry in git's short status.
 const IGNORED_ENTRY_MARK: &[u8] = b"!! ";
@@ -145,16 +159,45 @@ pub(super) fn is_git_pointer(relative_path: &Path) -> bool {
     relative_path == Path::new(GIT_FOLDER_NAME)
 }
 
-/// The git-folder watch's filter, for the tree's own git folder and the repository's common one:
-/// the folder itself, its HEAD, index and `packed-refs`, and everything under `refs/` and
-/// `reftable/`, so on a system that watches one folder at a time it takes one watch for the folder
-/// and one for each ref folder.
-pub(super) fn git_folder_filter() -> WalkFilter {
-    WalkFilter::new(keeps_in_git_folder)
+/// The git-folder watch's roots, `git_folders` in order: the tree's own git folder first, keeping
+/// the folder, its HEAD, index, config and `packed-refs`, and everything under `refs/` and
+/// `reftable/`; then a linked tree's common folder, keeping the folder, its config and
+/// `packed-refs`, and everything under `refs/` and `reftable/`. On a system that watches one
+/// folder at a time each takes one watch for the folder and one for each ref folder.
+pub(super) fn git_folder_roots(git_folders: &[PathBuf]) -> Vec<WatchedRoot> {
+    git_folders
+        .iter()
+        .enumerate()
+        .map(|(place, git_folder)| WatchedRoot {
+            path: git_folder.clone(),
+            filter: WalkFilter::new(git_folder_keeps(place)),
+        })
+        .collect()
 }
 
-// Whether the git-folder watch keeps `relative_path`, relative to a git folder.
-fn keeps_in_git_folder(relative_path: &Path) -> bool {
+// What the git folder at `place` among a watch's git folders keeps: the tree's own first, then the
+// common one.
+fn git_folder_keeps(place: usize) -> fn(&Path) -> bool {
+    if place == 0 {
+        keeps_in_own_git_folder
+    } else {
+        keeps_in_common_folder
+    }
+}
+
+// Whether the tree's own git folder's watch keeps `relative_path`, relative to that folder.
+fn keeps_in_own_git_folder(relative_path: &Path) -> bool {
+    keeps_git_entry(relative_path, &OWN_GIT_FOLDER_FILE_NAMES)
+}
+
+// Whether a linked tree's common folder's watch keeps `relative_path`, relative to that folder.
+fn keeps_in_common_folder(relative_path: &Path) -> bool {
+    keeps_git_entry(relative_path, &COMMON_FOLDER_FILE_NAMES)
+}
+
+// Whether `relative_path`, relative to a git folder, is the folder itself, one of `file_names` at
+// its top, or a ref folder or anything under one.
+fn keeps_git_entry(relative_path: &Path, file_names: &[&str]) -> bool {
     let mut components = relative_path.components();
     match (components.next(), components.next()) {
         (None, _) => true,
@@ -162,26 +205,29 @@ fn keeps_in_git_folder(relative_path: &Path) -> bool {
             REF_FOLDER_NAMES
                 .iter()
                 .any(|folder| name == OsStr::new(folder))
-                || (rest.is_none()
-                    && [HEAD_FILE_NAME, INDEX_FILE_NAME, PACKED_REFS_FILE_NAME]
-                        .iter()
-                        .any(|file| name == OsStr::new(file)))
+                || (rest.is_none() && file_names.iter().any(|file| name == OsStr::new(file)))
         }
         (Some(_), _) => false,
     }
 }
 
-/// Whether a changed path in a git folder is a HEAD, whose change may change the tree's branch.
-pub(super) fn is_git_head(path: &Path) -> bool {
-    path.file_name() == Some(OsStr::new(HEAD_FILE_NAME))
+/// Whether a changed path, relative to the tree's own git folder, may have moved the tree's HEAD:
+/// the HEAD file, or under reftable, whose HEAD file never changes, the tree's own ref stack.
+pub(super) fn may_move_head(relative_path: &Path) -> bool {
+    relative_path == Path::new(HEAD_FILE_NAME)
+        || relative_path
+            .components()
+            .next()
+            .is_some_and(|first| first == Component::Normal(OsStr::new(REFTABLE_FOLDER_NAME)))
 }
 
-/// The folders under each of `git_folders` the git-folder watch keeps, each folder among them.
-/// Blocks while it walks.
+/// The folders under each of `git_folders` the git-folder watch keeps, each folder among them,
+/// each git folder counted with its own filter. Blocks while it walks.
 pub(super) fn count_git_folder_watches(git_folders: &[PathBuf]) -> u64 {
     git_folders
         .iter()
-        .map(|git_folder| count_kept_folders(git_folder, keeps_in_git_folder))
+        .enumerate()
+        .map(|(place, git_folder)| count_kept_folders(git_folder, git_folder_keeps(place)))
         .sum()
 }
 
