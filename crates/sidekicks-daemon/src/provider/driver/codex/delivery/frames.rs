@@ -301,7 +301,7 @@ impl CodexFrameDelivery {
             provider_account_id: record.provider_account_id.clone(),
             raw_wire_type: Some(method),
         };
-        // Boxed once here, so the engine's dispatch never sits inside every frame's future.
+        // Boxed per delivery, so the engine's dispatch never sits inside every frame's future.
         Box::pin(dispatch_delivery(
             &self.dependencies.dispatch,
             origin,

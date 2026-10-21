@@ -1,15 +1,23 @@
+use std::io;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
+use interprocess::local_socket::tokio::Listener;
+use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
-use sidekicks_platforms::{Spawner, connect_unix_domain_socket};
+use sidekicks_platforms::{
+    ExistingSocket, RunningProgramPath, Spawner, bind_socket_listener, connect_unix_domain_socket,
+    read_running_program_path,
+};
 use tokio::io::AsyncReadExt as _;
-use tokio::net::UnixListener;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
-use super::{retire_former_service, start_codex_service};
+use super::kept_records::retire_former_service;
+use super::{StartFailure, StartedService, start_codex_service};
+use crate::provider::driver::codex::service::command_line::compose_daemon_hook_commands;
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
@@ -18,7 +26,7 @@ use crate::provider::driver::codex::service::process::{
 };
 use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
 use crate::provider::driver::codex::service::supervisor::test_service::{
-    TestCodexProgram, UnheardEvents, test_codex_service_dependencies,
+    TestCodexProgram, UnheardEvents, answer_as_codex_service, test_codex_service_dependencies,
 };
 use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::provider::driver::codex::session::errors::CodexError;
@@ -47,13 +55,64 @@ async fn a_survivor_that_waits() {
     tokio::time::sleep(Duration::from_secs(60)).await;
 }
 
+// A listener at `socket`, or `None` where the system binds no local socket for a test.
+fn bind_test_listener(socket: &Path) -> Option<Listener> {
+    match bind_socket_listener(socket, ExistingSocket::Refuse) {
+        Ok(listener) => Some(listener),
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => None,
+        Err(error) => panic!("the test's socket does not listen: {error}"),
+    }
+}
+
+// Starts a terminal service on `socket` as the home's own socket, under `folder`, whose Codex
+// program is `program`, and answers its start.
+async fn start_terminal_service_on(
+    folder: &Path,
+    socket: &Path,
+    program: &str,
+) -> Result<Result<StartedService, StartFailure>, tokio::time::error::Elapsed> {
+    let codex_home = folder.join("home");
+    std::fs::create_dir(&codex_home).expect("the home is made");
+    let dependencies = test_codex_service_dependencies(
+        folder,
+        Arc::new(TestCodexProgram {
+            program: program.into(),
+            environment: Vec::new(),
+        }),
+        Arc::new(UnheardEvents),
+    );
+    let deadline = dependencies.startup_timeout;
+    let service = CodexService::new(
+        CodexServiceHome {
+            codex_home,
+            provider_account_id: None,
+            kind: CodexHomeKind::PersonalFolder {
+                is_terminal_reach_on: true,
+            },
+        },
+        CodexServiceSocket {
+            path: socket.to_owned(),
+            home_socket: socket.to_owned(),
+        },
+        CodexServiceKind::Terminal,
+        dependencies,
+    );
+    tokio::time::timeout(
+        deadline,
+        start_codex_service(service, 1, CancellationToken::new(), None),
+    )
+    .await
+}
+
 // Fails when a former service whose record no longer pins it is let go without ending the tree
 // it left, here a helper that outlived its root, or with its record still kept.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let socket = folder.path().join("survivor.sock");
-    let listener = UnixListener::bind(&socket).expect("the test's socket listens");
+    let Some(listener) = bind_test_listener(&socket) else {
+        return;
+    };
     let program = std::env::current_exe().expect("the test program names itself");
     let launch = CodexProcessLaunch {
         program: "/bin/sh".into(),
@@ -72,7 +131,7 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
     let service = start_lasting_codex_service(&spawner, launch, &folder.path().join("codex.log"))
         .await
         .expect("the root starts");
-    let (mut survivor, _address) = tokio::time::timeout(SURVIVOR_WAIT, listener.accept())
+    let mut survivor = tokio::time::timeout(SURVIVOR_WAIT, listener.accept())
         .await
         .expect("the survivor starts in time")
         .expect("the survivor connects");
@@ -105,8 +164,8 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
 }
 
 // Answers every `initialize` on `listener` with an error, as a service that refuses the daemon.
-async fn refuse_every_initialize(listener: UnixListener) {
-    while let Ok((stream, _address)) = listener.accept().await {
+async fn refuse_every_initialize(listener: Listener) {
+    while let Ok(stream) = listener.accept().await {
         tokio::spawn(async move {
             // A probe that only connects ends before the upgrade.
             let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
@@ -133,47 +192,48 @@ async fn refuse_every_initialize(listener: UnixListener) {
 async fn a_start_on_a_listener_that_refuses_it_reports_the_refusal_within_its_deadline() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let socket = folder.path().join("s.sock");
-    let listener = UnixListener::bind(&socket).expect("the test's socket listens");
+    let Some(listener) = bind_test_listener(&socket) else {
+        return;
+    };
     tokio::spawn(refuse_every_initialize(listener));
-    let codex_home = folder.path().join("home");
-    std::fs::create_dir(&codex_home).expect("the home is made");
-    let dependencies = test_codex_service_dependencies(
-        folder.path(),
-        Arc::new(TestCodexProgram {
-            program: "/usr/bin/false".into(),
-            environment: Vec::new(),
-        }),
-        Arc::new(UnheardEvents),
-    );
-    let deadline = dependencies.startup_timeout;
-    let service = CodexService::new(
-        CodexServiceHome {
-            codex_home,
-            provider_account_id: None,
-            kind: CodexHomeKind::PersonalFolder {
-                is_terminal_reach_on: true,
-            },
-        },
-        CodexServiceSocket {
-            path: socket.clone(),
-            home_socket: socket,
-        },
-        CodexServiceKind::Terminal,
-        dependencies,
-    );
 
-    let started = tokio::time::timeout(
-        deadline,
-        start_codex_service(service, 1, CancellationToken::new(), None),
-    )
-    .await;
+    let started = start_terminal_service_on(folder.path(), &socket, "/usr/bin/false").await;
 
     let Ok(Err(failure)) = started else {
         panic!("the start did not fail within its deadline");
     };
-    assert!(
-        matches!(&failure.error, CodexError::ProviderRequest { method, .. } if method == "initialize"),
-        "{:?}",
-        failure.error
+    let is_initialize_refused = matches!(
+        &failure.error,
+        CodexError::ProviderRequest { method, .. } if method == "initialize"
     );
+    assert!(is_initialize_refused, "{:?}", failure.error);
+}
+
+// Fails when a start that finds a free listener no pid file names stops or replaces it instead of
+// joining it, which refuses the start with the socket in use.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let socket = folder.path().join("s.sock");
+    let Some(listener) = bind_test_listener(&socket) else {
+        return;
+    };
+    let RunningProgramPath::OnDisk(program) =
+        read_running_program_path().expect("the program reads")
+    else {
+        panic!("the test program was replaced");
+    };
+    let hooks = Arc::new(compose_daemon_hook_commands(&program).expect("the hooks compose"));
+    tokio::spawn(async move {
+        while let Ok(stream) = listener.accept().await {
+            tokio::spawn(answer_as_codex_service(stream, Arc::clone(&hooks)));
+        }
+    });
+
+    let started = start_terminal_service_on(folder.path(), &socket, "/usr/bin/false").await;
+
+    let Ok(Ok(started)) = started else {
+        panic!("the start did not join the listener");
+    };
+    assert_eq!(started.kind, CodexServiceKind::Joined);
 }

@@ -19,7 +19,7 @@ mod transition;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, SystemTime};
 
@@ -166,6 +166,8 @@ pub(crate) struct CodexService {
     // Where the socket of the process the last start brought up really is, which the home's link
     // is cleared against once that process ends.
     physical_socket: Mutex<Option<PathBuf>>,
+    // Whether the home's link was moved onto this service's own socket and it still holds it.
+    holds_home_link: AtomicBool,
     // The ticket of the connection whose frames are routed; an older one's are not.
     routed_dial: AtomicU64,
     threads: Arc<Mutex<CodexServiceThreads>>,
@@ -192,6 +194,7 @@ impl CodexService {
             availability: watch::Sender::new(CodexServiceAvailability::Stopped),
             live: Mutex::default(),
             physical_socket: Mutex::default(),
+            holds_home_link: AtomicBool::new(false),
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
                 CODEX_THREAD_FRAME_ROUTER_CONFIG.max_pending_hold_frames,
@@ -230,6 +233,23 @@ impl CodexService {
     /// it was dialed through, or the path itself where that is no link; `None` before any start.
     pub(crate) fn physical_socket(&self) -> Option<PathBuf> {
         self.lock_physical_socket().clone()
+    }
+
+    /// Whether the home's link was moved onto this service's own socket and still belongs to it, so
+    /// its restart after a crash points the link back at it.
+    pub(crate) fn holds_home_link(&self) -> bool {
+        self.holds_home_link.load(Ordering::Acquire)
+    }
+
+    /// Records whether the home's link belongs to this service, as the registry moves it on.
+    pub(crate) fn set_holds_home_link(&self, is_held: bool) {
+        self.holds_home_link.store(is_held, Ordering::Release);
+    }
+
+    /// Tells the service a planned restart's second service took its place on its home, so it is
+    /// never started again and its record goes once its process ends.
+    pub(crate) fn mark_replaced(&self) {
+        self.send(SupervisorEvent::Replaced);
     }
 
     /// The kind of service it is, as its last start found it; a session's recovery and a
@@ -549,7 +569,8 @@ impl CodexService {
         not(test),
         expect(
             dead_code,
-            reason = "the Codex session's move to another service waits for the conversation's unload"
+            reason = "the Codex session's move to another service waits for the conversation's \
+                      unload"
         )
     )]
     pub(crate) fn wait_for_thread_closed(&self, thread_id: String) -> oneshot::Receiver<()> {
@@ -577,12 +598,25 @@ impl CodexService {
 
     /// Answers once the service is free to stop: no conversation a session moved off it is held
     /// for a command it still runs, and no terminal session is inside it, each unload awaited as
-    /// Codex reports it rather than polled. A service with no connection holds none. Fails as a
-    /// read of the loaded conversations fails.
+    /// Codex reports it rather than polled. One starting or reconnecting is waited for first; one
+    /// that ended or is stopping holds none. Fails as a read of the loaded conversations fails.
     pub(crate) async fn when_free_to_stop(&self) -> Result<(), CodexError> {
         self.dependencies.release.when_none_held_on(self.id).await;
         loop {
-            if self.connection().is_err() {
+            let mut availability = self.availability.subscribe();
+            // The sender lives in the service, which outlives this wait.
+            let is_up = availability
+                .wait_for(|availability| {
+                    !matches!(
+                        availability,
+                        CodexServiceAvailability::Starting
+                            | CodexServiceAvailability::Reconnecting
+                            | CodexServiceAvailability::Restarting
+                    )
+                })
+                .await
+                .is_ok_and(|settled| matches!(*settled, CodexServiceAvailability::Up));
+            if !is_up {
                 return Ok(());
             }
             let inside = self.terminal_sessions().await?;

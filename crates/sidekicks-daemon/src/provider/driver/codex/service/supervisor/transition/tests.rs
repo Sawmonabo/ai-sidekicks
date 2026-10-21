@@ -93,8 +93,8 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
 // stopped service of the daemon's own kind unless the case names another. Fails on any arm
 // changed: a drop while the process runs read as a crash, a stale start's outcome dropped with
 // no teardown (a leaked lasting service), a stop that forgets what follows it, a first redial
-// that waits past the first wait, a reconnect count that starts again after a short uptime, or
-// one that keeps growing after a long one.
+// that waits past the first wait, a reconnect count that starts again after a short uptime, one
+// that keeps growing after a long one, or a replaced service started again onto its home.
 #[rstest]
 #[case::a_start(
     CodexServiceKind::Account,
@@ -274,6 +274,30 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     ],
     "Starting { launch: 3, recovery: Some(Crash) }",
     &["Launch { launch: 3 }", "Publish(Starting)"],
+)]
+#[case::a_replaced_service_s_crash_ends_it_stopped(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::Replaced),
+        at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(10) }),
+    ],
+    "Stopped",
+    &["Disconnect { is_process_gone: true }", "ReportProcessExited", "RetireRecord",
+        "Publish(Stopped)"],
+)]
+#[case::a_replaced_service_is_never_started_again(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::Replaced),
+        at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(10) }),
+        at_once(|_| SupervisorEvent::Start),
+    ],
+    "Stopped",
+    &["Publish(Stopped)"],
 )]
 fn the_supervisor_table(
     #[case] kind: CodexServiceKind,

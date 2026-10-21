@@ -1,6 +1,7 @@
-//! What a test's Codex services run on: their shared dependencies, a program a test names, and a
-//! service whose connection a test scripts, a stopped service of the daemon's own kind holding a
-//! connection on a `ScriptedService`, its frames and asks routed as a dialed one's are.
+//! What a test's Codex services run on: their shared dependencies, a program a test names, a
+//! listener's answers as a Codex service gives them, and a service whose connection a test
+//! scripts, a service of the daemon's own kind published as up and holding a connection on a
+//! `ScriptedService`, its frames and asks routed as a dialed one's are.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -8,17 +9,23 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use futures::{SinkExt as _, StreamExt as _};
+use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{ProgramStart, Spawner};
 use tempfile::TempDir;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
+use crate::provider::driver::codex::service::command_line::CodexHookCommands;
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
 use crate::provider::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
 };
+use crate::provider::driver::codex::service::supervisor::transition::CodexServiceAvailability;
 use crate::provider::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
@@ -125,6 +132,9 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
     service.routed_dial.store(SCRIPTED_DIAL, Ordering::Release);
     service.start_connection();
     service.lock_live().connection = Some(Arc::new(connection));
+    service
+        .availability
+        .send_replace(CodexServiceAvailability::Up);
     ScriptedCodexService {
         service,
         script,
@@ -161,4 +171,47 @@ impl CodexServiceEvents for UnheardEvents {
     fn crash_loop(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
+}
+
+/// Answers one connection's requests on `stream` as far as a start needs: the version, `hooks` as
+/// trusted, and no loaded conversation.
+pub(crate) async fn answer_as_codex_service(
+    stream: impl AsyncRead + AsyncWrite + Unpin,
+    hooks: Arc<CodexHookCommands>,
+) {
+    // A probe that only connects ends before the upgrade.
+    let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
+        return;
+    };
+    while let Some(Ok(message)) = socket.next().await {
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let request: Value = serde_json::from_str(&text).expect("the daemon sends JSON");
+        if request.get("id").is_none() {
+            continue;
+        }
+        let result = match request["method"].as_str() {
+            Some("initialize") => json!({"userAgent": "ai-sidekicks-daemon/0.130.0 (test)"}),
+            Some("hooks/list") => json!({"data": [{"hooks": [
+                listed_hook("preToolUse", &hooks.pre_tool_use),
+                listed_hook("postToolUse", &hooks.post_tool_use),
+            ]}]}),
+            Some("thread/loaded/list") => json!({"data": []}),
+            _ => json!({}),
+        };
+        let reply = json!({"id": request["id"], "result": result});
+        if socket
+            .send(Message::Text(reply.to_string().into()))
+            .await
+            .is_err()
+        {
+            return;
+        }
+    }
+}
+
+fn listed_hook(event_name: &str, command: &str) -> Value {
+    json!({"source": "sessionFlags", "eventName": event_name, "command": command,
+        "key": event_name, "currentHash": "hash", "trustStatus": "trusted"})
 }

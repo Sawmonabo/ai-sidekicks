@@ -1,9 +1,12 @@
+use std::io;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_platforms::replace_socket_link;
 
 use super::{CodexHomeResolver, CodexServiceRegistry};
 use crate::provider::driver::codex::service::home::CodexServiceHome;
@@ -14,6 +17,12 @@ use crate::provider::driver::contract::DriverError;
 use crate::uuid_v7::mint_uuid_v7;
 
 const THREAD: &str = "thread-1";
+
+/// A conversation a terminal started, which no session holds.
+const TERMINAL_THREAD: &str = "terminal-thread-1";
+
+/// How long the test watches for a read that must not come yet.
+const QUIET_WAIT: Duration = Duration::from_millis(300);
 
 // Every account resolves to the one home a test names.
 struct OneHome(CodexServiceHome);
@@ -104,11 +113,57 @@ async fn the_switch_off_stop_waits_for_a_held_conversation_to_let_go() {
     assert!(registry.services().is_empty());
 }
 
+// Fails when the switch-off stop reads the conversations inside the service again, or stops it,
+// before a terminal session inside it is unloaded.
+#[tokio::test]
+async fn the_switch_off_stop_waits_for_a_terminal_session_inside_to_end() {
+    let mut scripted = start_scripted_codex_service();
+    let registry = registry_holding(&scripted);
+    let inside = json!({"data": [TERMINAL_THREAD]});
+
+    let stopping = {
+        let registry = Arc::clone(&registry);
+        tokio::spawn(async move { registry.stop_terminal_service().await })
+    };
+    let first_read = next_request(&mut scripted, "thread/loaded/list").await;
+    scripted.script.answer(&first_read, &inside);
+    let armed_read = next_request(&mut scripted, "thread/loaded/list").await;
+    scripted.script.answer(&armed_read, &inside);
+    let read_before_the_unload =
+        tokio::time::timeout(QUIET_WAIT, scripted.script.next_sent()).await;
+    let is_stopped_before_the_unload = stopping.is_finished();
+    scripted
+        .script
+        .send(&json!({"jsonrpc": "2.0", "method": "thread/closed",
+            "params": {"threadId": TERMINAL_THREAD}}));
+    let last_read = next_request(&mut scripted, "thread/loaded/list").await;
+    scripted.script.answer(&last_read, &json!({"data": []}));
+    let stopped = stopping.await.expect("the stop ends");
+
+    assert!(
+        read_before_the_unload.is_err(),
+        "the stop read again before the terminal session ended"
+    );
+    assert!(!is_stopped_before_the_unload);
+    assert!(stopped.is_ok());
+    assert!(registry.services().is_empty());
+}
+
+// Whether this system moves a socket link, which only a system whose socket path is a link does.
+fn can_move_socket_links() -> bool {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let moved = replace_socket_link(&scratch.path().join("link"), &scratch.path().join("socket"));
+    !matches!(moved, Err(error) if error.kind() == io::ErrorKind::Unsupported)
+}
+
 // Fails when a planned restart where the home's socket cannot be moved stops the first service
-// before a conversation a session moved off it lets go once its command ends.
-#[cfg(windows)]
+// before a conversation a session moved off it lets go once its command ends. Runs only where the
+// system refuses to move a socket link.
 #[tokio::test]
 async fn a_restart_on_an_unmovable_socket_stops_the_first_once_its_held_conversation_lets_go() {
+    if can_move_socket_links() {
+        return;
+    }
     let mut scripted = start_scripted_codex_service();
     let registry = registry_holding(&scripted);
     hold_with_a_running_command(&mut scripted).await;
@@ -135,5 +190,4 @@ async fn a_restart_on_an_unmovable_socket_stops_the_first_once_its_held_conversa
     );
 }
 
-#[cfg(unix)]
 mod socket_link;

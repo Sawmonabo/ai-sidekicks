@@ -1,17 +1,20 @@
 //! The supervisor's states and the one function that moves them: given the state and an event, it
-//! answers the next state and the actions the supervisor's runner carries out whole before it reads
-//! the next event. It reads no clock and draws no random number: each event carries the instants it
-//! needs, and the runner draws the reconnect's jitter. Every launch, dial and wait takes a ticket of
-//! its own; an outcome whose ticket the state no longer names is stale, and one that carries a
-//! connection or a process is torn down, never dropped.
+//! answers the next state and the actions the supervisor's runner carries out whole before it
+//! reads the next event. It reads no clock and draws no random number: each event carries the
+//! instants it needs, and the runner draws the reconnect's jitter. Every launch, dial and wait
+//! takes a ticket of its own; an outcome whose ticket the state no longer names is stale, and one
+//! that carries a connection or a process is torn down, never dropped.
+
+pub(crate) mod action;
 
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use crate::crash_window::{CrashOutcome, CrashWindow};
 use crate::provider::driver::codex::service::home::CodexServiceKind;
 use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::provider::driver::codex::service::supervisor::reconnect::RECONNECT_STABLE_UPTIME;
+use crate::provider::driver::codex::service::supervisor::transition::action::SupervisorAction;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::contract::DaemonStopIntent;
 
@@ -178,84 +181,9 @@ pub(crate) enum SupervisorEvent {
     /// A start on a new program: a Codex update, the daemon's own program moved, or hooks that
     /// do not match.
     PlannedRestart,
-}
-
-/// What the runner carries out for a transition, in order.
-#[derive(Debug)]
-pub(crate) enum SupervisorAction {
-    /// Starts the service under `launch`, reporting `Started` or `StartFailed`.
-    Launch {
-        /// The start's ticket.
-        launch: u64,
-    },
-    /// Makes what the start `launch` parked the service's own.
-    AdoptStart {
-        /// The start's ticket.
-        launch: u64,
-    },
-    /// Makes the connection the redial `dial` parked the service's own.
-    AdoptDial {
-        /// The redial's ticket.
-        dial: u64,
-    },
-    /// Ends what an outcome under `ticket` parked: its connection closed and its process stopped,
-    /// reporting `StopDone`.
-    TearDown {
-        /// The outcome's ticket.
-        ticket: u64,
-        /// Whether a terminal service it launched is ended rather than left in its record.
-        ends_lasting_service: bool,
-    },
-    /// Closes the service's connection; the process stays, or is let go of when it has ended.
-    Disconnect {
-        /// Whether the process ended, so its handle is let go of too.
-        is_process_gone: bool,
-    },
-    /// Waits the wait grown from `attempt` earlier redials, then dials under `dial`, reporting
-    /// `Reconnected` or `ReconnectFailed`.
-    Dial {
-        /// The redial's ticket.
-        dial: u64,
-        /// How many redials came before it.
-        attempt: u32,
-    },
-    /// Waits `wait` before a crash restart, reporting `WaitElapsed`.
-    WaitToRestart {
-        /// The wait's ticket.
-        ticket: u64,
-        /// How long.
-        wait: Duration,
-    },
-    /// Ends the start, redial or wait under way.
-    CancelPending,
-    /// Stops the service's own process and connection by its kind, reporting `StopDone`.
-    StopService {
-        /// The start's ticket.
-        launch: u64,
-        /// Whether a terminal service is ended rather than only disconnected.
-        ends_lasting_service: bool,
-    },
-    /// Checks whether Codex's managed daemon this supervisor joined is free, and stops it when it
-    /// is, reporting `JoinedServiceFreed`.
-    CheckJoinedServiceFree {
-        /// The ticket of the connection it is joined on.
-        dial: u64,
-    },
-    /// Hands the planned restart of a terminal service to the session's recovery, which starts
-    /// the second service and moves the conversations.
-    BeginPlannedRestart,
-    /// Tells the session's recovery the service is back and its conversations need resuming.
-    ReportRecovered(CodexServiceRecoveryCause),
-    /// Tells the session's recovery the process ended on its own.
-    ReportProcessExited,
-    /// Reports the crash loop, which leaves the service down.
-    ReportCrashLoop,
-    /// Reports the connection's drop.
-    ReportDropped,
-    /// Reports a start that failed after a crash.
-    ReportStartFailed(Arc<CodexError>),
-    /// Publishes how the service stands to the callers waiting on it.
-    Publish(CodexServiceAvailability),
+    /// A planned restart's second service took this one's place on its home, so it is never
+    /// started again: once its process ends, its conversations move to the second.
+    Replaced,
 }
 
 /// How a service stands, as the callers waiting on it read it.
@@ -288,6 +216,8 @@ pub(crate) struct Supervision {
     kind: CodexServiceKind,
     crash_window: CrashWindow,
     next_ticket: u64,
+    // Whether another service took this one's place on its home.
+    is_replaced: bool,
 }
 
 impl Supervision {
@@ -299,6 +229,7 @@ impl Supervision {
             kind,
             crash_window: CrashWindow::provider(),
             next_ticket: 1,
+            is_replaced: false,
         }
     }
 
@@ -341,13 +272,18 @@ impl Supervision {
     }
 
     // The process ended on its own at `at`: a restart after the crash window's wait, or the
-    // crash loop that leaves it down.
+    // crash loop that leaves it down; a replaced service is never restarted and its record goes.
     fn crash(
         &mut self,
         at: SystemTime,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
         actions.push(SupervisorAction::ReportProcessExited);
+        if self.is_replaced {
+            actions.push(SupervisorAction::RetireRecord);
+            actions.push(SupervisorAction::Publish(CodexServiceAvailability::Stopped));
+            return (SupervisorState::Stopped, actions);
+        }
         match self.crash_window.record_crash(at) {
             CrashOutcome::RestartAfter(wait) => {
                 let ticket = self.mint_ticket();
@@ -476,6 +412,33 @@ impl Supervision {
                 )
             }
 
+            // A crash restart still waiting is called off: the second takes its conversations.
+            (State::Restarting { .. }, Event::Replaced) => {
+                self.is_replaced = true;
+                (
+                    State::Stopped,
+                    vec![
+                        Action::CancelPending,
+                        Action::RetireRecord,
+                        Action::Publish(CodexServiceAvailability::Stopped),
+                    ],
+                )
+            }
+            (state, Event::Replaced) => {
+                self.is_replaced = true;
+                (state, Vec::new())
+            }
+            // A replaced service is never started again: its home's socket is the second's now.
+            (state @ (State::Stopped | State::CrashLoop), Event::Start | Event::Restart)
+                if self.is_replaced =>
+            {
+                let availability = if state == State::CrashLoop {
+                    CodexServiceAvailability::CrashLoop
+                } else {
+                    CodexServiceAvailability::Stopped
+                };
+                (state, vec![Action::Publish(availability)])
+            }
             (State::Stopped, Event::Start) => self.start(None, Vec::new()),
             (State::Stopped, Event::Restart) => {
                 self.crash_window.clear();

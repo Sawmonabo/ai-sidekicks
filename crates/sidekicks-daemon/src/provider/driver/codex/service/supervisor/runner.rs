@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime};
@@ -18,17 +19,17 @@ use tokio_util::sync::CancellationToken;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::service::managed_daemon::stop_codex_managed_daemon;
 use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
-use crate::provider::driver::codex::service::socket_link::clear_socket_link_of;
+use crate::provider::driver::codex::service::socket_link::{clear_socket_link_of, is_listening};
 use crate::provider::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::service::supervisor::reconnect::reconnect_wait;
+use crate::provider::driver::codex::service::supervisor::start::kept_records::retire_own_record;
 use crate::provider::driver::codex::service::supervisor::start::{
     CodexServiceProcess, StartedService, connect, read_codex_loaded_threads, read_service_version,
     start_codex_service,
 };
-use crate::provider::driver::codex::service::supervisor::transition::{
-    SupervisorAction, SupervisorEvent,
-};
+use crate::provider::driver::codex::service::supervisor::transition::SupervisorEvent;
+use crate::provider::driver::codex::service::supervisor::transition::action::SupervisorAction;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexTeardownStep, CodexTransportDiagnostic,
@@ -175,7 +176,7 @@ impl ServiceRunner {
             SupervisorAction::Disconnect { is_process_gone } => {
                 self.disconnect(service, is_process_gone);
                 if is_process_gone {
-                    clear_home_socket_link(service).await;
+                    clear_home_socket_link(service, service.physical_socket()).await;
                 }
             }
             SupervisorAction::Dial { dial, attempt } => self.dial(service, dial, attempt),
@@ -219,9 +220,21 @@ impl ServiceRunner {
                     .process_exited(service, exit.as_ref());
             }
             SupervisorAction::ReportCrashLoop => {
-                clear_home_socket_link(service).await;
+                clear_home_socket_link(service, service.physical_socket()).await;
                 report_crash_loop(service);
                 service.dependencies.events.crash_loop(service);
+            }
+            SupervisorAction::RetireRecord => {
+                let retiring = Arc::clone(service);
+                tokio::spawn(async move {
+                    if let Err(error) = retire_own_record(&retiring).await {
+                        CodexTransportDiagnostic::TeardownStepFailed {
+                            step: CodexTeardownStep::ServiceStop,
+                            error: Box::new(error),
+                        }
+                        .report();
+                    }
+                });
             }
             // The connection's own drop already reported it, on the reader.
             SupervisorAction::ReportDropped => {}
@@ -337,8 +350,10 @@ impl ServiceRunner {
             match parked {
                 Some(Parked::Started(started)) => {
                     close_connection(&started.connection).await;
-                    if let Some(process) = started.process {
-                        stop_process(&stopping, process, ends_lasting_service).await;
+                    if let Some(process) = started.process
+                        && stop_process(&stopping, process, ends_lasting_service).await
+                    {
+                        clear_home_socket_link(&stopping, Some(started.physical_socket)).await;
                     }
                 }
                 Some(Parked::Failed(Some(process))) => {
@@ -421,10 +436,17 @@ impl ServiceRunner {
                         attempt,
                         "a Codex service redial failed"
                     );
+                    // A socket whose state cannot be read is redialed, never started over.
                     let is_listening =
-                        sidekicks_platforms::connect_unix_domain_socket(dialing.socket_path())
+                        is_listening(dialing.socket_path())
                             .await
-                            .is_ok();
+                            .unwrap_or_else(|error| {
+                                tracing::warn!(
+                                    error = &error as &(dyn std::error::Error + 'static),
+                                    "whether the Codex service's socket listens could not be read"
+                                );
+                                true
+                            });
                     RunnerInput::event(SupervisorEvent::ReconnectFailed {
                         dial,
                         is_listening,
@@ -453,7 +475,7 @@ impl ServiceRunner {
             if let Some(process) = process
                 && stop_process(&stopping, process, ends_lasting_service).await
             {
-                clear_home_socket_link(&stopping).await;
+                clear_home_socket_link(&stopping, stopping.physical_socket()).await;
             }
             stopping.send(SupervisorEvent::StopDone { ticket: launch });
         });
@@ -584,11 +606,11 @@ async fn stop_process(
     true
 }
 
-// Takes the home's link off the service's socket once its process has ended: a clean exit removed
-// Codex's own link already, a killed one left it dangling, and a link the daemon moved onto
-// another service's socket is left.
-async fn clear_home_socket_link(service: &CodexService) {
-    let Some(physical_socket) = service.lock_physical_socket().clone() else {
+// Takes the home's link off `physical_socket`, where the socket of the service's ended process
+// really was: a clean exit removed Codex's own link already, a killed one left it dangling, and a
+// link the daemon moved onto another service's socket is left.
+async fn clear_home_socket_link(service: &CodexService, physical_socket: Option<PathBuf>) {
+    let Some(physical_socket) = physical_socket else {
         return;
     };
     let home_socket = service.socket.home_socket.clone();

@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::replace_socket_link;
+use sidekicks_platforms::{read_socket_link, replace_socket_link};
 
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
@@ -128,15 +128,16 @@ impl CodexServiceRegistry {
     /// Stops the service on the person's own Codex folder as the switch turns terminal reach off,
     /// once no terminal session is inside it and no command a session left on it runs, the
     /// terminal service ended with it, and forgets it, so the folder's next session starts the
-    /// service the switch now names. Fails as the home's resolve does, and as the wait's read of
-    /// the conversations inside does, the service then left running.
+    /// service the switch now names; a planned restart's second service that took the folder
+    /// meanwhile is waited on and stopped in its turn. Fails as the home's resolve does, and as the
+    /// wait's read of the conversations inside does, the service then left running.
     pub(crate) async fn stop_terminal_service(&self) -> Result<(), DriverError> {
         let home = self.homes.codex_home_for(None).await?;
-        let Some(service) = self.lock().by_home.get(&home.codex_home).cloned() else {
-            return Ok(());
-        };
-        service.when_free_to_stop().await?;
-        {
+        let service = loop {
+            let Some(service) = self.lock().by_home.get(&home.codex_home).cloned() else {
+                return Ok(());
+            };
+            service.when_free_to_stop().await?;
             let mut services = self.lock();
             if services
                 .by_home
@@ -144,8 +145,9 @@ impl CodexServiceRegistry {
                 .is_some_and(|registered| Arc::ptr_eq(registered, &service))
             {
                 services.by_home.remove(&home.codex_home);
+                break service;
             }
-        }
+        };
         service.stop().await;
         Ok(())
     }
@@ -161,8 +163,9 @@ impl CodexServiceRegistry {
     /// once it is up; where the system refuses to move it, the path being the socket itself, the
     /// first is stopped once no terminal session is inside it and no command left on it runs, and
     /// the second takes the home's own socket, terminals reconnecting by themselves. Fails as the
-    /// start does, the first then kept as the home's service, and when the home's socket could not
-    /// be pointed at the second, which then runs on unreached.
+    /// start does, the first then kept as the home's service; when the home's service changed
+    /// while the second started, the second then stopped; and when the home's socket could not be
+    /// pointed at the second, which then runs on unreached.
     pub(crate) async fn replace(
         &self,
         service: &Arc<CodexService>,
@@ -198,14 +201,32 @@ impl CodexServiceRegistry {
             replacement.stop().await;
             return Err(error);
         }
-        {
+        let is_swapped = {
             let mut services = self.lock();
-            services
+            let is_registered = services
                 .by_home
-                .insert(home.codex_home, Arc::clone(&replacement));
-            if can_move_link {
-                services.replaced.push(Arc::clone(service));
+                .get(&home.codex_home)
+                .is_some_and(|registered| Arc::ptr_eq(registered, service));
+            if is_registered {
+                services
+                    .by_home
+                    .insert(home.codex_home, Arc::clone(&replacement));
+                if can_move_link {
+                    services.replaced.push(Arc::clone(service));
+                }
+                service.set_holds_home_link(false);
+                service.mark_replaced();
             }
+            is_registered
+        };
+        if !is_swapped {
+            // The switch-off stopped the first meanwhile, so nothing takes the second.
+            replacement.stop().await;
+            return Err(CodexError::Transport {
+                detail: "The Codex folder's service changed while its second service started."
+                    .to_owned(),
+                cause: None,
+            });
         }
         if can_move_link {
             point_socket_link_at_service(&home_socket, &path).map_err(|error| {
@@ -216,6 +237,7 @@ impl CodexServiceRegistry {
                     cause: Some(Box::new(error)),
                 }
             })?;
+            replacement.set_holds_home_link(true);
         }
         Ok(replacement)
     }
@@ -246,21 +268,24 @@ impl CodexServiceRegistry {
 }
 
 /// Whether the home's control socket can be moved onto another service's socket: it is pointed
-/// again at the socket of `service`, the one it names now, which changes nothing where it is a
-/// link and is refused where the path is the socket itself. Fails with any other failure of the
-/// move.
+/// again at the socket it names now, or at `service`'s where it names none, which changes nothing
+/// where it is a link and is refused where the path is the socket itself. Fails with the link's
+/// read error and any other failure of the move.
 async fn probe_socket_link_move(
     home_socket: &Path,
     service: &CodexService,
 ) -> Result<bool, CodexError> {
     let link = home_socket.to_owned();
-    let target = service
+    let first_socket = service
         .physical_socket()
         .unwrap_or_else(|| home_socket.to_owned());
-    let moved = tokio::task::spawn_blocking(move || replace_socket_link(&link, &target))
-        .await
-        .map_err(io::Error::other)
-        .and_then(|moved| moved);
+    let moved = tokio::task::spawn_blocking(move || {
+        let target = read_socket_link(&link)?.unwrap_or(first_socket);
+        replace_socket_link(&link, &target)
+    })
+    .await
+    .map_err(io::Error::other)
+    .and_then(|moved| moved);
     match moved {
         Ok(()) => Ok(true),
         Err(error) if error.kind() == io::ErrorKind::Unsupported => Ok(false),
