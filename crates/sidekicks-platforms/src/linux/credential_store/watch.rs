@@ -57,8 +57,8 @@ struct HeardBus {
 
 impl SecretServiceWatch {
     /// Connects to the session bus named, subscribes to the signals and asks once who owns the
-    /// Secret Service's name, within 2 s; a failure is kept as the reachability and the next read
-    /// connects again.
+    /// Secret Service's name, within [`CredentialStore::QUICK_ANSWER_LIMIT`]; a failure is kept as
+    /// the reachability and the next read connects again.
     pub(crate) async fn start() -> Arc<Self> {
         let watch = Arc::new(Self {
             bus: Mutex::new(None),
@@ -86,7 +86,8 @@ impl SecretServiceWatch {
         self.reachability.borrow().clone()
     }
 
-    /// Whether the default collection exists and is unlocked, read within 2 s with no question
+    /// Whether the default collection exists and is unlocked, read within
+    /// [`CredentialStore::QUICK_ANSWER_LIMIT`] with no question
     /// that could start a Secret Service. Fails with [`CredentialStoreUnreachable`] when no Secret
     /// Service runs or it does not answer.
     pub(crate) async fn is_unlocked(&self) -> Result<bool, CredentialStoreUnreachable> {
@@ -111,7 +112,7 @@ impl SecretServiceWatch {
     }
 
     /// The program holding the Secret Service and this account's login state, as far as each reads
-    /// within 2 s, for the service log.
+    /// within [`CredentialStore::QUICK_ANSWER_LIMIT`], for the service log.
     pub(crate) async fn description(&self) -> String {
         let holder = match self.connection().await {
             Ok(connection) => {
@@ -140,9 +141,9 @@ impl SecretServiceWatch {
         )
     }
 
-    // The open connection, connected now within 2 s when there is none or its signals stopped,
-    // one read at a time. Fails with no session bus named, or when it does not connect, the
-    // failure then kept as the reachability.
+    // The open connection, connected now within the quick-answer limit when there is none or its
+    // signals stopped, one read at a time. Fails with no session bus named, or when it does not
+    // connect, the failure then kept as the reachability.
     async fn connection(&self) -> Result<Connection, CredentialStoreUnreachable> {
         if !is_session_bus_named() {
             return Err(CredentialStoreUnreachable::NoSessionBus);

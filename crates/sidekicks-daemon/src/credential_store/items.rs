@@ -18,9 +18,9 @@
 //!   collection exists and is unlocked, so no move raises an unlock prompt, and once the store
 //!   passes its check, made outside the place's lock. Only the copy and the deletes hold the calls
 //!   behind them, so none writes to a place the move is leaving, and each store call of the copy
-//!   answers within 2 s. A refusal before the move records its direction leaves the file serving;
-//!   one after leaves the recorded move, which the next call finishes. A store that keeps another
-//!   value stops the move until the next start.
+//!   answers within the store's quick-answer limit. A refusal before the move records its
+//!   direction leaves the file serving; one after leaves the recorded move, which the next call
+//!   finishes. A store that keeps another value stops the move until the next start.
 //!
 //! Every call answers within its one time, its waits for the place and a check included, and a
 //! call with no answer in that time reads `locked`.

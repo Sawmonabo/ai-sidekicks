@@ -643,28 +643,42 @@ async fn a_write_during_the_copy_waits_for_it_and_lands_in_the_store() {
 }
 
 /// A settling run made with no person's call leaves every place but a file waiting to move for the
-/// next call: with no record, a recorded store or a recorded move it makes no store call, so it
-/// never writes the check's probe into a locked Secret Service, and the record stays as it was.
-/// Mutation: drop the run's early return, so it picks and checks the store.
+/// next call: with no record, a recorded store, a recorded move, or a store a refused call picked
+/// and left unchecked, it makes no store call, so it never writes the check's probe into a locked
+/// Secret Service, and the record stays as it was. Mutation: drop the run's early return, or answer
+/// true for a picked place, so it picks or checks the store.
 #[rstest]
-#[case::no_record(None)]
-#[case::recorded_store(Some(OPERATING_SYSTEM))]
-#[case::recorded_move(Some(MOVING_IN))]
-#[tokio::test]
-async fn a_run_with_no_call_settles_only_a_file_waiting_to_move(#[case] record: Option<&str>) {
+#[case::no_record(None, false)]
+#[case::recorded_store(Some(OPERATING_SYSTEM), false)]
+#[case::recorded_move(Some(MOVING_IN), false)]
+#[case::picked_unchecked(None, true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_with_no_call_settles_only_a_file_waiting_to_move(
+    #[case] record: Option<&str>,
+    #[case] picks_by_a_refused_call: bool,
+) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     if let Some(record) = record {
         std::fs::write(folder.path().join(RECORD), record).expect("the test writes the record");
     }
     let blocking_store = BlockingCredentialStore::new();
-    blocking_store.release();
     let access = TestStoreAccess::new(CredentialStore::from_store(blocking_store.clone()));
-    let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
+    let items = secret_items(folder.path(), &access, false, Duration::from_millis(300));
+    if picks_by_a_refused_call {
+        let locked = tokio::time::timeout(Duration::from_secs(5), write_and_read(&items, "a", "v"))
+            .await
+            .expect("the held check answers within its time");
+        assert_eq!(locked, Err(KeychainRefusalCause::Locked));
+    }
+    blocking_store.release();
+    let calls_before = blocking_store.calls();
+    let record_before = read_text(&folder.path().join(RECORD));
 
     items.settle().await;
 
-    assert_eq!(blocking_store.calls(), 0);
-    assert_eq!(read_text(&folder.path().join(RECORD)).as_deref(), record);
+    assert_eq!(blocking_store.calls(), calls_before);
+    assert_eq!(read_text(&folder.path().join(RECORD)), record_before);
+    assert_eq!(record_before.as_deref(), record);
 }
 
 /// A move refused after it recorded its direction leaves the run on the recorded move, which the

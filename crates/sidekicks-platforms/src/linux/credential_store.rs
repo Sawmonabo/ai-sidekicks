@@ -59,8 +59,8 @@ pub(crate) fn is_session_bus_named() -> bool {
     std::env::var_os(SESSION_BUS_VARIABLE).is_some_and(|address| !address.is_empty())
 }
 
-/// This account's state as logind names it on the system bus, read within 2 s, in words for the
-/// service log.
+/// This account's state as logind names it on the system bus, read within
+/// [`CredentialStore::QUICK_ANSWER_LIMIT`], in words for the service log.
 pub(crate) async fn login_state() -> String {
     match tokio::time::timeout(CredentialStore::QUICK_ANSWER_LIMIT, read_login_state()).await {
         Ok(Ok(state)) => state,

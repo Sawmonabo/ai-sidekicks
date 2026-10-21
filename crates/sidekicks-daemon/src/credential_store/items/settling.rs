@@ -1,7 +1,7 @@
 //! The settling run, made with no person's call: for a file kept because no Secret Service ran, the
 //! pick and its check under the place's lock, then the move of its secrets into a Secret Service,
 //! one run at a time, a request made during a run running it once more when it ends. Any other
-//! place, or none recorded yet, is settled inside the next call.
+//! place, or none picked or recorded yet, is settled inside the next call.
 
 use std::error::Error;
 use std::sync::{Arc, MutexGuard, PoisonError};
@@ -91,7 +91,8 @@ impl SecretItems {
 
     // Moves the items from `place`, the file, into a Secret Service that runs with its default
     // collection unlocked and passes its check, the check made outside the place's lock and the
-    // copy's store calls each answered within 2 s. Fails with the refusal that stopped it.
+    // copy's store calls each answered within the store's quick-answer limit. Fails with the
+    // refusal that stopped it.
     async fn move_into_secret_service(&self, place: SecretsPlace) -> Result<(), KeychainRefusal> {
         if self.access.check_reachable().await.is_err() {
             return Ok(());
