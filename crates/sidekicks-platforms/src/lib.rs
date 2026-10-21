@@ -66,6 +66,7 @@ mod file_watch;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
 mod hidden_entry;
+mod keep_awake;
 mod lasting_child;
 #[cfg(target_os = "linux")]
 mod linux;
@@ -97,6 +98,7 @@ mod system_locale;
 mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 mod test_program;
+mod tool_memory_cap;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
 mod wake_watch;
@@ -133,6 +135,7 @@ pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 pub use hidden_entry::is_hidden_entry;
+pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::SHELL_FOLDER_PROBES;
@@ -183,6 +186,8 @@ pub use macos::memory::{
 pub use macos::pinned_process::this_process;
 #[cfg(target_os = "macos")]
 pub use macos::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
+#[cfg(target_os = "macos")]
+pub use macos::power_source::PowerSourceWatch;
 #[cfg(target_os = "macos")]
 pub use macos::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "macos")]
@@ -331,6 +336,7 @@ pub use terminal::{
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::pass_through_start;
+pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
