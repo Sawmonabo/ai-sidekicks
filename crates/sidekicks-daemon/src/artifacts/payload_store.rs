@@ -329,14 +329,6 @@ mod tests {
     async fn reference(writer: &DatabaseWriter, session_id: SessionId, content_hash: &ContentHash) {
         let manifest_id = mint_uuid_v7().to_string();
         let reference_id = mint_uuid_v7().to_string();
-        let bindings = || {
-            StatementBindings::Named(vec![
-                text_binding("@manifestId", &manifest_id),
-                text_binding("@sessionId", session_id.text().as_str()),
-                text_binding("@contentHash", content_hash.as_str()),
-                text_binding("@referenceId", &reference_id),
-            ])
-        };
         writer
             .write(vec![
                 WriteStatement {
@@ -345,7 +337,11 @@ mod tests {
                          content_hash, size_bytes, created_at) VALUES (@manifestId, @sessionId, \
                          'file', @contentHash, 1, '2026-10-19T09:00:00.000Z')",
                     ),
-                    bindings: bindings(),
+                    bindings: StatementBindings::Named(vec![
+                        text_binding("@manifestId", &manifest_id),
+                        text_binding("@sessionId", session_id.text().as_str()),
+                        text_binding("@contentHash", content_hash.as_str()),
+                    ]),
                     expected_row_count: Some(1),
                 },
                 WriteStatement {
@@ -354,7 +350,11 @@ mod tests {
                          media_type, size_bytes, created_at) VALUES (@referenceId, @manifestId, \
                          @contentHash, 'text/plain', 1, '2026-10-19T09:00:00.000Z')",
                     ),
-                    bindings: bindings(),
+                    bindings: StatementBindings::Named(vec![
+                        text_binding("@referenceId", &reference_id),
+                        text_binding("@manifestId", &manifest_id),
+                        text_binding("@contentHash", content_hash.as_str()),
+                    ]),
                     expected_row_count: Some(1),
                 },
             ])
