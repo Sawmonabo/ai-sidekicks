@@ -299,6 +299,19 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     "Stopped",
     &["Publish(Stopped)"],
 )]
+#[case::a_replaced_service_s_stop_never_starts_it_again(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::Replaced),
+        at_once(|_| SupervisorEvent::Stop),
+        at_once(|_| SupervisorEvent::Start),
+        at_once(|_| SupervisorEvent::StopDone { ticket: 1 }),
+    ],
+    "Stopped",
+    &["Publish(Stopped)"],
+)]
 fn the_supervisor_table(
     #[case] kind: CodexServiceKind,
     #[case] steps: Vec<Box<dyn Fn(Instant) -> SupervisorEvent>>,

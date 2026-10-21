@@ -524,8 +524,10 @@ async fn launch_terminal_service(
     let trusted = async {
         let (connection, reply) = opened?;
         let physical_socket = read_physical_socket(service.socket_path()).await?;
-        // A plain `codex` that waited on Codex's start lock re-reads the link once it is free, so
-        // the link names this service again before the lock goes.
+        trust_codex_daemon_hooks(&connection, &hook_commands).await?;
+        let version = read_service_version(&reply, executable)?;
+        // Only a start that succeeded takes the link back. A plain `codex` that waited on Codex's
+        // start lock re-reads the link once it is free, so the link names this service first.
         if service.holds_home_link()
             && let Err(error) =
                 restore_socket_link(&service.socket.home_socket, service.socket_path()).await
@@ -537,8 +539,6 @@ async fn launch_terminal_service(
         }
         // Held only for the seconds the start takes.
         drop(start_lock);
-        trust_codex_daemon_hooks(&connection, &hook_commands).await?;
-        let version = read_service_version(&reply, executable)?;
         Ok::<_, CodexError>((connection, version, physical_socket))
     }
     .await;

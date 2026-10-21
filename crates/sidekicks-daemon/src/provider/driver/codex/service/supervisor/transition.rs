@@ -763,6 +763,11 @@ impl Supervision {
                         State::Stopped,
                         vec![Action::Publish(CodexServiceAvailability::Stopped)],
                     ),
+                    // A replaced service's stop ends it: its home's socket is the second's.
+                    StoppingThen::Starting if self.is_replaced => (
+                        State::Stopped,
+                        vec![Action::Publish(CodexServiceAvailability::Stopped)],
+                    ),
                     StoppingThen::Starting => self.start(None, Vec::new()),
                     StoppingThen::ShutDown => (
                         State::ShutDown,
