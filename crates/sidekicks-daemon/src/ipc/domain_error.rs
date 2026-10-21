@@ -56,6 +56,14 @@ impl DomainError {
             ..self
         }
     }
+
+    /// The same refusal keeping `source`, the failure underneath, where there is one.
+    pub(crate) fn with_optional_source(self, source: Option<Box<dyn Error + Send + Sync>>) -> Self {
+        match source {
+            Some(source) => self.with_source(source),
+            None => self,
+        }
+    }
 }
 
 /// A refusal's `data.fields` from `details`, a contract's details type or a `json!` object, each

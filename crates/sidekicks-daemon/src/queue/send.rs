@@ -425,8 +425,5 @@ fn persistence_unavailable(cause: Option<QueueRecordError>) -> DomainError {
         "The queue could not store the message; nothing was queued",
         RefusalCode::AgentQueueItemPersistenceUnavailable,
     );
-    match cause {
-        Some(cause) => refusal.with_source(cause),
-        None => refusal,
-    }
+    refusal.with_optional_source(cause.map(Into::into))
 }

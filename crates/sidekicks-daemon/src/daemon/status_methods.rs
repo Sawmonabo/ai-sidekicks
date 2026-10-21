@@ -20,6 +20,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::number::Percent;
 use sidekicks_contracts::wire::text::BoundedText;
 
+use crate::credential_store::items::SecretItems;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
@@ -44,6 +45,8 @@ pub(crate) struct StatusMethodsDeps {
     pub(crate) started_at: Timestamp,
     /// Reads the daemon's process and every process under it.
     pub(crate) usage_reader: Arc<ProcessTreeUsageReader>,
+    /// The daemon's secrets, read for the items file while it holds them.
+    pub(crate) secret_items: Arc<SecretItems>,
 }
 
 /// Registers `daemon.status.read`, a read-only query. Fails the start when the method is already
@@ -102,6 +105,13 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         ),
         None => (None, None),
     };
+    let secrets_file = deps
+        .secret_items
+        .secrets_file()
+        .await
+        .map(|path| FilesystemPath::new(path.to_string_lossy().into_owned()))
+        .transpose()
+        .map_err(|error| HandlerError::Internal(Box::new(error)))?;
     Ok(DaemonStatusReadResponse {
         process_state: (deps.read_process_state)(),
         process_identity: deps.process_identity.clone(),
@@ -118,7 +128,7 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         recovery: deps.recovery.read(),
         relay: None,
         wsl: None,
-        secrets_file: None,
+        secrets_file,
     })
 }
 
