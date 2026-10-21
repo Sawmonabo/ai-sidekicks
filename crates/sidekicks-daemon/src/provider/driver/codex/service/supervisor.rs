@@ -37,6 +37,7 @@ use crate::provider::driver::codex::server_requests::CodexServerRequestResponder
 use crate::provider::driver::codex::service::asks::CodexServiceAsks;
 use crate::provider::driver::codex::service::home::{CodexServiceHome, CodexServiceKind};
 use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
+use crate::provider::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::provider::driver::codex::service::supervisor::events::CodexServiceEvents;
 use crate::provider::driver::codex::service::supervisor::routing::{
     CODEX_CONFIG_WARNING_METHOD, CodexServiceRouting,
@@ -103,6 +104,9 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) events: Arc<dyn CodexServiceEvents>,
     /// The conversations sessions moved off, which see each of their frames first.
     pub(crate) release: Arc<CodexConversationRelease>,
+    /// The drains of the lasting services another took the home's link from, which outlive the
+    /// service that asked them and end with the registry's shutdown.
+    pub(crate) drains: LastingServiceDrains,
 }
 
 /// The socket one service listens on.
@@ -171,8 +175,6 @@ pub(crate) struct CodexService {
     // The record file of the lasting process the last start brought up, which a former daemon's
     // service joined keeps under its own socket's name.
     process_record_file: Mutex<Option<LastingServiceRecordFile>>,
-    // Calls off the wait of every drain the service asked, as the daemon stops.
-    drains: CancellationToken,
     // Whether the home's link was moved onto this service's own socket and it still holds it.
     holds_home_link: AtomicBool,
     // The ticket of the connection whose frames are routed; an older one's are not.
@@ -202,7 +204,6 @@ impl CodexService {
             live: Mutex::default(),
             physical_socket: Mutex::default(),
             process_record_file: Mutex::default(),
-            drains: CancellationToken::new(),
             holds_home_link: AtomicBool::new(false),
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
@@ -308,13 +309,13 @@ impl CodexService {
         self.lock_routing().rate_limits.clone()
     }
 
-    /// The `--listen` address the service starts with: a bare `unix://` on the home's own control
-    /// socket, the path otherwise.
-    pub(crate) fn listen_address(&self) -> String {
-        if self.socket.is_home_socket() {
+    /// The `--listen` address a launch on `socket` starts with: a bare `unix://` on the home's own
+    /// control socket, the path otherwise.
+    pub(crate) fn listen_address(&self, socket: &Path) -> String {
+        if socket == self.socket.home_socket {
             "unix://".to_owned()
         } else {
-            format!("unix://{}", self.socket.path.display())
+            format!("unix://{}", socket.display())
         }
     }
 

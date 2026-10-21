@@ -476,7 +476,6 @@ impl Supervision {
                 State::ShutDown,
                 vec![
                     Action::CancelPending,
-                    Action::CancelDrains,
                     Action::Publish(CodexServiceAvailability::ShutDown),
                 ],
             ),
@@ -558,7 +557,6 @@ impl Supervision {
                 },
                 vec![
                     Action::CancelPending,
-                    Action::CancelDrains,
                     Action::Publish(CodexServiceAvailability::Stopping),
                 ],
             ),
@@ -640,7 +638,7 @@ impl Supervision {
                 launch,
                 StoppingThen::ShutDown,
                 self.lasting_end(Some(intent)),
-                vec![Action::CancelDrains],
+                Vec::new(),
             ),
             // A replaced service serves only until it is retired: no third service follows it.
             (state @ State::Up { .. }, Event::PlannedRestart) if self.is_replaced => {
@@ -758,7 +756,7 @@ impl Supervision {
                 launch,
                 StoppingThen::ShutDown,
                 self.lasting_end(Some(intent)),
-                vec![Action::CancelPending, Action::CancelDrains],
+                vec![Action::CancelPending],
             ),
 
             (State::Restarting { wait }, Event::WaitElapsed { wait: elapsed })
@@ -833,10 +831,7 @@ impl Supervision {
                 if matches!(event, Event::Restart) {
                     self.crash_window.clear();
                 }
-                // A daemon's stop never waits on a drain: its wait is called off.
-                let actions = if matches!(event, Event::Shutdown { .. }) {
-                    vec![Action::CancelDrains]
-                } else if matches!(event, Event::Start) && then == StoppingThen::ShutDown {
+                let actions = if matches!(event, Event::Start) && then == StoppingThen::ShutDown {
                     vec![Action::Publish(CodexServiceAvailability::Stopping)]
                 } else {
                     Vec::new()

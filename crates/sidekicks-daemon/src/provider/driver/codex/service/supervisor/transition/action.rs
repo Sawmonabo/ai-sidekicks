@@ -67,9 +67,6 @@ pub(crate) enum SupervisorAction {
     },
     /// Ends the start, redial or wait under way.
     CancelPending,
-    /// Calls off the wait of every drain the service asked: each drain finishes by itself, and
-    /// its record stays for the next start.
-    CancelDrains,
     /// Stops the service's own process and connection by its kind, reporting `StopDone`.
     StopService {
         /// The start's ticket.

@@ -194,7 +194,6 @@ impl ServiceRunner {
                 self.pending.cancel();
                 self.pending = CancellationToken::new();
             }
-            SupervisorAction::CancelDrains => service.drains.cancel(),
             SupervisorAction::StopService { launch, end } => {
                 self.stop_service(service, launch, end);
             }
@@ -599,7 +598,13 @@ async fn stop_process(
         } => match end {
             LastingServiceEnd::Keep => return false,
             LastingServiceEnd::Drain => {
-                return drain_lasting_service(&service.drains, lasting, record_file).await;
+                return drain_lasting_service(
+                    &service.dependencies.drains,
+                    lasting,
+                    record_file,
+                    service.socket_path(),
+                )
+                .await;
             }
             LastingServiceEnd::Stop => {
                 if let Err(error) = lasting

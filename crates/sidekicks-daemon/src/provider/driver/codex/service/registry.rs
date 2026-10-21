@@ -168,12 +168,12 @@ impl CodexServiceRegistry {
     /// up; the first stays until its conversations have moved off it. Where the home's control
     /// socket is a link, the second listens on a socket of its own and the link is pointed at it
     /// once it is up, unless a service answering in the first's place, Codex's managed daemon in
-    /// use, holds the link; where the system refuses to move it, the path being the socket itself, the
-    /// first is stopped once no terminal session is inside it and no command left on it runs, and
-    /// the second takes the home's own socket, terminals reconnecting by themselves. Fails as the
-    /// start does, the first then kept as the home's service; when the home's service changed
-    /// while the second started, the second then stopped; and when the home's socket could not be
-    /// pointed at the second, which then runs on unreached.
+    /// use, holds the link; where the system refuses to move it, the path being the socket
+    /// itself, the first is stopped once no terminal session is inside it and no command left on
+    /// it runs, and the second takes the home's own socket, terminals reconnecting by themselves.
+    /// Fails as the start does, the first then kept as the home's service; when the home's
+    /// service changed while the second started, the second then stopped; and when the home's
+    /// socket could not be pointed at the second, which then runs on unreached.
     pub(crate) async fn replace(
         &self,
         service: &Arc<CodexService>,
@@ -260,9 +260,12 @@ impl CodexServiceRegistry {
     }
 
     /// Shuts every service down for good, the replaced ones included, and answers once every one
-    /// has: the daemon's own are stopped, a joined one only disconnected, and under `Restart` the
-    /// terminal service keeps running. Each stop reports its own failure.
+    /// has: the daemon's own are stopped, a joined one only disconnected, under `Restart` the
+    /// terminal service keeps running, and every drain's wait is called off, its service draining
+    /// on by itself. Each stop reports its own failure.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
+        // A stop never waits on a drain: each drains on by itself, its record left marked.
+        self.dependencies.drains.call_off();
         let services: Vec<Arc<CodexService>> = {
             let mut services = self.lock();
             let replaced = std::mem::take(&mut services.replaced);
@@ -336,7 +339,7 @@ fn home_socket_path(codex_home: &Path) -> PathBuf {
 /// A socket of its own beside the home's, `sidekicks-<8 hex>.sock`, as long as the home's own
 /// name, so no daemon start reuses one a lasting service still listens on. Fails when the system
 /// gave no random bytes.
-fn own_socket_path(codex_home: &Path) -> Result<PathBuf, getrandom::Error> {
+pub(super) fn own_socket_path(codex_home: &Path) -> Result<PathBuf, getrandom::Error> {
     let name = format!("sidekicks-{:08x}.sock", getrandom::u32()?);
     Ok(codex_home.join(CODEX_CONTROL_SOCKET_FOLDER).join(name))
 }

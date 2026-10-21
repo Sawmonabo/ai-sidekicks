@@ -1,4 +1,3 @@
-use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,14 +5,16 @@ use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::replace_socket_link;
+use sidekicks_platforms::CAN_LINK_A_SOCKET;
+
+use rstest::rstest;
 
 use super::{CodexHomeResolver, CodexServiceRegistry};
 use crate::provider::driver::codex::service::home::CodexServiceHome;
 use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::contract::{DaemonStopIntent, DriverError};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const THREAD: &str = "thread-1";
@@ -177,19 +178,12 @@ async fn the_switch_off_stop_waits_for_a_reconnecting_service_to_come_back() {
     assert!(stopped.is_ok());
 }
 
-// Whether this system moves a socket link, which only a system whose socket path is a link does.
-fn can_move_socket_links() -> bool {
-    let scratch = tempfile::tempdir().expect("a scratch folder is made");
-    let moved = replace_socket_link(&scratch.path().join("link"), &scratch.path().join("socket"));
-    !matches!(moved, Err(error) if error.kind() == io::ErrorKind::Unsupported)
-}
-
 // Fails when a planned restart where the home's socket cannot be moved stops the first service
 // before a conversation a session moved off it lets go once its command ends. Runs only where the
 // system refuses to move a socket link.
 #[tokio::test]
 async fn a_restart_on_an_unmovable_socket_stops_the_first_once_its_held_conversation_lets_go() {
-    if can_move_socket_links() {
+    if CAN_LINK_A_SOCKET {
         return;
     }
     let mut scripted = start_scripted_codex_service();
@@ -218,4 +212,44 @@ async fn a_restart_on_an_unmovable_socket_stops_the_first_once_its_held_conversa
     );
 }
 
+// Fails when the switch-off's failed wait leaves the folder with no service, which strands its
+// sessions on one nothing reaches, or puts it back over the service the folder took meanwhile.
+#[rstest]
+#[case::the_slot_left_empty(false)]
+#[case::the_slot_filled_meanwhile(true)]
+#[tokio::test]
+async fn a_failed_switch_off_wait_puts_the_service_back_only_into_an_empty_slot(
+    #[case] is_slot_filled: bool,
+) {
+    let mut scripted = start_scripted_codex_service();
+    let registry = registry_holding(&scripted);
+
+    let stopping = {
+        let registry = Arc::clone(&registry);
+        tokio::spawn(async move { registry.stop_terminal_service().await })
+    };
+    let loaded = next_request(&mut scripted, "thread/loaded/list").await;
+    let filling = if is_slot_filled {
+        Some(registry.service_for(None).await.expect("the home resolves"))
+    } else {
+        None
+    };
+    scripted
+        .script
+        .send(&json!({"jsonrpc": "2.0", "id": loaded["id"],
+        "error": {"code": -32603, "message": "the read failed"}}));
+    let stopped = stopping.await.expect("the stop ends");
+    let registered = registry.services();
+    registry.shutdown(DaemonStopIntent::Stop).await;
+
+    let expected = filling.unwrap_or_else(|| Arc::clone(&scripted.service));
+    assert!(stopped.is_err());
+    assert!(
+        registered.len() == 1 && Arc::ptr_eq(&registered[0], &expected),
+        "the folder's service is not the one expected"
+    );
+}
+
+mod former_services;
 mod socket_link;
+mod stand_in;

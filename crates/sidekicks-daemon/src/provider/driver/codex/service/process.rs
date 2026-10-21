@@ -17,18 +17,16 @@ use process_wrap::tokio::ChildWrapper;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    CAN_SIGNAL_A_STOP, ChildEnd, LastingChild, LastingCommand, PinnedProcess, ProcessEndWait,
-    ProcessRecord, Spawner, ask_child_to_stop, connect_unix_domain_socket, lasting_child_asked_end,
+    CAN_SIGNAL_A_STOP, ChildEnd, LastingChild, LastingCommand, PinnedProcess, ProcessRecord,
+    Spawner, ask_child_to_stop, connect_unix_domain_socket, lasting_child_asked_end,
     leave_daemon_scope, read_child_exit, spawn_lasting_child, wrap_child_command,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::process::{ChildStderr, ChildStdout, Command};
 use tokio::sync::{oneshot, watch};
 use tokio_tungstenite::tungstenite::{self, Message};
-use tokio_util::sync::CancellationToken;
 
 use crate::process_exit::{OutputTail, compose_process_exit};
-use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
 use crate::provider::service_log::{open_provider_service_log, read_provider_service_log_tail};
 
 /// The variable that opens a lasting service's shutdown socket; Codex reads it only on Windows.
@@ -330,57 +328,33 @@ impl LastingCodexService {
             .map_err(io::Error::other)?
     }
 
-    /// Asks the service to drain, Codex's own graceful end: a hang-up through its pin, after which
-    /// it refuses new turns, finishes its running replies, disconnects every client and exits by
-    /// itself, with no kill after it. Answers the drain, whose wait reads its end. Blocking, so it
-    /// runs in `spawn_blocking`. Fails with the signal's error, with `Unsupported` on Windows,
-    /// where the home's socket never moves, so no service is left to drain.
-    pub(crate) fn hang_up(&self) -> io::Result<LastingServiceDrain> {
-        Ok(LastingServiceDrain {
-            wait: Arc::new(self.process.hang_up()?),
-            record: self.record.clone(),
-        })
-    }
-}
-
-/// A drain asked of a lasting service: the wait for its end, and what retires its record after.
-pub(crate) struct LastingServiceDrain {
-    wait: Arc<ProcessEndWait>,
-    record: ProcessRecord,
-}
-
-impl LastingServiceDrain {
-    /// Waits for the drained service's end with no bound, on the blocking pool; `true` once it
-    /// ended, `false` once `cancel` called the wait off, the service then draining on by itself.
-    /// Fails with the wait's error.
-    pub(crate) async fn wait_for_end(&self, cancel: &CancellationToken) -> io::Result<bool> {
-        let wait = Arc::clone(&self.wait);
-        let mut waiting = tokio::task::spawn_blocking(move || wait.wait());
-        tokio::select! {
-            waited = &mut waiting => waited.map_err(io::Error::other)?,
-            () = cancel.cancelled() => {
-                self.wait.call_off()?;
-                waiting.await.map_err(io::Error::other)?
-            }
+    /// Asks the service to drain, Codex's own graceful end, after which it refuses new turns,
+    /// finishes its running replies, disconnects every client and exits by itself, with no kill
+    /// after it: on macOS and Linux a hang-up through its pin, on Windows Codex's own shutdown
+    /// request over its control socket at `control_socket`, a second of which would force a
+    /// running reply, so a service is asked once. Answers whether the ask was delivered, `false`
+    /// for a service already ended. Fails with the signal's error or the request's.
+    pub(crate) async fn ask_to_drain(&self, control_socket: &Path) -> io::Result<bool> {
+        if CAN_SIGNAL_A_STOP {
+            return self.process.hang_up();
+        }
+        let requested = match connect_unix_domain_socket(control_socket).await {
+            Ok(connection) => request_codex_service_shutdown(connection, self.process.id())
+                .await
+                .map_err(io::Error::other),
+            Err(error) => Err(error),
+        };
+        match requested {
+            Ok(()) => Ok(true),
+            Err(_unreached) if self.has_ended()? => Ok(false),
+            Err(error) => Err(error),
         }
     }
 
-    /// Retires the drained service once it ended: ends what it left running, then removes its
-    /// record from `record_file` while the record still names it. Fails as the removal does; a
-    /// failed end of what it left is logged.
-    pub(crate) async fn retire(self, record_file: LastingServiceRecordFile) -> io::Result<()> {
-        let entry = codex_lasting_service_environment_entry();
-        tokio::task::spawn_blocking(move || {
-            if let Err(error) = self.record.end_survivors(&entry) {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "what a drained Codex service left running could not be ended"
-                );
-            }
-            record_file.remove_if_naming(&self.record)
-        })
-        .await
-        .map_err(io::Error::other)?
+    /// Waits with no bound and no thread for the service's end, for one asked to drain. Dropping
+    /// the wait calls it off. Fails with the system's error.
+    pub(crate) async fn wait_for_end(&self) -> io::Result<()> {
+        self.process.wait_for_end().await
     }
 }
 

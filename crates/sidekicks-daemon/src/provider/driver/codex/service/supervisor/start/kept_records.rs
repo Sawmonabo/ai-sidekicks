@@ -1,16 +1,17 @@
 //! What a terminal service's start does with the records lasting services left on its Codex
 //! folder, all read under the folder's one lock: a service still running is found again by its
 //! record, and one gone has what it left ended and its record removed, so a fresh start leaves no
-//! tree of a former one running. The service's first start joins the running service the home's
-//! link names, or with none, points the link under Codex's start lock at a running one not
-//! draining, the home's own first, and drains every other; a later start reads only its own.
+//! tree of a former one running. The service's first start joins the running service that holds
+//! the home's link, or with none, points the link under Codex's start lock at a running one not
+//! draining, the home's own first, and drains every other; a later start reads only its own. With
+//! nothing joined, a drain on the home's own socket is launched beside where the home's path is a
+//! link, and waited for where it is the socket itself.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use sidekicks_platforms::{ProcessRecord, read_socket_link};
-use tokio::sync::oneshot;
+use sidekicks_platforms::{CAN_LINK_A_SOCKET, ProcessRecord, read_socket_link};
 use tokio::time::Instant;
 
 use crate::provider::driver::codex::service::process::{
@@ -19,9 +20,13 @@ use crate::provider::driver::codex::service::process::{
 use crate::provider::driver::codex::service::record::{
     LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
 };
-use crate::provider::driver::codex::service::socket_link::restore_socket_link;
+use crate::provider::driver::codex::service::socket_link::{
+    clear_socket_link_of, is_listening, restore_socket_link,
+};
 use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::drain::drain_in_background;
+use crate::provider::driver::codex::service::supervisor::drain::{
+    LastingServiceDrainWatch, read_drain_end,
+};
 use crate::provider::driver::codex::service::supervisor::runner::SERVICE_STOP_GRACE;
 use crate::provider::driver::codex::service::supervisor::start::{
     StartFailure, start_failed, take_start_lock,
@@ -35,13 +40,27 @@ type KeptRecord = (Arc<LockedServiceRecord>, LastingServiceRecord);
 pub(super) enum KeptRecordsOutcome {
     /// It joins a former daemon's running service, whose record `record_file` keeps.
     Join {
-        /// The service.
-        lasting: LastingCodexService,
+        /// The service, boxed as the larger arm by far.
+        lasting: Box<LastingCodexService>,
         /// Its record's file.
         record_file: LastingServiceRecordFile,
+        /// Where its record says its socket really is, which the join dials.
+        physical_socket: PathBuf,
     },
-    /// No former service is joined: the start goes on to the folder's socket.
-    NoFormerService,
+    /// No former service is joined, and none holds the home's own socket: the start goes on to
+    /// the folder's socket.
+    LaunchOnHome,
+    /// No former service is joined, and one draining holds the home's own socket until it ends:
+    /// the start launches beside it on a socket of its own and moves the home's link there.
+    LaunchBeside,
+}
+
+// A drain on a socket a launch on the home's own would meet: the home socket's own record's, or
+// the one on the socket the home's link names.
+struct LaunchBlockingDrain {
+    is_home_record: bool,
+    physical_socket: Option<PathBuf>,
+    end: LastingServiceDrainWatch,
 }
 
 // A kept record whose service still runs.
@@ -65,7 +84,7 @@ pub(super) async fn lock_record(
 }
 
 /// Runs `access` on the held record on the blocking pool, since each reads or writes a file.
-pub(super) async fn on_record<Answer: Send + 'static>(
+pub(in super::super) async fn on_record<Answer: Send + 'static>(
     locked: &Arc<LockedServiceRecord>,
     access: impl FnOnce(&LockedServiceRecord) -> io::Result<Answer> + Send + 'static,
 ) -> io::Result<Answer> {
@@ -191,13 +210,35 @@ async fn read_record(
         .map_err(|error| start_failed("The Codex service's record could not be read.", error))
 }
 
+// The socket a running record must be recorded on to hold the home's link, whose target is
+// `link_target`: that target, or where the system holds no link, `home_socket` itself, which is
+// then the socket the one service on it binds.
+fn find_holder_socket(
+    link_target: Option<PathBuf>,
+    home_socket: &Path,
+    can_link_a_socket: bool,
+) -> Option<PathBuf> {
+    link_target.or_else(|| (!can_link_a_socket).then(|| home_socket.to_owned()))
+}
+
+// Which of `records` holds the home's link: the one not draining recorded on `holder_socket`.
+fn find_link_holder<'record>(
+    records: impl IntoIterator<Item = &'record LastingServiceRecord>,
+    holder_socket: Option<&Path>,
+) -> Option<usize> {
+    let holder_socket = holder_socket?;
+    records.into_iter().position(|record| {
+        !record.is_draining && record.physical_socket.as_deref() == Some(holder_socket)
+    })
+}
+
 /// The first start of the home's service settles every record its folder keeps, under the start's
 /// own hold `locked`, the home socket's record: one whose service ended is retired; the running
-/// service the home's link names is joined, or with none, the link is pointed at a running one
-/// not draining and that one is joined; every other running one drains. With none joined, each
-/// draining one on the home's own socket or on the socket the link reaches is waited for until
-/// `deadline`, since a launch would meet it there until it ends. Fails as a record's read, re-pin
-/// or retire fails, as the link's read or move fails, and past `deadline`.
+/// service that holds the home's link is joined, or with none, the link is pointed at a running
+/// one not draining and that one is joined; every other running one drains. With none joined, a
+/// launch past the drains on the home's own socket or on the socket the link reaches is settled
+/// by [`settle_launch_blocking_drains`]. Fails as a record's read, re-pin, retire or drain fails,
+/// as the link's read or move fails, and past `deadline`.
 pub(super) async fn reconcile_kept_records(
     service: &CodexService,
     locked: &Arc<LockedServiceRecord>,
@@ -217,56 +258,72 @@ pub(super) async fn reconcile_kept_records(
     let link_target = read_socket_link(service.socket_path()).map_err(|error| {
         start_failed("The Codex folder's socket link could not be read.", error)
     })?;
-    let holder = running.iter().position(|running| {
-        !running.record.is_draining
-            && running.record.physical_socket.is_some()
-            && running.record.physical_socket == link_target
-    });
+    let holder_socket = find_holder_socket(
+        link_target.clone(),
+        service.socket_path(),
+        CAN_LINK_A_SOCKET,
+    );
+    let holder = find_link_holder(
+        running.iter().map(|running| &running.record),
+        holder_socket.as_deref(),
+    );
     let joined = match holder {
         Some(holder) => Some(holder),
         None => restore_link_to_running(service, &running, locked.file(), deadline).await?,
     };
+    let is_link_unrecorded = link_target.is_some()
+        && !running
+            .iter()
+            .any(|running| running.record.physical_socket == link_target);
     let mut joined_service = None;
     let mut launch_blocking_drains = Vec::new();
     for (index, running) in running.into_iter().enumerate() {
         if Some(index) == joined {
-            joined_service = Some((running.lasting, running.locked.file().clone()));
+            joined_service = Some(running);
             continue;
         }
-        let blocks_launch = running.locked.file() == locked.file()
-            || (running.record.physical_socket.is_some()
-                && running.record.physical_socket == link_target);
-        let end = drain_in_background(&service.drains, &running.locked, running.lasting)
-            .await
-            .map_err(|error| {
-                start_failed("A former Codex service could not be asked to drain.", error)
-            })?;
-        if blocks_launch {
-            launch_blocking_drains.push(end);
+        let is_home_record = running.locked.file() == locked.file();
+        let is_on_link = running.record.physical_socket.is_some()
+            && running.record.physical_socket == holder_socket;
+        let end =
+            drain_running_record(service, running.locked, running.lasting, &running.record).await?;
+        if is_home_record || is_on_link {
+            launch_blocking_drains.push(LaunchBlockingDrain {
+                is_home_record,
+                physical_socket: running.record.physical_socket,
+                end,
+            });
         }
     }
-    if let Some((lasting, record_file)) = joined_service {
+    if let Some(joined) = joined_service {
         return Ok(KeptRecordsOutcome::Join {
-            lasting,
-            record_file,
+            physical_socket: joined
+                .record
+                .physical_socket
+                .expect("a joined record names its socket, as the holder and the restore require"),
+            record_file: joined.locked.file().clone(),
+            lasting: Box::new(joined.lasting),
         });
     }
-    for end in launch_blocking_drains {
-        wait_for_drain_end(end, deadline).await?;
-    }
-    Ok(KeptRecordsOutcome::NoFormerService)
+    settle_launch_blocking_drains(
+        service,
+        launch_blocking_drains,
+        is_link_unrecorded,
+        deadline,
+    )
+    .await
 }
 
 /// A later start of the home's service reads only its own records, under the start's own hold
 /// `locked`, the home socket's record: the one its last process was kept in is retired, and the
-/// home socket's own is retired too, or waited for until `deadline` while it drains, since it
-/// holds that socket until it ends. Fails as a record's read, re-pin or retire fails, and past
-/// `deadline`.
+/// home socket's own is retired too, or while it drains, settled by
+/// [`settle_launch_blocking_drains`], since it holds that socket until it ends. Fails as a record's
+/// read, re-pin, retire or drain fails, and past `deadline`.
 pub(super) async fn settle_own_records(
     service: &CodexService,
     locked: &Arc<LockedServiceRecord>,
     deadline: Instant,
-) -> Result<(), StartFailure> {
+) -> Result<KeptRecordsOutcome, StartFailure> {
     let socket = service.socket_path();
     if let Some(last) = service.process_record_file()
         && last != *locked.file()
@@ -275,16 +332,103 @@ pub(super) async fn settle_own_records(
     }
     if let Some(record) = read_record(locked).await?
         && record.is_draining
-        && let Some(lasting) = repin(record.process).await?
+        && let Some(lasting) = repin(record.process.clone()).await?
     {
-        let end = drain_in_background(&service.drains, locked, lasting)
-            .await
-            .map_err(|error| {
-                start_failed("A former Codex service could not be asked to drain.", error)
-            })?;
-        return wait_for_drain_end(end, deadline).await;
+        let end = drain_running_record(service, Arc::clone(locked), lasting, &record).await?;
+        let link_target = read_socket_link(socket).map_err(|error| {
+            start_failed("The Codex folder's socket link could not be read.", error)
+        })?;
+        let is_link_unrecorded = link_target.is_some() && link_target != record.physical_socket;
+        let drain = LaunchBlockingDrain {
+            is_home_record: true,
+            physical_socket: record.physical_socket,
+            end,
+        };
+        return settle_launch_blocking_drains(service, vec![drain], is_link_unrecorded, deadline)
+            .await;
     }
-    retire_kept_record(locked, socket).await
+    retire_kept_record(locked, socket).await?;
+    Ok(KeptRecordsOutcome::LaunchOnHome)
+}
+
+// Drains the running service `lasting`, whose record `record` is kept under `locked`, through the
+// driver's drains, over its recorded socket where it takes no signal. Fails as the drain does.
+async fn drain_running_record(
+    service: &CodexService,
+    locked: Arc<LockedServiceRecord>,
+    lasting: LastingCodexService,
+    record: &LastingServiceRecord,
+) -> Result<LastingServiceDrainWatch, StartFailure> {
+    let control_socket = record
+        .physical_socket
+        .clone()
+        .unwrap_or_else(|| service.socket_path().to_owned());
+    service
+        .dependencies()
+        .drains
+        .drain(&locked, lasting, &control_socket)
+        .await
+        .map_err(|error| start_failed("A former Codex service could not be asked to drain.", error))
+}
+
+// With nothing joined, settles the drains a launch on the home's own socket would meet. Where the
+// home's path is a link, nothing is waited for: a drain on the home's own socket is launched
+// beside, unless a listener no record names answers through the link, `is_link_unrecorded`, which
+// the folder's socket path joins; and the link is taken off a drain on a socket of its own under
+// Codex's start lock, so the home's socket is free at once. Where the path is the socket itself,
+// each drain is waited for until `deadline`. Fails as the start lock, the link's move or the
+// socket's probe fails, and past `deadline`.
+async fn settle_launch_blocking_drains(
+    service: &CodexService,
+    drains: Vec<LaunchBlockingDrain>,
+    is_link_unrecorded: bool,
+    deadline: Instant,
+) -> Result<KeptRecordsOutcome, StartFailure> {
+    if drains.is_empty() {
+        return Ok(KeptRecordsOutcome::LaunchOnHome);
+    }
+    if !CAN_LINK_A_SOCKET {
+        for drain in drains {
+            wait_for_drain_end(drain.end, deadline).await?;
+        }
+        return Ok(KeptRecordsOutcome::LaunchOnHome);
+    }
+    if drains.iter().any(|drain| drain.is_home_record) {
+        let is_unrecorded_listening = is_link_unrecorded
+            && is_listening(service.socket_path()).await.map_err(|error| {
+                start_failed("The Codex folder's socket could not be reached.", error)
+            })?;
+        return Ok(if is_unrecorded_listening {
+            KeptRecordsOutcome::LaunchOnHome
+        } else {
+            KeptRecordsOutcome::LaunchBeside
+        });
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let start_lock = take_start_lock(&service.home().codex_home, remaining).await?;
+    let home_socket = service.socket_path().to_owned();
+    let draining_sockets: Vec<PathBuf> = drains
+        .into_iter()
+        .filter_map(|drain| drain.physical_socket)
+        .collect();
+    tokio::task::spawn_blocking(move || {
+        for draining_socket in draining_sockets {
+            clear_socket_link_of(&home_socket, &draining_socket)?;
+        }
+        Ok::<_, io::Error>(())
+    })
+    .await
+    .map_err(io::Error::other)
+    .and_then(|cleared| cleared)
+    .map_err(|error| {
+        start_failed(
+            "The Codex folder's socket link could not be taken off a draining service.",
+            error,
+        )
+    })?;
+    // A plain `codex` that waited on the lock finds the home's socket free.
+    drop(start_lock);
+    Ok(KeptRecordsOutcome::LaunchOnHome)
 }
 
 // With no running service holding the home's link, points it under Codex's start lock at a
@@ -325,13 +469,13 @@ async fn restore_link_to_running(
     Ok(is_pointed.then_some(index))
 }
 
-// Waits until `deadline` for the end of a drain on a socket the launch would meet, which the
+// Waits until `deadline` for the end of a drain on the socket the launch would meet, which the
 // service holds until it ends. Fails past the deadline, naming the running reply still finishing.
 async fn wait_for_drain_end(
-    end: oneshot::Receiver<()>,
+    end: LastingServiceDrainWatch,
     deadline: Instant,
 ) -> Result<(), StartFailure> {
-    match tokio::time::timeout_at(deadline, end).await {
+    match tokio::time::timeout_at(deadline, read_drain_end(end)).await {
         // A drain that failed was reported and one called off ends with the daemon; either way
         // the launch then finds whether the socket is free.
         Ok(_ended_or_given_up) => Ok(()),
@@ -341,5 +485,59 @@ async fn wait_for_drain_end(
                 .to_owned(),
             cause: Some(Box::new(elapsed)),
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use rstest::rstest;
+    use sidekicks_platforms::ProcessRecord;
+
+    use super::{find_holder_socket, find_link_holder};
+    use crate::provider::driver::codex::service::record::LastingServiceRecord;
+
+    const HOME: &str = "/home/app-server-control/app-server-control.sock";
+    const OWN: &str = "/sockets/own";
+
+    // A record of a running service recorded on `socket`, draining when `is_draining`.
+    fn recorded(socket: &str, is_draining: bool) -> LastingServiceRecord {
+        let process: ProcessRecord =
+            serde_json::from_str(r#"{"id":1,"start":1,"boot":"b"}"#).expect("the record reads");
+        LastingServiceRecord {
+            process,
+            physical_socket: Some(PathBuf::from(socket)),
+            is_draining,
+        }
+    }
+
+    // Fails when the holder is read from the link alone, which on a system with no link, where
+    // the home's path is the socket itself, never finds the running service on it, so a daemon's
+    // restart drains it instead of joining it; or when a draining record holds the link.
+    #[rstest]
+    #[case::the_link_names_the_service(Some(OWN), true, &[(HOME, false), (OWN, false)], Some(1))]
+    #[case::no_link_where_links_are_made(None, true, &[(HOME, false)], None)]
+    #[case::no_link_where_the_path_is_the_socket(None, false, &[(HOME, false)], Some(0))]
+    #[case::the_service_on_the_path_drains(None, false, &[(HOME, true)], None)]
+    #[case::the_service_the_link_names_drains(Some(OWN), true, &[(HOME, false), (OWN, true)], None)]
+    fn the_link_holder_is_the_running_service_the_link_or_the_path_reaches(
+        #[case] link_target: Option<&str>,
+        #[case] can_link_a_socket: bool,
+        #[case] records: &[(&str, bool)],
+        #[case] holder: Option<usize>,
+    ) {
+        let records: Vec<LastingServiceRecord> = records
+            .iter()
+            .map(|(socket, is_draining)| recorded(socket, *is_draining))
+            .collect();
+
+        let holder_socket = find_holder_socket(
+            link_target.map(PathBuf::from),
+            Path::new(HOME),
+            can_link_a_socket,
+        );
+
+        assert_eq!(find_link_holder(&records, holder_socket.as_deref()), holder);
     }
 }

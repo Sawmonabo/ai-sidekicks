@@ -22,6 +22,7 @@ use crate::provider::driver::codex::service::command_line::CodexHookCommands;
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
+use crate::provider::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::provider::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
 };
@@ -95,6 +96,7 @@ pub(crate) fn test_codex_service_dependencies(
         startup_timeout: Duration::from_secs(5),
         events,
         release: Arc::new(CodexConversationRelease::default()),
+        drains: LastingServiceDrains::default(),
     })
 }
 
@@ -247,4 +249,14 @@ pub(crate) async fn answer_as_codex_service(
 fn listed_hook(event_name: &str, command: &str) -> Value {
     json!({"source": "sessionFlags", "eventName": event_name, "command": command,
         "key": event_name, "currentHash": "hash", "trustStatus": "trusted"})
+}
+
+/// Drops `service`'s connection as its reader does when the socket closes under it, its process
+/// left running.
+pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
+    let dial = service.routed_dial.load(Ordering::Acquire);
+    service
+        .connection_handlers(dial)
+        .events
+        .dropped("the test dropped the connection");
 }

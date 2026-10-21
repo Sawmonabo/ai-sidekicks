@@ -57,7 +57,7 @@ impl LastingServiceRecord {
 }
 
 /// The record file of the lasting service on one socket of a Codex folder.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LastingServiceRecordFile {
     record: PathBuf,
     lock: PathBuf,

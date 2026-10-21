@@ -231,7 +231,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::Shutdown { intent: DaemonStopIntent::Restart }),
     ],
     "Stopping { launch: 1, then: ShutDown, end: Keep }",
-    &["CancelDrains", "StopService { launch: 1, end: Keep }", "Publish(Stopping)"],
+    &["StopService { launch: 1, end: Keep }", "Publish(Stopping)"],
 )]
 #[case::a_start_during_a_stop_follows_it(
     CodexServiceKind::Account,
@@ -347,7 +347,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     "Stopping { launch: 1, then: Stopped, end: Drain }",
     &["StopService { launch: 1, end: Drain }", "Publish(Stopping)"],
 )]
-#[case::a_daemon_stop_never_waits_on_a_replaced_service_s_drain(
+#[case::a_daemon_stop_shuts_a_replaced_service_down_once_its_drain_is_called_off(
     CodexServiceKind::Terminal,
     vec![
         at_once(|_| SupervisorEvent::Start),
@@ -355,9 +355,10 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::Replaced),
         at_once(|_| SupervisorEvent::Stop),
         at_once(|_| SupervisorEvent::Shutdown { intent: DaemonStopIntent::Stop }),
+        at_once(|_| SupervisorEvent::StopDone { ticket: 1 }),
     ],
-    "Stopping { launch: 1, then: ShutDown, end: Drain }",
-    &["CancelDrains"],
+    "ShutDown",
+    &["Publish(ShutDown)"],
 )]
 #[case::a_replaced_service_asks_no_third_service(
     CodexServiceKind::Terminal,
