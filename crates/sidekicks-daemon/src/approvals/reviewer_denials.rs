@@ -367,7 +367,9 @@ impl ReviewerDenials {
     }
 
     /// The process behind `binding_id` has ended, so nothing can still take an override sent to
-    /// it: a press held on one, or still waiting on its answer, sends again.
+    /// it: a press held on one, or still waiting on its answer, sends again. A driver that has
+    /// released a binding never answers a later request to it as unanswered: such a request fails
+    /// as refused, so no press is held on a binding that will not be released again.
     #[cfg_attr(
         not(test),
         expect(
@@ -502,7 +504,9 @@ impl ReviewerDenials {
     /// `approval.denial.notFound`, `approval.denial.notOverridable`, `session.alreadyClosed`,
     /// `session.changeRefused` and `provider.notFound`, in that order, with nothing sent, then the
     /// driver's refusal; a press whose request got no answer answers that refusal, and so does
-    /// every later press until the process it went to has ended.
+    /// every later press until the process it went to has ended. A caller awaits a press to its
+    /// end and never drops it mid-send; the method layer cancels through its token, not by
+    /// dropping the future.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the approval.denial.override handler calls it")
@@ -544,8 +548,8 @@ impl ReviewerDenials {
         let held = match lock_held(&self.held_presses).get(&denial_id) {
             Some(HeldPress::Unanswered { refusal, .. }) => Some(Err(copy_of_refusal(refusal))),
             Some(HeldPress::Answered { overridden_at }) => Some(Ok(overridden_at.clone())),
-            // Presses on one block run in turn, so a pending mark met here is from a press dropped
-            // mid-send, which holds nothing.
+            // A press settles its own pending mark before it ends, and no caller drops a press
+            // mid-send, so a pending mark is never met here by another press.
             None | Some(HeldPress::Pending { .. }) => None,
         };
         match held {
