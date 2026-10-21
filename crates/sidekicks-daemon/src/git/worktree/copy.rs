@@ -14,7 +14,7 @@
 
 pub(crate) mod progress;
 
-use std::fs::{self, File, FileTimes, Metadata, Permissions};
+use std::fs::{self, FileTimes, Metadata, Permissions};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -186,11 +186,9 @@ fn copy_entry(
     if let Err(error) = clone_or_copy(source, destination) {
         return keep_or_fail(error, policy, destination);
     }
+    // Set through the path, so a copy that kept a read-only mode takes its times too.
     if policy == TreeCopyPolicy::IntoEmpty {
-        File::options()
-            .write(true)
-            .open(destination)?
-            .set_times(times_of(metadata)?)?;
+        fs::set_times(destination, times_of(metadata)?)?;
     }
     if let Some(follower) = follower {
         follower.file_copied(metadata.len());
@@ -275,6 +273,13 @@ mod tests {
             .expect("its time is set");
         make_folder_link(Path::new("../gone"), &source.join("nested/link"))
             .expect("the link is made");
+        let read_only = source.join("nested/read-only.txt");
+        fs::write(&read_only, b"kept").expect("the file is written");
+        let mut permissions = fs::metadata(&read_only)
+            .expect("the file reads")
+            .permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&read_only, permissions).expect("the file is made read-only");
         let destination = scratch.path().join("copy");
         let follower = RecordedFiles::default();
 
@@ -298,20 +303,33 @@ mod tests {
         );
         assert!(destination.join("nested/empty").is_dir());
         assert_eq!(
+            fs::read(destination.join("nested/read-only.txt")).expect("the file is copied"),
+            b"kept"
+        );
+        assert_eq!(
             fs::read_link(destination.join("nested/link")).expect("the link is made again"),
             Path::new("../gone")
         );
+        let mut began = follower
+            .began
+            .lock()
+            .expect("the record is not poisoned")
+            .clone();
+        began.sort();
         assert_eq!(
-            *follower.began.lock().expect("the record is not poisoned"),
-            [destination.join("nested/file.txt")]
+            began,
+            [
+                destination.join("nested/file.txt"),
+                destination.join("nested/read-only.txt")
+            ]
         );
-        assert_eq!(
-            *follower
-                .copied_bytes
-                .lock()
-                .expect("the record is not poisoned"),
-            [12]
-        );
+        let mut copied_bytes = follower
+            .copied_bytes
+            .lock()
+            .expect("the record is not poisoned")
+            .clone();
+        copied_bytes.sort_unstable();
+        assert_eq!(copied_bytes, [4, 12]);
 
         let refusal = copy_tree(&source, &destination, TreeCopyPolicy::IntoEmpty, None)
             .expect_err("a copy into a folder already there fails");
