@@ -187,8 +187,10 @@ pub(crate) fn record_proof_jti<S: AccountStore>(
     proof: &CheckedProof,
     now: Timestamp,
 ) -> Result<bool, AccountStoreError> {
+    // A row goes only once its instant has passed: at the window's last second the proof is
+    // still accepted, so its row must still refuse a replay.
     store.execute(
-        "DELETE FROM dpop_proof_jtis WHERE expires_at <= ?1",
+        "DELETE FROM dpop_proof_jtis WHERE expires_at < ?1",
         &[SqlValue::Integer(now.as_second())],
     )?;
     let recorded: Vec<serde_json::Value> = store.query(
@@ -227,7 +229,7 @@ fn read_numeric_date(date: &serde_json::Number) -> Option<i64> {
         return Some(seconds);
     }
     let seconds = date.as_f64()?.floor();
-    // -2^63 and 2^63 are exact in an f64; a value outside them, or not a number, is refused.
+    // -2^63 and 2^63 are exact in an f64; a value outside them is refused.
     let bound = 2_f64.powi(63);
     if !(-bound..bound).contains(&seconds) {
         return None;

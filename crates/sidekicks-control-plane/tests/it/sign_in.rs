@@ -4,7 +4,7 @@
 
 use axum::http::StatusCode;
 use axum::http::header::WWW_AUTHENTICATE;
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -58,9 +58,17 @@ async fn two_verifies_of_one_challenge_issue_one_pair() {
 }
 
 #[rstest]
-#[case::unknown_passkey("cGFzc2tleS1ub25l", Some(HANDLE), json!({"verified": true, "newCounter": 11}))]
+#[case::unknown_passkey(
+    "cGFzc2tleS1ub25l",
+    Some(HANDLE),
+    json!({"verified": true, "newCounter": 11})
+)]
 #[case::revoked_passkey("cmV2b2tlZA", Some(HANDLE), json!({"verified": true, "newCounter": 11}))]
-#[case::foreign_user_handle(PASSKEY, Some(OTHER_HANDLE), json!({"verified": true, "newCounter": 11}))]
+#[case::foreign_user_handle(
+    PASSKEY,
+    Some(OTHER_HANDLE),
+    json!({"verified": true, "newCounter": 11})
+)]
 #[case::no_user_handle(PASSKEY, None, json!({"verified": true, "newCounter": 11}))]
 #[case::refused_verdict_with_a_higher_counter(
     PASSKEY,
@@ -125,12 +133,24 @@ type Spoil = fn(&mut Value, &mut Value);
 
 #[rstest]
 #[case::ath_present(|claims: &mut Value, _: &mut Value| claims["ath"] = json!("aGFzaA"))]
-#[case::iat_61_seconds_old(|claims: &mut Value, _: &mut Value| claims["iat"] = json!(Timestamp::now().as_second() - 61))]
-#[case::iat_61_seconds_ahead(|claims: &mut Value, _: &mut Value| claims["iat"] = json!(Timestamp::now().as_second() + 61))]
-#[case::iat_at_the_least_integer(|claims: &mut Value, _: &mut Value| claims["iat"] = json!(i64::MIN))]
+#[case::iat_61_seconds_old(
+    |claims: &mut Value, _: &mut Value| claims["iat"] = json!(Timestamp::now().as_second() - 61)
+)]
+#[case::iat_61_seconds_ahead(
+    |claims: &mut Value, _: &mut Value| claims["iat"] = json!(Timestamp::now().as_second() + 61)
+)]
+#[case::iat_at_the_least_integer(
+    |claims: &mut Value, _: &mut Value| claims["iat"] = json!(i64::MIN)
+)]
 #[case::other_method(|claims: &mut Value, _: &mut Value| claims["htm"] = json!("GET"))]
-#[case::other_target(|claims: &mut Value, _: &mut Value| claims["htu"] = json!(format!("https://other.example{VERIFY_PATH}")))]
-#[case::private_key_member(|_: &mut Value, header: &mut Value| header["jwk"]["d"] = json!("c2VjcmV0"))]
+#[case::other_target(
+    |claims: &mut Value, _: &mut Value| {
+        claims["htu"] = json!(format!("https://other.example{VERIFY_PATH}"));
+    }
+)]
+#[case::private_key_member(
+    |_: &mut Value, header: &mut Value| header["jwk"]["d"] = json!("c2VjcmV0")
+)]
 #[case::other_type(|_: &mut Value, header: &mut Value| header["typ"] = json!("jwt"))]
 #[case::critical_extension(|_: &mut Value, header: &mut Value| header["crit"] = json!(["exp"]))]
 #[tokio::test]
@@ -181,6 +201,46 @@ async fn a_bad_signature_or_a_replayed_jti_is_refused_and_a_query_or_a_fraction_
     assert_eq!(status, StatusCode::OK, "{signed_in}");
 
     assert_proof_refused(&relay, &used).await;
+}
+
+/// A proof is still accepted in the last second of its window, so its jti still refuses a
+/// replay there: the row goes only once that second has passed.
+#[tokio::test]
+async fn a_proof_replayed_in_the_last_second_of_its_window_is_refused() {
+    let relay = start_relay();
+    relay.add_user_with_passkey(USER, HANDLE, PASSKEY, 0);
+    let key = DpopKey::generate();
+    let issued = relay.with_clock(read_fixed_clock);
+    let mut claims = build_proof_claims(VERIFY_PATH, None);
+    claims["iat"] = json!(read_fixed_clock().unwrap().as_second());
+    let proof = key.sign(&key.header(), &claims);
+    relay
+        .verifier
+        .answer(&json!({ "verified": true, "newCounter": 1 }));
+    let (transaction_id, _) = issue_sign_in_challenge(&issued).await;
+    let body = build_assertion(&transaction_id, PASSKEY, Some(HANDLE));
+    let (status, _, signed_in) = call(&issued, post(VERIFY_PATH, &body, &[("DPoP", &proof)])).await;
+    assert_eq!(status, StatusCode::OK, "{signed_in}");
+
+    let last_second = relay.with_clock(read_fixed_clock_at_the_windows_end);
+    relay
+        .verifier
+        .answer(&json!({ "verified": true, "newCounter": 2 }));
+    let (transaction_id, _) = issue_sign_in_challenge(&last_second).await;
+    let body = build_assertion(&transaction_id, PASSKEY, Some(HANDLE));
+    let (status, _, refusal) =
+        call(&last_second, post(VERIFY_PATH, &body, &[("DPoP", &proof)])).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{refusal}");
+    assert_eq!(refusal["code"], "auth.dpopMismatch");
+}
+
+// A set instant, and the last second of a proof window that opened there.
+fn read_fixed_clock() -> Result<Timestamp, jiff::Error> {
+    "2026-10-21T12:00:00Z".parse()
+}
+
+fn read_fixed_clock_at_the_windows_end() -> Result<Timestamp, jiff::Error> {
+    read_fixed_clock()?.checked_add(SignedDuration::from_secs(60))
 }
 
 // Sends `proof` with a sign-in under a fresh challenge and checks the refusal names the proof,

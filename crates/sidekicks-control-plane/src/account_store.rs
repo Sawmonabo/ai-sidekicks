@@ -1,6 +1,7 @@
 //! The account's SQLite store: the hosted account's one schema, built whole on an empty database,
 //! and the calls every reader of it makes. On the Workers relay the store is the account object's
-//! SQLite storage; on the Compose relay it is the relay's SQLite file, which only its process opens.
+//! SQLite storage; on the Compose relay it is the relay's SQLite file, which only its process
+//! opens.
 
 use std::future::Future;
 

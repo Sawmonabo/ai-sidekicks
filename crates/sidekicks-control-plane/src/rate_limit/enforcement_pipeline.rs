@@ -230,7 +230,7 @@ mod object {
     use crate::account_store::{AccountObjectStore, AccountStore};
     use crate::rate_limit::limiter::{
         Clock, RateLimitCheckRequest, RateLimitCheckResponse, RateLimiterError, check,
-        find_next_cleanup_at, prune, read_wall_clock,
+        find_next_cleanup_at, prune,
     };
     use crate::server::log_internal_failure;
     use crate::server::router::RequestId;
@@ -309,8 +309,9 @@ mod object {
     pub(crate) async fn clean_up(
         storage: &Storage,
         store: &AccountObjectStore,
+        clock: Clock,
     ) -> Result<(), CleanupError> {
-        let now = read_wall_clock().map_err(RateLimiterError::from)?;
+        let now = clock().map_err(RateLimiterError::from)?;
         if let Some(at) = store.write_step(|step| prune(step, now))? {
             storage.set_alarm(build_scheduled_time(at)).await?;
         }

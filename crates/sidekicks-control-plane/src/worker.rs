@@ -39,6 +39,8 @@ pub struct AccountObject {
     // The account router, built over this instance's store on its first request with the schema
     // built; a failed build is logged and tried again on the next request.
     router: OnceCell<Router>,
+    // The one clock the routes, their admission and the alarm read.
+    clock: Clock,
 }
 
 impl DurableObject for AccountObject {
@@ -47,6 +49,7 @@ impl DurableObject for AccountObject {
             state,
             env,
             router: OnceCell::new(),
+            clock: read_wall_clock,
         }
     }
 
@@ -103,7 +106,7 @@ enum AlarmError {
 impl AccountObject {
     async fn clean_up(&self) -> std::result::Result<(), AlarmError> {
         let store = self.open_store()?;
-        clean_up(&self.state.storage(), &store).await?;
+        clean_up(&self.state.storage(), &store, self.clock).await?;
         Ok(())
     }
 
@@ -121,16 +124,14 @@ impl AccountObject {
         }
         let store = self.open_store()?;
         let settings = AccountSettings::read(|name| read_setting(&self.env, name));
-        // The routes and their admission read one clock.
-        let clock: Clock = read_wall_clock;
         let routes = AccountRoutes::new(
             store.clone(),
             WorkerPasskeyVerifier,
             WorkerAuthenticatorList,
             settings,
-            clock,
+            self.clock,
         );
-        let admission = AccountObjectAdmission::new(store, self.state.storage(), clock);
+        let admission = AccountObjectAdmission::new(store, self.state.storage(), self.clock);
         let router = add_refusal_fallbacks(build_account_router(routes, admission));
         Ok(self.router.get_or_init(|| router).clone())
     }
