@@ -157,8 +157,13 @@ fn fit_one_message(selections: Vec<PageCandidate>, next: Option<SearchPagePositi
             next,
         };
     }
-    let group_count = count_entries_fitting_one_frame(&groups, groups.len(), PAGE_MAX_BYTES)
-        .expect("a search group serializes: it holds only text and integers");
+    let group_count = count_entries_fitting_one_frame(
+        &groups,
+        groups.len(),
+        PAGE_MAX_BYTES,
+        json_utf8_byte_length,
+    )
+    .expect("a search group serializes: it holds only text and integers");
     let first_left_out = starts.get(group_count).copied();
     groups.truncate(group_count);
     match first_left_out.or(next) {
@@ -195,6 +200,6 @@ fn count_hits_fitting_one_group(group: &SessionSearchGroup) -> usize {
     let parts: Vec<GroupPart<'_>> = std::iter::once(GroupPart::Group(&group_with_first_hit))
         .chain(hits[1..].iter().map(GroupPart::Hit))
         .collect();
-    count_entries_fitting_one_frame(&parts, hits.len(), PAGE_MAX_BYTES)
+    count_entries_fitting_one_frame(&parts, hits.len(), PAGE_MAX_BYTES, json_utf8_byte_length)
         .expect("a search group serializes: it holds only text and integers")
 }

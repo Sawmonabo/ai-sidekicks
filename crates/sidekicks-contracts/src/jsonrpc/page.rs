@@ -4,7 +4,7 @@
 
 use serde::Serialize;
 
-use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
+use crate::jsonrpc::byte_length::fits_budget;
 use crate::typescript::{TypeScriptModule, ts_constants};
 
 ts_constants! {
@@ -16,19 +16,22 @@ ts_constants! {
 }
 
 /// How many leading entries of `candidates`, at most `max_count`, fit `budget_bytes` once written
-/// as one JSON array, so a page built from the count passes its cap. A non-empty list yields at
-/// least one, since none would stall the cursor; a lone entry over the budget is then refused by
-/// the reply's cap. Fails only where an entry's own `Serialize` fails.
-pub fn count_entries_fitting_one_frame<T: Serialize>(
+/// as one JSON array, each taking the bytes `entry_bytes` gives it (for an entry that is its own
+/// JSON, [`json_utf8_byte_length`](crate::jsonrpc::byte_length::json_utf8_byte_length)), so a page
+/// built from the count passes its cap. A non-empty list yields at least one, since none would
+/// stall the cursor; a lone entry over the budget is then refused by the reply's cap. Fails only
+/// where `entry_bytes` fails.
+pub fn count_entries_fitting_one_frame<T>(
     candidates: &[T],
     max_count: usize,
     budget_bytes: usize,
+    mut entry_bytes: impl FnMut(&T) -> serde_json::Result<usize>,
 ) -> serde_json::Result<usize> {
     // The two brackets are charged up front; every entry past the first also charges a comma.
     let mut used_bytes = 2;
     let mut fitted_count = 0;
     for candidate in candidates.iter().take(max_count) {
-        let entry_bytes = json_utf8_byte_length(candidate)?;
+        let entry_bytes = entry_bytes(candidate)?;
         let separator_bytes = usize::from(fitted_count > 0);
         if used_bytes + separator_bytes + entry_bytes > budget_bytes {
             // A first entry alone over the budget rides alone rather than leave an empty page
@@ -63,6 +66,7 @@ mod tests {
     use serde_json::Value;
 
     use super::count_entries_fitting_one_frame;
+    use crate::jsonrpc::byte_length::json_utf8_byte_length;
 
     /// One case of the table the TypeScript copy also reads.
     #[derive(Deserialize)]
@@ -86,7 +90,8 @@ mod tests {
                 count_entries_fitting_one_frame(
                     &case.candidates,
                     case.max_count,
-                    case.budget_bytes
+                    case.budget_bytes,
+                    json_utf8_byte_length
                 )
                 .expect("a value serializes"),
                 case.fitted,

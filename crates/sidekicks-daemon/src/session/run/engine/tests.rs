@@ -41,7 +41,7 @@ use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
+use crate::session::run::start_request::{DriverStep, RunContinueRequest, RunTurnStart};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
@@ -50,7 +50,7 @@ pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(10);
 
 /// How long a held driver stays held once the call under test is in flight, long enough for a
 /// call that does not wait to read the run and act on what it reads.
-pub(super) const DRIVER_HOLD: Duration = Duration::from_millis(200);
+pub(crate) const DRIVER_HOLD: Duration = Duration::from_millis(200);
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
 /// interventions service and its posture files under `home`; a test makes the tables its runs
@@ -210,7 +210,7 @@ pub(crate) fn insert_running_run(database: &TestDatabase, session_id: SessionId,
 }
 
 /// Appends `event` to the log of `session_id` through `engine`.
-pub(super) async fn append(engine: &RunEngine, session_id: SessionId, event: &SessionEvent) {
+pub(crate) async fn append(engine: &RunEngine, session_id: SessionId, event: &SessionEvent) {
     engine
         .append(
             SessionEventDraft::of_session(session_id, event).expect("the event passes its checks"),
@@ -263,7 +263,7 @@ pub(super) fn run_version(version: u64) -> SafeInt<0> {
 }
 
 /// The start of turn `turn_number` of `run_id` at run version `version`.
-pub(super) fn turn_started_at(
+pub(crate) fn turn_started_at(
     session_id: SessionId,
     run_id: RunId,
     turn_number: u64,
@@ -279,7 +279,7 @@ pub(super) fn turn_started_at(
 }
 
 /// The completion of turn `turn_number` of `run_id` at run version `version`.
-pub(super) fn turn_completed_at(
+pub(crate) fn turn_completed_at(
     session_id: SessionId,
     run_id: RunId,
     turn_number: u64,
@@ -379,12 +379,7 @@ pub(crate) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (Stri
 /// does and whose turn interrupt succeeds at once.
 pub(super) fn turn_start(
     run_id: RunId,
-    start_driver: impl Fn(
-        ExecutionPosture,
-    ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
-    + Send
-    + Sync
-    + 'static,
+    start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
 ) -> RunTurnStart {
     RunTurnStart {
         run_id,
@@ -400,14 +395,9 @@ pub(super) fn turn_start(
 
 /// A continue of the interrupted `run_id` from an admitted message, its turn started as
 /// [`turn_start`] starts it.
-pub(super) fn continue_request(
+pub(crate) fn continue_request(
     run_id: RunId,
-    start_driver: impl Fn(
-        ExecutionPosture,
-    ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
-    + Send
-    + Sync
-    + 'static,
+    start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
 ) -> RunContinueRequest {
     let queue_item = serde_json::from_value(json!({
         "state": "admitted",
@@ -426,19 +416,14 @@ pub(super) fn continue_request(
 }
 
 /// A driver start that starts the turn at once.
-pub(super) fn started_turn(
-    _resolved_posture: ExecutionPosture,
-) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>> {
+pub(super) fn started_turn(_resolved_posture: ExecutionPosture) -> DriverStep {
     async { Ok(()) }.boxed()
 }
 
 /// A driver start that is held once it begins: the start, which reports on the receiver that it
 /// began and then waits until the sender releases it. It starts one turn.
-pub(super) fn held_driver() -> (
-    impl Fn(ExecutionPosture) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
-    + Send
-    + Sync
-    + 'static,
+pub(crate) fn held_driver() -> (
+    impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
     oneshot::Receiver<()>,
     oneshot::Sender<()>,
 ) {

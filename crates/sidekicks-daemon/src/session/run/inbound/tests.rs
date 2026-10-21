@@ -3,17 +3,23 @@ use std::sync::{Arc, Mutex};
 
 use rstest::rstest;
 use rusqlite::params;
+use serde_json::json;
+use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
 use sidekicks_contracts::event::envelope::SourcePosition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
 
+use super::rows::LateAppendableRow;
 use super::{
-    DeliveryBinding, InboundDelivery, InboundOutcome, LateEventAbsorbReason, RunInboundDispatch,
+    DeliveryBinding, InboundDelivery, InboundDispatchError, InboundOutcome, LateEventAbsorbReason,
+    RunInboundDispatch,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
@@ -21,12 +27,16 @@ use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::driver::registry::test_provider;
 use crate::provider::port::run_state_publisher::RunStatePublisher;
 use crate::session::run::engine::tests::{
-    SETTLE_WAIT, insert_running_run, stored_run_state, test_engine,
+    DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
+    stored_run_state, test_engine, turn_completed_at, turn_started_at,
 };
+use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::epochs::{
     ConfirmedCut, DeliveryAttribution, DeliveryOperation, EpochBinding, ExecutionEpochs,
 };
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::refusals::RunRefusal;
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::transcript::reasoning::read_reasoning;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // A publisher no run state stream reads.
@@ -43,6 +53,7 @@ struct Harness {
     run_id: RunId,
     binding_id: RuntimeBindingId,
     epochs: Arc<Mutex<ExecutionEpochs>>,
+    engine: Arc<RunEngine>,
     dispatch: RunInboundDispatch,
 }
 
@@ -78,7 +89,7 @@ impl Harness {
         let epochs = Arc::new(Mutex::new(epochs));
         let engine = test_engine(&database, Arc::clone(&log.service), home.path());
         let dispatch = RunInboundDispatch::new(
-            engine,
+            Arc::clone(&engine),
             Arc::clone(&epochs),
             Arc::new(UnreadPublisher),
             log.service,
@@ -89,6 +100,7 @@ impl Harness {
             run_id,
             binding_id,
             epochs,
+            engine,
             dispatch,
         }
     }
@@ -173,6 +185,75 @@ impl Harness {
             .await
             .expect("the dispatch settles")
             .expect("the delivery is dispatched")
+    }
+
+    fn session_id(&self) -> SessionId {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT session_id FROM runs WHERE run_id = ?1",
+                [self.run_id.text().as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|text| SessionId::new(&text).expect("the run's session is a session id"))
+            .expect("the test reads the run's session")
+    }
+
+    // A piece of the run's reply or reasoning `message_id`, without the stamp.
+    fn piece_payload(&self, message_id: &str) -> RunAgentOutputPayload {
+        serde_json::from_value(json!({
+            "sessionId": self.session_id(),
+            "runId": self.run_id,
+            "providerMessageId": message_id,
+        }))
+        .expect("the test writes a piece's payload")
+    }
+
+    // A piece of `payload`'s reply, or of its reasoning, holding `text`, on the binding.
+    fn piece(
+        &self,
+        payload: RunAgentOutputPayload,
+        is_reasoning: bool,
+        text: &str,
+    ) -> InboundDelivery<'static> {
+        if is_reasoning {
+            InboundDelivery::ThinkingUpdate {
+                binding: self.on_binding(None),
+                payload,
+                content: text.to_owned(),
+            }
+        } else {
+            InboundDelivery::SessionRow {
+                binding: self.on_binding(None),
+                row: LateAppendableRow::AgentMessageSent(payload),
+                content: Some(text.to_owned()),
+            }
+        }
+    }
+
+    // The sequence of the event `event_id` and the row it joins, where it joins one.
+    fn stored_join(&self, event_id: &str) -> (i64, Option<i64>) {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT sequence, joins_sequence FROM session_events WHERE id = ?1",
+                [event_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the test reads the piece's stamp")
+    }
+
+    // The run's stored event types, in log order.
+    fn stored_event_types(&self) -> Vec<String> {
+        self.database
+            .reader()
+            .prepare("SELECT type FROM session_events WHERE run_id = ?1 ORDER BY sequence")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([self.run_id.text().as_str()], |row| row.get(0))?
+                    .collect()
+            })
+            .expect("the test reads the run's events")
     }
 
     fn stored_event_count(&self) -> i64 {
@@ -270,6 +351,168 @@ fn inbound_absorbs_a_late_terminal_on_an_ended_run(
     );
 }
 
+// Killed by a guard without its open-turn clause, which absorbs the piece sent after a person's
+// interrupt, by the run's end closing the row of its open turn, by a piece taken once every turn of
+// the ended run has ended, by its refusal surfaced as a failure, and by its diagnostic left out.
+#[rstest]
+#[case::a_reply_piece(false)]
+#[case::a_reasoning_piece(true)]
+fn inbound_takes_a_piece_until_every_turn_of_its_ended_run_has_ended(#[case] is_reasoning: bool) {
+    let recorded = RecordedEvents::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("the test's runtime starts");
+    recorded.record_during(|| {
+        runtime.block_on(async {
+            let harness = Harness::new(RunState::Running).await;
+            let (session_id, run_id) = (harness.session_id(), harness.run_id);
+            append(
+                &harness.engine,
+                session_id,
+                &turn_started_at(session_id, run_id, 1, 1),
+            )
+            .await;
+            let before = harness
+                .dispatched(harness.piece(harness.piece_payload("m1"), is_reasoning, "Before "))
+                .await;
+            let ended = harness
+                .engine
+                .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
+                .await
+                .expect("the person's interrupt ends the run");
+            assert!(ended);
+            let after = harness
+                .dispatched(harness.piece(harness.piece_payload("m1"), is_reasoning, "the cut."))
+                .await;
+            append(
+                &harness.engine,
+                session_id,
+                &turn_completed_at(session_id, run_id, 1, 2),
+            )
+            .await;
+            let late = harness
+                .dispatched(harness.piece(harness.piece_payload("m1"), is_reasoning, "Late."))
+                .await;
+
+            let event_id = |outcome: &InboundOutcome| {
+                let InboundOutcome::Appended { event_id } = outcome else {
+                    panic!("the piece is appended as it is: {outcome:?}");
+                };
+                event_id.as_str().to_owned()
+            };
+            let (before_sequence, _) = harness.stored_join(&event_id(&before));
+            let (_, after_joins) = harness.stored_join(&event_id(&after));
+            assert_eq!(after_joins, Some(before_sequence));
+            assert_eq!(
+                late,
+                InboundOutcome::Absorbed {
+                    reason: LateEventAbsorbReason::RunEnded,
+                }
+            );
+            let pieces = harness
+                .stored_event_types()
+                .into_iter()
+                .filter(|event_type| {
+                    matches!(
+                        event_type.as_str(),
+                        "agent.message.sent" | "agent.thinking.updated"
+                    )
+                })
+                .count();
+            assert_eq!(pieces, 2);
+        });
+    });
+    assert_eq!(
+        recorded.field_on("run.lateEvent.absorbed", "counter").len(),
+        1
+    );
+}
+
+// Killed by the piece's write not waiting out the continue, which absorbs a piece of the continued
+// run as late while its `running` write is still to land.
+#[tokio::test]
+async fn inbound_appends_a_piece_of_a_run_being_continued_after_its_running_write() {
+    let harness = Harness::new(RunState::Running).await;
+    let ended = harness
+        .engine
+        .end_run_for_interrupt(
+            harness.run_id,
+            1,
+            None,
+            None,
+            RunStateChangeCompanions::default(),
+        )
+        .await
+        .expect("the person's interrupt ends the run");
+    assert!(ended);
+    let (start_driver, driver_has_started, release_driver) = held_driver();
+    let request = continue_request(harness.run_id, start_driver);
+    let piece_during_continue = async {
+        driver_has_started
+            .await
+            .expect("the driver's start is reached");
+        let release = async {
+            tokio::time::sleep(DRIVER_HOLD).await;
+            release_driver
+                .send(())
+                .expect("the continue still waits in its driver");
+        };
+        let piece = harness.piece(harness.piece_payload("m1"), false, "Going on.");
+        tokio::join!(harness.dispatch.dispatch(piece), release).0
+    };
+    let (continued, dispatched) = tokio::time::timeout(SETTLE_WAIT, async {
+        tokio::join!(
+            Box::pin(harness.engine.continue_run(request)),
+            Box::pin(piece_during_continue)
+        )
+    })
+    .await
+    .expect("the continue and the piece settle");
+
+    continued.expect("the continue runs the run again");
+    let outcome = dispatched.expect("the piece is dispatched");
+    assert!(
+        matches!(outcome, InboundOutcome::Appended { .. }),
+        "{outcome:?}"
+    );
+    let types = harness.stored_event_types();
+    assert_eq!(
+        types[types.len() - 2..],
+        ["agent.run.running", "agent.message.sent"]
+    );
+}
+
+// Killed by every refusal of a piece's write absorbed as late, which reads a run with no row as
+// ended and logs a driver's fault as a late piece.
+#[tokio::test]
+async fn inbound_fails_a_piece_of_a_run_with_no_row() {
+    let harness = Harness::new(RunState::Running).await;
+    let unknown = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let mut payload = harness.piece_payload("m1");
+    payload.run_id = unknown;
+
+    let failure = tokio::time::timeout(
+        SETTLE_WAIT,
+        harness
+            .dispatch
+            .dispatch(harness.piece(payload, false, "Nowhere.")),
+    )
+    .await
+    .expect("the dispatch settles");
+
+    assert!(
+        matches!(
+            &failure,
+            Err(InboundDispatchError::Engine(RunEngineError::Refused(
+                RunRefusal::NotFound { run_id }
+            ))) if *run_id == unknown
+        ),
+        "{failure:?}"
+    );
+    assert_eq!(harness.stored_event_count(), 0);
+}
+
 // Killed by a late `paused` or `running` report on a run a resume already set running surfaced as
 // a failure on the event path, or by any row written for it.
 #[rstest]
@@ -301,4 +544,61 @@ async fn inbound_absorbs_a_late_report_on_a_resumed_run(#[case] entry: RunStateE
         stored_run_state(&harness.database, &harness.run_id).0,
         "running"
     );
+}
+
+// Killed by a long reasoning text stored as one piece over an entry's length, by a text cut by
+// bytes rather than characters, by a piece left out, by the pieces read back out of order, and by
+// an empty text stored as no piece.
+#[tokio::test]
+async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back() {
+    let harness = Harness::new(RunState::Running).await;
+    // An astral character sits across the first cut, so a cut by bytes would split it.
+    let letters: String = (0..2 * REASONING_ENTRY_CONTENT_MAX_LEN)
+        .map(|index| {
+            let index = u32::try_from(index % 26).expect("a letter's index fits");
+            char::from_u32(0x61 + index).expect("a letter")
+        })
+        .collect();
+    let text = format!(
+        "{}\u{1f600}{letters}",
+        "a".repeat(REASONING_ENTRY_CONTENT_MAX_LEN - 1)
+    );
+    let payload = harness.piece_payload("reasoning-1");
+
+    harness
+        .dispatched(InboundDelivery::ThinkingUpdate {
+            binding: harness.on_binding(None),
+            payload: payload.clone(),
+            content: text.clone(),
+        })
+        .await;
+
+    assert_eq!(harness.stored_event_count(), 3);
+    let request = serde_json::from_value(json!({ "runId": harness.run_id }))
+        .expect("the test's request reads");
+    let page = read_reasoning(&harness.database.reader(), &|_: &SessionId| None, &request)
+        .expect("the reasoning reads");
+    let page = serde_json::to_value(page).expect("a page serializes");
+    let entries = page["reasoningEntries"]
+        .as_array()
+        .expect("the page holds entries");
+    assert!(entries.iter().all(|entry| {
+        entry["content"]
+            .as_str()
+            .is_some_and(|content| content.chars().count() <= REASONING_ENTRY_CONTENT_MAX_LEN)
+    }));
+    let read_back: String = entries
+        .iter()
+        .map(|entry| entry["content"].as_str().expect("an entry holds text"))
+        .collect();
+    assert_eq!(read_back, text);
+
+    harness
+        .dispatched(InboundDelivery::ThinkingUpdate {
+            binding: harness.on_binding(None),
+            payload,
+            content: String::new(),
+        })
+        .await;
+    assert_eq!(harness.stored_event_count(), 4);
 }

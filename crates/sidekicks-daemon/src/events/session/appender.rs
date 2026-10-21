@@ -24,7 +24,10 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::statement::WriteStatement;
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
-use crate::events::content::append::{ContentPartitionRefusedError, compose_content_payload};
+use crate::events::content::append::{
+    ContentPartitionRefusedError, PatchFilesRefusedError, PatchPartPlace, compose_content_payload,
+    compose_patch_file_rows, is_patch_bearing,
+};
 use crate::events::log_service::{
     EventAppendError, EventLogAppendOptions, EventLogAppendReceipt, EventLogService,
 };
@@ -50,6 +53,7 @@ pub(crate) struct SessionEventDraft {
     event_type: SessionEventType,
     payload: Map<String, Value>,
     run: Option<EventRun>,
+    content_body: Option<String>,
 }
 
 impl SessionEventDraft {
@@ -87,8 +91,31 @@ impl SessionEventDraft {
             event_type: event.event_type(),
             payload: payload_members(event)?,
             run: event.run(),
+            content_body: None,
         })
     }
+
+    /// The draft with `body`, its machine-authored prose, kept beside its payload when it is
+    /// appended; a body its append's linkage carries is kept in its place.
+    pub(crate) fn with_content_body(self, body: String) -> Self {
+        Self {
+            content_body: Some(body),
+            ..self
+        }
+    }
+}
+
+/// An event's envelope beside the bytes its row stores as its body.
+pub(crate) type EnvelopeWithBody = (UnsequencedEventEnvelope, Vec<u8>);
+
+/// What makes a row a stored part of a patch-bearing completion rather than an event of its own:
+/// it joins the completion's row and is never published, streamed or counted as an event.
+#[derive(Clone, Debug)]
+pub(crate) struct StoredPatchPart {
+    /// The completion's event id, the key its parts join its row by.
+    pub(crate) completion_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// Where it sits in the completion's file list.
+    pub(crate) place: PatchPartPlace,
 }
 
 /// Why a typed event could not be drafted.
@@ -123,6 +150,7 @@ pub(crate) struct UnsequencedEventEnvelope {
     event_type: SessionEventType,
     payload: Map<String, Value>,
     run: Option<EventRun>,
+    patch_part: Option<StoredPatchPart>,
 }
 
 impl UnsequencedEventEnvelope {
@@ -141,6 +169,7 @@ impl UnsequencedEventEnvelope {
             event_type,
             payload,
             run,
+            content_body: _,
         } = draft;
         Self {
             id: FreeFormText::new(mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
@@ -153,6 +182,7 @@ impl UnsequencedEventEnvelope {
             event_type,
             payload,
             run,
+            patch_part: None,
         }
     }
 
@@ -188,6 +218,54 @@ impl UnsequencedEventEnvelope {
         body: &str,
     ) -> Result<Vec<u8>, ContentPartitionRefusedError> {
         compose_content_payload(self.event_type, &mut self.payload, body)
+    }
+
+    /// Whether the event is a tool completion naming the files its body's patches cover, whose
+    /// body [`UnsequencedEventEnvelope::describe_patch_files`] stores.
+    pub(crate) fn is_patch_bearing(&self) -> bool {
+        is_patch_bearing(self.event_type, &self.payload)
+    }
+
+    /// Where this row sits when it is a stored part of a patch-bearing completion, which is no
+    /// event of its own; `None` on every event.
+    pub(crate) fn patch_part(&self) -> Option<&StoredPatchPart> {
+        self.patch_part.as_ref()
+    }
+
+    /// Cuts `body`, this patch-bearing completion's file list, into its rows: adds to the payload
+    /// the description of, and returns, the bytes its own row holds, then each stored part's
+    /// envelope, beside this one under a freshly minted id, with its stored body. Fails when the
+    /// body is not the file list the payload names.
+    pub(crate) fn describe_patch_files(
+        &mut self,
+        body: &str,
+    ) -> Result<(Vec<u8>, Vec<EnvelopeWithBody>), PatchFilesRefusedError> {
+        let rows = compose_patch_file_rows(&mut self.payload, body)?;
+        let parts = rows
+            .parts
+            .into_iter()
+            .map(|part| {
+                let envelope = Self {
+                    id: FreeFormText::new(mint_uuid_v7().to_string())
+                        .expect("a minted UUID is an id"),
+                    occurred_at: self.occurred_at.clone(),
+                    actor: self.actor.clone(),
+                    correlation_id: self.correlation_id.clone(),
+                    causation_id: self.causation_id.clone(),
+                    version: self.version.clone(),
+                    session_id: self.session_id,
+                    event_type: self.event_type,
+                    payload: part.payload,
+                    run: self.run,
+                    patch_part: Some(StoredPatchPart {
+                        completion_id: self.id.clone(),
+                        place: part.place,
+                    }),
+                };
+                (envelope, part.body)
+            })
+            .collect();
+        Ok((rows.opening, parts))
     }
 }
 
@@ -271,7 +349,7 @@ impl SessionEventAppender {
 
     fn envelope_of(
         &self,
-        draft: SessionEventDraft,
+        mut draft: SessionEventDraft,
         linkage: SessionEventLinkage,
     ) -> Result<(UnsequencedEventEnvelope, EventLogAppendOptions), SessionEventAppendError> {
         let SessionEventLinkage {
@@ -285,20 +363,23 @@ impl SessionEventAppender {
         // Built in write order, so the ids minted for them rise with their sequences.
         let preceding_events = preceding_events
             .into_iter()
-            .map(|preceding| {
-                UnsequencedEventEnvelope::new(
+            .map(|mut preceding| {
+                let content_body = preceding.content_body.take();
+                let envelope = UnsequencedEventEnvelope::new(
                     preceding,
                     EventOccurredAt::now(),
                     None,
                     None,
                     self.version.clone(),
-                )
+                );
+                (envelope, content_body)
             })
             .collect();
         let occurred_at = match occurred_at {
             Some(occurred_at) => normalize_occurred_at(occurred_at.as_str())?,
             None => EventOccurredAt::now(),
         };
+        let draft_body = draft.content_body.take();
         let envelope = UnsequencedEventEnvelope::new(
             draft,
             occurred_at,
@@ -307,7 +388,7 @@ impl SessionEventAppender {
             self.version.clone(),
         );
         let options = EventLogAppendOptions {
-            content_body,
+            content_body: content_body.or(draft_body),
             transactional_prelude,
             preceding_events,
         };

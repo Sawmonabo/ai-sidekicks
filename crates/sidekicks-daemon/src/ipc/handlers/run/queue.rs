@@ -27,7 +27,7 @@ use crate::events::session::read::{DamagedFromSequenceReader, SessionLogReadErro
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::ipc::stream::feed::{ChangeRecord, Feed};
+use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use crate::ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
 use crate::queue::changes::{
     QueueChange, QueueChangeCursor, QueueChangeReadError, QueueChangeSignals, QueueKey,
@@ -178,13 +178,14 @@ impl ChangeRecord for QueueRecord {
         &self,
         cursor: &QueueChangeCursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<Vec<QueueChange>, QueueStreamError>> {
+    ) -> BoxFuture<'_, Result<RecordPage<QueueChange>, QueueStreamError>> {
         let cursor = cursor.clone();
         let signals = Arc::clone(&self.signals);
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         let queue = self.queue.clone();
         async move {
-            self.pool
+            let changes = self
+                .pool
                 .read(ReadLength::Short, move |reader| {
                     Ok::<_, QueueStreamError>(read_queue_changes_after(
                         reader,
@@ -195,7 +196,12 @@ impl ChangeRecord for QueueRecord {
                         max,
                     )?)
                 })
-                .await
+                .await?;
+            // The queue's read is cut by its count alone.
+            Ok(RecordPage {
+                changes,
+                is_cut_by_size: false,
+            })
         }
         .boxed()
     }

@@ -28,6 +28,7 @@ use icu_collator::options::CollatorOptions;
 use icu_collator::preferences::CollationNumericOrdering;
 use icu_collator::{Collator, CollatorBorrowed, CollatorPreferences};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::repo::folders::{
@@ -164,12 +165,10 @@ impl FolderListService {
             .collect();
         // Cut to one message before git is asked, so no folder past the cut costs a git call.
         let fitted = count_entries_fitting_one_frame(
-            &candidates
-                .iter()
-                .map(|(_, entry)| entry)
-                .collect::<Vec<_>>(),
+            &candidates,
             candidates.len(),
             PAGE_MAX_BYTES,
+            |(_, entry)| json_utf8_byte_length(entry),
         )
         .expect("a folder entry of paths and a flag serializes to JSON");
         let more = fitted < candidates.len();

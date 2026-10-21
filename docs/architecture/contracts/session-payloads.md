@@ -155,7 +155,35 @@ interface SessionStreamFrame {
   // cut of every rollback of the run at its epoch or later, the rule the daemon's fold applies (on
   // clients `addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`,
   // hand-written TypeScript held to the daemon's Rust fold by one shared case table).
-  changes: Array<{ cursor: EventCursor; event: EventEnvelope; runStamp?: TranscriptRunStamp }>;
+  // `piece` is present on a piece of a reply or of reasoning: the row it joins (the id of the row's
+  // first event), where its text starts in the row's body as a UTF-8 byte offset, its text (its
+  // size alone past the inline cap) and the block starts it froze, or why its row's cut failed, so a
+  // client places a piece a read already gave it by its offset and never draws it twice. A tool
+  // completion carries no `piece`: it goes out once, whole, and the parts its patched files are
+  // stored in are never changes; `transcript.patch.list` reads the patches.
+  // `childRunSummary` is present on an event of a child run: the child's summary as of this event.
+  // `endedRows` names the rows the event ended (at its run's turn end or its rollback, the events
+  // after which no later piece joins them), each with the block starts it had not yet sent or why
+  // their cut failed. A frame is cut by bytes under the page budget as a page is, and the
+  // stream reads the next one at once.
+  changes: Array<{
+    cursor: EventCursor;
+    event: EventEnvelope;
+    runStamp?: TranscriptRunStamp;
+    piece?: {
+      rowId: string;
+      offset: number;
+      content: TranscriptRowContent;
+      blockStarts?: Uint8Array;
+      blockCutFailure?: BlockCutFailure;
+    };
+    childRunSummary?: ChildRunSummary;
+    endedRows?: Array<{
+      rowId: string;
+      blockStarts?: Uint8Array;
+      blockCutFailure?: BlockCutFailure;
+    }>;
+  }>;
   // Present only on the frame with no changes that tells a subscriber it is behind: the newest cursor
   // the daemon holds for the session. A frame with changes carries no frame cursor.
   cursor?: EventCursor;

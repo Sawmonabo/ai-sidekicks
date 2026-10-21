@@ -6,6 +6,7 @@
 //! have taken since, which the rowid floor log names until the index has caught up.
 
 use rusqlite::{Connection, OptionalExtension};
+use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::session::event_cursor::{
     EventCursorPositionOutOfRange, SessionEventCursorUnresolvable, decode_event_cursor,
@@ -162,8 +163,9 @@ fn answer(
         .into_iter()
         .filter_map(|hit_line| hit_of(hit_line).transpose())
         .collect::<Result<Vec<_>, _>>()?;
-    let page_size = count_entries_fitting_one_frame(&candidates, limit, PAGE_MAX_BYTES)
-        .expect("a transcript search hit serializes: it holds only text and integers");
+    let page_size =
+        count_entries_fitting_one_frame(&candidates, limit, PAGE_MAX_BYTES, json_utf8_byte_length)
+            .expect("a transcript search hit serializes: it holds only text and integers");
     let has_more = candidates.len() > page_size;
     candidates.truncate(page_size);
     let next_cursor = candidates.last().map(|last_hit| last_hit.cursor.clone());

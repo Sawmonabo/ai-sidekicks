@@ -23,7 +23,13 @@ use sidekicks_contracts::session::methods::{
 };
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::tag::{Tag, TagList};
-use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, TranscriptReadResponse};
+use sidekicks_contracts::transcript::content::{
+    TranscriptBodyReadResponse, TranscriptPatchListRequest, TranscriptPatchListResponse,
+};
+use sidekicks_contracts::transcript::operations::{
+    TranscriptChildRunExpandRequest, TranscriptChildRunExpandResponse, TranscriptReadRequest,
+    TranscriptReadResponse, TranscriptReasoningReadRequest, TranscriptReasoningReadResponse,
+};
 use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, TranscriptRunFacts};
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -33,7 +39,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::events::content::read::StoredEventContentRow;
 use crate::events::session::read::{
     DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
     readable_event_sql, session_read_bound,
@@ -47,7 +52,11 @@ use crate::session::records::DaemonSessionRecord;
 use crate::session::run::read::{SessionLiveRunRow, read_session_live_runs};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 use crate::session::tags::NotATag;
-use crate::transcript::body::read_stored_event_row;
+use crate::transcript::block_cut::MARKDOWN_PARSE;
+use crate::transcript::body::{BodyReadError, is_body_cut_into_blocks, read_row_body};
+use crate::transcript::child_run::expand_child_run;
+use crate::transcript::patch_list::{PatchListError, list_patches};
+use crate::transcript::reasoning::read_reasoning;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 use crate::transcript::window::{TranscriptReadError, read_transcript_window};
 
@@ -358,24 +367,107 @@ impl SessionService {
         self.run_read(
             ReadLength::Long,
             move |reader, read_damaged_from_sequence| {
-                read_transcript_window(reader, read_damaged_from_sequence, &request)
+                read_transcript_window(reader, read_damaged_from_sequence, &request, MARKDOWN_PARSE)
             },
         )
         .await
     }
 
-    /// The stored row of the event `event_id` of `session_id` with its body, `None` when the
-    /// session holds no such row. Fails with [`TranscriptReadError::Refused`] (`session.notFound`)
-    /// for a session this daemon holds no events for.
-    pub(crate) async fn read_stored_event_row(
+    /// The part from `offset` of the body of `session_id`'s row standing at the event `row_id`,
+    /// `None` when no row of the session stands there. A short read of the row's event alone
+    /// decides the read's length: a short read answers it, except for a reply drawn as markdown,
+    /// whose whole body a long read loads to cut it into blocks. Fails with [`BodyReadError`] for
+    /// a session this daemon holds no events for (`session.notFound`), an offset that is no place
+    /// to resume from, or a read that failed.
+    pub(crate) async fn read_row_body(
         &self,
         session_id: SessionId,
-        event_id: String,
-    ) -> Result<Option<StoredEventContentRow>, TranscriptReadError> {
+        row_id: String,
+        offset: u64,
+    ) -> Result<Option<TranscriptBodyReadResponse>, BodyReadError> {
+        let event_id = row_id.clone();
+        let is_cut = self
+            .run_read(
+                ReadLength::Short,
+                move |reader, read_damaged_from_sequence| {
+                    is_body_cut_into_blocks(
+                        reader,
+                        read_damaged_from_sequence,
+                        &session_id,
+                        &event_id,
+                    )
+                },
+            )
+            .await?;
+        let length = if is_cut {
+            ReadLength::Long
+        } else {
+            ReadLength::Short
+        };
+        self.run_read(length, move |reader, read_damaged_from_sequence| {
+            read_row_body(
+                reader,
+                read_damaged_from_sequence,
+                &session_id,
+                &row_id,
+                offset,
+                MARKDOWN_PARSE,
+            )
+        })
+        .await
+    }
+
+    /// One page of a run's reasoning. Fails with [`TranscriptReadError::Refused`] for a run this
+    /// daemon does not hold (`agent.run.notFound`) and [`TranscriptReadError::CursorUnresolvable`]
+    /// for a cursor that names no position.
+    pub(crate) async fn read_reasoning(
+        &self,
+        request: TranscriptReasoningReadRequest,
+    ) -> Result<TranscriptReasoningReadResponse, TranscriptReadError> {
         self.run_read(
-            ReadLength::Short,
+            ReadLength::Long,
             move |reader, read_damaged_from_sequence| {
-                read_stored_event_row(reader, read_damaged_from_sequence, &session_id, &event_id)
+                read_reasoning(reader, read_damaged_from_sequence, &request)
+            },
+        )
+        .await
+    }
+
+    /// One page of a child run's rows, its child rows summarized as of `observed_at`. Fails with
+    /// [`TranscriptReadError::Refused`] for a run this daemon does not hold (`agent.run.notFound`)
+    /// or one with no parent (`agent.run.notChild`), and
+    /// [`TranscriptReadError::CursorUnresolvable`] for a cursor that names no position.
+    pub(crate) async fn expand_child_run(
+        &self,
+        request: TranscriptChildRunExpandRequest,
+        observed_at: WireInstant,
+    ) -> Result<TranscriptChildRunExpandResponse, TranscriptReadError> {
+        self.run_read(
+            ReadLength::Long,
+            move |reader, read_damaged_from_sequence| {
+                expand_child_run(
+                    reader,
+                    read_damaged_from_sequence,
+                    &request,
+                    &observed_at,
+                    MARKDOWN_PARSE,
+                )
+            },
+        )
+        .await
+    }
+
+    /// One page of the patches a tool call's row left out. Fails with [`PatchListError`] for a
+    /// session or call this daemon does not hold, a cursor that names no place in the call's
+    /// files, or a read that failed.
+    pub(crate) async fn list_patches(
+        &self,
+        request: TranscriptPatchListRequest,
+    ) -> Result<TranscriptPatchListResponse, PatchListError> {
+        self.run_read(
+            ReadLength::Long,
+            move |reader, read_damaged_from_sequence| {
+                list_patches(reader, read_damaged_from_sequence, &request)
             },
         )
         .await

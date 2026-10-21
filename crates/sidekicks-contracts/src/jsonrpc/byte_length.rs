@@ -1,10 +1,11 @@
 //! How many bytes a value takes on the wire, which the message cap and the page budget both
 //! measure: the UTF-8 byte length of what `JSON.stringify` writes for it, since the desktop's
-//! validators measure the same caps that way. The bytes are counted while serializing, so nothing
-//! is allocated. `serde_json` writes strings as `JSON.stringify` does and member order does not
-//! change a length, but its numbers differ (`1.0` where JavaScript writes `1`, `1e+20` where it
-//! writes `100000000000000000000`, an integer past 2^53 in full), so a formatter writes every
-//! number in ECMAScript's `Number::toString` form, a number `serde_json` kept as its text (its
+//! validators measure the same caps that way, plus the bytes of the attachments its byte members
+//! carry. The JSON's bytes are counted while serializing, so no text is allocated. `serde_json`
+//! writes strings as `JSON.stringify` does and member order does not change a length, but its
+//! numbers differ (`1.0` where JavaScript writes `1`, `1e+20` where it writes
+//! `100000000000000000000`, an integer past 2^53 in full), so a formatter writes every number in
+//! ECMAScript's `Number::toString` form, a number `serde_json` kept as its text (its
 //! `arbitrary_precision` feature, which a dependency of the daemon turns on for every build that
 //! links it) included, as the double `JSON.parse` reads from that text. The one check that holds a
 //! value to a byte cap lives here too.
@@ -14,13 +15,20 @@ use std::io;
 use serde::Serialize;
 use serde_json::ser::Formatter;
 
-/// The UTF-8 byte length of `value` written as JSON. Fails where the value's own `Serialize`
-/// fails or the value holds a raw JSON fragment.
+use crate::wire::attachment::collect_attachments;
+
+/// The UTF-8 byte length of `value` written as JSON, with the bytes of every attachment its byte
+/// members carry beside it, since those travel in the same frame. Fails where the value's own
+/// `Serialize` fails or the value holds a raw JSON fragment.
 pub fn json_utf8_byte_length<T: Serialize>(value: &T) -> serde_json::Result<usize> {
-    let mut serializer =
-        serde_json::Serializer::with_formatter(ByteCount::default(), EcmaScriptNumbers);
-    value.serialize(&mut serializer)?;
-    Ok(serializer.into_inner().bytes)
+    let (json_bytes, attachments) = collect_attachments(|| {
+        let mut serializer =
+            serde_json::Serializer::with_formatter(ByteCount::default(), EcmaScriptNumbers);
+        value
+            .serialize(&mut serializer)
+            .map(|()| serializer.into_inner().bytes)
+    });
+    Ok(json_bytes? + attachments.iter().map(bytes::Bytes::len).sum::<usize>())
 }
 
 /// A sink that keeps only how many bytes were written to it.
