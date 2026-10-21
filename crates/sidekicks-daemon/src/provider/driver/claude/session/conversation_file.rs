@@ -1,9 +1,11 @@
 //! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
-//! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands and which
-//! message a fork keeps up to; deleted on a purge with every other file Claude Code keeps for the
-//! conversation under the same config folder and the daemon's scratch folder, a batch of
-//! conversations of one home listing each folder it searches once.
+//! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands, which
+//! message a fork keeps up to and which messages an ended process took; deleted on a purge with
+//! every other file Claude Code keeps for the conversation under the same config folder and the
+//! daemon's scratch folder, a batch of conversations of one home listing each folder it searches
+//! once.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::io;
 use std::marker::PhantomData;
@@ -119,6 +121,44 @@ pub(crate) async fn read_claude_conversation_outline(
     Ok(outline)
 }
 
+/// Which of `message_uuids` the conversation file holds on a `user` entry, in their given order:
+/// the messages Claude Code took. Read only once the process that held them has ended, since a
+/// live process keeps a message past its turn's end and takes it later; the caller retries a read
+/// that fails. Stops once every uuid is found, and fails with the file's open or read failure.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's taken-message lookup after a process ends reads through it"
+    )
+)]
+pub(crate) async fn find_claude_taken_messages(
+    file: &Path,
+    message_uuids: &[String],
+) -> io::Result<Vec<String>> {
+    let mut unfound: HashSet<&str> = message_uuids.iter().map(String::as_str).collect();
+    let mut found = HashSet::new();
+    read_entries(file, |entry| {
+        if entry.entry_type.as_deref() == Some("user")
+            && let Some(uuid) = entry.uuid
+            && unfound.remove(uuid.as_str())
+        {
+            found.insert(uuid);
+        }
+        if unfound.is_empty() {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    })
+    .await?;
+    Ok(message_uuids
+        .iter()
+        .filter(|uuid| found.contains(*uuid))
+        .cloned()
+        .collect())
+}
+
 /// Deletes every file Claude Code keeps for each of `conversations`, where each exists: under the
 /// config folder its file history, session environment, task list, debug log, uploads, dev mods,
 /// image cache and plan files (in the plans folder the settings of the config folder and of the
@@ -126,10 +166,10 @@ pub(crate) async fn read_claude_conversation_outline(
 /// them), and in every project folder the conversation's files, the copies set aside and its folder
 /// of helper transcripts and tool results; under the home's scratch folder, the daemon's
 /// `CLAUDE_CODE_TMPDIR`, the conversation's folder in each project. Each project folder, scratch
-/// folder and plans folder is listed once for the whole batch. The conversations' files go last, since they name the
-/// plan files a purge that fails must find again. Fails with `InvalidInput`, before anything is
-/// listed or removed, for an id that is not one plain path component, else with the first read or
-/// removal failure.
+/// folder and plans folder is listed once for the whole batch. The conversations' files go last,
+/// since they name the plan files a purge that fails must find again. Fails with `InvalidInput`,
+/// before anything is listed or removed, for an id that is not one plain path component, else with
+/// the first read or removal failure.
 pub(crate) async fn delete_claude_conversations(
     folders: &ClaudeConversationFolders<'_>,
     conversations: &[ClaudeConversation<'_>],
@@ -325,8 +365,8 @@ async fn read_entries(
     }
 }
 
-// The members of an entry the outline and the purge read, each read leniently: a member of another
-// type reads as absent rather than dropping the line, and nothing else is kept.
+// The members of an entry the outline, the taken read and the purge read, each read leniently: a
+// member of another type reads as absent rather than dropping the line, and nothing else is kept.
 #[derive(Deserialize)]
 struct ConversationEntry {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
@@ -424,12 +464,42 @@ mod tests {
 
     use super::{
         ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
-        delete_claude_conversations, read_claude_conversation_outline,
+        delete_claude_conversations, find_claude_taken_messages, read_claude_conversation_outline,
     };
     use crate::provider::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
     const OTHER_SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000002";
+
+    // Killed by a read that answers an id the file lacks, counts an assistant entry as taken, or
+    // answers an empty list for a file it cannot open.
+    #[tokio::test]
+    async fn the_taken_read_answers_only_the_user_entries_the_file_holds() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let file = folder.path().join("conversation.jsonl");
+        fs::write(
+            &file,
+            concat!(
+                r#"{"type":"user","uuid":"taken","message":{"content":"steer"}}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"answer","message":{"content":"done"}}"#,
+                "\n",
+            ),
+        )
+        .expect("the conversation is written");
+        let asked = ["kept".to_owned(), "taken".to_owned(), "answer".to_owned()];
+
+        let taken = find_claude_taken_messages(&file, &asked)
+            .await
+            .expect("the file reads");
+
+        assert_eq!(taken, vec!["taken".to_owned()]);
+        assert!(
+            find_claude_taken_messages(&folder.path().join("absent.jsonl"), &asked)
+                .await
+                .is_err()
+        );
+    }
 
     #[tokio::test]
     async fn a_tool_result_or_an_entry_claude_code_wrote_starts_no_turn() {

@@ -27,7 +27,7 @@ use crate::provider::driver::reorder_buffer::ReorderPairingRole;
 use crate::provider::driver::streamed_text::{
     StreamedText, StreamedTextCompletion, StreamedTextPiece,
 };
-use crate::provider::lenient_json::{Lenient, lenient_object, read_lenient};
+use crate::provider::lenient_json::{lenient_object, read_lenient};
 use crate::session::run::inbound::rows::LateAppendableRow;
 
 /// The run a streamed block's rows belong to.

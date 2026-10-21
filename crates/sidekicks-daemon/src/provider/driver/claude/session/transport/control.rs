@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
-use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::provider::lenient_json::{LenientList, lenient_object, read_lenient};
 
 /// One control request, tagged on the wire by its `subtype`.
 #[derive(Clone, Debug, Serialize)]
