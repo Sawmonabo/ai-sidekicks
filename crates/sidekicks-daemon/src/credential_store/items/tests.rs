@@ -77,69 +77,19 @@ fn stored(credentials: &CredentialStore, service: &str, account: &str) -> Option
 /// does not open fall back to the file; write the record before the check accepts; pick the login
 /// keychain for a Mac's logged-out service.
 #[rstest]
-#[case::first_start_with_a_store(None, None, true, true, false, Ok(()), Some(OPERATING_SYSTEM), false, true)]
-#[case::first_start_whose_store_does_not_open(
-    None,
-    None,
-    true,
-    false,
-    false,
-    Err(KeychainRefusalCause::Unavailable),
-    None,
-    false,
-    false
-)]
-#[case::first_start_with_no_secret_service(None, None, false, false, false, Ok(()), Some(NO_SECRET_SERVICE), true, false)]
-#[case::first_start_of_a_logged_out_service(None, None, true, true, true, Ok(()), Some(LOGGED_OUT), true, false)]
-#[case::recorded_store(Some(OPERATING_SYSTEM), None, true, true, false, Ok(()), Some(OPERATING_SYSTEM), false, true)]
-#[case::recorded_store_not_reached(
-    Some(OPERATING_SYSTEM),
-    None,
-    false,
-    false,
-    false,
-    Err(KeychainRefusalCause::Unavailable),
-    Some(OPERATING_SYSTEM),
-    false,
-    false
-)]
-#[case::recorded_file_still_without_a_secret_service(Some(NO_SECRET_SERVICE), None, false, true, false, Ok(()), Some(NO_SECRET_SERVICE), true, false)]
-#[case::recorded_file_once_a_secret_service_runs(Some(NO_SECRET_SERVICE), None, true, true, false, Ok(()), Some(OPERATING_SYSTEM), false, true)]
-#[case::recorded_file_of_a_logged_out_service(Some(LOGGED_OUT), None, true, true, false, Ok(()), Some(LOGGED_OUT), true, false)]
-#[case::recorded_move(Some(MOVING_IN), None, true, true, false, Ok(()), Some(OPERATING_SYSTEM), false, true)]
-#[case::recorded_move_whose_store_is_gone(
-    Some(MOVING_IN),
-    None,
-    false,
-    false,
-    false,
-    Err(KeychainRefusalCause::Unavailable),
-    Some(MOVING_IN),
-    false,
-    false
-)]
-#[case::unreadable_record(
-    Some("{\"place\":"),
-    None,
-    true,
-    true,
-    false,
-    Err(KeychainRefusalCause::Unavailable),
-    Some("{\"place\":"),
-    false,
-    false
-)]
-#[case::unreadable_items_file(
-    Some(NO_SECRET_SERVICE),
-    Some("{\"ai-sidekicks"),
-    false,
-    true,
-    false,
-    Err(KeychainRefusalCause::Unavailable),
-    Some(NO_SECRET_SERVICE),
-    true,
-    false
-)]
+#[case::first_start_with_a_store(None, None, true, true, false, Ok(()), (Some(OPERATING_SYSTEM), false, true))]
+#[case::first_start_whose_store_does_not_open(None, None, true, false, false, Err(KeychainRefusalCause::Unavailable), (None, false, false))]
+#[case::first_start_with_no_secret_service(None, None, false, false, false, Ok(()), (Some(NO_SECRET_SERVICE), true, false))]
+#[case::first_start_of_a_logged_out_service(None, None, true, true, true, Ok(()), (Some(LOGGED_OUT), true, false))]
+#[case::recorded_store(Some(OPERATING_SYSTEM), None, true, true, false, Ok(()), (Some(OPERATING_SYSTEM), false, true))]
+#[case::recorded_store_not_reached(Some(OPERATING_SYSTEM), None, false, false, false, Err(KeychainRefusalCause::Unavailable), (Some(OPERATING_SYSTEM), false, false))]
+#[case::recorded_file_still_without_a_secret_service(Some(NO_SECRET_SERVICE), None, false, true, false, Ok(()), (Some(NO_SECRET_SERVICE), true, false))]
+#[case::recorded_file_once_a_secret_service_runs(Some(NO_SECRET_SERVICE), None, true, true, false, Ok(()), (Some(OPERATING_SYSTEM), false, true))]
+#[case::recorded_file_of_a_logged_out_service(Some(LOGGED_OUT), None, true, true, false, Ok(()), (Some(LOGGED_OUT), true, false))]
+#[case::recorded_move(Some(MOVING_IN), None, true, true, false, Ok(()), (Some(OPERATING_SYSTEM), false, true))]
+#[case::recorded_move_whose_store_is_gone(Some(MOVING_IN), None, false, false, false, Err(KeychainRefusalCause::Unavailable), (Some(MOVING_IN), false, false))]
+#[case::unreadable_record(Some("{\"place\":"), None, true, true, false, Err(KeychainRefusalCause::Unavailable), (Some("{\"place\":"), false, false))]
+#[case::unreadable_items_file(Some(NO_SECRET_SERVICE), Some("{\"ai-sidekicks"), false, true, false, Err(KeychainRefusalCause::Unavailable), (Some(NO_SECRET_SERVICE), true, false))]
 #[tokio::test]
 async fn the_start_picks_and_keeps_the_secrets_place(
     #[case] record: Option<&str>,
@@ -148,10 +98,9 @@ async fn the_start_picks_and_keeps_the_secrets_place(
     #[case] opens: bool,
     #[case] runs_while_logged_out: bool,
     #[case] served: Result<(), KeychainRefusalCause>,
-    #[case] record_after: Option<&str>,
-    #[case] has_secrets_file: bool,
-    #[case] is_in_store: bool,
+    #[case] kept: (Option<&str>, bool, bool),
 ) {
+    let (record_after, has_secrets_file, is_in_store) = kept;
     let folder = tempfile::tempdir().expect("the test makes a folder");
     if let Some(record) = record {
         std::fs::write(folder.path().join(RECORD), record).expect("the test writes the record");

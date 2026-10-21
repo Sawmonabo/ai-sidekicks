@@ -73,7 +73,7 @@ impl PlaceRecord {
     }
 
     /// Whether the record names the operating system's store, as the place or a move's end.
-    pub(crate) fn names_operating_system(&self) -> bool {
+    pub(crate) fn names_operating_system(self) -> bool {
         self.place == SecretsPlace::OperatingSystem
             || self.moving_to == Some(SecretsPlace::OperatingSystem)
     }

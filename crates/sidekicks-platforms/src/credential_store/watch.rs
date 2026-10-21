@@ -22,6 +22,7 @@ impl CredentialStoreWatch {
         not(target_os = "linux"),
         expect(
             clippy::unused_async,
+            clippy::unused_async_trait_impl,
             reason = "one signature with Linux's, which connects to the session bus"
         )
     )]
