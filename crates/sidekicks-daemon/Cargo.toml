@@ -82,7 +82,6 @@ ignored = [
   "serde-saphyr",
   "yaml-edit",
   # Fetching and unpacking the tools a workflow code step runs on.
-  "flate2",
   "tar",
   "zip",
   # Editing the providers' and tool servers' TOML settings in place.
