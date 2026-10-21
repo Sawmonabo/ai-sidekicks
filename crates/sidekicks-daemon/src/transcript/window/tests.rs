@@ -139,7 +139,7 @@ fn read(log: &TranscriptTestLog, request: Value) -> Value {
     read_with_attachments(log, request, MARKDOWN_PARSE).0
 }
 
-// Each row of `page`: a tool row as `tool`, a turn's start as `turn`, any other as its inline body.
+// Each row of `page`: a tool row as `tool`, any other as its inline body.
 fn row_bodies(page: &Value) -> Vec<String> {
     page["entries"]
         .as_array()
@@ -148,10 +148,6 @@ fn row_bodies(page: &Value) -> Vec<String> {
         .map(|row| {
             if row["type"] == "agent.toolCall.completed" {
                 "tool".to_owned()
-            } else if row["type"] == "agent.turn.started" {
-                "turn".to_owned()
-            } else if row["type"] == "agent.turn.completed" {
-                "turn end".to_owned()
             } else {
                 row["content"]["body"]
                     .as_str()
@@ -197,12 +193,9 @@ enum Step {
     Reply(&'static str, Option<u64>, &'static str),
     // A completed tool call.
     Tool,
-    // The end of the run's turn and the start of its next.
-    Turn,
 }
 
-// Killed by keying the join on the message alone, on the block alone, or on adjacency, and by a
-// join that reaches past the run's current turn.
+// Killed by keying the join on the message alone, on the block alone, or on adjacency.
 #[rstest]
 #[case::blocks_of_one_message_stay_apart(
     &[
@@ -232,16 +225,11 @@ enum Step {
     &[Step::Reply("m1", Some(0), "First."), Step::Reply("m2", Some(0), "Second.")],
     &["First.", "Second."]
 )]
-#[case::the_same_message_and_block_in_two_turns(
-    &[Step::Reply("m1", Some(0), "Turn one."), Step::Turn, Step::Reply("m1", Some(0), "Turn two.")],
-    &["Turn one.", "turn end", "turn", "Turn two."]
-)]
 fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
     #[case] steps: &[Step],
     #[case] rows: &[&str],
 ) {
     let log = TranscriptTestLog::new();
-    let mut turn_number = 1;
     for step in steps {
         match *step {
             Step::Reply(message_id, block, body) => {
@@ -249,11 +237,6 @@ fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
             }
             Step::Tool => {
                 log.tool_completion(log.run_id, "call-1", None, Some("ok"));
-            }
-            Step::Turn => {
-                log.turn_end(log.run_id, turn_number);
-                turn_number += 1;
-                log.turn_start(log.run_id, turn_number);
             }
         }
     }

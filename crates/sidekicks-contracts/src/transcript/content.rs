@@ -489,7 +489,7 @@ literal! {
     /// The `unavailable` word of a file whose patch came in a form this version cannot read.
     pub enum TranscriptPatchUnreadableReason = "unreadable";
 
-    /// The `unavailable` word of a file whose stored patch lies in a damaged range of the log.
+    /// The `unavailable` word of a file the log cannot read whole.
     pub enum TranscriptPatchDamagedReason = "damaged";
 }
 
@@ -629,7 +629,7 @@ transcript_patch_file_arm! {
 }
 
 transcript_patch_file_arm! {
-    /// One file whose stored patch lies in a damaged range of the log, so it cannot be read back.
+    /// One file the log cannot read whole, so its patch cannot be read back.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[schemars(inline)]
@@ -672,7 +672,7 @@ transcript_patch_file_arm! {
 }
 
 /// One file's patch, or why there is none: no patch came, one came that this version cannot read,
-/// or its stored patch lies in a damaged range of the log.
+/// or the log cannot read the file whole.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 pub enum TranscriptPatchFile {

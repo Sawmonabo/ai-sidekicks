@@ -18,7 +18,8 @@ use tempfile::TempDir;
 
 use super::rows::LateAppendableRow;
 use super::{
-    DeliveryBinding, InboundDelivery, InboundOutcome, LateEventAbsorbReason, RunInboundDispatch,
+    DeliveryBinding, InboundDelivery, InboundDispatchError, InboundOutcome, LateEventAbsorbReason,
+    RunInboundDispatch,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
@@ -26,12 +27,15 @@ use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::driver::registry::test_provider;
 use crate::provider::port::run_state_publisher::RunStatePublisher;
 use crate::session::run::engine::tests::{
-    SETTLE_WAIT, insert_running_run, stored_run_state, test_engine,
+    DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
+    stored_run_state, test_engine, turn_completed_at, turn_started_at,
 };
+use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::epochs::{
     ConfirmedCut, DeliveryAttribution, DeliveryOperation, EpochBinding, ExecutionEpochs,
 };
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::refusals::RunRefusal;
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 use crate::transcript::reasoning::read_reasoning;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -49,6 +53,7 @@ struct Harness {
     run_id: RunId,
     binding_id: RuntimeBindingId,
     epochs: Arc<Mutex<ExecutionEpochs>>,
+    engine: Arc<RunEngine>,
     dispatch: RunInboundDispatch,
 }
 
@@ -84,7 +89,7 @@ impl Harness {
         let epochs = Arc::new(Mutex::new(epochs));
         let engine = test_engine(&database, Arc::clone(&log.service), home.path());
         let dispatch = RunInboundDispatch::new(
-            engine,
+            Arc::clone(&engine),
             Arc::clone(&epochs),
             Arc::new(UnreadPublisher),
             log.service,
@@ -95,6 +100,7 @@ impl Harness {
             run_id,
             binding_id,
             epochs,
+            engine,
             dispatch,
         }
     }
@@ -203,6 +209,53 @@ impl Harness {
         .expect("the test writes a piece's payload")
     }
 
+    // A piece of `payload`'s reply, or of its reasoning, holding `text`, on the binding.
+    fn piece(
+        &self,
+        payload: RunAgentOutputPayload,
+        is_reasoning: bool,
+        text: &str,
+    ) -> InboundDelivery<'static> {
+        if is_reasoning {
+            InboundDelivery::ThinkingUpdate {
+                binding: self.on_binding(None),
+                payload,
+                content: text.to_owned(),
+            }
+        } else {
+            InboundDelivery::SessionRow {
+                binding: self.on_binding(None),
+                row: LateAppendableRow::AgentMessageSent(payload),
+                content: Some(text.to_owned()),
+            }
+        }
+    }
+
+    // The sequence of the event `event_id` and the row it joins, where it joins one.
+    fn stored_join(&self, event_id: &str) -> (i64, Option<i64>) {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT sequence, joins_sequence FROM session_events WHERE id = ?1",
+                [event_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the test reads the piece's stamp")
+    }
+
+    // The run's stored event types, in log order.
+    fn stored_event_types(&self) -> Vec<String> {
+        self.database
+            .reader()
+            .prepare("SELECT type FROM session_events WHERE run_id = ?1 ORDER BY sequence")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([self.run_id.text().as_str()], |row| row.get(0))?
+                    .collect()
+            })
+            .expect("the test reads the run's events")
+    }
+
     fn stored_event_count(&self) -> i64 {
         self.database
             .reader()
@@ -298,12 +351,13 @@ fn inbound_absorbs_a_late_terminal_on_an_ended_run(
     );
 }
 
-// Killed by a piece of a reply or of reasoning appended to a run that has ended, by its refusal
-// surfaced as a failure, and by its diagnostic left out.
+// Killed by a guard without its open-turn clause, which absorbs the piece sent after a person's
+// interrupt, by the run's end closing the row of its open turn, by a piece taken once every turn of
+// the ended run has ended, by its refusal surfaced as a failure, and by its diagnostic left out.
 #[rstest]
 #[case::a_reply_piece(false)]
 #[case::a_reasoning_piece(true)]
-fn inbound_absorbs_a_piece_of_a_run_that_has_ended(#[case] is_reasoning: bool) {
+fn inbound_takes_a_piece_until_every_turn_of_its_ended_run_has_ended(#[case] is_reasoning: bool) {
     let recorded = RecordedEvents::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -311,35 +365,152 @@ fn inbound_absorbs_a_piece_of_a_run_that_has_ended(#[case] is_reasoning: bool) {
         .expect("the test's runtime starts");
     recorded.record_during(|| {
         runtime.block_on(async {
-            let harness = Harness::new(RunState::Completed).await;
-            let payload = harness.piece_payload("m1");
-            let delivery = if is_reasoning {
-                InboundDelivery::ThinkingUpdate {
-                    binding: harness.on_binding(None),
-                    payload,
-                    content: "Thinking late.".to_owned(),
-                }
-            } else {
-                InboundDelivery::SessionRow {
-                    binding: harness.on_binding(None),
-                    row: LateAppendableRow::AgentMessageSent(payload),
-                    content: Some("Said late.".to_owned()),
-                }
-            };
+            let harness = Harness::new(RunState::Running).await;
+            let (session_id, run_id) = (harness.session_id(), harness.run_id);
+            append(
+                &harness.engine,
+                session_id,
+                &turn_started_at(session_id, run_id, 1, 1),
+            )
+            .await;
+            let before = harness
+                .dispatched(harness.piece(harness.piece_payload("m1"), is_reasoning, "Before "))
+                .await;
+            let ended = harness
+                .engine
+                .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
+                .await
+                .expect("the person's interrupt ends the run");
+            assert!(ended);
+            let after = harness
+                .dispatched(harness.piece(harness.piece_payload("m1"), is_reasoning, "the cut."))
+                .await;
+            append(
+                &harness.engine,
+                session_id,
+                &turn_completed_at(session_id, run_id, 1, 2),
+            )
+            .await;
+            let late = harness
+                .dispatched(harness.piece(harness.piece_payload("m1"), is_reasoning, "Late."))
+                .await;
 
+            let event_id = |outcome: &InboundOutcome| {
+                let InboundOutcome::Appended { event_id } = outcome else {
+                    panic!("the piece is appended as it is: {outcome:?}");
+                };
+                event_id.as_str().to_owned()
+            };
+            let (before_sequence, _) = harness.stored_join(&event_id(&before));
+            let (_, after_joins) = harness.stored_join(&event_id(&after));
+            assert_eq!(after_joins, Some(before_sequence));
             assert_eq!(
-                harness.dispatched(delivery).await,
+                late,
                 InboundOutcome::Absorbed {
                     reason: LateEventAbsorbReason::RunEnded,
                 }
             );
-            assert_eq!(harness.stored_event_count(), 0);
+            let pieces = harness
+                .stored_event_types()
+                .into_iter()
+                .filter(|event_type| {
+                    matches!(
+                        event_type.as_str(),
+                        "agent.message.sent" | "agent.thinking.updated"
+                    )
+                })
+                .count();
+            assert_eq!(pieces, 2);
         });
     });
     assert_eq!(
         recorded.field_on("run.lateEvent.absorbed", "counter").len(),
         1
     );
+}
+
+// Killed by the piece's write not waiting out the continue, which absorbs a piece of the continued
+// run as late while its `running` write is still to land.
+#[tokio::test]
+async fn inbound_appends_a_piece_of_a_run_being_continued_after_its_running_write() {
+    let harness = Harness::new(RunState::Running).await;
+    let ended = harness
+        .engine
+        .end_run_for_interrupt(
+            harness.run_id,
+            1,
+            None,
+            None,
+            RunStateChangeCompanions::default(),
+        )
+        .await
+        .expect("the person's interrupt ends the run");
+    assert!(ended);
+    let (start_driver, driver_has_started, release_driver) = held_driver();
+    let request = continue_request(harness.run_id, start_driver);
+    let piece_during_continue = async {
+        driver_has_started
+            .await
+            .expect("the driver's start is reached");
+        let release = async {
+            tokio::time::sleep(DRIVER_HOLD).await;
+            release_driver
+                .send(())
+                .expect("the continue still waits in its driver");
+        };
+        let piece = harness.piece(harness.piece_payload("m1"), false, "Going on.");
+        tokio::join!(harness.dispatch.dispatch(piece), release).0
+    };
+    let (continued, dispatched) = tokio::time::timeout(SETTLE_WAIT, async {
+        tokio::join!(
+            Box::pin(harness.engine.continue_run(request)),
+            Box::pin(piece_during_continue)
+        )
+    })
+    .await
+    .expect("the continue and the piece settle");
+
+    continued.expect("the continue runs the run again");
+    let outcome = dispatched.expect("the piece is dispatched");
+    assert!(
+        matches!(outcome, InboundOutcome::Appended { .. }),
+        "{outcome:?}"
+    );
+    let types = harness.stored_event_types();
+    assert_eq!(
+        types[types.len() - 2..],
+        ["agent.run.running", "agent.message.sent"]
+    );
+}
+
+// Killed by every refusal of a piece's write absorbed as late, which reads a run with no row as
+// ended and logs a driver's fault as a late piece.
+#[tokio::test]
+async fn inbound_fails_a_piece_of_a_run_with_no_row() {
+    let harness = Harness::new(RunState::Running).await;
+    let unknown = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let mut payload = harness.piece_payload("m1");
+    payload.run_id = unknown;
+
+    let failure = tokio::time::timeout(
+        SETTLE_WAIT,
+        harness
+            .dispatch
+            .dispatch(harness.piece(payload, false, "Nowhere.")),
+    )
+    .await
+    .expect("the dispatch settles");
+
+    assert!(
+        matches!(
+            &failure,
+            Err(InboundDispatchError::Engine(RunEngineError::Refused(
+                RunRefusal::NotFound { run_id }
+            ))) if *run_id == unknown
+        ),
+        "{failure:?}"
+    );
+    assert_eq!(harness.stored_event_count(), 0);
 }
 
 // Killed by a late `paused` or `running` report on a run a resume already set running surfaced as

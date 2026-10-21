@@ -4,8 +4,8 @@
 //! an event moves is written in that event's own write. The run an event belongs to, which its
 //! typed event names, is written to its own columns, so no write or read parses the payload for
 //! it. A piece of a run's reply or reasoning is stamped with the row it joins: the newest earlier
-//! piece of the same run, type, provider message and block, unless its run's turn, run or
-//! rollback ended that row since, decided here once so every read sees the same rows; a stored
+//! piece of the same run, type, provider message and block, unless its run's turn end or rollback
+//! ended that row since, decided here once so every read sees the same rows; a stored
 //! part of a tool completion's patched files joins its completion's row the same way, keyed by the
 //! completion's own id, and carries its place in the file list. A tool completion's row is
 //! stamped with the call it completes, so the call's patch read finds it by an index. It also owns
@@ -25,6 +25,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::schema::recovery::ProjectionCursorState;
 use crate::database::statement::DATABASE_NOW_SQL;
+use crate::events::content::append::stored_index;
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::transcript::rejoin::ROW_ENDING_EVENT_TYPES_SQL;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -255,11 +256,6 @@ fn join_key_of(event: &UnsequencedEventEnvelope) -> Option<String> {
         .then(|| event.id.as_str().to_owned())
 }
 
-// A file's place or a text offset as its column stores it.
-fn stored_index(index: usize) -> i64 {
-    i64::try_from(index).expect("a file's place or a text offset lies far below 2^63")
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -268,26 +264,37 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use crate::events::session::read::SessionEventReads;
-    use crate::transcript::rejoin::RowReads;
+    use crate::transcript::rejoin::{RowReads, RowScope};
     use crate::transcript::test_log::{AT, TranscriptTestLog};
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-    // Killed by a piece after its run's turn end, end or rollback joining the row that event
-    // closed, by that row still listed as taking pieces, and by a piece of another run joining
-    // under the same key.
+    // Killed by a piece after its run's turn end or rollback joining the row that event closed, by
+    // that row still listed as taking pieces, by the run's end closing a row whose turn is still
+    // open, by a read that does not join a row's pieces into its body, and by a piece of another
+    // run joining under the same key.
     #[rstest]
-    #[case::a_rollback("agent.run.rolledBack", json!({ "runVersion": 2, "targetPosition": 0 }))]
-    #[case::a_turn_end("agent.turn.completed", json!({ "runVersion": 1, "turnNumber": 1 }))]
+    #[case::a_rollback(
+        "agent.run.rolledBack",
+        json!({ "runVersion": 2, "targetPosition": 0 }),
+        true
+    )]
+    #[case::a_turn_end(
+        "agent.turn.completed",
+        json!({ "runVersion": 1, "turnNumber": 1 }),
+        true
+    )]
     #[case::a_run_end(
         "agent.run.completed",
-        json!({ "runVersion": 2, "previousState": "running", "newState": "completed" })
+        json!({ "runVersion": 2, "previousState": "running", "newState": "completed" }),
+        false
     )]
     fn an_event_ending_a_row_ends_the_rejoin_of_its_key(
         #[case] ending_type: &str,
         #[case] mut ending_payload: Value,
+        #[case] is_row_ending: bool,
     ) {
         let log = TranscriptTestLog::new();
-        let other_run =
-            RunId::try_from(sidekicks_contracts::wire::id::mint_uuid_v7()).expect("a run id");
+        let other_run = RunId::try_from(mint_uuid_v7()).expect("a run id");
         let (anchor, _) = log.reply("m1", Some(0), "Before ");
         let (joined, _) = log.reply("m1", Some(0), "the end.");
         let (other, _) = log.piece(
@@ -319,11 +326,40 @@ mod tests {
                     .expect("the test reads the stamp")
             })
             .collect();
-        assert_eq!(joins, [None, Some(anchor), None, None]);
+        let after_joins = (!is_row_ending).then_some(anchor);
+        assert_eq!(joins, [None, Some(anchor), None, after_joins]);
         let reads = SessionEventReads::new(&reader, &|_: &SessionId| None);
-        let unended = RowReads::new(&reads, &reader, &log.session_id)
+        let rows = RowReads::new(&reads, &reader, &log.session_id);
+        let unended = rows
             .unended_rows(&[(anchor, joined)], ending)
             .expect("the rows read");
-        assert!(unended.is_empty(), "{unended:?}");
+        assert_eq!(unended.is_empty(), is_row_ending, "{unended:?}");
+
+        let row_sequences: Vec<i64> = rows
+            .rows_after(RowScope::Session, anchor - 1, None, 10)
+            .expect("the rows read")
+            .iter()
+            .map(|row| i64::from(row.sequence))
+            .collect();
+        let members = rows
+            .row_members(&row_sequences, after, i64::MAX)
+            .expect("the rows' pieces read");
+        let bodies: Vec<String> = row_sequences
+            .iter()
+            .map(|sequence| {
+                members
+                    .get(sequence)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|member| member.text.as_deref())
+                    .collect()
+            })
+            .collect();
+        let expected: &[&str] = if is_row_ending {
+            &["Before the end.", "Elsewhere.", "", "After the end."]
+        } else {
+            &["Before the end.After the end.", "Elsewhere.", ""]
+        };
+        assert_eq!(bodies, expected);
     }
 }

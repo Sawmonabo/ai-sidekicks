@@ -158,6 +158,12 @@ pub(crate) struct PatchPartPlace {
     pub(crate) text_offset: Option<usize>,
 }
 
+/// A file's place or a text offset of a [`PatchPartPlace`] as its column stores it; panics only on
+/// a value past `i64`, which no stored file list or text reaches.
+pub(crate) fn stored_index(index: usize) -> i64 {
+    i64::try_from(index).expect("a file's place or a text offset lies far below 2^63")
+}
+
 /// One stored part of a patch-bearing completion: its payload, its place and its body.
 pub(crate) struct PatchPartRow {
     /// The completion's payload without the files it names, describing this part's body alone.

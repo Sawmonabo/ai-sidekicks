@@ -4,7 +4,7 @@
 //! and joins each row's later pieces into its body through the head it read. A row whose first
 //! piece lies in a range the session skipped stands at its first readable piece. A body's size is
 //! the sum of its pieces' own lengths, so a large one is never loaded. A row stops taking pieces at
-//! its run's turn end, end or rollback, one set of events for the join and the end alike.
+//! its run's turn end or rollback, one set of events for the join and the end alike.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -30,24 +30,24 @@ use crate::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, readable_event_sql,
 };
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::session::run::transitions::{RUN_TERMINAL_EVENT_TYPES_SQL, is_run_terminal_event_type};
 
-/// The event types after which no later piece joins a run's row, so its row has ended: a turn's
-/// end, the run's end and its rollback, as a SQL list of quoted words.
-pub(crate) static ROW_ENDING_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "{}, {}, '{}'",
-        sql_list_of(TURN_END_EVENT_TYPES),
-        *RUN_TERMINAL_EVENT_TYPES_SQL,
-        SessionEventType::AgentRunRolledBack.as_str(),
-    )
+// The event types after which no later piece joins a run's row, so its row has ended: a turn's
+// end and the run's rollback. The run's own end is not one: a run the daemon ends keeps taking its
+// open turn's last text until the provider ends that turn.
+static ROW_ENDING_EVENT_TYPES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    TURN_END_EVENT_TYPES
+        .into_iter()
+        .chain([SessionEventType::AgentRunRolledBack.as_str()])
+        .collect()
 });
+
+/// The event types that end a run's rows, as a SQL list of quoted words.
+pub(crate) static ROW_ENDING_EVENT_TYPES_SQL: LazyLock<String> =
+    LazyLock::new(|| sql_list_of(ROW_ENDING_EVENT_TYPES.iter().copied()));
 
 /// Whether an event of `event_type` ends its run's rows, as [`ROW_ENDING_EVENT_TYPES_SQL`] lists.
 pub(crate) fn is_row_ending_event_type(event_type: &str) -> bool {
-    TURN_END_EVENT_TYPES.contains(&event_type)
-        || is_run_terminal_event_type(event_type)
-        || event_type == SessionEventType::AgentRunRolledBack.as_str()
+    ROW_ENDING_EVENT_TYPES.contains(&event_type)
 }
 
 /// Whether the event aliased `event_alias` is a stored part of a patch-bearing completion, which
@@ -379,7 +379,7 @@ where
     }
 
     /// Which of `rows`, each a row's sequence and its last piece's through `head`, still take
-    /// pieces: a row of a run that no turn end, end or rollback of its run has followed.
+    /// pieces: a row of a run that no turn end or rollback of its run has followed.
     pub(crate) fn unended_rows(
         &self,
         rows: &[(i64, i64)],

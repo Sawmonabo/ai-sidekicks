@@ -199,20 +199,11 @@ impl TranscriptTestLog {
         );
     }
 
-    /// Writes the start of turn `turn_number` of `run_id`.
-    pub(crate) fn turn_start(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
-        self.turn_event("agent.turn.started", run_id, turn_number)
-    }
-
     /// Writes the end of turn `turn_number` of `run_id`.
     pub(crate) fn turn_end(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
-        self.turn_event("agent.turn.completed", run_id, turn_number)
-    }
-
-    fn turn_event(&self, event_type: &str, run_id: RunId, turn_number: u64) -> (i64, String) {
         self.write(
             json!({
-                "type": event_type,
+                "type": "agent.turn.completed",
                 "payload": {
                     "sessionId": self.session_id,
                     "runId": run_id,

@@ -435,13 +435,12 @@ interface TranscriptPatchCursor {
 // One entry per left-out file: its patch with the lines it adds and removes, or why it cannot be
 // read: `absent` when no patch came, `unreadable` when the provider sent one in a form this
 // version cannot read, which carries the text as sent, `rawPatch`, paged as a patch is, and
-// `damaged` when the stored patch lies in a range of the log the session skipped as damaged, the
-// file answered in its place and the read going on to the next. A file the call moved is named by
-// its new path, its old one in `oldPath`. Each reply is bounded by
-// PAGE_MAX_BYTES as well: patches longer than one frame holds come back in consecutive parts, as
-// transcript.body.read's body does. A part holds the files from `cursor` on, its first entry's
-// patch starting at `cursor.offset` and its last one's ending where `next` starts; `next` is null
-// on the last part, and the client joins the pieces of one file in order.
+// `damaged` for a file the log cannot read whole, the file answered in its place and the read going
+// on to the next. A file the call moved is named by its new path, its old one in `oldPath`. Each
+// reply is bounded by PAGE_MAX_BYTES as well: patches longer than one frame holds come back in
+// consecutive parts, as transcript.body.read's body does. A part holds the files from `cursor` on,
+// its first entry's patch starting at `cursor.offset` and its last one's ending where `next`
+// starts; `next` is null on the last part, and the client joins the pieces of one file in order.
 type TranscriptPatchFile =
   | { path: string; oldPath?: string; patch: string; additions: number; deletions: number }
   | { path: string; oldPath?: string; unavailable: "absent" }

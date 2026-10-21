@@ -61,6 +61,12 @@ CREATE TABLE session_events (
   run_id                 TEXT,                       -- the run the event belongs to, set by the append from the typed event for every event type that carries one; NULL otherwise
   run_version            INTEGER,                    -- the run's progression counter the event was written at, set by the append beside run_id for every event type that carries one; NULL otherwise
   turn_number            INTEGER,                    -- the turn's number within its run, from 1, set by the append beside run_id for the turn start and the three turn ends; NULL otherwise
+  join_key               TEXT,                       -- the provider message and block a run's reply or reasoning piece belongs to; on a tool completion that names patched files and on each stored part of them, the completion's id; NULL otherwise
+  joins_sequence         INTEGER,                    -- on a piece or stored part that continues an earlier row, the sequence of the row's first piece; NULL on the first piece and on every other event
+  target_run_id          TEXT,                       -- the run an event is filed under without being that run's own event, an intervention's target among them; NULL on an event of a run and on a session-level one
+  tool_call_id           TEXT,                       -- the tool call a run's tool completion completes; NULL on its stored parts and on every other event
+  patch_file_index       INTEGER,                    -- on a stored part of a tool completion's patched files, which is no event of its own, the file's place in the completion's list; NULL on every event
+  patch_text_offset      INTEGER,                    -- on a stored part of a file's text, the UTF-8 offset in the text of its first byte; NULL on every other row
   UNIQUE(session_id, sequence)
 ) STRICT;
 
@@ -68,6 +74,18 @@ CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type = 'session.damagedEvents.skipped';
 -- One run's events of one type in log order, for the reads that seed a run's turns and that find a live run's agent and newest touch.
 CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence) WHERE run_id IS NOT NULL;
+-- One run's events in log order, read beside the events filed under it.
+CREATE INDEX idx_session_events_run_sequence ON session_events(session_id, run_id, sequence) WHERE run_id IS NOT NULL;
+-- The events filed under a run that are not its own, in log order.
+CREATE INDEX idx_session_events_target_run ON session_events(session_id, target_run_id, sequence) WHERE target_run_id IS NOT NULL;
+-- A tool call's completions, newest last, for the read of the patches it left out.
+CREATE INDEX idx_session_events_tool_call ON session_events(session_id, tool_call_id, sequence) WHERE tool_call_id IS NOT NULL;
+-- A run's newest piece of one type under one message and block, which a later piece joins.
+CREATE INDEX idx_session_events_join_key ON session_events(session_id, run_id, type, join_key, sequence, joins_sequence) WHERE join_key IS NOT NULL;
+-- Every piece continuing a row, by the row's first piece, in log order.
+CREATE INDEX idx_session_events_joins ON session_events(session_id, joins_sequence, sequence) WHERE joins_sequence IS NOT NULL;
+-- A completion's stored parts by file and text offset, so a patch read finds the parts of one range of one file without reading the rest.
+CREATE INDEX idx_session_events_patch_parts ON session_events(session_id, joins_sequence, patch_file_index, patch_text_offset, sequence) WHERE patch_file_index IS NOT NULL;
 -- One run's events that name an actor, in log order, for the read that finds who acts for a run.
 CREATE INDEX idx_session_events_run_actor ON session_events(session_id, run_id, sequence) WHERE run_id IS NOT NULL AND actor IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;

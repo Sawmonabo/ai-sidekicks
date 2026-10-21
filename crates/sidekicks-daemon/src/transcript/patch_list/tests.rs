@@ -1,10 +1,12 @@
 //! The patch read's tests.
 
+use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::declared_variants::CONTENT_PAYLOAD_PLAINTEXT_MAX;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::TranscriptPatchListRequest;
+use sidekicks_contracts::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 
 use super::{PatchListError, list_patches};
 use crate::transcript::block_cut::MARKDOWN_PARSE;
@@ -21,6 +23,20 @@ fn list(log: &TranscriptTestLog, tool_call_id: &str, cursor: Option<&Value>) -> 
     )
     .expect("the patches read");
     wire_message(&page).0
+}
+
+// The session's first window page, as JSON.
+fn window(log: &TranscriptTestLog) -> Value {
+    let request = serde_json::from_value(json!({ "sessionId": log.session_id }))
+        .expect("the test's request reads");
+    let window = read_transcript_window(
+        &log.reader(),
+        &|_: &SessionId| None,
+        &request,
+        MARKDOWN_PARSE,
+    )
+    .expect("the window reads");
+    wire_message(&window).0
 }
 
 fn request(
@@ -152,16 +168,7 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
         let body = std::str::from_utf8(body).expect("a part is UTF-8");
         assert!(body.chars().count() <= CONTENT_PAYLOAD_PLAINTEXT_MAX);
     }
-    let window_request = serde_json::from_value(json!({ "sessionId": log.session_id }))
-        .expect("the test's request reads");
-    let window = read_transcript_window(
-        &log.reader(),
-        &|_: &SessionId| None,
-        &window_request,
-        MARKDOWN_PARSE,
-    )
-    .expect("the window reads");
-    let window = wire_message(&window).0;
+    let window = window(&log);
     assert_eq!(window["entries"].as_array().map(Vec::len), Some(1));
     assert_eq!(
         window["entries"][0]["omittedPatches"][0]["oldPath"],
@@ -362,27 +369,46 @@ fn patch_list_keeps_two_completions_of_one_call_in_one_turn_apart() {
     );
 }
 
-// Killed by an empty list taken as naming files: its body would be stored as the list's
-// opening alone.
-#[test]
-fn a_completion_naming_no_files_stores_its_body_whole() {
+// Killed by an empty list taken as naming files, whose body would be stored as the list's opening
+// alone, and by an empty list on a body over the inline cap read as a malformed row.
+#[rstest]
+#[case::an_inline_body(r#"{"files":[]}"#.to_owned())]
+#[case::a_body_over_the_inline_cap(format!(
+    r#"{{"files":[],"note":"{}"}}"#,
+    "a".repeat(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)
+))]
+fn a_completion_naming_no_files_stores_its_body_whole(#[case] body: String) {
     let log = TranscriptTestLog::new();
-    let body = r#"{"files":[]}"#;
-    let (completion, _) = log.tool_completion(log.run_id, "call-1", Some(json!([])), Some(body));
+    let (completion, row_id) =
+        log.tool_completion(log.run_id, "call-1", Some(json!([])), Some(&body));
 
-    let stored: (Vec<u8>, i64) = log
+    let parts: i64 = log
         .reader()
         .query_row(
-            "SELECT content_payload,
-                    (SELECT count(*) FROM session_events WHERE joins_sequence = ?1)
-               FROM session_events WHERE sequence = ?1",
+            "SELECT count(*) FROM session_events WHERE joins_sequence = ?1",
             [completion],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| row.get(0),
         )
-        .expect("the test reads the completion");
-    assert_eq!(stored, (body.as_bytes().to_vec(), 0));
+        .expect("the test counts the completion's parts");
+    assert_eq!(parts, 0);
+    let read_back = read_row_body(
+        &log.reader(),
+        &|_: &SessionId| None,
+        &log.session_id,
+        &row_id,
+        0,
+        MARKDOWN_PARSE,
+    )
+    .expect("the body reads")
+    .expect("a row stands at the completion");
+    let read_back = wire_message(&read_back).0;
+    assert_eq!(read_back["body"], body.as_str());
+    assert_eq!(read_back["nextOffset"], Value::Null);
     assert_eq!(
         list(&log, "call-1", None),
         json!({ "files": [], "next": null })
     );
+    let window = window(&log);
+    assert_eq!(window["entries"].as_array().map(Vec::len), Some(1));
+    assert!(window["entries"][0].get("omittedPatches").is_none());
 }

@@ -17,9 +17,11 @@ use sidekicks_contracts::run::events::{
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::ReadLength;
+use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::stored_column::safe_int_column;
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
@@ -35,6 +37,7 @@ use crate::session::run::restart::{TurnCut, limit_turn_cause, read_turn_cuts};
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError,
 };
+use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 // The position among a run change's companions of the guard that the turn it ends has no end yet:
 // the turn's end rides first, so its guard leads the companions.
@@ -79,14 +82,8 @@ static SELECT_TURN_START_FROM_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// The three turn ends as an SQL list, in the order the unique index on turn ends spells them.
-pub(crate) static TURN_END_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "'{}', '{}', '{}'",
-        SessionEventType::AgentTurnCompleted.as_str(),
-        SessionEventType::AgentTurnInterrupted.as_str(),
-        SessionEventType::AgentTurnFailed.as_str()
-    )
-});
+pub(crate) static TURN_END_TYPES_SQL: LazyLock<String> =
+    LazyLock::new(|| sql_list_of(TURN_END_EVENT_TYPES));
 
 // Refuses an end once the turn holds one.
 static SELECT_TURN_END_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -109,6 +106,16 @@ static SELECT_OPEN_TURN_SQL: LazyLock<String> =
 // Every started turn of the run that holds no end, oldest first.
 static SELECT_OPEN_TURNS_SQL: LazyLock<String> =
     LazyLock::new(|| open_turns_sql("ORDER BY started.turn_number"));
+
+// Matches the run while it has not ended or a turn of it holds no end yet.
+static RUN_LIVE_OR_TURN_OPEN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM runs WHERE run_id = @run_id
+  AND (state NOT IN ({}) OR EXISTS ({}))",
+        *RUN_TERMINAL_STATES_SQL,
+        open_turns_sql("LIMIT 1")
+    )
+});
 
 /// A turn's end its provider's end frame reported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -728,6 +735,16 @@ fn open_turns_sql(tail: &str) -> String {
         SessionEventType::AgentTurnStarted.as_str(),
         *TURN_END_TYPES_SQL
     )
+}
+
+/// Holds only while `run_id` has not ended or a turn of it is still open, so a piece of its reply
+/// or reasoning is taken until the provider ends the turn it belongs to, even past the run's end.
+pub(crate) fn run_live_or_turn_open_statement(run_id: &RunId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(RUN_LIVE_OR_TURN_OPEN_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
+        expected_row_count: Some(1),
+    }
 }
 
 // Refuses a start numbered `turn_number` once a start holds it or a later number.

@@ -208,7 +208,8 @@ fn row_of(
 type OmittedPatches = BoundedVec<TranscriptOmittedPatch, 1, { usize::MAX }>;
 
 // The patches a tool completion's row leaves out: every file its producer named, when its body is
-// too large to travel with the row. A list that does not read is a malformed stored row.
+// too large to travel with the row and the list names one. A list that does not read is a malformed
+// stored row.
 fn omitted_patches_of(
     event: &EventEnvelope,
     content: &TranscriptRowContent,
@@ -221,6 +222,9 @@ fn omitted_patches_of(
     let Some(patches) = event.payload.get(OMITTED_PATCHES_PAYLOAD_KEY) else {
         return Ok(None);
     };
+    if patches.as_array().is_some_and(Vec::is_empty) {
+        return Ok(None);
+    }
     serde_json::from_value(patches.clone())
         .map(Some)
         .map_err(|cause| MalformedStoredEventError {

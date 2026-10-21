@@ -2,8 +2,8 @@
 //! for every row still taking pieces, its id, where its next piece starts and, for a reply drawn as
 //! markdown, its block cut past its last frozen start, and for every child run the stream met, its
 //! running event count. A stream that first meets a row or a child partway seeds it with one
-//! indexed read; a row is let go, with the starts its cut left unsent, at its run's turn end, end
-//! or rollback, and a child at its end. A large piece's text is loaded only for a row whose cut
+//! indexed read; a row is let go, with the starts its cut left unsent, at its run's turn end or
+//! rollback, and a child at its end. A large piece's text is loaded only for a row whose cut
 //! reads it. Only a reply's or reasoning's pieces are placed: a tool completion goes out whole.
 
 use std::collections::HashMap;
@@ -408,9 +408,9 @@ impl TranscriptStreamState {
         }))
     }
 
-    /// Lets go of what `event`, filed under `run_id`, ends: the run's open rows at a turn's end,
-    /// its own end or its rollback, and the run itself at its end. Answers each ended row cut into
-    /// blocks with the starts its whole text left unsent, or why its last cut failed.
+    /// Lets go of what `event`, filed under `run_id`, ends: the run's open rows at a turn's end or
+    /// its rollback, and the run itself at its end. Answers each ended row cut into blocks with the
+    /// starts its whole text left unsent, or why its last cut failed.
     pub(crate) fn forget_ended(
         &mut self,
         event: &EventEnvelope,

@@ -5,11 +5,11 @@
 //! tail. A read answers the files from its cursor on, as many as fit one page, loading only the
 //! parts of the text it answers and at most one more, a file too long for what is left of the page
 //! cut at a character boundary and continued by the next read from `{fileIndex, offset}`. A file
-//! with a part in a range the session skipped as damaged is answered in its place as damaged.
+//! the log cannot read whole is answered in its place as damaged.
 
 use std::sync::LazyLock;
 
-use rusqlite::{Connection, OptionalExtension, named_params};
+use rusqlite::{Connection, OptionalExtension, ToSql, named_params};
 use serde_json::json;
 use sidekicks_contracts::event::declared_variants::CONTENT_PAYLOAD_PLAINTEXT_MAX;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
@@ -28,6 +28,7 @@ use sidekicks_contracts::wire::text::BoundedText;
 
 use crate::database::connection::read_pool::DatabaseReadError;
 use crate::database::stored_column::optional_utf8_blob_column;
+use crate::events::content::append::stored_index;
 use crate::events::session::read::{SessionEventReads, readable_event_sql};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
@@ -73,6 +74,13 @@ const FILE_HEADER_SQL: &str = "SELECT content_payload FROM session_events
 const TEXT_PART_AT_SQL: &str = "SELECT patch_text_offset, content_payload FROM session_events
   WHERE session_id = @session_id AND joins_sequence = @completion_sequence
     AND patch_file_index = @file_index AND patch_text_offset <= @offset
+  ORDER BY patch_text_offset DESC
+  LIMIT 1";
+
+// The last part of a file's text.
+const LAST_TEXT_PART_SQL: &str = "SELECT patch_text_offset, content_payload FROM session_events
+  WHERE session_id = @session_id AND joins_sequence = @completion_sequence
+    AND patch_file_index = @file_index
   ORDER BY patch_text_offset DESC
   LIMIT 1";
 
@@ -202,26 +210,33 @@ impl StoredPatchFiles<'_> {
             .map_err(|cause| self.stored_file_fault(file_index, Some(cause)))
     }
 
-    // The part of file `file_index`'s text that `sql` picks against `offset`: where its text starts
-    // and its text. Fails when the part does not read as JSON string content.
+    // The part of file `file_index`'s text that `sql` picks, against `offset` where the statement
+    // takes one: where its text starts and its text. Fails when the part does not read as JSON
+    // string content.
     fn text_part(
         &self,
         sql: &str,
         file_index: usize,
-        offset: usize,
+        offset: Option<usize>,
     ) -> Result<Option<(usize, String)>, PatchListError> {
+        let session_id = self.session_id.text();
+        let session_id = session_id.as_str();
+        let file_index_column = stored_index(file_index);
+        let offset_column = offset.map(stored_index);
+        let mut bindings: Vec<(&str, &dyn ToSql)> = vec![
+            ("@session_id", &session_id),
+            ("@completion_sequence", &self.completion_sequence),
+            ("@file_index", &file_index_column),
+        ];
+        if let Some(offset_column) = &offset_column {
+            bindings.push(("@offset", offset_column));
+        }
         let part: Option<(i64, Option<String>)> = self
             .reader
             .prepare_cached(sql)?
-            .query_row(
-                named_params! {
-                    "@session_id": self.session_id.text().as_str(),
-                    "@completion_sequence": self.completion_sequence,
-                    "@file_index": stored_index(file_index),
-                    "@offset": stored_index(offset),
-                },
-                |row| Ok((row.get(0)?, optional_utf8_blob_column(row, 1)?)),
-            )
+            .query_row(bindings.as_slice(), |row| {
+                Ok((row.get(0)?, optional_utf8_blob_column(row, 1)?))
+            })
             .optional()?;
         let Some((part_offset, body)) = part else {
             return Ok(None);
@@ -407,7 +422,8 @@ fn text_from(
     start: usize,
     budget: usize,
 ) -> Result<FileText, PatchListError> {
-    let Some((mut part_offset, part)) = files.text_part(TEXT_PART_AT_SQL, index, start)? else {
+    let Some((mut part_offset, part)) = files.text_part(TEXT_PART_AT_SQL, index, Some(start))?
+    else {
         // A file whose text is empty stores no part of it.
         return Ok(if start == 0 {
             FileText::Read(LoadedText {
@@ -433,7 +449,8 @@ fn text_from(
                 is_whole_rest: false,
             }));
         }
-        let Some((next_offset, next)) = files.text_part(TEXT_PART_AFTER_SQL, index, part_offset)?
+        let Some((next_offset, next)) =
+            files.text_part(TEXT_PART_AFTER_SQL, index, Some(part_offset))?
         else {
             if loaded.is_empty() && start > 0 {
                 return Ok(FileText::AtItsEnd);
@@ -457,11 +474,7 @@ fn text_from(
 // to name it in a refusal.
 fn text_length_of(files: &StoredPatchFiles<'_>, index: usize) -> Result<usize, PatchListError> {
     Ok(files
-        .text_part(
-            TEXT_PART_AT_SQL,
-            index,
-            usize::try_from(i64::MAX).unwrap_or(usize::MAX),
-        )?
+        .text_part(LAST_TEXT_PART_SQL, index, None)?
         .map_or(0, |(offset, text)| offset + text.len()))
 }
 
@@ -568,11 +581,6 @@ fn damaged_entry(named: &TranscriptOmittedPatch) -> TranscriptPatchFile {
 
 fn safe_count(count: u64) -> SafeInt<0> {
     SafeInt::new(count).expect("a patch's line count is a safe integer")
-}
-
-// A file's place or a text offset as its column stores it.
-fn stored_index(index: usize) -> i64 {
-    i64::try_from(index).unwrap_or(i64::MAX)
 }
 
 fn patch_cursor(file_index: usize, offset: usize) -> TranscriptPatchCursor {

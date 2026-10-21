@@ -2,11 +2,12 @@
 //! before anything is written. A lifecycle event, child run, marker, live state, unstamped row or
 //! permission ask from the execution before an undo's cut is absorbed there; one for a run already
 //! ended is absorbed by the refusal of its own write, with a diagnostic unless it is the provider's
-//! end of a turn the daemon interrupted, and so is a piece of a reply or of reasoning, since
-//! nothing of an ended run takes pieces; any other row is appended, stamped with its source pair
-//! when it is late, a reasoning update among them with its body. A session notice or session row
-//! belongs to no execution and is appended as it is.
+//! end of a turn the daemon interrupted, and so is a piece of a reply or of reasoning once no turn
+//! of its ended run is open; any other row is appended, stamped with its source pair when it is
+//! late, a reasoning update among them with its body. A session notice or session row belongs to
+//! no execution and is appended as it is.
 
+mod absorb;
 pub(crate) mod rows;
 #[cfg(test)]
 mod tests;
@@ -14,7 +15,6 @@ mod tests;
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use serde_json::{Map, Value};
 use sidekicks_contracts::event::declared_variants::{AgentOutputPayload, RunAgentOutputPayload};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
@@ -35,16 +35,13 @@ use crate::events::session::appender::{
     SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::provider::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
-};
 use crate::provider::port::run_state_publisher::RunStatePublisher;
-use crate::queue::store::run_live_statement;
-use crate::session::run::engine::turns::ProviderTurnEnd;
+use crate::session::run::engine::turns::{ProviderTurnEnd, run_live_or_turn_open_statement};
 use crate::session::run::engine::{RunEngine, RunEngineError, RunMarker};
 use crate::session::run::epochs::{
     DeliveryAttribution, DeliveryOperation, EpochBinding, EpochCursorError, ExecutionEpochs,
 };
+use crate::session::run::inbound::absorb::absorb;
 use crate::session::run::inbound::rows::{
     LateAppendableRow, SessionScopedRow, UnstampedRow, stamp,
 };
@@ -204,35 +201,6 @@ pub(crate) enum LateEventAbsorbReason {
     RunResumed,
 }
 
-impl LateEventAbsorbReason {
-    // The reason as the diagnostic's details name it.
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::BeforeCut => "beforeCut",
-            Self::RunEnded => "runEnded",
-            Self::RunResumed => "runResumed",
-        }
-    }
-
-    // Why the delivery was disposed of, in the diagnostic's words.
-    fn sentence(self) -> &'static str {
-        match self {
-            Self::BeforeCut => {
-                "the delivery belongs to the execution before an undo's cut, so it is absorbed at \
-                 the epoch check and nothing is written"
-            }
-            Self::RunEnded => {
-                "the delivery's run had already ended, so its write was refused and nothing is \
-                 written"
-            }
-            Self::RunResumed => {
-                "the delivery reported a pause or a turn under way after a resume had already set \
-                 the run running, so its write was refused and nothing is written"
-            }
-        }
-    }
-}
-
 /// What the dispatch did with a delivery. `AskAdmitted` is a permission ask of the current
 /// execution, which the caller hands to the approval pipeline; `ChildRunStarted` carries the
 /// child's new run, which the caller keeps for the subagent's later deliveries; an appended row
@@ -339,7 +307,7 @@ struct PendingAppend {
     // reasoning text too long for one entry.
     preceding_pieces: Vec<(SessionEvent, String)>,
     // On a piece of a reply or of reasoning, its run and where it arrived: its write is refused
-    // once the run has ended, and the piece absorbed.
+    // once the run has ended and no turn of it is open, and the piece absorbed.
     piece_of: Option<PieceDelivery>,
 }
 
@@ -350,7 +318,7 @@ struct PieceDelivery {
     absorbed: AbsorbedDelivery,
 }
 
-// The prelude statement that refuses a piece's write once its run has ended.
+// The prelude statement that refuses a piece's write once its run and every turn of it ended.
 const PIECE_RUN_LIVE_GUARD_INDEX: usize = 0;
 
 // A delivery on a binding that is absorbed when it comes from before a cut.
@@ -445,9 +413,12 @@ impl RunInboundDispatch {
 
     /// Dispatches one delivery. It is attributed, and a live state published, when the call is
     /// made, before the returned future is first polled, so calls for a binding are made in its
-    /// delivery order. Fails with [`InboundDispatchError::Cursor`] for a binding with no cursor
-    /// open, and with the engine's or the log's failure; a refusal for a run that has ended is no
-    /// failure but an absorb, and a resend the engine owed after a move is logged, never failed.
+    /// delivery order; a piece of a run being continued then waits for the continue's write, so a
+    /// driver's start never awaits its own run's pieces. Fails with
+    /// [`InboundDispatchError::Cursor`] for a binding with no cursor open, with
+    /// [`RunRefusal::NotFound`] for a piece of a run with no row, and with the engine's or the
+    /// log's failure; a refusal for an ended run is an absorb, and a resend the engine owed after
+    /// a move is logged, never failed.
     #[cfg_attr(
         not(test),
         expect(
@@ -473,11 +444,15 @@ impl RunInboundDispatch {
                         preceding_pieces,
                         piece_of,
                     } = *append;
-                    if let Some(piece) = &piece_of {
-                        let run_id = piece.absorbed.run_id.unwrap_or(piece.binding.run_id);
+                    let piece_run_id = piece_of
+                        .as_ref()
+                        .map(|piece| piece.absorbed.run_id.unwrap_or(piece.binding.run_id));
+                    if let Some(run_id) = &piece_run_id {
+                        self.engine.wait_while_continuing(run_id).await;
+                        let guard = run_live_or_turn_open_statement(run_id);
                         linkage
                             .transactional_prelude
-                            .insert(PIECE_RUN_LIVE_GUARD_INDEX, run_live_statement(&run_id));
+                            .insert(PIECE_RUN_LIVE_GUARD_INDEX, guard);
                     }
                     for (piece, body) in preceding_pieces {
                         linkage.preceding_events.push(
@@ -492,9 +467,10 @@ impl RunInboundDispatch {
                             if refused_statement_index(&error)
                                 == Some(PIECE_RUN_LIVE_GUARD_INDEX) =>
                         {
-                            let Some(piece) = piece_of else {
+                            let (Some(piece), Some(run_id)) = (piece_of, piece_run_id) else {
                                 return Err(error.into());
                             };
+                            self.engine.require_run(run_id).await?;
                             return Ok(absorb(
                                 &piece.binding,
                                 &piece.absorbed,
@@ -788,48 +764,6 @@ impl RunInboundDispatch {
     fn lock_epochs(&self) -> MutexGuard<'_, ExecutionEpochs> {
         self.epochs.lock().unwrap_or_else(PoisonError::into_inner)
     }
-}
-
-// Reports a delivery absorbed for `reason`, on `binding`, and answers that nothing was written.
-fn absorb(
-    binding: &EpochBinding,
-    absorbed: &AbsorbedDelivery,
-    reason: LateEventAbsorbReason,
-    attribution: DeliveryAttribution,
-) -> InboundOutcome {
-    let before_cut = match attribution {
-        DeliveryAttribution::BeforeCut { source } => Some(source),
-        DeliveryAttribution::Current | DeliveryAttribution::Unknown { .. } => None,
-    };
-    let run_id = absorbed.run_id.unwrap_or(binding.run_id);
-    let mut details = Map::new();
-    details.insert("reason".to_owned(), Value::from(reason.as_str()));
-    details.insert("deliveryKind".to_owned(), Value::from(absorbed.kind));
-    details.insert("bindingId".to_owned(), Value::from(binding.id.as_str()));
-    details.insert("runId".to_owned(), Value::from(run_id.text().as_str()));
-    details.insert(
-        "newState".to_owned(),
-        absorbed.new_state.map_or(Value::Null, |state| {
-            Value::from(<&'static str>::from(RunState::from(state)))
-        }),
-    );
-    details.insert(
-        "sourceEpoch".to_owned(),
-        before_cut.map_or(Value::Null, |source| Value::from(source.epoch.0.get())),
-    );
-    details.insert(
-        "sourcePosition".to_owned(),
-        before_cut.map_or(Value::Null, |source| Value::from(source.position.0.get())),
-    );
-    emit_driver_diagnostic(&DriverDiagnosticRecord {
-        provider: binding.provider_name.clone(),
-        provider_account_id: binding.provider_account_id.clone(),
-        kind: DriverDiagnosticKind::LateEventAbsorbed,
-        raw_wire_type: None,
-        disposition_reason: reason.sentence().to_owned(),
-        details,
-    });
-    InboundOutcome::Absorbed { reason }
 }
 
 // The pair a row of `attribution` is stamped with: none for the current execution; a row that may
