@@ -255,8 +255,11 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                     payload.fallback_model.as_deref().and_then(read_wire_handle)
                 else {
                     // No other model to retry on leaves nothing to choose: the turn ends refused,
-                    // and any choice the run held goes with it.
+                    // and any choice the run held goes with it. The end is marked before the
+                    // cancel is written, so the abort Claude Code sends after it is not a second
+                    // end.
                     self.lock().remove(&held.run.run_id);
+                    self.record_refusal_end(&held, false).await;
                     answer_claude_request(
                         session.channel,
                         &session.session_id,
@@ -265,7 +268,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                         &json!({"behavior": "cancelled"}),
                     )
                     .await;
-                    self.record_refusal_end(&held, false).await;
                     return;
                 };
                 let retracted_uuids = payload

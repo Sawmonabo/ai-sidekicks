@@ -8,7 +8,6 @@
 //! fires, and writes each piece it is given in order.
 
 use std::borrow::Borrow;
-use std::hash::Hash;
 use std::time::Duration;
 
 use tokio::time::Instant;
@@ -84,7 +83,7 @@ impl<K> Default for StreamedText<K> {
     }
 }
 
-impl<K: Hash + Eq + Clone + Send + Sync + 'static> StreamedText<K> {
+impl<K: Eq + Clone> StreamedText<K> {
     /// Adds `delta` to the message `key` of `turn_id`, opening it, at `now`. Returns the deadline
     /// the delta goes out by when this delta armed it, `None` when one was already armed.
     pub(crate) fn append<Q>(
