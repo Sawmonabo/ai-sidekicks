@@ -621,7 +621,7 @@ pub(crate) fn common_folder_of_record(record_folder: &Path) -> Option<&Path> {
 /// checkout's own `.git`), so a caller removing the record can never reach anything else. Fails
 /// with git's failure, a `Read` failure when git prints other than three folders, or the
 /// resolve's failure when a folder cannot be compared.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_linked_tree_record(
     git: &GitRunner,
     place: Option<&Place>,

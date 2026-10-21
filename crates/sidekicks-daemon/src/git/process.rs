@@ -425,6 +425,18 @@ impl GitRunner {
         .await
     }
 
+    /// Whether the repository in `folder`, of a project at `place`, turns git's built-in
+    /// file-watch daemon on and the git program has it, read as a live index read reads it, so a
+    /// daemon can have been started for the tree. Fails as [`run`](Self::run) does.
+    pub(crate) async fn is_built_in_file_watch_on(
+        &self,
+        place: Option<&Place>,
+        folder: &Path,
+    ) -> Result<bool, GitError> {
+        let executable = self.executable_for(place)?;
+        Ok(self.live_index_file_watch(executable, folder).await? == BUILT_IN_FILE_WATCH_SETTING)
+    }
+
     // The git program for a project at `place`; fails with `WslPlace` for a project in a WSL 2
     // distribution and `NotFound` when no git was found.
     fn executable_for(&self, place: Option<&Place>) -> Result<&Path, GitError> {

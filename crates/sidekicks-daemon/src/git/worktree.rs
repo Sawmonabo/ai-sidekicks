@@ -5,6 +5,8 @@
 //! flushes their services share.
 
 pub(crate) mod branch_list;
+pub(crate) mod carry;
+pub(crate) mod claims;
 pub(crate) mod copy_progress;
 pub(crate) mod errors;
 pub(crate) mod event_emitter;
@@ -19,7 +21,9 @@ pub(crate) mod reads;
 pub(crate) mod risks;
 pub(crate) mod rows;
 pub(crate) mod schema;
+pub(crate) mod service;
 pub(crate) mod staged_changes;
+pub(crate) mod status;
 #[cfg(test)]
 pub(crate) mod test_rows;
 pub(crate) mod unfinished_discards;

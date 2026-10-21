@@ -58,9 +58,12 @@ pub(crate) async fn read_removal_risks(
 }
 
 /// What the risk read shows in a tree, and a digest of every entry and commit behind it.
-#[expect(
-    dead_code,
-    reason = "worktree removal reads what it would lose through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "worktree removal reads what it would lose through it"
+    )
 )]
 #[derive(Clone, Debug)]
 pub(crate) struct RemovalRiskReading {
@@ -74,9 +77,12 @@ pub(crate) struct RemovalRiskReading {
 
 /// The risk read with its digest, for a tree no session stands in. Fails with the first git read's
 /// failure, a tree whose `HEAD` names no commit among them.
-#[expect(
-    dead_code,
-    reason = "worktree removal reads what it would lose through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "worktree removal reads what it would lose through it"
+    )
 )]
 pub(crate) async fn read_removal_risk_reading(
     git: &GitRunner,
@@ -108,9 +114,12 @@ pub(crate) async fn read_removal_risk_reading(
 }
 
 /// Whether a plain removal would lose anything: uncommitted, ignored or unpushed work.
-#[expect(
-    dead_code,
-    reason = "worktree removal reads what it would lose through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "worktree removal reads what it would lose through it"
+    )
 )]
 pub(crate) fn has_something_to_lose(risks: &WorktreeRemovalRisks) -> bool {
     risks.uncommitted_file_count.get() > 0
