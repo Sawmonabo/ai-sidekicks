@@ -306,7 +306,7 @@ pub(crate) fn read_claude_user_rows(
         let patch = (!is_error
             && is_lone_result
             && is_claude_file_changing_tool(opened.tool_name.as_str()))
-        .then(|| frame.tool_use_result.as_deref())
+        .then_some(frame.tool_use_result.as_deref())
         .flatten()
         .and_then(|result| serde_json::from_str(result.get()).ok())
         .and_then(|result| read_claude_patch_file(&result));

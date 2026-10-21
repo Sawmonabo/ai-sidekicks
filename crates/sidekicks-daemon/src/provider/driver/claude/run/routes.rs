@@ -22,6 +22,10 @@ use tokio::sync::watch;
 /// carry, the lead run it was started beneath, and the binding the lead's process is attributed
 /// on.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each field is an id, named as every id field in the daemon is"
+)]
 pub(crate) struct ClaudeChildRunRoute {
     /// The session.
     pub(crate) session_id: SessionId,

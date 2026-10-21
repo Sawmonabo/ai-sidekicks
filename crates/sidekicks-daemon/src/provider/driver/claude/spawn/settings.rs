@@ -294,7 +294,7 @@ mod tests {
 
         let reviewed = compose_claude_permissions(&request, &[], Some(PermissionLevel::Reviewed))
             .expect("the rules compose");
-        assert!(reviewed.allow.is_empty());
+        assert_eq!(reviewed.allow, [] as [String; 0]);
         assert_eq!(reviewed.ask, ["Bash(rm *)"]);
     }
 }

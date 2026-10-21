@@ -580,7 +580,7 @@ mod tests {
             .filter_map(|descriptor| descriptor.background_work.as_ref())
             .map(|work| work.off_switch)
             .collect();
-        assert!(!switches.is_empty());
+        assert_ne!(switches.len(), 0);
         for (name, value) in switches {
             assert_eq!(
                 config["shell_environment_policy"]["set"][name],

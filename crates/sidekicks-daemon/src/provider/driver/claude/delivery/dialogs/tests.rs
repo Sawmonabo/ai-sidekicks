@@ -43,7 +43,16 @@ fn label(delivery: &InboundDelivery<'static>) -> String {
                 "otherRow".to_owned()
             }
         },
-        _ => "otherDelivery".to_owned(),
+        InboundDelivery::TurnBoundary { .. }
+        | InboundDelivery::RunContinued { .. }
+        | InboundDelivery::ChildRun { .. }
+        | InboundDelivery::RunMarker { .. }
+        | InboundDelivery::LiveRunState { .. }
+        | InboundDelivery::ThinkingUpdate { .. }
+        | InboundDelivery::SessionNotice { .. }
+        | InboundDelivery::SessionEvent { .. }
+        | InboundDelivery::PermissionAsk { .. }
+        | InboundDelivery::SessionRow { .. } => "otherDelivery".to_owned(),
     }
 }
 

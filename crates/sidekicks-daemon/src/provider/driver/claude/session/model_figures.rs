@@ -250,20 +250,19 @@ where
 {
     let shared = {
         let mut reads = lock(held);
-        match reads.get(&key) {
-            Some(shared) => shared.clone(),
-            None => {
-                let task = tokio::spawn(read());
-                let shared = async move {
-                    task.await
-                        .expect("a figure read is never aborted, and a panic ends the daemon")
-                        .map_err(Arc::new)
-                }
-                .boxed()
-                .shared();
-                reads.insert(key.clone(), shared.clone());
-                shared
+        if let Some(shared) = reads.get(&key) {
+            shared.clone()
+        } else {
+            let task = tokio::spawn(read());
+            let shared = async move {
+                task.await
+                    .expect("a figure read is never aborted, and a panic ends the daemon")
+                    .map_err(Arc::new)
             }
+            .boxed()
+            .shared();
+            reads.insert(key.clone(), shared.clone());
+            shared
         }
     };
     let result = shared.clone().await;

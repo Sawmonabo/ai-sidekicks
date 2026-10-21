@@ -427,6 +427,10 @@ pub(crate) struct ClaudeFlagSettings {
         skip_serializing_if = "Option::is_none",
         with = "serde_with::rust::double_option"
     )]
+    #[expect(
+        clippy::option_option,
+        reason = "absent keeps the sandbox, null removes it and a value sets it"
+    )]
     pub(crate) sandbox: Option<Option<ClaudeSandboxSettings>>,
     /// The session's advisor model, `""` for none, which outranks the person's own advisor.
     #[serde(skip_serializing_if = "Option::is_none")]
