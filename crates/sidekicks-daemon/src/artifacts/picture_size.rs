@@ -33,7 +33,7 @@ use zune_jpeg::JpegDecoder;
 use zune_jpeg::zune_core::options::DecoderOptions;
 
 /// The bound on a size read: every format but WebP reads its header and metadata from this many
-/// leading bytes, and WebP's memory limit is set to it; a header that lies past it stores no size.
+/// leading bytes, a header past them storing no size, and WebP's memory limit is set to it.
 /// A read holds at most the prefix and two copies of one metadata chunk at once (PNG's chunk buffer
 /// and its EXIF clone), about three times this many bytes.
 const PICTURE_METADATA_MAX_BYTES: usize = 4 * 1024 * 1024;
