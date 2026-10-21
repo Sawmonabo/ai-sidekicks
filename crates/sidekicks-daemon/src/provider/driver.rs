@@ -198,6 +198,13 @@ impl ProviderDescriptor {
     /// Every variable the app sets on the provider's processes or its Terminal pane's shells, which
     /// a person's own environment row may not name: the process, launch, credential-home and
     /// screen-reader names. The withheld names are left out, since a person's command keeps them.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the environment rows' check refuses a name the app sets through it"
+        )
+    )]
     pub(crate) fn app_set_environment_names(&self) -> impl Iterator<Item = &'static str> {
         self.process_environment
             .iter()
@@ -229,13 +236,6 @@ pub(crate) struct BackgroundWork {
     pub(crate) refusal: &'static str,
     /// The variable and value that turn the provider's background work off, set on every
     /// provider's process and on the commands its conversation runs, so a nested run inherits it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds each provider process's environment from it"
-        )
-    )]
     pub(crate) off_switch: (&'static str, &'static str),
 }
 
@@ -347,6 +347,10 @@ impl ReportedVersionReading {
     /// `token` as the version where it is a canonical semantic version of at most
     /// [`VERSION_TOKEN_MAX_LEN`] characters, else `reply`, the text
     /// that carried it, as unreadable; every driver's version reader decides through this one rule.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "each driver's version read decides through it")
+    )]
     pub(crate) fn from_token(token: &str, reply: &str) -> Self {
         if token.chars().count() <= VERSION_TOKEN_MAX_LEN && is_canonical_semver(token) {
             Self::Version(token.to_owned())

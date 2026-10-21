@@ -37,6 +37,13 @@ pub(crate) struct ClaudeConversationOutline {
 }
 
 /// Where Claude Code and the daemon keep the conversations' files of one Claude Code home.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's conversation purge names its folders in it"
+    )
+)]
 pub(crate) struct ClaudeConversationFolders<'a> {
     /// The configuration folder of the Claude Code home the conversations ran on.
     pub(crate) config_folder: &'a Path,
@@ -51,6 +58,13 @@ pub(crate) struct ClaudeConversationFolders<'a> {
 }
 
 /// One conversation a purge deletes.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's conversation purge names each conversation in it"
+    )
+)]
 pub(crate) struct ClaudeConversation<'a> {
     /// Claude Code's id for it, which names its files.
     pub(crate) provider_session_id: &'a str,
@@ -61,6 +75,10 @@ pub(crate) struct ClaudeConversation<'a> {
 /// Finds the conversation's file under any project folder of `config_folder`, or `None`. Fails
 /// with any read failure but a missing projects folder, and with `InvalidInput` for an id that is
 /// not one plain path component.
+#[expect(
+    dead_code,
+    reason = "the Claude driver's resume and rewind find a conversation's file through it"
+)]
 pub(crate) async fn find_claude_conversation_file(
     config_folder: &Path,
     provider_session_id: &str,
@@ -96,6 +114,13 @@ async fn list_project_folders(config_folder: &Path) -> io::Result<Vec<PathBuf>> 
 
 /// Reads a conversation file's turns line by line; a line that is not a JSON object is skipped.
 /// Holds one line at a time, in a buffer up to twice the longest line, as the buffer doubles.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's rewind reads a conversation's turns through it"
+    )
+)]
 pub(crate) async fn read_claude_conversation_outline(
     file: &Path,
 ) -> io::Result<ClaudeConversationOutline> {
@@ -174,6 +199,13 @@ pub(crate) async fn find_claude_taken_messages(
 /// since they name the plan files a purge that fails must find again. Fails with `InvalidInput`,
 /// before anything is listed or removed, for an id that is not one plain path component, else with
 /// the first read or removal failure.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's conversation purge deletes through it"
+    )
+)]
 pub(crate) async fn delete_claude_conversations(
     folders: &ClaudeConversationFolders<'_>,
     conversations: &[ClaudeConversation<'_>],
