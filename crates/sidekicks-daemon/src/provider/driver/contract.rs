@@ -49,6 +49,7 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::provider::capability::probe::CapabilityProbeError;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
 };
@@ -459,23 +460,6 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
-}
-
-/// Why the daemon stops: a restart, after which the daemon starts again and a service that
-/// outlives it keeps running, or a stop, which ends that service too.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's stop and restart hand their intent to each driver"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DaemonStopIntent {
-    /// The daemon starts again: a service that outlives it keeps running.
-    Restart,
-    /// The daemon stops: every service it started ends.
-    Stop,
 }
 
 /// A follow of a session's live command list, ended when this drops.

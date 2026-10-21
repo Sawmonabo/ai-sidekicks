@@ -18,7 +18,7 @@ use crate::provider::driver::codex::service::supervisor::CodexServiceSocket;
 use crate::provider::driver::codex::service::supervisor::test_service::{
     drop_service_connection, script_codex_service,
 };
-use crate::provider::driver::contract::DaemonStopIntent;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
 // Fails when a planned restart leaves the home's socket on the first service, when the first's
 // stop clears the link the second now holds, when a crash leaves the link naming the socket its

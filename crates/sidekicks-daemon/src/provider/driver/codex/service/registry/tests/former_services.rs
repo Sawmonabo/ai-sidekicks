@@ -1,15 +1,21 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
+use interprocess::local_socket::traits::tokio::Listener as _;
+use sidekicks_platforms::{
+    CAN_LINK_A_SOCKET, ExistingSocket, RunningProgramPath, bind_socket_listener,
+    read_running_program_path, read_socket_link, replace_socket_link,
+};
 
 use super::stand_in::{
     CRASH_WAIT, HANG_UP_IGNORED_NAME, StandInServices, cut_short_planned_restart, home_record_file,
     is_running, mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
     wait_for_end_and_record_removal, wait_until_gone,
 };
+use crate::provider::driver::codex::service::command_line::compose_daemon_hook_commands;
 use crate::provider::driver::codex::service::registry::home_socket_path;
-use crate::provider::driver::contract::DaemonStopIntent;
+use crate::provider::driver::codex::service::supervisor::test_service::answer_as_codex_service;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
 // The services of one test in a folder whose socket paths fit the system's bound on them.
 fn folder_and_services() -> (tempfile::TempDir, StandInServices) {
@@ -79,6 +85,57 @@ async fn a_restart_cut_short_whose_socket_link_holder_died_points_the_link_back_
     assert_eq!(link, first_socket);
 }
 
+// Fails when a daemon restarted while a service no record names answers through the home's link,
+// Codex's managed daemon in use, points the link at a former service's socket or joins that
+// service, rather than joining the listener through the folder's path with no process of its own
+// and draining the former service.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_recorded_one() {
+    if !CAN_LINK_A_SOCKET {
+        return;
+    }
+    let (_folder, services) = folder_and_services();
+    let startup_timeout = services.dependencies.startup_timeout;
+    let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
+    let is_second_killed = send_signal(second_process, "-KILL");
+    let is_second_gone = wait_until_gone(second_process).await;
+    let home_socket = home_socket_path(&services.home.codex_home);
+    let unrecorded_socket = services.home.codex_home.join("unrecorded.sock");
+    let unrecorded = bind_socket_listener(&unrecorded_socket, ExistingSocket::Refuse)
+        .expect("the unrecorded listener listens");
+    let RunningProgramPath::OnDisk(program) =
+        read_running_program_path().expect("the program reads")
+    else {
+        panic!("the test program was replaced");
+    };
+    let hooks = Arc::new(compose_daemon_hook_commands(&program).expect("the hooks compose"));
+    let answering = tokio::spawn(async move {
+        while let Ok(stream) = unrecorded.accept().await {
+            tokio::spawn(answer_as_codex_service(stream, Arc::clone(&hooks)));
+        }
+    });
+    replace_socket_link(&home_socket, &unrecorded_socket).expect("the link names the listener");
+
+    let daemon = this_daemon(&services);
+    let joined = daemon.service_for(None).await.expect("the home resolves");
+    let started = joined.ensure_started(startup_timeout).await;
+    let joined_process = joined.process_id();
+    let is_first_drained =
+        wait_for_end_and_record_removal(first_process, &services, startup_timeout).await;
+    let link = read_socket_link(&home_socket).expect("the link reads");
+    daemon.shutdown(DaemonStopIntent::Stop).await;
+    answering.abort();
+
+    assert!(is_second_killed && is_second_gone);
+    assert!(started.is_ok(), "{started:?}");
+    assert_eq!(
+        joined_process, None,
+        "the start took a process of its own for the listener"
+    );
+    assert!(is_first_drained, "the recorded service was not drained");
+    assert_eq!(link.as_deref(), Some(unrecorded_socket.as_path()));
+}
+
 // Fails when a join the former service fails, here one stopped so it never answers, hands its
 // process back to nothing, which leaves it running in its record, joined again and failed by
 // every later start, so the folder's service never starts.
@@ -145,11 +202,16 @@ async fn a_draining_service_is_never_where_the_link_is_pointed_back() {
     let link =
         read_socket_link(&home_socket_path(&services.home.codex_home)).expect("the link reads");
     let launched_socket = launched.physical_socket();
+    let is_first_still_running = is_running(first_process);
     daemon.shutdown(DaemonStopIntent::Stop).await;
     send_signal(first_process, "-KILL");
 
     assert!(is_second_killed && is_second_gone);
     assert_eq!(marked, 2);
+    assert!(
+        is_first_still_running,
+        "the marked record's service was asked to drain again"
+    );
     assert!(started.is_ok(), "{started:?}");
     assert!(
         launched_process

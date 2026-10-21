@@ -308,13 +308,7 @@ impl LastingCodexService {
         control_socket: &Path,
     ) -> io::Result<ChildEnd> {
         if !CAN_SIGNAL_A_STOP {
-            let requested = match connect_unix_domain_socket(control_socket).await {
-                Ok(connection) => {
-                    request_codex_service_shutdown(connection, self.process.id()).await
-                }
-                Err(error) => Err(CodexShutdownRequestError::Connect(error)),
-            };
-            if let Err(error) = requested {
+            if let Err(error) = self.request_shutdown(control_socket).await {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     process_id = self.process.id(),
@@ -338,17 +332,22 @@ impl LastingCodexService {
         if CAN_SIGNAL_A_STOP {
             return self.process.hang_up();
         }
-        let requested = match connect_unix_domain_socket(control_socket).await {
-            Ok(connection) => request_codex_service_shutdown(connection, self.process.id())
-                .await
-                .map_err(io::Error::other),
-            Err(error) => Err(error),
-        };
-        match requested {
+        match self.request_shutdown(control_socket).await {
             Ok(()) => Ok(true),
             Err(_unreached) if self.has_ended()? => Ok(false),
-            Err(error) => Err(error),
+            Err(error) => Err(io::Error::other(error)),
         }
+    }
+
+    // Sends Codex's own shutdown request to the service over its control socket.
+    async fn request_shutdown(
+        &self,
+        control_socket: &Path,
+    ) -> Result<(), CodexShutdownRequestError> {
+        let connection = connect_unix_domain_socket(control_socket)
+            .await
+            .map_err(CodexShutdownRequestError::Connect)?;
+        request_codex_service_shutdown(connection, self.process.id()).await
     }
 
     /// Waits with no bound and no thread for the service's end, for one asked to drain. Dropping

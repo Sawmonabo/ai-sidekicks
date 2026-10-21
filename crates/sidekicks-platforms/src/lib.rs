@@ -303,7 +303,6 @@ pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
-#[cfg(any(test, feature = "test-support"))]
 pub use shell_start::SHELL_START_CONFIRMATION;
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::listener::ExistingSocket;

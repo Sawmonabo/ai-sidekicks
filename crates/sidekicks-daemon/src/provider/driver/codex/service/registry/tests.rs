@@ -2,19 +2,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::CAN_LINK_A_SOCKET;
-
-use rstest::rstest;
 
 use super::{CodexHomeResolver, CodexServiceRegistry};
 use crate::provider::driver::codex::service::home::CodexServiceHome;
 use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::provider::driver::contract::{DaemonStopIntent, DriverError};
+use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const THREAD: &str = "thread-1";

@@ -214,6 +214,11 @@ impl PinnedProcess {
         let Some(poller) = ExitWatch::attach(self.id)?.poller else {
             return Ok(());
         };
+        // Attached by id alone, so a process given the id after this one ended is checked off
+        // once the filter is on: the end came before the wait.
+        if !is_running(self)? {
+            return Ok(());
+        }
         // SAFETY: the poller's descriptor stays open for as long as the `AsyncFd` owns the poller,
         // and `as_raw_fd` answers that one descriptor every time.
         let exit = unsafe { AsyncFd::register_with_interest(poller, Interest::READABLE) }?;

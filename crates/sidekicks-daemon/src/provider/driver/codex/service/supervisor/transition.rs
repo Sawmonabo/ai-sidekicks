@@ -18,7 +18,7 @@ use crate::provider::driver::codex::service::supervisor::transition::action::{
     LastingServiceEnd, SupervisorAction,
 };
 use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::contract::DaemonStopIntent;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
 /// Where one service stands.
 #[derive(Clone, Debug, PartialEq, Eq)]

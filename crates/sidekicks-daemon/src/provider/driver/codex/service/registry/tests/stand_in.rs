@@ -30,7 +30,8 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
 use crate::provider::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies,
 };
-use crate::provider::driver::contract::{DaemonStopIntent, DriverError};
+use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::spawned_version::ResolvedProviderExecutable;
 
 /// The stand-in Codex service: this test program, run by the script the registry's services

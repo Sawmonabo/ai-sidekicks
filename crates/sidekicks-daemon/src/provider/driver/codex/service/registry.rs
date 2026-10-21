@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::{read_socket_link, replace_socket_link};
+use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
 
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
@@ -26,7 +26,8 @@ use crate::provider::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::contract::{DaemonStopIntent, DriverError};
+use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
 /// The folder under a Codex home that holds its control sockets.
 const CODEX_CONTROL_SOCKET_FOLDER: &str = "app-server-control";
@@ -180,7 +181,7 @@ impl CodexServiceRegistry {
     ) -> Result<Arc<CodexService>, CodexError> {
         let home = service.home().clone();
         let home_socket = home_socket_path(&home.codex_home);
-        let can_move_link = probe_socket_link_move(&home_socket, service).await?;
+        let can_move_link = CAN_LINK_A_SOCKET;
         let path = if can_move_link {
             own_socket_path(&home.codex_home).map_err(|error| CodexError::Transport {
                 detail: "The second Codex service's socket could not be named.".to_owned(),
@@ -276,35 +277,6 @@ impl CodexServiceRegistry {
 
     fn lock(&self) -> MutexGuard<'_, RegisteredServices> {
         self.services.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-/// Whether the home's control socket can be moved onto another service's socket: it is pointed
-/// again at the socket it names now, or at `service`'s where it names none, which changes nothing
-/// where it is a link and is refused where the path is the socket itself. Fails with the link's
-/// read error and any other failure of the move.
-async fn probe_socket_link_move(
-    home_socket: &Path,
-    service: &CodexService,
-) -> Result<bool, CodexError> {
-    let link = home_socket.to_owned();
-    let first_socket = service
-        .physical_socket()
-        .unwrap_or_else(|| home_socket.to_owned());
-    let moved = tokio::task::spawn_blocking(move || {
-        let target = read_socket_link(&link)?.unwrap_or(first_socket);
-        replace_socket_link(&link, &target)
-    })
-    .await
-    .map_err(io::Error::other)
-    .and_then(|moved| moved);
-    match moved {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::Unsupported => Ok(false),
-        Err(error) => Err(CodexError::Transport {
-            detail: "The Codex folder's socket link could not be checked.".to_owned(),
-            cause: Some(Box::new(error)),
-        }),
     }
 }
 

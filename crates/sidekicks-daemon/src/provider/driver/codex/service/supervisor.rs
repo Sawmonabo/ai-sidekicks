@@ -66,7 +66,8 @@ use crate::provider::driver::codex::transport::socket::{
 };
 use crate::provider::driver::codex::usage_limit_signal::CodexRateLimitObservation;
 use crate::provider::driver::codex::version::CODEX_CLIENT_NAME;
-use crate::provider::driver::contract::{DaemonStopIntent, DriverError};
+use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
