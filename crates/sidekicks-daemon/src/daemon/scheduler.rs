@@ -10,6 +10,9 @@
 //! - The wake signal is the operating system's own resume event, which every receiver hears once.
 //! - While no job is pending nothing is armed and no clock is read; otherwise only the first
 //!   deadline and the first instant are.
+//! - A job may run only while no run is live; one that falls due while a run is live is parked
+//!   aside, so it never holds the task, and runs once the count of live runs reaches zero, or at
+//!   the latest its condition's bound past its due time.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -20,10 +23,15 @@ use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
 use sidekicks_platforms::{WakeWatch, WakeWatchError, WallClock};
-use tokio::sync::{Notify, broadcast, oneshot};
+use tokio::sync::{Notify, broadcast, oneshot, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+
+pub(crate) use crate::daemon::scheduler::condition::JobCondition;
+use crate::daemon::scheduler::condition::ParkedRuns;
+
+mod condition;
 
 // Wakes a receiver may fall behind before it reads a lag; wakes are rare.
 const WAKE_SIGNAL_CAPACITY: usize = 16;
@@ -94,6 +102,8 @@ struct SchedulerState {
     pending_by_instant: BTreeMap<(SystemTime, u64), PendingRun>,
     next_sequence: u64,
     next_job_id: u64,
+    // The due runs whose condition failed, waiting for no run to be live or for their bound.
+    parked: ParkedRuns,
     // The instant the wall-clock timer holds.
     armed_instant: Option<SystemTime>,
     is_stopped: bool,
@@ -111,6 +121,8 @@ enum RunDue {
 struct PendingRun {
     job_id: u64,
     name: &'static str,
+    // When it may run once due.
+    condition: JobCondition,
     run: ScheduledJobRun,
     // For a repeating job, the wait after each run ends before the next.
     repeat_interval: Option<Duration>,
@@ -125,16 +137,22 @@ enum SchedulerEvent {
     DeadlineReached,
     WallClockTimerFired(io::Result<()>),
     MachineWoke(Result<(), WakeWatchError>),
+    LiveRunsChanged(Result<(), watch::error::RecvError>),
 }
 
 impl Scheduler {
     /// Starts the scheduler's one task on the running tokio runtime, running a wall-clock job on
-    /// `wall_clock`'s timer and telling each wake `wake_watch` hears; with no watch, receivers hear
-    /// no wake.
-    pub fn start(wall_clock: Arc<dyn WallClock>, wake_watch: Option<WakeWatch>) -> Self {
+    /// `wall_clock`'s timer, telling each wake `wake_watch` hears, and reading each job's condition
+    /// against `live_runs`, the count of live runs; with no watch, receivers hear no wake.
+    pub fn start(
+        wall_clock: Arc<dyn WallClock>,
+        wake_watch: Option<WakeWatch>,
+        live_runs: watch::Receiver<u32>,
+    ) -> Self {
         let state = SchedulerState {
             pending_by_deadline: BTreeMap::new(),
             pending_by_instant: BTreeMap::new(),
+            parked: ParkedRuns::default(),
             next_sequence: 0,
             next_job_id: 0,
             armed_instant: None,
@@ -147,7 +165,7 @@ impl Scheduler {
             head_changed: Notify::new(),
             stop: CancellationToken::new(),
         });
-        let task = tokio::spawn(Arc::clone(&shared).run(wake_watch));
+        let task = tokio::spawn(Arc::clone(&shared).run(wake_watch, live_runs));
         Self {
             shared,
             task: Mutex::new(Some(task)),
@@ -155,10 +173,12 @@ impl Scheduler {
     }
 
     /// Schedules one run of `run`, named `name` in the service log, `delay` from now on the
-    /// monotonic clock; a zero delay runs it at once. Refused once the scheduler has stopped.
+    /// monotonic clock, to run once `condition` allows; a zero delay runs it at once. Refused once
+    /// the scheduler has stopped.
     pub(crate) fn schedule<Run>(
         &self,
         name: &'static str,
+        condition: JobCondition,
         delay: Duration,
         run: Run,
     ) -> Result<ScheduledJobHandle, ScheduleError>
@@ -167,6 +187,7 @@ impl Scheduler {
     {
         self.add(
             name,
+            condition,
             RunDue::Deadline(Instant::now() + delay),
             None,
             Box::new(run),
@@ -174,25 +195,35 @@ impl Scheduler {
     }
 
     /// Schedules one run of `run` at `instant` on the wall clock, which it reaches across sleep and
-    /// clock changes; an instant already past runs it at once. Refused once the scheduler has
-    /// stopped, or when the operating system refuses to arm the timer for it.
+    /// clock changes, to run once `condition` allows; an instant already past runs it at once.
+    /// Refused once the scheduler has stopped, or when the operating system refuses to arm the
+    /// timer for it.
     pub(crate) fn schedule_at<Run>(
         &self,
         name: &'static str,
+        condition: JobCondition,
         instant: SystemTime,
         run: Run,
     ) -> Result<ScheduledJobHandle, ScheduleError>
     where
         Run: FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static,
     {
-        self.add(name, RunDue::WallClockInstant(instant), None, Box::new(run))
+        self.add(
+            name,
+            condition,
+            RunDue::WallClockInstant(instant),
+            None,
+            Box::new(run),
+        )
     }
 
     /// Schedules `run` `first_delay` from now, then again `interval` after each run ends, so two
-    /// runs of one job never overlap. Refused once the scheduler has stopped.
+    /// runs of one job never overlap, each running once `condition` allows. Refused once the
+    /// scheduler has stopped.
     pub(crate) fn schedule_repeating<Run>(
         &self,
         name: &'static str,
+        condition: JobCondition,
         interval: Duration,
         first_delay: Duration,
         run: Run,
@@ -202,6 +233,7 @@ impl Scheduler {
     {
         self.add(
             name,
+            condition,
             RunDue::Deadline(Instant::now() + first_delay),
             Some(interval),
             Box::new(run),
@@ -221,12 +253,13 @@ impl Scheduler {
     /// Runs nothing more: drops every pending run, closes the wake receivers, cancels the token
     /// the running job was given, then waits for it. Fails only when the task panicked.
     pub(crate) async fn stop(&self) -> Result<(), JoinError> {
-        let (pending_by_deadline, pending_by_instant, wake_sender) = {
+        let (pending_by_deadline, pending_by_instant, parked, wake_sender) = {
             let mut state = self.shared.lock_state();
             state.is_stopped = true;
             (
                 std::mem::take(&mut state.pending_by_deadline),
                 std::mem::take(&mut state.pending_by_instant),
+                state.parked.take_all(),
                 state.wake_sender.take(),
             )
         };
@@ -234,6 +267,7 @@ impl Scheduler {
         // Dropped outside the lock, since a job's work may hold anything.
         drop(pending_by_deadline);
         drop(pending_by_instant);
+        drop(parked);
         drop(wake_sender);
         let task = self
             .task
@@ -249,6 +283,7 @@ impl Scheduler {
     fn add(
         &self,
         name: &'static str,
+        condition: JobCondition,
         due: RunDue,
         repeat_interval: Option<Duration>,
         run: ScheduledJobRun,
@@ -272,6 +307,7 @@ impl Scheduler {
             PendingRun {
                 job_id,
                 name,
+                condition,
                 run,
                 repeat_interval,
                 is_canceled: Arc::clone(&is_canceled),
@@ -327,8 +363,9 @@ impl ScheduledJobHandle {
         state
             .pending_by_instant
             .retain(|_, pending| pending.job_id != self.job_id);
-        let was_pending =
-            state.pending_by_deadline.len() + state.pending_by_instant.len() < pending_count;
+        let was_parked = state.parked.cancel_job(self.job_id);
+        let was_pending = was_parked
+            || state.pending_by_deadline.len() + state.pending_by_instant.len() < pending_count;
         drop(state);
         if was_pending {
             shared.head_changed.notify_one();
@@ -400,19 +437,28 @@ impl SchedulerShared {
         refused_runs
     }
 
-    // The task: sleeps until the first deadline, waits on the wall-clock timer, and hears the
-    // machine's wakes, until the stop.
-    async fn run(self: Arc<Self>, mut wake_watch: Option<WakeWatch>) {
+    // The task: sleeps until the first deadline, waits on the wall-clock timer, hears the
+    // machine's wakes and, while a run is parked, follows the count of live runs, until the stop.
+    // A count whose sender is gone reads as no run live, so nothing stays parked for it.
+    async fn run(
+        self: Arc<Self>,
+        mut wake_watch: Option<WakeWatch>,
+        mut live_runs: watch::Receiver<u32>,
+    ) {
+        let mut is_count_followed = true;
         loop {
-            let (first_deadline, refused_runs) = {
+            let (first_deadline, is_parked, refused_runs) = {
                 let mut state = self.lock_state();
                 // A run or a cancel may have changed the first instant.
                 let refused_runs = self.arm_or_refuse_first_instants(&mut state);
                 let first_deadline = state
                     .pending_by_deadline
                     .first_key_value()
-                    .map(|(&(deadline, _), _)| deadline);
-                (first_deadline, refused_runs)
+                    .map(|(&(deadline, _), _)| deadline)
+                    .into_iter()
+                    .chain(state.parked.first_latest())
+                    .min();
+                (first_deadline, !state.parked.is_empty(), refused_runs)
             };
             // Told and dropped outside the lock, since a job's work may hold anything.
             for (refused, source) in refused_runs {
@@ -425,9 +471,12 @@ impl SchedulerShared {
                 () = sleep_until_deadline(first_deadline) => SchedulerEvent::DeadlineReached,
                 fired = self.wall_clock.wait() => SchedulerEvent::WallClockTimerFired(fired),
                 woke = wait_for_wake(wake_watch.as_mut()) => SchedulerEvent::MachineWoke(woke),
+                changed = live_runs.changed(), if is_parked && is_count_followed => {
+                    SchedulerEvent::LiveRunsChanged(changed)
+                }
             };
             match event {
-                SchedulerEvent::DeadlineReached => {}
+                SchedulerEvent::DeadlineReached | SchedulerEvent::LiveRunsChanged(Ok(())) => {}
                 SchedulerEvent::WallClockTimerFired(fired) => {
                     if let Err(failure) = fired {
                         tracing::error!(
@@ -449,13 +498,21 @@ impl SchedulerShared {
                     let wake_sender = self.lock_state().wake_sender.take();
                     drop(wake_sender);
                 }
+                SchedulerEvent::LiveRunsChanged(Err(_closed)) => is_count_followed = false,
             }
-            self.drain_due_runs().await;
+            let live_run_count = if is_count_followed {
+                *live_runs.borrow()
+            } else {
+                0
+            };
+            self.drain_due_runs(live_run_count).await;
         }
     }
 
-    async fn drain_due_runs(&self) {
-        while let Some(mut due) = self.take_due_run() {
+    // Runs every due run its condition allows while `live_run_count` runs are live, parking each
+    // it does not, and every parked run that may now go.
+    async fn drain_due_runs(&self, live_run_count: u32) {
+        while let Some(mut due) = self.take_due_run(live_run_count) {
             if let Err(failure) = (due.run)(self.stop.clone()).await {
                 tracing::warn!(
                     job = due.name,
@@ -467,23 +524,35 @@ impl SchedulerShared {
         }
     }
 
-    // Takes the first pending run that is due while the scheduler still runs; the wall clock is
-    // read only while a wall-clock run is pending.
-    fn take_due_run(&self) -> Option<PendingRun> {
+    // Takes the first run that may go while the scheduler still runs: a parked run released by
+    // the count or its bound, else the first due run its condition allows, parking each due run it
+    // does not; the wall clock is read only while a wall-clock run is pending.
+    fn take_due_run(&self, live_run_count: u32) -> Option<PendingRun> {
         let mut state = self.lock_state();
         if state.is_stopped {
             return None;
         }
-        if let Some((&(deadline, _), _)) = state.pending_by_deadline.first_key_value()
-            && deadline <= Instant::now()
-        {
-            return state.pending_by_deadline.pop_first().map(|(_, due)| due);
+        let now = Instant::now();
+        if let Some(released) = state.parked.take_released(live_run_count, now) {
+            return Some(released);
         }
-        let (&(instant, _), _) = state.pending_by_instant.first_key_value()?;
-        if instant > self.wall_clock.now() {
-            return None;
+        loop {
+            let due = if let Some((&(deadline, _), _)) = state.pending_by_deadline.first_key_value()
+                && deadline <= now
+            {
+                state.pending_by_deadline.pop_first()?.1
+            } else {
+                let (&(instant, _), _) = state.pending_by_instant.first_key_value()?;
+                if instant > self.wall_clock.now() {
+                    return None;
+                }
+                state.pending_by_instant.pop_first()?.1
+            };
+            if due.condition.allows(live_run_count) {
+                return Some(due);
+            }
+            state.parked.park(due, now);
         }
-        state.pending_by_instant.pop_first().map(|(_, due)| due)
     }
 
     // Schedules a repeating job's next run `interval` after this one ended, unless it was canceled
@@ -541,237 +610,4 @@ async fn wait_for_wake(wake_watch: Option<&mut WakeWatch>) -> Result<(), WakeWat
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-    use std::time::{Duration, SystemTime};
-
-    use futures::future::BoxFuture;
-    use sidekicks_platforms::{WallClock, WallClockWait};
-    use tokio::sync::{Notify, oneshot};
-    use tokio::time::Instant;
-    use tokio_util::sync::CancellationToken;
-
-    use super::{ScheduleError, ScheduledJobOutcome, Scheduler};
-
-    // Far longer than any periodic look would wait between two looks.
-    const IDLE_SPAN: Duration = Duration::from_secs(600);
-
-    // When the test's wall clock starts, how far ahead a job's instant is, and where the clock
-    // jumps to, as a sleep the tokio clock does not see would move it.
-    const CLOCK_START: Duration = Duration::from_hours(500_000);
-    const INSTANT_AHEAD: Duration = Duration::from_secs(3_600);
-    const JUMP_AHEAD: Duration = Duration::from_secs(7_200);
-
-    // How long the test waits for a run that must come.
-    const RUN_BOUND: Duration = Duration::from_secs(5);
-
-    // A wall clock the test sets, whose timer fires once the clock reaches the armed instant,
-    // which refuses to arm while told to, and which counts the scheduler's waits on it, one per
-    // turn of its task.
-    struct TestWallClock {
-        now: Mutex<SystemTime>,
-        armed_instant: Mutex<Option<SystemTime>>,
-        is_arm_refused: AtomicBool,
-        fired: Notify,
-        wait_count: AtomicUsize,
-    }
-
-    impl TestWallClock {
-        fn new() -> Arc<Self> {
-            Arc::new(Self {
-                now: Mutex::new(SystemTime::UNIX_EPOCH + CLOCK_START),
-                armed_instant: Mutex::new(None),
-                is_arm_refused: AtomicBool::new(false),
-                fired: Notify::new(),
-                wait_count: AtomicUsize::new(0),
-            })
-        }
-
-        fn set_now(&self, now: SystemTime) {
-            *lock(&self.now) = now;
-            self.fire_if_reached();
-        }
-
-        fn fire_if_reached(&self) {
-            let now = self.now();
-            let mut armed_instant = lock(&self.armed_instant);
-            if armed_instant.is_some_and(|instant| instant <= now) {
-                *armed_instant = None;
-                self.fired.notify_one();
-            }
-        }
-    }
-
-    impl WallClock for TestWallClock {
-        fn now(&self) -> SystemTime {
-            *lock(&self.now)
-        }
-
-        fn arm(&self, instant: SystemTime) -> std::io::Result<()> {
-            if self.is_arm_refused.load(Ordering::Relaxed) {
-                return Err(std::io::Error::other("the test refuses the arm"));
-            }
-            *lock(&self.armed_instant) = Some(instant);
-            self.fire_if_reached();
-            Ok(())
-        }
-
-        fn disarm(&self) -> std::io::Result<()> {
-            *lock(&self.armed_instant) = None;
-            Ok(())
-        }
-
-        fn wait(&self) -> WallClockWait<'_> {
-            self.wait_count.fetch_add(1, Ordering::Relaxed);
-            Box::pin(async move {
-                self.fired.notified().await;
-                Ok(())
-            })
-        }
-    }
-
-    // A job that reports its first run on `ran` and counts every run in `run_count`.
-    fn reporting_job(
-        ran: oneshot::Sender<()>,
-        run_count: &Arc<AtomicUsize>,
-    ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
-    {
-        let run_count = Arc::clone(run_count);
-        let mut ran = Some(ran);
-        move |_| {
-            run_count.fetch_add(1, Ordering::Relaxed);
-            let ran = ran.take();
-            Box::pin(async move {
-                if let Some(ran) = ran {
-                    ran.send(()).expect("the test waits for the run");
-                }
-                Ok(())
-            })
-        }
-    }
-
-    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-        mutex.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn an_idle_scheduler_arms_nothing_and_turns_no_more() {
-        let wall_clock = TestWallClock::new();
-        let scheduler = Scheduler::start(wall_clock.clone(), None);
-        // A receiver waits for wakes, which must not turn the task.
-        let _wakes = scheduler.on_wake();
-
-        // tokio's paused clock jumps to every timer the task arms, so a periodic look would turn
-        // the task again.
-        tokio::time::sleep(IDLE_SPAN).await;
-
-        assert_eq!(wall_clock.wait_count.load(Ordering::Relaxed), 1);
-        scheduler.stop().await.expect("the task ends");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_wall_clock_job_runs_once_when_the_clock_jumps_past_its_instant() {
-        let wall_clock = TestWallClock::new();
-        let scheduler = Scheduler::start(wall_clock.clone(), None);
-        let run_count = Arc::new(AtomicUsize::new(0));
-        let (ran, wall_clock_job_ran) = oneshot::channel();
-        scheduler
-            .schedule_at(
-                "wall-clock test job",
-                wall_clock.now() + INSTANT_AHEAD,
-                reporting_job(ran, &run_count),
-            )
-            .expect("the job is scheduled");
-        // A job due now makes the task look at what is due while the instant is still ahead.
-        let (looked, looked_at_due_runs) = oneshot::channel();
-        scheduler
-            .schedule(
-                "due-now test job",
-                Duration::ZERO,
-                reporting_job(looked, &Arc::new(AtomicUsize::new(0))),
-            )
-            .expect("the job is scheduled");
-        looked_at_due_runs.await.expect("the job due now runs");
-        assert_eq!(run_count.load(Ordering::Relaxed), 0);
-
-        let jumped_at = Instant::now();
-        wall_clock.set_now(wall_clock.now() + JUMP_AHEAD);
-        tokio::time::timeout(RUN_BOUND, wall_clock_job_ran)
-            .await
-            .expect("the job runs once the clock is past its instant")
-            .expect("the job reports its run");
-        assert_eq!(
-            Instant::now(),
-            jumped_at,
-            "the run waited on no tokio timer"
-        );
-
-        tokio::time::sleep(IDLE_SPAN).await;
-        assert_eq!(run_count.load(Ordering::Relaxed), 1);
-        scheduler.stop().await.expect("the task ends");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_refused_rearm_is_told_to_its_job_and_later_jobs_still_run() {
-        let wall_clock = TestWallClock::new();
-        let scheduler = Scheduler::start(wall_clock.clone(), None);
-        let started_at = wall_clock.now();
-        let run_count = Arc::new(AtomicUsize::new(0));
-        let (first_ran, first_job_ran) = oneshot::channel();
-        let _first = scheduler
-            .schedule_at(
-                "first test job",
-                started_at + INSTANT_AHEAD,
-                reporting_job(first_ran, &run_count),
-            )
-            .expect("the first job is scheduled");
-        let (second_ran, _second_job_ran) = oneshot::channel();
-        let mut second = scheduler
-            .schedule_at(
-                "second test job",
-                started_at + JUMP_AHEAD,
-                reporting_job(second_ran, &run_count),
-            )
-            .expect("the second job is scheduled");
-
-        // The first job runs, and the arm for the second is refused.
-        wall_clock.is_arm_refused.store(true, Ordering::Relaxed);
-        wall_clock.set_now(started_at + INSTANT_AHEAD);
-        tokio::time::timeout(RUN_BOUND, first_job_ran)
-            .await
-            .expect("the first job runs once the clock reaches its instant")
-            .expect("the first job reports its run");
-        let refusal = tokio::time::timeout(RUN_BOUND, second.refusal())
-            .await
-            .expect("the second job's instant is settled");
-        assert!(
-            matches!(
-                refusal,
-                Some(ScheduleError::TimerNotArmed {
-                    job: "second test job",
-                    ..
-                })
-            ),
-            "the second job's handle is told the timer was not armed, not {refusal:?}"
-        );
-
-        // The task still turns: a job scheduled once arming works again runs at its instant.
-        wall_clock.is_arm_refused.store(false, Ordering::Relaxed);
-        let (third_ran, third_job_ran) = oneshot::channel();
-        let _third = scheduler
-            .schedule_at(
-                "third test job",
-                started_at + JUMP_AHEAD,
-                reporting_job(third_ran, &run_count),
-            )
-            .expect("the third job is scheduled");
-        wall_clock.set_now(started_at + JUMP_AHEAD);
-        tokio::time::timeout(RUN_BOUND, third_job_ran)
-            .await
-            .expect("the third job runs once the clock reaches its instant")
-            .expect("the third job reports its run");
-        assert_eq!(run_count.load(Ordering::Relaxed), 2);
-        scheduler.stop().await.expect("the task ends");
-    }
-}
+mod tests;

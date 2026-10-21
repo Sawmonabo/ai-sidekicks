@@ -57,6 +57,7 @@ use crate::session::run::engine::live::{
 };
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, TurnOutcome, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::live_count::LiveRunCount;
 use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::session::run::setup_gates::{
@@ -298,6 +299,8 @@ pub(crate) struct RunEngineDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
     pub(crate) providers: Arc<ProviderRegistry>,
+    /// The count of live runs, which every committed state change moves.
+    pub(crate) live_runs: Arc<LiveRunCount>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -349,6 +352,7 @@ impl RunEngine {
             event_log,
             execution_postures,
             providers,
+            live_runs,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -357,7 +361,7 @@ impl RunEngine {
         let mut gates = RunSetupGates::default();
         gates.register(Arc::clone(&execution_postures) as Arc<dyn RunSetupGate>);
         Self {
-            changes: RunStateChangeWriter::new(Arc::clone(&pool), Arc::clone(&appender)),
+            changes: RunStateChangeWriter::new(Arc::clone(&pool), Arc::clone(&appender), live_runs),
             pool,
             appender,
             gates,

@@ -27,7 +27,7 @@ use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::{ScheduledJobHandle, Scheduler};
+use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::writer::DatabaseWriter;
 use crate::ipc::registry::HandlerError;
@@ -445,12 +445,15 @@ fn arm_held_search_expiry(shared: &Arc<LiveIndexShared>) {
         return;
     };
     let expiring = Arc::downgrade(shared);
-    let scheduled = shared
-        .scheduler
-        .schedule_at(HELD_SEARCH_EXPIRY_JOB, instant, move |_| {
+    let scheduled = shared.scheduler.schedule_at(
+        HELD_SEARCH_EXPIRY_JOB,
+        JobCondition::Always,
+        instant,
+        move |_| {
             let_go_of_expired_searches(&expiring);
             async { Ok(()) }.boxed()
-        });
+        },
+    );
     match scheduled {
         Ok(job) => *armed = Some(HeldSearchExpiry { instant, job }),
         // The searches stay held until a later search arms the expiry or the bound on held

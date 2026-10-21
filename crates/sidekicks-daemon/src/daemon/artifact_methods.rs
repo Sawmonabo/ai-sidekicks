@@ -17,7 +17,7 @@ use crate::artifacts::attachment_resolver::ArtifactAttachmentResolver;
 use crate::artifacts::ingest::service::ArtifactIngestService;
 use crate::artifacts::payload_store::PayloadStore;
 use crate::artifacts::publish::ArtifactPublishService;
-use crate::daemon::scheduler::{ScheduleError, ScheduledJobHandle, Scheduler};
+use crate::daemon::scheduler::{JobCondition, ScheduleError, ScheduledJobHandle, Scheduler};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::SessionEventAppender;
@@ -83,6 +83,7 @@ impl ArtifactMethods {
         let ingest = Arc::clone(&self.ingest);
         scheduler.schedule_repeating(
             "ingest reaper",
+            JobCondition::Always,
             INGEST_REAPER_INTERVAL,
             Duration::ZERO,
             move |_stop| {
