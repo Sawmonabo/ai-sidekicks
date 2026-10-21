@@ -324,10 +324,11 @@ impl PermissionAsks {
 
     /// Records one answer, then hands it to the provider that holds the call, decision first,
     /// then records the rule it made once the provider kept it; a card the daemon raised itself
-    /// records its rule at once. The same answer sent again hands it again only where no earlier
-    /// hand reached, or may have reached, the provider, and records a daemon card's rule whose
-    /// record failed. Fails with the approval service's refusals; `approval.requestCanceled`, the
-    /// answer not recorded, for a provider's pending card whose ask is no longer held;
+    /// records its rule at once. Every rule is the one the stored answer asked for. The same answer
+    /// sent again hands it again only where no earlier hand reached, or may have reached, the
+    /// provider, and records a daemon card's rule whose record failed. Fails with the approval
+    /// service's refusals; `approval.requestCanceled`, the answer not recorded and the card
+    /// withdrawn, for a provider's pending card whose ask is no longer held;
     /// `approval.rule.notKept` when the call was answered but its provider could not keep the rule,
     /// which is then not recorded;
     /// [`PermissionAskError::RuleWithoutAction`] for a daemon card that names no action for its
@@ -339,7 +340,8 @@ impl PermissionAsks {
     ) -> Result<ApprovalResolveResponse, PermissionAskError> {
         let answer = ResolveAnswer::of(request);
         // A provider's card whose ask is no longer held, its withdrawal or its replacement not
-        // kept, has no call left to answer, so the answer is refused before it is recorded.
+        // kept, has no call left to answer, so the card is withdrawn and the answer refused before
+        // it is recorded.
         if let Some(stored) = self
             .deps
             .approvals
@@ -349,6 +351,10 @@ impl PermissionAsks {
             && let Some(ask_id) = &stored.ask_id
             && self.find_held(stored.run_id, ask_id).is_none()
         {
+            self.deps
+                .approvals
+                .withdraw(stored.approval_request_id)
+                .await?;
             return Err(approval_request_canceled(stored.approval_request_id).into());
         }
         let ResolvedAnswer {
@@ -356,9 +362,10 @@ impl PermissionAsks {
             request: stored,
         } = self.deps.approvals.resolve(request, device_id).await?;
         let Some(ask_id) = stored.ask_id.clone() else {
-            // A card's rule is recorded once, so the answer sent again records the rule whose
-            // record failed the first time and leaves a recorded one as it stands.
-            if let Some(scope) = answer.remembered_scope {
+            // A card's rule is the one its stored answer asked for, recorded once: the answer sent
+            // again records the rule whose record failed the first time, and nothing once it was
+            // ever recorded, revoked since or not.
+            if let Some(scope) = stored.asked_scope() {
                 self.record_daemon_rule(&stored, scope).await?;
             }
             return Ok(response);
@@ -394,8 +401,8 @@ impl PermissionAsks {
     }
 
     // Keeps the answer with the held ask and claims its hand: the answer to hand, its request id
-    // and the rule it made, or `None` where no ask is held for it, or a hand of it is under way or
-    // reached its provider.
+    // and the rule its stored answer asked for, or `None` where no ask is held for it, or a hand of
+    // it is under way or reached its provider.
     async fn claim_hand(
         &self,
         stored: &StoredApprovalRequest,
@@ -408,7 +415,7 @@ impl PermissionAsks {
         let Some((request_id, action)) = self.find_held(stored.run_id, ask_id) else {
             return Ok(None);
         };
-        let made_rule = match answer.remembered_scope {
+        let made_rule = match stored.asked_scope() {
             Some(scope) => Some(ProviderAnswerRule {
                 rule: rule_of(scope, ProviderAskActionKind::from(&action)),
                 project_folders: match scope.kind {

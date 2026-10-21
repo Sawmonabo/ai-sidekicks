@@ -236,6 +236,8 @@ fn push_answer(
         client_resolution_id: resolved.client_resolution_id.clone(),
         decision,
         effective_scope: resolved.effective_scope.clone(),
+        // The event names no rule the answer asked for; the rule's own event writes the one made.
+        asked_scope: None,
         edited_action: resolved.edited_action.clone(),
         resolved_at,
     }));
@@ -310,6 +312,7 @@ mod tests {
                     client_resolution_id: resolved.client_resolution_id.clone(),
                     decision,
                     effective_scope: resolved.effective_scope.clone(),
+                    asked_scope: None,
                     edited_action: resolved.edited_action.clone(),
                     resolved_at: occurred_at.clone(),
                 }),
@@ -605,6 +608,8 @@ mod tests {
                 if row[at("request_id")] == Value::Text(gate_named.id.clone()) {
                     row[at("remembered_scope_kind")] = Value::Null;
                     row[at("remembered_scope_pattern")] = Value::Null;
+                    row[at("asked_scope_kind")] = Value::Null;
+                    row[at("asked_scope_pattern")] = Value::Null;
                 }
             }
         }

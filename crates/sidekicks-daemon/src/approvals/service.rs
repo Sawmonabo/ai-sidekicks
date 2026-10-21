@@ -45,9 +45,9 @@ use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalReq
 use crate::approvals::run_blocking::ApprovalRunHolds;
 use crate::approvals::store::{
     ApprovalCorrectionUse, ApprovalRequestReader, ApprovalSettlement, InsertedApprovalRequest,
-    InsertedApprovalResolution, StoredApprovalRequest, insert_correction_use_statement,
-    insert_request_statement, insert_resolution_statement, run_live_statement,
-    session_open_statement, settle_pending_statement,
+    InsertedApprovalResolution, StoredApprovalRequest, StoredApprovalResolution,
+    insert_correction_use_statement, insert_request_statement, insert_resolution_statement,
+    run_live_statement, session_open_statement, settle_pending_statement,
 };
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::writer::DatabaseWriter;
@@ -111,7 +111,7 @@ pub(crate) struct RaisedCard {
 }
 
 /// One answer as [`ApprovalService::resolve`] settled it: what the caller is answered, and the ask
-/// as it was read before the answer.
+/// as the answer settled it, with the stored answer.
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedAnswer {
     /// What the caller is answered.
@@ -343,13 +343,14 @@ impl ApprovalService {
     }
 
     /// Records one answer to an ask, stamped with `device_id`, the device whose connection carried
-    /// it; the scope defaults to the ask's own. The rule the answer asks for is not recorded here:
-    /// its record follows once its keeper kept it. Refuses `approval.notFound`,
+    /// it; the scope defaults to the ask's own. The rule the answer asks for is stored with it but
+    /// not recorded here: its record follows once its keeper kept it. Refuses `approval.notFound`,
     /// `approval.requestCanceled` for an ask canceled or whose run has ended,
-    /// `approval.alreadyResolved` for an ask another answer settled (the same client resolution id
-    /// is answered with what was saved), `approval.resolutionInvalid` for an answer that does not
-    /// fit its ask, the session's own refusal of the write, and `approval.persistenceUnavailable`
-    /// when the record could not be kept.
+    /// `approval.alreadyResolved` for an ask another answer settled (the same answer sent again
+    /// under its client resolution id is answered with what was saved),
+    /// `approval.resolutionInvalid` for an answer that does not fit its ask, the session's own
+    /// refusal of the write, and `approval.persistenceUnavailable` when the record could not be
+    /// kept.
     pub(crate) async fn resolve(
         &self,
         request: &ApprovalResolveRequest,
@@ -390,6 +391,7 @@ impl ApprovalService {
             client_resolution_id: answer.client_resolution_id.clone(),
             decision: answer.decision,
             effective_scope: effective_scope.clone(),
+            asked_scope: answer.remembered_scope.cloned(),
             edited_action: answer.edited_action.cloned(),
             resolved_at: resolved_at.clone(),
         };
@@ -447,9 +449,23 @@ impl ApprovalService {
                 state: settlement.state(),
                 device_id,
                 effective_scope,
-                resolved_at,
+                resolved_at: resolved_at.clone(),
             },
-            request: stored,
+            request: StoredApprovalRequest {
+                state: settlement.state(),
+                updated_at: resolved_at,
+                resolution: Some(StoredApprovalResolution {
+                    device_id: resolution.device_id,
+                    client_resolution_id: resolution.client_resolution_id,
+                    decision: resolution.decision,
+                    effective_scope: resolution.effective_scope,
+                    remembered_scope: None,
+                    asked_scope: resolution.asked_scope,
+                    edited_action: resolution.edited_action,
+                    resolved_at: resolution.resolved_at,
+                }),
+                ..stored
+            },
         })
     }
 
@@ -659,7 +675,8 @@ fn refusal_of_failed_write(failure: SessionEventAppendError) -> DomainError {
 }
 
 // What an answer to an ask already settled gets: the saved answer when it is the same one sent
-// again, else the refusal naming how the ask was settled.
+// again, under its client resolution id with its decision and scopes, else the refusal naming how
+// the ask was settled.
 fn answer_settled(
     stored: &StoredApprovalRequest,
     answer: &ResolveAnswer<'_>,
@@ -668,7 +685,13 @@ fn answer_settled(
         return Err(approval_request_canceled(stored.approval_request_id));
     }
     match &stored.resolution {
-        Some(resolution) if &resolution.client_resolution_id == answer.client_resolution_id => {
+        Some(resolution)
+            if &resolution.client_resolution_id == answer.client_resolution_id
+                && resolution.decision == answer.decision
+                && &resolution.effective_scope
+                    == answer.effective_scope.unwrap_or(&stored.scope)
+                && resolution.asked_scope.as_ref() == answer.remembered_scope =>
+        {
             Ok(ApprovalResolveResponse {
                 approval_request_id: stored.approval_request_id,
                 state: ApprovalSettlement::Decided(resolution.decision).state(),

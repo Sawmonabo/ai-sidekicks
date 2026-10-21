@@ -376,23 +376,28 @@ impl ApprovalRules {
     /// only the daemon's own and reaches no provider. A record that fails takes the rule back out
     /// of the providers and fails with [`ApprovalRuleError::NotRecorded`], or fails as it did for a
     /// rule the daemon keeps; a replaced rule's removal or revoke that fails fails with the new
-    /// rule recorded. A card whose rule is already in force records nothing.
+    /// rule recorded. A card whose rule was ever recorded, revoked since or not, records nothing.
     pub(crate) async fn record(
         &self,
         request: &StoredApprovalRequest,
         made: &ProviderAnswerRule,
     ) -> Result<(), ApprovalRuleError> {
         let hold = self.rule_writes.acquire(()).await;
+        // The card's rule was recorded before: an answer sent again records it once, and never
+        // again once revoked, where it would replace a newer rule the person made.
+        let rule_id = rule_id_of(request.approval_request_id);
+        if self
+            .read(move |connection| read_rule(connection, rule_id))
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
         let rule = &made.rule;
         let is_daemon_kept = request.ask_id.is_none();
         let in_force = self
             .read_rule_rows(&SELECT_RULES_IN_FORCE_SQL, request.session_id)
             .await?;
-        // The card's rule already stands: an answer sent again records it once.
-        let rule_id = rule_id_of(request.approval_request_id);
-        if in_force.iter().any(|row| row.rule_id == rule_id) {
-            return Ok(());
-        }
         let replaced_rows: Vec<RuleRow> = in_force
             .into_iter()
             .filter(|row| {

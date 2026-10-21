@@ -66,6 +66,15 @@ pub(crate) struct StoredApprovalRequest {
     pub(crate) resolution: Option<StoredApprovalResolution>,
 }
 
+impl StoredApprovalRequest {
+    /// The rule its answer asked for, once it has an answer that asked for one.
+    pub(crate) fn asked_scope(&self) -> Option<&RememberedScope> {
+        self.resolution
+            .as_ref()
+            .and_then(|resolution| resolution.asked_scope.as_ref())
+    }
+}
+
 /// The one answer an ask received.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StoredApprovalResolution {
@@ -80,6 +89,9 @@ pub(crate) struct StoredApprovalResolution {
     /// The rule the answer made, written once its provider kept it and its record landed; absent
     /// for a one-time answer and for a rule that could not be kept.
     pub(crate) remembered_scope: Option<RememberedScope>,
+    /// The rule the answer asked for, written with it, which a resend records and never another;
+    /// absent for a one-time answer.
+    pub(crate) asked_scope: Option<RememberedScope>,
     /// The command or path as the person corrected it, on an approval that changed it.
     pub(crate) edited_action: Option<NonEmptyText>,
     /// When it was answered.
@@ -122,6 +134,8 @@ pub(crate) struct InsertedApprovalResolution {
     pub(crate) decision: ApprovalDecision,
     /// The recorded scope.
     pub(crate) effective_scope: ApprovalScope,
+    /// The rule the answer asks for; absent for a one-time answer.
+    pub(crate) asked_scope: Option<RememberedScope>,
     /// The command or path as the person corrected it, on an approval that changed it.
     pub(crate) edited_action: Option<NonEmptyText>,
     /// When it was answered.
@@ -233,14 +247,14 @@ static SETTLE_PENDING_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 const INSERT_RESOLUTION_SQL: &str = "INSERT INTO approval_resolutions
-    (request_id, device_id, client_resolution_id, decision, effective_scope, edited_action,
-     resolved_at)
+    (request_id, device_id, client_resolution_id, decision, effective_scope, asked_scope_kind,
+     asked_scope_pattern, edited_action, resolved_at)
   VALUES (@request_id, @device_id, @client_resolution_id, @decision, @effective_scope,
-          @edited_action, @resolved_at)";
+          @asked_scope_kind, @asked_scope_pattern, @edited_action, @resolved_at)";
 
 // A rebuild's write of an answer: the answer of an ask a workflow gate names outlives the
-// rebuild's clear with its ask, and is written over with what the log says, its rule cleared until
-// the log's own rule event writes it again.
+// rebuild's clear with its ask, and is written over with what the log says, the rule it made and
+// the one it asked for cleared until the log's own rule event writes them again.
 #[cfg_attr(
     not(test),
     expect(
@@ -255,6 +269,7 @@ static REWRITE_RESOLUTION_SQL: LazyLock<String> = LazyLock::new(|| {
     device_id = excluded.device_id, client_resolution_id = excluded.client_resolution_id,
     decision = excluded.decision, effective_scope = excluded.effective_scope,
     remembered_scope_kind = NULL, remembered_scope_pattern = NULL,
+    asked_scope_kind = NULL, asked_scope_pattern = NULL,
     edited_action = excluded.edited_action, resolved_at = excluded.resolved_at"
     )
 });
@@ -266,7 +281,8 @@ const INSERT_CORRECTION_USE_SQL: &str = "INSERT INTO approval_correction_uses
   ON CONFLICT (request_id) DO NOTHING";
 
 const SET_REMEMBERED_SCOPE_SQL: &str = "UPDATE approval_resolutions
-    SET remembered_scope_kind = @kind, remembered_scope_pattern = @pattern
+    SET remembered_scope_kind = @kind, remembered_scope_pattern = @pattern,
+        asked_scope_kind = @kind, asked_scope_pattern = @pattern
   WHERE request_id = @request_id";
 
 fn pending() -> &'static str {
@@ -279,7 +295,8 @@ const SELECT_REQUESTS_SQL: &str = "SELECT request.id, request.session_id, reques
        request.ask_id, request.state, request.created_at, request.updated_at,
        resolution.device_id, resolution.client_resolution_id, resolution.decision,
        resolution.effective_scope, resolution.remembered_scope_kind,
-       resolution.remembered_scope_pattern, resolution.edited_action, resolution.resolved_at,
+       resolution.remembered_scope_pattern, resolution.asked_scope_kind,
+       resolution.asked_scope_pattern, resolution.edited_action, resolution.resolved_at,
        session.shape AS session_shape
   FROM approval_requests AS request
   LEFT JOIN approval_resolutions AS resolution ON resolution.request_id = request.id
@@ -453,6 +470,20 @@ fn resolution_statement(
             text_binding("@decision", <&'static str>::from(resolution.decision)),
             text_binding("@effective_scope", resolution.effective_scope.as_str()),
             nullable_text_binding(
+                "@asked_scope_kind",
+                resolution
+                    .asked_scope
+                    .as_ref()
+                    .map(|asked_scope| <&'static str>::from(asked_scope.kind)),
+            ),
+            nullable_text_binding(
+                "@asked_scope_pattern",
+                resolution
+                    .asked_scope
+                    .as_ref()
+                    .map(|asked_scope| asked_scope.pattern.as_str()),
+            ),
+            nullable_text_binding(
                 "@edited_action",
                 resolution.edited_action.as_ref().map(NonEmptyText::as_str),
             ),
@@ -481,8 +512,9 @@ pub(crate) fn insert_correction_use_statement(
     }
 }
 
-/// The statement that writes onto an ask's answer the rule it made, in that rule's own record;
-/// refused when the ask has no answer.
+/// The statement that writes onto an ask's answer the rule it made, in that rule's own record, as
+/// the rule it asked for too, which the answer's own event does not name for a rebuild; refused
+/// when the ask has no answer.
 pub(crate) fn remembered_scope_statement(
     approval_request_id: &ApprovalRequestId,
     remembered_scope: &RememberedScope,
@@ -644,7 +676,7 @@ fn stored_request_of(row: &Row<'_>) -> rusqlite::Result<StoredApprovalRequest> {
     let resource_descriptor: ApprovalResourceDescriptor =
         text_column(row, 6, |text| serde_json::from_str(&text))?;
     let ask_id = optional_text_column(row, 7, non_empty_text)?;
-    let session_shape: Option<SessionShape> = optional_text_column(row, 19, closed_word)?;
+    let session_shape: Option<SessionShape> = optional_text_column(row, 21, closed_word)?;
     let standing_allow_offered = resource_descriptor.standing_allow_offered;
     let project_scope_offered = standing_allow_offered
         && resource_descriptor.project_scope_offered
@@ -677,24 +709,33 @@ fn resolution_of(row: &Row<'_>) -> rusqlite::Result<Option<StoredApprovalResolut
         return Ok(None);
     };
     let decision: ApprovalDecision = text_column(row, 13, closed_word)?;
-    let remembered_scope_kind: Option<RememberedScopeKind> =
-        optional_text_column(row, 15, closed_word)?;
-    let remembered_scope_pattern = optional_text_column(row, 16, non_empty_text)?;
-    let remembered_scope = match (remembered_scope_kind, remembered_scope_pattern) {
+    Ok(Some(StoredApprovalResolution {
+        device_id,
+        client_resolution_id: text_column(row, 12, ClientUuid::new)?,
+        decision,
+        effective_scope: text_column(row, 14, ApprovalScope::new)?,
+        remembered_scope: rule_scope_of(row, 15, decision)?,
+        asked_scope: rule_scope_of(row, 17, decision)?,
+        edited_action: optional_text_column(row, 19, non_empty_text)?,
+        resolved_at: text_column(row, 20, WireInstant::try_from)?,
+    }))
+}
+
+// A rule's reach and subject, read from the column at `kind_at` and the one after it; its sense
+// follows the decision.
+fn rule_scope_of(
+    row: &Row<'_>,
+    kind_at: usize,
+    decision: ApprovalDecision,
+) -> rusqlite::Result<Option<RememberedScope>> {
+    let kind: Option<RememberedScopeKind> = optional_text_column(row, kind_at, closed_word)?;
+    let pattern = optional_text_column(row, kind_at + 1, non_empty_text)?;
+    Ok(match (kind, pattern) {
         (Some(kind), Some(pattern)) => Some(RememberedScope {
             kind,
             pattern,
             sense: decision.remembered_sense(),
         }),
         (None, _) | (_, None) => None,
-    };
-    Ok(Some(StoredApprovalResolution {
-        device_id,
-        client_resolution_id: text_column(row, 12, ClientUuid::new)?,
-        decision,
-        effective_scope: text_column(row, 14, ApprovalScope::new)?,
-        remembered_scope,
-        edited_action: optional_text_column(row, 17, non_empty_text)?,
-        resolved_at: text_column(row, 18, WireInstant::try_from)?,
-    }))
+    })
 }

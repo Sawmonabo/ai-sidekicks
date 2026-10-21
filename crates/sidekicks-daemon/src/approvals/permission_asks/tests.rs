@@ -13,6 +13,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{CHECK_FAILED_REFUSAL, PermissionAskError, PermissionAsks, PermissionAsksDeps};
 use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::approvals::service::ApprovalServiceError;
 use crate::approvals::service::tests::{SETTLE_WAIT, from_json};
 use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::DatabaseReadPool;
@@ -233,7 +234,7 @@ async fn a_held_ask_raises_one_card_which_its_withdrawal_cancels() {
 // card is withdrawn and the new one's raised, and an answer kept for the one held never goes to
 // it; a card whose ask is no longer held takes no answer. Killed by replacing a waiting ask
 // without withdrawing its card, by answering the new ask from the held one, and by recording an
-// answer to a card no ask holds.
+// answer to a card no ask holds, or by refusing it while leaving the card pending.
 #[tokio::test]
 async fn another_action_under_a_held_request_id_is_another_ask() {
     let fixture = AsksFixture::new().await;
@@ -263,7 +264,7 @@ async fn another_action_under_a_held_request_id_is_another_ask() {
         Err(PermissionAskError::Refused(refusal))
             if refusal.code == RefusalCode::ApprovalRequestCanceled
     ));
-    assert_eq!(fixture.card_states(), ["canceled", "approved", "pending"]);
+    assert_eq!(fixture.card_states(), ["canceled", "approved", "canceled"]);
 }
 
 // An ask whose check failed is refused at its provider with the check-failed line, and the
@@ -377,41 +378,53 @@ async fn after_an_unanswered_hand_only_the_providers_redelivery_hands_the_answer
 }
 
 // The session rule an answer made on a card the daemon raised itself, whose record failed, is
-// recorded when the same answer is sent again, and a resend after that record leaves the one rule
-// in force. Killed by recording a daemon card's rule only when the answer is first recorded, and
-// by a record that counts the card's own rule as one it replaces.
+// recorded from the stored answer when the same answer is sent again; a resend after that record
+// leaves the one rule in force; a resend asking for another rule records nothing and is refused;
+// and a late resend after the rule was revoked and another card made its own records nothing and
+// revokes nothing. Killed by recording a daemon card's rule only when the answer is first
+// recorded, by a record that counts the card's own rule as one it replaces, by recording the rule
+// a resend carries, and by a record that skips only a rule still in force.
 #[tokio::test]
 async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
     let fixture = AsksFixture::new().await;
     let approvals = &fixture.check.approvals;
-    let card = approvals
-        .service
-        .create(
-            ApprovalRequestCreateRequest {
-                session_id: approvals.session_id,
-                run_id: approvals.run_id,
-                requested_by: from_json(json!("agent")),
-                category: from_json(json!("toolExecution")),
-                scope: from_json(json!("session_send")),
-                resource_descriptor: from_json(json!({
-                    "subject": "session_send",
-                    "standingAllowOffered": true,
-                    "projectScopeOffered": false,
-                    "editable": false,
-                    "action": { "kind": "tool", "toolName": "session_send" },
-                    "toolName": "session_send",
-                })),
-            },
-            ApprovalRequestOrigin::default(),
-        )
-        .await
-        .expect("the daemon raises its card");
-    let answer: ApprovalResolveRequest = from_json(json!({
-        "decision": "approved",
-        "approvalRequestId": card.approval_request_id,
-        "clientResolutionId": mint_uuid_v7().to_string(),
-        "rememberedScope": { "kind": "session", "pattern": "session_send", "sense": "allow" },
-    }));
+    let raise_card = || async {
+        approvals
+            .service
+            .create(
+                ApprovalRequestCreateRequest {
+                    session_id: approvals.session_id,
+                    run_id: approvals.run_id,
+                    requested_by: from_json(json!("agent")),
+                    category: from_json(json!("toolExecution")),
+                    scope: from_json(json!("session_send")),
+                    resource_descriptor: from_json(json!({
+                        "subject": "session_send",
+                        "standingAllowOffered": true,
+                        "projectScopeOffered": false,
+                        "editable": false,
+                        "action": { "kind": "tool", "toolName": "session_send" },
+                        "toolName": "session_send",
+                    })),
+                },
+                ApprovalRequestOrigin::default(),
+            )
+            .await
+            .expect("the daemon raises its card")
+            .approval_request_id
+    };
+    let always_allow =
+        |card, client_resolution_id: &str, pattern: &str| -> ApprovalResolveRequest {
+            from_json(json!({
+                "decision": "approved",
+                "approvalRequestId": card,
+                "clientResolutionId": client_resolution_id,
+                "rememberedScope": { "kind": "session", "pattern": pattern, "sense": "allow" },
+            }))
+        };
+    let card = raise_card().await;
+    let client_resolution_id = mint_uuid_v7().to_string();
+    let answer = always_allow(card, &client_resolution_id, "session_send");
     approvals.refuses_rules.store(true, Ordering::SeqCst);
     assert!(fixture.asks.resolve(&answer, device()).await.is_err());
     approvals.refuses_rules.store(false, Ordering::SeqCst);
@@ -425,27 +438,74 @@ async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
         .resolve(&answer, device())
         .await
         .expect("a resend after the record is answered");
-    let rule = fixture
-        .check
-        .rules
-        .find_rule(
+    let find_rule = |subject| {
+        fixture.check.rules.find_rule(
             approvals.session_id,
             ProviderAskActionKind::Tool,
-            "session_send",
+            subject,
             true,
         )
-        .await
-        .expect("the rules read");
-    assert!(rule.is_some());
-    let in_force = fixture
+    };
+    assert!(
+        find_rule("session_send")
+            .await
+            .expect("the rules read")
+            .is_some()
+    );
+    let rules_in_force = || async {
+        fixture
+            .check
+            .rules
+            .list(approvals.session_id)
+            .await
+            .expect("the rules list")
+            .rules
+            .into_iter()
+            .map(|rule| rule.rule_id)
+            .collect::<Vec<_>>()
+    };
+    let [first_rule] = <[_; 1]>::try_from(rules_in_force().await).expect("one rule in force");
+    let revoked_rules = || {
+        fixture.read_texts(
+            "SELECT json_extract(payload, '$.ruleId') FROM session_events
+              WHERE type = 'approval.rule.revoked' ORDER BY id",
+        )
+    };
+    assert_eq!(revoked_rules(), Vec::<String>::new());
+    let other_rule = always_allow(card, &client_resolution_id, "session_spawn");
+    let refused = fixture.asks.resolve(&other_rule, device()).await;
+    assert!(matches!(
+        refused,
+        Err(PermissionAskError::Service(ApprovalServiceError::Refused(refusal)))
+            if refusal.code == RefusalCode::ApprovalAlreadyResolved
+    ));
+    assert!(
+        find_rule("session_spawn")
+            .await
+            .expect("the rules read")
+            .is_none()
+    );
+    fixture
         .check
         .rules
-        .list(approvals.session_id)
+        .revoke(first_rule)
         .await
-        .expect("the rules list");
-    assert_eq!(in_force.rules.len(), 1);
-    let revoked = fixture.read_texts(
-        "SELECT id FROM session_events WHERE type = 'approval.rule.revoked' ORDER BY id",
-    );
-    assert_eq!(revoked, Vec::<String>::new());
+        .expect("the person revokes the rule");
+    let second_card = raise_card().await;
+    fixture
+        .asks
+        .resolve(
+            &always_allow(second_card, &mint_uuid_v7().to_string(), "session_send"),
+            device(),
+        )
+        .await
+        .expect("the second card makes its rule");
+    fixture
+        .asks
+        .resolve(&answer, device())
+        .await
+        .expect("the late resend is answered");
+    let [second_rule] = <[_; 1]>::try_from(rules_in_force().await).expect("one rule in force");
+    assert_eq!(second_rule.text().as_str(), second_card.text().as_str());
+    assert_eq!(revoked_rules(), [first_rule.text().as_str()]);
 }
