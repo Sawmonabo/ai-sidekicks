@@ -3,11 +3,15 @@ use std::sync::{Arc, Mutex};
 
 use rstest::rstest;
 use rusqlite::params;
+use serde_json::json;
+use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
 use sidekicks_contracts::event::envelope::SourcePosition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
@@ -27,6 +31,7 @@ use crate::session::run::epochs::{
     ConfirmedCut, DeliveryAttribution, DeliveryOperation, EpochBinding, ExecutionEpochs,
 };
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::transcript::reasoning::read_reasoning;
 use crate::uuid_v7::mint_uuid_v7;
 
 // A publisher no run state stream reads.
@@ -301,4 +306,58 @@ async fn inbound_absorbs_a_late_report_on_a_resumed_run(#[case] entry: RunStateE
         stored_run_state(&harness.database, &harness.run_id).0,
         "running"
     );
+}
+
+// Killed by a long reasoning text stored as one piece over an entry's length, by a piece left
+// out, and by the pieces read back out of order.
+#[tokio::test]
+async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back() {
+    let harness = Harness::new(RunState::Running).await;
+    let session_id: SessionId = harness
+        .database
+        .reader()
+        .query_row(
+            "SELECT session_id FROM runs WHERE run_id = ?1",
+            [harness.run_id.text().as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .map(|text| SessionId::new(&text).expect("the run's session is a session id"))
+        .expect("the test reads the run's session");
+    let text: String = (0..40_000)
+        .map(|index| char::from_u32(0x61 + index % 26).expect("a letter"))
+        .collect();
+    let payload: RunAgentOutputPayload = serde_json::from_value(json!({
+        "sessionId": session_id,
+        "runId": harness.run_id,
+        "providerMessageId": "reasoning-1",
+    }))
+    .expect("the test writes a reasoning payload");
+
+    harness
+        .dispatched(InboundDelivery::ThinkingUpdate {
+            binding: harness.on_binding(None),
+            payload,
+            content: text.clone(),
+        })
+        .await;
+
+    assert_eq!(harness.stored_event_count(), 3);
+    let request = serde_json::from_value(json!({ "runId": harness.run_id }))
+        .expect("the test's request reads");
+    let page = read_reasoning(&harness.database.reader(), &|_: &SessionId| None, &request)
+        .expect("the reasoning reads");
+    let page = serde_json::to_value(page).expect("a page serializes");
+    let entries = page["reasoningEntries"]
+        .as_array()
+        .expect("the page holds entries");
+    assert!(entries.iter().all(|entry| {
+        entry["content"]
+            .as_str()
+            .is_some_and(|content| content.chars().count() <= REASONING_ENTRY_CONTENT_MAX_LEN)
+    }));
+    let read_back: String = entries
+        .iter()
+        .map(|entry| entry["content"].as_str().expect("an entry holds text"))
+        .collect();
+    assert_eq!(read_back, text);
 }

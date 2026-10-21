@@ -304,3 +304,139 @@ fn read_run(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Option<Expa
 fn cursor_at(position: i64) -> EventCursor {
     encode_event_cursor(position).expect("a position read from the log is a cursor position")
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::transcript::limits::TRANSCRIPT_READ_LIMIT_MAX;
+    use sidekicks_contracts::transcript::operations::TranscriptChildRunExpandResponse;
+    use sidekicks_contracts::wire::instant::WireInstant;
+
+    use super::expand_child_run;
+    use crate::transcript::test_log::{AT, TranscriptTestLog};
+    use crate::transcript::window::{TranscriptReadError, read_transcript_window};
+    use crate::uuid_v7::mint_uuid_v7;
+
+    // `run_id`'s expansion after `after_cursor`.
+    fn expand(
+        log: &TranscriptTestLog,
+        run_id: RunId,
+        after_cursor: Option<&Value>,
+    ) -> Result<TranscriptChildRunExpandResponse, TranscriptReadError> {
+        let mut request = json!({ "runId": run_id });
+        if let Some(cursor) = after_cursor {
+            request["afterCursor"] = cursor.clone();
+        }
+        let request = serde_json::from_value(request).expect("the test's request reads");
+        expand_child_run(
+            &log.reader(),
+            &|_: &SessionId| None,
+            &request,
+            &WireInstant::now(),
+        )
+    }
+
+    // The summary on the creation row of `run_id` in the session's first page.
+    fn summary_of(log: &TranscriptTestLog, run_id: RunId) -> Value {
+        let request = serde_json::from_value(json!({ "sessionId": log.session_id }))
+            .expect("the test's request reads");
+        let page = read_transcript_window(&log.reader(), &|_: &SessionId| None, &request)
+            .expect("the window reads");
+        let page = serde_json::to_value(page).expect("a page serializes");
+        page["entries"]
+            .as_array()
+            .expect("a page holds entries")
+            .iter()
+            .find(|row| row["type"] == "agent.run.queued" && row["runId"] == json!(run_id))
+            .expect("the child's creation row is on the page")["childRunSummary"]
+            .clone()
+    }
+
+    // Killed by a summary counting rows rather than events, by a child with skipped events read
+    // as complete, and by its row dropped.
+    #[test]
+    fn a_child_run_summary_counts_its_readable_events_and_marks_skipped_ones() {
+        let log = TranscriptTestLog::new();
+        let child = log.child_run(log.run_id, "completed");
+        log.piece("agent.message.sent", child, "m1", Some(0), "One ", AT);
+        let (skipped, _) = log.piece("agent.message.sent", child, "m1", Some(0), "row.", AT);
+
+        let complete = summary_of(&log, child);
+        assert_eq!(complete["parentRunId"], json!(log.run_id));
+        assert_eq!(complete["state"], "completed");
+        assert_eq!(complete["eventCount"], 3);
+        assert_eq!(complete["completeness"]["state"], "complete");
+
+        log.skip(skipped, skipped);
+        let incomplete = summary_of(&log, child);
+        assert_eq!(incomplete["eventCount"], 2);
+        assert_eq!(incomplete["completeness"]["state"], "incomplete");
+        assert_eq!(incomplete["completeness"]["cause"], "detailFetchFailed");
+    }
+
+    // Killed by an expansion reading only the child's own events, by one leaving out the
+    // interventions on it or its own children's rows, by one reading the parent's, by a page
+    // that leaves more without saying so, and by a lead run or an unknown run expanded.
+    #[test]
+    fn a_child_run_expands_to_its_rows_interventions_and_children_in_pages() {
+        let log = TranscriptTestLog::new();
+        let child = log.child_run(log.run_id, "completed");
+        log.reply("lead", Some(0), "The lead's own row.");
+        for index in 0..TRANSCRIPT_READ_LIMIT_MAX {
+            log.piece(
+                "agent.message.sent",
+                child,
+                &format!("m{index}"),
+                Some(0),
+                "A child row.",
+                AT,
+            );
+        }
+        let (_, intervention_id) = log.intervention(child, "applied");
+        let grandchild = log.child_run(child, "running");
+
+        let Ok(TranscriptChildRunExpandResponse::Continuing(first)) = expand(&log, child, None)
+        else {
+            panic!("the child's rows fill more than one page");
+        };
+        let first = serde_json::to_value(first).expect("a page serializes");
+        let next_cursor = first["nextCursor"].clone();
+        let Ok(TranscriptChildRunExpandResponse::Terminal(last)) =
+            expand(&log, child, Some(&next_cursor))
+        else {
+            panic!("the second page ends the child's rows");
+        };
+        let last = serde_json::to_value(last).expect("a page serializes");
+        let rows: Vec<&Value> = [&first, &last]
+            .iter()
+            .flat_map(|page| page["entries"].as_array().expect("a page holds entries"))
+            .collect();
+        assert_eq!(rows.len(), TRANSCRIPT_READ_LIMIT_MAX + 3);
+        assert!(
+            rows.iter()
+                .all(|row| row["content"]["body"] != "The lead's own row.")
+        );
+        assert!(rows.iter().any(|row| row["id"] == intervention_id));
+        let grandchild_row = rows
+            .iter()
+            .find(|row| row["runId"] == json!(grandchild))
+            .expect("the grandchild's creation row is read");
+        assert_eq!(
+            grandchild_row["childRunSummary"]["parentRunId"],
+            json!(child)
+        );
+
+        let refusal_code = |run_id| match expand(&log, run_id, None) {
+            Err(TranscriptReadError::Refused(refusal)) => refusal.code,
+            other => panic!("the expansion is refused: {other:?}"),
+        };
+        assert_eq!(refusal_code(log.run_id), RefusalCode::AgentRunNotChild);
+        assert_eq!(
+            refusal_code(RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")),
+            RefusalCode::AgentRunNotFound
+        );
+    }
+}

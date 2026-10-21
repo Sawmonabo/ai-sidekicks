@@ -383,3 +383,116 @@ fn patch_cursor(file_index: usize, offset: usize) -> TranscriptPatchCursor {
         offset: safe(offset),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::transcript::content::TranscriptPatchListRequest;
+
+    use super::{PatchListError, list_patches};
+    use crate::transcript::test_log::TranscriptTestLog;
+    use crate::transcript::window::{TranscriptReadError, read_transcript_window};
+
+    fn list(log: &TranscriptTestLog, tool_call_id: &str, cursor: Option<&Value>) -> Value {
+        let request = request(log, tool_call_id, cursor);
+        let page =
+            list_patches(&log.reader(), &|_: &SessionId| None, &request).expect("the patches read");
+        serde_json::to_value(page).expect("a page serializes")
+    }
+
+    fn request(
+        log: &TranscriptTestLog,
+        tool_call_id: &str,
+        cursor: Option<&Value>,
+    ) -> TranscriptPatchListRequest {
+        let mut request = json!({ "sessionId": log.session_id, "toolCallId": tool_call_id });
+        if let Some(cursor) = cursor {
+            request["cursor"] = cursor.clone();
+        }
+        serde_json::from_value(request).expect("the test's request reads")
+    }
+
+    // Killed by a moved file's old path dropped from the row or the read, by a part cut inside a
+    // character or a cursor there accepted, by a file left out of the joined read, and by a call
+    // the session does not hold read as one with no patches.
+    #[test]
+    fn patch_list_reads_every_left_out_file_whole_across_pages() {
+        let log = TranscriptTestLog::new();
+        let patch = "@@ -1 +1 @@\n-old\n+new\n";
+        // Four bytes a character, so the raw text is over one page and under the stored cut.
+        let raw_patch = "\u{1f600}".repeat(250_000);
+        let body = json!({
+            "files": [
+                {
+                    "path": "/repo/new.rs",
+                    "oldPath": "/repo/old.rs",
+                    "patch": patch,
+                    "additions": 1,
+                    "deletions": 1,
+                },
+                { "path": "/repo/odd.bin", "unavailable": "unreadable", "rawPatch": raw_patch },
+            ],
+        })
+        .to_string();
+        log.tool_completion(
+            log.run_id,
+            "call-1",
+            Some(json!([
+                { "path": "/repo/new.rs", "oldPath": "/repo/old.rs", "size": patch.len() },
+                { "path": "/repo/odd.bin", "size": raw_patch.len() },
+            ])),
+            Some(&body),
+        );
+
+        let window_request = serde_json::from_value(json!({ "sessionId": log.session_id }))
+            .expect("the test's request reads");
+        let page = read_transcript_window(&log.reader(), &|_: &SessionId| None, &window_request)
+            .expect("the window reads");
+        let page = serde_json::to_value(page).expect("a page serializes");
+        assert_eq!(
+            page["entries"][0]["omittedPatches"][0]["oldPath"],
+            "/repo/old.rs"
+        );
+
+        let mut texts = [String::new(), String::new()];
+        let mut cursor: Option<Value> = None;
+        let mut reads = 0;
+        loop {
+            let part = list(&log, "call-1", cursor.as_ref());
+            reads += 1;
+            for file in part["files"].as_array().expect("a page holds files") {
+                let index = usize::from(file["path"] == "/repo/odd.bin");
+                if index == 0 {
+                    assert_eq!(file["oldPath"], "/repo/old.rs");
+                }
+                let text = file["patch"].as_str().or(file["rawPatch"].as_str());
+                texts[index].push_str(text.expect("a file carries its text"));
+            }
+            if part["next"].is_null() {
+                break;
+            }
+            cursor = Some(part["next"].clone());
+        }
+        assert!(reads > 1);
+        assert_eq!(texts, [patch.to_owned(), raw_patch]);
+
+        let inside_a_character = json!({ "fileIndex": 1, "offset": 1 });
+        let refused = list_patches(
+            &log.reader(),
+            &|_: &SessionId| None,
+            &request(&log, "call-1", Some(&inside_a_character)),
+        );
+        assert!(matches!(refused, Err(PatchListError::Cursor(_))));
+        let unknown = list_patches(
+            &log.reader(),
+            &|_: &SessionId| None,
+            &request(&log, "call-2", None),
+        );
+        let Err(PatchListError::Read(TranscriptReadError::Refused(refusal))) = unknown else {
+            panic!("a call the session does not hold is refused");
+        };
+        assert_eq!(refusal.code, RefusalCode::TranscriptRowNotFound);
+    }
+}

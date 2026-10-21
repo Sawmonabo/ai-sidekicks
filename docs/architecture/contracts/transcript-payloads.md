@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-010 — Transcript And Reasoning
 
-Every paged transcript reply is bounded by the frame it becomes (Plan-010 Phase 1). A JSON-RPC reply leaves the daemon as one message of the frame codec, its JSON capped at `MAX_MESSAGE_BYTES`, and a message over the cap is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)). A row-count ceiling does not bound that — a `TranscriptEventRow` carries free-form fields at `EVENT_FIELD_MAX_LEN`, and JSON encoding expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the paged members — `TranscriptReadResponse.entries`, `TranscriptChildRunExpandResponse.entries`, and `TranscriptReasoningReadResponse.reasoningEntries` — carries a byte budget (`PAGE_MAX_BYTES` in `crates/sidekicks-contracts/src/jsonrpc/page.rs`, the budget every paged reply shares — one reply's size less room for the envelope, the echoed id and a continuation cursor — declared apart from `MAX_MESSAGE_BYTES` ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)) and under it, because it bounds what one reply costs the desktop to decode and draw and one message's time on the relay, so a page never grows with the transport; its figure is set from its first measurement against those two costs). `TranscriptReadResponse.runs` rides in the same frame as its `entries`, so the rows are held to the budget left beside the facts the reply carries, and the daemon counts a page against the budget left beside the facts of every run its stretch names, which the kept rows' facts never exceed. A producer stops at whichever of the row limit and the byte budget trips first, and all these replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-010 Phase 1): `TranscriptReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TRANSCRIPT_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honored. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `TranscriptChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-010 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget does not reach a live event on `session.event.subscribe`, which is a single event on its own frame: an event that blows a frame by itself is an oversized event payload, and bounding it is an event-envelope and framer decision rather than one a Plan-010 page budget may make on their behalf.
+Every paged transcript reply is bounded by the frame it becomes (Plan-010 Phase 1). A JSON-RPC reply leaves the daemon as one message of the frame codec, its JSON capped at `MAX_MESSAGE_BYTES`, and a message over the cap is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)). A row-count ceiling does not bound that — a `TranscriptEventRow` carries free-form fields at `EVENT_FIELD_MAX_LEN`, and JSON encoding expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the paged members — `TranscriptReadResponse.entries`, `TranscriptChildRunExpandResponse.entries`, and `TranscriptReasoningReadResponse.reasoningEntries` — carries a byte budget (`PAGE_MAX_BYTES` in `crates/sidekicks-contracts/src/jsonrpc/page.rs`, the budget every paged reply shares — one reply's size less room for the envelope, the echoed id and a continuation cursor — declared apart from `MAX_MESSAGE_BYTES` ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)) and under it, because it bounds what one reply costs the desktop to decode and draw and one message's time on the relay, so a page never grows with the transport; its figure is set from its first measurement against those two costs). `TranscriptReadResponse.runs` rides in the same frame as its `entries`, so the rows are held to the budget left beside the facts the reply carries, and the daemon counts a page against the budget left beside the facts of every run its stretch names, which the kept rows' facts never exceed. A producer stops at whichever of the row limit and the byte budget trips first, and all these replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-010 Phase 1): `TranscriptReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TRANSCRIPT_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honored. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `TranscriptChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-010 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. A `session.event.subscribe` frame is cut by the same budget, each change charged with its event and its piece's body, never below one change, and the stream reads the next frame at once; an event that blows a frame by itself is an oversized event payload, and bounding it is an event-envelope and framer decision rather than one a Plan-010 page budget may make on their behalf.
 
 ```ts
 // `transcript.read`. A cursor is a position in the log, and the cursor an event carries is the
@@ -41,19 +41,27 @@ interface TranscriptReadRequest {
 // note). runs carries the facts of each run the entries name, folded over the whole log, one per
 // run and no other: a run named twice would leave a client to choose, a fact no entry names is a
 // run the window never shows, and an entry whose run has none would draw its header from nothing.
-// The schema refuses each of the three.
+// The schema refuses each of the three. A row stands at the first piece of a reply or of
+// reasoning the provider sent in pieces, its body the pieces joined, so every read counts rows and
+// never pieces, and a cursor at a later piece lands on its row. joinedThrough is the newest event
+// the page's rows joined their pieces through: the client opens its stream at the earliest one it
+// holds and places a piece it already read by its offset in its row. An unbounded forward read's
+// last page ends at the head, so its nextCursor never sits before a piece the page joined; a
+// forward read bounded by beforeCursor ends at its bound.
 type TranscriptReadResponse =
   | {
       entries: TranscriptReadRow[];
       runs: TranscriptRunFacts[];
       hasMore: true;
       nextCursor: EventCursor;
+      joinedThrough: EventCursor;
     }
   | {
       entries: TranscriptReadRow[];
       runs: TranscriptRunFacts[];
       hasMore: false;
       nextCursor?: EventCursor;
+      joinedThrough?: EventCursor; // absent only on a session with no readable event
     };
 
 // One run's facts as a window serves them
@@ -105,7 +113,9 @@ interface TranscriptEventRowBase {
 // characters recommended, 40,000 before a message is cut, 65,535 bytes for a whole event), so a
 // reply of ordinary length travels whole. The daemon reads a large body's size, never its bytes.
 type TranscriptRowContent =
-  | { status: "available"; body: string; contentLength?: number }
+  // blockStarts: on a prose body, the body's block starts as UTF-16 offsets, each a little-endian
+  // u32, sent as an attachment and charged against the page budget with the JSON.
+  | { status: "available"; body: string; contentLength?: number; blockStarts?: Uint8Array }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason }
   // The body's size in bytes, its bytes left out; transcript.body.read reads it whole.
   | { status: "large"; contentLength: number };
@@ -297,11 +307,17 @@ type TranscriptReasoningReadResponse =
   // surface, which unavailable would misstate. The schema cannot separate the two, because only the
   // request separates them: it carries the half it can see (the continuing arm, which is the arm
   // that can loop a client on a repeated cursor) and the daemon binder carries the first-page half,
-  // beside the request-scope checks, under Plan-010 I-010-13.
+  // beside the request-scope checks, under Plan-010 I-010-13. An entry joins one row's consecutive
+  // pieces, up to 16,384 characters, and names that row (`rowId`); `sequence` is its last piece's.
   | {
       availability: "available"; // normalized reasoning present
       // required on this arm only, non-empty (continuing arm), bounded by PAGE_MAX_BYTES
-      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>;
+      reasoningEntries: Array<{
+        sequence: number;
+        rowId: string;
+        content: string;
+        timestamp: string;
+      }>;
       hasMore: true;
       nextCursor: EventCursor;
     }
@@ -309,7 +325,12 @@ type TranscriptReasoningReadResponse =
       availability: "available";
       // may be EMPTY on this arm — see the note above; a first read answering empty is refused at
       // the binder
-      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>;
+      reasoningEntries: Array<{
+        sequence: number;
+        rowId: string;
+        content: string;
+        timestamp: string;
+      }>;
       hasMore: false;
       nextCursor?: EventCursor;
     }
@@ -336,13 +357,20 @@ interface TranscriptChildRunExpandRequest {
 // carries a run identity must carry THIS run's (the general arm is exempt, having none — a
 // session-scoped row inside a child's window is context, not misattribution), and runId !==
 // parentRunId, since a run that is its own parent makes the lineage graph cyclic and every walk of
-// it — nesting, one-layer-depth checking, cost attribution — non-terminating.
+// it — nesting, one-layer-depth checking, cost attribution — non-terminating. The rows are the
+// run's own events, the interventions on it and its own children's creation rows, each of which
+// names its child's run and carries a summary naming this run as parent, which the schema admits.
+// A run the daemon does not hold is refused `agent.run.notFound`, a run with no parent
+// `agent.run.notChild`. joinedThrough is as on TranscriptReadResponse.
 type TranscriptChildRunExpandResponse = {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
   entries: TranscriptReadRow[]; // bounded by PAGE_MAX_BYTES as well as by the row cap
-} & ({ hasMore: true; nextCursor: EventCursor } | { hasMore: false; nextCursor?: EventCursor });
+} & (
+  | { hasMore: true; nextCursor: EventCursor; joinedThrough: EventCursor }
+  | { hasMore: false; nextCursor?: EventCursor; joinedThrough?: EventCursor }
+);
 
 // `transcript.body.read`: a row's large body (the `large` arm of its `content`) or whole output,
 // read only when the row's control is pressed (`Show full output`, with its size), and the whole a
@@ -371,6 +399,7 @@ type TranscriptBodyReadResponse =
       offset: number;
       nextOffset: number | null;
       contentLength?: number;
+      blockStarts?: Uint8Array; // the whole body's block starts, on the first part of a prose body
     }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason };
 

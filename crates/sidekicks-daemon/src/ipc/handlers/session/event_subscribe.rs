@@ -365,4 +365,98 @@ mod tests {
         let (followed, ()) = tokio::join!(next_sequences(&mut feed, &gate), pin(&log, session_id));
         assert_eq!(followed, [61]);
     }
+
+    /// Appends a piece of `run_id`'s one reply block holding `body`; returns its id.
+    async fn reply_piece(
+        log: &EventLogService,
+        session_id: SessionId,
+        run_id: &str,
+        body: &str,
+    ) -> String {
+        let piece = serde_json::from_value(json!({
+            "type": "agent.message.sent",
+            "payload": {
+                "sessionId": session_id,
+                "runId": run_id,
+                "providerMessageId": "m1",
+                "providerBlock": { "index": 0, "attempt": 1 },
+            },
+        }))
+        .expect("the test writes a reply piece");
+        let receipt = log
+            .append(
+                test_envelope(session_id, &piece),
+                EventLogAppendOptions {
+                    content_body: Some(body.to_owned()),
+                    ..EventLogAppendOptions::default()
+                },
+            )
+            .await
+            .expect("the append commits");
+        receipt.id.as_str().to_owned()
+    }
+
+    /// Each change's piece, as its row's id, its offset and its inline text.
+    fn pieces_of(page: &RecordPage<SessionStreamChange>) -> Vec<(String, u64, serde_json::Value)> {
+        page.changes
+            .iter()
+            .map(|change| {
+                let piece = change.piece.as_ref().expect("each change is a piece");
+                (
+                    piece.row_id.as_str().to_owned(),
+                    piece.offset.get(),
+                    serde_json::to_value(&piece.content).expect("a body serializes")["body"]
+                        .clone(),
+                )
+            })
+            .collect()
+    }
+
+    // Killed by a piece placed relative to itself rather than its row, by a frame over the page
+    // budget or one cut without saying so, by a frame's fold advanced past a cut, and by a stream
+    // opened inside a row placing its pieces from zero.
+    #[tokio::test]
+    async fn event_subscribe_places_pieces_in_their_row_across_cut_frames_and_from_inside() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await.service;
+        let session_id = test_session_id();
+        let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
+        let body = "x".repeat(30_000);
+        let piece_count = 40;
+        let row_id = reply_piece(&log, session_id, &run_id, &body).await;
+        for _ in 1..piece_count {
+            reply_piece(&log, session_id, &run_id, &body).await;
+        }
+        let start = log
+            .read_follow_start(session_id, FollowStart::StartOfLog)
+            .await
+            .expect("the session's start reads");
+        let placed = |index: usize| {
+            let offset = u64::try_from(index * body.len()).expect("a test offset fits");
+            (row_id.clone(), offset, json!(body))
+        };
+
+        let record = SessionEventRecord::new(Arc::clone(&log), session_id);
+        let first = record
+            .read_after(&start, 64)
+            .await
+            .expect("the frame reads");
+        let kept = first.changes.len();
+        assert!(first.is_cut_by_size);
+        assert!(kept > 0 && kept < piece_count);
+        assert_eq!(pieces_of(&first), (0..kept).map(placed).collect::<Vec<_>>());
+        let last_cursor = first.changes[kept - 1].cursor.clone();
+        let next = record
+            .read_after(&last_cursor, 64)
+            .await
+            .expect("the frame reads");
+        assert_eq!(pieces_of(&next)[0], placed(kept));
+
+        let opened_inside = SessionEventRecord::new(Arc::clone(&log), session_id);
+        let inside = opened_inside
+            .read_after(&first.changes[2].cursor, 1)
+            .await
+            .expect("the frame reads");
+        assert_eq!(pieces_of(&inside), [placed(3)]);
+    }
 }

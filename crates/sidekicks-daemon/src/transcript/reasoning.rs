@@ -219,9 +219,83 @@ fn cursor_at(position: i64) -> EventCursor {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{Value, json};
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::session::event_cursor::encode_event_cursor;
+    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 
-    use super::split_reasoning_text;
+    use super::{read_reasoning, split_reasoning_text};
+    use crate::transcript::test_log::{AT, TranscriptTestLog};
+
+    const THINKING: &str = "agent.thinking.updated";
+
+    // The reasoning page of `run_id` after `after_cursor`, as JSON.
+    fn read(log: &TranscriptTestLog, run_id: RunId, after_cursor: Option<i64>) -> Value {
+        let mut request = json!({ "runId": run_id });
+        if let Some(position) = after_cursor {
+            request["afterCursor"] =
+                json!(encode_event_cursor(position).expect("a test position is a cursor"));
+        }
+        let request = serde_json::from_value(request).expect("the test's request reads");
+        let page = read_reasoning(&log.reader(), &|_: &SessionId| None, &request)
+            .expect("the reasoning reads");
+        serde_json::to_value(page).expect("a page serializes")
+    }
+
+    // Killed by an entry holding pieces of two rows, by an entry past the cap, by an entry named
+    // by its first piece, and by a row's entries named by another row.
+    #[test]
+    fn reasoning_entries_group_a_rows_consecutive_pieces_up_to_one_entry() {
+        let log = TranscriptTestLog::new();
+        let piece = "a".repeat(6_000);
+        let (_, row_id) = log.piece(THINKING, log.run_id, "m1", Some(0), &piece, AT);
+        let (second, _) = log.piece(THINKING, log.run_id, "m1", Some(0), &piece, AT);
+        let (third, _) = log.piece(THINKING, log.run_id, "m1", Some(0), &piece, AT);
+        let (other, other_row_id) = log.piece(THINKING, log.run_id, "m2", Some(0), "b", AT);
+
+        let page = read(&log, log.run_id, None);
+        let entries: Vec<(i64, String, usize)> = page["reasoningEntries"]
+            .as_array()
+            .expect("the page holds entries")
+            .iter()
+            .map(|entry| {
+                (
+                    entry["sequence"].as_i64().expect("an entry has a sequence"),
+                    entry["rowId"]
+                        .as_str()
+                        .expect("an entry names its row")
+                        .to_owned(),
+                    entry["content"]
+                        .as_str()
+                        .expect("an entry holds text")
+                        .len(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            entries,
+            [
+                (second, row_id.clone(), 12_000),
+                (third, row_id, 6_000),
+                (other, other_row_id, 1),
+            ]
+        );
+    }
+
+    // Killed by a run with no reasoning answering an empty page on its first read, and by a
+    // continuation at the end answering `unavailable`.
+    #[test]
+    fn reasoning_is_unavailable_only_on_a_first_read_of_a_run_with_none() {
+        let log = TranscriptTestLog::new();
+        let (head, _) = log.reply("m1", Some(0), "No reasoning here.");
+
+        assert_eq!(read(&log, log.run_id, None)["availability"], "unavailable");
+        let at_end = read(&log, log.run_id, Some(head));
+        assert_eq!(at_end["availability"], "available");
+        assert_eq!(at_end["reasoningEntries"], json!([]));
+        assert_eq!(at_end["hasMore"], false);
+    }
 
     #[test]
     fn a_long_text_splits_on_scalar_boundaries_into_parts_of_at_most_one_entry() {

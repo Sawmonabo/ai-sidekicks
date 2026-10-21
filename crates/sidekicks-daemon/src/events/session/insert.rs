@@ -87,13 +87,13 @@ const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
       ORDER BY sequence DESC
       LIMIT 1";
 
-// The row a new piece joins: the run's newest piece of its type under its key, newer than the
-// run's last rollback, as its row's first piece's sequence. Each half is one search of a covering
-// index: the key's, and the run-and-type one.
 // The payload members that name the provider message and block a piece belongs to.
 const PROVIDER_MESSAGE_ID_PAYLOAD_KEY: &str = "providerMessageId";
 const PROVIDER_BLOCK_PAYLOAD_KEY: &str = "providerBlock";
 
+// The row a new piece joins: the run's newest piece of its type under its key, newer than the
+// run's last rollback, as its row's first piece's sequence. Each half is one search of a covering
+// index: the key's, and the run-and-type one.
 static JOINED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT coalesce(piece.joins_sequence, piece.sequence)
@@ -226,4 +226,57 @@ fn join_key_of(event: &UnsequencedEventEnvelope) -> Option<String> {
         ))
         .expect("two JSON values serialize"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sidekicks_contracts::run::id::RunId;
+
+    use crate::transcript::test_log::TranscriptTestLog;
+
+    // Killed by a piece after a rollback of its run joining the row the rollback rewound, and by a
+    // piece of another run joining under the same key.
+    #[test]
+    fn a_rollback_or_another_run_ends_the_rejoin_of_a_key() {
+        let log = TranscriptTestLog::new();
+        let other_run = RunId::try_from(crate::uuid_v7::mint_uuid_v7()).expect("a run id");
+        let (anchor, _) = log.reply("m1", Some(0), "Before ");
+        let (joined, _) = log.reply("m1", Some(0), "the undo.");
+        let (other, _) = log.piece(
+            "agent.message.sent",
+            other_run,
+            "m1",
+            Some(0),
+            "Elsewhere.",
+            crate::transcript::test_log::AT,
+        );
+        log.write(
+            json!({
+                "type": "agent.run.rolledBack",
+                "payload": {
+                    "sessionId": log.session_id,
+                    "runId": log.run_id,
+                    "runVersion": 2,
+                    "targetPosition": 0,
+                },
+            }),
+            None,
+        );
+        let (after, _) = log.reply("m1", Some(0), "After the undo.");
+
+        let joins: Vec<Option<i64>> = [anchor, joined, other, after]
+            .iter()
+            .map(|sequence| {
+                log.reader()
+                    .query_row(
+                        "SELECT joins_sequence FROM session_events WHERE sequence = ?1",
+                        [sequence],
+                        |row| row.get(0),
+                    )
+                    .expect("the test reads the stamp")
+            })
+            .collect();
+        assert_eq!(joins, [None, Some(anchor), None, None]);
+    }
 }
