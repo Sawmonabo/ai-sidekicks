@@ -3,8 +3,11 @@
 //! chain, not the control plane: every machine checks each statement itself and trusts a key only
 //! when a path of statements reaches it from its own machine key.
 
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::VariantArray;
 
 use crate::machine::id::MachineId;
@@ -68,7 +71,7 @@ pub enum IdentityKeyAlgorithm {
     Ed25519,
 }
 
-/// The public half of a machine's, a device's or a passkey's identity key, standard base64: an
+/// The public half of a machine's or a device's identity key, standard base64: an
 /// Ed25519 key is 32 bytes, a P-256 key its 65-byte uncompressed point.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
@@ -123,6 +126,84 @@ pub enum ChannelPublicKey {
         public_key: Base64Array<32>,
     },
 }
+
+/// A COSE algorithm a passkey signs with: EdDSA, ES256 or RS256, on the wire as its COSE number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, VariantArray)]
+pub enum CoseAlgorithm {
+    /// EdDSA over Ed25519, COSE -8.
+    EdDsa,
+    /// ECDSA over P-256 with SHA-256, COSE -7.
+    Es256,
+    /// RSASSA-PKCS1-v1_5 with SHA-256, COSE -257.
+    Rs256,
+}
+
+impl CoseAlgorithm {
+    /// The algorithm's COSE number.
+    pub const fn number(self) -> i64 {
+        match self {
+            Self::EdDsa => -8,
+            Self::Es256 => -7,
+            Self::Rs256 => -257,
+        }
+    }
+
+    /// The algorithm with COSE number `number`, or `None` for one a passkey here does not use.
+    pub fn from_number(number: i64) -> Option<Self> {
+        Self::VARIANTS
+            .iter()
+            .copied()
+            .find(|algorithm| algorithm.number() == number)
+    }
+}
+
+impl Serialize for CoseAlgorithm {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_i64(self.number())
+    }
+}
+
+impl<'de> Deserialize<'de> for CoseAlgorithm {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let number = i64::deserialize(deserializer)?;
+        Self::from_number(number)
+            .ok_or_else(|| D::Error::custom("a COSE algorithm other than -8, -7 or -257"))
+    }
+}
+
+impl JsonSchema for CoseAlgorithm {
+    fn schema_name() -> Cow<'static, str> {
+        "CoseAlgorithm".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        let numbers: Vec<i64> = Self::VARIANTS
+            .iter()
+            .map(|algorithm| algorithm.number())
+            .collect();
+        json_schema!({
+            "description": "A COSE algorithm a passkey signs with: EdDSA (-8), ES256 (-7) or RS256 \
+                            (-257).",
+            "type": "integer",
+            "enum": numbers,
+        })
+    }
+}
+
+/// A passkey's public key as its authenticator made it: the COSE key, base64url, and its
+/// algorithm, which the machines' verifier reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PasskeyPublicKey {
+    /// The key's COSE algorithm.
+    pub cose_algorithm: CoseAlgorithm,
+    /// The COSE key's bytes.
+    pub cose_key: Base64UrlText<1, SIGNATURE_PART_MAX_LEN>,
+}
+
+/// The 32-byte nonce a passkey-signed statement's challenge was made from, base64url: the
+/// challenge is SHA-256 of the nonce and the statement's hash.
+pub type ChallengeNonce = Base64UrlText<43, 43>;
 
 /// The key behind a statement or an entry: a device's, a machine's or a passkey's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -185,6 +266,8 @@ pub enum TrustStatementSignature {
         client_data_json: Base64UrlText<1, SIGNATURE_PART_MAX_LEN>,
         /// The assertion's signature.
         signature: Base64UrlText<1, SIGNATURE_PART_MAX_LEN>,
+        /// The nonce the assertion's challenge was made from with the statement's hash.
+        challenge_nonce: ChallengeNonce,
     },
 }
 
@@ -320,7 +403,7 @@ statements! {
         /// The passkey's credential id.
         passkey_id: PasskeyId,
         /// The passkey's public key.
-        public_key: IdentityPublicKey,
+        public_key: PasskeyPublicKey,
         /// The platform that holds the passkey.
         platform: PlatformDescription,
     }
@@ -386,6 +469,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<IdentityPublicKey>().checked(),
         Definition::read::<MachineIdentityKey>().checked(),
         Definition::read::<ChannelPublicKey>().checked(),
+        Definition::read::<CoseAlgorithm>(),
+        Definition::read::<PasskeyPublicKey>().checked(),
         Definition::read::<TrustSigner>(),
         Definition::read::<TrustStatementSignature>().checked(),
         Definition::read::<TrustStatementKind>(),

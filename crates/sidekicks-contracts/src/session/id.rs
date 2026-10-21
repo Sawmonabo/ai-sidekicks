@@ -1,6 +1,5 @@
-//! The ids a session's contracts carry: the session and the person. Every one accepts any RFC 9562
-//! UUID in either case, since the daemon mints version 7 and the control plane's rows take
-//! version 4.
+//! The ids a session's contracts carry: the session and the person. The daemon and the control
+//! plane mint version 7, and every one accepts any RFC 9562 UUID in either case.
 
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
