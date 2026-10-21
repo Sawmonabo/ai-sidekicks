@@ -11,6 +11,7 @@ use rusqlite::{OptionalExtension as _, named_params};
 use sidekicks_contracts::event::envelope::{EventCategory, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::events::{
     AgentTurnCompletedPayload, AgentTurnFailedPayload, AgentTurnInterruptedPayload,
     AgentTurnStartedPayload, TurnEndCause, TurnEndOrigin,
@@ -19,6 +20,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::sql_list::sql_list_of;
@@ -125,6 +127,16 @@ pub(crate) struct ProviderTurnEnd {
     /// How it ended, with the cause the delivery knows from the frame; a limit stop's cut of the
     /// turn replaces it.
     pub(crate) outcome: TurnOutcome,
+}
+
+/// A turn the engine opened: its number within its run and the id of its `run.turn_started` event,
+/// which a flag about the whole turn points at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StartedTurn {
+    /// The turn's number within its run.
+    pub(crate) turn_number: SafeInt<1>,
+    /// The id of the event that started it.
+    pub(crate) event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
 }
 
 /// The steps of a run's open turn, counted against its step bound, and whether the turn has
@@ -250,16 +262,15 @@ impl RunEngine {
     /// turn`, which the caller resolves when the turn opens; the engine counts the turn's steps
     /// against it, whatever the provider. Fails with `RunRefusal::NotFound` for an unknown run and
     /// with the append's failure.
-    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn start_turn(
         &self,
         run_id: RunId,
         position: Option<SourcePosition>,
         step_bound: Option<SafeInt<1>>,
-    ) -> Result<Option<SafeInt<1>>, RunEngineError> {
+    ) -> Result<Option<StartedTurn>, RunEngineError> {
         self.wait_while_continuing(&run_id).await;
         let mut attempt = 1;
-        let turn_number = loop {
+        let started = loop {
             let run = self.require_run(run_id).await?;
             if run.state.is_terminal() {
                 return Ok(None);
@@ -280,7 +291,12 @@ impl RunEngine {
                 no_turn_start_from_statement(&run_id, turn_number),
             ];
             match self.append(draft, transactional_prelude, Vec::new()).await {
-                Ok(_receipt) => break turn_number,
+                Ok(receipt) => {
+                    break StartedTurn {
+                        turn_number,
+                        event_id: receipt.id,
+                    };
+                }
                 Err(error)
                     if attempt < TURN_START_ATTEMPTS
                         && matches!(
@@ -295,13 +311,13 @@ impl RunEngine {
         match step_bound {
             Some(bound) => {
                 live.step_counts
-                    .insert(run_id, StepCount::new(turn_number, bound));
+                    .insert(run_id, StepCount::new(started.turn_number, bound));
             }
             None => {
                 live.step_counts.remove(&run_id);
             }
         }
-        Ok(Some(turn_number))
+        Ok(Some(started))
     }
 
     /// Counts one step of the open turn on `run_id`, which the driver's delivery reports, whatever

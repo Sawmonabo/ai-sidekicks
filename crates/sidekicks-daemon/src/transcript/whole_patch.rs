@@ -12,6 +12,8 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::transcript::content::{
     TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
 };
+use sidekicks_contracts::transcript::row::TranscriptOmittedPatch;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 /// The payload member of a tool completion that names the files its body's patches cover; a
 /// completion naming one or more stores its body in parts of each file.
@@ -77,6 +79,24 @@ pub(crate) enum WholePatchFile {
 }
 
 impl WholePatchFile {
+    /// The file's path, its new one for a file the call moved.
+    pub(crate) fn path(&self) -> &FilesystemPath {
+        match self {
+            Self::Read { path, .. } | Self::Unreadable { path, .. } | Self::Absent { path, .. } => {
+                path
+            }
+        }
+    }
+
+    /// The old path of a file the call moved.
+    pub(crate) fn old_path(&self) -> Option<&FilesystemPath> {
+        match self {
+            Self::Read { old_path, .. }
+            | Self::Unreadable { old_path, .. }
+            | Self::Absent { old_path, .. } => old_path.as_ref(),
+        }
+    }
+
     /// The text a part of the file is cut from: its patch or the raw text as sent; `None` when no
     /// patch came.
     pub(crate) fn text(&self) -> Option<&str> {
@@ -117,6 +137,27 @@ impl WholePatchFile {
             Self::Absent { .. } => self.clone(),
         }
     }
+}
+
+/// The body a tool completion whose patches cover `files` carries before it is stored in parts:
+/// the file list `{"files": [...]}`, each file whole.
+pub(crate) fn stored_patch_files_body(files: &[WholePatchFile]) -> String {
+    serde_json::json!({ "files": files }).to_string()
+}
+
+/// What a tool completion's payload names for each of `files`, so the append stores its body in
+/// parts: the file's path, the old path of a moved one, and its text's size in bytes, zero for a
+/// file with no patch.
+pub(crate) fn omitted_patches_of(files: &[WholePatchFile]) -> Vec<TranscriptOmittedPatch> {
+    files
+        .iter()
+        .map(|file| TranscriptOmittedPatch {
+            path: file.path().clone(),
+            old_path: file.old_path().cloned(),
+            size: SafeInt::new(u64::try_from(file.text().map_or(0, str::len)).unwrap_or(u64::MAX))
+                .expect("a patch held in memory is shorter than a safe integer"),
+        })
+        .collect()
 }
 
 /// One stored part of a file of a completion's list: its body and, on a part of the file's text,

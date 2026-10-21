@@ -394,10 +394,6 @@ impl ReviewerDenials {
     /// first; a block that names no call is recorded at once, as a row of its own. Fails with
     /// [`ReviewerDenialError::NoRow`] when the run ends with no row for it, with
     /// [`ReviewerDenialError::Stopped`] once the daemon stops, and as the reads and the append do.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the drivers hand each block through the port")
-    )]
     async fn take(&self, denial: ProviderReviewerDenial) -> Result<(), ReviewerDenialError> {
         let (session_id, run_id) = (denial.session_id, denial.run_id);
         let Some(tool_call_id) = denial.tool_call_id.clone() else {

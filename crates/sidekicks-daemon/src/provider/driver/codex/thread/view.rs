@@ -42,6 +42,19 @@ struct PermissionProfileReply {
     active_permission_profile: Option<Box<RawValue>>,
 }
 
+/// The permission profile a thread runs under, as a start, resume or fork reply and a
+/// `thread/settings/updated` notice each name it.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ActivePermissionProfile {
+    /// The profile's id, `None` where it names none.
+    pub(crate) id: Option<String>,
+}
+
+/// The id of the active profile `profile` holds, `None` where it is unreadable or names none.
+pub(crate) fn read_active_permission_profile(profile: &RawValue) -> Option<String> {
+    read_codex_object::<ActivePermissionProfile>(profile.get()).and_then(|profile| profile.id)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ThreadMembers {
@@ -50,7 +63,7 @@ struct ThreadMembers {
     turns: Option<Box<RawValue>>,
 }
 
-// A permission profile or a turn, read by its id.
+// A turn, read by its id.
 #[derive(Deserialize)]
 struct IdentifiedMember {
     id: Option<String>,
@@ -122,8 +135,7 @@ pub(crate) fn assert_active_permission_profile(
 ) -> Result<(), CodexError> {
     let active_profile = read_codex_object::<PermissionProfileReply>(reply.get())
         .and_then(|reply| reply.active_permission_profile)
-        .and_then(|profile| read_codex_object::<IdentifiedMember>(profile.get()))
-        .and_then(|profile| profile.id);
+        .and_then(|profile| read_active_permission_profile(&profile));
     if active_profile.as_deref() == Some(requested_profile) {
         return Ok(());
     }

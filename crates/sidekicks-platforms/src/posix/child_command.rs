@@ -22,6 +22,10 @@ use crate::posix::shell_start::arm_parent_death;
 /// Whether a process is asked to stop by a signal it can answer, as every process here is.
 pub const CAN_SIGNAL_A_STOP: bool = true;
 
+/// Whether a socket's path can be a link to the socket bound elsewhere, which a program moves to
+/// point its callers at another listener, as every path here can.
+pub const CAN_LINK_A_SOCKET: bool = true;
+
 /// Prepares `command` to start a child of the daemon `daemon_pid`: before its program runs, the
 /// child arms itself to end with the daemon and checks the daemon is still its parent, since the
 /// daemon can end between the fork and the exec. The child's start then fails with `ESRCH` when

@@ -10,6 +10,8 @@ use std::time::Duration;
 
 use nix::sys::signal::Signal;
 use polling::{Event, Poller};
+use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
 use crate::linux::processes::read_process_environment;
@@ -86,21 +88,56 @@ impl PinnedProcess {
         )
     }
 
+    /// Stops the process and the group it leads: `SIGTERM` to it and to its whole group, then as
+    /// [`Self::stop`] once `grace` passes. Blocking, so it runs in `spawn_blocking`; answers and
+    /// fails as [`Self::stop`] does.
+    pub fn stop_group(&self, grace: Duration) -> io::Result<ChildEnd> {
+        stop_pinned_process(
+            grace,
+            |signal| self.send_to_group(signal),
+            |bound| self.wait_for_exit(bound),
+        )
+    }
+
+    /// Asks the process to end by itself: `SIGHUP` through its descriptor, so no process given its
+    /// id meanwhile is signaled; `false` when it has ended. Fails with the system's error.
+    pub fn hang_up(&self) -> io::Result<bool> {
+        self.send_through_descriptor(Signal::SIGHUP, 0)
+    }
+
+    /// Waits with no bound and no thread for the process's end, an end before the wait included:
+    /// the runtime watches a copy of its descriptor, which reads ready once it has exited. Dropping
+    /// the wait calls it off. Must be called within the runtime. Fails with the system's error.
+    pub async fn wait_for_end(&self) -> io::Result<()> {
+        let descriptor = self.descriptor.try_clone()?;
+        // SAFETY: the copy is the descriptor the `AsyncFd` owns from here, open until the `AsyncFd`
+        // drops it, and `as_raw_fd` answers that one descriptor every time.
+        let exit = unsafe { AsyncFd::register_with_interest(descriptor, Interest::READABLE) }?;
+        let _ended = exit.readable().await?;
+        Ok(())
+    }
+
     // Sends `signal` through the descriptor, `SIGKILL` to the process and then to the whole group
     // it leads, so nothing a lasting child started outlives it; `false` when the process has
-    // ended. From Linux 6.9 the descriptor's group signal reaches exactly the group; a kernel
+    // ended.
+    fn send_signal(&self, signal: Signal) -> io::Result<bool> {
+        if signal != Signal::SIGKILL {
+            return self.send_through_descriptor(signal, 0);
+        }
+        self.send_to_group(signal)
+    }
+
+    // Sends `signal` to the process and then to the whole group it leads; `false` when the process
+    // has ended. From Linux 6.9 the descriptor's group signal reaches exactly the group; a kernel
     // before 6.9 refuses the group flag with `EINVAL`, so the rest of the group is signaled by its
     // id, unless the process has been reaped and its id passed to another process, which happens
     // only once the group has ended. Fails with the first error a signal met, once both are sent.
-    fn send_signal(&self, signal: Signal) -> io::Result<bool> {
+    fn send_to_group(&self, signal: Signal) -> io::Result<bool> {
         let is_running = self.send_through_descriptor(signal, 0);
-        if signal != Signal::SIGKILL {
-            return is_running;
-        }
         let group_end = match self.send_through_descriptor(signal, libc::PIDFD_SIGNAL_PROCESS_GROUP)
         {
             Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {
-                self.kill_rest_of_own_group().map(|_| ())
+                self.signal_rest_of_own_group(signal).map(|_| ())
             }
             sent => sent.map(|_| ()),
         };
@@ -109,14 +146,14 @@ impl PinnedProcess {
         Ok(is_running)
     }
 
-    // Sends `SIGKILL` to the rest of the group the process leads by its id, unless the process has
+    // Sends `signal` to the rest of the group the process leads by its id, unless the process has
     // been reaped and another process holds its id; `false` when nothing was signaled.
-    fn kill_rest_of_own_group(&self) -> io::Result<bool> {
+    fn signal_rest_of_own_group(&self, signal: Signal) -> io::Result<bool> {
         let is_reaped = descriptor_process_id(self.descriptor.as_raw_fd())?.is_none();
         if is_reaped && is_id_held(self.id)? {
             return Ok(false);
         }
-        signal_group(self.id, Signal::SIGKILL)
+        signal_group(self.id, signal)
     }
 
     /// Sends `signal` through the descriptor with `flags`; `false` when the process has ended.

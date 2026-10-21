@@ -29,6 +29,7 @@ use crate::child_command::ChildEnd;
 use crate::pinned_process::{KILL_WAIT_BOUND, ProcessRecord};
 use crate::windows::ctrl_c::CTRL_C_EXIT_CODE;
 use crate::windows::error_codes::win32_code;
+use crate::windows::handle_wait::HandleWait;
 use crate::windows::lasting_child::is_lasting_job_name;
 use crate::windows::wide_text::wide_text;
 
@@ -99,6 +100,37 @@ impl PinnedProcess {
             ErrorKind::TimedOut,
             "the process still runs after it was killed",
         ))
+    }
+
+    /// Ends the process as [`Self::stop`] does: Windows has no group signal, so the caller asks it
+    /// to stop by the program's own means first, and its job's processes end with it.
+    pub fn stop_group(&self, grace: Duration) -> io::Result<ChildEnd> {
+        self.stop(grace)
+    }
+
+    /// Asks the process to end by itself, which Windows has no signal for, so it fails with
+    /// `Unsupported`: the caller asks it by the program's own means.
+    pub fn hang_up(&self) -> io::Result<bool> {
+        Err(io::Error::new(
+            ErrorKind::Unsupported,
+            "Windows has no signal that asks a process to end by itself",
+        ))
+    }
+
+    /// Waits with no bound and no thread of its own for the process's end, an end before the wait
+    /// included: the system's thread pool waits on its handle. Dropping the wait calls it off.
+    /// Fails with the system's error when the pool refuses the wait, and with `Unsupported` for
+    /// this process, which is held by no handle of its own.
+    pub async fn wait_for_end(&self) -> io::Result<()> {
+        let Some(process) = &self.process else {
+            return Err(io::Error::new(
+                ErrorKind::Unsupported,
+                "this process never waits for its own end",
+            ));
+        };
+        let exit_wait = HandleWait::new(Arc::clone(process))?;
+        exit_wait.notified().await;
+        Ok(())
     }
 
     /// Ends every process still in the job of the process's own, through the handle held with it;
