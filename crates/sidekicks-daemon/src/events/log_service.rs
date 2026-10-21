@@ -40,7 +40,7 @@ use crate::database::writer::messages::WriteJob;
 use crate::database::writer::{CommitHook, DatabaseWriter, PendingWrite, WriteError};
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
 use crate::events::content::append::{
-    ContentDescriptionSeededError, ContentPartitionRefusedError,
+    ContentDescriptionSeededError, ContentPartitionRefusedError, PatchFilesRefusedError,
     assert_no_seeded_content_description,
 };
 use crate::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
@@ -142,6 +142,9 @@ pub(crate) enum EventAppendError {
     /// A content body was given for a type that carries none.
     #[error(transparent)]
     ContentPartition(#[from] ContentPartitionRefusedError),
+    /// A tool completion naming patched files carries a body that is not their list.
+    #[error(transparent)]
+    PatchFiles(#[from] PatchFilesRefusedError),
     /// The writer did not keep the write: a guarded statement refused it
     /// ([`WriteError::Refused`]), SQLite failed it, or the writer was ended or closed.
     #[error("the event's write was not kept")]
@@ -289,6 +292,8 @@ struct ComposedWrite {
     job: WriteJob,
     on_commit: CommitHook,
     id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// Where the event's own row sits among the write's rows.
+    row_index: usize,
 }
 
 impl EventLogService {
@@ -573,15 +578,17 @@ impl EventLogService {
                     session_id: envelope.session_id(),
                 });
             }
-            rows.push(compose_row(
+            rows.extend(compose_rows(
                 preceding,
                 preceding_body.as_deref(),
                 monotonic_ns,
             )?);
         }
-        let row = compose_row(envelope, content_body.as_deref(), monotonic_ns)?;
-        let id = row.envelope.id.clone();
-        rows.push(row);
+        // The event's receipt names its own row, which any rows of its files follow.
+        let row_index = rows.len();
+        let event_rows = compose_rows(envelope, content_body.as_deref(), monotonic_ns)?;
+        let id = event_rows[0].envelope.id.clone();
+        rows.extend(event_rows);
 
         let mut statements = transactional_prelude;
         if let Some(projection_statements) = &self.projection_statements {
@@ -597,30 +604,39 @@ impl EventLogService {
             },
             on_commit: publish_on_commit(stored_envelopes, Arc::clone(&self.followers)),
             id,
+            row_index,
         })
     }
 
     /// Queues `write` with no await, so a caller holding the session's lock lets it go at once.
-    fn enqueue(
-        &self,
-        write: ComposedWrite,
-    ) -> Result<(PendingWrite, FreeFormText<EVENT_FIELD_MAX_LEN>), WriteError> {
+    fn enqueue(&self, write: ComposedWrite) -> Result<QueuedAppend, WriteError> {
         let pending = self.writer.enqueue(write.job, Some(write.on_commit))?;
-        Ok((pending, write.id))
+        Ok(QueuedAppend {
+            pending,
+            id: write.id,
+            row_index: write.row_index,
+        })
     }
 }
 
+/// An append's write once queued, with the event's id and where its row sits among the write's.
+struct QueuedAppend {
+    pending: PendingWrite,
+    id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    row_index: usize,
+}
+
 /// The receipt of a queued append once its write committed.
-async fn committed(
-    (pending, id): (PendingWrite, FreeFormText<EVENT_FIELD_MAX_LEN>),
-) -> Result<EventLogAppendReceipt, EventAppendError> {
-    let committed = pending.await?;
-    let sequence = committed
+async fn committed(queued: QueuedAppend) -> Result<EventLogAppendReceipt, EventAppendError> {
+    let committed = queued.pending.await?;
+    let sequence = *committed
         .sequences
-        .last()
-        .copied()
-        .expect("a committed write has a sequence per row, and an append writes one");
-    Ok(EventLogAppendReceipt { id, sequence })
+        .get(queued.row_index)
+        .expect("a committed write has a sequence per row, the event's among them");
+    Ok(EventLogAppendReceipt {
+        id: queued.id,
+        sequence,
+    })
 }
 
 /// The commit hook that pairs `stored_envelopes`, the ones the write's rows bound, with the
@@ -640,28 +656,41 @@ fn publish_on_commit(
     })
 }
 
-/// Composes the row exactly as it will be stored: the envelope in its stored form, shared by the
-/// row and the commit hook, its payload text and its body. Everything bound comes from the
-/// composed envelope, never the caller's input.
-fn compose_row(
+/// Composes the rows of one event exactly as they will be stored: the envelope in its stored form,
+/// shared by the row and the commit hook, its payload text and its body, then, for a tool
+/// completion naming the files its body's patches cover, one row per file, which joins the event's
+/// row. Everything bound comes from the composed envelope, never the caller's input.
+pub(crate) fn compose_rows(
     mut envelope: UnsequencedEventEnvelope,
     content_body: Option<&str>,
     monotonic_ns: i64,
-) -> Result<SessionEventRow, EventAppendError> {
+) -> Result<Vec<SessionEventRow>, EventAppendError> {
     // Checked before the content picks the branch: a seeded `contentLength` without content would
     // otherwise be stored as given.
     assert_no_seeded_content_description(envelope.payload(), APPEND_REFUSER)?;
     envelope.occurred_at = normalize_occurred_at(envelope.occurred_at.as_str())?;
-    let content_payload = content_body
-        .map(|body| envelope.describe_content(body))
-        .transpose()?;
-    let payload = serde_json::to_string(envelope.payload()).expect("a JSON object serializes");
-    Ok(SessionEventRow {
+    let (content_payload, files) = match content_body {
+        None => (None, Vec::new()),
+        Some(body) if envelope.is_patch_bearing() => {
+            let (opening, files) = envelope.describe_patch_files(body)?;
+            (Some(opening), files)
+        }
+        Some(body) => (Some(envelope.describe_content(body)?), Vec::new()),
+    };
+    let row = |envelope: UnsequencedEventEnvelope, content_payload| SessionEventRow {
+        payload: serde_json::to_string(envelope.payload()).expect("a JSON object serializes"),
         envelope: Arc::new(envelope),
-        payload,
         monotonic_ns,
         content_payload,
-    })
+    };
+    let mut rows = Vec::with_capacity(1 + files.len());
+    rows.push(row(envelope, content_payload));
+    rows.extend(
+        files
+            .into_iter()
+            .map(|(file, content_payload)| row(file, Some(content_payload))),
+    );
+    Ok(rows)
 }
 
 #[cfg(test)]

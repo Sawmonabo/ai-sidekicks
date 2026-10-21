@@ -32,7 +32,7 @@ use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 /// Whether the event aliased `event_alias` stands as a row: it starts one, or it continues a row
 /// whose first piece is unreadable and no readable piece of that row comes before it.
-fn row_condition_sql(event_alias: &str) -> String {
+pub(crate) fn row_condition_sql(event_alias: &str) -> String {
     format!(
         "({event_alias}.joins_sequence IS NULL OR (
       NOT EXISTS (SELECT 1 FROM session_events AS anchor
@@ -156,8 +156,9 @@ static ROW_MEMBERS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // The rows of a run, each given as its sequence and its last piece's, that nothing has ended
-// through the head: no turn end or end of its run, and no later row of its run starting, after its
-// last piece. Each probe is one search of an index, so a long row costs no more than a short one.
+// through the head: no turn end or end of its run after its last piece, the only events that close
+// the join a later piece takes. Each probe is one search of an index, so a long row costs no more
+// than a short one.
 static UNENDED_ROWS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT row.sequence
@@ -170,17 +171,10 @@ static UNENDED_ROWS_SQL: LazyLock<String> = LazyLock::new(|| {
            WHERE ended.session_id = @session_id AND ended.type IN ({turn_ends}, {run_ends})
              AND ended.run_id = row.run_id
              AND ended.sequence > json_extract(given.value, '$[1]') AND ended.sequence <= @head
-             AND {readable_ended})
-        AND NOT EXISTS (
-          SELECT 1 FROM session_events AS later
-           WHERE later.session_id = @session_id AND later.run_id = row.run_id
-             AND later.join_key IS NOT NULL AND later.joins_sequence IS NULL
-             AND later.sequence > json_extract(given.value, '$[1]') AND later.sequence <= @head
-             AND {readable_later})",
+             AND {readable_ended})",
         turn_ends = sql_list_of(TURN_END_EVENT_TYPES),
         run_ends = *RUN_TERMINAL_EVENT_TYPES_SQL,
         readable_ended = readable_event_sql("ended"),
-        readable_later = readable_event_sql("later"),
     )
 });
 
@@ -358,8 +352,7 @@ where
     }
 
     /// Which of `rows`, each a row's sequence and its last piece's through `head`, still take
-    /// pieces: a row of a run that no turn end or end of its run, and no later row of its run, has
-    /// followed.
+    /// pieces: a row of a run that no turn end or end of its run has followed.
     pub(crate) fn unended_rows(
         &self,
         rows: &[(i64, i64)],

@@ -96,11 +96,6 @@ CREATE INDEX idx_session_events_tool_call
 CREATE INDEX idx_session_events_join_key
   ON {SESSION_EVENTS_TABLE}(session_id, run_id, type, join_key, sequence, joins_sequence)
   WHERE join_key IS NOT NULL;
--- One run's reply and reasoning rows by their first pieces, in log order, for the read that finds
--- whether a later row of the run has started.
-CREATE INDEX idx_session_events_run_anchor
-  ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)
-  WHERE join_key IS NOT NULL AND joins_sequence IS NULL;
 -- Every piece continuing a row, by the row's first piece, in log order.
 CREATE INDEX idx_session_events_joins
   ON {SESSION_EVENTS_TABLE}(session_id, joins_sequence, sequence)

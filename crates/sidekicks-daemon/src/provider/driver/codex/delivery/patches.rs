@@ -5,6 +5,9 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::transcript::content::{
+    TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
+};
 
 use crate::provider::driver::unified_diff::{count_unified_diff, mark_every_line};
 use crate::provider::record_readers::read_non_empty_string;
@@ -67,6 +70,7 @@ fn read_codex_patch_file(change: &Value) -> Option<WholePatchFile> {
             return Some(WholePatchFile::Absent {
                 path: named_path,
                 old_path,
+                unavailable: TranscriptPatchAbsentReason::Value,
             });
         }
         Some(Value::String(diff)) => diff,
@@ -74,6 +78,7 @@ fn read_codex_patch_file(change: &Value) -> Option<WholePatchFile> {
             return Some(WholePatchFile::Unreadable {
                 path: named_path,
                 old_path,
+                unavailable: TranscriptPatchUnreadableReason::Value,
                 raw_patch: diff.to_string(),
             });
         }
@@ -83,6 +88,7 @@ fn read_codex_patch_file(change: &Value) -> Option<WholePatchFile> {
             WholePatchFile::Unreadable {
                 path,
                 old_path: None,
+                unavailable: TranscriptPatchUnreadableReason::Value,
                 raw_patch: diff.clone(),
             }
         }
@@ -151,6 +157,9 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::free_form_string::FilesystemPath;
+    use sidekicks_contracts::transcript::content::{
+        TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
+    };
 
     use super::read_codex_patch_files;
     use crate::transcript::whole_patch::WholePatchFile;
@@ -198,17 +207,18 @@ mod tests {
     )]
     #[case::no_diff_is_absent(
         json!({"path": "/w/a.md", "kind": {"type": "update", "move_path": null}}),
-        WholePatchFile::Absent { path: path("/w/a.md"), old_path: None }
+        WholePatchFile::Absent { path: path("/w/a.md"), old_path: None, unavailable: TranscriptPatchAbsentReason::Value }
     )]
     #[case::a_move_with_no_diff_is_absent_under_its_new_path(
         json!({"path": "/w/old.rs", "kind": {"type": "update", "move_path": "/w/new.rs"}}),
-        WholePatchFile::Absent { path: path("/w/new.rs"), old_path: Some(path("/w/old.rs")) }
+        WholePatchFile::Absent { path: path("/w/new.rs"), old_path: Some(path("/w/old.rs")), unavailable: TranscriptPatchAbsentReason::Value }
     )]
     #[case::a_diff_not_text_is_unreadable(
         json!({"path": "/w/a.md", "kind": {"type": "update", "move_path": null}, "diff": 5}),
         WholePatchFile::Unreadable {
             path: path("/w/a.md"),
             old_path: None,
+            unavailable: TranscriptPatchUnreadableReason::Value,
             raw_patch: "5".to_owned(),
         }
     )]
@@ -217,6 +227,7 @@ mod tests {
         WholePatchFile::Unreadable {
             path: path("/w/a.md"),
             old_path: None,
+            unavailable: TranscriptPatchUnreadableReason::Value,
             raw_patch: "@@ -1 +1 @@\n-a\n+b".to_owned(),
         }
     )]
@@ -225,6 +236,7 @@ mod tests {
         WholePatchFile::Unreadable {
             path: path("/w/a.md"),
             old_path: None,
+            unavailable: TranscriptPatchUnreadableReason::Value,
             raw_patch: "@@ -1 +1 @@\n-a\n+b".to_owned(),
         }
     )]
@@ -253,6 +265,7 @@ mod tests {
         WholePatchFile::Unreadable {
             path: path("/w/old.rs"),
             old_path: None,
+            unavailable: TranscriptPatchUnreadableReason::Value,
             raw_patch: "@@ -1 +1 @@\n-a\n+b\n\nMoved to: 7".to_owned(),
         }
     )]

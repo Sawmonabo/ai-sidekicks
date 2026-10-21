@@ -25,7 +25,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use crate::events::session::read::{
     MalformedStoredEventError, MalformedStoredEventFault, SessionEventReads,
 };
-use crate::transcript::block_cut::{prose_body_of, with_block_starts};
+use crate::transcript::block_cut::{BlockParse, prose_body_of, with_block_starts};
 use crate::transcript::rejoin::{RowReads, joined_body_of, joined_row_content_of};
 use crate::transcript::turn_attribution::{
     RunEventAttribution, RunTurnReads, SessionTurnAttribution, TurnAttributionError,
@@ -63,8 +63,9 @@ pub(crate) enum TranscriptProjectionError {
 }
 
 /// One row per event of `rows`, events of `session_id`'s log that each stand as a row, in
-/// ascending order, each stamped and carrying its body joined through `head`, read on `reader`;
-/// `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails with
+/// ascending order, each stamped and carrying its body joined through `head`, read on `reader`, a
+/// reply's cut into blocks by `parse`; `read_damaged_from_sequence` answers where a damaged
+/// session's reads stop. Fails with
 /// [`TranscriptProjectionError::Attribution`] on an `agent.run.rolledBack` that does not match its
 /// contract or a seed read that fails, with [`TranscriptProjectionError::Database`] when the
 /// bodies' read fails, and with [`TranscriptProjectionError::Malformed`] on a tool completion whose
@@ -75,6 +76,7 @@ pub(crate) fn project_window<DamagedFrom>(
     session_id: &SessionId,
     rows: &[EventEnvelope],
     head: i64,
+    parse: BlockParse,
 ) -> Result<Vec<TranscriptReadRow>, TranscriptProjectionError>
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64>,
@@ -115,6 +117,7 @@ where
                 joined_row_content_of(&event.payload, body.as_ref()),
                 prose_body_of(event.event_type.0.as_str(), &event.payload),
                 !unended_rows.contains(&sequence),
+                parse,
             );
             let attributed = attribution.attribute(&reads, event)?;
             row_of(event, attributed, content)

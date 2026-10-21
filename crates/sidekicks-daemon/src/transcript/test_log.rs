@@ -9,10 +9,27 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::attachment::write;
 
 use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
+use crate::transcript::block_cut::{ChildStartsParse, MARKDOWN_PARSE};
 use crate::uuid_v7::mint_uuid_v7;
 
 /// The instant every test row occurs at unless a test names another.
 pub(crate) const AT: &str = "2026-10-14T09:00:00.000Z";
+
+/// A text [`stalling_parse`] stalls on.
+pub(crate) const STALLING_TEXT: &str = "THE-BLOCK-CUT-STALLS-HERE";
+
+/// The markdown parse, except on a window holding [`STALLING_TEXT`], where every child it answers
+/// starts at the window's start, so the cut cannot advance.
+pub(crate) fn stalling_parse() -> ChildStartsParse {
+    let mut markdown = MARKDOWN_PARSE();
+    Box::new(move |text| {
+        if text.contains(STALLING_TEXT) {
+            vec![0; 3]
+        } else {
+            markdown(text)
+        }
+    })
+}
 
 /// A test database holding one session and its lead run.
 pub(crate) struct TranscriptTestLog {
@@ -184,9 +201,18 @@ impl TranscriptTestLog {
 
     /// Writes the start of turn `turn_number` of `run_id`.
     pub(crate) fn turn_start(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
+        self.turn_event("agent.turn.started", run_id, turn_number)
+    }
+
+    /// Writes the end of turn `turn_number` of `run_id`.
+    pub(crate) fn turn_end(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
+        self.turn_event("agent.turn.completed", run_id, turn_number)
+    }
+
+    fn turn_event(&self, event_type: &str, run_id: RunId, turn_number: u64) -> (i64, String) {
         self.write(
             json!({
-                "type": "agent.turn.started",
+                "type": event_type,
                 "payload": {
                     "sessionId": self.session_id,
                     "runId": run_id,

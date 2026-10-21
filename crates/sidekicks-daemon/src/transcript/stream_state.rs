@@ -2,9 +2,8 @@
 //! for every row still taking pieces, its id, where its next piece starts and, for a reply drawn as
 //! markdown, its block cut past its last frozen start, and for every child run the stream met, its
 //! running event count. A stream that first meets a row or a child partway seeds it with one
-//! indexed read; a row is let go, with the starts its cut left unsent, at its run's turn end or end
-//! or when a later row of its run starts, and a child at its end. A large piece's text is loaded
-//! only for a row whose cut reads it.
+//! indexed read; a row is let go, with the starts its cut left unsent, at its run's turn end or end,
+//! and a child at its end. A large piece's text is loaded only for a row whose cut reads it.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -35,7 +34,7 @@ use crate::database::stored_column::{
 };
 use crate::events::session::read::readable_event_sql;
 use crate::session::run::transitions::is_run_terminal_event_type;
-use crate::transcript::block_cut::{BlockCutError, StreamingBlockCut, prose_body_of};
+use crate::transcript::block_cut::{BlockCutError, BlockParse, StreamingBlockCut, prose_body_of};
 use crate::transcript::child_run::read_child_counts;
 use crate::transcript::projector::TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES;
 
@@ -118,11 +117,6 @@ impl StreamedPiece {
                 }),
             )
         })
-    }
-
-    /// Whether the event starts a row of a reply or of reasoning.
-    pub(crate) fn starts_row(&self) -> bool {
-        self.is_piece && self.joins_sequence.is_none()
     }
 
     /// Whether its body's text is not loaded yet.
@@ -229,15 +223,26 @@ struct ChildTally {
 }
 
 /// The rows and child runs one session stream is following.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct TranscriptStreamState {
     /// Open rows, by the sequence of their first piece.
     open_rows: HashMap<i64, OpenRow>,
     /// Every run the stream met, with its tally when it is a child.
     runs: HashMap<RunId, Option<ChildTally>>,
+    /// The parse a reply's pieces are cut into blocks by.
+    parse: BlockParse,
 }
 
 impl TranscriptStreamState {
+    /// A stream following nothing yet, which cuts a reply into blocks by `parse`.
+    pub(crate) fn new(parse: BlockParse) -> Self {
+        Self {
+            open_rows: HashMap::new(),
+            runs: HashMap::new(),
+            parse,
+        }
+    }
+
     /// Whether the cut of the row `event`, with stored facts `stored`, reads its text: a reply
     /// that may be drawn as markdown and whose row is new, met partway, or open with its cut.
     pub(crate) fn reads_text_of(&self, event: &EventEnvelope, stored: &StreamedPiece) -> bool {
@@ -279,7 +284,7 @@ impl TranscriptStreamState {
                 run_id,
                 row_id: event.id.clone(),
                 next_offset: 0,
-                cut: prose.map(StreamingBlockCut::new),
+                cut: prose.map(|prose| StreamingBlockCut::new(prose, self.parse)),
             },
             None => {
                 let (row_id, offset): (String, i64) =
@@ -298,7 +303,7 @@ impl TranscriptStreamState {
                 };
                 let cut = match prose.filter(|prose| prose.admits(&received)) {
                     None => None,
-                    Some(prose) => match StreamingBlockCut::seeded(prose, &received) {
+                    Some(prose) => match StreamingBlockCut::seeded(prose, &received, self.parse) {
                         Ok(cut) => Some(cut),
                         Err(error) => {
                             block_cut_failure = Some(error.logged());
@@ -394,26 +399,21 @@ impl TranscriptStreamState {
     }
 
     /// Lets go of what `event`, filed under `run_id`, ends: the run's open rows at a turn's end or
-    /// its own end, or when `event` `starts_row`, every other one, and the run itself at its end.
-    /// Answers each ended row cut into blocks with the starts its whole text left unsent, or why
-    /// its last cut failed.
+    /// its own end, and the run itself at its end. Answers each ended row cut into blocks with the
+    /// starts its whole text left unsent, or why its last cut failed.
     pub(crate) fn forget_ended(
         &mut self,
         event: &EventEnvelope,
         run_id: RunId,
-        starts_row: bool,
     ) -> Option<BoundedVec<SessionStreamEndedRow, 1, { usize::MAX }>> {
         let event_type = event.event_type.0.as_str();
         let is_run_end = is_run_terminal_event_type(event_type);
         let mut ended_rows = Vec::new();
-        if starts_row || is_run_end || TURN_END_EVENT_TYPES.contains(&event_type) {
-            let sequence = i64::from(event.sequence);
+        if is_run_end || TURN_END_EVENT_TYPES.contains(&event_type) {
             let ended: Vec<i64> = self
                 .open_rows
                 .iter()
-                .filter(|(anchor_sequence, open_row)| {
-                    open_row.run_id == run_id && **anchor_sequence != sequence
-                })
+                .filter(|(_, open_row)| open_row.run_id == run_id)
                 .map(|(anchor_sequence, _)| *anchor_sequence)
                 .collect();
             for anchor_sequence in ended {

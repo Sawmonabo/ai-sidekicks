@@ -8,9 +8,11 @@ use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, Transcr
 
 use super::{TranscriptReadError, read_transcript_window};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::transcript::block_cut::STALLING_TEXT;
+use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use crate::transcript::body::read_row_body;
-use crate::transcript::test_log::{AT, TranscriptTestLog, wire_block_starts, wire_message};
+use crate::transcript::test_log::{
+    AT, STALLING_TEXT, TranscriptTestLog, stalling_parse, wire_block_starts, wire_message,
+};
 use crate::uuid_v7::mint_uuid_v7;
 
 fn anchored_read(session_id: &SessionId, sequence: i64) -> TranscriptReadRequest {
@@ -69,10 +71,13 @@ fn an_anchored_read_lands_a_standing_row_and_refuses_one_that_left() {
     let reader = database.reader();
     let no_damage = |_: &SessionId| None;
 
-    let TranscriptReadResponse::Continuing(page) =
-        read_transcript_window(&reader, &no_damage, &anchored_read(&session_id, 3))
-            .expect("a standing row answers its window")
-    else {
+    let TranscriptReadResponse::Continuing(page) = read_transcript_window(
+        &reader,
+        &no_damage,
+        &anchored_read(&session_id, 3),
+        MARKDOWN_PARSE,
+    )
+    .expect("a standing row answers its window") else {
         panic!("rows remain before the window, so the page continues");
     };
     let sequences: Vec<u64> = page
@@ -91,7 +96,8 @@ fn an_anchored_read_lands_a_standing_row_and_refuses_one_that_left() {
         refusal_code(read_transcript_window(
             &reader,
             &no_damage,
-            &anchored_read(&session_id, 2)
+            &anchored_read(&session_id, 2),
+            MARKDOWN_PARSE,
         )),
         RefusalCode::TranscriptRowNotFound
     );
@@ -99,7 +105,8 @@ fn an_anchored_read_lands_a_standing_row_and_refuses_one_that_left() {
         refusal_code(read_transcript_window(
             &reader,
             &no_damage,
-            &anchored_read(&test_session_id(), 3)
+            &anchored_read(&test_session_id(), 3),
+            MARKDOWN_PARSE,
         )),
         RefusalCode::SessionNotFound
     );
@@ -111,20 +118,25 @@ fn cursor(position: i64) -> Value {
     json!(encode_event_cursor(position).expect("a test position is a cursor"))
 }
 
-// The page `request` reads on `log`'s session, as JSON, beside its attachments.
-fn read_with_attachments(log: &TranscriptTestLog, request: Value) -> (Value, Vec<bytes::Bytes>) {
+// The page `request` reads on `log`'s session, its replies cut by `parse`, as JSON, beside its
+// attachments.
+fn read_with_attachments(
+    log: &TranscriptTestLog,
+    request: Value,
+    parse: BlockParse,
+) -> (Value, Vec<bytes::Bytes>) {
     let mut request = request;
     request["sessionId"] = json!(log.session_id);
     let request: TranscriptReadRequest =
         serde_json::from_value(request).expect("the test's request reads");
-    let response = read_transcript_window(&log.reader(), &|_: &SessionId| None, &request)
+    let response = read_transcript_window(&log.reader(), &|_: &SessionId| None, &request, parse)
         .expect("the window reads");
     wire_message(&response)
 }
 
 // The page `request` reads on `log`'s session, as JSON.
 fn read(log: &TranscriptTestLog, request: Value) -> Value {
-    read_with_attachments(log, request).0
+    read_with_attachments(log, request, MARKDOWN_PARSE).0
 }
 
 // Each row of `page`: a tool row as `tool`, a turn's start as `turn`, any other as its inline body.
@@ -305,7 +317,7 @@ fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
             &log.session_id,
             &row_id,
             part_offset,
-            true,
+            MARKDOWN_PARSE,
         )
         .expect("the body reads")
         .expect("a row stands at the anchor");
@@ -365,23 +377,24 @@ fn row_with_body<'page>(page: &'page Value, body: &str) -> &'page Value {
 }
 
 // Killed by the window's cut call removed, by an open row cut as ended, whose last starts could
-// still move, by a later row of the run not ending it, and by one row's failed cut failing the
-// page or another row.
+// still move, by a later row of the run ending it, by its turn's end not ending it, by a stalled cut
+// not refused, and by one row's failed cut failing the page or another row.
 #[test]
 fn a_window_cuts_reply_rows_into_blocks_and_a_failed_cut_fails_its_row_alone() {
     let log = TranscriptTestLog::new();
     let text = "First.\n\nSecond.\n\nThird.\n\nFourth.\n";
     log.reply("m1", Some(0), &text[..17]);
     log.reply("m1", Some(0), &text[17..]);
+    let stalling = format!("Before.\n\n{STALLING_TEXT}\n");
+    log.reply("m2", Some(0), &stalling);
 
-    let (open_page, open_attachments) = read_with_attachments(&log, json!({}));
+    let (open_page, open_attachments) = read_with_attachments(&log, json!({}), stalling_parse);
     let open = wire_block_starts(
         &row_with_body(&open_page, text)["content"]["blockStarts"],
         &open_attachments,
     );
-    let stalling = format!("Before.\n\n{STALLING_TEXT}\n");
-    log.reply("m2", Some(0), &stalling);
-    let (page, attachments) = read_with_attachments(&log, json!({}));
+    log.turn_end(log.run_id, 1);
+    let (page, attachments) = read_with_attachments(&log, json!({}), stalling_parse);
     let ended = wire_block_starts(
         &row_with_body(&page, text)["content"]["blockStarts"],
         &attachments,
@@ -411,8 +424,8 @@ fn a_body_read_spreads_starts_past_a_page_across_its_parts() {
             &whole[index * piece_length..(index + 1) * piece_length],
         );
     }
-    // A later row of the run ends this one, so every start is final.
-    log.reply("next", Some(0), "Done.");
+    // The turn's end ends the row, so every start is final.
+    log.turn_end(log.run_id, 1);
     assert!(4 * paragraphs > sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES);
 
     let reader = log.reader();
@@ -425,7 +438,7 @@ fn a_body_read_spreads_starts_past_a_page_across_its_parts() {
             &log.session_id,
             &row_id,
             part_offset,
-            true,
+            MARKDOWN_PARSE,
         )
         .expect("the body reads")
         .expect("a row stands at the anchor");

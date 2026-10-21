@@ -34,6 +34,7 @@ use crate::events::session::read::session_read_bound;
 use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use crate::ipc::stream::frame_batcher::ChangeFeed;
+use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use crate::transcript::stream_state::{
     StreamedPiece, TranscriptStreamState, load_piece_texts, read_streamed_pieces,
 };
@@ -59,7 +60,11 @@ pub(crate) fn register_session_event_subscribe(
                     .after_cursor
                     .map_or(FollowStart::StartOfLog, FollowStart::After);
                 let cursor = log.read_follow_start(request.session_id, start).await?;
-                let record = Arc::new(SessionEventRecord::new(log, request.session_id));
+                let record = Arc::new(SessionEventRecord::new(
+                    log,
+                    request.session_id,
+                    MARKDOWN_PARSE,
+                ));
                 let feed: Box<dyn Feed<Emission = SessionStreamFrame>> = Box::new(
                     ChangeFeed::open(record, cursor, |changes| SessionStreamFrame { changes })
                         .await?,
@@ -108,12 +113,12 @@ struct SessionEventRecord {
 }
 
 impl SessionEventRecord {
-    fn new(log: Arc<EventLogService>, session_id: SessionId) -> Self {
+    fn new(log: Arc<EventLogService>, session_id: SessionId, parse: BlockParse) -> Self {
         Self {
             log,
             session_id,
             attribution: Arc::new(Mutex::new(SessionTurnAttribution::new(session_id))),
-            rows: Arc::new(Mutex::new(TranscriptStreamState::default())),
+            rows: Arc::new(Mutex::new(TranscriptStreamState::new(parse))),
             left_pieces: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -237,11 +242,7 @@ impl ChangeRecord for SessionEventRecord {
                                 run_id,
                                 &observed_at,
                             )?;
-                            let ended_rows = rows.forget_ended(
-                                &event,
-                                run_id,
-                                stored.is_some_and(StreamedPiece::starts_row),
-                            );
+                            let ended_rows = rows.forget_ended(&event, run_id);
                             changes.push(SessionStreamChange {
                                 cursor,
                                 event,
@@ -323,8 +324,10 @@ mod tests {
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::registry::{Dispatch as _, EncodedFeed, Reply};
     use crate::ipc::stream::feed::CreditGate;
-    use crate::transcript::block_cut::STALLING_TEXT;
-    use crate::transcript::test_log::{wire_block_starts, wire_message};
+    use crate::transcript::test_log::{
+        STALLING_TEXT, stalling_parse, wire_block_starts, wire_message,
+    };
+    use crate::transcript::window::read_transcript_window;
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);
@@ -416,13 +419,13 @@ mod tests {
         assert_eq!(followed, [61]);
     }
 
-    /// Appends a piece of the first block of `run_id`'s reply `message_id` holding `body`;
-    /// returns its id.
+    /// Appends a piece of block `block` of `run_id`'s reply `message_id` holding `body`; returns
+    /// its id.
     async fn reply_piece(
         log: &EventLogService,
         session_id: SessionId,
         run_id: &str,
-        message_id: &str,
+        (message_id, block): (&str, u64),
         body: &str,
     ) -> String {
         let piece = serde_json::from_value(json!({
@@ -431,7 +434,7 @@ mod tests {
                 "sessionId": session_id,
                 "runId": run_id,
                 "providerMessageId": message_id,
-                "providerBlock": { "index": 0, "attempt": 1 },
+                "providerBlock": { "index": block, "attempt": 1 },
             },
         }))
         .expect("the test writes a reply piece");
@@ -475,9 +478,9 @@ mod tests {
         let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
         let body = "x".repeat(30_000);
         let piece_count = 40;
-        let row_id = reply_piece(&log, session_id, &run_id, "m1", &body).await;
+        let row_id = reply_piece(&log, session_id, &run_id, ("m1", 0), &body).await;
         for _ in 1..piece_count {
-            reply_piece(&log, session_id, &run_id, "m1", &body).await;
+            reply_piece(&log, session_id, &run_id, ("m1", 0), &body).await;
         }
         let start = log
             .read_follow_start(session_id, FollowStart::StartOfLog)
@@ -488,7 +491,7 @@ mod tests {
             (row_id.clone(), offset, json!(body))
         };
 
-        let record = SessionEventRecord::new(Arc::clone(&log), session_id);
+        let record = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
         let first = record
             .read_after(&start, 64)
             .await
@@ -504,7 +507,7 @@ mod tests {
             .expect("the frame reads");
         assert_eq!(pieces_of(&next)[0], placed(kept));
 
-        let opened_inside = SessionEventRecord::new(Arc::clone(&log), session_id);
+        let opened_inside = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
         let inside = opened_inside
             .read_after(&first.changes[2].cursor, 1)
             .await
@@ -512,9 +515,29 @@ mod tests {
         assert_eq!(pieces_of(&inside), [placed(3)]);
     }
 
+    /// Appends the end of `run_id`'s first turn.
+    async fn turn_end(log: &EventLogService, session_id: SessionId, run_id: &str) {
+        let end = serde_json::from_value(json!({
+            "type": "agent.turn.completed",
+            "payload": {
+                "sessionId": session_id,
+                "runId": run_id,
+                "runVersion": 1,
+                "turnNumber": 1,
+            },
+        }))
+        .expect("the test writes a turn end");
+        log.append(
+            test_envelope(session_id, &end),
+            EventLogAppendOptions::default(),
+        )
+        .await
+        .expect("the append commits");
+    }
+
     // Killed by the stream's cut call removed, by an ended row's held-back starts never sent, by a
-    // later row of the run not ending the open one, and by one row's failed cut failing the frame
-    // or another row.
+    // later row of the run ending the open one, by the turn's end not ending it, by a stalled cut
+    // not refused, and by one row's failed cut failing the frame or another row.
     #[tokio::test]
     async fn event_subscribe_sends_each_rows_block_starts_and_a_failed_cut_fails_its_row_alone() {
         let database = TestDatabase::new();
@@ -522,36 +545,182 @@ mod tests {
         let session_id = test_session_id();
         let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
         let text = "First.\n\nSecond.\n\nThird.\n\nFourth.\n";
-        let row_id = reply_piece(&log, session_id, &run_id, "m1", text).await;
+        let row_id = reply_piece(&log, session_id, &run_id, ("m1", 0), text).await;
         let stalling = format!("Before.\n\n{STALLING_TEXT}\n");
-        let stalled_row_id = reply_piece(&log, session_id, &run_id, "m2", &stalling).await;
+        let stalled_row_id = reply_piece(&log, session_id, &run_id, ("m2", 0), &stalling).await;
+        turn_end(&log, session_id, &run_id).await;
         let start = log
             .read_follow_start(session_id, FollowStart::StartOfLog)
             .await
             .expect("the session's start reads");
 
-        let record = SessionEventRecord::new(Arc::clone(&log), session_id);
+        let record = SessionEventRecord::new(Arc::clone(&log), session_id, stalling_parse);
         let page = record
             .read_after(&start, 64)
             .await
             .expect("the frame reads");
-        let [open, stalled] = page.changes.as_slice() else {
-            panic!("both pieces go out in one frame");
+        let [open, stalled, end] = page.changes.as_slice() else {
+            panic!("both pieces and the turn's end go out in one frame");
         };
         let (open, open_attachments) = wire_message(open);
         assert_eq!(open["piece"]["rowId"], row_id.as_str());
         let mut starts = wire_block_starts(&open["piece"]["blockStarts"], &open_attachments);
         assert!(!starts.is_empty() && starts.len() < 4);
-        let (stalled, stalled_attachments) = wire_message(stalled);
+        let (stalled, _) = wire_message(stalled);
         assert_eq!(stalled["piece"]["rowId"], stalled_row_id.as_str());
         assert_eq!(stalled["piece"]["blockCutFailure"], "stalled");
         assert!(stalled["piece"].get("blockStarts").is_none());
-        let ended = &stalled["endedRows"][0];
-        assert_eq!(ended["rowId"], row_id.as_str());
+        assert!(stalled.get("endedRows").is_none());
+        let (end, end_attachments) = wire_message(end);
+        let ended_rows = end["endedRows"]
+            .as_array()
+            .expect("the turn's end ends a row");
+        assert_eq!(ended_rows.len(), 1);
+        assert_eq!(ended_rows[0]["rowId"], row_id.as_str());
         starts.extend(wire_block_starts(
-            &ended["blockStarts"],
-            &stalled_attachments,
+            &ended_rows[0]["blockStarts"],
+            &end_attachments,
         ));
         assert_eq!(starts, [0, 8, 17, 25]);
+    }
+
+    /// The block starts each row of a window read on `database` carries, by row id.
+    fn window_starts(database: &TestDatabase, session_id: SessionId) -> HashMap<String, Vec<u32>> {
+        let request = serde_json::from_value(json!({ "sessionId": session_id }))
+            .expect("the test's request reads");
+        let page = read_transcript_window(
+            &database.reader(),
+            &|_: &SessionId| None,
+            &request,
+            MARKDOWN_PARSE,
+        )
+        .expect("the window reads");
+        let (page, attachments) = wire_message(&page);
+        page["entries"]
+            .as_array()
+            .expect("a page holds entries")
+            .iter()
+            .filter_map(|row| {
+                let starts = wire_block_starts(&row["content"]["blockStarts"], &attachments);
+                Some((row["id"].as_str()?.to_owned(), starts))
+            })
+            .collect()
+    }
+
+    /// Every start the changes of `page` send, by row id, in the order sent.
+    fn streamed_starts(page: &RecordPage<SessionStreamChange>) -> HashMap<String, Vec<u32>> {
+        let mut starts: HashMap<String, Vec<u32>> = HashMap::new();
+        for change in &page.changes {
+            let (change, attachments) = wire_message(change);
+            let ended = change["endedRows"].as_array().cloned().unwrap_or_default();
+            for row in std::iter::once(&change["piece"]).chain(&ended) {
+                if let Some(row_id) = row["rowId"].as_str() {
+                    starts
+                        .entry(row_id.to_owned())
+                        .or_default()
+                        .extend(wire_block_starts(&row["blockStarts"], &attachments));
+                }
+            }
+        }
+        starts
+    }
+
+    // Killed by a row ended when another row of its run starts, whose later piece then sends its
+    // starts again or moves them, and by a stream opened between the pieces sending starts a read
+    // there already gave.
+    #[tokio::test]
+    async fn event_subscribe_sends_a_message_rows_starts_once_across_a_plan_block_inside_it() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await.service;
+        let session_id = test_session_id();
+        let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
+        let message_row = reply_piece(
+            &log,
+            session_id,
+            &run_id,
+            ("item", 0),
+            "Step one.\n\nStep two.\n\n",
+        )
+        .await;
+        let plan_row = reply_piece(
+            &log,
+            session_id,
+            &run_id,
+            ("item", 1),
+            "Plan.\n\n1. Read\n2. Write\n\nThen act.\n",
+        )
+        .await;
+        let start = log
+            .read_follow_start(session_id, FollowStart::StartOfLog)
+            .await
+            .expect("the session's start reads");
+        let record = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
+        let before = record
+            .read_after(&start, 64)
+            .await
+            .expect("the frame reads");
+        let read_between = window_starts(&database, session_id);
+        reply_piece(
+            &log,
+            session_id,
+            &run_id,
+            ("item", 0),
+            "Step three.\n\nStep four.\n",
+        )
+        .await;
+        let between_cursor = &before.changes[1].cursor;
+        let after = record
+            .read_after(between_cursor, 64)
+            .await
+            .expect("the frame reads");
+        let opened_between = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
+        let inside = opened_between
+            .read_after(between_cursor, 64)
+            .await
+            .expect("the frame reads");
+        let read_open = window_starts(&database, session_id);
+        turn_end(&log, session_id, &run_id).await;
+        let last_cursor = &after.changes[0].cursor;
+        let ended = record
+            .read_after(last_cursor, 64)
+            .await
+            .expect("the frame reads");
+        let inside_ended = opened_between
+            .read_after(last_cursor, 64)
+            .await
+            .expect("the frame reads");
+        let read_ended = window_starts(&database, session_id);
+
+        for row_id in [&message_row, &plan_row] {
+            let whole = &read_ended[row_id];
+            assert!(whole.len() > 1, "the row {row_id} has blocks to cut");
+            let mut streamed = Vec::new();
+            for page in [&before, &after, &ended] {
+                streamed.extend(streamed_starts(page).remove(row_id).unwrap_or_default());
+            }
+            assert_eq!(
+                &streamed, whole,
+                "the stream sends each start once, unmoved"
+            );
+            for read in [&read_between, &read_open] {
+                assert!(
+                    whole.starts_with(&read[row_id]),
+                    "an open read's starts never move"
+                );
+            }
+        }
+        // The message row takes a piece after the stream opened, so that stream seeds it.
+        let mut joined = read_between[&message_row].clone();
+        for page in [&inside, &inside_ended] {
+            joined.extend(
+                streamed_starts(page)
+                    .remove(&message_row)
+                    .unwrap_or_default(),
+            );
+        }
+        assert_eq!(
+            joined, read_ended[&message_row],
+            "a stream opened after a read sends only what it left"
+        );
     }
 }

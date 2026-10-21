@@ -49,10 +49,36 @@ const CONTENT_TYPE_PAYLOAD_KEY: &str = "contentType";
 
 const BYTE_ORDER_MARK: char = '\u{feff}';
 
-/// A text the cut stalls on in tests, so a test can show that one row's failed cut leaves every
-/// other row served.
-#[cfg(test)]
-pub(crate) const STALLING_TEXT: &str = "THE-BLOCK-CUT-STALLS-HERE";
+/// One cut's parse: given a window's text as the parser reads it, it answers where each of the
+/// window's top-level children starts, in that text's bytes.
+pub(crate) type ChildStartsParse = Box<dyn FnMut(&str) -> Vec<usize>>;
+
+/// Makes the parse one cut runs on each window it reads.
+pub(crate) type BlockParse = fn() -> ChildStartsParse;
+
+/// The parse of the markdown the desktop draws, each window's tree handed to the next parse,
+/// which keeps its capacity.
+pub(crate) const MARKDOWN_PARSE: BlockParse = markdown_parse;
+
+fn markdown_parse() -> ChildStartsParse {
+    let mut arena = None;
+    Box::new(move |text| {
+        let (tree, _) = match arena.take() {
+            Some(reuse) => parse_no_positions_into(text, MARKDOWN_OPTIONS, reuse),
+            None => parse_no_positions(text, MARKDOWN_OPTIONS),
+        };
+        // The root is the parse's first node.
+        let child_starts = tree
+            .get_children(0)
+            .iter()
+            .map(|&child| {
+                usize::try_from(tree.get_node(child).start_offset).expect("an offset fits memory")
+            })
+            .collect();
+        arena = Some(tree);
+        child_starts
+    })
+}
 
 /// Why a markdown cut failed.
 #[derive(Debug, thiserror::Error)]
@@ -132,12 +158,13 @@ pub(crate) fn prose_body_of(event_type: &str, payload: &Map<String, Value>) -> O
 }
 
 /// `content`, the inline body of a row whose body may be drawn as `prose`, with its block starts
-/// when it is cut into blocks: every start once its reply `is_final`, else those no later text can
-/// move. A cut that fails leaves the row its failure in place of starts.
+/// when `parse` cuts it into blocks: every start once its reply `is_final`, else those no later
+/// text can move. A cut that fails leaves the row its failure in place of starts.
 pub(crate) fn with_block_starts(
     content: TranscriptRowContent,
     prose: Option<ProseBody>,
     is_final: bool,
+    parse: BlockParse,
 ) -> TranscriptRowContent {
     match content {
         TranscriptRowContent::Available {
@@ -148,7 +175,7 @@ pub(crate) fn with_block_starts(
             block_cut_failure: _,
         } => {
             let cut = prose.filter(|prose| prose.admits(body.as_str())).map(|_| {
-                body_block_starts(body.as_str(), is_final)
+                body_block_starts(body.as_str(), is_final, parse)
                     .and_then(|starts| packed(starts.iter().map(|start| start.drawn_offset)))
             });
             let (block_starts, block_cut_failure) = match cut {
@@ -170,18 +197,25 @@ pub(crate) fn with_block_starts(
     }
 }
 
-/// The block starts of `body`, a prose body, each in the stored body and in the drawn text: every
-/// start once its reply `is_final`, else those no later text can move. Fails when the cut does not
-/// advance.
+/// The block starts of `body`, a prose body, as `parse` cuts it, each in the stored body and in
+/// the drawn text: every start once its reply `is_final`, else those no later text can move. Fails
+/// when the cut does not advance.
 pub(crate) fn body_block_starts(
     body: &str,
     is_final: bool,
+    parse: BlockParse,
 ) -> Result<Vec<BodyBlockStart>, BlockCutError> {
     let drawn = DrawnText::of(body);
     if drawn.text.is_empty() {
         return Ok(Vec::new());
     }
-    let ends = block_ends_of(&drawn.text, is_final, CUT_WINDOW_BYTES, SETTLE_LAG_BLOCKS)?;
+    let ends = block_ends_of(
+        &drawn.text,
+        is_final,
+        CUT_WINDOW_BYTES,
+        SETTLE_LAG_BLOCKS,
+        parse,
+    )?;
     let starts: Vec<usize> = std::iter::once(0)
         .chain(ends.into_iter().filter(|&end| end < drawn.text.len()))
         .collect();
@@ -238,45 +272,30 @@ impl<'body> DrawnText<'body> {
     }
 }
 
-/// Where each block of `source` cut so far ends, in bytes, ascending, the first block starting at
-/// the text's start. A text that is `is_final` keeps every child of its last window; any other
-/// keeps back its last `lag_blocks`, whose bounds more text may still move. Fails when a block
-/// would end no later than the one before it.
+/// Where each block of `source` cut by `parse` so far ends, in bytes, ascending, the first block
+/// starting at the text's start. A text that is `is_final` keeps every child of its last window;
+/// any other keeps back its last `lag_blocks`, whose bounds more text may still move. Fails when a
+/// block would end no later than the one before it.
 fn block_ends_of(
     source: &str,
     is_final: bool,
     window_bytes: usize,
     lag_blocks: usize,
+    parse: BlockParse,
 ) -> Result<Vec<usize>, BlockCutError> {
     let mut block_ends = Vec::new();
     let mut window_bytes = window_bytes;
     let mut from = 0;
-    // One parse's arena is handed to the next, which keeps its capacity.
-    let mut arena = None;
+    let mut child_starts_of = parse();
     while from < source.len() {
         let to = window_end_of(source, from, window_bytes);
         let is_last = to == source.len();
         let window = &source[from..to];
-        #[cfg(test)]
-        if window.contains(STALLING_TEXT) {
-            return Err(BlockCutError::Stalled { offset: from });
-        }
         let parsed = ParsedWindow::of(window);
-        let (tree, _) = match arena.take() {
-            Some(reuse) => parse_no_positions_into(parsed.text(window), MARKDOWN_OPTIONS, reuse),
-            None => parse_no_positions(parsed.text(window), MARKDOWN_OPTIONS),
-        };
-        // The root is the parse's first node.
-        let child_starts: Vec<usize> = tree
-            .get_children(0)
-            .iter()
-            .map(|&child| {
-                let start = usize::try_from(tree.get_node(child).start_offset)
-                    .expect("an offset fits memory");
-                parsed.window_offset_of(start)
-            })
+        let child_starts: Vec<usize> = child_starts_of(parsed.text(window))
+            .into_iter()
+            .map(|start| parsed.window_offset_of(start))
             .collect();
-        arena = Some(tree);
         let kept_count = if is_last && is_final {
             child_starts.len()
         } else {
@@ -424,6 +443,8 @@ fn wire_offsets(starts: Vec<u64>) -> impl Iterator<Item = u32> {
 pub(crate) struct StreamingBlockCut {
     /// How the row's body is drawn as markdown.
     prose: ProseBody,
+    /// The parse the cut runs on each window.
+    parse: BlockParse,
     /// Where the row's text stands among escape sequences, so one cut between pieces is removed
     /// whole.
     stripper: EscapeSequenceStripper,
@@ -436,10 +457,11 @@ pub(crate) struct StreamingBlockCut {
 }
 
 impl StreamingBlockCut {
-    /// The cut of a row drawn as `prose` that has received nothing yet.
-    pub(crate) fn new(prose: ProseBody) -> Self {
+    /// The cut by `parse` of a row drawn as `prose` that has received nothing yet.
+    pub(crate) fn new(prose: ProseBody, parse: BlockParse) -> Self {
         Self {
             prose,
+            parse,
             stripper: EscapeSequenceStripper::default(),
             tail: String::new(),
             frozen_utf16: 0,
@@ -447,11 +469,15 @@ impl StreamingBlockCut {
         }
     }
 
-    /// The cut of a row drawn as `prose` whose text `received` a reader already holds with its
-    /// starts, as a read of the row still arriving gave them, so only starts frozen after them go
-    /// out and the ones it froze are never packed. Fails when the cut does not advance.
-    pub(crate) fn seeded(prose: ProseBody, received: &str) -> Result<Self, BlockCutError> {
-        let mut cut = Self::new(prose);
+    /// The cut by `parse` of a row drawn as `prose` whose text `received` a reader already holds
+    /// with its starts, as a read of the row still arriving gave them, so only starts frozen after
+    /// them go out and the ones it froze are never packed. Fails when the cut does not advance.
+    pub(crate) fn seeded(
+        prose: ProseBody,
+        received: &str,
+        parse: BlockParse,
+    ) -> Result<Self, BlockCutError> {
+        let mut cut = Self::new(prose, parse);
         cut.advance(received)?;
         Ok(cut)
     }
@@ -480,7 +506,13 @@ impl StreamingBlockCut {
             self.has_started = true;
         }
         self.tail.push_str(&drawn);
-        let ends = block_ends_of(&self.tail, false, CUT_WINDOW_BYTES, SETTLE_LAG_BLOCKS)?;
+        let ends = block_ends_of(
+            &self.tail,
+            false,
+            CUT_WINDOW_BYTES,
+            SETTLE_LAG_BLOCKS,
+            self.parse,
+        )?;
         if let Some(&last_end) = ends.last() {
             starts.extend(utf16_offsets_of(&self.tail, &ends, self.frozen_utf16));
             self.frozen_utf16 = *starts.last().expect("a frozen end was just added");
@@ -492,7 +524,13 @@ impl StreamingBlockCut {
     /// The starts the row's whole text leaves unsent once it ends. Fails when the cut does not
     /// advance or the starts take more than one page.
     pub(crate) fn finish(&self) -> Result<Option<BlockStarts>, BlockCutError> {
-        let ends = block_ends_of(&self.tail, true, CUT_WINDOW_BYTES, SETTLE_LAG_BLOCKS)?;
+        let ends = block_ends_of(
+            &self.tail,
+            true,
+            CUT_WINDOW_BYTES,
+            SETTLE_LAG_BLOCKS,
+            self.parse,
+        )?;
         let inner: Vec<usize> = ends
             .into_iter()
             .filter(|&end| end < self.tail.len())
@@ -513,8 +551,8 @@ mod tests {
     use sidekicks_contracts::transcript::content::BlockStarts;
 
     use super::{
-        BYTE_ORDER_MARK, MARKDOWN_OPTIONS, ProseBody, SETTLE_LAG_BLOCKS, StreamingBlockCut,
-        block_ends_of, body_block_starts, utf16_offsets_of,
+        BYTE_ORDER_MARK, MARKDOWN_OPTIONS, MARKDOWN_PARSE, ProseBody, SETTLE_LAG_BLOCKS,
+        StreamingBlockCut, block_ends_of, body_block_starts, utf16_offsets_of,
     };
 
     /// The desktop's hand cases, read where the desktop's own tests read them.
@@ -603,7 +641,7 @@ mod tests {
 
     // The drawn UTF-16 offsets of a whole cut of `text`.
     fn drawn_starts(text: &str, is_final: bool) -> Vec<u64> {
-        body_block_starts(text, is_final)
+        body_block_starts(text, is_final, MARKDOWN_PARSE)
             .expect("the cut advances")
             .iter()
             .map(|start| u64::from(start.drawn_offset))
@@ -635,8 +673,9 @@ mod tests {
         for text in texts() {
             let expected = whole_parse_starts(&text);
             for window_bytes in [16, 64, 256, 1_024, 4_096, 65_536, 262_144] {
-                let ends = block_ends_of(&text, true, window_bytes, SETTLE_LAG_BLOCKS)
-                    .expect("the cut advances");
+                let ends =
+                    block_ends_of(&text, true, window_bytes, SETTLE_LAG_BLOCKS, MARKDOWN_PARSE)
+                        .expect("the cut advances");
                 let starts: Vec<usize> = std::iter::once(0)
                     .chain(ends.into_iter().filter(|&end| end < text.len()))
                     .filter(|_| !text.is_empty())
@@ -651,13 +690,13 @@ mod tests {
                     && expected_utf16.len() - open.len() <= SETTLE_LAG_BLOCKS,
                 "a still-arriving cut of {text:?} sends a prefix holding back at most two blocks"
             );
-            let seeded =
-                StreamingBlockCut::seeded(ProseBody::Declared, &text).expect("it advances");
+            let seeded = StreamingBlockCut::seeded(ProseBody::Declared, &text, MARKDOWN_PARSE)
+                .expect("it advances");
             let mut read_then_streamed = open;
             read_then_streamed.extend(unpacked(seeded.finish().expect("the cut advances")));
             assert_eq!(read_then_streamed, expected_utf16, "seeded {text:?}");
             for seed in 1..=3 {
-                let mut cut = StreamingBlockCut::new(ProseBody::Declared);
+                let mut cut = StreamingBlockCut::new(ProseBody::Declared, MARKDOWN_PARSE);
                 let mut streamed = Vec::new();
                 let mut from = 0;
                 for end in piece_ends(&text, seed) {
@@ -677,12 +716,19 @@ mod tests {
         let mut from = 0;
         for (index, character) in text.char_indices() {
             let received = index + character.len_utf8();
-            let tail = block_ends_of(&text[from..received], false, 65_536, lag_blocks)
-                .expect("the cut advances");
+            let tail = block_ends_of(
+                &text[from..received],
+                false,
+                65_536,
+                lag_blocks,
+                MARKDOWN_PARSE,
+            )
+            .expect("the cut advances");
             ends.extend(tail.iter().map(|end| from + end));
             from = ends.last().copied().unwrap_or(0);
         }
-        let last = block_ends_of(&text[from..], true, 65_536, lag_blocks).expect("it advances");
+        let last = block_ends_of(&text[from..], true, 65_536, lag_blocks, MARKDOWN_PARSE)
+            .expect("it advances");
         ends.extend(last.iter().map(|end| from + end));
         ends
     }
@@ -692,8 +738,14 @@ mod tests {
     #[test]
     fn block_cut_with_one_child_of_lag_splits_a_loose_list() {
         let text = "Intro.\n\n1. one\n\n2. two, loose\n\n3. three\n\nAfter.\n";
-        let whole = block_ends_of(text, true, text.len() + 1, SETTLE_LAG_BLOCKS)
-            .expect("a whole parse advances");
+        let whole = block_ends_of(
+            text,
+            true,
+            text.len() + 1,
+            SETTLE_LAG_BLOCKS,
+            MARKDOWN_PARSE,
+        )
+        .expect("a whole parse advances");
         assert_eq!(streamed_block_ends(text, SETTLE_LAG_BLOCKS), whole);
         assert_ne!(streamed_block_ends(text, 1), whole);
     }
@@ -709,16 +761,17 @@ mod tests {
     }
 
     // Killed by a declared markdown body cut on its raw text, by a start's stored offset taken from
-    // the drawn text, and by a sequence cut between two pieces kept in part.
+    // the drawn text, by a sequence cut between two pieces kept in part, and by an astral character
+    // ending a sequence kept in part, which would leave half a UTF-16 pair in the drawn text.
     #[test]
     fn block_cut_measures_starts_on_the_text_drawn_without_escape_sequences() {
         let text = concat!(
             "First.\u{1b}[1;31m\n\n",
             "\u{1b}]8;;https://a.example\u{7}Second.\u{1b}P1$r\u{9c}\n\n",
-            "Third.\n",
+            "\u{1b}\u{1f600}Third.\n",
         );
         let drawn = "First.\n\nSecond.\n\nThird.\n";
-        let starts = body_block_starts(text, true).expect("the cut advances");
+        let starts = body_block_starts(text, true, MARKDOWN_PARSE).expect("the cut advances");
         let drawn_offsets: Vec<u64> = starts
             .iter()
             .map(|start| u64::from(start.drawn_offset))
@@ -729,7 +782,8 @@ mod tests {
             utf16_offsets_of(drawn, &whole_parse_starts(drawn), 0)
         );
         assert!(text[starts[1].stored_offset..].starts_with("Second."));
-        let mut cut = StreamingBlockCut::new(ProseBody::Declared);
+        assert!(text[starts[2].stored_offset..].starts_with("Third."));
+        let mut cut = StreamingBlockCut::new(ProseBody::Declared, MARKDOWN_PARSE);
         let mut streamed = Vec::new();
         let split = text.find("[1;31m").expect("the text holds the sequence") + 3;
         for piece in [&text[..split], &text[split..]] {

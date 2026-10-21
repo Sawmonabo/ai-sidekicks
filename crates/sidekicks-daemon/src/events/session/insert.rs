@@ -5,9 +5,10 @@
 //! typed event names, is written to its own columns, so no write or read parses the payload for
 //! it. A piece of a run's reply or reasoning is stamped with the row it joins: the newest earlier
 //! piece of the same run, type, provider message and block within the run's current turn, unless
-//! the run rolled back since, decided here once so every read sees the same rows. A tool completion
-//! is stamped with the call it completes, so the call's patch read finds it by an index. It also
-//! owns the clock a row's `monotonic_ns` reads.
+//! the run rolled back since, decided here once so every read sees the same rows; a patched file
+//! of a tool completion joins its completion's row the same way, by the call. A tool completion's
+//! row is stamped with the call it completes, so the call's patch read finds it by an index. It
+//! also owns the clock a row's `monotonic_ns` reads.
 
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -188,6 +189,7 @@ pub(crate) fn insert_session_event(
         .then(|| transcript_run_id_of(Some(event.payload())))
         .flatten();
     let tool_call_id = (run.is_some()
+        && joins_sequence.is_none()
         && event.event_type() == SessionEventType::AgentToolCallCompleted)
         .then(|| event.payload().get(TOOL_CALL_ID_PAYLOAD_KEY))
         .flatten()
@@ -228,22 +230,27 @@ pub(crate) fn insert_session_event(
 }
 
 /// The key a piece of a run's reply or reasoning joins its row by: its provider message's id and
-/// content block, as one JSON text; `None` for every other event.
+/// content block, as one JSON text; for a row of a tool completion that names patched files, the
+/// call's id; `None` for every other event.
 fn join_key_of(event: &UnsequencedEventEnvelope) -> Option<String> {
-    if !matches!(
+    let payload = event.payload();
+    if matches!(
         event.event_type(),
         SessionEventType::AgentMessageSent | SessionEventType::AgentThinkingUpdated
     ) {
-        return None;
+        return Some(
+            serde_json::to_string(&(
+                payload.get(PROVIDER_MESSAGE_ID_PAYLOAD_KEY),
+                payload.get(PROVIDER_BLOCK_PAYLOAD_KEY),
+            ))
+            .expect("two JSON values serialize"),
+        );
     }
-    let payload = event.payload();
-    Some(
-        serde_json::to_string(&(
-            payload.get(PROVIDER_MESSAGE_ID_PAYLOAD_KEY),
-            payload.get(PROVIDER_BLOCK_PAYLOAD_KEY),
-        ))
-        .expect("two JSON values serialize"),
-    )
+    event
+        .is_patch_bearing()
+        .then(|| payload.get(TOOL_CALL_ID_PAYLOAD_KEY))
+        .flatten()
+        .map(Value::to_string)
 }
 
 #[cfg(test)]

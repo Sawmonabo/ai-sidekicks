@@ -36,6 +36,7 @@ use crate::database::stored_column::{closed_word, optional_text_column, text_col
 use crate::events::session::read::{SessionEventReads, readable_event_sql, resolve_event_cursor};
 use crate::ipc::domain_error::DomainError;
 use crate::session::run::refusals::RunRefusal;
+use crate::transcript::block_cut::BlockParse;
 use crate::transcript::projector::project_window;
 use crate::transcript::rejoin::{RowReads, RowScope};
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
@@ -87,8 +88,8 @@ impl ChildCount {
 /// Stamps every child-creation row of `rows`, projected from `events`, with its child's summary
 /// through `head`, read on `reader`: a child whose events cannot all be read, because its session
 /// skipped or cannot yet read some of them or its count failed, is marked incomplete as of
-/// `observed_at` with the count the log can read, and its row is kept. A child whose state cannot
-/// be read either keeps its row with no summary; the failure is logged.
+/// `observed_at` with the count the log can read, and its row is kept. Fails when SQLite refuses
+/// the children's states as well as their count.
 pub(crate) fn stamp_child_run_summaries<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFrom,
@@ -97,7 +98,8 @@ pub(crate) fn stamp_child_run_summaries<DamagedFrom>(
     events: &[EventEnvelope],
     head: i64,
     observed_at: &WireInstant,
-) where
+) -> rusqlite::Result<()>
+where
     DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
 {
     let parents: Vec<(usize, RunId, RunId)> = events
@@ -117,7 +119,7 @@ pub(crate) fn stamp_child_run_summaries<DamagedFrom>(
         })
         .collect();
     if parents.is_empty() {
-        return;
+        return Ok(());
     }
     let run_ids: Vec<String> = parents
         .iter()
@@ -125,16 +127,7 @@ pub(crate) fn stamp_child_run_summaries<DamagedFrom>(
         .collect();
     let read_bound =
         SessionEventReads::new(reader, read_damaged_from_sequence).read_bound(session_id, None);
-    let counts = match read_child_counts(reader, session_id, &run_ids, head, read_bound) {
-        Ok(counts) => counts,
-        Err(error) => {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "a page's child runs could not be read; their rows go out with no summary"
-            );
-            return;
-        }
-    };
+    let counts = read_child_counts(reader, session_id, &run_ids, head, read_bound)?;
     for (index, run_id, parent_run_id) in parents {
         // A child the runs table does not hold has no state to show; its row stays as it is.
         let Some(count) = counts.get(&run_id.to_string()) else {
@@ -157,6 +150,7 @@ pub(crate) fn stamp_child_run_summaries<DamagedFrom>(
         };
         set_child_run_summary(&mut rows[index], summary);
     }
+    Ok(())
 }
 
 /// The state and event counts through `head` of each of `run_ids` in `session_id`, by run id, read
@@ -247,8 +241,8 @@ struct ExpandedRun {
 }
 
 /// Reads one page of `request`'s child run's rows on `reader`, oldest first, each child-creation
-/// row among them summarized as of `observed_at`; `read_damaged_from_sequence` answers where a
-/// damaged session's reads stop. Fails with [`TranscriptReadError::Refused`] for a run this daemon
+/// row among them summarized as of `observed_at` and each reply cut into blocks by `parse`;
+/// `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails with [`TranscriptReadError::Refused`] for a run this daemon
 /// does not hold (`agent.run.notFound`) or one with no parent (`agent.run.notChild`), and with
 /// [`TranscriptReadError::CursorUnresolvable`] for a cursor that names no position.
 pub(crate) fn expand_child_run<DamagedFrom>(
@@ -256,6 +250,7 @@ pub(crate) fn expand_child_run<DamagedFrom>(
     read_damaged_from_sequence: &DamagedFrom,
     request: &TranscriptChildRunExpandRequest,
     observed_at: &WireInstant,
+    parse: BlockParse,
 ) -> Result<TranscriptChildRunExpandResponse, TranscriptReadError>
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
@@ -304,6 +299,7 @@ where
         &session_id,
         stretch,
         head,
+        parse,
     )?;
     stamp_child_run_summaries(
         reader,
@@ -313,7 +309,7 @@ where
         stretch,
         head,
         observed_at,
-    );
+    )?;
     let page_count = count_entries_fitting_one_frame(
         &rows,
         TRANSCRIPT_READ_LIMIT_MAX,
@@ -380,6 +376,7 @@ mod tests {
     use sidekicks_contracts::wire::instant::WireInstant;
 
     use super::expand_child_run;
+    use crate::transcript::block_cut::MARKDOWN_PARSE;
     use crate::transcript::test_log::{AT, TranscriptTestLog, wire_message};
     use crate::transcript::window::{TranscriptReadError, read_transcript_window};
     use crate::uuid_v7::mint_uuid_v7;
@@ -400,6 +397,7 @@ mod tests {
             &|_: &SessionId| None,
             &request,
             &WireInstant::now(),
+            MARKDOWN_PARSE,
         )
     }
 
@@ -407,8 +405,13 @@ mod tests {
     fn summary_of(log: &TranscriptTestLog, run_id: RunId) -> Value {
         let request = serde_json::from_value(json!({ "sessionId": log.session_id }))
             .expect("the test's request reads");
-        let page = read_transcript_window(&log.reader(), &|_: &SessionId| None, &request)
-            .expect("the window reads");
+        let page = read_transcript_window(
+            &log.reader(),
+            &|_: &SessionId| None,
+            &request,
+            MARKDOWN_PARSE,
+        )
+        .expect("the window reads");
         let page = wire_message(&page).0;
         page["entries"]
             .as_array()
@@ -442,30 +445,48 @@ mod tests {
     }
 
     // Killed by a failed count failing the page, by the child's row dropped or left with no
-    // summary, and by a failed count read as complete.
+    // summary, by a failed count read as complete, and by a page served when the child's state
+    // cannot be read either.
     #[test]
-    fn a_child_whose_events_cannot_be_counted_keeps_its_row_marked_incomplete() {
+    fn an_uncounted_child_is_marked_incomplete_and_an_unread_state_fails_the_page() {
         let log = TranscriptTestLog::new();
         let child = log.child_run(log.run_id, "completed");
         log.piece("agent.message.sent", child, "m1", Some(0), "One row.", AT);
-        let reader = log.reader();
-        // Only the child counts call `count`, so refusing it fails just their read.
-        reader
-            .authorizer(Some(|context: AuthContext<'_>| {
-                if let AuthAction::Function {
-                    function_name: "count",
-                } = context.action
-                {
-                    Authorization::Deny
-                } else {
-                    Authorization::Allow
-                }
-            }))
-            .expect("the test sets its authorizer");
         let request = serde_json::from_value(json!({ "sessionId": log.session_id }))
             .expect("the test's request reads");
-        let page = read_transcript_window(&reader, &|_: &SessionId| None, &request)
-            .expect("the window reads with the count refused");
+        // Only the child counts call `count`, and in a session's window only the children's reads
+        // read the runs table, so refusing either fails just those reads.
+        let read_refusing = |refuses_runs: bool| {
+            let reader = log.reader();
+            reader
+                .authorizer(Some(move |context: AuthContext<'_>| {
+                    let is_refused = matches!(
+                        context.action,
+                        AuthAction::Function {
+                            function_name: "count"
+                        }
+                    ) || (refuses_runs
+                        && matches!(
+                            context.action,
+                            AuthAction::Read {
+                                table_name: "runs",
+                                ..
+                            }
+                        ));
+                    if is_refused {
+                        Authorization::Deny
+                    } else {
+                        Authorization::Allow
+                    }
+                }))
+                .expect("the test sets its authorizer");
+            read_transcript_window(&reader, &|_: &SessionId| None, &request, MARKDOWN_PARSE)
+        };
+        assert!(
+            read_refusing(true).is_err(),
+            "a page whose child states cannot be read fails"
+        );
+        let page = read_refusing(false).expect("the window reads with the count refused");
         let page = wire_message(&page).0;
         let summary = &page["entries"]
             .as_array()

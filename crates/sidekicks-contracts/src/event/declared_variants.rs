@@ -33,7 +33,8 @@ ts_constants! {
     pub const CONTENT_TRUNCATED_PAYLOAD_KEY: &str = "contentTruncated";
     /// The largest body one stored row keeps, in code points. A longer body is cut at a code point
     /// boundary, never refused, so the turn is never lost. A tool completion whose body holds its
-    /// file patches is the one exception: it is stored whole, so every patch reads back whole.
+    /// file patches is the one exception: each file is stored whole in a row of its own, so every
+    /// patch reads back whole.
     pub const CONTENT_PAYLOAD_PLAINTEXT_MAX: usize = 262_144;
 }
 
@@ -291,7 +292,8 @@ with_machine_content_descriptor! {
         pub duration_ms: Option<SafeInt<0>>,
         /// On a completion whose body holds its file patches, every file in the body's order with
         /// its patch's UTF-8 size, so a row whose body is too large to travel still names them; set
-        /// by the producer. Such a body is stored whole.
+        /// by the producer. Such a body is stored one file to a row, each whole, each file's row
+        /// naming its one file here.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",

@@ -508,12 +508,14 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::{
-        CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
-        TranscriptExportBound, fold_canonical_transcript,
+        CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptRole,
+        CanonicalTranscriptSegment, CanonicalTranscriptTurn, TranscriptExportBound,
+        fold_canonical_transcript,
     };
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now};
     use crate::events::session::read::SessionEventReads;
+    use crate::transcript::test_log::TranscriptTestLog;
     use crate::uuid_v7::mint_uuid_v7;
 
     /// Appends `event` to `session_id`'s log through the row write, with `body` as its stored
@@ -627,6 +629,60 @@ mod tests {
                     segments: vec![text(3, "", true)],
                 },
             ]
+        );
+    }
+
+    // Killed by a reply's pieces or a completion's patched files folded as rows of their own,
+    // which would hand a provider a reply cut where the wire cut it or a result once per file.
+    #[test]
+    fn a_row_stored_in_pieces_folds_as_one_segment_with_its_whole_body() {
+        let log = TranscriptTestLog::new();
+        let (reply, _) = log.reply("m1", Some(0), "Hello, ");
+        log.reply("m1", Some(0), "world.");
+        let files = json!([
+            { "path": "/repo/a.rs", "unavailable": "absent" },
+            { "path": "/repo/b.rs", "unavailable": "absent" },
+        ]);
+        let body = json!({ "files": files }).to_string();
+        let (completion, _) = log.tool_completion(
+            log.run_id,
+            "call-1",
+            Some(json!([{ "path": "/repo/a.rs", "size": 0 }, { "path": "/repo/b.rs", "size": 0 }])),
+            Some(&body),
+        );
+
+        let reader = log.reader();
+        let reads = SessionEventReads::new(&reader, |_: &SessionId| None);
+        let projection = fold_canonical_transcript(
+            &reads,
+            &log.session_id,
+            &log.run_id,
+            TranscriptExportBound::Unbounded,
+        )
+        .expect("the run's transcript folds");
+
+        let position = |sequence: i64| u64::try_from(sequence).expect("a sequence is not negative");
+        assert_eq!(
+            projection.turns,
+            [CanonicalTranscriptTurn {
+                position: position(reply),
+                role: CanonicalTranscriptRole::Assistant,
+                segments: vec![
+                    CanonicalTranscriptSegment::Text {
+                        position: position(reply),
+                        text: "Hello, world.".to_owned(),
+                        is_content_unavailable: false,
+                    },
+                    CanonicalTranscriptSegment::ToolResult {
+                        position: position(completion),
+                        tool_call_id: "call-1".to_owned(),
+                        outcome: CanonicalToolResultOutcome::Succeeded,
+                        provenance: CanonicalToolResultProvenance::Provider,
+                        text: body,
+                        is_content_unavailable: false,
+                    },
+                ],
+            }]
         );
     }
 }

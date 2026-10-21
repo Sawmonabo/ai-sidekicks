@@ -15,7 +15,7 @@ use sidekicks_contracts::transcript::content::{
 use crate::database::connection::read_pool::DatabaseReadError;
 use crate::events::session::read::SessionEventReads;
 use crate::ipc::registry::HandlerError;
-use crate::transcript::block_cut::{body_block_starts, prose_body_of};
+use crate::transcript::block_cut::{BlockParse, body_block_starts, prose_body_of};
 use crate::transcript::rejoin::{RowReads, joined_body_of};
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
@@ -28,10 +28,6 @@ pub(crate) enum BodyReadError {
     /// The offset is inside a character or past the body's end.
     #[error(transparent)]
     Offset(#[from] BodyReadOffsetRefused),
-    /// The row is a reply drawn as markdown, whose whole body the read was not allowed to load;
-    /// a read allowed it answers.
-    #[error("the row's whole body must be loaded to cut it into blocks")]
-    NeedsWholeBody,
 }
 
 impl From<DatabaseReadError> for BodyReadError {
@@ -46,15 +42,34 @@ impl From<BodyReadError> for HandlerError {
         match error {
             BodyReadError::Read(error) => error.into(),
             BodyReadError::Offset(refused) => refused.into(),
-            fault @ BodyReadError::NeedsWholeBody => Self::Internal(Box::new(fault)),
         }
     }
 }
 
+/// Whether the body of the event `row_id` of `session_id` is cut into blocks, so that a read of it
+/// loads it whole: a reply that may be drawn as markdown. Reads the event alone, not its body, on
+/// `reader`; `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails with
+/// [`TranscriptReadError`]'s faults when the read fails.
+pub(crate) fn is_body_cut_into_blocks<DamagedFrom>(
+    reader: &Connection,
+    read_damaged_from_sequence: &DamagedFrom,
+    session_id: &SessionId,
+    row_id: &str,
+) -> Result<bool, BodyReadError>
+where
+    DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
+{
+    let event = SessionEventReads::new(reader, read_damaged_from_sequence)
+        .read_event(session_id, row_id)
+        .map_err(TranscriptReadError::from)?;
+    Ok(event
+        .is_some_and(|event| prose_body_of(event.event_type.0.as_str(), &event.payload).is_some()))
+}
+
 /// The part from `offset` of the body of `session_id`'s row standing at the event `row_id`, read
-/// on `reader`, or `None` when no row of the session stands there; `read_damaged_from_sequence`
-/// answers where a damaged session's reads stop. A reply drawn as markdown is loaded whole only
-/// when `may_load_whole_body`, else the read fails with [`BodyReadError::NeedsWholeBody`]. Fails
+/// on `reader`, a reply's cut into blocks by `parse`, or `None` when no row of the session stands
+/// there; `read_damaged_from_sequence` answers where a damaged session's reads stop. A reply drawn
+/// as markdown is loaded whole, which [`is_body_cut_into_blocks`] tells before the read. Fails
 /// with [`TranscriptReadError::Refused`] (`session.notFound`) for a session this daemon holds no
 /// events for, with [`BodyReadError::Offset`] for an offset that is no place to resume from, and
 /// with [`TranscriptReadError`]'s faults when a read fails.
@@ -64,7 +79,7 @@ pub(crate) fn read_row_body<DamagedFrom>(
     session_id: &SessionId,
     row_id: &str,
     offset: u64,
-    may_load_whole_body: bool,
+    parse: BlockParse,
 ) -> Result<Option<TranscriptBodyReadResponse>, BodyReadError>
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
@@ -74,13 +89,13 @@ where
         .map_err(TranscriptReadError::from)?;
     let reads = SessionEventReads::new(reader, read_damaged_from_sequence);
     let head = read_transcript_head(&reads, read_damaged_from_sequence, session_id)?;
-    let Some(stored_row) = reads
-        .read_stored_row(session_id, row_id)
+    let Some(event) = reads
+        .read_event(session_id, row_id)
         .map_err(TranscriptReadError::from)?
     else {
         return Ok(None);
     };
-    let sequence = i64::from(stored_row.envelope.sequence);
+    let sequence = i64::from(event.sequence);
     let rows_of = RowReads::new(&reads, reader, session_id);
     if rows_of
         .row_at(sequence)
@@ -90,11 +105,8 @@ where
         return Ok(None);
     }
     let head = head.expect("a session holding a readable row has a head");
-    let payload = &stored_row.envelope.payload;
-    let prose = prose_body_of(stored_row.envelope.event_type.0.as_str(), payload);
-    if prose.is_some() && !may_load_whole_body {
-        return Err(BodyReadError::NeedsWholeBody);
-    }
+    let payload = &event.payload;
+    let prose = prose_body_of(event.event_type.0.as_str(), payload);
     // No text is loaded here: only the pieces a part needs are read below.
     let members = rows_of
         .row_members(&[sequence], head, -1)
@@ -133,7 +145,7 @@ where
                 .unended_rows(&pending, head)
                 .map_err(TranscriptReadError::from)?
                 .is_empty();
-            match body_block_starts(&whole, is_final) {
+            match body_block_starts(&whole, is_final, parse) {
                 Ok(cut) => {
                     starts = cut;
                     BodyBlockCut::Starts(&starts)

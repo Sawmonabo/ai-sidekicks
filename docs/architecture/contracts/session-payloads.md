@@ -160,10 +160,10 @@ interface SessionStreamFrame {
   // size alone past the inline cap) and the block starts it froze, or why its row's cut failed, so a
   // client places a piece a read already gave it by its offset and never draws it twice.
   // `childRunSummary` is present on an event of a child run: the child's summary as of this event.
-  // `endedRows` names the rows the event ended (at its run's turn end or end, or when a later row
-  // of its run starts), each with the block starts it had not yet sent or why their cut failed. A
-  // frame is cut by bytes under the page budget as a page is, and the stream reads the next one at
-  // once.
+  // `endedRows` names the rows the event ended (at its run's turn end or end, the events after
+  // which no later piece joins them), each with the block starts it had not yet sent or why their
+  // cut failed. A frame is cut by bytes under the page budget as a page is, and the stream reads the
+  // next one at once.
   changes: Array<{
     cursor: EventCursor;
     event: EventEnvelope;

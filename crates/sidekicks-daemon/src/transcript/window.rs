@@ -48,6 +48,7 @@ use crate::events::session::read::{SessionEventReads, SessionLogReadError, resol
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::session::not_found::session_not_found;
+use crate::transcript::block_cut::BlockParse;
 use crate::transcript::child_run::stamp_child_run_summaries;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
 use crate::transcript::rejoin::{RowReads, RowScope};
@@ -128,11 +129,13 @@ where
 /// [`TranscriptReadError::CursorUnresolvable`] for a cursor that names no position or one past the
 /// newest event, and with [`TranscriptReadError::Refused`] (`transcript.row.notFound`) for an
 /// `aroundCursor` at which no row stands. A page whose one row alone is over the page budget is
-/// returned as that row, for the reply's check to refuse.
+/// returned as that row, for the reply's check to refuse. A reply's body is cut into blocks by
+/// `parse`.
 pub(crate) fn read_transcript_window<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFrom,
     request: &TranscriptReadRequest,
+    parse: BlockParse,
 ) -> Result<TranscriptReadResponse, TranscriptReadError>
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
@@ -143,6 +146,7 @@ where
         read_damaged_from_sequence,
         session_id: &request.session_id,
         observed_at: WireInstant::now(),
+        parse,
     };
     let reads = SessionEventReads::new(reader, read_damaged_from_sequence);
     let head = read_transcript_head(&reads, read_damaged_from_sequence, &request.session_id)?;
@@ -179,6 +183,8 @@ struct WindowReads<'window, DamagedFrom: ?Sized> {
     session_id: &'window SessionId,
     // When the read began, the time a child row's summary is marked incomplete as of.
     observed_at: WireInstant,
+    // The parse a reply's body is cut into blocks by.
+    parse: BlockParse,
 }
 
 impl<DamagedFrom> WindowReads<'_, DamagedFrom>
@@ -416,6 +422,7 @@ where
             self.session_id,
             stretch,
             head,
+            self.parse,
         )?;
         stamp_child_run_summaries(
             self.reader,
@@ -425,7 +432,7 @@ where
             stretch,
             head,
             &self.observed_at,
-        );
+        )?;
         Ok(rows)
     }
 

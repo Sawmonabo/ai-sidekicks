@@ -24,7 +24,10 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::statement::WriteStatement;
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
-use crate::events::content::append::{ContentPartitionRefusedError, compose_content_payload};
+use crate::events::content::append::{
+    ContentPartitionRefusedError, PatchFilesRefusedError, compose_content_payload,
+    compose_patch_file_rows, is_patch_bearing,
+};
 use crate::events::log_service::{
     EventAppendError, EventLogAppendOptions, EventLogAppendReceipt, EventLogService,
 };
@@ -101,6 +104,9 @@ impl SessionEventDraft {
         }
     }
 }
+
+/// An event's envelope beside the bytes its row stores as its body.
+pub(crate) type EnvelopeWithBody = (UnsequencedEventEnvelope, Vec<u8>);
 
 /// Why a typed event could not be drafted.
 #[derive(Debug, thiserror::Error)]
@@ -200,6 +206,44 @@ impl UnsequencedEventEnvelope {
         body: &str,
     ) -> Result<Vec<u8>, ContentPartitionRefusedError> {
         compose_content_payload(self.event_type, &mut self.payload, body)
+    }
+
+    /// Whether the event is a tool completion naming the files its body's patches cover, whose
+    /// body [`UnsequencedEventEnvelope::describe_patch_files`] stores.
+    pub(crate) fn is_patch_bearing(&self) -> bool {
+        is_patch_bearing(self.event_type, &self.payload)
+    }
+
+    /// Cuts `body`, this patch-bearing completion's file list, into its rows: adds to the payload
+    /// the description of, and returns, the bytes its own row holds, then each file's envelope,
+    /// beside this one under a freshly minted id, with its stored body. Fails when the body is not
+    /// the file list the payload names.
+    pub(crate) fn describe_patch_files(
+        &mut self,
+        body: &str,
+    ) -> Result<(Vec<u8>, Vec<EnvelopeWithBody>), PatchFilesRefusedError> {
+        let rows = compose_patch_file_rows(&mut self.payload, body)?;
+        let files = rows
+            .files
+            .into_iter()
+            .map(|(payload, content_payload)| {
+                let file = Self {
+                    id: FreeFormText::new(mint_uuid_v7().to_string())
+                        .expect("a minted UUID is an id"),
+                    occurred_at: self.occurred_at.clone(),
+                    actor: self.actor.clone(),
+                    correlation_id: self.correlation_id.clone(),
+                    causation_id: self.causation_id.clone(),
+                    version: self.version.clone(),
+                    session_id: self.session_id,
+                    event_type: self.event_type,
+                    payload,
+                    run: self.run,
+                };
+                (file, content_payload)
+            })
+            .collect();
+        Ok((rows.opening, files))
     }
 }
 

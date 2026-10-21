@@ -9,6 +9,9 @@ use std::fmt::Display;
 use diffy::Line;
 use serde_json::{Map, Value};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::transcript::content::{
+    TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
+};
 
 use crate::provider::driver::unified_diff::{count_unified_diff, mark_every_line};
 use crate::provider::record_readers::{read_count, read_non_empty_string};
@@ -54,6 +57,7 @@ pub(crate) fn read_claude_patch_file(tool_use_result: &Value) -> Option<WholePat
         return Some(WholePatchFile::Absent {
             path,
             old_path: None,
+            unavailable: TranscriptPatchAbsentReason::Value,
         });
     };
     Some(match read_structured_patch(hunks) {
@@ -67,6 +71,7 @@ pub(crate) fn read_claude_patch_file(tool_use_result: &Value) -> Option<WholePat
         None => WholePatchFile::Unreadable {
             path,
             old_path: None,
+            unavailable: TranscriptPatchUnreadableReason::Value,
             raw_patch: hunks.to_string(),
         },
     })
@@ -171,6 +176,9 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::free_form_string::FilesystemPath;
+    use sidekicks_contracts::transcript::content::{
+        TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
+    };
 
     use super::read_claude_patch_file;
     use crate::transcript::whole_patch::WholePatchFile;
@@ -252,17 +260,18 @@ mod tests {
     )]
     #[case::empty_hunks_are_absent(
         json!({"type": "update", "filePath": "/work/notes.md", "structuredPatch": []}),
-        WholePatchFile::Absent { path: path("/work/notes.md"), old_path: None }
+        WholePatchFile::Absent { path: path("/work/notes.md"), old_path: None, unavailable: TranscriptPatchAbsentReason::Value }
     )]
     #[case::no_hunks_are_absent(
         json!({"filePath": "/work/notes.md", "gitDiff": {"filename": "notes.md"}}),
-        WholePatchFile::Absent { path: path("/work/notes.md"), old_path: None }
+        WholePatchFile::Absent { path: path("/work/notes.md"), old_path: None, unavailable: TranscriptPatchAbsentReason::Value }
     )]
     #[case::malformed_hunks_keep_their_text(
         json!({"filePath": "/work/notes.md", "structuredPatch": [{"oldStart": "x"}]}),
         WholePatchFile::Unreadable {
             path: path("/work/notes.md"),
             old_path: None,
+            unavailable: TranscriptPatchUnreadableReason::Value,
             raw_patch: r#"[{"oldStart":"x"}]"#.to_owned(),
         }
     )]
