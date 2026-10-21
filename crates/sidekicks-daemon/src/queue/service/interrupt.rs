@@ -83,18 +83,25 @@ impl InterruptQueue for RunQueue {
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
         async move {
             let session_id = self.session_of_run(run_id).await?;
-            let hold = self.session_lock.acquire(session_id).await;
-            match self
-                .delivery
-                .release_interrupt_hold(run_id, intervention_id)
-            {
-                InterruptHoldRelease::NotHeld | InterruptHoldRelease::StillHeld => return Ok(()),
-                InterruptHoldRelease::Released => {}
-            }
-            let applied = self.apply_choice_if_ended(&hold, run_id, choice).await;
-            let released = self.settle_released(&hold, run_id).await;
-            applied?;
-            released?;
+            // A run's end written under the session's hold lets its settled interrupts go from
+            // inside that hold, so the release waits for the hold on a task of its own.
+            let queue = self.this.clone();
+            self.releases.spawn(async move {
+                let Some(queue) = queue.upgrade() else {
+                    return;
+                };
+                if let Err(error) = queue
+                    .release_under_hold(session_id, run_id, intervention_id, choice)
+                    .await
+                {
+                    tracing::error!(
+                        session_id = %session_id,
+                        run_id = %run_id,
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "settling what an interrupt's released hold held back failed"
+                    );
+                }
+            });
             Ok(())
         }
         .boxed()
@@ -260,6 +267,29 @@ impl RunQueue {
         }
         self.delivery.hand_first(&hold, run_id, item).await?;
         Ok(SendNowOutcome::Sent)
+    }
+
+    // Lets go the hold `intervention_id` took on `run_id` under the session's hold; the run's last
+    // hold going applies `choice` to a run that ended first and settles what the hold held back.
+    async fn release_under_hold(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        intervention_id: InterventionId,
+        choice: InterruptChoice,
+    ) -> Result<(), QueueError> {
+        let hold = self.session_lock.acquire(session_id).await;
+        match self
+            .delivery
+            .release_interrupt_hold(run_id, intervention_id)
+        {
+            InterruptHoldRelease::NotHeld | InterruptHoldRelease::StillHeld => return Ok(()),
+            InterruptHoldRelease::Released => {}
+        }
+        let applied = self.apply_choice_if_ended(&hold, run_id, choice).await;
+        let released = self.settle_released(&hold, run_id).await;
+        applied?;
+        released
     }
 
     // Applies `choice` to the lead's messages still waiting for `run_id` when the run has ended

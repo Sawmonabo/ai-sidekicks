@@ -52,10 +52,7 @@ use crate::session::run::ids::SESSION_RUN_IDS_SQL;
 
 /// The statements the provider sessions' reads prepare: a session's runs, their bindings, its
 /// mode and its level.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
+#[expect(dead_code, reason = "the daemon's start, sizing its read connections")]
 pub(crate) const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 4;
 
 /// What a session's provider session opens with, composed from the session's lead as its log

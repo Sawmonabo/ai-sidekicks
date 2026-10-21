@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use rstest::rstest;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
@@ -19,6 +20,7 @@ use super::{
     set_run_state, settle, steered_item, stored_item,
 };
 use crate::ipc::handlers::driver::resolution::read_run_driver;
+use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::RunToolBoundary;
 use crate::queue::delivery::{DeliveryError, InterruptHoldRelease};
@@ -138,12 +140,12 @@ async fn a_second_interrupt_failing_keeps_the_first_ones_hold() {
     let (first, second) = (intervention_id(), intervention_id());
     {
         let hold = fixture.session_lock.acquire(fixture.session_id).await;
-        for intervention_id in [&first, &second] {
+        for intervention_id in [first, second] {
             timeout(
                 WAIT,
                 fixture
                     .delivery
-                    .hold_for_interrupt(&hold, fixture.run_id, intervention_id.clone()),
+                    .hold_for_interrupt(&hold, fixture.run_id, intervention_id),
             )
             .await
             .expect("no hand is inside its driver call");
@@ -217,26 +219,7 @@ async fn a_tool_boundary_to_a_run_held_for_an_interrupt_leaves_the_message_for_t
 async fn an_interrupt_hold_waits_out_a_hand_inside_its_driver_call(
     #[case] handing: MessageHanding,
 ) {
-    let (called, mut steered) = mpsc::unbounded_channel();
-    let (release_steer, steer_released) = oneshot::channel::<()>();
-    let steer_released = Mutex::new(Some(steer_released));
-    let mut driver = driver_handing(handing);
-    driver.expect_apply_intervention().returning(move |params| {
-        called
-            .send(steered_item(&params))
-            .expect("the test reads each steer");
-        let released = steer_released
-            .lock()
-            .expect("the steer's release is readable")
-            .take();
-        async move {
-            if let Some(released) = released {
-                released.await.expect("the test releases the steer");
-            }
-            Ok(applied())
-        }
-        .boxed()
-    });
+    let (driver, mut steered, release_steer) = driver_holding_first_steer(handing);
     let fixture = fixture(driver).await;
     insert_item(&fixture).await;
     match handing.hands_at {
@@ -271,4 +254,62 @@ async fn an_interrupt_hold_waits_out_a_hand_inside_its_driver_call(
         "the hold waits while the steer is in flight"
     );
     assert!(settled.is_ok(), "the hold answers once the steer returns");
+}
+
+// The delivery's stop waits out a hand inside its driver call and answers once that call returns.
+// Killed by a stop that does not wait for the chains' tasks.
+#[tokio::test]
+async fn a_stop_waits_out_a_hand_inside_its_driver_call() {
+    let (driver, mut steered, release_steer) = driver_holding_first_steer(HANDS_AT_ONCE);
+    let fixture = fixture(driver).await;
+    insert_item(&fixture).await;
+    hand(&fixture).await;
+    timeout(WAIT, steered.recv())
+        .await
+        .expect("the hand steers");
+
+    let mut stopping = pin!(fixture.delivery.stop());
+    let early = timeout(Duration::from_millis(100), &mut stopping).await;
+    release_steer
+        .send(())
+        .expect("the steer waits to be released");
+    let stopped = timeout(WAIT, stopping).await;
+
+    assert!(
+        early.is_err(),
+        "the stop waits while the steer is in flight"
+    );
+    assert!(stopped.is_ok(), "the stop answers once the steer returns");
+}
+
+/// A driver handing as `handing` that reports each steer's message and holds the first steer
+/// inside its call until the returned sender is sent.
+fn driver_holding_first_steer(
+    handing: MessageHanding,
+) -> (
+    MockProviderDriver,
+    mpsc::UnboundedReceiver<QueueItemId>,
+    oneshot::Sender<()>,
+) {
+    let (called, steered) = mpsc::unbounded_channel();
+    let (release_steer, steer_released) = oneshot::channel::<()>();
+    let steer_released = Mutex::new(Some(steer_released));
+    let mut driver = driver_handing(handing);
+    driver.expect_apply_intervention().returning(move |params| {
+        called
+            .send(steered_item(&params))
+            .expect("the test reads each steer");
+        let released = steer_released
+            .lock()
+            .expect("the steer's release is readable")
+            .take();
+        async move {
+            if let Some(released) = released {
+                released.await.expect("the test releases the steer");
+            }
+            Ok(applied())
+        }
+        .boxed()
+    });
+    (driver, steered, release_steer)
 }

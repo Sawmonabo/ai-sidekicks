@@ -21,7 +21,8 @@ use crate::session::directory::list_feed::{SessionListFeed, SessionListOpening};
 use crate::session::directory::test_rows::insert_session_row;
 use crate::uuid_v7::mint_uuid_v7;
 
-const WAIT: Duration = Duration::from_secs(10);
+// Past the renewal interval, so a paused clock reaches a renewal before the wait ends.
+const WAIT: Duration = Duration::from_secs(30);
 
 fn name_of(entry: &SessionListEntry) -> Option<&str> {
     match entry {

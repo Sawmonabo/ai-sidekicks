@@ -115,8 +115,9 @@ pub(crate) trait InterruptQueue: Send + Sync {
     ) -> BoxFuture<'_, Result<bool, InterruptQueueError>>;
 
     /// Lets go the hold the interrupt `intervention_id` took, and once no interrupt holds the run,
-    /// applies `choice` to the messages of a run that ended first and hands the rest again. A
-    /// second release of one interrupt changes nothing. Fails as the queue's write fails.
+    /// applies `choice` to the messages of a run that ended first and hands the rest again, once
+    /// the session's queue is free, so a run's end written under the queue's hold may call it. A
+    /// second release of one interrupt changes nothing. Fails when the run cannot be read.
     fn release_interrupt(
         &self,
         run_id: RunId,

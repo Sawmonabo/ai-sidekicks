@@ -7,6 +7,8 @@
 //! leaves the change. A send into a paused or pausing run resumes it once the lock is let go.
 
 mod interrupt;
+#[cfg(test)]
+mod tests;
 
 use std::sync::{Arc, LazyLock, Weak};
 
@@ -26,6 +28,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
+use tokio_util::task::TaskTracker;
 
 use crate::admission::memory_gate::MemoryGate;
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
@@ -114,13 +117,17 @@ pub(crate) struct RunQueue {
     lifecycle: Arc<QueueRunLifecycle>,
     sends: QueueSends,
     session_lock: Arc<KeyedLock<SessionId>>,
+    // The queue itself, for the releases it settles on tasks of their own.
+    this: Weak<RunQueue>,
+    // The releases settling once the session's hold is free.
+    releases: TaskTracker,
     _following: FollowerAttachment,
 }
 
 impl RunQueue {
     /// The queue over `deps`, following every session's committed events from now on.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-    pub(crate) fn new(deps: RunQueueDeps) -> Self {
+    pub(crate) fn new(deps: RunQueueDeps) -> Arc<Self> {
         let RunQueueDeps {
             pool,
             event_log,
@@ -192,7 +199,7 @@ impl RunQueue {
             let lifecycle = Arc::clone(&lifecycle);
             followers.follow_all(move |event| lifecycle.observe(event))
         };
-        Self {
+        Arc::new_cyclic(|this| Self {
             pool,
             writer,
             providers,
@@ -205,8 +212,10 @@ impl RunQueue {
             lifecycle,
             sends,
             session_lock,
+            this: this.clone(),
+            releases: TaskTracker::new(),
             _following: following,
-        }
+        })
     }
 
     /// Sends one message from `device_id` to the lead of `to`, else of `session_id`, and answers it
@@ -465,6 +474,8 @@ impl RunQueue {
     /// flight finishes or fails before it answers.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(&self) {
+        self.releases.close();
+        self.releases.wait().await;
         self.admission.stop().await;
         self.lifecycle.stop().await;
         self.delivery.stop().await;

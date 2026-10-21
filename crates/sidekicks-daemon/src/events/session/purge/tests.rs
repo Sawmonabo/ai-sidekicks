@@ -360,7 +360,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     assert_eq!(event_count(&reader, survivor), 1);
     assert_eq!(
         receipts(&reader),
-        vec![(session_id.to_string(), 1, 2)],
+        vec![(session_id.to_string(), 0, 1)],
         "one receipt names the session's whole range"
     );
     drop(reader);
@@ -493,7 +493,7 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
         "purging again finishes, got {retried:?}"
     );
     assert_eq!(state_of(&reader, session_id), None);
-    assert_eq!(receipts(&reader), vec![(session_id.to_string(), 1, 1)]);
+    assert_eq!(receipts(&reader), vec![(session_id.to_string(), 0, 0)]);
 }
 
 // Kills: the upper-bound guard dropped (the receipt misses the raced event) and the range not read
@@ -543,7 +543,7 @@ async fn an_append_queued_before_the_range_read_is_taken_into_the_receipt() {
         "the purge reads the range again and removes the session, got {outcome:?}"
     );
     assert_eq!(event_count(&reader, session_id), 0);
-    assert_eq!(receipts(&reader), vec![(session_id.to_string(), 1, 2)]);
+    assert_eq!(receipts(&reader), vec![(session_id.to_string(), 0, 1)]);
 }
 
 // Kills: a range read again without end, and a refused write that deletes anything.

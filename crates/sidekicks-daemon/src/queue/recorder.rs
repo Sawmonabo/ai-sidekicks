@@ -68,7 +68,10 @@ const _: () = assert!(DEVICE_ID_MAX_LEN <= EVENT_FIELD_MAX_LEN);
 
 /// Where one person's send goes: a run it starts, the live run it goes into, the interrupted run it
 /// continues, or the place of the waiting item it edits, which goes into that item's run.
-#[expect(dead_code, reason = "the daemon's start, which builds the run queue")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, which builds the run queue")
+)]
 pub(crate) enum SendRoute {
     /// A run the send starts, queued in the same write.
     NewRun {
