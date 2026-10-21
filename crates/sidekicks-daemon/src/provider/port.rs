@@ -3,6 +3,7 @@
 
 pub(crate) mod command_output_publisher;
 pub(crate) mod file_tool_write;
+pub(crate) mod in_process_tool_servers;
 pub(crate) mod permission_ask;
 pub(crate) mod plan;
 pub(crate) mod question;

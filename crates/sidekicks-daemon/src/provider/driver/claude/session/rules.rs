@@ -11,27 +11,23 @@
 //! covers.
 
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::FutureExt;
-use jsonc_parser::ParseOptions;
-use jsonc_parser::cst::{CstInputValue, CstNode, CstObject, CstRootNode};
+use jsonc_parser::cst::{CstInputValue, CstNode, CstObject};
 use serde::Serialize;
-use serde::de::IgnoredAny;
 use sidekicks_contracts::approval::RememberedRuleSense;
 use sidekicks_platforms::PathRules;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use crate::file::real_location::resolve_real_location;
 use crate::git::exclude::{ExcludeError, add_repository_exclude};
-use crate::keyed_lock::KeyedLock;
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
-use crate::missing_entry::MissingEntry;
 use crate::policy::destructive_git::covers_destructive_git;
-use crate::provider::driver::claude::session::settings_file::read_claude_settings_file;
+use crate::provider::driver::claude::session::settings_file::{
+    ClaudeSettingsFileError, edit_settings_object, hold_settings_file, read_claude_settings_file,
+    read_settings_file, write_settings_file,
+};
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 use crate::provider::project_rule_folders::write_into_project_folders;
 
@@ -40,8 +36,9 @@ use crate::provider::project_rule_folders::write_into_project_folders;
 const CLAUDE_LOCAL_SETTINGS_FILE: [&str; 2] = [".claude", "settings.local.json"];
 const CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN: &str = "/.claude/settings.local.json";
 
-// The project's shared settings file, which the person commits and the daemon never edits.
-const CLAUDE_SHARED_SETTINGS_FILE: [&str; 2] = [".claude", "settings.json"];
+/// The project's shared settings file, from a folder, which the person commits and the daemon never
+/// edits; under a home folder, the person's own settings file.
+pub(crate) const CLAUDE_SHARED_SETTINGS_FILE: [&str; 2] = [".claude", "settings.json"];
 
 // The person's own settings file in a Claude Code home's config folder, which the daemon never
 // edits.
@@ -49,9 +46,6 @@ const CLAUDE_USER_SETTINGS_FILE: &str = "settings.json";
 
 // The name Claude Code gives a connector it fetches itself starts so, and is written more tightly.
 const CLAUDE_CONNECTOR_SERVER_PREFIX: &str = "claude.ai ";
-
-// Held on a local settings file across its read and write, so two edits never drop each other's.
-static LOCAL_SETTINGS_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
 
 // The local settings file is the person's own, readable as Claude Code leaves it.
 const CLAUDE_LOCAL_SETTINGS_MODE: u32 = 0o644;
@@ -67,33 +61,10 @@ pub(crate) enum ClaudeRulesError {
     /// Claude Code keeps no rule on this kind of ask.
     #[error("Claude Code keeps no rule on a {0} ask")]
     UnkeptKind(&'static str),
-    /// The settings file is not a strict JSON object with permission lists, so it is left as it is.
-    #[error("{} is not a settings object the daemon can edit, so it was left as it is", path.display())]
-    Refused {
-        /// The settings file.
-        path: PathBuf,
-    },
-    /// The settings file could not be read.
-    #[error("reading {} failed", path.display())]
-    Read {
-        /// The settings file.
-        path: PathBuf,
-        /// The file system's failure.
-        #[source]
-        failure: io::Error,
-    },
-    /// The settings file's folder could not be made.
-    #[error("making the folder of {} failed", path.display())]
-    CreateFolder {
-        /// The settings file.
-        path: PathBuf,
-        /// The file system's failure.
-        #[source]
-        failure: io::Error,
-    },
-    /// The settings file could not be written.
-    #[error("writing the project's local settings failed")]
-    Write(#[source] AtomicWriteError),
+    /// A settings file could not be read, written, or edited as a strict JSON object with
+    /// permission lists, so it is left as it is.
+    #[error(transparent)]
+    SettingsFile(#[from] ClaudeSettingsFileError),
     /// The settings file could not be listed in the repository's exclude list.
     #[error("keeping the project's local settings out of commits failed")]
     Exclude(#[source] ExcludeError),
@@ -369,13 +340,12 @@ pub(crate) async fn remove_claude_project_rule(
             .map(|folder| settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE)),
     );
     for file in unedited_files {
-        let settings =
-            read_claude_settings_file(&file)
-                .await
-                .map_err(|failure| ClaudeRulesError::Read {
-                    path: file.clone(),
-                    failure,
-                })?;
+        let settings = read_claude_settings_file(&file).await.map_err(|failure| {
+            ClaudeSettingsFileError::Read {
+                path: file.clone(),
+                failure,
+            }
+        })?;
         let is_kept = settings
             .as_ref()
             .and_then(|settings| settings.get("permissions")?.get(list)?.as_array())
@@ -417,10 +387,8 @@ pub(crate) async fn remove_claude_tool_server_rules(
     let server_name = compose_claude_tool_server_name(server_name);
     let is_server_rule = |entry: &str| is_claude_tool_server_rule(entry, &server_name);
     for file in every_local_settings_file(folders, home_folder, path_rules) {
-        let _hold = LOCAL_SETTINGS_LOCK
-            .acquire(resolve_lock_key(&file).await?)
-            .await;
-        let Some(text) = read_local_settings(&file).await? else {
+        let hold = hold_settings_file(&file).await?;
+        let Some(text) = read_settings_file(&hold, &file).await? else {
             continue;
         };
         if let Some(edited) = edit_permission_lists(&file, &text, |permissions, path| {
@@ -430,7 +398,7 @@ pub(crate) async fn remove_claude_tool_server_rules(
             }
             Ok(is_changed)
         })? {
-            write_local_settings(&file, edited).await?;
+            write_settings_file(&hold, &file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
         }
     }
     Ok(())
@@ -483,11 +451,13 @@ fn is_claude_tool_server_rule(entry: &str, server_name: &str) -> bool {
     }
 }
 
-fn local_settings_path(folder: &Path) -> PathBuf {
+/// The local settings file in `folder` itself.
+pub(crate) fn local_settings_path(folder: &Path) -> PathBuf {
     settings_path(folder, CLAUDE_LOCAL_SETTINGS_FILE)
 }
 
-fn settings_path(folder: &Path, file: [&str; 2]) -> PathBuf {
+/// The settings `file` under `folder`.
+pub(crate) fn settings_path(folder: &Path, file: [&str; 2]) -> PathBuf {
     file.iter()
         .fold(folder.to_path_buf(), |path, part| path.join(part))
 }
@@ -625,10 +595,8 @@ async fn remove_rule_from_file(
 ) -> Result<bool, ClaudeRulesError> {
     let removed = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    let _hold = LOCAL_SETTINGS_LOCK
-        .acquire(resolve_lock_key(file).await?)
-        .await;
-    let Some(text) = read_local_settings(file).await? else {
+    let hold = hold_settings_file(file).await?;
+    let Some(text) = read_settings_file(&hold, file).await? else {
         return Ok(false);
     };
     let change = ListChange {
@@ -642,23 +610,21 @@ async fn remove_rule_from_file(
     else {
         return Ok(false);
     };
-    write_local_settings(file, edited).await?;
+    write_settings_file(&hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
     Ok(true)
 }
 
 // Applies `changes` to `file`, made where missing and an entry is added (first listed in the
 // exclude list of the repository `common_git_folder` names, unless `excluded_repositories` holds
-// it already), one edit at a time on the file.
+// it already), one edit at a time on the file, the exclude step under the same hold.
 async fn edit_local_settings(
     file: &Path,
     common_git_folder: Option<&Path>,
     excluded_repositories: &Mutex<HashSet<PathBuf>>,
     changes: &[ListChange<'_>],
 ) -> Result<(), ClaudeRulesError> {
-    let _hold = LOCAL_SETTINGS_LOCK
-        .acquire(resolve_lock_key(file).await?)
-        .await;
-    let edited = if let Some(text) = read_local_settings(file).await? {
+    let hold = hold_settings_file(file).await?;
+    let edited = if let Some(text) = read_settings_file(&hold, file).await? {
         edit_permission_lists(file, &text, |permissions, path| {
             apply_list_changes(permissions, path, changes)
         })?
@@ -689,74 +655,39 @@ async fn edit_local_settings(
         text.push('\n');
         Some(text)
     };
-    match edited {
-        Some(edited) => write_local_settings(file, edited).await,
-        None => Ok(()),
+    if let Some(edited) = edited {
+        write_settings_file(&hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
     }
+    Ok(())
 }
 
-// A local settings file as its lock knows it, one key for every spelling of the file.
-async fn resolve_lock_key(file: &Path) -> Result<PathBuf, ClaudeRulesError> {
-    resolve_real_location(file)
-        .await
-        .map_err(|failure| ClaudeRulesError::Read {
-            path: file.to_path_buf(),
-            failure,
-        })
-}
-
-// The file's text, or `None` where there is no file.
-async fn read_local_settings(file: &Path) -> Result<Option<String>, ClaudeRulesError> {
-    tokio::fs::read_to_string(file)
-        .await
-        .none_if_missing()
-        .map_err(|failure| ClaudeRulesError::Read {
-            path: file.to_path_buf(),
-            failure,
-        })
-}
-
-async fn write_local_settings(file: &Path, text: String) -> Result<(), ClaudeRulesError> {
-    if let Some(folder) = file.parent() {
-        tokio::fs::create_dir_all(folder).await.map_err(|failure| {
-            ClaudeRulesError::CreateFolder {
-                path: file.to_path_buf(),
-                failure,
-            }
-        })?;
-    }
-    write_file_atomically(file, text, CLAUDE_LOCAL_SETTINGS_MODE)
-        .await
-        .map_err(ClaudeRulesError::Write)
-}
-
-// Parses `text` as strict JSON, hands `edit` its `permissions` object (made when missing and the
-// edit adds to it) and returns the edited text, or `None` when the edit changed nothing. Refuses a
-// file that is not strict JSON, is blank, or whose root or `permissions` is not an object.
+// Hands `edit` the `permissions` object of `text`, the contents of `file` (made when missing and
+// the edit adds to it), and returns the edited text, or `None` when the edit changed nothing.
+// Refuses a file as `edit_settings_object` does, and one whose `permissions` is not an object.
 fn edit_permission_lists(
     file: &Path,
     text: &str,
-    edit: impl FnOnce(&PermissionsObject, &Path) -> Result<bool, ClaudeRulesError>,
-) -> Result<Option<String>, ClaudeRulesError> {
-    let refused = || ClaudeRulesError::Refused {
+    edit: impl FnOnce(&PermissionsObject, &Path) -> Result<bool, ClaudeSettingsFileError>,
+) -> Result<Option<String>, ClaudeSettingsFileError> {
+    edit_settings_object(file, text, |settings| {
+        let permissions = match settings.get("permissions") {
+            Some(property) => match property.value() {
+                Some(CstNode::Container(container)) => {
+                    PermissionsObject::Present(container.as_object().ok_or_else(|| refused(file))?)
+                }
+                Some(CstNode::Leaf(_)) | None => return Err(refused(file)),
+            },
+            None => PermissionsObject::Missing(settings.clone()),
+        };
+        edit(&permissions, file)
+    })
+}
+
+// The refusal of a file whose permission lists are not the shape the edit needs.
+fn refused(file: &Path) -> ClaudeSettingsFileError {
+    ClaudeSettingsFileError::Refused {
         path: file.to_path_buf(),
-    };
-    // The CST parser lets comments through whatever its options say, so serde reads the file as
-    // strict JSON first: Claude Code reads it with a strict parser and drops a file that fails.
-    serde_json::from_str::<IgnoredAny>(text).map_err(|_parse_error| refused())?;
-    let root =
-        CstRootNode::parse(text, &ParseOptions::default()).map_err(|_parse_error| refused())?;
-    let settings = root.object_value().ok_or_else(refused)?;
-    let permissions = match settings.get("permissions") {
-        Some(property) => match property.value() {
-            Some(CstNode::Container(container)) => {
-                PermissionsObject::Present(container.as_object().ok_or_else(refused)?)
-            }
-            Some(CstNode::Leaf(_)) | None => return Err(refused()),
-        },
-        None => PermissionsObject::Missing(settings),
-    };
-    Ok(edit(&permissions, file)?.then(|| root.to_string()))
+    }
 }
 
 // The settings' `permissions` object, or the settings object it is made in once an entry is added.
@@ -781,7 +712,7 @@ fn apply_list_changes(
     permissions: &PermissionsObject,
     file: &Path,
     changes: &[ListChange<'_>],
-) -> Result<bool, ClaudeRulesError> {
+) -> Result<bool, ClaudeSettingsFileError> {
     let mut is_changed = false;
     for change in changes {
         is_changed |= remove_entries(permissions, change.list, file, |entry| {
@@ -802,9 +733,7 @@ fn apply_list_changes(
         let list = permissions
             .object()
             .array_value_or_create(change.list)
-            .ok_or_else(|| ClaudeRulesError::Refused {
-                path: file.to_path_buf(),
-            })?;
+            .ok_or_else(|| refused(file))?;
         for entry in missing {
             list.append(CstInputValue::String(entry.clone()));
         }
@@ -819,18 +748,14 @@ fn read_list_entries(
     permissions: &PermissionsObject,
     list: &str,
     file: &Path,
-) -> Result<Vec<String>, ClaudeRulesError> {
+) -> Result<Vec<String>, ClaudeSettingsFileError> {
     let PermissionsObject::Present(object) = permissions else {
         return Ok(Vec::new());
     };
     let Some(property) = object.get(list) else {
         return Ok(Vec::new());
     };
-    let array = property
-        .array_value()
-        .ok_or_else(|| ClaudeRulesError::Refused {
-            path: file.to_path_buf(),
-        })?;
+    let array = property.array_value().ok_or_else(|| refused(file))?;
     Ok(array
         .elements()
         .iter()
@@ -845,18 +770,14 @@ fn remove_entries(
     list: &str,
     file: &Path,
     is_removed: impl Fn(&str) -> bool,
-) -> Result<bool, ClaudeRulesError> {
+) -> Result<bool, ClaudeSettingsFileError> {
     let PermissionsObject::Present(object) = permissions else {
         return Ok(false);
     };
     let Some(property) = object.get(list) else {
         return Ok(false);
     };
-    let array = property
-        .array_value()
-        .ok_or_else(|| ClaudeRulesError::Refused {
-            path: file.to_path_buf(),
-        })?;
+    let array = property.array_value().ok_or_else(|| refused(file))?;
     let is_after_bracket = |node: Option<CstNode>| {
         node.and_then(|node| node.previous_sibling())
             .is_some_and(|previous| previous.token_char() == Some('['))

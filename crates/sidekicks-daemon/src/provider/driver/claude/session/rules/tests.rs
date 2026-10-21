@@ -10,6 +10,7 @@ use super::{
     compose_claude_session_rule_lists, remove_claude_project_rule, remove_claude_tool_server_rules,
     resolve_claude_local_settings_file, write_claude_project_rule,
 };
+use crate::provider::driver::claude::session::settings_file::ClaudeSettingsFileError;
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 
 fn rule(
@@ -258,7 +259,7 @@ async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case
     let failure = outcome.expect_err("the file is refused");
     assert!(matches!(
         failure.original(),
-        ClaudeRulesError::Refused { .. }
+        ClaudeRulesError::SettingsFile(ClaudeSettingsFileError::Refused { .. })
     ));
     assert!(text.trim().is_empty() || !failure.to_string().contains(text.trim()));
     assert_eq!(read(&file), text);
