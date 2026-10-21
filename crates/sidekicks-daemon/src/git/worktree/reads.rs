@@ -315,7 +315,7 @@ fn unquote_git_text(value: &[u8]) -> Option<Cow<'_, [u8]>> {
 /// Reads every local branch of the repository at `repository_root` with its upstream distance,
 /// newest commit and holding tree. Fails as [`GitRunner::run`] does, with `PathText` for a holding
 /// tree this system cannot name and `Read` for a record git printed that does not parse.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_branch_figures(
     git: &GitRunner,
     place: Option<&Place>,
@@ -455,7 +455,7 @@ pub(crate) async fn has_branch(
 /// Names the default branch of the repository at `repository_root`: the branch a remote's HEAD
 /// names, the clone's own remote first; `None` when no remote names one. Fails as
 /// [`GitRunner::run`] does.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_remote_default_branch(
     git: &GitRunner,
     place: Option<&Place>,
@@ -507,7 +507,6 @@ pub(crate) async fn read_remote_default_branch(
 /// untracked files, each untracked file named on its own, a rename by its new path alone; ignored
 /// files are not listed. Fails as [`GitRunner::run`] does, with `PathText` for a path this system
 /// cannot name and `Read` for an entry git printed that does not parse.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_uncommitted_paths(
     git: &GitRunner,
     place: Option<&Place>,
@@ -555,7 +554,6 @@ fn last_part(entry: &[u8], part_count: usize) -> Result<&[u8], GitError> {
 
 /// The branch `folder` has checked out, or `None` while its HEAD is detached or names no branch.
 /// Fails as [`GitRunner::run`] does.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_current_branch(
     git: &GitRunner,
     place: Option<&Place>,
@@ -588,7 +586,6 @@ pub(crate) async fn read_current_branch(
 /// The folder that holds `folder`'s own HEAD and index: the checkout's git folder, or for a linked
 /// tree its record inside the repository's. Fails as [`GitRunner::run`] does, with `PathText` for
 /// a path this system cannot name and `Read` for an answer that names no folder.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_tree_git_folder(
     git: &GitRunner,
     place: Option<&Place>,

@@ -4,11 +4,14 @@
 //! who stands and runs in each folder, the watch of each working folder, and the folder reads and
 //! flushes their services share.
 
+pub(crate) mod branch_list;
 pub(crate) mod copy_progress;
 pub(crate) mod errors;
 pub(crate) mod event_emitter;
+pub(crate) mod fetch;
 pub(crate) mod flush;
 pub(crate) mod folder_names;
+pub(crate) mod live_session_folders;
 pub(crate) mod naming;
 pub(crate) mod occupancy;
 pub(crate) mod projector;
