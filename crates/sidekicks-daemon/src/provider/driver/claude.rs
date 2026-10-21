@@ -12,12 +12,15 @@ use crate::provider::driver::{
     ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
 
+mod attachments;
 mod capabilities;
 mod capability_probe;
 mod delivery;
 mod event_normalizer;
+mod handshake_register;
 mod hooks;
 pub(crate) mod inbox_address;
+mod output_speed;
 mod run;
 mod session;
 mod spawn;
