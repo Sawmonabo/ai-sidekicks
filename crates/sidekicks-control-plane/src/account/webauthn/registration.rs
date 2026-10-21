@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Extension, State};
+use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::trust_statement::CoseAlgorithm;
 use sidekicks_contracts::webauthn::ceremony::{
@@ -35,7 +36,7 @@ use crate::server::received_json::ReceivedJson;
 use crate::server::router::{AuthenticationFault, ControlPlaneRefusal, RequestId, SignedInUser};
 
 /// The relying party's name, which an authenticator may show beside the passkey.
-const RELYING_PARTY_NAME: &str = "AI Sidekicks";
+const RELYING_PARTY_NAME: &str = APP_DISPLAY_NAME;
 
 /// Records a registration challenge for the signed-in caller and answers the options its
 /// authenticator makes a passkey from, listing the caller's passkeys so one is not made twice.

@@ -1,18 +1,22 @@
 //! The operating system's credential store, as one interface: the macOS login keychain, the
 //! Secret Service on Linux and the Windows Credential Manager, each platform's module supplying its
-//! store, the settings an entry is built with and the reading of a locked store from the store's
-//! own error.
+//! store, the settings an entry is built with, how its search names a service, the name of what
+//! holds the items, and the reading of a locked store from the store's own error. Whether the store
+//! can be reached and whether it takes items without a prompt are the watch's, which holds the one
+//! session-bus connection that asks.
 //!
-//! Every call blocks until the store answers, which on a locked store is when the person answers
-//! its unlock prompt, so a caller runs it on a blocking thread under its own time limit.
+//! Every call on a store blocks until the store answers, which on a locked store is when the person
+//! answers its unlock prompt, so a caller runs it on a blocking thread under its own time limit.
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod blocking;
+pub(crate) mod watch;
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 use keyring_core::Entry;
 use keyring_core::error::PlatformError;
@@ -31,21 +35,63 @@ use crate::windows::credential_store as native;
 #[derive(Clone, Debug)]
 pub struct CredentialStore {
     store: Arc<keyring_core::CredentialStore>,
+    // The settings every entry is built with: the platform's own, none on a test's store.
+    modifiers: &'static [(&'static str, &'static str)],
+    // The search that finds the items filed under a service, before the exact filter.
+    search_spec: fn(&str) -> Vec<(&'static str, String)>,
 }
 
 impl CredentialStore {
+    /// How long the store is given for an answer that must never wait on the person: the Secret
+    /// Service's reachability and lock reads, and each store call of a move into it.
+    pub const QUICK_ANSWER_LIMIT: Duration = Duration::from_secs(2);
+
     /// Opens this system's credential store. Blocks: on Linux it connects to the Secret Service
-    /// over the session bus. Fails with [`CredentialStoreError`] when the system has none the
-    /// daemon can use, such as a Linux session with no Secret Service.
+    /// over the session bus. Fails with [`CredentialStoreError`] when the store cannot be built or
+    /// reached, as on Linux when no Secret Service answers.
     pub fn open() -> Result<Self, CredentialStoreError> {
         let store = native::open_store().map_err(CredentialStoreError::from_store_error)?;
-        Ok(Self { store })
+        Ok(Self {
+            store,
+            modifiers: native::ENTRY_MODIFIERS,
+            search_spec: native::search_spec,
+        })
     }
 
-    /// A credential store over `store`, which a test supplies in place of the system's.
+    /// A credential store over `store`, which a test supplies in place of the system's, its entries
+    /// built with no settings and its search naming the service.
     #[cfg(any(test, feature = "test-support"))]
     pub fn from_store(store: Arc<keyring_core::CredentialStore>) -> Self {
-        Self { store }
+        Self {
+            store,
+            modifiers: &[],
+            search_spec: service_search_spec,
+        }
+    }
+
+    /// A credential store held in this process's memory alone, for a test: it keeps values until it
+    /// drops, and lists every entry ever built on it, those never written included.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn in_memory() -> Self {
+        let store: Arc<keyring_core::CredentialStore> =
+            keyring_core::mock::Store::new().expect("the in-memory store builds without a failure");
+        Self::from_store(store)
+    }
+
+    /// Makes the next call on the entry under `service` and `account` of an in-memory store fail as
+    /// a store that cannot be used, the entry's value left as it is.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn refuse_next_call(&self, service: &str, account: &str) {
+        let entry = self
+            .entry(service, account)
+            .expect("an in-memory store builds every entry");
+        entry
+            .as_any()
+            .downcast_ref::<keyring_core::mock::Cred>()
+            .expect("only an in-memory store's entries take a refusal")
+            .set_error(keyring_core::Error::PlatformFailure(Box::new(
+                std::io::Error::other("the test refuses this call"),
+            )));
     }
 
     /// Writes `value` under `service` and `account`, replacing any value held there. Fails with
@@ -83,21 +129,49 @@ impl CredentialStore {
     /// Removes the value under `service` and `account`; `false` when none was held. Fails with
     /// [`CredentialStoreError`] when the store is locked or cannot be used.
     pub fn remove(&self, service: &str, account: &str) -> Result<bool, CredentialStoreError> {
-        match self.entry(service, account)?.delete_credential() {
-            Ok(()) => Ok(true),
-            Err(keyring_core::Error::NoEntry) => Ok(false),
-            Err(failure) => Err(CredentialStoreError::from_store_error(failure)),
-        }
+        remove_entry(&self.entry(service, account)?)
     }
 
-    /// The entry for `service` and `account`, built through this store with the system's settings,
-    /// never through a process-wide default store. Fails when the store refuses the entry's names.
+    /// Every item filed under exactly `service`, each with the handle that removes it: the
+    /// platform's search, which may match more than the service, kept to the items whose service is
+    /// `service`. An item the Secret Service cannot name, as one it could not unlock, comes with no
+    /// account, since its search matched the service exactly. Fails with [`CredentialStoreError`]
+    /// when the store is locked or cannot be used; on Linux the search raises the unlock prompt.
+    pub fn accounts(&self, service: &str) -> Result<Vec<StoreAccount>, CredentialStoreError> {
+        let spec = (self.search_spec)(service);
+        let spec: HashMap<&str, &str> = spec
+            .iter()
+            .map(|(key, value)| (*key, value.as_str()))
+            .collect();
+        let entries = self
+            .store
+            .search(&spec)
+            .map_err(CredentialStoreError::from_store_error)?;
+        Ok(entries
+            .into_iter()
+            .filter_map(|entry| match entry.get_specifiers() {
+                Some((entry_service, account)) => {
+                    (entry_service == service).then_some(StoreAccount {
+                        account: Some(account),
+                        entry,
+                    })
+                }
+                None => Some(StoreAccount {
+                    account: None,
+                    entry,
+                }),
+            })
+            .collect())
+    }
+
+    /// The entry for `service` and `account`, built through this store with its settings, never
+    /// through a process-wide default store. Fails when the store refuses the entry's names.
     pub(crate) fn entry(
         &self,
         service: &str,
         account: &str,
     ) -> Result<Entry, CredentialStoreError> {
-        let modifiers: HashMap<&str, &str> = native::ENTRY_MODIFIERS.iter().copied().collect();
+        let modifiers: HashMap<&str, &str> = self.modifiers.iter().copied().collect();
         self.store
             .build(
                 service,
@@ -106,6 +180,64 @@ impl CredentialStore {
             )
             .map_err(CredentialStoreError::from_store_error)
     }
+}
+
+/// One item a store's listing found, with the handle that removes it.
+#[derive(Debug)]
+pub struct StoreAccount {
+    account: Option<String>,
+    entry: Entry,
+}
+
+impl StoreAccount {
+    /// The account the item is filed under, or `None` for an item the Secret Service cannot name.
+    pub fn account(&self) -> Option<&str> {
+        self.account.as_deref()
+    }
+
+    /// Removes the item through its own handle, whether or not it has a name; `false` when it was
+    /// already gone. Blocks as every store call does. Fails with [`CredentialStoreError`] when the
+    /// store is locked or cannot be used.
+    pub fn remove(&self) -> Result<bool, CredentialStoreError> {
+        remove_entry(&self.entry)
+    }
+}
+
+/// Why this system's credential store cannot be reached now; each says which condition failed and
+/// what makes it hold.
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum CredentialStoreUnreachable {
+    /// `DBUS_SESSION_BUS_ADDRESS` is not set, so the service runs outside any session bus.
+    #[error(
+        "DBUS_SESSION_BUS_ADDRESS is not set, so no Secret Service can be reached; start the \
+         service inside a desktop session, or set the variable to the session bus's address"
+    )]
+    NoSessionBus,
+    /// The session bus failed: it did not connect at the variable's address, or refused the
+    /// question.
+    #[error(
+        "the session bus at DBUS_SESSION_BUS_ADDRESS failed; check that the variable names the \
+         running session bus"
+    )]
+    SessionBusFailed(#[source] Arc<dyn Error + Send + Sync>),
+    /// No program owns the Secret Service's name on the session bus.
+    #[error(
+        "no Secret Service is running: nothing owns org.freedesktop.secrets on the session bus; \
+         start one, such as GNOME Keyring, KDE Wallet or KeePassXC"
+    )]
+    NoSecretService,
+    /// The Secret Service refused a question about its default collection.
+    #[error(
+        "the Secret Service refused to say whether its default collection is unlocked; check that \
+         it runs and is not stuck"
+    )]
+    SecretServiceFailed(#[source] Arc<dyn Error + Send + Sync>),
+    /// The session bus gave no answer within [`CredentialStore::QUICK_ANSWER_LIMIT`].
+    #[error(
+        "the session bus gave no answer within {limit} s; check that the session bus is not stuck",
+        limit = CredentialStore::QUICK_ANSWER_LIMIT.as_secs()
+    )]
+    NoAnswer,
 }
 
 /// A credential store call the store refused or could not answer. It says whether the store is
@@ -132,6 +264,17 @@ impl CredentialStoreError {
     /// broken.
     pub fn is_locked(&self) -> bool {
         self.is_locked
+    }
+
+    /// The refusal of a store that cannot be used, which a test's store answers with `reason`.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn unusable(reason: &str) -> Self {
+        Self {
+            is_locked: false,
+            failure: StoreFailure::Refused {
+                message: reason.to_owned(),
+            },
+        }
     }
 
     /// The refusal for the store's `error`: the cause read from the platform error underneath,
@@ -209,6 +352,21 @@ impl From<keyring_core::Error> for StoreFailure {
             _ => Self::Unknown,
         }
     }
+}
+
+// Removes `entry`'s value; `false` when none was held.
+fn remove_entry(entry: &Entry) -> Result<bool, CredentialStoreError> {
+    match entry.delete_credential() {
+        Ok(()) => Ok(true),
+        Err(keyring_core::Error::NoEntry) => Ok(false),
+        Err(failure) => Err(CredentialStoreError::from_store_error(failure)),
+    }
+}
+
+// The search a test's store reads: the service, which it matches as a substring.
+#[cfg(any(test, feature = "test-support"))]
+fn service_search_spec(service: &str) -> Vec<(&'static str, String)> {
+    vec![("service", service.to_owned())]
 }
 
 #[cfg(test)]

@@ -73,8 +73,9 @@ const BUILT_IN_FILE_WATCH_SETTING: &str = "core.fsmonitor=true";
 /// The line `git version --build-options` prints for a git built with its file-watch daemon.
 const BUILT_IN_FILE_WATCH_BUILD_LINE: &[u8] = b"feature: fsmonitor--daemon";
 
-/// The exit code of `git config --get` for a setting that is not set.
-const CONFIG_UNSET_EXIT_CODE: i32 = 1;
+/// The exit code of `git config --get` for a setting that is not set, and of `--get-regexp` when
+/// no setting matches.
+pub(crate) const CONFIG_UNSET_EXIT_CODE: i32 = 1;
 
 /// Why a git call did not answer.
 #[derive(Debug, thiserror::Error)]
@@ -425,6 +426,17 @@ impl GitRunner {
         .await
     }
 
+    /// Whether the git program for a project at `place` was built with its file-watch daemon, so a
+    /// daemon can have been started for one of its trees whatever the repository sets today.
+    /// Fails as [`run`](Self::run) does.
+    pub(crate) async fn has_built_in_file_watch(
+        &self,
+        place: Option<&Place>,
+    ) -> Result<bool, GitError> {
+        let executable = self.executable_for(place)?;
+        self.read_built_in_file_watch(executable).await
+    }
+
     // The git program for a project at `place`; fails with `WslPlace` for a project in a WSL 2
     // distribution and `NotFound` when no git was found.
     fn executable_for(&self, place: Option<&Place>) -> Result<&Path, GitError> {
@@ -487,7 +499,7 @@ impl GitRunner {
             }) => false,
             Err(failure) => return Err(failure),
         };
-        if is_built_in_on && self.has_built_in_file_watch(executable).await? {
+        if is_built_in_on && self.read_built_in_file_watch(executable).await? {
             return Ok(BUILT_IN_FILE_WATCH_SETTING);
         }
         Ok(FILE_WATCH_OFF_SETTING)
@@ -495,7 +507,7 @@ impl GitRunner {
 
     // Whether the git at `executable` was built with its file-watch daemon, read from its build
     // options once for the runner; a failed read is not kept.
-    async fn has_built_in_file_watch(&self, executable: &Path) -> Result<bool, GitError> {
+    async fn read_built_in_file_watch(&self, executable: &Path) -> Result<bool, GitError> {
         self.has_built_in_file_watch
             .get_or_try_init(|| async {
                 let arguments = vec![OsString::from("version"), OsString::from("--build-options")];
@@ -664,7 +676,21 @@ pub(crate) fn in_folder(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
 /// that run git in a temporary repository.
 #[cfg(test)]
 pub(crate) fn test_git_runner() -> GitRunner {
-    let environment: Vec<(String, String)> = std::env::vars().collect();
+    test_git_runner_with_environment(&[])
+}
+
+/// [`test_git_runner`] with `extra` set over the test's environment in every call git makes, as a
+/// login shell's variable reaches it.
+#[cfg(test)]
+pub(crate) fn test_git_runner_with_environment(extra: &[(&str, &str)]) -> GitRunner {
+    let mut environment: Vec<(String, String)> = std::env::vars()
+        .filter(|(name, _)| extra.iter().all(|(extra_name, _)| name != extra_name))
+        .collect();
+    environment.extend(
+        extra
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+    );
     let executable = find_git_executable(&environment).expect("the tests run where git is");
     GitRunner::new(
         sidekicks_platforms::Spawner::new(tokio::runtime::Handle::current())

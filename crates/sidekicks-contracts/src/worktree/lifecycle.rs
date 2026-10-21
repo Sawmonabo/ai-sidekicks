@@ -399,8 +399,15 @@ pub struct WorktreeStatusReadRequest {
 pub struct NewWorktreeSuggestion {
     /// The name's fixed part, from the branch pattern.
     pub fixed_part: String,
-    /// A tail suggested from the session title.
-    pub suggested_tail: FreeFormText<{ usize::MAX }>,
+    /// A tail suggested from the session title; absent when the name has none, as for a branch
+    /// name the person typed that the pattern did not make or a session with no title words.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<{ usize::MAX }>")]
+    pub suggested_tail: Option<FreeFormText<{ usize::MAX }>>,
     /// The folder up to that tail.
     pub folder_before: FilesystemPath,
 }

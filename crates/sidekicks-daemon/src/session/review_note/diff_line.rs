@@ -112,13 +112,6 @@ pub(crate) struct NotedLineReader {
 
 impl NotedLineReader {
     /// A reader of notes' lines in `folder`, a project at `place`, read through `git`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the note store opens a reader for each read of a session's notes"
-        )
-    )]
     pub(crate) fn new(git: GitRunner, place: Option<Place>, folder: PathBuf) -> Self {
         Self {
             git,

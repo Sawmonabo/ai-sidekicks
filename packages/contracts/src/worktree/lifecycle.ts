@@ -404,12 +404,14 @@ export const WorktreeStatusReadRequestSchema: z.ZodType<
 
 /**
  * What the new-worktree form opens with, from the daemon function that names and creates the
- * tree: the name's fixed part from the branch pattern, a tail suggested from the session title,
- * and the folder up to that tail, so the form copies none of the daemon's naming.
+ * tree: the name's fixed part from the branch pattern, a tail suggested from the session title
+ * (absent when the name has none, as for a typed branch name the pattern did not make or a
+ * session with no title words), and the folder up to that tail, so the form copies none of the
+ * daemon's naming.
  */
 export interface NewWorktreeSuggestion {
   fixedPart: string;
-  suggestedTail: string;
+  suggestedTail?: string | undefined;
   folderBefore: string;
 }
 
@@ -440,7 +442,7 @@ export const WorktreeStatusReadResponseSchema: z.ZodType<WorktreeStatusReadRespo
         fixedPart: z.string(),
         suggestedTail: wireUncappedFreeFormString(
           "WorktreeStatusReadResponse.newWorktree.suggestedTail",
-        ),
+        ).optional(),
         folderBefore: wireFreeFormString(
           FILE_PATH_MAX_LEN,
           "WorktreeStatusReadResponse.newWorktree.folderBefore",

@@ -1,12 +1,13 @@
 //! A session's working folder: the root of its newest workspace in a state that carries a live
-//! root. The `@` file search lists it and every shell of the session starts in it.
+//! root, and the repository it belongs to while its mount is attached. The `@` file search lists
+//! it, every shell of the session starts in it, and the worktree watch watches it.
 
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::place::Place;
-use sidekicks_contracts::repo::mount::WorkspaceState;
+use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
 use strum::VariantArray;
@@ -16,9 +17,10 @@ use crate::database::stored_column::{closed_word, optional_text_column, text_col
 use crate::ipc::domain_error::DomainError;
 use crate::session::not_found::session_not_found;
 use crate::workspace::projector::is_probe_bearing;
+use crate::workspace::schema::MountOrigin;
 
-// The session's shape, the root of its newest workspace whose state carries a live root, and the
-// session's place.
+// The session's shape, the root of its newest workspace whose state carries a live root, the
+// session's place, and that workspace's mount while it is attached.
 static WORKING_FOLDER_SQL: LazyLock<String> = LazyLock::new(|| {
     let probe_bearing_states = sql_list_of(
         WorkspaceState::VARIANTS
@@ -27,16 +29,20 @@ static WORKING_FOLDER_SQL: LazyLock<String> = LazyLock::new(|| {
             .filter(|&state| is_probe_bearing(state))
             .map(<&'static str>::from),
     );
+    let attached = <&'static str>::from(RepoMountState::Attached);
     format!(
-        "SELECT shape,
-         (SELECT fs_root FROM workspaces
-           WHERE session_id = sessions.id AND fs_root IS NOT NULL
-             AND state IN ({probe_bearing_states})
-           ORDER BY created_at DESC, id DESC
-           LIMIT 1) AS fs_root,
-         place
+        "SELECT sessions.shape, workspace.fs_root, sessions.place,
+         mount.id, mount.canonical_root, mount.origin
     FROM sessions
-   WHERE id = ?"
+    LEFT JOIN workspaces AS workspace
+      ON workspace.id = (SELECT id FROM workspaces
+                          WHERE session_id = sessions.id AND fs_root IS NOT NULL
+                            AND state IN ({probe_bearing_states})
+                          ORDER BY created_at DESC, id DESC
+                          LIMIT 1)
+    LEFT JOIN repo_mounts AS mount
+      ON mount.id = workspace.repo_mount_id AND mount.state = '{attached}'
+   WHERE sessions.id = ?"
     )
 });
 
@@ -51,6 +57,20 @@ pub(crate) struct SessionWorkingFolder {
     /// Where the session works: `None` on macOS and Linux, Windows itself or a WSL 2
     /// distribution on Windows, so every git call on the folder runs there.
     pub(crate) place: Option<Place>,
+    /// The repository the folder belongs to, `None` while no folder is in place or its mount is
+    /// no longer attached.
+    pub(crate) repository: Option<WorkingFolderRepository>,
+}
+
+/// The attached repository mount a session's working folder belongs to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkingFolderRepository {
+    /// The mount.
+    pub(crate) repo_mount_id: RepoMountId,
+    /// The repository's own checkout, resolved at attach.
+    pub(crate) repository_root: PathBuf,
+    /// Whether the mount is a project's folder, whose repository is fetched; a chat's is not.
+    pub(crate) is_project: bool,
 }
 
 /// Why a session's working folder could not be read.
@@ -79,6 +99,15 @@ pub(crate) fn read_working_folder(
                 working_folder: row.get::<_, Option<String>>(1)?.map(PathBuf::from),
                 // The column holds the place's wire JSON.
                 place: optional_text_column(row, 2, |text| serde_json::from_str::<Place>(&text))?,
+                repository: match optional_text_column(row, 3, |text| RepoMountId::new(&text))? {
+                    Some(repo_mount_id) => Some(WorkingFolderRepository {
+                        repo_mount_id,
+                        repository_root: PathBuf::from(row.get::<_, String>(4)?),
+                        is_project: text_column(row, 5, closed_word::<MountOrigin>)?
+                            == MountOrigin::Attached,
+                    }),
+                    None => None,
+                },
             })
         })
         .optional()?

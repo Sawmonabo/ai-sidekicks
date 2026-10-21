@@ -53,6 +53,7 @@ fn working_folder_read(folder: PathBuf, gate: watch::Receiver<bool>) -> ReadSess
                 shape: SessionShape::Project,
                 working_folder: Some(folder),
                 place: None,
+                repository: None,
             })
         }
         .boxed()

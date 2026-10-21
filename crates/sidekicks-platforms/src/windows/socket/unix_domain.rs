@@ -1,4 +1,4 @@
-//! A connection to an AF_UNIX socket on Windows, the kind a provider's own service listens on:
+//! A connection to an `AF_UNIX` socket on Windows, the kind a provider's own service listens on:
 //! `uds_windows`' blocking connect run on the blocking pool, then the socket driven by `async-io`
 //! and handed to tokio through `tokio_util`'s compatibility layer.
 
@@ -12,7 +12,7 @@ use async_io::{Async, IoSafe};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt as _};
 
-/// An open AF_UNIX stream to a local socket, read and written as tokio's streams are.
+/// An open `AF_UNIX` stream to a local socket, read and written as tokio's streams are.
 #[derive(Debug)]
 pub struct UnixDomainStream(Compat<Async<AfUnixSocket>>);
 
@@ -23,7 +23,7 @@ impl UnixDomainStream {
     }
 }
 
-/// Connects to the AF_UNIX socket at `socket_path`. Fails with the system's error: `NotFound` or
+/// Connects to the `AF_UNIX` socket at `socket_path`. Fails with the system's error: `NotFound` or
 /// `ConnectionRefused` when no socket or no listener is there, `PermissionDenied` when the socket
 /// may not be opened.
 pub async fn connect_unix_domain_socket(socket_path: &Path) -> io::Result<UnixDomainStream> {

@@ -41,7 +41,8 @@ pub(super) struct WalkRequest {
 }
 
 impl WalkRequest {
-    /// Whether this walk, still waiting, covers `later`: it starts at or above it, watches the
+    /// Whether this walk, still waiting, covers `later`: inside the same root (a nested root's
+    /// walk hands over what its parent's filter refuses), it starts at or above it, watches the
     /// root again when `later` would, and hands over every entry `later` would.
     pub(super) fn covers(&self, later: &Self) -> bool {
         let covers_entries = match (self.modified_since, later.modified_since) {
@@ -49,7 +50,8 @@ impl WalkRequest {
             (Some(_), None) => false,
             (Some(since), Some(later_since)) => since <= later_since,
         };
-        later.start.starts_with(&self.start)
+        self.root == later.root
+            && later.start.starts_with(&self.start)
             && (self.rearms_root || !later.rearms_root)
             && covers_entries
     }
@@ -72,15 +74,16 @@ pub(super) enum WalkOutput {
     },
 }
 
-/// Watches each root, and every folder under it the filter keeps where each folder takes a watch
-/// of its own; a root or a folder the system's ceiling refuses is recorded in `misses` rather than
-/// failing the watch. Answers whether the ceiling refused one. Fails with the first root another
-/// refusal stops, or one removed while it is walked.
+/// Watches each root, and every folder under it its filter, the one at the same place in
+/// `filters`, keeps where each folder takes a watch of its own; a root or a folder the system's
+/// ceiling refuses is recorded in `misses` rather than failing the watch. Answers whether the
+/// ceiling refused one. Fails with the first root another refusal stops, or one removed while it
+/// is walked.
 pub(super) fn arm_roots<W: Watcher>(
     watcher: &Mutex<RootWatchers<W>>,
     misses: &Mutex<CeilingMisses>,
     roots: &[PathBuf],
-    filter: &WalkFilter,
+    filters: &[WalkFilter],
 ) -> Result<bool, FileWatchError> {
     let mut has_reached_ceiling = false;
     let mut unwatched_roots = Vec::new();
@@ -103,7 +106,7 @@ pub(super) fn arm_roots<W: Watcher>(
         }
     }
     let mut failure = None;
-    for root in roots {
+    for (root, filter) in roots.iter().zip(filters) {
         if unwatched_roots.contains(&root) || !lock(watcher).arms_each_folder(root) {
             continue;
         }

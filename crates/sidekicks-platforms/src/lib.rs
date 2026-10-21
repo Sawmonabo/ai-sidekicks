@@ -66,6 +66,7 @@ mod file_watch;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
 mod hidden_entry;
+mod keep_awake;
 mod lasting_child;
 #[cfg(target_os = "linux")]
 mod linux;
@@ -76,15 +77,18 @@ mod memory;
 mod own_root;
 mod path;
 mod pinned_process;
+mod pipe_reader;
 #[cfg(unix)]
 mod posix;
 mod process_containment;
 mod process_identity;
 mod program_install_folders;
 mod program_start;
+mod recreate_link;
 mod run_folder;
 mod running_program;
 mod shell_folder_start;
+mod shell_line_command;
 mod shell_start;
 mod socket;
 mod spawner;
@@ -94,6 +98,7 @@ mod system_locale;
 mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 mod test_program;
+mod tool_memory_cap;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
 mod wake_watch;
@@ -119,7 +124,10 @@ pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
 #[cfg(any(test, feature = "test-support"))]
 pub use credential_store::blocking::BlockingCredentialStore;
-pub use credential_store::{CredentialStore, CredentialStoreError};
+pub use credential_store::watch::CredentialStoreWatch;
+pub use credential_store::{
+    CredentialStore, CredentialStoreError, CredentialStoreUnreachable, StoreAccount,
+};
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use executable_search::{find_executables, is_path_command, user_programs_folder};
 pub use file_facts::FileFacts;
@@ -127,6 +135,7 @@ pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 pub use hidden_entry::is_hidden_entry;
+pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::SHELL_FOLDER_PROBES;
@@ -178,6 +187,8 @@ pub use macos::pinned_process::this_process;
 #[cfg(target_os = "macos")]
 pub use macos::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
 #[cfg(target_os = "macos")]
+pub use macos::power_source::PowerSourceWatch;
+#[cfg(target_os = "macos")]
 pub use macos::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
@@ -197,6 +208,7 @@ pub use path::program_output::path_from_program_output;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
 pub use pinned_process::ProcessRecord;
+pub use pipe_reader::async_pipe_reader;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use posix::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
@@ -298,11 +310,13 @@ pub use process_containment::{
 pub use process_identity::process_identity;
 pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
+pub use recreate_link::recreate_link;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
+pub use shell_line_command::{command_shell, shell_line_command};
 pub use shell_start::SHELL_START_CONFIRMATION;
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::listener::ExistingSocket;
@@ -322,6 +336,7 @@ pub use terminal::{
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::pass_through_start;
+pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;

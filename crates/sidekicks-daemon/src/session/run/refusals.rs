@@ -141,32 +141,26 @@ impl From<RunRefusal> for DomainError {
                 expected_run_version,
                 run_version,
                 source,
-            } => with_source(
-                DomainError::new(message, RefusalCode::AgentRunVersionStale).with_detail(json!({
+            } => DomainError::new(message, RefusalCode::AgentRunVersionStale)
+                .with_detail(json!({
                     "runId": run_id,
                     "expectedRunVersion": expected_run_version,
                     "runVersion": run_version,
-                })),
-                source,
-            ),
+                }))
+                .with_optional_source(source),
             RunRefusal::InvalidTransition {
                 run_id,
                 from_state,
                 to_state,
                 source,
-            } => with_source(
-                transition_refusal(message, &run_id, from_state, to_state),
-                source,
-            ),
-            RunRefusal::AlreadyEnded {
+            }
+            | RunRefusal::AlreadyEnded {
                 run_id,
                 from_state,
                 to_state,
                 source,
-            } => with_source(
-                transition_refusal(message, &run_id, from_state, to_state),
-                source,
-            ),
+            } => transition_refusal(message, &run_id, from_state, to_state)
+                .with_optional_source(source),
             RunRefusal::SessionTurnHeld { session_id, source } => {
                 DomainError::new(message, RefusalCode::ProviderUnavailable)
                     .with_detail(json!({
@@ -192,12 +186,4 @@ fn transition_refusal(
         "fromState": <&'static str>::from(from_state),
         "toState": <&'static str>::from(RunState::from(to_state)),
     }))
-}
-
-// `refused` carrying the failure under it, where one is.
-fn with_source(refused: DomainError, source: Option<Box<dyn Error + Send + Sync>>) -> DomainError {
-    match source {
-        Some(source) => refused.with_source(source),
-        None => refused,
-    }
 }
