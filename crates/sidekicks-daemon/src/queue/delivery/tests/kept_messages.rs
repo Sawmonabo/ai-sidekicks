@@ -32,6 +32,7 @@ const KEPT_BY_PROCESS: MessageHanding = MessageHanding {
     hands_at: HandMoment::AtOnce,
     can_withdraw: true,
     kept_by_process: true,
+    reads_priority_message: false,
 };
 
 // A message handed to a provider whose process keeps it past the run's end stays handed through
@@ -92,12 +93,12 @@ async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
 
     let first_read = continued_ids(&fixture).await;
     {
-        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
         ContinuedMessages::keep(&fixture.delivery, &hold, fixture.run_id);
     }
     let second_read = continued_ids(&fixture).await;
     {
-        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
         ContinuedMessages::release(&fixture.delivery, &hold, fixture.run_id)
             .await
             .expect("the release answers");
@@ -107,7 +108,7 @@ async fn a_message_a_resume_keeps_is_never_read_again_until_settled() {
     fixture.delivery.end_run(fixture.session_id, fixture.run_id);
     let is_kept_through_the_end = fixture.delivery.is_handed(&item.id);
     {
-        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
         ContinuedMessages::settle_kept(&fixture.delivery, &hold, fixture.run_id, &[item.id], &[])
             .await
             .expect("the kept message is settled");

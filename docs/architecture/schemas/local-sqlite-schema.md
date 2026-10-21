@@ -241,6 +241,10 @@ CREATE TABLE queue_items (
                                               -- edit takes the place of the item it supersedes
   client_idempotency_key TEXT,                -- the send's own key, so a retried send returns the saved item;
                                               -- NULL on an orchestration-authored item
+  send_now_id     TEXT,                       -- the mark of the `Send now` in force that handed the item ahead
+                                              -- of what its provider held: the id its answer carries; NULL on
+                                              -- every other item, and once a later order moves the item off
+                                              -- first place
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
   CHECK((state = 'notDelivered') = (not_delivered_reason IS NOT NULL)),  -- a notDelivered item always says why
@@ -249,6 +253,19 @@ CREATE TABLE queue_items (
 
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id) WHERE target_run_id IS NOT NULL;
+
+-- Owner: Plan-002
+-- Each key a person's `Send now` spent on a run, with the message it handed and the id its first
+-- answer carried, kept for the run's life whatever later becomes of the message's mark, so a
+-- retried `Send now` answers what the first did (Spec-003 §Design Decisions).
+CREATE TABLE send_now_requests (
+  target_run_id          TEXT NOT NULL,       -- the run the `Send now` was sent on
+  client_idempotency_key TEXT NOT NULL,       -- the requester's own key
+  queue_item_id          TEXT NOT NULL,       -- the message it handed
+  intervention_id        TEXT NOT NULL,       -- the id its first answer carried
+  created_at             TEXT NOT NULL,
+  PRIMARY KEY (target_run_id, client_idempotency_key)  -- one record per key on a run
+) STRICT, WITHOUT ROWID;
 
 -- Owner: Plan-002 (rejection_reason) | Extended by: Spec-004 (client_idempotency_key intervention dedupe)
 CREATE TABLE interventions (

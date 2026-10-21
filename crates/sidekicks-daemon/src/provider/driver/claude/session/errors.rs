@@ -50,9 +50,6 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     /// Another run's turn is still in flight on the session.
     #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     SessionTurnInFlight,
-    /// The daemon resolved no dispatch for the run.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
-    RunDispatchUnresolved,
     /// The run's execution posture differs from the one the session was spawned with.
     #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     ExecutionPostureMismatch,
@@ -114,7 +111,6 @@ impl ClaudeSessionUnavailableReason {
             Self::SessionTurnInFlight => {
                 "Another run's turn is still in flight on this Claude session; it has not settled."
             }
-            Self::RunDispatchUnresolved => "The daemon resolved no Claude dispatch for this run.",
             Self::ExecutionPostureMismatch => {
                 "The run's execution posture does not match the posture the Claude session was \
                  spawned with."

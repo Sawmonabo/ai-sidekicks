@@ -12,6 +12,9 @@ pub(crate) struct MessageHanding {
     /// Whether the provider's process keeps a handed message past its run's end, for a turn it
     /// starts with it.
     pub(crate) kept_by_process: bool,
+    /// Whether the provider reads a message marked priority ahead of what it holds, at its turn's
+    /// next step, so a person's `Send now` needs no interrupt.
+    pub(crate) reads_priority_message: bool,
 }
 
 /// When the run queue hands a waiting message to a running turn.

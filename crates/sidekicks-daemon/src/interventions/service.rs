@@ -5,20 +5,24 @@
 //! decides.
 //!
 //! A person's request whose run moved before its accept expires undispatched, and once dispatched
-//! the driver's verdict is recorded whatever the run did meanwhile. An interrupt holds the run
-//! queue's hands to its run from before its accept until it settles, and its applied or degraded
-//! verdict is written with the run's end; a retry's verdict advances the run's version. A dispatch
-//! that throws ends the request `failed`; one the provider got with no answer back leaves its row
-//! `accepted`, and an interrupt's queue hold held, until the run's end or a turn's end settles
-//! both, and a row such a settle reached while its dispatch was out answers that outcome. Retries
-//! on one run take turns under a per-run lock, and interrupts, the daemon's own at a limit among
-//! them, under another, so a stop never waits behind a retry and a retry still queued when it
-//! lands meets the advanced version and expires.
+//! the driver's verdict is recorded whatever the run did meanwhile. A person's `Send now`, an
+//! interrupt that puts a waiting message first in the next turn, hands that message ahead of what
+//! the provider holds instead where the provider reads a priority message, and records no row: the
+//! message carries the request's key. An interrupt holds the run queue's hands to its run from
+//! before its accept until it settles, and its applied or degraded verdict is written with the
+//! run's end; a retry's verdict advances the run's version. A dispatch that throws ends the request
+//! `failed`; one the provider got with no answer back leaves its row `accepted`, and an interrupt's
+//! queue hold held, until the run's end or a turn's end settles both, and a row such a settle
+//! reached while its dispatch was out answers that outcome. Retries on one run take turns under a
+//! per-run lock, and interrupts, the daemon's own at a limit among them, under another, so a stop
+//! never waits behind a retry and a retry still queued when it lands meets the advanced version and
+//! expires.
 
 pub(crate) mod errors;
 pub(super) mod reached_state;
 mod request;
 mod saved;
+mod send_now;
 #[cfg(test)]
 pub(super) mod tests;
 
@@ -123,10 +127,10 @@ pub(crate) struct InterventionService {
     pub(super) providers: Arc<ProviderRegistry>,
     /// The run queue.
     pub(super) queue: Arc<dyn InterruptQueue>,
-    /// Orders each run's interrupts, a person's and the daemon's own alike, apart from its
-    /// retries.
+    /// Orders each run's interrupts, a person's and the daemon's own alike, and each retry's read
+    /// of the run's spent `Send now` keys through the record of its row.
     pub(super) interrupt_lock: Arc<KeyedLock<RunId>>,
-    // Orders each run's retries.
+    // Orders each run's retries; a retry takes it before the interrupt lock.
     retry_lock: Arc<KeyedLock<RunId>>,
 }
 
@@ -286,11 +290,24 @@ impl InterventionService {
             }
         };
         let _hold = lock.acquire(run_id).await;
+        // A `Send now` records its key under the interrupt lock, so a retry reads the key and
+        // records its own row under that lock too, and two requests under one key never both run;
+        // the retry lets it go before its dispatch.
+        let sent_now_hold = match &request {
+            AgentRunInterveneRequest::Interrupt(_) => None,
+            AgentRunInterveneRequest::FasterModelRetry { .. } => {
+                Some(self.interrupt_lock.acquire(run_id).await)
+            }
+        };
         let run = self.require_run(run_id).await?;
-        // A reused key answers what it saved before any hold is taken, so its replay redoes none
-        // of the queue's work; read under the lock, it never sees a request of its type in flight.
+        // A reused key answers what it saved before any queue hold is taken: a saved row's replay
+        // redoes none of the queue's work, and a `Send now`'s replay goes to the queue only while
+        // its message waits. Read under the locks, it never sees a request in flight.
         let payload = stored_payload_of(&request);
         let (_, key) = request_guards(&request);
+        if let Some(answer) = self.answer_sent_now(&request, run_id, &run, key).await? {
+            return Ok(answer);
+        }
         if let Some(saved) = self.read_saved_intervention(run_id, key).await? {
             return self.answer_saved(&request, run_id, saved, &payload).await;
         }
@@ -302,15 +319,17 @@ impl InterventionService {
             actor,
         };
         let AgentRunInterveneRequest::Interrupt(interrupt) = &request else {
-            return self
-                .record_and_apply(&target, &request, payload)
-                .await
-                .answer;
+            self.record(&target, &request, payload).await?;
+            drop(sent_now_hold);
+            return self.accept_and_apply(&target, &request).await.answer;
         };
+        if let Some(answer) = self.send_now(interrupt, &target).await? {
+            return Ok(answer);
+        }
         // The queue's hold comes before the row, so a hold that fails leaves no row to apply.
         let choice = interrupt_choice_of(interrupt);
         self.queue
-            .hold_for_interrupt(run_id, choice)
+            .hold_for_interrupt(run_id, target.intervention_id, choice)
             .await
             .map_err(InterventionError::Queue)?;
         let Applied {
@@ -322,7 +341,7 @@ impl InterventionService {
         }
         let released = self
             .queue
-            .release_interrupt(run_id, choice)
+            .release_interrupt(run_id, target.intervention_id, choice)
             .await
             .map_err(InterventionError::Queue);
         match settle_all(
@@ -350,9 +369,9 @@ impl InterventionService {
         }
     }
 
-    // Records the request with its stored `payload`. A key refused at the insert was spent since
-    // the caller's read by a request of the other type, under the other lock, so it answers a
-    // conflict.
+    // Records the request with its stored `payload`. Every request of the run reads its key and
+    // records under the run's interrupt lock, so a key the insert refuses is the table's own
+    // backstop, answered as a conflict from the saved row.
     async fn record(
         &self,
         target: &InterventionTarget,
@@ -621,14 +640,13 @@ impl InterventionService {
         verdict: Verdict,
         end: Option<RunEndOfVerdict>,
     ) -> Result<RowMove<ReachedState>, InterventionError> {
-        let (transition, state, is_degraded, cancelled) = match verdict {
+        let (transition, state, cancelled) = match verdict {
             Verdict::Degraded {
                 fallback_action,
                 cancelled,
             } => (
                 InterventionTransition::Degrade { fallback_action },
                 ReachedState::Degraded,
-                true,
                 cancelled,
             ),
             Verdict::Applied { cancelled } => (
@@ -636,7 +654,6 @@ impl InterventionService {
                     from: UnresolvedInterventionState::Accepted,
                 },
                 ReachedState::Applied,
-                false,
                 cancelled,
             ),
         };
@@ -652,7 +669,6 @@ impl InterventionService {
                     run_id: target.target_run_id,
                     accepted_run_version,
                     cause,
-                    is_degraded,
                     cancelled,
                     verdict: RunStateChangeCompanions {
                         statements: vec![row_move.clone()],

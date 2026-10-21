@@ -29,6 +29,7 @@ use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::events::session::followers::SessionEventFollowers;
 use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::driver::test_registry::bind_run_to_first_provider;
 use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 use crate::session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
@@ -161,15 +162,7 @@ fn insert_completed_session(database: &TestDatabase, session_id: SessionId, firs
             )
             .expect("the test stores the completion");
     }
-    connection
-        .execute(
-            "INSERT INTO runtime_bindings (id, run_id, provider_name, contract_version,
-               cli_version_raw, created_at, updated_at)
-             VALUES (?1, ?1, ?2, '1.0.0', '1.0.0', '2026-10-19T09:00:00.000Z',
-               '2026-10-19T09:00:00.000Z')",
-            params![run.as_str(), PROVIDERS[0].id],
-        )
-        .expect("the test binds the run to its provider");
+    bind_run_to_first_provider(database, run_id);
 }
 
 /// The session's stored renames, oldest first: each name and its origin.

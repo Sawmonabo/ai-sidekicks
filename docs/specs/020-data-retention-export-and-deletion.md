@@ -47,7 +47,7 @@ This spec covers:
 
 - The session lifecycle must include one additional state beyond `archived`: `purgeRequested`.
 - `purgeRequested`: the person has pressed `Delete old data` and the session is among those it removes. The session row is locked against further modification while the purge deletes the files only this session names. The purge then deletes the row (§Ordering And Atomicity), so no state follows `purgeRequested`: no row survives to hold one.
-- Allowed transitions: `archived -> purgeRequested` and `closed -> purgeRequested`. Both `archived` and `closed` sessions may be purged. Purge is irreversible.
+- Allowed transitions: `archived -> purgeRequested` and `closed -> purgeRequested`. Both `archived` and `closed` sessions may be purged, and a session already `purgeRequested` is marked again when a purge that failed before its transaction is retried. `Delete session` on a session whose history is damaged ([Spec-013 §Required Behavior](013-persistence-and-recovery.md#required-behavior)) marks it from any state but `provisioning`, since a damaged session takes no close. Purge is irreversible.
 
 ### Retention Policy
 

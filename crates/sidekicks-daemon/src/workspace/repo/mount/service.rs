@@ -1,7 +1,8 @@
 //! The `repo_mounts` table's attach, read and detach, and a chat's managed mount rows. An attached
 //! mount belongs to the machine and serves one project: attach stamps the daemon's machine id and
 //! the root's place, writes no workspace and appends no event. A managed mount is one chat's own
-//! workspace folder, written at that chat's create and deleted with it.
+//! workspace folder, written at that chat's create and deleted with it, which also keeps the count
+//! of the files in it.
 //!
 //! - A repository is attached once per machine and place: its identity is its git common folder,
 //!   kept on the mount as `metadata.commonDir` and compared inside the insert, with the active-root
@@ -87,6 +88,10 @@ static INSERT_MANAGED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
         <&'static str>::from(RepoMountState::Attached),
     )
 });
+
+// A chat's document count, written only when it moved, so an unchanged count changes no row.
+const UPDATE_DOCUMENT_COUNT_SQL: &str = "UPDATE repo_mounts SET document_count = @count
+    WHERE managed_session_id = @session_id AND document_count <> @count";
 
 // The workspaces on the chat's managed mount.
 const MANAGED_WORKSPACE_IDS_SQL: &str = "SELECT workspace.id
@@ -512,6 +517,31 @@ impl RepoMountService {
             .write(managed_mount_deletion_statements(session_id))
             .await?;
         Ok(())
+    }
+
+    /// Stores `count` as the files in the chat's workspace folder; answers whether the stored
+    /// count moved, false too for a session with no managed mount. Fails with the write's failure.
+    pub(crate) async fn record_document_count(
+        &self,
+        session_id: SessionId,
+        count: u64,
+    ) -> Result<bool, RepoMountServiceError> {
+        let count = i64::try_from(count).unwrap_or(i64::MAX);
+        let results = self
+            .writer
+            .write(vec![WriteStatement {
+                sql: Cow::Borrowed(UPDATE_DOCUMENT_COUNT_SQL),
+                bindings: StatementBindings::Named(vec![
+                    (
+                        Cow::Borrowed("@count"),
+                        rusqlite::types::Value::Integer(count),
+                    ),
+                    text_binding("@session_id", session_id.text().as_str()),
+                ]),
+                expected_row_count: None,
+            }])
+            .await?;
+        Ok(results.first().is_some_and(|result| result.row_count > 0))
     }
 
     /// One mount's stored facts, in any state. Refuses `repoMount.notFound`; fails as the read

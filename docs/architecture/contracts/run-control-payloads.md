@@ -99,6 +99,7 @@ interface QueueItemSummary {
   content: string;
   attachments?: ArtifactId[];
   childHandle?: ChildHandle; // the child whose queue holds it; absent on the lead's
+  isSentNow: boolean; // `Send now` marked it and no later order moved it off first place
   notDeliveredReason?: QueueItemNotDeliveredReason; // present exactly on a notDelivered item
   createdAt: string;
   updatedAt: string;
@@ -143,9 +144,12 @@ interface AgentQueueItemReorderRequest {
 // application: the daemon persists it on the interventions row (UNIQUE(target_run_id,
 // client_idempotency_key)); an identical retry returns the saved result without re-dispatching, and
 // key reuse with a differing payload is rejected as `agent.intervention.idempotencyConflict`
-// (Spec-004 §Required Behavior). The two guards are orthogonal: `expectedRunVersion` is the
-// stale-request guard, refusing OUTDATED intent; `clientIdempotencyKey` is the duplicate-request
-// guard, refusing a second application of the SAME intent.
+// (Spec-004 §Required Behavior). A `Send now` on a provider that reads a priority message writes no
+// interventions row: its key is recorded per run with its first answer, runs again while the mark
+// it set is in force, and otherwise answers that result. The two guards are orthogonal:
+// `expectedRunVersion` is the stale-request guard, refusing OUTDATED intent;
+// `clientIdempotencyKey` is the duplicate-request guard, refusing a second application of the
+// SAME intent.
 type AgentRunInterveneRequest =
   | {
       // The lead's interrupt. `Interrupt everything` is this arm on the lead's run plus
@@ -159,11 +163,15 @@ type AgentRunInterveneRequest =
       // or put back into the draft one line per message in send order (`returnToDraft`, which
       // `Interrupt everything` sends).
       pending: "nextTurn" | "returnToDraft";
-      // `Send now` on a waiting message on Codex: the interrupt ends the turn and this item goes
-      // first, the rest following in order as the next turn's messages. Only with
-      // `pending: "nextTurn"`. On Claude Code `Send now` is no interrupt: the daemon takes back the
-      // rows ahead, sends this one with `priority: "now"` and resends the rows ahead after it, with
-      // no `Turn interrupted` row.
+      // `Send now` on a waiting message on a provider that reads no priority message (Codex): the
+      // interrupt ends the turn and this item goes first, the rest following in order as the next
+      // turn's messages. Only with `pending: "nextTurn"`. On one that reads a priority message
+      // (Claude Code) `Send now` is no interrupt: the daemon takes back every waiting row, puts
+      // this one first marked sent now, and sends it with `priority: "now"`, the rest after it,
+      // with no `Turn interrupted` row. While a permission ask or a question is open the driver
+      // holds it until the card is answered; in any other state that takes no message it stays
+      // first, reading as sent now, until the run's next hand. A reorder that moves it off first
+      // place clears the mark, and the request's key keeps its first answer.
       deliverFirst?: QueueItemId;
     }
   | {
@@ -181,7 +189,8 @@ type AgentRunInterveneRequest =
 
 // On a retry (same clientIdempotencyKey, identical payload) the daemon returns the saved result:
 // this response, reconstructed from the persisted intervention row — same interventionId, current
-// state, current runVersion — never a second application.
+// state, current runVersion — never a second application; a `Send now`'s from its key record, run
+// again while its mark is in force.
 //
 // Undo is not an intervention. Putting a session back to before one of its messages, or to one of
 // its snapshots, is the session's own call, `session.restore`, read first through its dry run
@@ -536,9 +545,11 @@ interface AgentChildRunInterruptRequest {
   childHandle: ChildHandle;
   expectedRunVersion: number;
   clientIdempotencyKey: string; // a UUID
-  // `Send now` on one of the child's pending rows on Codex: the interrupt ends the child's turn
-  // and this item goes first, the rest following in order as its next turn's messages. On Claude
-  // Code a child's `Send now` is no interrupt, as the lead's is not.
+  // `Send now` on one of the child's pending rows on a provider that reads no priority message
+  // (Codex): the interrupt ends the child's turn and this item goes first, the rest following in
+  // order as its next turn's messages. On one that reads a priority message (Claude Code) a
+  // child's `Send now` is no interrupt and takes the lead's path: first with `priority: "now"`,
+  // held while a card is open, and kept first, reading as sent now, while the child takes none.
   deliverFirst?: QueueItemId;
 }
 // Where the child stands after the interrupt; a child that had already finished answers the state

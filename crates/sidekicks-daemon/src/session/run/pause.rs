@@ -56,9 +56,9 @@ pub(crate) type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
 /// session, which the driver's call itself never holds: the read marks the messages as the
 /// resume's, so a change to them meanwhile finds them taken.
 pub(crate) trait ContinuedMessages: Send + Sync {
-    /// The queue's own per-session lock, which every hand and take-back of a session's waiting
-    /// messages runs under.
-    fn session_lock(&self) -> &KeyedLock<SessionId>;
+    /// Takes the queue's own per-session lock on `session_id`, which every hand and take-back of a
+    /// session's waiting messages runs under.
+    fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>>;
 
     /// The messages waiting for `run_id`, in send order, each marked as the resume's to a provider
     /// that takes messages as `handing` says. Called under `hold`.
@@ -344,7 +344,7 @@ impl RunPauseControl {
                     let session_id = *session.get_or_init(|| run.session_id);
                     let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
                     let messages = {
-                        let hold = continued.session_lock().acquire(session_id).await;
+                        let hold = continued.hold_session(session_id).await;
                         continued
                             .read(&hold, run_id, driver.message_handing())
                             .await
@@ -356,7 +356,7 @@ impl RunPauseControl {
                         messages,
                     };
                     let resumed = driver.resume_run(params).await;
-                    let hold = continued.session_lock().acquire(session_id).await;
+                    let hold = continued.hold_session(session_id).await;
                     match resumed {
                         Ok(()) => Ok(()),
                         Err(unanswered @ DriverError::Unanswered(_)) => {
@@ -389,14 +389,14 @@ impl RunPauseControl {
                 let session_id = *session
                     .get()
                     .expect("the driver took a resume it was given");
-                let hold = continued.session_lock().acquire(session_id).await;
+                let hold = continued.hold_session(session_id).await;
                 return Err(self
                     .settle_taken_messages(&hold, run_id, continued, failure)
                     .await);
             }
         };
         let admitted = {
-            let hold = continued.session_lock().acquire(running.session_id).await;
+            let hold = continued.hold_session(running.session_id).await;
             continued.admit(&hold, run_id).await
         };
         self.engine.hand_owed_limit_interrupts(run_id);
@@ -446,7 +446,7 @@ impl RunPauseControl {
         run_id: RunId,
         continued: &dyn ContinuedMessages,
     ) -> Result<(), RunPauseError> {
-        let hold = continued.session_lock().acquire(session_id).await;
+        let hold = continued.hold_session(session_id).await;
         let kept = continued.kept(&hold, run_id);
         if kept.is_empty() {
             return Ok(());
@@ -466,20 +466,13 @@ impl RunPauseControl {
     /// ends the messages not delivered and fails with [`RunPauseError::RecordUnreadable`]; one
     /// asked for with no answer back keeps them for the next settle and fails with
     /// [`RunPauseError::RecordUnanswered`]; a run unknown or no driver refuses as a resume does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the run queue's run lifecycle, and the provider's event delivery at an exit"
-        )
-    )]
     pub(crate) async fn settle_kept_by_record(
         &self,
         session_id: SessionId,
         run_id: RunId,
         continued: &dyn ContinuedMessages,
     ) -> Result<(), RunPauseError> {
-        let hold = continued.session_lock().acquire(session_id).await;
+        let hold = continued.hold_session(session_id).await;
         self.settle_kept_under(&hold, run_id, continued).await
     }
 

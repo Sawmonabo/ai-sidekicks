@@ -15,6 +15,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use rusqlite::params;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -32,7 +33,6 @@ use super::{
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
-use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::{
@@ -44,6 +44,7 @@ use crate::provider::driver::test_registry::{
 };
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::recorder::{QueueRecorder, QueueRecorderDeps};
+use crate::queue::session_lock::QueueSessionLock;
 use crate::queue::store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, insert_queue_item_statement,
 };
@@ -63,6 +64,7 @@ const HANDS_AT_ONCE: MessageHanding = MessageHanding {
     hands_at: HandMoment::AtOnce,
     can_withdraw: true,
     kept_by_process: false,
+    reads_priority_message: false,
 };
 
 /// A provider whose messages the daemon holds to its turn's next tool boundary.
@@ -70,6 +72,7 @@ const HANDS_AT_TOOL_BOUNDARY: MessageHanding = MessageHanding {
     hands_at: HandMoment::AtToolBoundary,
     can_withdraw: false,
     kept_by_process: false,
+    reads_priority_message: false,
 };
 
 /// The session's provider process when each test starts.
@@ -87,15 +90,35 @@ impl ProviderProcessIds for ProcessStandIn {
     }
 }
 
-/// The messages that open a run being started, as the test sets them.
-struct OpeningStandIn(Mutex<HashSet<QueueItemId>>);
+/// The messages that open a run being started, as the test sets them, and a step the test runs
+/// once, at the next read of a waiting message's opening, which a hand makes right after its read
+/// of the waiting messages.
+struct OpeningStandIn {
+    openings: Mutex<HashSet<QueueItemId>>,
+    after_read: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl OpeningStandIn {
+    /// Runs `step` at the next read of a waiting message's opening.
+    fn after_next_read(&self, step: impl FnOnce() + Send + 'static) {
+        *self.after_read.lock().expect("the test's step is writable") = Some(Box::new(step));
+    }
+}
 
 impl OpeningMessages for OpeningStandIn {
-    fn is_opening(&self, item_id: &QueueItemId) -> bool {
-        self.0
+    fn is_opening(&self, item: &QueueItemRecord) -> bool {
+        let after_read = self
+            .after_read
+            .lock()
+            .expect("the test's step is readable")
+            .take();
+        if let Some(after_read) = after_read {
+            after_read();
+        }
+        self.openings
             .lock()
             .expect("the test's openings are readable")
-            .contains(item_id)
+            .contains(&item.id)
     }
 }
 
@@ -111,7 +134,7 @@ struct Fixture {
     database: TestDatabase,
     log: TestLog,
     delivery: QueueDelivery,
-    session_lock: Arc<KeyedLock<SessionId>>,
+    session_lock: Arc<QueueSessionLock>,
     process: Arc<ProcessStandIn>,
     openings: Arc<OpeningStandIn>,
     session_id: SessionId,
@@ -136,9 +159,12 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         pool: Arc::clone(&pool),
         signals: Arc::new(QueueChangeSignals::new()),
     }));
-    let session_lock = Arc::new(KeyedLock::new());
+    let session_lock = Arc::new(QueueSessionLock::new());
     let process = Arc::new(ProcessStandIn(Mutex::new(Some(FIRST_PROCESS))));
-    let openings = Arc::new(OpeningStandIn(Mutex::new(HashSet::new())));
+    let openings = Arc::new(OpeningStandIn {
+        openings: Mutex::new(HashSet::new()),
+        after_read: Mutex::new(None),
+    });
     let delivery = QueueDelivery::new(QueueDeliveryDeps {
         pool,
         recorder,
@@ -177,16 +203,17 @@ fn applied() -> ApplyInterventionResponse {
     }
 }
 
-/// The queue item a steer hands over.
-fn steered_item(params: &ApplyInterventionParams) -> QueueItemId {
+/// The queue item a steer hands over, and whether it goes marked priority.
+fn steered_item(params: &ApplyInterventionParams) -> (QueueItemId, bool) {
     let ApplyInterventionParams::Steer {
         client_idempotency_key,
+        payload,
         ..
     } = params
     else {
         panic!("the delivery only steers");
     };
-    *client_idempotency_key
+    (*client_idempotency_key, payload.is_priority)
 }
 
 /// Answers every steer as sent and counts them.
@@ -249,7 +276,7 @@ fn stored_item(fixture: &Fixture, item_id: QueueItemId) -> QueueItemRecord {
 
 /// Hands the fixture's run its waiting messages under the session lock.
 async fn hand(fixture: &Fixture) {
-    let hold = fixture.session_lock.acquire(fixture.session_id).await;
+    let hold = fixture.session_lock.hold_session(fixture.session_id).await;
     fixture
         .delivery
         .hand_waiting(&hold, fixture.run_id)
@@ -259,7 +286,7 @@ async fn hand(fixture: &Fixture) {
 
 /// The ids of the messages a continue of the fixture's run reads, under the session lock.
 async fn continued_ids(fixture: &Fixture) -> Vec<QueueItemId> {
-    let hold = fixture.session_lock.acquire(fixture.session_id).await;
+    let hold = fixture.session_lock.hold_session(fixture.session_id).await;
     ContinuedMessages::read(&fixture.delivery, &hold, fixture.run_id, HANDS_AT_ONCE)
         .await
         .expect("the continue reads the waiting messages")
@@ -312,6 +339,11 @@ fn set_run_state(fixture: &Fixture, state: RunState) {
             params![fixture.run_id.text().as_str(), <&'static str>::from(state)],
         )
         .expect("the test moves the run");
+}
+
+/// A fresh interrupt's id, for a hold the delivery takes.
+fn intervention_id() -> InterventionId {
+    InterventionId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an intervention id")
 }
 
 fn item_ids(items: &[QueueItemRecord]) -> Vec<QueueItemId> {
