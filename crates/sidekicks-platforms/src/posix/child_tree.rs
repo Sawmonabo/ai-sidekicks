@@ -42,7 +42,9 @@ pub(crate) async fn ask_child_tree_to_stop(process: &mut dyn ChildWrapper) -> io
 }
 
 /// Kills every process in the child's group, in a blocking task, since a macOS kill repeats until
-/// no member is left. Fails as `signal_group` does, or when the task cannot run.
+/// no member is left; an unreaped child keeps the group's id, so the kill reaches no other group,
+/// and a reaped one has no id and nothing is killed. Fails as `signal_group` does, or when the
+/// task cannot run.
 pub(crate) async fn end_child_tree(process: &mut dyn ChildWrapper) -> io::Result<()> {
     let Some(id) = process.id() else {
         return Ok(());

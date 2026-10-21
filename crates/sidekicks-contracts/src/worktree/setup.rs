@@ -15,7 +15,7 @@ use crate::worktree::lifecycle::WorktreeId;
 
 ts_constants! {
     /// The longest captured output a setup step carries; the daemon keeps the tail of a longer
-    /// output, cut to this many UTF-16 code units.
+    /// output, cut to this many code points.
     pub const WORKTREE_SETUP_OUTPUT_MAX_LEN: usize = 32768;
 }
 

@@ -5,6 +5,7 @@
 //! which refuses the link) takes a check that the name is free and a rename instead: a file made
 //! under the name between the two is the one case replaced.
 
+use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -28,64 +29,70 @@ pub(crate) async fn publish_without_replacing(
     temporary_path: &Path,
     target_path: &Path,
 ) -> Result<PublishOutcome, CleanupFailures<io::Error>> {
-    match tokio::fs::hard_link(temporary_path, target_path).await {
+    let (temporary, target) = (temporary_path.to_path_buf(), target_path.to_path_buf());
+    tokio::task::spawn_blocking(move || blocking_publish_without_replacing(&temporary, &target))
+        .await
+        .map_err(|failure| {
+            CleanupFailures::new(io::Error::other(failure), Vec::new(), PUBLISHING)
+        })?
+}
+
+/// [`publish_without_replacing`] on the calling thread, for code already off the async workers.
+pub(crate) fn blocking_publish_without_replacing(
+    temporary_path: &Path,
+    target_path: &Path,
+) -> Result<PublishOutcome, CleanupFailures<io::Error>> {
+    match fs::hard_link(temporary_path, target_path) {
         Ok(()) => {
-            remove_temporary(temporary_path).await?;
+            remove_temporary(temporary_path)?;
             Ok(PublishOutcome::Published)
         }
         Err(link_failure) if link_failure.kind() == io::ErrorKind::AlreadyExists => {
-            remove_temporary(temporary_path).await?;
+            remove_temporary(temporary_path)?;
             Ok(PublishOutcome::TargetExists)
         }
         Err(link_failure) if sidekicks_platforms::is_hard_link_unsupported(&link_failure) => {
-            rename_into_free_name(temporary_path, target_path).await
+            rename_into_free_name(temporary_path, target_path)
         }
-        Err(link_failure) => Err(remove_temporary_after(link_failure, temporary_path).await),
+        Err(link_failure) => Err(remove_temporary_after(link_failure, temporary_path)),
     }
 }
 
 // The publish on a volume with no hard links: a rename once the name is checked free.
-async fn rename_into_free_name(
+fn rename_into_free_name(
     temporary_path: &Path,
     target_path: &Path,
 ) -> Result<PublishOutcome, CleanupFailures<io::Error>> {
-    let renamed = async {
-        if is_name_taken(target_path).await? {
+    let renamed = || {
+        if is_name_taken(target_path)? {
             return Ok(false);
         }
-        tokio::fs::rename(temporary_path, target_path).await?;
+        fs::rename(temporary_path, target_path)?;
         Ok(true)
     };
-    match renamed.await {
+    match renamed() {
         Ok(true) => Ok(PublishOutcome::Published),
         Ok(false) => {
-            remove_temporary(temporary_path).await?;
+            remove_temporary(temporary_path)?;
             Ok(PublishOutcome::TargetExists)
         }
-        Err(failure) => Err(remove_temporary_after(failure, temporary_path).await),
+        Err(failure) => Err(remove_temporary_after(failure, temporary_path)),
     }
 }
 
 // Anything under the name takes it, a link included; only its absence leaves it free.
-async fn is_name_taken(path: &Path) -> io::Result<bool> {
-    Ok(tokio::fs::symlink_metadata(path)
-        .await
-        .none_if_missing()?
-        .is_some())
+fn is_name_taken(path: &Path) -> io::Result<bool> {
+    Ok(fs::symlink_metadata(path).none_if_missing()?.is_some())
 }
 
-async fn remove_temporary(temporary_path: &Path) -> Result<(), CleanupFailures<io::Error>> {
-    tokio::fs::remove_file(temporary_path)
-        .await
+fn remove_temporary(temporary_path: &Path) -> Result<(), CleanupFailures<io::Error>> {
+    fs::remove_file(temporary_path)
         .map_err(|removal_failure| CleanupFailures::new(removal_failure, Vec::new(), PUBLISHING))
 }
 
 // Removes the temporary file after `failure`, keeping the removal's own failure beside it.
-async fn remove_temporary_after(
-    failure: io::Error,
-    temporary_path: &Path,
-) -> CleanupFailures<io::Error> {
-    let removal_failures = match tokio::fs::remove_file(temporary_path).await {
+fn remove_temporary_after(failure: io::Error, temporary_path: &Path) -> CleanupFailures<io::Error> {
+    let removal_failures = match fs::remove_file(temporary_path) {
         Ok(()) => Vec::new(),
         Err(removal_failure) => vec![removal_failure],
     };

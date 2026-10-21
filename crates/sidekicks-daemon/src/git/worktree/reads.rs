@@ -19,7 +19,10 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use memchr::memmem;
+use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_platforms::path_from_program_output;
 
 use crate::git::process::{
@@ -91,6 +94,23 @@ pub(crate) struct BranchFigures {
     pub(crate) newest_commit_seconds: i64,
     /// The folder of the tree that has it checked out, or `None` when none has.
     pub(crate) checked_out_at: Option<PathBuf>,
+}
+
+/// A count of commits as the wire carries it, which no repository brings near the safe integer's
+/// bound.
+pub(crate) fn commit_count(count: u64) -> SafeInt<0> {
+    SafeInt::new(count).expect("a count of commits is a safe integer")
+}
+
+/// A tree's name as the wire carries it: its folder's last part. Fails when that part is no text
+/// the wire carries (absent, blank, or past a path's length).
+pub(crate) fn tree_name_of(folder: &Path) -> Result<FreeFormText<FILE_PATH_MAX_LEN>, TextError> {
+    FreeFormText::new(
+        folder
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    )
 }
 
 /// A ref's commit and, for a branch, the tree git lists with it checked out.
@@ -315,7 +335,7 @@ fn unquote_git_text(value: &[u8]) -> Option<Cow<'_, [u8]>> {
 /// Reads every local branch of the repository at `repository_root` with its upstream distance,
 /// newest commit and holding tree. Fails as [`GitRunner::run`] does, with `PathText` for a holding
 /// tree this system cannot name and `Read` for a record git printed that does not parse.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_branch_figures(
     git: &GitRunner,
     place: Option<&Place>,
@@ -455,7 +475,7 @@ pub(crate) async fn has_branch(
 /// Names the default branch of the repository at `repository_root`: the branch a remote's HEAD
 /// names, the clone's own remote first; `None` when no remote names one. Fails as
 /// [`GitRunner::run`] does.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_remote_default_branch(
     git: &GitRunner,
     place: Option<&Place>,
@@ -507,7 +527,6 @@ pub(crate) async fn read_remote_default_branch(
 /// untracked files, each untracked file named on its own, a rename by its new path alone; ignored
 /// files are not listed. Fails as [`GitRunner::run`] does, with `PathText` for a path this system
 /// cannot name and `Read` for an entry git printed that does not parse.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_uncommitted_paths(
     git: &GitRunner,
     place: Option<&Place>,
@@ -555,7 +574,6 @@ fn last_part(entry: &[u8], part_count: usize) -> Result<&[u8], GitError> {
 
 /// The branch `folder` has checked out, or `None` while its HEAD is detached or names no branch.
 /// Fails as [`GitRunner::run`] does.
-#[expect(dead_code, reason = "the worktree service's reads")]
 pub(crate) async fn read_current_branch(
     git: &GitRunner,
     place: Option<&Place>,
@@ -588,7 +606,6 @@ pub(crate) async fn read_current_branch(
 /// The folder that holds `folder`'s own HEAD and index: the checkout's git folder, or for a linked
 /// tree its record inside the repository's. Fails as [`GitRunner::run`] does, with `PathText` for
 /// a path this system cannot name and `Read` for an answer that names no folder.
-#[expect(dead_code, reason = "the worktree service's reads")]
 pub(crate) async fn read_tree_git_folder(
     git: &GitRunner,
     place: Option<&Place>,
@@ -612,7 +629,7 @@ pub(crate) async fn read_tree_git_folder(
 
 /// The git common folder that holds `record_folder`, a linked tree's `<common>/worktrees/<name>`;
 /// `None` for a path too short to be one.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) fn common_folder_of_record(record_folder: &Path) -> Option<&Path> {
     record_folder.parent().and_then(Path::parent)
 }
@@ -624,7 +641,7 @@ pub(crate) fn common_folder_of_record(record_folder: &Path) -> Option<&Path> {
 /// checkout's own `.git`), so a caller removing the record can never reach anything else. Fails
 /// with git's failure, a `Read` failure when git prints other than three folders, or the
 /// resolve's failure when a folder cannot be compared.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_linked_tree_record(
     git: &GitRunner,
     place: Option<&Place>,

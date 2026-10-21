@@ -1,6 +1,7 @@
 //! A child that leads a process tree of its own, so an end past its time limit reaches everything
 //! it started, a hook's processes among them, while its wait and its output read end at its own
-//! exit, whatever a process it left behind still holds.
+//! exit, whatever a process it left behind still holds. Its exit can be waited for without reaping
+//! it, so an end after the exit lands while the exited child still holds its group's id.
 
 use std::error::Error;
 use std::io;
@@ -19,6 +20,7 @@ use crate::posix::child_tree::{
 use crate::windows::child_tree::{
     end_child_tree_now, read_output_left_at_exit, spawn_child_tree_process,
 };
+use crate::{PinnedProcess, pin_child_process};
 
 /// The most one read of a child's output takes.
 pub(crate) const OUTPUT_READ_CHUNK: usize = 64 * 1024;
@@ -29,6 +31,8 @@ pub(crate) const OUTPUT_READ_CHUNK: usize = 64 * 1024;
 pub struct ChildTree {
     // Held until the drop, which on macOS and Linux hands it to the end of its tree.
     process: Option<Box<dyn ChildWrapper>>,
+    // The child pinned on the first wait for its exit, which reads the exit without reaping it.
+    pinned: Option<PinnedProcess>,
     is_reaped: bool,
 }
 
@@ -65,6 +69,7 @@ pub enum ChildTreeOutputError {
 pub fn start_child_tree(command: Command, daemon_pid: u32) -> io::Result<ChildTree> {
     Ok(ChildTree {
         process: Some(spawn_child_tree_process(command, daemon_pid)?),
+        pinned: None,
         is_reaped: false,
     })
 }
@@ -74,8 +79,10 @@ impl ChildTree {
     /// its standard output and error, each up to `bound` bytes; and waits for the child alone. The
     /// reads end at the child's exit with what it wrote, so a process it left holding a stream
     /// stretches nothing. An input the child exits without reading is no failure: the exit tells
-    /// it. Fails with `TooLarge` when a stream passes `bound`, else with the write's, a read's or
-    /// the wait's error; the tree is left running either way.
+    /// it. The child is reaped only once its output is read, so on a failure an exited child still
+    /// holds its group's id for the caller's [`end_tree`](Self::end_tree). Fails with `TooLarge`
+    /// when a stream passes `bound`, else with the write's, a read's or the wait's error; the tree
+    /// is left running either way.
     pub async fn wait_with_output(
         &mut self,
         input: Option<Vec<u8>>,
@@ -87,7 +94,7 @@ impl ChildTree {
         let mut stderr = process.stderr().take();
         let mut stdout_bytes = Vec::new();
         let mut stderr_bytes = Vec::new();
-        let (status, is_output_read_to_end) = {
+        let is_output_read_to_end = {
             let output = async {
                 let (written, read) = tokio::join!(write_input(stdin, input), async {
                     tokio::try_join!(
@@ -98,24 +105,27 @@ impl ChildTree {
                 written.map_err(ChildTreeOutputError::Io)?;
                 read.map(|((), ())| ())
             };
-            let waiting = self.process().inner_mut().wait();
-            tokio::pin!(output, waiting);
+            let exited = self.wait_for_exit();
+            tokio::pin!(output, exited);
             tokio::select! {
                 biased;
                 read = &mut output => {
                     read?;
-                    (waiting.await.map_err(ChildTreeOutputError::Io)?, true)
+                    true
                 }
-                status = &mut waiting => (status.map_err(ChildTreeOutputError::Io)?, false),
+                exited = &mut exited => {
+                    exited.map_err(ChildTreeOutputError::Io)?;
+                    false
+                }
             }
         };
-        self.is_reaped = true;
         // What the child wrote before its exit is in the pipes now; read it without waiting for
         // an end of file a process it left behind can hold off.
         if !is_output_read_to_end {
             read_left_at_exit(stdout.as_mut(), &mut stdout_bytes, bound).await?;
             read_left_at_exit(stderr.as_mut(), &mut stderr_bytes, bound).await?;
         }
+        let status = self.wait().await.map_err(ChildTreeOutputError::Io)?;
         Ok(ChildTreeOutput {
             status,
             stdout: stdout_bytes,
@@ -150,16 +160,50 @@ impl ChildTree {
     }
 
     /// Waits for the child alone to exit and reaps it, so the drop no longer ends its tree; a
-    /// process it left behind runs on. Dropped before the exit, the wait leaves the tree to the
-    /// drop. Fails with the wait's error.
+    /// process it left behind runs on. A child already reaped, by an end among others, answers its
+    /// exit at once. Dropped before the exit, the wait leaves the tree to the drop. Fails with the
+    /// wait's error.
     pub async fn wait(&mut self) -> io::Result<ExitStatus> {
         let status = self.process().inner_mut().wait().await?;
         self.is_reaped = true;
         Ok(status)
     }
 
+    /// Waits for the child alone to exit without reaping it, so an exited child keeps holding its
+    /// group's id until [`end_tree`](Self::end_tree) has ended what it left behind; no thread
+    /// waits. A child already exited, or already reaped, answers at once. Must be called within
+    /// the runtime. Fails with the system's error from the child's pin or its wait.
+    pub async fn wait_for_exit(&mut self) -> io::Result<()> {
+        if self.is_reaped {
+            return Ok(());
+        }
+        if self.pinned.is_none() {
+            // Only a reaped child has no id, and an unreaped child's id is no other process's.
+            let Some(id) = self.process().id() else {
+                return Ok(());
+            };
+            match pin_child_process(id) {
+                Ok(pinned) => self.pinned = Some(pinned),
+                // macOS pins only a running process, so an exited child is not found.
+                #[cfg(unix)]
+                Err(error) if error.raw_os_error() == Some(nix::errno::Errno::ESRCH as i32) => {
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        self.pinned
+            .as_ref()
+            .expect("the child was pinned above")
+            .wait_for_end()
+            .await
+    }
+
     /// Ends the child's whole tree, every process it started that is still in its group or job,
-    /// and reaps the child. Fails with the system's error from the end or the wait.
+    /// and reaps the child. Called after [`wait_for_exit`](Self::wait_for_exit), it ends what the
+    /// exited child left behind while the child still holds its group's id, so no other group
+    /// that took the id is reached; a child already reaped has nothing ended on macOS and Linux.
+    /// Fails with the system's error from the end or the wait.
     pub async fn end_tree(&mut self) -> io::Result<()> {
         #[cfg(unix)]
         end_child_tree(self.process()).await?;

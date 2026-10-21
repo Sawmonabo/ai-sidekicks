@@ -10,7 +10,8 @@ use sidekicks_platforms::WATCHES_TREES;
 use tokio::time::timeout;
 
 use super::{
-    FileWatch, FileWatchNotice, WalkFilter, lowered_for_clock_step, wait_for_the_next_whole_second,
+    FileWatch, FileWatchNotice, WalkFilter, WatchedRoot, lowered_for_clock_step,
+    wait_for_the_next_whole_second,
 };
 
 const WAIT: Duration = Duration::from_secs(15);
@@ -49,8 +50,12 @@ impl Watcher for CeilingWatcher {
     }
 }
 
-fn keeps_everything() -> WalkFilter {
-    WalkFilter::new(|_| true)
+// `path` watched whole.
+fn watched_whole(path: &Path) -> WatchedRoot {
+    WatchedRoot {
+        path: path.to_path_buf(),
+        filter: WalkFilter::new(|_| true),
+    }
 }
 
 // The next change the watch tells, skipping none.
@@ -74,13 +79,10 @@ fn age_by_an_hour(path: &Path) {
 #[tokio::test]
 async fn a_root_on_a_network_file_system_is_polled() {
     let scratch = tempfile::tempdir().expect("a scratch folder");
-    let (mut watch, _feed) = FileWatch::<NullWatcher>::start_checking(
-        vec![scratch.path().to_path_buf()],
-        keeps_everything(),
-        |_| Ok(true),
-    )
-    .await
-    .expect("the watch starts");
+    let (mut watch, _feed) =
+        FileWatch::<NullWatcher>::start_checking(vec![watched_whole(scratch.path())], |_| Ok(true))
+            .await
+            .expect("the watch starts");
     let written = watch.roots()[0].join("from-another-computer.txt");
     fs::write(&written, "written").expect("a file is written");
 
@@ -108,12 +110,12 @@ async fn roots_refused_at_the_ceiling_are_watched_and_walked_on_the_retry() {
     // The retry counts whole seconds, so each unchanged file's last change is left a second
     // behind the refusal.
     wait_for_the_next_whole_second().await;
-    let (mut watch, _feed) =
-        FileWatch::<CeilingWatcher>::start_checking(roots.to_vec(), keeps_everything(), |_| {
-            Ok(false)
-        })
-        .await
-        .expect("the watch starts though its roots are refused");
+    let (mut watch, _feed) = FileWatch::<CeilingWatcher>::start_checking(
+        roots.iter().map(|root| watched_whole(root)).collect(),
+        |_| Ok(false),
+    )
+    .await
+    .expect("the watch starts though its roots are refused");
     let written: BTreeSet<PathBuf> = watch
         .roots()
         .iter()
