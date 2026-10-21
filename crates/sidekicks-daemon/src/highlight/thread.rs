@@ -502,11 +502,8 @@ mod tests {
 
     fn fixture_source(language: HighlightLanguage) -> String {
         let mut fixtures: HashMap<HighlightLanguage, Fixture> =
-            serde_json::from_str(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/fixtures/highlight/classes.json"
-            )))
-            .expect("the fixture parses");
+            serde_json::from_str(include_str!("../../tests/fixtures/highlight/classes.json"))
+                .expect("the fixture parses");
         fixtures
             .remove(&language)
             .expect("every language has a fixture")

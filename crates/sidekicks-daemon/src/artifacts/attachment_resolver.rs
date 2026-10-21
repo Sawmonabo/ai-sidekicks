@@ -163,9 +163,9 @@ mod tests {
         vec![
             WriteStatement {
                 sql: Cow::Borrowed(
-                    "INSERT INTO artifact_manifests (id, session_id, artifact_type, state,
+                    "INSERT INTO artifact_manifests (id, session_id, artifact_type,
                        content_hash, size_bytes, metadata, created_at)
-                     VALUES (@id, @sessionId, 'file', 'published', @hash, 5,
+                     VALUES (@id, @sessionId, 'file', @hash, 5,
                        '{\"fileName\":\"notes.txt\"}', '2026-10-18T09:00:00.000Z')",
                 ),
                 bindings: StatementBindings::Named(vec![

@@ -229,12 +229,15 @@ pub(crate) enum WithdrawQueuedMessageResult {
     AlreadyDelivered {},
 }
 
-/// Params of `override_denial`: `Allow once` on a block by the provider's own reviewer. The denial
-/// is the provider's own record of the block, as the daemon kept it, relayed back unchanged.
+/// Params of `override_denial`: `Allow once` on a block by the provider's own reviewer, addressed
+/// to the run the block was made in, which may have ended. The denial is the provider's own record
+/// of the block, as the daemon kept it, relayed back unchanged.
 #[derive(Debug)]
 pub(crate) struct OverrideDenialParams {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The run the block was made in.
+    pub(crate) run_id: RunId,
     /// The provider's own record of the block.
     pub(crate) provider_denial: Box<RawValue>,
 }

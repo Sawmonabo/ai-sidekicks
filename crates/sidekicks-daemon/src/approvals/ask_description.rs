@@ -133,7 +133,7 @@ pub(crate) fn derive_rule_subject(
         ProviderAskAction::FileRead { path } => Some(path.clone()),
         ProviderAskAction::Network { host } => Some(host.clone()),
         ProviderAskAction::Tool { tool_name } => Some(tool_name.clone()),
-        ProviderAskAction::CommandInput { .. } | ProviderAskAction::Plan {} => None,
+        ProviderAskAction::CommandInput { .. } => None,
     }
 }
 
@@ -186,7 +186,6 @@ fn category_of(
     action: &ProviderAskAction,
 ) -> ApprovalCategory {
     match action {
-        ProviderAskAction::Plan {} => ApprovalCategory::PlanApproval,
         // What a line not read whole still shows of a destructive git command counts.
         ProviderAskAction::Command { .. } => {
             if reading.is_some_and(|reading| runs_destructive_git(reader, reading)) {
@@ -204,7 +203,7 @@ fn category_of(
 }
 
 // The target the card names in a line: the command or input whole, the files one per line, the
-// host or the tool; a plan has none of its own.
+// host or the tool.
 fn target_text_of(action: &ProviderAskAction) -> Cow<'_, str> {
     match action {
         ProviderAskAction::Command { command } => Cow::Borrowed(command),
@@ -213,7 +212,6 @@ fn target_text_of(action: &ProviderAskAction) -> Cow<'_, str> {
         ProviderAskAction::FileRead { path } => Cow::Borrowed(path),
         ProviderAskAction::Network { host } => Cow::Borrowed(host),
         ProviderAskAction::Tool { tool_name } => Cow::Borrowed(tool_name),
-        ProviderAskAction::Plan {} => Cow::Borrowed(""),
     }
 }
 
@@ -222,8 +220,7 @@ fn is_editable(action: &ProviderAskAction) -> bool {
     match action {
         ProviderAskAction::Command { .. } | ProviderAskAction::FileRead { .. } => true,
         ProviderAskAction::FileChange { paths } => paths.len() == 1,
-        ProviderAskAction::Plan {}
-        | ProviderAskAction::CommandInput { .. }
+        ProviderAskAction::CommandInput { .. }
         | ProviderAskAction::Network { .. }
         | ProviderAskAction::Tool { .. } => false,
     }

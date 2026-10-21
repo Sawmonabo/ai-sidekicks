@@ -165,6 +165,30 @@ pub(crate) enum InboundDelivery<'key> {
     },
 }
 
+impl InboundDelivery<'_> {
+    /// The delivery's kind as a diagnostic names it.
+    #[expect(
+        dead_code,
+        reason = "the delivery dispatch names a refused delivery's kind in its diagnostic"
+    )]
+    pub(crate) fn kind_name(&self) -> &'static str {
+        match self {
+            Self::TurnBoundary { .. } => "turnBoundary",
+            Self::RunLifecycle { .. } => "runLifecycle",
+            Self::RunContinued { .. } => "runContinued",
+            Self::ChildRun { .. } => "childRun",
+            Self::RunMarker { .. } => "runMarker",
+            Self::LiveRunState { .. } => "liveRunState",
+            Self::ThinkingUpdate { .. } => "thinkingUpdate",
+            Self::SessionNotice { .. } => "sessionNotice",
+            Self::SessionEvent { .. } => "sessionEvent",
+            Self::PermissionAsk { .. } => "permissionAsk",
+            Self::SessionRow { .. } => "sessionRow",
+            Self::UnstampedRow { .. } => "unstampedRow",
+        }
+    }
+}
+
 /// Why a delivery was absorbed: it came from before an undo's cut, its run had already ended, or
 /// it reported a pause or a turn under way that a resume had already moved past.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

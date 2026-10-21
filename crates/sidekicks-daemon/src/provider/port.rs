@@ -2,7 +2,9 @@
 //! drivers to call once they are built, and those a driver answers for the rest of the daemon.
 
 pub(crate) mod command_output_publisher;
+pub(crate) mod file_tool_write;
 pub(crate) mod permission_ask;
+pub(crate) mod plan;
 pub(crate) mod question;
 pub(crate) mod registration;
 pub(crate) mod reviewer_denial;

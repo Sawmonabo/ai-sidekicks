@@ -29,7 +29,7 @@ use crate::uuid_v7::mint_uuid_v7;
 
 fn service(store: &ArtifactTestStore) -> Arc<ArtifactIngestService> {
     Arc::new(ArtifactIngestService::new(
-        Arc::clone(&store.writer),
+        Arc::clone(&store.appender),
         Arc::clone(&store.reads),
         Arc::clone(&store.payloads),
         Arc::clone(&store.admission),
@@ -206,9 +206,9 @@ async fn a_resent_chunk_racing_its_original_is_written_once() {
     );
 }
 
-/// A completion below its declaration records what was sent, and a resent completion answers the
-/// saved result without writing again; a saved result that no longer names its digest ends the
-/// stream, and past the count held the oldest completion is let go.
+/// A completion below its declaration records what was sent with one `artifact.published`, and a
+/// resent completion answers the saved result without writing again; a saved result that no longer
+/// names its digest ends the stream, and past the count held the oldest completion is let go.
 #[tokio::test]
 async fn a_resent_completion_answers_the_saved_result_while_held() {
     let store = ArtifactTestStore::open().await;
@@ -229,6 +229,7 @@ async fn a_resent_completion_answers_the_saved_result_while_held() {
     assert_eq!(completed.derived_media_type.as_str(), "text/plain");
     assert_eq!(resent, completed);
     assert_eq!(store.count_rows("artifact_manifests"), 1);
+    assert_eq!(store.count_events("artifact.published"), 1);
     assert_eq!(store.spooled_file_count(), 0);
 
     if let Some(IngestStream::Completed(stream)) =

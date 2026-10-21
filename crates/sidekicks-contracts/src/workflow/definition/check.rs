@@ -1,5 +1,6 @@
 //! The workflow checks as WebAssembly exports for the builder, which runs them in the page while a
-//! connection is dragged and before a save, so it refuses what the daemon's check at save refuses.
+//! connection is dragged and before a save. The daemon's save runs the same graph check; the
+//! parameter check joins the save once the save's kind lookup gives each kind's parameter list.
 //! Each takes its arguments as one JSON text, each node's handles among them as data, and answers
 //! JSON text; a text that does not read throws.
 
@@ -31,14 +32,15 @@ struct GraphCheckInput {
     node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
 }
 
-/// The connection check's arguments: the document's trigger and other nodes, each node's handles,
-/// and the one connection being drawn.
+/// The connection check's arguments: the document's trigger, its other nodes and edges, each
+/// node's handles, and the one connection being drawn.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ConnectionCheckInput {
     #[serde(default, deserialize_with = "crate::wire::present")]
     trigger: Option<WorkflowTriggerNode>,
     nodes: Vec<WorkflowNode>,
+    edges: Vec<WorkflowEdge>,
     edge: WorkflowEdge,
     node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
 }
@@ -66,9 +68,10 @@ pub fn check_workflow_graph_json(input: &str) -> Result<String, JsError> {
     Ok(serde_json::to_string(&findings)?)
 }
 
-/// Runs the connection check over `{trigger?, nodes, edge, nodeHandles}` and answers the
-/// connection's findings as a JSON array, empty when it is accepted; throws when the input does
-/// not read.
+/// Runs the connection check over `{trigger?, nodes, edges, edge, nodeHandles}` and answers the
+/// findings the connection adds to the document as a JSON array, empty when it is accepted; throws
+/// when the input does not read. `edge` carries the id the page will store it under; on a
+/// reconnect, `edges` are the document's edges without the edge being moved.
 #[wasm_bindgen(js_name = checkWorkflowConnection)]
 pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
     let input: ConnectionCheckInput = serde_json::from_str(input)?;
@@ -76,6 +79,7 @@ pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
     let findings = check_workflow_connection(
         trigger.as_ref(),
         &input.nodes,
+        &input.edges,
         &input.edge,
         &input.node_handles,
     );
@@ -116,6 +120,11 @@ mod tests {
                     "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
                     "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
                 },
+                "b": {
+                    "category": "agent",
+                    "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+                    "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                },
             },
         })
     }
@@ -145,7 +154,7 @@ mod tests {
     )]
     #[case::the_connection_check(
         check_workflow_connection_json,
-        with(graph_input(), "edge", edge("a", "t")),
+        with(with(graph_input(), "edges", json!([])), "edge", edge("a", "t")),
         json!([{ "rule": "edgeIntoTrigger", "nodeIds": ["a", "t"] }]),
     )]
     #[case::the_node_params_check(

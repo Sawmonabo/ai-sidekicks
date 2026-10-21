@@ -1,6 +1,6 @@
 //! The zero-turn read of which capability flags a provider's build carries, shared by every driver:
 //! each driver hands over its own rules and exchange, and the read only ever withdraws a flag the
-//! driver declares.
+//! driver declares. The capability reading every driver answers is composed here from it.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -8,15 +8,23 @@ use std::path::PathBuf;
 
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
+use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use strum::VariantArray;
 
-use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
-use crate::provider::driver::contract::CapabilityDetectionSource;
+use crate::provider::driver::ProviderDescriptor;
+use crate::provider::driver::capabilities::{
+    DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
+};
+use crate::provider::driver::contract::{
+    CapabilityDetectionSource, DriverError, GetCapabilitiesResult,
+};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::provider::driver::is_same_text;
+use crate::provider::spawned_version::SpawnedProviderVersionReading;
 
 /// One condition a probe must meet to decide a flag; a flag read from the driver's own table names
 /// each one no probe of it meets.
@@ -283,6 +291,51 @@ pub(crate) async fn read_capability_detection(
         bound_executable_path,
         detection_source,
         withdrawals,
+    })
+}
+
+/// Reads the capabilities of the build `version` describes for the provider `descriptor` names:
+/// probes that same build through `exchange` under `rules`, reports each flag the probe withdrew,
+/// and composes `declared` narrowed by the probe, `contract_version`, `tools`, the version the
+/// build printed and the descriptor's output-speed levels where the output-speed flag resolved on.
+/// Fails with [`DriverError::CapabilityProbe`] when the probe read fails.
+#[expect(
+    dead_code,
+    reason = "each driver's capability read answers through it on attach and each refresh"
+)]
+pub(crate) async fn read_provider_capabilities(
+    descriptor: &ProviderDescriptor,
+    rules: &CapabilityProbeRules,
+    declared: &DriverCapabilityFlags,
+    contract_version: &'static str,
+    tools: Vec<ProviderToolMetadata>,
+    version: &SpawnedProviderVersionReading,
+    exchange: &mut impl CapabilityProbeExchange,
+) -> Result<GetCapabilitiesResult, DriverError> {
+    // Bound to the version reading's own path, so the flags describe the build whose version is
+    // reported.
+    let detection = read_capability_detection(
+        descriptor.provider_id(),
+        rules,
+        version.resolved_executable_path.clone(),
+        exchange,
+    )
+    .await
+    .map_err(DriverError::CapabilityProbe)?;
+    detection.report_withdrawals();
+    let flags = detection.apply_to(declared);
+    let output_speed_levels =
+        descriptor.static_output_speed_levels(flags.is_on(DriverCapabilityFlag::OutputSpeed));
+    Ok(GetCapabilitiesResult {
+        capabilities: DriverCapabilities {
+            flags,
+            contract_version: FreeFormText::new(contract_version.to_owned())
+                .expect("a driver's contract version is non-blank and within its cap"),
+        },
+        tools,
+        cli_version: version.report.clone(),
+        detection_source: Some(detection.detection_source),
+        output_speed_levels,
     })
 }
 

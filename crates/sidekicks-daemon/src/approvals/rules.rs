@@ -765,8 +765,7 @@ fn provider_rule_of(row: &RuleRow) -> ProviderAskRule {
 fn command_line_of(action: &ProviderAskAction) -> Option<&str> {
     match action {
         ProviderAskAction::Command { command } => Some(command),
-        ProviderAskAction::Plan {}
-        | ProviderAskAction::CommandInput { .. }
+        ProviderAskAction::CommandInput { .. }
         | ProviderAskAction::FileChange { .. }
         | ProviderAskAction::FileRead { .. }
         | ProviderAskAction::Network { .. }

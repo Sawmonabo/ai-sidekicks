@@ -17,6 +17,7 @@ use crate::interventions::unresolved::{
     UnresolvedSettle, UnresolvedSettleMoment, read_ended_runs_with_unresolved,
     read_unresolved_interventions, settle_unresolved,
 };
+use crate::questions::run_end::settle_held_requests_at_run_end;
 use crate::session::run::engine::turns::TurnEnd;
 use crate::session::run::engine::{RunEngine, RunEngineError, refused_statement_index, settled};
 use crate::session::run::read::RunRead;
@@ -83,6 +84,7 @@ impl RunEngine {
             let mut with_settle = companions.clone();
             with_settle.statements.extend(statements);
             with_settle.preceding_events.extend(events);
+            settle_held_requests_at_run_end(&self.pool, &change, &mut with_settle).await?;
             match self.changes.write(change.clone(), with_settle).await {
                 Ok(run) => return Ok((run, released_choices)),
                 // A row the settle read moved since, by its own dispatch's outcome.

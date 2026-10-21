@@ -51,7 +51,7 @@ CREATE TABLE session_events (
   type                   TEXT NOT NULL,              -- specific event type within category
   actor                  TEXT,                       -- the payload's own actor: the device a connection sent the event from, the agent_id, or 'daemon' on an intervention the daemon made itself; NULL when the payload names none
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  content_payload        BLOB,                       -- Agent- and tool-generated prose (Spec-005 §Agent Output + §Tool Activity): the agent message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer.denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, eventMaintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
+  content_payload        BLOB,                       -- Agent- and tool-generated prose (Spec-005 §Agent Output + §Tool Activity): the agent message body, the reasoning-update body, tool-call arguments / result / error bodies. Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, eventMaintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
@@ -492,8 +492,6 @@ CREATE TABLE artifact_manifests (
   artifact_type      TEXT NOT NULL
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design',
                                              'workflowOutput')),
-  state              TEXT NOT NULL DEFAULT 'pending'
-                     CHECK(state IN ('pending', 'published', 'superseded')),
   content_hash       TEXT NOT NULL,                -- the payload's SHA-256, 'sha256:<hex>'
   size_bytes         INTEGER NOT NULL,             -- the payload's length, measured by the daemon
   metadata           TEXT NOT NULL DEFAULT '{}',   -- JSON: the file name and the media type
@@ -651,6 +649,37 @@ CREATE TABLE plans (
 
 CREATE INDEX idx_plans_session ON plans(session_id);
 CREATE INDEX idx_plans_fresh_session ON plans(fresh_session_id) WHERE fresh_session_id IS NOT NULL;
+-- A run's end reads the plans it still holds.
+CREATE INDEX idx_plans_waiting_run ON plans(run_id) WHERE state = 'waiting';
+
+-- Owner: Plan-010
+-- The question record, rebuilt from question.asked, question.canceled, the user.message.sent that
+-- answers it and the admission of a queued answer. Its pages stay in its question.asked event,
+-- read from there when an answer is checked; a secret answer is stored nowhere.
+CREATE TABLE questions (
+  id                TEXT PRIMARY KEY,  -- QuestionId
+  session_id        TEXT NOT NULL,
+  run_id            TEXT,              -- the run that holds it, or
+  wait_id           TEXT,              -- the workflow wait that holds it
+  is_agent_waiting  INTEGER NOT NULL CHECK(is_agent_waiting IN (0, 1)), -- 0: a queued message answers it
+  state             TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('open', 'answered', 'canceled')),
+  CHECK((run_id IS NULL) <> (wait_id IS NULL))
+) STRICT;
+
+CREATE INDEX idx_questions_session ON questions(session_id);
+CREATE INDEX idx_questions_open_run ON questions(run_id) WHERE state = 'open';
+
+-- Owner: Plan-010
+-- Each queued message answering a question its agent does not wait for: inserted by the
+-- user.message.sent naming it, deleted when the item is canceled or superseded; the item's
+-- agent.queueItem.admitted answers the question and deletes every pairing of it, so of two
+-- devices answering at once the first admitted wins.
+CREATE TABLE question_answer_items (
+  queue_item_id  TEXT PRIMARY KEY,
+  question_id    TEXT NOT NULL REFERENCES questions(id)
+) STRICT;
+
+CREATE INDEX idx_question_answer_items_question ON question_answer_items(question_id);
 ```
 
 The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.rule.remembered` and `approval.rule.revoked` events, which the inspector's `Rules` reads beside the providers' own rules.

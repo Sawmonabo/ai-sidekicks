@@ -12,7 +12,6 @@ use sidekicks_contracts::event::usage::{
     AgentRunContextCompactedPayload, AgentTurnReroutedPayload, UsageApiRequestRetriedPayload,
     UsageContextWindowUpdatedPayload, UsageCostUpdatedPayload, UsageTokenCountRecordedPayload,
 };
-use sidekicks_contracts::plan::PlanProposedPayload;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
@@ -104,10 +103,10 @@ late_appendable_rows! {
 // and the conversion that makes its event.
 macro_rules! unstamped_rows {
     ($($(#[$doc:meta])* $variant:ident($payload:ty),)+) => {
-        /// A provider row on a run that takes no stamp, because it asks the person something (a
-        /// plan awaiting its verdict among them), records how the provider or its driver settled
-        /// a choice without the person, or flags the run: from before a cut it is absorbed,
-        /// otherwise appended as it is. A settlement's run move is its own delivery.
+        /// A provider row on a run that takes no stamp, because it asks the person something,
+        /// records how the provider or its driver settled a choice without the person, or flags
+        /// the run: from before a cut it is absorbed, otherwise appended as it is. A settlement's
+        /// run move is its own delivery.
         #[derive(Debug)]
         #[expect(dead_code, reason = "the provider's event delivery builds each row it hands over")]
         pub(crate) enum UnstampedRow {
@@ -135,8 +134,6 @@ macro_rules! unstamped_rows {
 }
 
 unstamped_rows! {
-    /// `plan.proposed`.
-    PlanProposed(PlanProposedPayload),
     /// `approval.reviewer.flagged`.
     ApprovalReviewerFlagged(ApprovalReviewerFlaggedPayload),
     /// `agent.run.refusalChoice.requested`.

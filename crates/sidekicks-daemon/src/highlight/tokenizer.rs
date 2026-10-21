@@ -43,20 +43,13 @@ const LINE_TIME_LIMIT: Duration = Duration::from_millis(LINE_TIME_LIMIT_MILLIS);
 
 /// The scope names of the grammars that build a scope name from the text they match, themselves or
 /// through a grammar they include, as the daemon's JavaScript build worked them out.
-const SCOPES_NAMED_FROM_TEXT: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/js/dist/grammars/scopes-named-from-text.json"
-));
+const SCOPES_NAMED_FROM_TEXT: &str =
+    include_str!("../../js/dist/grammars/scopes-named-from-text.json");
 
 /// One grammar file of the daemon's JavaScript build, by the grammar's name.
 macro_rules! grammar_file {
     ($name:literal) => {
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/js/dist/grammars/",
-            $name,
-            ".json"
-        ))
+        include_str!(concat!("../../js/dist/grammars/", $name, ".json"))
     };
 }
 
@@ -444,11 +437,8 @@ mod tests {
 
     fn fixture(language: HighlightLanguage) -> Fixture {
         let mut fixtures: HashMap<HighlightLanguage, Fixture> =
-            serde_json::from_str(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/fixtures/highlight/classes.json"
-            )))
-            .expect("the fixture parses");
+            serde_json::from_str(include_str!("../../tests/fixtures/highlight/classes.json"))
+                .expect("the fixture parses");
         fixtures
             .remove(&language)
             .expect("every language has a fixture")

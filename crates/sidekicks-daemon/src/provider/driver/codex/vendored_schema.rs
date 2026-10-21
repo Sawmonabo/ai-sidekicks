@@ -3,17 +3,16 @@
 
 use serde_json::Value;
 
+/// The vendored release bundle, compressed, embedded so the test binary carries no checkout path.
+const BUNDLE: &[u8] = include_bytes!(
+    "../../../../vendor/codex-app-server-protocol/app-server-exports-experimental.json.zst"
+);
+
 /// The schema file `name` of the vendored bundle, parsed; the bundle carries each file as text.
 pub(super) fn vendored_schema_file(name: &str) -> Value {
-    let compressed = std::fs::read(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/vendor/codex-app-server-protocol/app-server-exports-experimental.json.zst"
-    ))
-    .expect("the vendored schema bundle is in the crate");
-    let exports: Value = serde_json::from_slice(
-        &zstd::decode_all(compressed.as_slice()).expect("the bundle decompresses"),
-    )
-    .expect("the bundle is JSON");
+    let exports: Value =
+        serde_json::from_slice(&zstd::decode_all(BUNDLE).expect("the bundle decompresses"))
+            .expect("the bundle is JSON");
     serde_json::from_str(
         exports["json_schema"][name]
             .as_str()

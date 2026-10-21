@@ -462,24 +462,33 @@ mod tests {
 
     use super::{InterruptInterventionRecord, RunLimit};
 
+    /// What reading a stored interrupt record gives: the limit it names, a record with no limit,
+    /// or a refusal.
+    #[derive(Debug, PartialEq)]
+    enum RecordRead {
+        Limit(RunLimit),
+        NoLimit,
+        Refused,
+    }
+
     // Dropping the person arms' `limit: Never` reads the mixed row as a person's interrupt,
     // reading `reason` as a limit makes the person's text settle as one, and a limit record that
     // refuses the turn its stop cut leaves every stored limit row unreadable.
     #[rstest]
-    #[case(json!({"limit": "stepLimit"}), Some(Some(RunLimit::StepLimit)))]
-    #[case(json!({"limit": "spendLimit", "turnNumber": 2}), Some(Some(RunLimit::SpendLimit)))]
-    #[case(json!({"limit": "tokenLimit"}), Some(Some(RunLimit::TokenLimit)))]
-    #[case(json!({"pending": "nextTurn", "reason": "stepLimit"}), Some(None))]
-    #[case(json!({"pending": "returnToDraft"}), Some(None))]
-    #[case(json!({"pending": "nextTurn", "limit": "stepLimit"}), None)]
-    #[case(json!({"limit": "budget"}), None)]
-    fn only_the_daemons_record_reads_a_limit(
-        #[case] payload: Value,
-        #[case] expected: Option<Option<RunLimit>>,
-    ) {
-        let read = serde_json::from_value::<InterruptInterventionRecord>(payload)
-            .ok()
-            .map(|record| record.limit());
+    #[case(json!({"limit": "stepLimit"}), RecordRead::Limit(RunLimit::StepLimit))]
+    #[case(json!({"limit": "spendLimit", "turnNumber": 2}), RecordRead::Limit(RunLimit::SpendLimit))]
+    #[case(json!({"limit": "tokenLimit"}), RecordRead::Limit(RunLimit::TokenLimit))]
+    #[case(json!({"pending": "nextTurn", "reason": "stepLimit"}), RecordRead::NoLimit)]
+    #[case(json!({"pending": "returnToDraft"}), RecordRead::NoLimit)]
+    #[case(json!({"pending": "nextTurn", "limit": "stepLimit"}), RecordRead::Refused)]
+    #[case(json!({"limit": "budget"}), RecordRead::Refused)]
+    fn only_the_daemons_record_reads_a_limit(#[case] payload: Value, #[case] expected: RecordRead) {
+        let read = match serde_json::from_value::<InterruptInterventionRecord>(payload) {
+            Ok(record) => record
+                .limit()
+                .map_or(RecordRead::NoLimit, RecordRead::Limit),
+            Err(_) => RecordRead::Refused,
+        };
         assert_eq!(read, expected);
     }
 }
