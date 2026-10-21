@@ -2,11 +2,13 @@
 //! the width and height the header declares, swapped when its EXIF orientation turns it a quarter,
 //! so the size is the one it is drawn at.
 //!
-//! Every format is read from the file's first [`PICTURE_METADATA_MAX_BYTES`] bytes, held in
-//! memory, so no header or metadata past them is read. On top of that, each reader's own limit:
+//! Every format but WebP is read from the file's first [`PICTURE_METADATA_MAX_BYTES`] bytes, held
+//! in memory, so no header or metadata past them is read. WebP keeps its EXIF and XMP chunks after
+//! its image data, so its chunk scan seeks through the whole file reading only chunk headers, and
+//! what it holds is bound by its memory limit instead. On top of that, each reader's own limit:
 //!
 //! - PNG (animated too) is read through `png`, its text and color-profile chunks skipped.
-//! - GIF is read through `gif`, its XMP and color profile held to the bound by its memory limit.
+//! - GIF is read through `gif`, whose header read ends at the first frame.
 //! - WebP is read through `image-webp`, its EXIF chunk held to the bound by its memory limit, so a
 //!   chunk that declares more is never allocated.
 //! - JPEG is read through `zune-jpeg`, which stops at the start of the scan. Its default caps
@@ -19,12 +21,10 @@
 //! size: the type was read from their leading bytes, and nothing is refused for its type.
 
 use std::fs::File;
-use std::io::{self, Cursor, Read as _};
-use std::num::NonZeroU64;
+use std::io::{self, BufReader, Cursor, Read as _};
 use std::path::Path;
 
 use file_format::FileFormat;
-use gif::MemoryLimit;
 use image::metadata::Orientation;
 use image_webp::WebPDecoder;
 use sidekicks_contracts::artifacts::operations::ArtifactPictureSize;
@@ -32,9 +32,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use zune_jpeg::JpegDecoder;
 use zune_jpeg::zune_core::options::DecoderOptions;
 
-/// The bytes of a file a size read may touch: every format's header and metadata are read from
-/// this many leading bytes, and GIF's and WebP's memory limits are set to it; a header that lies
-/// past it stores no size.
+/// The bound on a size read: every format but WebP reads its header and metadata from this many
+/// leading bytes, and WebP's memory limit is set to it; a header that lies past it stores no size.
+/// A read holds at most the prefix and two copies of one metadata chunk at once (PNG's chunk buffer
+/// and its EXIF clone), about three times this many bytes.
 const PICTURE_METADATA_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 /// A picture format whose header the size read takes.
@@ -73,23 +74,27 @@ impl PictureFormat {
 }
 
 /// The size of the `format` picture stored at `path`, or `None` when its header cannot be read
-/// within [`PICTURE_METADATA_MAX_BYTES`]. Blocks while it reads the file's leading bytes; fails
-/// only when the file cannot be opened or read.
+/// within [`PICTURE_METADATA_MAX_BYTES`]. Blocks while it reads the file; fails only when the file
+/// cannot be opened or read.
 pub(crate) fn read_picture_size(
     path: &Path,
     format: PictureFormat,
 ) -> io::Result<Option<ArtifactPictureSize>> {
-    let mut prefix = Vec::new();
-    File::open(path)?
-        .take(u64::try_from(PICTURE_METADATA_MAX_BYTES).expect("a few MiB fits a u64"))
-        .read_to_end(&mut prefix)?;
-    let prefix = Cursor::new(prefix);
+    let file = File::open(path)?;
     Ok(match format {
-        PictureFormat::Png => read_png_size(prefix),
-        PictureFormat::Gif => read_gif_size(prefix),
-        PictureFormat::Webp => read_webp_size(prefix),
-        PictureFormat::Jpeg => read_jpeg_size(prefix),
+        PictureFormat::Png => read_png_size(read_prefix(file)?),
+        PictureFormat::Gif => read_gif_size(read_prefix(file)?),
+        PictureFormat::Webp => read_webp_size(BufReader::new(file)),
+        PictureFormat::Jpeg => read_jpeg_size(read_prefix(file)?),
     })
+}
+
+// The file's first [`PICTURE_METADATA_MAX_BYTES`] bytes, held in memory.
+fn read_prefix(file: File) -> io::Result<Cursor<Vec<u8>>> {
+    let mut prefix = Vec::new();
+    file.take(u64::try_from(PICTURE_METADATA_MAX_BYTES).expect("a few MiB fits a u64"))
+        .read_to_end(&mut prefix)?;
+    Ok(Cursor::new(prefix))
 }
 
 // A PNG's size from its header, oriented by its EXIF chunk when it has one. The text and
@@ -113,12 +118,7 @@ fn read_png_size(prefix: Cursor<Vec<u8>>) -> Option<ArtifactPictureSize> {
 
 // A GIF's size from its logical screen, read once its header ends at the first frame.
 fn read_gif_size(prefix: Cursor<Vec<u8>>) -> Option<ArtifactPictureSize> {
-    let mut options = gif::DecodeOptions::new();
-    options.set_memory_limit(MemoryLimit::Bytes(
-        NonZeroU64::new(u64::try_from(PICTURE_METADATA_MAX_BYTES).expect("a few MiB fits a u64"))
-            .expect("the bound is not zero"),
-    ));
-    let decoder = options.read_info(prefix).ok()?;
+    let decoder = gif::DecodeOptions::new().read_info(prefix).ok()?;
     oriented_size(
         u64::from(decoder.width()),
         u64::from(decoder.height()),
@@ -126,13 +126,14 @@ fn read_gif_size(prefix: Cursor<Vec<u8>>) -> Option<ArtifactPictureSize> {
     )
 }
 
-// A WebP's size from its header, oriented by its EXIF chunk when it has one.
-fn read_webp_size(prefix: Cursor<Vec<u8>>) -> Option<ArtifactPictureSize> {
-    let mut decoder = WebPDecoder::new(prefix).ok()?;
+// A WebP's size from its header, oriented by its EXIF chunk when it has one. The chunk scan seeks
+// through the file reading only chunk headers, and only the EXIF read holds bytes, under the limit.
+fn read_webp_size(reader: BufReader<File>) -> Option<ArtifactPictureSize> {
+    let mut decoder = WebPDecoder::new(reader).ok()?;
     decoder.set_memory_limit(PICTURE_METADATA_MAX_BYTES);
     let (width, height) = decoder.dimensions();
-    // In memory, the chunk's read fails only when it lies past the bound, and the turn it holds is
-    // not known, so neither is the size.
+    // The chunk's read fails only past the bound or on a file cut inside it, and the turn it holds
+    // is then not known, so neither is the size.
     let orientation = decoder
         .exif_metadata()
         .ok()?
@@ -379,8 +380,10 @@ mod tests {
     /// sides and one that does not keeps them, a JPEG past the decoder's default caps and one cut
     /// at its scan read from the header alone, a PNG wider than one decoded row of the bound reads
     /// from its header, an animated PNG reads as a PNG, a PNG's and a WebP's EXIF turn them, a GIF
-    /// reads past a short extension, and text stores no size. In every format, a header that
-    /// lies past the bound's worth of metadata stores no size: read in full, it would store one.
+    /// reads past a short extension, and text stores no size. A header that lies past the bound's
+    /// worth of metadata stores no size: read in full, it would store one. A WebP's scan reaches
+    /// its header past a profile of that size, and its EXIF of that size stores no size: read in
+    /// full, it would store one.
     #[rstest]
     #[case::a_quarter_turn_swaps(jpeg(8, 4, Some(6)), Some((4, 8)))]
     #[case::a_half_turn_keeps(jpeg(8, 4, Some(3)), Some((8, 4)))]
@@ -402,8 +405,12 @@ mod tests {
     #[case::a_gif_whose_frame_is_past_the_bound(gif(8, 4, PAST_THE_BOUND), None)]
     #[case::a_webp(webp(8, 4, None, None), Some((8, 4)))]
     #[case::a_webp_turned_a_quarter(webp(8, 4, Some(exif(6, 0)), None), Some((4, 8)))]
-    #[case::a_webp_whose_image_is_past_the_bound(
+    #[case::a_webp_whose_image_is_past_a_profile_of_the_bound(
         webp(8, 4, None, Some(vec![0; PAST_THE_BOUND])),
+        Some((8, 4))
+    )]
+    #[case::a_webp_whose_exif_is_past_the_bound(
+        webp(8, 4, Some(exif(6, PAST_THE_BOUND)), None),
         None
     )]
     #[case::text(b"plain words".to_vec(), None)]

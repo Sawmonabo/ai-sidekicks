@@ -742,9 +742,9 @@ impl RunEngine {
     // Waits until every terminal write of `run_id` in flight now has landed or been refused.
     async fn wait_for_ending_writes(&self, run_id: &RunId) {
         let mut next = lock(&self.live).ending.get(run_id).cloned();
-        while let Some(write) = next {
+        while let Some(write) = next.take() {
             write.landed.wait().await;
-            next = write.previous.clone();
+            next.clone_from(&write.previous);
         }
     }
 
