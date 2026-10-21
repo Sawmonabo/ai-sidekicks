@@ -339,7 +339,6 @@ worker = { version = "0.8.7", features = ["axum", "http"] }
 
 # Tests.
 caseless = "0.2.2"
-dhat = "0.3.3"
 insta = { version = "1.49.0", features = ["json"] }
 libfuzzer-sys = "0.4.13"
 mockall = "0.15.0"

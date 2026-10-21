@@ -67,11 +67,15 @@ ignored = [
   # The passkey relying party's and the relay channel's tokens.
   "pasetors",
   # The redaction set built from each secret of a run.
+  "base64",
   "form_urlencoded",
   "percent-encoding",
   # The daemon's own tool server and its connections to a session's tool servers.
   "rmcp",
   "sse-stream",
+  # The JavaScript engine of a workflow's quick code step, its file-watch trigger's path patterns
+  # and the passkey statement checks.
+  "rquickjs",
   # The relay channel: its Noise sessions and the relay's certificate check.
   "rustls-platform-verifier",
   "snow",
@@ -79,12 +83,11 @@ ignored = [
   "serde-saphyr",
   "yaml-edit",
   # Fetching and unpacking the tools a workflow code step runs on.
+  "flate2",
   "tar",
   "zip",
   # Editing the providers' and tool servers' TOML settings in place.
   "toml_edit",
-  # The stored-body codec: a transcript body of 1 KiB or more kept compressed.
-  "zstd",
 ]
 
 [dependencies]
@@ -98,7 +101,6 @@ bytes.workspace = true
 cedar-policy.workspace = true
 chacha20poly1305.workspace = true
 chromiumoxide_cdp.workspace = true
-clap.workspace = true
 console.workspace = true
 crash-handler.workspace = true
 croner.workspace = true
@@ -205,7 +207,6 @@ zip.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
-dhat.workspace = true
 insta.workspace = true
 mockall.workspace = true
 proptest.workspace = true
