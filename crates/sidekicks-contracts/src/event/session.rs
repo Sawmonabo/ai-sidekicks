@@ -37,8 +37,11 @@ use crate::event::usage::{
 use crate::git::local::GitSettledPayload;
 use crate::mcp::governance::McpServerSignInCompletedPayload;
 use crate::orchestration::AgentRunRejectedPayload;
-use crate::plan::{PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload};
-use crate::question::QuestionAskedPayload;
+use crate::plan::{
+    PlanAcceptedPayload, PlanHandedOffPayload, PlanHoldEndedPayload, PlanKeptPayload,
+    PlanProposedPayload,
+};
+use crate::question::{QuestionAskedPayload, QuestionCanceledPayload};
 use crate::relay::RelayPinRefusedPayload;
 use crate::repo::mount::{RepoMountHealthChangedPayload, WorkspaceLifecyclePayload};
 use crate::run::control::{
@@ -303,9 +306,15 @@ session_events! {
     PlanAccepted(PlanAcceptedPayload) = "plan.accepted",
     /// Emitted when a plan seeds a fresh session.
     PlanHandedOff(PlanHandedOffPayload) = "plan.handedOff",
+    /// Emitted when the person keeps planning and the plan stays a record.
+    PlanKept(PlanKeptPayload) = "plan.kept",
+    /// Emitted when the provider request a plan held ends with no verdict.
+    PlanHoldEnded(PlanHoldEndedPayload) = "plan.hold.ended",
     /// Emitted when an agent, tool server or workflow step asks the person a question.
     QuestionAsked(#[garde(dive)] QuestionAskedPayload) = "question.asked"
         => read(question_asked_run),
+    /// Emitted when an open question ends unanswered.
+    QuestionCanceled(QuestionCanceledPayload) = "question.canceled",
     /// Emitted when the daemon accepts a message the person sent, or a voice call hears one.
     UserMessageSent(UserMessageSentPayload) = "user.message.sent" => optional,
     /// Emitted when a message the person sent is queued.
@@ -425,11 +434,9 @@ session_events! {
         "repoMount.health.changed",
     /// Emitted when admission refuses an `agent.run.create`; no run or queue item is left.
     AgentRunRejected(AgentRunRejectedPayload) = "agent.run.rejected",
-    /// Emitted when an artifact is published from a run; its payload keeps members it does not
+    /// Emitted in the write of every artifact's manifest; its payload keeps members it does not
     /// know.
     ArtifactPublished(ArtifactPublicationPayload) = "artifact.published" => optional,
-    /// Emitted when a newer version replaces an artifact; its payload keeps unknown members.
-    ArtifactSuperseded(ArtifactPublicationPayload) = "artifact.superseded" => optional,
     /// Emitted when the provider refuses a turn, names a fallback model and asks to retry or edit.
     AgentRunRefusalChoiceRequested(AgentRunRefusalChoiceRequestedPayload) =
         "agent.run.refusalChoice.requested" => required,

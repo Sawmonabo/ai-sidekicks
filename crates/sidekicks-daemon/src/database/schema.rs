@@ -8,6 +8,8 @@ use std::sync::LazyLock;
 use crate::approvals::schema::APPROVAL_SCHEMA_SQL;
 use crate::artifacts::schema::ARTIFACT_SCHEMA_SQL;
 use crate::git::worktree::schema::WORKTREE_SCHEMA_SQL;
+use crate::plans::schema::PLAN_SCHEMA_SQL;
+use crate::questions::schema::QUESTION_SCHEMA_SQL;
 use crate::session::search::index::schema::SEARCH_INDEX_SCHEMA_SQL;
 use crate::workflow::schema::WORKFLOW_SCHEMA_SQL;
 use crate::workspace::schema::WORKSPACE_SCHEMA_SQL;
@@ -41,6 +43,8 @@ pub static DAEMON_SCHEMA_SQL: LazyLock<String> = LazyLock::new(|| {
         &APPROVAL_SCHEMA_SQL,
         &WORKFLOW_SCHEMA_SQL,
         &ARTIFACT_SCHEMA_SQL,
+        &PLAN_SCHEMA_SQL,
+        &QUESTION_SCHEMA_SQL,
     ]
     .concat()
 });

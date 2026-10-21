@@ -1,48 +1,39 @@
-//! The plan record a plan turn ends with, `plan.proposed`, built the same way from either
-//! provider's plan: the plan's own text, its first heading as the title, and the daemon's reading
-//! of its top-level steps and the files it names.
+//! The plan record a plan turn ends with, `plan.proposed`, built the same way from any provider's
+//! plan: the plan's own text, its first heading as the title, and the daemon's reading of its
+//! top-level steps and the files it names.
 
 use std::collections::HashSet;
 
-use pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
-use sidekicks_contracts::free_form_string::FilesystemPath;
+use satteri_pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::plan::{PlanId, PlanProposedPayload};
-use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
+use crate::provider::port::plan::ProviderPlan;
 use crate::uuid_v7::mint_uuid_v7;
 
-/// What a plan record is made from: the plan as the provider sent it, never read off the disk.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PlanRecordSource {
-    /// The session the plan belongs to.
-    pub(crate) session_id: SessionId,
-    /// The run that proposed it.
-    pub(crate) run_id: RunId,
-    /// The plan's markdown.
-    pub(crate) text: String,
-    /// Where the provider wrote the plan as a file, where it did.
-    pub(crate) plan_file_path: Option<FilesystemPath>,
-}
-
-/// The `plan.proposed` payload for one plan, under a freshly minted plan id.
-pub(crate) fn compose_plan_proposed_payload(source: PlanRecordSource) -> PlanProposedPayload {
-    let reading = read_plan_markdown(&source.text);
+/// The `plan.proposed` payload for `plan`, kept by `artifact_id`, under a freshly minted plan id.
+pub(crate) fn compose_plan_proposed_payload(
+    plan: ProviderPlan,
+    artifact_id: ArtifactId,
+) -> PlanProposedPayload {
+    let reading = read_plan_markdown(&plan.text);
     let title = reading
         .title
-        .unwrap_or_else(|| read_first_line(&source.text).to_owned());
+        .unwrap_or_else(|| read_first_line(&plan.text).to_owned());
     PlanProposedPayload {
         plan_id: PlanId::try_from(mint_uuid_v7())
             .expect("a minted UUID is in the text form a plan id takes"),
-        session_id: source.session_id,
-        run_id: source.run_id,
+        session_id: plan.session_id,
+        run_id: plan.run_id,
         title,
-        text: source.text,
+        text: plan.text,
         step_count: to_count(reading.step_count),
         file_count: to_count(reading.file_count),
-        plan_file_path: source.plan_file_path,
+        plan_file_path: plan.plan_file_path,
+        artifact_id,
+        holds_request: plan.holds_request,
     }
 }
 
@@ -132,7 +123,7 @@ impl PlanMarkdownReader {
         {
             self.title_heading = Some(String::new());
             self.is_reading_title = true;
-        } else if let Tag::List(first_number) = tag
+        } else if let Tag::List(first_number, _) = tag
             && self.depth == 0
         {
             self.lists.push((first_number.is_some(), 0));
@@ -250,7 +241,9 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
 
-    use super::{PlanRecordSource, compose_plan_proposed_payload};
+    use super::compose_plan_proposed_payload;
+    use crate::artifacts::id::mint_artifact_id;
+    use crate::provider::port::plan::ProviderPlan;
     use crate::uuid_v7::mint_uuid_v7;
 
     #[rstest]
@@ -266,8 +259,13 @@ mod tests {
         0,
         3
     )]
+    #[case::numbered_steps_count_past_a_nested_list(
+        "1. one\n   1. first part\n   2. second part\n2. two\n   - a note\n3. three\n",
+        3,
+        0
+    )]
     #[case::a_reference_link_is_not_counted(
-        "See [the notes][notes] and `src/a.rs`.\n\n[notes]: docs/notes.md\n",
+        "See [the notes][notes], [notes][], [notes] and `src/a.rs`.\n\n[notes]: docs/notes.md\n",
         0,
         1
     )]
@@ -276,12 +274,16 @@ mod tests {
         #[case] step_count: u64,
         #[case] file_count: u64,
     ) {
-        let payload = compose_plan_proposed_payload(PlanRecordSource {
-            session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID"),
-            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID"),
-            text: markdown.to_owned(),
-            plan_file_path: None,
-        });
+        let payload = compose_plan_proposed_payload(
+            ProviderPlan {
+                session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID"),
+                run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID"),
+                text: markdown.to_owned(),
+                plan_file_path: None,
+                holds_request: true,
+            },
+            mint_artifact_id(),
+        );
         assert_eq!(payload.step_count.get(), step_count);
         assert_eq!(payload.file_count.get(), file_count);
     }

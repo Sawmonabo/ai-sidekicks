@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -37,6 +36,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
+use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -64,6 +64,7 @@ use crate::provider::driver::session_control::{
     ResumeSessionParams, RevokeRuleParams, SessionCommandAnswer, StartReviewParams,
     SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
+use crate::provider::port::permission_ask::ProviderPermissionAnswer;
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 use crate::text_cut::cut_to_code_points;
 
@@ -533,16 +534,30 @@ pub(crate) struct StartRunParams {
     pub(crate) output_schema: Option<Map<String, Value>>,
 }
 
-/// Answers one interactive request a driver raised on a run; `response` is in the provider's own
-/// shape, relayed unchanged.
+/// Answers one interactive request a driver raised on a run with the daemon's answer, which the
+/// driver composes into its provider's own answer shape.
 #[derive(Debug)]
 pub(crate) struct RespondToRequestParams {
     /// The run.
     pub(crate) run_id: RunId,
     /// The request.
     pub(crate) request_id: String,
-    /// The answer, in the provider's shape.
-    pub(crate) response: Box<RawValue>,
+    /// The daemon's answer.
+    pub(crate) response: ProviderRequestAnswer,
+}
+
+/// The daemon's answer to one request a driver raised: the person's answers to a question, one per
+/// question in the request's own order, or the approval pipeline's answer to a permission ask. A
+/// secret answer's value reaches only the driver.
+#[derive(Debug)]
+pub(crate) enum ProviderRequestAnswer {
+    /// The answers to a question.
+    Question {
+        /// One answer per question, in the request's order.
+        answers: Vec<QuestionAnswer>,
+    },
+    /// The answer to a permission ask.
+    Permission(ProviderPermissionAnswer),
 }
 
 /// The provider's own ids of an opened session, built by the driver; the handle is bounded where

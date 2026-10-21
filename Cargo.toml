@@ -208,6 +208,8 @@ file-format.features = [
   "reader-sqlite3",
   "reader-xml"
 ]
+# A GIF's header read with its metadata bounded: `image`'s GIF decoder passes no memory limit.
+gif = "0.14.2"
 icu_casemap = "2.3.0"
 icu_collator = "2.3.1"
 icu_datetime = "2.3.0"
@@ -216,6 +218,8 @@ icu_datetime = "2.3.0"
 icu_decimal = "2.3.0"
 icu_locale_core = "2.3.0"
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+# A WebP's header read with its metadata bounded: `image`'s WebP decoder passes no memory limit.
+image-webp = "0.2.4"
 jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
 jsonata-core = { version = "2.2.11", default-features = false }
 jsonc-parser = { version = "0.34.0", features = ["cst"] }
@@ -236,7 +240,9 @@ lz4_flex.default-features = false
 lz4_flex.features = ["safe-decode", "safe-encode"]
 memchr = "2.8.3"
 pdfium-render = "0.9.4"
-pulldown-cmark = { version = "0.13.4", default-features = false }
+# A PNG's header read with its text and color-profile chunks skipped: `image`'s PNG decoder reads
+# both.
+png = "0.18.1"
 quick_cache = "0.7.0"
 regex = "1.13.1"
 satteri-pulldown-cmark = { version = "0.6.3", default-features = false, features = ["std"] }
@@ -259,6 +265,8 @@ webp = "0.3.1"
 writeable = { version = "0.6.4", default-features = false }
 yaml-edit = "0.3.2"
 zstd = "0.14.2"
+# A JPEG's header read: `image`'s JPEG decoder reads the whole file before its header.
+zune-jpeg = "0.5.15"
 
 # The JavaScript engines: QuickJS and the web APIs the bundled modules call, held at the commit
 # whose crates build against this exact engine release.

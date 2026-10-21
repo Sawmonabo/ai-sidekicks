@@ -73,9 +73,11 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
 /// turn and every open turn, its provider, whether it ended since a version, its interventions with
-/// no outcome and the ended runs still holding one, and the two agent reads.
+/// no outcome and the ended runs still holding one, the two agent reads, and the run end's reads of
+/// its open held questions (`OPEN_HELD_OF_RUN_SQL`) and its plans still holding a request
+/// (`HELD_PLANS_OF_RUN_SQL`).
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 15 + RUN_AGENT_STATEMENT_CAPACITY;
+pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 17 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -740,9 +742,9 @@ impl RunEngine {
     // Waits until every terminal write of `run_id` in flight now has landed or been refused.
     async fn wait_for_ending_writes(&self, run_id: &RunId) {
         let mut next = lock(&self.live).ending.get(run_id).cloned();
-        while let Some(write) = next {
+        while let Some(write) = next.take() {
             write.landed.wait().await;
-            next = write.previous.clone();
+            next.clone_from(&write.previous);
         }
     }
 

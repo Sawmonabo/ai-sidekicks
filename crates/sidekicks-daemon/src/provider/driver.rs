@@ -28,7 +28,6 @@ pub(crate) mod error_causes;
 pub(crate) mod hook_pauses;
 pub(crate) mod mcp_server_status;
 pub(crate) mod message_handing;
-pub(crate) mod plan_record;
 pub(crate) mod question_answers;
 pub(crate) mod registry;
 pub(crate) mod reorder_buffer;

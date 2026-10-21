@@ -54,8 +54,7 @@ pub(crate) async fn answer_provider_ask(
         }
         ProviderAskAction::FileChange { paths } => paths,
         ProviderAskAction::FileRead { path } => std::slice::from_ref(path),
-        ProviderAskAction::Plan {}
-        | ProviderAskAction::CommandInput { .. }
+        ProviderAskAction::CommandInput { .. }
         | ProviderAskAction::Network { .. }
         | ProviderAskAction::Tool { .. } => &[],
     };

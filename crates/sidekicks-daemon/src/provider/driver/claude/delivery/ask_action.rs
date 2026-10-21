@@ -1,7 +1,6 @@
 //! What a Claude Code tool call held on a permission ask would do, read from its tool and input,
 //! and the scopes a rule on it may take: Claude Code keeps a rule of every kind for the session and
-//! in the project's `.claude/settings.local.json`, but none on the plan it asks to leave plan mode
-//! with, which is a verdict and not a permission, and none on a call its own safety check flagged
+//! in the project's `.claude/settings.local.json`, but none on a call its own safety check flagged
 //! (`suppress_always_allow_rule`), which only a person may allow, each time.
 
 use serde_json::{Map, Value};
@@ -9,7 +8,6 @@ use sidekicks_contracts::approval::RememberedScopeKind;
 use url::Url;
 
 use crate::provider::driver::claude::delivery::patches::is_claude_file_changing_tool;
-use crate::provider::driver::claude::event_normalizer::CLAUDE_PLAN_EXIT_TOOL_NAME;
 use crate::provider::port::permission_ask::ProviderAskAction;
 use crate::provider::record_readers::read_non_empty_string;
 
@@ -25,7 +23,7 @@ const CLAUDE_SUPPRESS_ALLOW_MEMBER: &str = "suppress_always_allow_rule";
 pub(crate) struct ClaudeAskReading {
     /// What the call would do.
     pub(crate) action: ProviderAskAction,
-    /// The scopes a standing rule on the call may take; none on the plan exit or a flagged call.
+    /// The scopes a standing rule on the call may take; none on a flagged call.
     pub(crate) rule_scopes: Vec<RememberedScopeKind>,
     /// Whether Claude Code's own safety check flagged the call.
     pub(crate) is_provider_flagged: bool,
@@ -38,13 +36,6 @@ pub(crate) fn read_claude_ask_action(
     input: &Map<String, Value>,
     request: &Map<String, Value>,
 ) -> ClaudeAskReading {
-    if tool_name == CLAUDE_PLAN_EXIT_TOOL_NAME {
-        return ClaudeAskReading {
-            action: ProviderAskAction::Plan {},
-            rule_scopes: Vec::new(),
-            is_provider_flagged: false,
-        };
-    }
     let is_provider_flagged = request.get(CLAUDE_SUPPRESS_ALLOW_MEMBER) == Some(&Value::Bool(true));
     ClaudeAskReading {
         action: read_action(tool_name, input),
@@ -118,16 +109,6 @@ mod tests {
     use crate::provider::port::permission_ask::ProviderAskAction;
 
     #[rstest]
-    #[case::the_plan_exit_even_when_flagged(
-        "ExitPlanMode",
-        json!({"plan": "Ship it"}),
-        json!({"suppress_always_allow_rule": true}),
-        ClaudeAskReading {
-            action: ProviderAskAction::Plan {},
-            rule_scopes: Vec::new(),
-            is_provider_flagged: false,
-        }
-    )]
     #[case::a_flagged_command(
         "Bash",
         json!({"command": "rm -rf build"}),

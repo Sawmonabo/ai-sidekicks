@@ -40,9 +40,7 @@ fn label(delivery: &InboundDelivery<'static>) -> String {
             UnstampedRow::AgentRunUsageCreditsChoiceResolved(payload) => {
                 format!("creditsResolved:{}", serde_json::json!(payload.choice))
             }
-            UnstampedRow::PlanProposed(_) | UnstampedRow::ApprovalReviewerFlagged(_) => {
-                "otherRow".to_owned()
-            }
+            UnstampedRow::ApprovalReviewerFlagged(_) => "otherRow".to_owned(),
         },
         InboundDelivery::TurnBoundary { .. }
         | InboundDelivery::RunContinued { .. }

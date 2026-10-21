@@ -48,6 +48,7 @@ pub(crate) fn read_codex_elicitation_questions(params: &Value) -> Vec<QuestionPr
                 header,
                 text: message,
                 heading: None,
+                description: None,
                 options: Vec::new(),
                 several_answers: false,
                 secret: false,
@@ -55,6 +56,9 @@ pub(crate) fn read_codex_elicitation_questions(params: &Value) -> Vec<QuestionPr
                 default: None,
                 minimum: None,
                 maximum: None,
+                step: None,
+                unit: None,
+                placeholder: None,
             })
             .into_iter()
             .collect();
@@ -85,6 +89,7 @@ pub(crate) fn read_codex_elicitation_questions(params: &Value) -> Vec<QuestionPr
                 header: header.clone(),
                 text: field.text,
                 heading: message.clone(),
+                description: None,
                 options,
                 several_answers: field.takes_several_answers,
                 secret: false,
@@ -92,6 +97,9 @@ pub(crate) fn read_codex_elicitation_questions(params: &Value) -> Vec<QuestionPr
                 default,
                 minimum,
                 maximum,
+                step: None,
+                unit: None,
+                placeholder: None,
             }
         })
         .collect()
