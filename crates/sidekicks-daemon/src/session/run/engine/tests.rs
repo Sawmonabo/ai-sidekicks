@@ -413,6 +413,7 @@ pub(super) fn continue_request(
         "state": "admitted",
         "id": mint_uuid_v7().to_string(),
         "position": 0,
+        "isSentNow": false,
         "content": "Go on.",
         "createdAt": "2026-01-01T00:00:00.000Z",
         "updatedAt": "2026-01-01T00:00:00.000Z",

@@ -68,7 +68,7 @@ impl RunEngine {
         &self,
         change: RunStateChange,
         companions: RunStateChangeCompanions,
-    ) -> Result<(RunRead, Vec<InterruptChoice>), RunEngineError> {
+    ) -> Result<(RunRead, Vec<(InterventionId, InterruptChoice)>), RunEngineError> {
         let run_id = change.run_id;
         let moment = UnresolvedSettleMoment::RunEnded(RunState::from(change.entry.state()));
         let writer_statements = companions.statements.len();
@@ -176,13 +176,15 @@ impl RunEngine {
         }
     }
 
-    /// Lets go the run queue's hold of `run_id` once for each of `choices`, after the write that
-    /// settled their interrupts landed; an engine never handed the queue, or whose queue has shut
-    /// down, holds none. Fails with every release that failed, each one tried.
+    /// Lets go the run queue's hold of `run_id` each interrupt of `choices` took, with its choice,
+    /// after the write that settled them landed, each release running once the session's queue is
+    /// free, since a run's end may be written under it; an engine never handed the queue, or whose
+    /// queue has shut down, holds none. Fails with every release whose run the queue could not
+    /// read, each one tried.
     pub(super) async fn release_interrupt_holds(
         &self,
         run_id: RunId,
-        choices: Vec<InterruptChoice>,
+        choices: Vec<(InterventionId, InterruptChoice)>,
     ) -> Result<(), RunEngineError> {
         if choices.is_empty() {
             return Ok(());
@@ -191,10 +193,10 @@ impl RunEngine {
             return Ok(());
         };
         let mut outcomes = Vec::with_capacity(choices.len());
-        for choice in choices {
+        for (intervention_id, choice) in choices {
             outcomes.push(
                 queue
-                    .release_interrupt(run_id, choice)
+                    .release_interrupt_at_run_end(run_id, intervention_id, choice)
                     .await
                     .map_err(|source| RunEngineError::InterruptRelease { run_id, source }),
             );

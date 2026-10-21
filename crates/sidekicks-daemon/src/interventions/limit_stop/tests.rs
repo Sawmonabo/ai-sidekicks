@@ -630,8 +630,8 @@ enum ReturnToRunning {
 struct NoWaitingMessages(KeyedLock<SessionId>);
 
 impl ContinuedMessages for NoWaitingMessages {
-    fn session_lock(&self) -> &KeyedLock<SessionId> {
-        &self.0
+    fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
+        self.0.acquire(session_id).boxed()
     }
 
     fn read(

@@ -15,6 +15,7 @@ use crate::database::writer::test_file::TestDatabase;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 thread_local! {
     // The drivers the next registry this thread builds registers, in the table's order.
@@ -55,15 +56,20 @@ pub(crate) fn registry_of_first_providers(
     ProviderRegistry::register_from(&table, &services)
 }
 
-/// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does.
+/// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does, so a
+/// test may bind several runs.
 pub(crate) fn bind_run_to_first_provider(database: &TestDatabase, run_id: RunId) {
     database
         .reader()
         .execute(
             "INSERT INTO runtime_bindings (id, run_id, provider_name, contract_version,
                cli_version_raw, created_at, updated_at)
-             VALUES ('binding', ?1, ?2, '1.0.0', '1.0.0', '', '')",
-            params![run_id.text().as_str(), PROVIDERS[0].id],
+             VALUES (?1, ?2, ?3, '1.0.0', '1.0.0', '', '')",
+            params![
+                mint_uuid_v7().to_string(),
+                run_id.text().as_str(),
+                PROVIDERS[0].id
+            ],
         )
         .expect("the test binds the run to its provider");
 }

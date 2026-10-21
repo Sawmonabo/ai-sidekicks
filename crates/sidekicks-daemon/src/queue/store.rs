@@ -2,6 +2,8 @@
 //! stale read is refused whole, and the reads of a queue in its order. A row is never deleted while
 //! its session is kept; a message's words ride its payload beside its `user.message.sent` row.
 
+pub(crate) mod send_now;
+
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
@@ -11,10 +13,12 @@ use serde::{Deserialize, Serialize};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
     MessageContent, QueueItemId, QueueItemNotDeliveredReason, QueueItemState, QueueItemSummary,
 };
@@ -60,6 +64,16 @@ pub(crate) struct QueueItemBody {
     pub(crate) workspace_id: Option<WorkspaceId>,
 }
 
+impl QueueItemBody {
+    /// The ids of the message's files in staging order, none when it carries none.
+    pub(crate) fn attachment_ids(&self) -> Vec<ArtifactId> {
+        self.attachments
+            .as_ref()
+            .map(|attachments| attachments.0.clone())
+            .unwrap_or_default()
+    }
+}
+
 /// Where a queued message stands, as its row holds it: only a message never delivered carries,
 /// and always carries, the reason.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +116,9 @@ pub(crate) struct QueueItemRecord {
     pub(crate) created_at: WireInstant,
     /// When it last changed.
     pub(crate) updated_at: WireInstant,
+    /// The id the answer of the person's `Send now` that marked it to go ahead of what its
+    /// provider holds carries; absent on an item no `Send now` marked.
+    pub(crate) sent_now_id: Option<InterventionId>,
 }
 
 /// A message to insert. It takes the place of `replaces_queue_item_id` when it is an edit, else
@@ -164,10 +181,11 @@ pub(crate) struct CurrentLeadRun {
 
 /// The columns every read of an item selects, in the order `record_of` reads them.
 pub(super) const COLUMNS: &str = "id, session_id, state, not_delivered_reason, payload, \
-    target_run_id, child_handle, position, client_idempotency_key, created_at, updated_at";
+    target_run_id, child_handle, position, client_idempotency_key, created_at, updated_at, \
+    send_now_id";
 
 /// The columns `COLUMNS` names; a read's own column follows them.
-pub(super) const COLUMN_COUNT: usize = 11;
+pub(super) const COLUMN_COUNT: usize = 12;
 
 /// An item's order within its queue: by place, and an edit's superseded item after its
 /// replacement.
@@ -583,10 +601,12 @@ pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
         body,
         child_handle,
         position,
+        sent_now_id,
         created_at,
         updated_at,
         ..
     } = record;
+    let is_sent_now = sent_now_id.is_some();
     let content = body.content;
     let attachments = body.attachments;
     match state {
@@ -596,6 +616,7 @@ pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
             content,
             attachments,
             child_handle,
+            is_sent_now,
             created_at,
             updated_at,
             not_delivered_reason: None,
@@ -606,6 +627,7 @@ pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
             content,
             attachments,
             child_handle,
+            is_sent_now,
             created_at,
             updated_at,
             not_delivered_reason: None,
@@ -616,6 +638,7 @@ pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
             content,
             attachments,
             child_handle,
+            is_sent_now,
             created_at,
             updated_at,
             not_delivered_reason: None,
@@ -626,6 +649,7 @@ pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
             content,
             attachments,
             child_handle,
+            is_sent_now,
             created_at,
             updated_at,
             not_delivered_reason: None,
@@ -636,6 +660,7 @@ pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
             content,
             attachments,
             child_handle,
+            is_sent_now,
             created_at,
             updated_at,
             not_delivered_reason: reason,
@@ -815,6 +840,7 @@ pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
         client_idempotency_key: optional_text_column(row, 8, ClientUuid::new)?,
         created_at: text_column(row, 9, WireInstant::try_from)?,
         updated_at: text_column(row, 10, WireInstant::try_from)?,
+        sent_now_id: optional_text_column(row, 11, |text| InterventionId::new(&text))?,
     })
 }
 

@@ -407,13 +407,6 @@ impl RuntimeBindingStore {
     /// Records a new binding under a minted id and returns it as stored, once committed. Fails
     /// with [`RuntimeBindingStoreError::InvalidOutput`] for a contract version or resume handle
     /// that does not meet its rules, before anything is written, and when the write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a session's start records its provider binding through it"
-        )
-    )]
     pub(crate) async fn create(
         &self,
         input: CreateRuntimeBindingInput,
@@ -486,14 +479,6 @@ impl RuntimeBindingStore {
     /// it has no row and nothing was written. Fails with
     /// [`RuntimeBindingStoreError::InvalidOutput`] for an invalid patch, even for an absent id, on
     /// a stored row that does not read, before anything is written, and when the write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a fork or a restart's resume points the binding at its new conversation \
-                      through it"
-        )
-    )]
     pub(crate) async fn update(
         &self,
         id: &RuntimeBindingId,
@@ -592,13 +577,6 @@ impl RuntimeBindingStore {
     /// write. Fails with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle,
     /// and with [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing
     /// was recorded.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a driver's own relaunch records its new binding through it"
-        )
-    )]
     pub(crate) async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
@@ -638,7 +616,6 @@ impl RuntimeBindingStore {
     }
 
     /// Deletes binding `id` and returns whether it had a row. Fails when the write fails.
-    #[expect(dead_code, reason = "removing a binding's record goes through it")]
     pub(crate) async fn delete(
         &self,
         id: &RuntimeBindingId,

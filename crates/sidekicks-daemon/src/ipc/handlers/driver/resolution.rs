@@ -9,11 +9,13 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::not_found::session_not_found;
+use crate::session::run::agent::read_lead_binding;
 use crate::session::run::read::read_run_provider;
 
 /// Why the driver of a live run was not resolved.
@@ -74,7 +76,7 @@ where
     Ok(resolve_live_run_driver(providers, run_id, bound)?)
 }
 
-/// The driver of the provider `bound` names, which the caller read once from the session's
+/// The provider `bound` names and its driver, which the caller read once from the session's
 /// binding (`None` for a session this daemon does not hold or that is not bound here, one answer
 /// for both). Refused `session.notFound` for `None`, then `provider.notFound` for a provider no
 /// driver answers.
@@ -82,7 +84,29 @@ pub(crate) fn resolve_session_driver(
     providers: &ProviderRegistry,
     session_id: &SessionId,
     bound: Option<ProviderId>,
-) -> Result<Arc<dyn ProviderDriver>, DomainError> {
+) -> Result<(ProviderId, Arc<dyn ProviderDriver>), DomainError> {
     let provider = bound.ok_or_else(|| session_not_found(session_id))?;
-    providers.lookup(&provider)
+    let driver = providers.lookup(&provider)?;
+    Ok((provider, driver))
+}
+
+/// The provider the session's lead runs on and its driver, the lead's binding read through `pool`
+/// from the readable part of the session's log. Refused as [`resolve_session_driver`] refuses, and
+/// fails as the pool and the read do.
+pub(crate) async fn read_session_driver<Failure>(
+    pool: &DatabaseReadPool,
+    providers: &ProviderRegistry,
+    read_damaged_from_sequence: &DamagedFromSequenceReader,
+    session_id: SessionId,
+) -> Result<(ProviderId, Arc<dyn ProviderDriver>), Failure>
+where
+    Failure: From<DatabaseReadError> + From<rusqlite::Error> + From<DomainError> + Send + 'static,
+{
+    let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
+    let bound = pool
+        .read(ReadLength::Short, move |reader| -> Result<_, Failure> {
+            Ok(read_lead_binding(reader, &session_id, read_bound)?.map(|(provider, _)| provider))
+        })
+        .await?;
+    Ok(resolve_session_driver(providers, &session_id, bound)?)
 }

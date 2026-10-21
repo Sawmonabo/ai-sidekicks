@@ -191,7 +191,7 @@ async fn an_interrupt_of_a_starting_run_takes_its_opening_with_the_rest() {
     let opening = insert_item(&fixture).await;
     fixture
         .openings
-        .0
+        .openings
         .lock()
         .expect("the test's openings are writable")
         .insert(opening.id);

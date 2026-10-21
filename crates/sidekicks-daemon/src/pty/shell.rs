@@ -12,4 +12,6 @@ pub(crate) mod refusals;
 pub(crate) mod resize;
 pub(crate) mod start;
 pub(crate) mod table;
+#[cfg(test)]
+pub(crate) mod test_table;
 pub(crate) mod write;

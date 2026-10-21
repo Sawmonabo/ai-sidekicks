@@ -79,13 +79,6 @@ impl RunEngine {
     /// that turn still takes the limit's end, written on its own. Returns `true`, or `false` with
     /// no change of the run written when it ended since that version, the caller then recording
     /// the verdict alone; fails as the reads and [`RunEngine::transition`] do.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the run queue ends the run of each interrupt the service applies"
-        )
-    )]
     pub(crate) async fn end_run_for_interrupt(
         &self,
         run_id: RunId,

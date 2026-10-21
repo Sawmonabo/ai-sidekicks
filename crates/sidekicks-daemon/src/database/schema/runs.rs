@@ -13,6 +13,7 @@ use crate::command_receipts::{CommandAcceptance, CommandOutcome};
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 use crate::mcp::task_handle_recorder::MCP_TASK_ID_MAX_LENGTH;
 use crate::mcp::tool_calls::McpTaskGeneration;
+use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// The runs' tables and indexes.
@@ -24,6 +25,7 @@ pub(super) fn runs_schema_sql() -> String {
     let intervention_types = sql_list_of_every::<InterventionType>();
     let intervention_states = sql_list_of_every::<InterventionState>();
     let requested = <&'static str>::from(InterventionState::Requested);
+    let pending_choices = sql_list_of_every::<InterruptPendingChoice>();
     let unresolved_intervention_states = sql_list_of(
         [InterventionState::Requested, InterventionState::Accepted].map(<&'static str>::from),
     );
@@ -63,6 +65,10 @@ CREATE TABLE queue_items (
   position               INTEGER NOT NULL CHECK(position >= 0),
   -- The send's own key, so a retried send returns the saved item; NULL on the system's own.
   client_idempotency_key TEXT,
+  -- The mark of the `Send now` in force that handed the item ahead of what its provider held: the
+  -- id its answer carries. NULL on every other item, and once a later order moves the item off
+  -- first place.
+  send_now_id            TEXT,
   created_at             TEXT NOT NULL,
   updated_at             TEXT NOT NULL,
   CHECK((state = '{not_delivered}') = (not_delivered_reason IS NOT NULL)),
@@ -73,6 +79,18 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id)
   WHERE target_run_id IS NOT NULL;
+
+-- Each key a person's `Send now` spent on a run, with the message it handed and the id its first
+-- answer carried, kept for the run's life whatever later becomes of the message's mark, so a
+-- retried `Send now` answers what the first did.
+CREATE TABLE send_now_requests (
+  target_run_id           TEXT NOT NULL,
+  client_idempotency_key  TEXT NOT NULL,
+  queue_item_id           TEXT NOT NULL,
+  intervention_id         TEXT NOT NULL,
+  created_at              TEXT NOT NULL,
+  PRIMARY KEY (target_run_id, client_idempotency_key)
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE interventions (
   id                      TEXT PRIMARY KEY,
@@ -93,14 +111,23 @@ CREATE TABLE interventions (
   -- What a failed dispatch threw, or why it never completed or was never sent, so a retry's saved
   -- reply carries the same reason.
   failure_reason          TEXT,
+  -- What a person's interrupt chose for the run's waiting messages when the release of its queue
+  -- hold failed to settle them, and the message it put first; NULL once settled, so the queue's
+  -- next hold of the session, or the daemon's next start, settles it again.
+  unreleased_choice       TEXT CHECK(unreleased_choice IN ({pending_choices})),
+  unreleased_deliver_first TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
+  CHECK(unreleased_choice IS NOT NULL OR unreleased_deliver_first IS NULL),
   -- An identical retry returns the saved result; a reused key with a different payload is
   -- refused.
   UNIQUE (target_run_id, client_idempotency_key)
 ) STRICT;
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
+-- The releases left unsettled, which every hold of a session's queue reads.
+CREATE INDEX idx_interventions_unreleased ON interventions(target_run_id)
+  WHERE unreleased_choice IS NOT NULL;
 CREATE INDEX idx_interventions_state ON interventions(state)
   WHERE state IN ({unresolved_intervention_states});
 

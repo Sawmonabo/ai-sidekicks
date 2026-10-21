@@ -11,12 +11,16 @@
 //!   chat's, so neither is reported.
 //! - A watch started again once ready walks for what landed before it was armed, from the instant
 //!   its owner hands it, so no write in between is lost.
+//! - Every session a change names, a removal among them, is named to the owner's count of the
+//!   files in that session's workspace, once per batch of changes.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use lru::LruCache;
@@ -26,6 +30,7 @@ use sidekicks_platforms::{EntryIdentity, entry_identity};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::events::session::pending::PendingSessions;
 use crate::file::bounded_read::run_on_own_thread;
 use crate::file_watch::{ChangeFeed, FileWatch, FileWatchError, FileWatchNotice, WalkFilter};
 use crate::missing_entry::is_missing_entry;
@@ -86,7 +91,8 @@ pub(crate) struct ManagedWorkspaceWriteWatcher {
 impl ManagedWorkspaceWriteWatcher {
     /// Makes `workspaces_folder` when absent, watches it, walks it once ready for every write
     /// changed at or after `missed_since`, and sends each write on `writes`, waiting for room so a
-    /// slow reader slows only this watch. When the watch cannot start or fails, the reason is
+    /// slow reader slows only this watch; every session a change names, a removal among them, is
+    /// added to `changed_folders`. When the watch cannot start or fails, the reason is
     /// logged and the receiver answers with the instant since which writes may be unreported, for
     /// the next watch's `missed_since`; it never answers otherwise.
     #[cfg_attr(
@@ -96,6 +102,7 @@ impl ManagedWorkspaceWriteWatcher {
     pub(crate) fn start(
         workspaces_folder: PathBuf,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
+        changed_folders: Arc<PendingSessions>,
         missed_since: SystemTime,
     ) -> (Self, oneshot::Receiver<SystemTime>) {
         let (failure_sender, failure) = oneshot::channel();
@@ -104,7 +111,7 @@ impl ManagedWorkspaceWriteWatcher {
                 match open_watch::<RecommendedWatcher>(workspaces_folder).await {
                     Ok((mut watch, _feed)) => {
                         watch.catch_up(missed_since);
-                        let outcome = report_writes(&mut watch, &writes).await;
+                        let outcome = report_writes(&mut watch, &writes, &changed_folders).await;
                         (outcome, watch.whole_since())
                     }
                     Err(error) => (Err(error), missed_since),
@@ -155,6 +162,7 @@ async fn open_watch<W: Watcher + Send + 'static>(
 async fn report_writes<W: Watcher + Send + 'static>(
     watch: &mut FileWatch<W>,
     writes: &mpsc::Sender<ManagedWorkspaceWrite>,
+    changed_folders: &PendingSessions,
 ) -> Result<(), ManagedWorkspaceWatchError> {
     let root = watch
         .roots()
@@ -168,7 +176,7 @@ async fn report_writes<W: Watcher + Send + 'static>(
     while let Some(notice) = watch.next_notice().await {
         match notice {
             FileWatchNotice::Changed(paths) => {
-                if !reporter.report(paths, writes).await? {
+                if !reporter.report(paths, writes, changed_folders).await? {
                     return Ok(());
                 }
             }
@@ -222,12 +230,14 @@ struct WriteReporter {
 }
 
 impl WriteReporter {
-    // Reads every changed path in one batch on a thread of its own and sends each new write;
-    // answers false once the reader of `writes` is gone.
+    // Reads every changed path in one batch on a thread of its own and sends each new write, then
+    // names each session the batch changed to `changed_folders`; answers false once the reader of
+    // `writes` is gone.
     async fn report(
         &mut self,
         paths: Vec<PathBuf>,
         writes: &mpsc::Sender<ManagedWorkspaceWrite>,
+        changed_folders: &PendingSessions,
     ) -> Result<bool, ManagedWorkspaceWatchError> {
         let candidates: Vec<Candidate> = paths
             .into_iter()
@@ -236,6 +246,10 @@ impl WriteReporter {
         if candidates.is_empty() {
             return Ok(true);
         }
+        let changed_sessions: HashSet<SessionId> = candidates
+            .iter()
+            .map(|candidate| candidate.session_id)
+            .collect();
         let readings = run_on_own_thread("managed workspace write read", move || {
             candidates
                 .into_iter()
@@ -277,6 +291,9 @@ impl WriteReporter {
             if writes.send(write).await.is_err() {
                 return Ok(false);
             }
+        }
+        for session_id in changed_sessions {
+            changed_folders.add(session_id);
         }
         Ok(true)
     }
@@ -356,8 +373,10 @@ fn read_entry(path: &Path) -> io::Result<EntryReading> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
     use std::time::{Duration, SystemTime};
 
     use notify::event::{DataChange, ModifyKind};
@@ -366,9 +385,11 @@ mod tests {
     use tokio::time::timeout;
 
     use super::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, open_watch, report_writes};
+    use crate::events::session::pending::PendingSessions;
     use crate::file_watch::{FEED_CAPACITY, wait_for_the_next_whole_second};
 
     const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
+    const OTHER_SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f";
     const WAIT: Duration = Duration::from_secs(10);
 
     fn notice(paths: &[PathBuf]) -> Event {
@@ -400,23 +421,27 @@ mod tests {
         session
     }
 
-    // Catches a repeated notice reported twice, the workspace's `.git` reported, and a removed
-    // entry reported as a write.
+    // Catches a repeated notice reported twice, the workspace's `.git` reported, a removed entry
+    // reported as a write, and a removal not named to the count of the session's files, which
+    // would leave the count high after a delete.
     #[tokio::test]
-    async fn managed_write_watch_reports_each_write_once_and_never_git_or_a_removal() {
+    async fn managed_write_watch_reports_each_write_once_never_git_and_counts_a_removal() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let (watch, mut feed) = open_watch::<NullWatcher>(scratch.path().join("workspaces"))
             .await
             .expect("the watch starts");
-        let session = session_folder(&watch.roots()[0]);
+        let watch_root = watch.roots()[0].clone();
+        let session = session_folder(&watch_root);
         fs::write(session.join("a.txt"), "first").expect("a file is written");
         fs::write(session.join("b.txt"), "second").expect("a file is written");
         fs::create_dir(session.join("made")).expect("a folder is made");
         fs::write(session.join(".git").join("index"), "index").expect("git's file is written");
         let (writes_sender, mut writes) = mpsc::channel(16);
+        let changed_folders = Arc::new(PendingSessions::default());
+        let named_folders = Arc::clone(&changed_folders);
         let task = tokio::spawn(async move {
             let mut watch = watch;
-            report_writes(&mut watch, &writes_sender).await
+            report_writes(&mut watch, &writes_sender, &named_folders).await
         });
 
         feed.handle_event(Ok(notice(&[
@@ -451,6 +476,24 @@ mod tests {
             write("zz-last.txt", ManagedWorkspaceWriteKind::File)
         );
         assert!(writes.try_recv().is_err(), "nothing more is reported");
+
+        // A second session's folder that only a removal changes, so only the removal names it.
+        let other = watch_root.join(OTHER_SESSION);
+        fs::create_dir_all(&other).expect("the other workspace is made");
+        fs::write(other.join("gone.txt"), "removed").expect("a file is written");
+        fs::remove_file(other.join("gone.txt")).expect("the file is removed");
+        feed.handle_event(Ok(notice(&[other.join("gone.txt")])));
+        let other_session =
+            sidekicks_contracts::session::id::SessionId::new(OTHER_SESSION).expect("a session id");
+        let mut named = HashSet::new();
+        while !named.contains(&other_session) {
+            named.extend(
+                timeout(WAIT, changed_folders.take())
+                    .await
+                    .expect("the removal names its session"),
+            );
+        }
+        assert!(writes.try_recv().is_err(), "the removal is no write");
         task.abort();
     }
 
@@ -487,7 +530,7 @@ mod tests {
         let (writes_sender, mut writes) = mpsc::channel(16);
         let task = tokio::spawn(async move {
             let mut watch = watch;
-            report_writes(&mut watch, &writes_sender).await
+            report_writes(&mut watch, &writes_sender, &PendingSessions::default()).await
         });
 
         let mut reported = vec![next_write(&mut writes).await, next_write(&mut writes).await];

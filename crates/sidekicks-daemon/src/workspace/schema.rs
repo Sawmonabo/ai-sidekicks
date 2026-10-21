@@ -131,7 +131,11 @@ CREATE TABLE repo_mounts (
   -- ahead and behind figures read as of fetched_at (attached_at before any) while one is set.
   fetched_at      TEXT,
   fetch_failed_at TEXT,
+  -- On a chat's managed mount, the files in its folder, its .git folder aside: recounted on each
+  -- change the managed workspaces watch reports, so the sessions list never walks a folder.
+  document_count  INTEGER NOT NULL DEFAULT 0,
   CHECK ((origin = '{managed_origin}') = (managed_session_id IS NOT NULL)),
+  CHECK (origin = '{managed_origin}' OR document_count = 0),
   CHECK (origin = '{attached_origin}' OR project_id IS NULL),
   CHECK (origin = '{managed_origin}' OR state <> '{attached_state}' OR project_id IS NOT NULL)
 ) STRICT;

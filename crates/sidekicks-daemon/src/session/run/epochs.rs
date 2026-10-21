@@ -181,13 +181,6 @@ impl ExecutionEpochs {
 
     /// Opens a binding's cursor at `start`, the epoch and turn its conversation stands at. Fails
     /// with [`EpochCursorError::AlreadyOpen`] for a binding that has one.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the binding cursors open a cursor for each runtime binding they record"
-        )
-    )]
     pub(crate) fn open_binding(
         &mut self,
         binding: EpochBinding,
@@ -207,11 +200,6 @@ impl ExecutionEpochs {
     /// Opens the cursor of a binding that carries `predecessor_id`'s conversation on in a new
     /// process: where the predecessor's stands, with what it remembers, while its cursor is open,
     /// else at `start`. Fails with [`EpochCursorError::AlreadyOpen`] for a binding that has one.
-    #[expect(
-        dead_code,
-        reason = "a driver's relaunch continues its new binding's cursor through the binding \
-                  cursors"
-    )]
     pub(crate) fn continue_binding(
         &mut self,
         binding: EpochBinding,
@@ -230,13 +218,6 @@ impl ExecutionEpochs {
 
     /// Drops a binding's cursor once the binding has ended and delivers nothing more; one with no
     /// cursor is already dropped.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the binding cursors drop an ended binding's cursor through it"
-        )
-    )]
     pub(crate) fn close_binding(&mut self, binding_id: &RuntimeBindingId) {
         self.cursors.remove(binding_id);
     }

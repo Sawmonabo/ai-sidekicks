@@ -112,9 +112,12 @@ pub(crate) enum TurnSnapshotCaptureOutcome {
 
 /// What one prune of a run's snapshot refs did.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "a run's deletion reads what the prune of its refs did"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "a run's deletion and a session's purge read what the prune of its refs did"
+    )
 )]
 pub(crate) enum TurnSnapshotPruneOutcome {
     /// Every snapshot ref of the run was deleted, in one transaction; none when it had none.
@@ -523,16 +526,16 @@ impl TurnSnapshotService {
     }
 
     /// Deletes the snapshot refs of the run `run_key` from `git_common_dir`, for a run whose rows
-    /// are already deleted, running git for the project at `place`. The refs listed under the
-    /// run's prefix go in one `update-ref --no-deref --stdin` transaction, all or none, so a
-    /// refusal deletes none and the prune is retried. A dangling symref under the prefix, which
-    /// the daemon never writes, is not listed and so not deleted. Never fails; answers `Skipped`
-    /// with `GitDirAbsent`, `GitDirUnusable` or `RefDeleteFailed`.
+    /// are already deleted or whose session is marked for purging, running git for the project at
+    /// `place`. The refs listed under the run's prefix go in one `update-ref --no-deref --stdin`
+    /// transaction, all or none, so a refusal deletes none and the prune is retried. A dangling
+    /// symref under the prefix, which the daemon never writes, is not listed and so not deleted.
+    /// Never fails; answers `Skipped` with `GitDirAbsent`, `GitDirUnusable` or `RefDeleteFailed`.
     #[cfg_attr(
         not(test),
         expect(
             dead_code,
-            reason = "a run's deletion prunes its snapshot refs through it"
+            reason = "a run's deletion and a session's purge prune snapshot refs through it"
         )
     )]
     pub(crate) async fn prune_run_refs(

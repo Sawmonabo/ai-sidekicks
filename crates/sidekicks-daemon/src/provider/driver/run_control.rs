@@ -1,7 +1,7 @@
 //! The params and results of the driver operations that act on one live run: a steer or an
 //! interrupt, pause and continue, withdrawing a waiting message, overruling a reviewer's block,
-//! answering a provider's choice and resending a held turn on a faster model; and what the run
-//! queue serves a driver starting a run.
+//! answering a provider's choice and resending a held turn on a faster model; and the binding the
+//! run queue opens for a turn the daemon starts itself.
 
 use std::error::Error;
 
@@ -47,6 +47,9 @@ pub(crate) struct SteerPayload {
     pub(crate) skills: Vec<PickedSkill>,
     /// The provider turn the steer is meant for.
     pub(crate) expected_turn_id: Option<String>,
+    /// Whether the provider reads it before anything it holds, at the turn's next step: a
+    /// person's `Send now` on a provider that reads a priority message.
+    pub(crate) is_priority: bool,
 }
 
 /// What the daemon asks a driver to do on a live run, one arm per verb: a steer delivers a message
@@ -78,8 +81,12 @@ pub(crate) enum ApplyInterventionParams {
     },
 }
 
-/// What an interrupt does with the messages still waiting for the run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What an interrupt does with the messages still waiting for the run. Stored by its camelCase
+/// name.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr, strum::VariantArray, strum::EnumString,
+)]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum InterruptPendingChoice {
     /// They go as the next turn.
     NextTurn,
@@ -359,27 +366,4 @@ pub(crate) trait DaemonTurnBindingResolver: Send + Sync {
         run_id: RunId,
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>>;
-}
-
-/// The daemon-owned facts a driver's start of a run admitted from the queue reads beyond its start
-/// params, which the run queue serves.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunDispatch {
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// The runtime binding the run's deliveries are attributed on, opened by the daemon.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// The opening message's words.
-    pub(crate) opening_text: MessageContent,
-    /// The opening message's files, in staging order.
-    pub(crate) attachments: Vec<ArtifactId>,
-    /// The opening message's id, stamped on the provider's user frame so a later cut can name it.
-    pub(crate) message_id: QueueItemId,
-}
-
-/// Resolves a run's dispatch facts, and opens the binding of a turn the daemon starts on the
-/// session itself, which carries no queued message; the run queue serves it.
-pub(crate) trait RunDispatchResolver: DaemonTurnBindingResolver {
-    /// The facts of `run_id` when the queue admitted it, or `None` when it has none.
-    fn resolve_run_dispatch(&self, run_id: RunId) -> BoxFuture<'_, Option<RunDispatch>>;
 }

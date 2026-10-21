@@ -42,7 +42,6 @@ pub(crate) struct RuntimeBindingNotResumable {
 /// Rebuilds a resumed leg's params from its stored binding and the session's model, recorded
 /// larger window, mode, permission level's posture, option values and row values, as they stand
 /// now. Fails with [`RuntimeBindingNotResumable`] when the binding has no resume handle.
-#[expect(dead_code, reason = "recovery rebuilds a resume from it")]
 #[expect(
     clippy::too_many_arguments,
     reason = "each argument is one part of the resume the caller holds apart"
@@ -89,7 +88,6 @@ pub(crate) fn compose_resume_session_params(
 
 /// The newest of a session's `bindings` with a conversation to resume, the session's leg, by when
 /// each was recorded and then by id; `None` when none has one.
-#[expect(dead_code, reason = "recovery rebuilds a resume from it")]
 pub(crate) fn select_session_leg(bindings: &[RuntimeBinding]) -> Option<&RuntimeBinding> {
     bindings
         .iter()
