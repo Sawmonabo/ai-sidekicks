@@ -60,7 +60,8 @@ pub(crate) enum ArtifactMethodsError {
 /// The artifact store's background work, and its binding of a message's files to stored copies.
 #[expect(
     dead_code,
-    reason = "the daemon's start schedules the reaper and hands the drivers the attachments"
+    reason = "the daemon's start schedules the reaper, hands the drivers the attachments and \
+              the plans and a chat's versions the publisher"
 )]
 pub(crate) struct ArtifactMethods {
     /// Binds the files a message carries to their stored copies, for the drivers to hand over.

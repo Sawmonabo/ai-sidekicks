@@ -65,8 +65,9 @@ pub struct ArtifactPublishResponse {
 }
 
 /// The payload of `artifact.published`: it names the artifact and carries no content; an artifact
-/// is never changed in place, so a new version is a new artifact with its own event. A member a newer daemon adds is kept in `rest`, so an older
-/// reader keeps it rather than refusing a known event.
+/// is never changed in place, so a new version is a new artifact with its own event. A member a
+/// newer daemon adds is kept in `rest`, so an older reader keeps it rather than refusing a known
+/// event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(extend("propertyNames" = prototype_free_names()))]

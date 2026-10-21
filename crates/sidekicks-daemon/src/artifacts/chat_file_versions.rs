@@ -591,14 +591,17 @@ mod tests {
 
         /// Every version's bytes of `name`, oldest first, read as `artifact.read` answers them.
         async fn version_bytes(&self, name: &str) -> Vec<String> {
-            let ids = self.store.read_rows(
-                "SELECT id FROM artifact_manifests WHERE workspace_path = ?1 \
-                 ORDER BY version_number",
+            let rows = self.store.read_rows(
+                "SELECT id || ' ' || version_number FROM artifact_manifests \
+                 WHERE workspace_path = ?1 ORDER BY version_number",
                 name,
             );
             let mut versions = Vec::new();
-            for id in ids {
-                let ArtifactReadResponse::Inline(inline) = read(&self.store, &id, None).await
+            for row in rows {
+                let (id, version) = row.split_once(' ').expect("the row joins id and version");
+                let version = version.parse().expect("a version number reads");
+                let ArtifactReadResponse::Inline(inline) =
+                    read(&self.store, id, Some(version)).await
                 else {
                     panic!("a small payload reads inline");
                 };
@@ -630,8 +633,9 @@ mod tests {
             "notes.txt",
         );
         let third_written_at = fixture.store.read_rows(
-            "SELECT created_at FROM artifact_manifests WHERE version_number = 3 AND ?1 = ?1",
-            "",
+            "SELECT created_at FROM artifact_manifests \
+             WHERE workspace_path = ?1 AND version_number = 3",
+            "notes.txt",
         );
         let ArtifactReadResponse::Inline(newest) = read(&fixture.store, &ids[0], None).await else {
             panic!("a small payload reads inline");

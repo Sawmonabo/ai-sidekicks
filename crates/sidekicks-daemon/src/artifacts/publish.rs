@@ -85,7 +85,7 @@ pub(crate) struct DaemonPayload {
 }
 
 /// What a publish reads of its payload before anything of it is kept.
-struct PayloadReading {
+struct PayloadScan {
     content_hash: ContentHash,
     leading_bytes: Vec<u8>,
     is_utf8: bool,
@@ -317,8 +317,8 @@ impl ArtifactPublishService {
 
 // Reads what the publish keeps of `payload` in one pass on the blocking pool: its hash, its
 // leading bytes and whether it is UTF-8.
-async fn read_payload(payload: ByteBuffer) -> Result<PayloadReading, ArtifactError> {
-    Ok(tokio::task::spawn_blocking(move || PayloadReading {
+async fn read_payload(payload: ByteBuffer) -> Result<PayloadScan, ArtifactError> {
+    Ok(tokio::task::spawn_blocking(move || PayloadScan {
         content_hash: ContentHash::of_sha256(&Sha256::digest(&payload)),
         leading_bytes: payload
             .get(..DETECTION_PREFIX_BYTES)
