@@ -8327,7 +8327,6 @@ dependencies = [
  "tower-service",
  "tracing",
  "url",
- "uuid",
  "wasm-bindgen",
  "worker",
 ]
