@@ -107,13 +107,6 @@ impl RunBindingCursors {
     /// the cursors of the session's runs that have ended. Fails with
     /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds, recording nothing, and
     /// with the store's or the read's failure.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a provider session's start records each run's binding through it"
-        )
-    )]
     pub(crate) async fn create(
         &self,
         input: CreateRuntimeBindingInput,
@@ -163,10 +156,6 @@ impl RunBindingCursors {
     /// [`RunBindingCursors::continue_binding`] opens it. Fails with
     /// [`RunBindingCursorError::PredecessorMissing`] for a predecessor the store does not hold,
     /// and as the cursor's open or the store fails, recording nothing and leaving no cursor open.
-    #[expect(
-        dead_code,
-        reason = "a driver's own relaunch records its new binding through it"
-    )]
     pub(crate) async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
@@ -321,7 +310,7 @@ mod tests {
     use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
     use crate::session::run::engine::tests::insert_running_run;
     use crate::session::run::epochs::ExecutionEpochs;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     struct Harness {
         database: TestDatabase,

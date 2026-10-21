@@ -26,7 +26,7 @@ use crate::events::log_service::tests::open_log;
 use crate::events::session::appender::SessionEventAppender;
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::session::directory::test_rows::insert_session_row;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Free room the test volume reports: far more than any test writes.
 const TEST_VOLUME_FREE_BYTES: u64 = 1 << 40;

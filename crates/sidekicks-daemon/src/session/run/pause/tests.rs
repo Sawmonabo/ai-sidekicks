@@ -41,7 +41,7 @@ use crate::session::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_e
 use crate::session::run::engine::{InterruptRoute, RunEngine};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// How long a call held behind a resume is watched to show it waits.
 const HELD_WATCH: Duration = Duration::from_millis(200);
@@ -106,6 +106,7 @@ async fn fixture(mut driver: MockProviderDriver, state: &str) -> Fixture {
             hands_at: HandMoment::AtOnce,
             can_withdraw: true,
             kept_by_process: false,
+            reads_priority_message: false,
         });
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;
@@ -221,8 +222,8 @@ impl WaitingMessages {
 }
 
 impl ContinuedMessages for WaitingMessages {
-    fn session_lock(&self) -> &KeyedLock<SessionId> {
-        &self.session_lock
+    fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
+        self.session_lock.acquire(session_id).boxed()
     }
 
     fn read(

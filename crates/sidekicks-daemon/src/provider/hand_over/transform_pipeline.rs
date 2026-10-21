@@ -337,7 +337,7 @@ mod tests {
         CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
         CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
     };
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// A projection of one assistant turn holding `segments`.
     fn projection_of(segments: Vec<CanonicalTranscriptSegment>) -> CanonicalTranscriptProjection {

@@ -66,7 +66,7 @@ use crate::session::not_found::session_not_found;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader};
 use crate::session::run::read::{RunProvider, RunStateReader, read_run_provider};
 use crate::session::run::transitions::is_run_terminal_event_type;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements [`ReviewerDenials`] prepares on a read connection: the blocked call's row, the
 /// session's state, the block, its override, the run and its provider, and the run's agent.

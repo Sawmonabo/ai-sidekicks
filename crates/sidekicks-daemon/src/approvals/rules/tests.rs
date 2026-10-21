@@ -9,7 +9,7 @@ use crate::database::writer::test_file::{TestDatabase, test_envelope, test_sessi
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::provider::port::permission_ask::ProviderAskActionKind;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Appends the event `event` describes to the session's log and answers its sequence.
 async fn append(writer: &DatabaseWriter, session_id: SessionId, event: serde_json::Value) -> i64 {

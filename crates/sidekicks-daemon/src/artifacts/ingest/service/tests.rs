@@ -25,7 +25,7 @@ use crate::artifacts::ingest::limits::{
 };
 use crate::artifacts::refusals::ArtifactError;
 use crate::artifacts::test_store::{ArtifactTestStore, refusal_code_of};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 fn service(store: &ArtifactTestStore) -> Arc<ArtifactIngestService> {
     Arc::new(ArtifactIngestService::new(

@@ -16,7 +16,7 @@ use sidekicks_platforms::{MachineNameError, Spawner, machine_name};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const SELECT_LOCAL_MACHINE_SQL: &str =
     "SELECT machine_id, owner_user_id, name FROM local_machine WHERE singleton = 1";

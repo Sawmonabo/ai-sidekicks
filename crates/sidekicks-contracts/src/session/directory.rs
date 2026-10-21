@@ -199,14 +199,14 @@ session_list_entry_arm! {
 }
 
 session_list_entry_arm! {
-    /// A chat's row: its document count once its artifact store counts them. A chat sits in no
-    /// group.
+    /// A chat's row: its document count, the files in the chat's own folder, which the daemon
+    /// keeps as they change so the row costs no folder walk. A chat sits in no group.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[schemars(inline)]
     #[garde(allow_unvalidated)]
     pub struct SessionListChatEntry {
-        /// The chat's documents.
+        /// The files in the chat's folder; absent while the folder is being made.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",

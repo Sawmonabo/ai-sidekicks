@@ -5,18 +5,16 @@ use std::error::Error;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::rejection::JsonRejection;
-use axum::http::header::RETRY_AFTER;
+use axum::extract::FromRequestParts;
+use axum::http::header::{RETRY_AFTER, WWW_AUTHENTICATE};
+use axum::http::request::Parts;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::jsonrpc::issue::{
-    Issue, UNREADABLE_VALUE_ISSUE_MESSAGE, reader_issue_path,
-};
+use sidekicks_contracts::jsonrpc::issue::Issue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::rate_limiter::RateLimitResponse;
 
-use crate::rate_limit::enforcement_pipeline::AdmissionCheck;
 use crate::server::log_internal_failure;
 
 /// What a caller reads for a failure inside the relay; the failure itself goes to the log.
@@ -60,11 +58,91 @@ pub enum ControlPlaneRefusal {
     BodyTooLarge,
     /// A sign-in route over its limit: the 429 body and its `Retry-After`.
     RateLimited(RateLimitResponse),
+    /// A caller not signed in or whose `DPoP` proof is refused: a 401 with its `WWW-Authenticate`
+    /// challenge.
+    Unauthenticated(AuthenticationFault),
     /// The relay's own failure, already logged; the caller reads only the fixed message.
     Internal(LoggedFailure),
 }
 
+/// Why a caller was refused with a 401. Each answers `WWW-Authenticate: DPoP algs="ES256"`, with
+/// `error="invalid_token"` for a presented token that is refused and `error="invalid_dpop_proof"`
+/// for a refused proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthenticationFault {
+    /// No `Authorization` header with the `DPoP` scheme.
+    NoToken,
+    /// The token is not one this control plane signed, breaks a claim, or is revoked.
+    TokenInvalid,
+    /// The token's `exp` has passed.
+    TokenExpired,
+    /// The token is bound to another key than the proof's.
+    KeyMismatch,
+    /// The `DPoP` proof is missing, malformed, replayed or made for another request.
+    ProofInvalid,
+}
+
+impl AuthenticationFault {
+    // The code, the sentence for a person, and the challenge's `error` parameter.
+    fn describe(self) -> (RefusalCode, &'static str, Option<&'static str>) {
+        match self {
+            Self::NoToken => (
+                RefusalCode::AuthTokenInvalid,
+                "This route needs a DPoP-bound access token.",
+                None,
+            ),
+            Self::TokenInvalid => (
+                RefusalCode::AuthTokenInvalid,
+                "The access token is not valid.",
+                Some("invalid_token"),
+            ),
+            Self::TokenExpired => (
+                RefusalCode::AuthTokenExpired,
+                "The access token has expired.",
+                Some("invalid_token"),
+            ),
+            Self::KeyMismatch => (
+                RefusalCode::AuthDpopMismatch,
+                "The access token is bound to another key than the DPoP proof's.",
+                Some("invalid_token"),
+            ),
+            Self::ProofInvalid => (
+                RefusalCode::AuthDpopMismatch,
+                "The DPoP proof is missing, malformed, replayed, or made for another request.",
+                Some("invalid_dpop_proof"),
+            ),
+        }
+    }
+}
+
 impl ControlPlaneRefusal {
+    /// The refusal of a passkey ceremony whose challenge is unknown, expired, consumed, or not
+    /// this transaction's, ceremony's or caller's.
+    pub fn refuse_passkey_challenge() -> Self {
+        Self::Plain(PlainRefusal {
+            code: RefusalCode::AccountPasskeyChallengeInvalid,
+            message: "The passkey challenge is unknown, expired or already used; start again."
+                .to_owned(),
+        })
+    }
+
+    /// The one refusal of every failed passkey verification, the same for each cause so the
+    /// reply tells none apart.
+    pub fn refuse_passkey_verification() -> Self {
+        Self::Plain(PlainRefusal {
+            code: RefusalCode::AccountPasskeyVerificationFailed,
+            message: "The passkey could not be verified.".to_owned(),
+        })
+    }
+
+    /// The refusal of a body with no JSON content type, or one that does not parse.
+    pub(crate) fn refuse_envelope() -> Self {
+        Self::Plain(PlainRefusal {
+            code: RefusalCode::RequestEnvelopeInvalid,
+            message: "The request's body is not JSON this route reads.".to_owned(),
+        })
+    }
+
     /// The refusal of a counted route whose request carries no source address the relay can count.
     pub fn refuse_unresolvable_source_address() -> Self {
         Self::Plain(PlainRefusal {
@@ -81,41 +159,6 @@ impl ControlPlaneRefusal {
     ) -> Self {
         log_internal_failure(request_id.map(|id| id.0.as_str()), error);
         Self::Internal(LoggedFailure(()))
-    }
-}
-
-impl From<JsonRejection> for ControlPlaneRefusal {
-    // A body over the size limit is too large; one that parses into the wrong shape fails the
-    // call's contract check; any other, unparsable or with no JSON content type, breaks the
-    // envelope.
-    fn from(rejection: JsonRejection) -> Self {
-        if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
-            return Self::BodyTooLarge;
-        }
-        if !matches!(rejection, JsonRejection::JsonDataError(_)) {
-            return Self::Plain(PlainRefusal {
-                code: RefusalCode::RequestEnvelopeInvalid,
-                message: "The request's body is not JSON this route reads.".to_owned(),
-            });
-        }
-        let mut source: Option<&(dyn Error + 'static)> = Some(&rejection);
-        let mut path = Vec::new();
-        while let Some(error) = source {
-            if let Some(read) =
-                error.downcast_ref::<serde_path_to_error::Error<serde_json::Error>>()
-            {
-                path = reader_issue_path(read.path());
-                break;
-            }
-            source = error.source();
-        }
-        Self::ParamsInvalid {
-            issues: vec![Issue {
-                path,
-                message: UNREADABLE_VALUE_ISSUE_MESSAGE.to_owned(),
-                params: None,
-            }],
-        }
     }
 }
 
@@ -152,6 +195,19 @@ impl IntoResponse for ControlPlaneRefusal {
                 )
                     .into_response();
                 response.headers_mut().insert(RETRY_AFTER, retry_after);
+                response
+            }
+            Self::Unauthenticated(fault) => {
+                let (code, message, error) = fault.describe();
+                let challenge = match error {
+                    Some(error) => format!("DPoP algs=\"ES256\", error=\"{error}\""),
+                    None => "DPoP algs=\"ES256\"".to_owned(),
+                };
+                let mut response = build_refusal_response(code, message, Map::new());
+                response.headers_mut().insert(
+                    WWW_AUTHENTICATE,
+                    HeaderValue::from_str(&challenge).expect("the challenge is ASCII"),
+                );
                 response
             }
             Self::Internal(LoggedFailure(())) => build_refusal_response(
@@ -192,10 +248,10 @@ pub(crate) fn read_refusal_status(code: RefusalCode) -> StatusCode {
         .unwrap_or(StatusCode::UNPROCESSABLE_ENTITY)
 }
 
-/// Builds the control plane's router, its routes reading `admission` from its state to count the
-/// sign-in routes; a path no route serves and a method a route does not serve are refused.
-pub fn build_router<A: AdmissionCheck>(admission: A) -> Router {
-    add_refusal_fallbacks(Router::new()).with_state(admission)
+/// Builds the router the Compose relay serves: the account's routes and the app site association
+/// file, a path neither serves and a method a route does not serve refused.
+pub fn build_router(account: Router, app_site_association: Router) -> Router {
+    add_refusal_fallbacks(account.merge(app_site_association))
 }
 
 /// Answers a path none of `routes` serves with `request.methodNotFound` (404) and a method a route
@@ -219,4 +275,33 @@ async fn refuse_method_not_allowed() -> ControlPlaneRefusal {
         code: RefusalCode::RequestMethodNotAllowed,
         message: "This route does not serve this HTTP method.".to_owned(),
     })
+}
+
+/// The account a signed-in route's caller proved it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignedInUser {
+    /// The user's id, the access token's subject.
+    pub user_id: String,
+}
+
+/// A router state that can tell who signed a request in: the access token in `Authorization:
+/// DPoP` and the proof beside it. Refuses a caller that is not signed in with a 401, and a store
+/// failure with the logged 500.
+pub trait SignedInCheck {
+    /// The signed-in caller of the request `parts` holds.
+    fn check_signed_in(
+        &self,
+        parts: &Parts,
+    ) -> impl Future<Output = Result<SignedInUser, ControlPlaneRefusal>> + Send;
+}
+
+impl<S: SignedInCheck + Send + Sync> FromRequestParts<S> for SignedInUser {
+    type Rejection = ControlPlaneRefusal;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        state.check_signed_in(parts)
+    }
 }

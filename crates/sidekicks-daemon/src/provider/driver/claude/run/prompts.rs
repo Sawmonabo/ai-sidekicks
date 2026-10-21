@@ -178,7 +178,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::ClaudeSentPrompts;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn run() -> RunId {
         RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")

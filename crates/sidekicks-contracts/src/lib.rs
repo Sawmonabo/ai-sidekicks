@@ -60,6 +60,7 @@ pub mod turn;
 pub mod typescript;
 pub mod voice;
 pub mod web_address;
+pub mod webauthn;
 pub mod wire;
 pub mod workflow;
 pub mod worktree;
@@ -89,6 +90,7 @@ pub fn typescript_modules() -> impl Iterator<Item = &'static TypeScriptModule> {
         run::TYPESCRIPT_MODULES,
         session::TYPESCRIPT_MODULES,
         transcript::TYPESCRIPT_MODULES,
+        webauthn::TYPESCRIPT_MODULES,
         wire::TYPESCRIPT_MODULES,
         workflow::TYPESCRIPT_MODULES,
         worktree::TYPESCRIPT_MODULES,

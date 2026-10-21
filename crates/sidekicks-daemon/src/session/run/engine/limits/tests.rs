@@ -20,7 +20,7 @@ use crate::session::run::engine::tests::{
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::state_change::RunStateChangeCompanions;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // A person's interrupt accepted at `accepted_run_version` ends the run, and a continue runs it
 // again.

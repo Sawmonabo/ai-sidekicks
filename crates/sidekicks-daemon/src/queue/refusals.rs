@@ -33,10 +33,6 @@ pub(crate) fn change_refused(
 }
 
 /// The refusal of a change to `item`, no longer waiting, by how it left the queue.
-#[expect(
-    dead_code,
-    reason = "the run queue's send path and its changes to a queue"
-)]
 pub(crate) fn left_queue_refusal(item: &QueueItemRecord) -> DomainError {
     match item.state {
         RecordedQueueItemState::Admitted => unreturned_refusal(item.id, UnreturnedReason::Taken),
@@ -73,7 +69,10 @@ pub(crate) fn unreturned_refusal(
 }
 
 /// The `skill.pathRefused` refusal of a skill pick the session's provider does not list.
-#[expect(dead_code, reason = "the run queue's send path")]
+#[expect(
+    dead_code,
+    reason = "each driver's skill pick resolution, which refuses a pick its provider does not list"
+)]
 pub(crate) fn skill_not_listed(pick: &QueuedSkillPick) -> DomainError {
     let folder_path = pick.folder_path.as_str();
     let path = BoundedText::new(folder_path.to_owned())
@@ -92,10 +91,6 @@ pub(crate) fn skill_not_listed(pick: &QueuedSkillPick) -> DomainError {
 }
 
 /// The refusal of a change to an item the queue does not hold.
-#[expect(
-    dead_code,
-    reason = "the run queue's send path and its changes to a queue"
-)]
 pub(crate) fn queue_item_not_found(queue_item_id: QueueItemId) -> DomainError {
     DomainError::new(
         format!("Queue item {queue_item_id} is not in this queue"),

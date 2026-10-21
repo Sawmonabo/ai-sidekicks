@@ -17,10 +17,10 @@ use crate::events::log_service::{
 use crate::events::session::followers::SessionEventFollowers;
 use crate::git::process::test_git_runner;
 use crate::ipc::domain_error::DomainError;
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::event_emitter::WorkspaceEventEmitter;
 use crate::workspace::repo::root_resolver::RepoRootResolver;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The `repoMount.health.changed` rows `session_id`'s log holds.
 fn heard(rows: &Connection, session_id: SessionId) -> i64 {

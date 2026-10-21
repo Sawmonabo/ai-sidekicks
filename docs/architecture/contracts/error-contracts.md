@@ -178,10 +178,10 @@ Every namespace below follows the same rules:
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
-| `auth.token.expired` | Authentication token has expired | `unauthenticated` | 401 |
-| `auth.token.invalid` | Authentication token is malformed or invalid | `unauthenticated` | 401 |
+| `auth.token.expired` | Authentication token has expired; answered with `WWW-Authenticate: DPoP algs="ES256", error="invalid_token"` | `unauthenticated` | 401 |
+| `auth.token.invalid` | Authentication token is missing, malformed, invalid or revoked; answered with `WWW-Authenticate: DPoP algs="ES256"`, with `error="invalid_token"` when a token was presented | `unauthenticated` | 401 |
 | `auth.insufficientScope` | Token does not have the required scope for this operation | `permissionDenied` | 403 |
-| `auth.dpopMismatch` | DPoP proof does not match the bound token | `unauthenticated` | 401 |
+| `auth.dpopMismatch` | A DPoP proof that is missing, malformed, replayed, or does not match the bound token; answered with `WWW-Authenticate: DPoP algs="ES256"` and `error="invalid_dpop_proof"` for a refused proof, or `error="invalid_token"` for a token bound to another key | `unauthenticated` | 401 |
 
 ### Agent Run
 

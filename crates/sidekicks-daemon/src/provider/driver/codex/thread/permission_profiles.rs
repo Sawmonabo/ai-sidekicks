@@ -173,7 +173,7 @@ mod tests {
     };
     use crate::provider::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
     use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn ask_settings() -> CodexThreadSettings {
         CodexThreadSettings {

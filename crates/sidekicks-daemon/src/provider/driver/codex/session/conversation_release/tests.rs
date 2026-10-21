@@ -20,7 +20,7 @@ use crate::provider::driver::codex::session::inbound::{
 };
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::contract::DriverError;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const THREAD: &str = "thread-1";
 

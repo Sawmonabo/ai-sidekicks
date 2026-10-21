@@ -16,7 +16,7 @@ use crate::database::writer::test_file::{TestDatabase, test_envelope, test_sessi
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WritesHeldError};
 use crate::events::session::append_lock::SESSION_APPEND_LOCK;
 use crate::events::session::followers::SessionEventFollowers;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds an append the test expects to answer, so one that waits on a lock fails the test.
 const APPEND_WAIT: Duration = Duration::from_secs(5);

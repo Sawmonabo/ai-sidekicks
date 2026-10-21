@@ -401,7 +401,7 @@ mod tests {
 
     use super::{RunTurnReads, SessionTurnAttribution};
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn run_event(
         session_id: &SessionId,

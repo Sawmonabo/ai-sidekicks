@@ -25,7 +25,7 @@ use crate::provider::driver::run_control::{
 };
 use crate::session::run::inbound::rows::UnstampedRow;
 use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // What each delivery was, in the order handed over: a row's kind or a move's target state.
 type Delivered = Arc<Mutex<Vec<String>>>;

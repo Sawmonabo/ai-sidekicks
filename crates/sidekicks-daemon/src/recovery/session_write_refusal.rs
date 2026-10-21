@@ -84,7 +84,7 @@ mod tests {
     use super::{refuse_call_naming_session, refuse_session_event};
     use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
     use crate::recovery::status::{LastGoodPoint, RecoveryStatusTracker};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     const METHOD: &str = "agent.run.create";
     const EVENT_TYPE: &str = "agent.message.sent";

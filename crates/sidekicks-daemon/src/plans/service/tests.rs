@@ -32,7 +32,7 @@ use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::test_engine;
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const PLAN_TEXT: &str = "# Ship the importer\n\n1. Read `src/import.rs`\n2. Write the tests\n";
 

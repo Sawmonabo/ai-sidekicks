@@ -230,7 +230,7 @@ mod tests {
     use crate::database::writer::test_file::test_session_id;
     use crate::provider::hand_over::brief::projection::{BriefBudgetPolicy, BriefProjection};
     use crate::provider::hand_over::canonical_transcript::CanonicalTranscriptProjection;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// A target whose every send fails after counting it.
     struct FailingGateway {

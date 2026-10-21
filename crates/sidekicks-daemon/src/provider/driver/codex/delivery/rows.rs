@@ -395,7 +395,7 @@ fn read_reasoning_text(item: &Map<String, Value>) -> Option<String> {
 /// A run on a fresh session, agent and binding, for a test's rows.
 #[cfg(test)]
 pub(crate) fn test_row_run() -> CodexRowRun {
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     CodexRowRun {
         session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"),

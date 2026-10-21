@@ -18,7 +18,7 @@ use crate::provider::driver::codex::session::inbound::{
 };
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::contract::DriverError;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// How many items the test queues for its session.
 const QUEUED_ITEMS: usize = 3;

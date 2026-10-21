@@ -88,8 +88,8 @@ pub(crate) struct UnresolvedSettle {
     pub(crate) statements: Vec<WriteStatement>,
     /// Their events, in the rows' order.
     pub(crate) events: Vec<SessionEventDraft>,
-    /// The choice each settled person's interrupt lets go the queue's hold with.
-    pub(crate) released_choices: Vec<InterruptChoice>,
+    /// Each settled person's interrupt, with the choice it lets go the queue's hold with.
+    pub(crate) released_choices: Vec<(InterventionId, InterruptChoice)>,
 }
 
 /// Every intervention on `run_id` with no outcome yet, read on `reader`, oldest first. Fails when
@@ -188,14 +188,17 @@ pub(crate) fn settle_unresolved(
         ));
         settle.events.push(draft(&row.target, &state)?);
         if let Some(choice) = row.choice {
-            settle.released_choices.push(if is_applied {
+            let released = if is_applied {
                 choice
             } else {
                 InterruptChoice {
                     pending: InterruptPendingChoice::KeepWaiting,
                     deliver_first: None,
                 }
-            });
+            };
+            settle
+                .released_choices
+                .push((row.target.intervention_id, released));
         }
     }
     Ok(settle)

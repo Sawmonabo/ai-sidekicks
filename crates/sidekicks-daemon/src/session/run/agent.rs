@@ -14,6 +14,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::IdError;
 
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 use crate::events::session::read::readable_event_sql;
 
@@ -175,6 +176,21 @@ pub(crate) enum RunAgentReadError {
     /// The read itself failed.
     #[error("reading the session's log for an agent failed")]
     Read(#[from] rusqlite::Error),
+}
+
+/// The session's lead agent, read through `pool`. Fails as [`RunAgentReader::read_lead_agent`]
+/// does, and as the pool does.
+pub(crate) async fn read_lead_agent_through<Failure>(
+    pool: &DatabaseReadPool,
+    session_id: SessionId,
+) -> Result<AgentId, Failure>
+where
+    Failure: From<DatabaseReadError> + From<RunAgentReadError> + Send + 'static,
+{
+    pool.read(ReadLength::Short, move |reader| -> Result<_, Failure> {
+        Ok(RunAgentReader::new(reader).read_lead_agent(&session_id)?)
+    })
+    .await
 }
 
 /// Reads the agent of a run, and a session's lead, from the session's log on the reader the

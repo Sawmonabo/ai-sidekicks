@@ -53,7 +53,7 @@ use crate::session::not_found::session_not_found;
 use crate::session::run::ids::{RUN_IN_SESSION_SQL, run_in_session_statement};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::refused_statement_index;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // One row whatever the group holds: an aggregate with no GROUP BY yields one row, so a path's
 // next version is counted on the writer's connection, and a manifest with no path is version 1.
@@ -412,7 +412,7 @@ mod tests {
     use crate::artifacts::test_store::{ArtifactTestStore, refusal_code_of};
     use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
     use crate::database::writer::test_file::test_session_id;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// A run of another session never owns an artifact here, so no client writes into another
     /// session's run; the session's own run does. Both the check before spooling and the write's

@@ -42,7 +42,7 @@ use crate::provider::driver::error_causes::ExecutableUnresolvable;
 use crate::provider::driver::test_registry::registry_of_first_providers;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The instant the tests' events carry.
 const AT: &str = "2026-10-19T12:00:00.000Z";

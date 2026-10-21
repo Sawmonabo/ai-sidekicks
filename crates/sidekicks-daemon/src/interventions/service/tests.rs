@@ -1,5 +1,8 @@
 //! A person's interventions through the service, over a test database with a stand-in driver and
-//! a run queue that hands each end straight to the run engine; the limit's tests share it.
+//! a run queue that hands each end straight to the run engine; the limit's tests share it. A
+//! reused key's answers are in the module below.
+
+mod reused_keys;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -12,24 +15,28 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::events::{InterventionActor, InterventionDeviceActor};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
-    AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionInterruptRequest,
+    AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionId,
+    InterventionInterruptRequest,
 };
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tempfile::TempDir;
 
-use super::errors::InterventionError;
 use super::{
     INTERVENTION_SERVICE_STATEMENT_CAPACITY, InterventionService, InterventionServiceDeps,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::writer::DatabaseWriter;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::interventions::interrupt_queue::{
-    InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError,
+    InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError, SendNow,
+    SendNowOutcome,
 };
 use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
@@ -41,24 +48,85 @@ use crate::provider::driver::run_control::{
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
+use crate::queue::store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
+use crate::queue::store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A run queue that holds nothing but counts each hold it takes, records each release's choice,
-/// and hands each end straight to the run engine.
+/// and hands each end straight to the run engine; with a writer, it counts each `Send now` it is
+/// asked for and marks its message as sent once per key, a key it marked answering the first's id.
 struct EngineQueue {
     engine: Arc<RunEngine>,
     holds_taken: Arc<AtomicUsize>,
     releases: Arc<Mutex<Vec<InterruptPendingChoice>>>,
+    sends_now: Option<Arc<DatabaseWriter>>,
+    sent_now: Arc<AtomicUsize>,
+    marked: Mutex<Vec<(ClientUuid, InterventionId)>>,
+}
+
+impl EngineQueue {
+    // Records the release of a hold with `choice`.
+    fn record_release(&self, choice: InterruptChoice) {
+        self.releases
+            .lock()
+            .expect("the test's releases are writable")
+            .push(choice.pending);
+    }
 }
 
 impl InterruptQueue for EngineQueue {
+    fn send_now(
+        &self,
+        send: SendNow,
+    ) -> BoxFuture<'_, Result<SendNowOutcome, InterruptQueueError>> {
+        async move {
+            let writer = self
+                .sends_now
+                .as_ref()
+                .expect("only a provider that reads a priority message sends now");
+            let marked = self
+                .marked
+                .lock()
+                .expect("the test's marks are readable")
+                .iter()
+                .find(|(key, _)| *key == send.key)
+                .map(|(_, intervention_id)| *intervention_id);
+            self.sent_now.fetch_add(1, Ordering::SeqCst);
+            if let Some(intervention_id) = marked {
+                return Ok(SendNowOutcome::Sent { intervention_id });
+            }
+            let now = WireInstant::now();
+            let sent = SentNow {
+                item_id: send.item_id,
+                intervention_id: send.intervention_id,
+            };
+            writer
+                .write(vec![
+                    mark_sent_now_statement(&send.item_id, &send.intervention_id, &now),
+                    record_sent_now_statement(&send.run_id, &send.key, &sent, &now),
+                ])
+                .await
+                .expect("the test marks the message sent now");
+            self.marked
+                .lock()
+                .expect("the test's marks are writable")
+                .push((send.key, send.intervention_id));
+            Ok(SendNowOutcome::Sent {
+                intervention_id: send.intervention_id,
+            })
+        }
+        .boxed()
+    }
+
     fn hold_for_interrupt(
         &self,
         _run_id: RunId,
+        _intervention_id: InterventionId,
         _choice: InterruptChoice,
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
         self.holds_taken.fetch_add(1, Ordering::SeqCst);
@@ -91,12 +159,20 @@ impl InterruptQueue for EngineQueue {
     fn release_interrupt(
         &self,
         _run_id: RunId,
+        _intervention_id: InterventionId,
         choice: InterruptChoice,
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
-        self.releases
-            .lock()
-            .expect("the test's releases are writable")
-            .push(choice.pending);
+        self.record_release(choice);
+        async { Ok(()) }.boxed()
+    }
+
+    fn release_interrupt_at_run_end(
+        &self,
+        _run_id: RunId,
+        _intervention_id: InterventionId,
+        choice: InterruptChoice,
+    ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
+        self.record_release(choice);
         async { Ok(()) }.boxed()
     }
 }
@@ -116,6 +192,10 @@ pub(crate) struct Harness {
     pub(crate) run_id: RunId,
     /// How many interrupt holds the run queue has taken.
     pub(crate) holds_taken: Arc<AtomicUsize>,
+    /// How many `Send now`s the run queue was asked for.
+    sent_now: Arc<AtomicUsize>,
+    // The writer the test queues messages through.
+    writer: Arc<DatabaseWriter>,
     /// The choice of each hold the run queue let go, in order.
     releases: Arc<Mutex<Vec<InterruptPendingChoice>>>,
     // The engine's posture files.
@@ -123,13 +203,23 @@ pub(crate) struct Harness {
 }
 
 /// The harness of a service whose driver is `driver`, which takes messages at once.
-pub(crate) async fn harness(mut driver: MockProviderDriver) -> Harness {
+pub(crate) async fn harness(driver: MockProviderDriver) -> Harness {
+    harness_reading_priority(driver, false).await
+}
+
+/// The harness of a service whose driver is `driver`, which takes messages at once and reads a
+/// priority message when `reads_priority_message` holds, the run queue then sending it now.
+async fn harness_reading_priority(
+    mut driver: MockProviderDriver,
+    reads_priority_message: bool,
+) -> Harness {
     driver
         .expect_message_handing()
         .return_const(MessageHanding {
             hands_at: HandMoment::AtOnce,
             can_withdraw: true,
             kept_by_process: false,
+            reads_priority_message,
         });
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;
@@ -142,11 +232,16 @@ pub(crate) async fn harness(mut driver: MockProviderDriver) -> Harness {
     let providers = registry_of_first_provider(Arc::new(driver));
     let holds_taken = Arc::new(AtomicUsize::new(0));
     let releases = Arc::new(Mutex::new(Vec::new()));
+    let sent_now = Arc::new(AtomicUsize::new(0));
     let queue: Arc<dyn InterruptQueue> = Arc::new(EngineQueue {
         engine: Arc::clone(&engine),
         holds_taken: Arc::clone(&holds_taken),
         releases: Arc::clone(&releases),
+        sends_now: reads_priority_message.then(|| Arc::clone(&log.writer)),
+        sent_now: Arc::clone(&sent_now),
+        marked: Mutex::new(Vec::new()),
     });
+    let writer = Arc::clone(&log.writer);
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<dyn InterruptQueue>)
         .unwrap_or_else(|_| panic!("the engine is handed the queue once"));
@@ -167,6 +262,8 @@ pub(crate) async fn harness(mut driver: MockProviderDriver) -> Harness {
         session_id,
         run_id,
         holds_taken,
+        sent_now,
+        writer,
         releases,
         _home: home,
     }
@@ -244,6 +341,34 @@ impl Harness {
         );
     }
 
+    /// Queues a message for the run and answers its id.
+    async fn queue_message(&self) -> QueueItemId {
+        let item_id =
+            QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
+        let item = NewQueueItem {
+            id: item_id,
+            session_id: self.session_id,
+            body: QueueItemBody {
+                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+                attachments: None,
+                skills: None,
+                answers_question_id: None,
+                output_speed_for_turn: None,
+                workspace_id: None,
+            },
+            target_run_id: self.run_id,
+            device_id: None,
+            client_idempotency_key: key(OTHER_KEY),
+            replaces_queue_item_id: None,
+            now: WireInstant::now(),
+        };
+        self.writer
+            .write(vec![insert_queue_item_statement(&item)])
+            .await
+            .expect("the test queues its message");
+        item_id
+    }
+
     /// Puts the run in `state` at `version`.
     pub(crate) fn set_run(&self, state: &str, version: i64) {
         self.database
@@ -279,6 +404,16 @@ fn interrupt(run_id: RunId, version: u64, reason: &str) -> AgentRunInterveneRequ
         client_idempotency_key: key(KEY),
         reason: Some(FreeFormText::new(reason.to_owned()).expect("a test reason")),
         deliver_first: None,
+    })
+}
+
+fn send_now(run_id: RunId, item_id: QueueItemId) -> AgentRunInterveneRequest {
+    AgentRunInterveneRequest::Interrupt(InterventionInterruptRequest::NextTurn {
+        target_run_id: run_id,
+        expected_run_version: SafeInt::new(1).expect("a test version"),
+        client_idempotency_key: key(KEY),
+        reason: None,
+        deliver_first: Some(item_id),
     })
 }
 
@@ -372,64 +507,6 @@ async fn a_request_its_guards_refuse_ends_without_a_dispatch(
     );
 }
 
-// A reused key answers what the first request saved without a second dispatch or a hold of the
-// queue, and refuses a request that asks for something else, also with no hold. Killed by
-// dropping the payload comparison or the saved answer, or by taking the hold before the key's
-// read.
-#[tokio::test]
-async fn a_reused_key_answers_the_saved_result_or_refuses_another_request() {
-    let mut driver = MockProviderDriver::new();
-    driver
-        .expect_apply_intervention()
-        .times(1)
-        .returning(|_| async { Ok(applied()) }.boxed());
-    let harness = harness(driver).await;
-
-    let first = harness
-        .service
-        .apply_intervention(interrupt(harness.run_id, 1, "stop"), device())
-        .await
-        .expect("the first request applies");
-    let again = harness
-        .service
-        .apply_intervention(interrupt(harness.run_id, 1, "stop"), device())
-        .await
-        .expect("the same request answers again");
-    let conflict = harness
-        .service
-        .apply_intervention(interrupt(harness.run_id, 1, "another reason"), device())
-        .await
-        .expect_err("another request under the key is refused");
-
-    let AgentRunInterveneResponse::Applied {
-        intervention_id, ..
-    } = first
-    else {
-        panic!("the first request applies, got {first:?}");
-    };
-    let AgentRunInterveneResponse::Applied {
-        intervention_id: saved,
-        ..
-    } = again
-    else {
-        panic!("the same request answers the saved result, got {again:?}");
-    };
-    assert_eq!(saved, intervention_id);
-    let InterventionError::Refused(DomainError { code, detail, .. }) = conflict else {
-        panic!("a conflict is a refusal, got {conflict:?}");
-    };
-    assert_eq!(code, RefusalCode::AgentInterventionIdempotencyConflict);
-    let detail = detail.expect("the refusal names the run and the saved intervention");
-    assert_eq!(detail["targetRunId"], harness.run_id.text().as_str());
-    assert_eq!(detail["interventionId"], intervention_id.text().as_str());
-    assert_eq!(harness.stored_rows().len(), 1);
-    assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        stored_run_state(&harness.database, &harness.run_id).0,
-        "interrupted"
-    );
-}
-
 // A dispatch that throws ends the request `failed` once, with a refusal's code or else the
 // failure's description, and leaves the run as it was. Killed by recording the description for a
 // refusal or recording the failure twice.
@@ -494,9 +571,12 @@ async fn a_dispatch_that_throws_ends_the_request_failed_once(#[case] is_refusal:
     );
 }
 
-/// How the run ends after a dispatch the provider got with no answer back.
+/// How the run ends, or its turn, after a dispatch the provider got with no answer back.
 #[derive(Clone, Copy, Debug)]
 enum UnansweredEnd {
+    /// The provider reports the turn completed and the run waiting for input, so the dispatch
+    /// did not take.
+    TurnCompleted,
     /// The provider reports it interrupted.
     Interrupted,
     /// The provider reports it stopped.
@@ -511,10 +591,14 @@ enum UnansweredEnd {
 // the run's own end settles both in its write: an interrupt applied when the run ended
 // `interrupted`, its hold let go with the person's choice, and expired at any other end, its
 // messages left waiting; a retry expires and holds nothing. A run that ended with no settle, the
-// daemon gone down, is settled the same way by the recovery pass. Killed by recording the failure,
-// letting the hold go before the run's end, settling on a later write, applying an interrupt at
-// another end, letting it go with the wrong choice or a recovery pass that settles nothing.
+// daemon gone down, is settled the same way by the recovery pass, and a turn that ended any other
+// way than interrupted on a live run expires it in the change that carries the turn's end
+// (`change_with_uninterrupted_turn_end`). Killed by recording the failure, letting the hold go
+// before the run's end, settling on a later write, applying an interrupt at another end, letting
+// it go with the wrong choice, a recovery pass that settles nothing, or a turn's end that leaves
+// the row open.
 #[rstest]
+#[case::change_with_uninterrupted_turn_end(true, UnansweredEnd::TurnCompleted, "expired")]
 #[case::interrupt_the_run_took(true, UnansweredEnd::Interrupted, "applied")]
 #[case::interrupt_at_another_end(true, UnansweredEnd::Stopped, "expired")]
 #[case::retry(false, UnansweredEnd::Interrupted, "expired")]
@@ -551,7 +635,25 @@ async fn an_unanswered_dispatch_stays_open_until_the_runs_end_settles_it(
         .expect("the service answers");
     let open = harness.stored_rows()[0].0.clone();
     let released_while_open = harness.released_choices();
-    let end_event = match end {
+    let (before_outcome, after_outcome) = match end {
+        UnansweredEnd::TurnCompleted => {
+            let written = harness
+                .engine
+                .apply_provider_state_change(
+                    RunStateChange::new(harness.run_id, RunStateEntry::WaitingForInput),
+                    Some(ProviderTurnEnd {
+                        turn_number: SafeInt::new(1).expect("a test turn"),
+                        outcome: TurnOutcome::Completed,
+                    }),
+                )
+                .await
+                .expect("the provider's report is written");
+            assert!(written.resend_failure.is_none());
+            (
+                Some("agent.turn.completed"),
+                Some("agent.run.waitingForInput"),
+            )
+        }
         UnansweredEnd::Interrupted => {
             harness
                 .report(RunStateEntry::Interrupted {
@@ -559,7 +661,7 @@ async fn an_unanswered_dispatch_stays_open_until_the_runs_end_settles_it(
                     trigger: None,
                 })
                 .await;
-            Some("agent.run.interrupted")
+            (None, Some("agent.run.interrupted"))
         }
         UnansweredEnd::Stopped => {
             harness
@@ -568,7 +670,7 @@ async fn an_unanswered_dispatch_stays_open_until_the_runs_end_settles_it(
                     trigger: None,
                 })
                 .await;
-            Some("agent.run.stopped")
+            (None, Some("agent.run.stopped"))
         }
         UnansweredEnd::InterruptedBeforeARestart => {
             harness.set_run("interrupted", 2);
@@ -577,7 +679,7 @@ async fn an_unanswered_dispatch_stays_open_until_the_runs_end_settles_it(
                 .settle_unresolved_of_ended_runs()
                 .await
                 .expect("the recovery pass settles the ended run");
-            None
+            (None, None)
         }
     };
 
@@ -591,16 +693,19 @@ async fn an_unanswered_dispatch_stays_open_until_the_runs_end_settles_it(
     let mut events = vec![
         "agent.intervention.requested".to_owned(),
         "agent.intervention.accepted".to_owned(),
-        format!("agent.intervention.{outcome}"),
     ];
-    events.extend(end_event.map(str::to_owned));
+    events.extend(before_outcome.map(str::to_owned));
+    events.push(format!("agent.intervention.{outcome}"));
+    events.extend(after_outcome.map(str::to_owned));
     assert_eq!(harness.stored_events_from_the_first_intervention(), events);
     let released = match (is_interrupt, end) {
         (false, _) => vec![],
         (true, UnansweredEnd::Interrupted | UnansweredEnd::InterruptedBeforeARestart) => {
             vec![InterruptPendingChoice::ReturnToDraft]
         }
-        (true, UnansweredEnd::Stopped) => vec![InterruptPendingChoice::KeepWaiting],
+        (true, UnansweredEnd::Stopped | UnansweredEnd::TurnCompleted) => {
+            vec![InterruptPendingChoice::KeepWaiting]
+        }
     };
     assert_eq!(harness.released_choices(), released);
 }

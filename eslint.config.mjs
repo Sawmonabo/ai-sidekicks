@@ -368,6 +368,15 @@ const repositoryConfig = defineConfig(
       },
     },
   },
+  // The control plane's JavaScript runs inside the Worker, whose runtime supplies `console`.
+  {
+    files: ["crates/sidekicks-control-plane/js/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+      },
+    },
+  },
   // `@ai-sidekicks/contracts` isomorphism guard. Contracts ships to Node, Cloudflare Workers and
   // the browser, so its shipped surface must stay free of Node-only builtins: a `node:` import or
   // `Buffer` would break it on Workers and in the browser. Scope is the compiled non-test
