@@ -24,6 +24,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::approvals::permission_asks::PermissionAsks;
 use crate::approvals::service::ApprovalService;
 use crate::approvals::store::ApprovalRequestReader;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -253,15 +254,18 @@ async fn reconcile_running_sessions_until_stopped(
 }
 
 /// The run setup gate whose terminal hook cancels the asks a run left open: it passes every run,
-/// and once a run ends it cancels its pending cards and settles every wait on them, whatever the
-/// cancels returned.
+/// and once a run ends it lets go of the run's provider asks, cancels its pending cards and
+/// settles every wait on them, whatever the cancels returned.
 pub(crate) struct ApprovalRunEnd {
     /// The service whose asks the run's end cancels.
     service: Arc<ApprovalService>,
+    /// The provider asks the run's end lets go of.
+    permission_asks: Arc<PermissionAsks>,
 }
 
 impl ApprovalRunEnd {
-    /// The gate canceling a run's cards through `service`.
+    /// The gate letting go of a run's provider asks in `permission_asks` and canceling its cards
+    /// through `service`.
     #[cfg_attr(
         not(test),
         expect(
@@ -269,8 +273,11 @@ impl ApprovalRunEnd {
             reason = "the daemon's start registers the run-end gate with the run engine"
         )
     )]
-    pub(crate) fn new(service: Arc<ApprovalService>) -> Self {
-        Self { service }
+    pub(crate) fn new(service: Arc<ApprovalService>, permission_asks: Arc<PermissionAsks>) -> Self {
+        Self {
+            service,
+            permission_asks,
+        }
     }
 }
 
@@ -287,6 +294,7 @@ impl RunSetupGate for ApprovalRunEnd {
         context: &'a RunTerminalContext,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(async move {
+            self.permission_asks.forget_run(context.run_id);
             self.service
                 .cancel_pending_for_run(context.run_id, None)
                 .await

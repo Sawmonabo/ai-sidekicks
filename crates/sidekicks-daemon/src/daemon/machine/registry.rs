@@ -104,13 +104,6 @@ impl MachineRegistry {
     /// The user every policy check on this machine decides as: its local owner, unregistered or
     /// registered under that owner alike, and `None` once it is registered under any other user.
     /// Fails as the read does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the permission check reads the owner a workflow start decides as"
-        )
-    )]
     pub(crate) async fn read_owner(&self) -> Result<Option<UserId>, MachineRegistryReadError> {
         let machine_id = self.machine.machine_id.clone();
         let owner_user_id = self.machine.owner_user_id;

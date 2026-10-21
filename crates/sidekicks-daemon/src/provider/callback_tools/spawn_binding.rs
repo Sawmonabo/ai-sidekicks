@@ -92,6 +92,7 @@ mod tests {
     use futures::future::BoxFuture;
     use serde_json::{Map, Value};
     use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
@@ -118,6 +119,7 @@ mod tests {
         fn evaluate<'a>(
             &'a self,
             _invocation: &'a CallbackToolInvocation,
+            _provider: &'a ProviderId,
         ) -> BoxFuture<'a, Result<CallbackToolApprovalOutcome, CallbackToolPortError>> {
             let basis = CallbackToolApprovalBasis::Policy;
             let outcome = if self.is_seam_failing {

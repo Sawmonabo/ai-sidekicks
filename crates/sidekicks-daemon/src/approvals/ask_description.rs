@@ -12,7 +12,7 @@
 //!   standing allow, and no rule in force answers it: it always reaches the card. So does an ask
 //!   the provider's own safety check flagged.
 //! - A change to one file names its path, as does a read; a change to several files names none.
-//! - A host names itself, a tool its name; a plan and input to a running command take no rule.
+//! - A host names itself, a tool its name; input to a running command takes no rule.
 //!
 //! A command's line is read once per ask, on the ask's one reader, and that reading is handed to
 //! each function here; the `-c` and `eval` strings they reread come from the reader's own keep.
@@ -86,7 +86,7 @@ pub(crate) fn describe_provider_ask(
             standing_allow_offered,
             project_scope_offered: standing_allow_offered
                 && ask.rule_scopes.contains(&RememberedScopeKind::Project),
-            editable: is_editable(action),
+            editable: action.corrected_subject().is_some(),
             action: Some(action.clone()),
             tool_name: Some(tool_name),
             // A prompt with no text is no prompt.
@@ -109,9 +109,9 @@ pub(crate) fn may_allow_stand(
     may_allow_stand_on(ask, category, subject.as_deref())
 }
 
-/// The subject a standing rule on `action` names, or `None` for an action no rule may name: a
-/// plan, input to a running command, a change to several files, or a line that is not one plain
-/// command read whole. `reading` is as [`describe_provider_ask`] takes it.
+/// The subject a standing rule on `action` names, or `None` for an action no rule may name: input
+/// to a running command, a change to several files, or a line that is not one plain command read
+/// whole. `reading` is as [`describe_provider_ask`] takes it.
 pub(crate) fn derive_rule_subject(
     reader: &mut ShellLineReader,
     reading: Option<&ShellLineReading>,
@@ -215,14 +215,33 @@ fn target_text_of(action: &ProviderAskAction) -> Cow<'_, str> {
     }
 }
 
-// A command or a path may be corrected before it is approved; nothing else may.
-fn is_editable(action: &ProviderAskAction) -> bool {
-    match action {
-        ProviderAskAction::Command { .. } | ProviderAskAction::FileRead { .. } => true,
-        ProviderAskAction::FileChange { paths } => paths.len() == 1,
-        ProviderAskAction::CommandInput { .. }
-        | ProviderAskAction::Network { .. }
-        | ProviderAskAction::Tool { .. } => false,
+impl ProviderAskAction {
+    /// The line a command action runs, which is read before a rule's subject is derived from it;
+    /// `None` for any other action.
+    pub(crate) fn command_line(&self) -> Option<&str> {
+        match self {
+            Self::Command { command } => Some(command),
+            Self::CommandInput { .. }
+            | Self::FileChange { .. }
+            | Self::FileRead { .. }
+            | Self::Network { .. }
+            | Self::Tool { .. } => None,
+        }
+    }
+
+    /// The command or path a person may correct before approving the action, and which an ask
+    /// carrying out a correction must name exactly: a command, a read's path, or a change's one
+    /// path; `None` for any other action, which takes no correction.
+    pub(crate) fn corrected_subject(&self) -> Option<&str> {
+        match self {
+            Self::Command { command } => Some(command),
+            Self::FileRead { path } => Some(path),
+            Self::FileChange { paths } => match paths.as_slice() {
+                [only] => Some(only),
+                [] | [_, _, ..] => None,
+            },
+            Self::CommandInput { .. } | Self::Network { .. } | Self::Tool { .. } => None,
+        }
     }
 }
 

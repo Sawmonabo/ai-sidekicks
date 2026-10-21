@@ -68,7 +68,7 @@ use crate::provider::driver::session_control::{
     ResumeSessionParams, RevokeRuleParams, SessionCommandAnswer, StartReviewParams,
     SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
-use crate::provider::port::permission_ask::ProviderPermissionAnswer;
+use crate::provider::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptError};
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 use crate::text_cut::cut_to_code_points;
 
@@ -114,6 +114,9 @@ pub(crate) enum DriverError {
     )]
     #[error(transparent)]
     ProviderAxisInvalid(ProviderAxisInvalid),
+    /// The answer reached the provider, which could not keep the rule it made.
+    #[error(transparent)]
+    RuleNotKept(#[from] ProviderRuleNotKeptError),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
@@ -125,8 +128,8 @@ impl From<DriverError> for HandlerError {
     /// `provider.unavailable`, the catalog's bounded fault as the provider failure's detail, and a
     /// command that names no runnable build as [`ExecutableUnresolvable::into_refusal`] says; a
     /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
-    /// agent, the axis and the value; a steer whose turn ended, reaching a handler, is a fault in
-    /// the daemon, as is the driver's own failure.
+    /// agent, the axis and the value; a steer whose turn ended, or a rule the provider could not
+    /// keep, reaching a handler, is a fault in the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal)
@@ -165,6 +168,7 @@ impl From<DriverError> for HandlerError {
                 })),
             ),
             DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
+            DriverError::RuleNotKept(not_kept) => Self::Internal(Box::new(not_kept)),
             DriverError::Internal(fault) => Self::Internal(fault),
         }
     }

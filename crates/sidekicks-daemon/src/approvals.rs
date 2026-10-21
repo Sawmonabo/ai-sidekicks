@@ -3,6 +3,7 @@
 
 pub(crate) mod ask_description;
 pub(crate) mod events;
+pub(crate) mod permission_asks;
 pub(crate) mod projection;
 pub(crate) mod refusals;
 pub(crate) mod request_create;

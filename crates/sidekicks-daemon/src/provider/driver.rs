@@ -103,6 +103,9 @@ pub(crate) struct ProviderDescriptor {
     /// The forms of the provider's own command whose work would outlive the call, which no agent
     /// in a session may run, and the switch that turns them off; `None` where it has none.
     pub(crate) background_work: Option<BackgroundWork>,
+    /// Whether the driver sets up the daemon's tool server so the provider asks before each call of
+    /// the app's own tools itself; where it does not, the daemon raises the call's card.
+    pub(crate) callback_tools_asked: bool,
 }
 
 impl ProviderDescriptor {

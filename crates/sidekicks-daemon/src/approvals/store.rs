@@ -499,14 +499,6 @@ pub(crate) fn remembered_scope_statement(
 }
 
 // The insert and the rebuild's rewrite bind the same values.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "an ask's live write, and the daemon's start, which registers the approvals \
-                  projection with the rebuild"
-    )
-)]
 fn request_statement(
     sql: &'static LazyLock<String>,
     request: &InsertedApprovalRequest,

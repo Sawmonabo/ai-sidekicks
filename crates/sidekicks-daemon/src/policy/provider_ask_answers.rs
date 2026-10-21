@@ -36,13 +36,6 @@ const AGENT_NOTE_EXTENSION: &str = "md";
 /// home's link to the folder counts and a link out of it does not, and a change is allowed only when
 /// every file it touches is such a note. Fails when a path cannot be resolved for a reason other
 /// than its absence.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the permission check answers a provider's ask with it before any rule"
-    )
-)]
 pub(crate) async fn answer_provider_ask(
     action: &ProviderAskAction,
     command_refusal: Option<&'static str>,
