@@ -183,6 +183,8 @@ jobs:
       contents: read
     env:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     strategy:
       fail-fast: false
       matrix:
@@ -381,6 +383,8 @@ jobs:
       contents: read
     env:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     strategy:
       fail-fast: false
       matrix:
@@ -510,6 +514,8 @@ jobs:
       contents: read
     env:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     strategy:
       fail-fast: false
       matrix:
@@ -532,6 +538,8 @@ jobs:
       contents: read
     env:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -661,6 +669,8 @@ jobs:
       contents: read
     env:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
         uses: actions/checkout@v5

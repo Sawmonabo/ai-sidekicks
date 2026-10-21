@@ -31,6 +31,9 @@ jobs:
     runs-on: macos-26-intel
     permissions:
       contents: read
+    env:
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -45,13 +48,16 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Test the addon's crate
-        run: cargo test -p search-index --locked
+        run: cargo test -p sidekicks-search --locked
 
   platforms-macos:
     name: platforms (macOS)
     runs-on: macos-latest
     permissions:
       contents: read
+    env:
+      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout
         uses: actions/checkout@v5
