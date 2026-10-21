@@ -629,7 +629,7 @@ pub(crate) async fn read_tree_git_folder(
 
 /// The git common folder that holds `record_folder`, a linked tree's `<common>/worktrees/<name>`;
 /// `None` for a path too short to be one.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) fn common_folder_of_record(record_folder: &Path) -> Option<&Path> {
     record_folder.parent().and_then(Path::parent)
 }

@@ -355,18 +355,21 @@ impl WorktreeNamePlan {
     }
 
     /// The create form's parts: the branch's fixed part before the tail, the tail at `ordinal`,
-    /// and the folder up to that tail. A typed branch name the pattern did not make has no tail,
-    /// so the suggestion carries none. Fails with the text check's refusal when the folder is not
-    /// a path the wire takes.
+    /// and the folder up to that tail. A typed branch name the pattern did not make, or a session
+    /// with no title words, has no tail, so the suggestion carries none. Fails with the text
+    /// check's refusal when the folder is not a path the wire takes.
     pub(crate) fn describe_at(&self, ordinal: u32) -> Result<NewWorktreeSuggestion, TextError> {
         let (fixed_part, _after) = split_pattern(&self.base.pattern, &self.base.session_short_id);
         let folder_before = self
             .base
             .project_folder
             .join(format!("{}-", self.base.session_short_id));
-        let suggested_tail = match self.branch {
-            PlannedBranch::Tail(_) => Some(FreeFormText::new(self.name_at(ordinal).tail)?),
-            PlannedBranch::Supplied(_) => None,
+        // The plan's own tail is read before any suffix, which would make an empty one `-2`.
+        let suggested_tail = match &self.branch {
+            PlannedBranch::Tail(tail) if !tail.is_empty() => {
+                Some(FreeFormText::new(self.name_at(ordinal).tail)?)
+            }
+            PlannedBranch::Tail(_) | PlannedBranch::Supplied(_) => None,
         };
         Ok(NewWorktreeSuggestion {
             fixed_part,
@@ -543,8 +546,9 @@ mod tests {
         assert_eq!(read_taken_branch_line(stderr), expected);
     }
 
-    // Kills a typed branch name the pattern did not make described with an empty tail, which the
-    // wire refuses, and a tail the pattern fills in left out of the suggestion.
+    // Kills a typed branch name the pattern did not make, or an untitled session's empty tail,
+    // described with an empty tail, which the wire refuses; the empty tail read after its suffix
+    // (`-2`); and a tail the pattern fills in left out of the suggestion.
     #[test]
     fn a_typed_branch_name_outside_the_pattern_suggests_no_tail() {
         let base = WorktreeNameBase {
@@ -562,6 +566,21 @@ mod tests {
             .expect("a typed name is described");
         assert_eq!(typed.suggested_tail, None);
         assert_eq!(typed.fixed_part, "sidekicks/7b8c9d0e/");
+
+        let untitled_tail = suggest_tail_for(
+            SessionTitleSource {
+                name: None,
+                first_message_preview: None,
+            },
+            None,
+        );
+        let untitled = WorktreeNamePlan::for_tail(base.clone(), untitled_tail);
+        for ordinal in [1, 2] {
+            let described = untitled
+                .describe_at(ordinal)
+                .expect("an untitled session is described");
+            assert_eq!(described.suggested_tail, None);
+        }
 
         let made = WorktreeNamePlan::for_branch_name(base, "sidekicks/7b8c9d0e/fix-login")
             .describe_at(2)

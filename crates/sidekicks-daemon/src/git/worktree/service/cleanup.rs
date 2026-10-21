@@ -13,6 +13,7 @@ use std::error::Error;
 use std::io;
 use std::path::{Component, Path};
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use futures::future::BoxFuture;
 use rusqlite::Connection;
@@ -23,8 +24,8 @@ use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    RecordRetirementOptions, WORKTREE_ROW_COLUMNS, WorktreeService, WorktreeServiceError,
-    folder_key, place_of, remove_folder, worktree_row_of,
+    RecordRetirementOptions, WORKTREE_ROW_COLUMNS, WorktreeService, WorktreeServiceError, place_of,
+    remove_folder, worktree_row_of,
 };
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -36,26 +37,24 @@ use crate::git::worktree::risks::{
     RemovalRiskReadError, has_something_to_lose, read_removal_risk_reading,
 };
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
-use crate::settle_all::SettleFailures;
+use crate::settle_all::{SettleFailures, settle_all};
+use crate::workspace::folder::canonical_path::canonical_folder_path;
 
+// The stop's own bound, just past the 30 s git's stop waits for the daemon to exit, so a wedged
+// daemon holds a pass no longer than that.
+const FILE_WATCH_STOP_TIMEOUT: Duration = Duration::from_secs(35);
 // git's exit when its stop finds no file-watch daemon to stop.
 const FILE_WATCH_STOP_NOTHING_EXIT_CODE: i32 = 128;
 // git's line when no file-watch daemon runs for the tree.
 const FILE_WATCH_STOP_NOT_RUNNING_LINE: &str = "fatal: fsmonitor--daemon is not running";
 // git's lines, around the folder it names, when it refuses the daemon to a repository it cannot
-// watch (bare, remote, virtual, without Unix sockets, or failing the check). git makes that check
-// before every start as before the stop, so such a repository has no daemon to stop.
-const FILE_WATCH_INCOMPATIBLE_LINES: [(&str, &str); 5] = [
+// watch for good (bare, virtual, without Unix sockets). git makes that check before every start as
+// before the stop, so such a repository has no daemon the stop could reach. A failed check is left
+// out, since it can pass again and a daemon started earlier still runs; a remote repository is
+// let through on the stop itself.
+const FILE_WATCH_INCOMPATIBLE_LINES: [(&str, &str); 3] = [
     (
         "fatal: bare repository '",
-        "' is incompatible with fsmonitor",
-    ),
-    (
-        "fatal: repository '",
-        "' is incompatible with fsmonitor due to errors",
-    ),
-    (
-        "fatal: remote repository '",
         "' is incompatible with fsmonitor",
     ),
     (
@@ -216,7 +215,7 @@ impl WorktreeService {
         cancel: &CancellationToken,
     ) -> Result<WorktreeCleanupReport, SettleFailures<WorktreeCleanupFailure>> {
         let mut report = WorktreeCleanupReport::default();
-        let mut failures = Vec::new();
+        let mut outcomes: Vec<Result<(), WorktreeCleanupFailure>> = Vec::new();
         match self
             .deps
             .reads
@@ -235,14 +234,14 @@ impl WorktreeService {
                     match self.record_retirement(&row, options).await {
                         Ok(()) => report.retired.push(row.id),
                         Err(WorktreeServiceError::AlreadyRetired { .. }) => {}
-                        Err(failure) => failures.push(WorktreeCleanupFailure::Tree {
+                        Err(failure) => outcomes.push(Err(WorktreeCleanupFailure::Tree {
                             worktree_id: row.id,
                             cause: failure.into(),
-                        }),
+                        })),
                     }
                 }
             }
-            Err(failure) => failures.push(WorktreeCleanupFailure::Rows(failure)),
+            Err(failure) => outcomes.push(Err(WorktreeCleanupFailure::Rows(failure))),
         }
         match self
             .deps
@@ -263,23 +262,16 @@ impl WorktreeService {
                             report.kept.push(retired.row.id);
                         }
                         Ok(RetiredFolderOutcome::Deferred) => {}
-                        Err(cause) => failures.push(WorktreeCleanupFailure::Tree {
+                        Err(cause) => outcomes.push(Err(WorktreeCleanupFailure::Tree {
                             worktree_id: retired.row.id,
                             cause,
-                        }),
+                        })),
                     }
                 }
             }
-            Err(failure) => failures.push(WorktreeCleanupFailure::Rows(failure)),
+            Err(failure) => outcomes.push(Err(WorktreeCleanupFailure::Rows(failure))),
         }
-        match failures.len() {
-            0 => Ok(report),
-            1 => Err(SettleFailures::One(failures.remove(0))),
-            _ => Err(SettleFailures::Many {
-                operation: "the worktree cleanup",
-                failures,
-            }),
-        }
+        settle_all(outcomes, "the worktree cleanup").map(|_| report)
     }
 
     // Empties one retired folder, keeps it aside, or leaves it for a later pass while it is in use.
@@ -345,7 +337,9 @@ impl WorktreeService {
             return Ok(true);
         }
         let occupancy = self.deps.occupancy.read(&row.repo_mount_id).await?;
-        let folder = folder_key(Path::new(row.fs_root.as_str())).await?;
+        let folder = canonical_folder_path(Path::new(row.fs_root.as_str()))
+            .await
+            .map_err(WorktreeServiceError::Folder)?;
         Ok(occupancy.standing_by_folder.contains_key(&folder))
     }
 
@@ -384,8 +378,11 @@ impl WorktreeService {
         Ok(())
     }
 
-    // Stops git's built-in file-watch daemon for the tree in `folder`, where the repository turns
-    // it on; git answers that none runs when none does, which is nothing to stop.
+    // Stops git's built-in file-watch daemon for the tree in `folder` wherever the git program has
+    // one, whatever the repository sets today, since a daemon started under an earlier setting or
+    // by another tool outlives its folder; git answers that none runs when none does, which is
+    // nothing to stop. A remote volume is let through, so a daemon git started there is reached,
+    // and a stop past its own bound fails the row for the next pass.
     async fn stop_file_watch(
         &self,
         place: Option<&Place>,
@@ -393,13 +390,22 @@ impl WorktreeService {
     ) -> Result<(), WorktreeCleanupError> {
         let git = &self.deps.git;
         if !git
-            .is_built_in_file_watch_on(place, folder)
+            .has_built_in_file_watch(place)
             .await
             .map_err(WorktreeCleanupError::FileWatchStop)?
         {
             return Ok(());
         }
-        let stop = GitCall::read(in_folder(folder, &["fsmonitor--daemon", "stop"]));
+        let stop = GitCall::read(in_folder(
+            folder,
+            &[
+                "-c",
+                "fsmonitor.allowRemote=true",
+                "fsmonitor--daemon",
+                "stop",
+            ],
+        ))
+        .with_timeout(Some(FILE_WATCH_STOP_TIMEOUT));
         match git.run(place, stop).await {
             Ok(_) => Ok(()),
             Err(GitError::Exited {
@@ -413,7 +419,7 @@ impl WorktreeService {
 }
 
 // Whether git's stop failed because there is no daemon to stop: none runs for the tree, or the
-// repository is one git refuses a daemon to.
+// repository is one git refuses a daemon to for good.
 fn is_nothing_to_stop(stderr: &str) -> bool {
     last_fatal_line(stderr).is_some_and(|line| {
         line == FILE_WATCH_STOP_NOT_RUNNING_LINE

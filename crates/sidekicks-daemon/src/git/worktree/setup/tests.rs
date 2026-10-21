@@ -287,11 +287,13 @@ async fn a_failed_command_stops_the_run_and_a_retry_runs_on_from_it_keeping_the_
     );
 }
 
+// Kills a time limit that leaves a process the command started running, and the tail taken
+// without waiting for the output that came before the end.
 #[tokio::test]
 async fn a_command_past_its_time_limit_is_ended_with_every_process_it_started() {
     let fixture = SetupFixture::new(setup_of(
         &[],
-        &["(sleep 2; touch outlived) & wait"],
+        &["(sleep 2; touch outlived) & sleep 0.8; echo last; wait"],
         Some(1),
     ))
     .await;
@@ -301,11 +303,39 @@ async fn a_command_past_its_time_limit_is_ended_with_every_process_it_started() 
     assert_eq!(failed.state, WorktreeSetupState::Failed);
     assert_eq!(
         failed.steps[1].error.as_ref().map(FreeFormText::as_str),
-        Some("Gave up after 1 seconds")
+        Some("Gave up after 1 second")
+    );
+    assert!(
+        failed.steps[1]
+            .output
+            .as_ref()
+            .is_some_and(|tail| tail.as_str().contains("last")),
+        "the tail holds the last line written before the end"
     );
     tokio::time::sleep(Duration::from_secs(2)).await;
     assert!(
         !fixture.tree().join("outlived").exists(),
         "a process the command started outlived its end"
+    );
+}
+
+// Kills the wait for the output left unbounded after the command exits, which a process it left
+// running holds open, and that process left running once the step ends.
+#[tokio::test]
+async fn a_command_that_leaves_a_process_running_succeeds_within_the_linger() {
+    let fixture = SetupFixture::new(setup_of(&[], &["(sleep 5; touch outlived) &"], None)).await;
+    let started = tokio::time::Instant::now();
+
+    let (_, succeeded) = fixture.make().await;
+
+    assert_eq!(succeeded.state, WorktreeSetupState::Succeeded);
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "the step ends within the linger, not when the process exits"
+    );
+    tokio::time::sleep_until(started + Duration::from_secs(6)).await;
+    assert!(
+        !fixture.tree().join("outlived").exists(),
+        "the process the command left running was ended"
     );
 }

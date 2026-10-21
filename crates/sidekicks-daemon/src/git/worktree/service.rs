@@ -58,8 +58,8 @@ use crate::workspace::trust_envelope::is_contained_within;
 
 // The `worktrees` columns [`worktree_row_of`] reads, in its order, for a query naming the table
 // `wt`.
-const WORKTREE_ROW_COLUMNS: &str = "wt.id, wt.repo_mount_id, wt.created_by_session_id, wt.branch_name, wt.base_ref, wt.fs_root, \
-     wt.state";
+const WORKTREE_ROW_COLUMNS: &str = "wt.id, wt.repo_mount_id, wt.created_by_session_id, \
+     wt.branch_name, wt.base_ref, wt.fs_root, wt.state";
 
 // A worktree's row and the place its mount's project is at.
 static SELECT_WORKTREE_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -549,12 +549,16 @@ impl WorktreeService {
             .reads
             .read(ReadLength::Short, read_unreleased_runs)
             .await?;
-        let tree_key = folder_key(Path::new(tree.fs_root.as_str())).await?;
+        let tree_key = canonical_folder_path(Path::new(tree.fs_root.as_str()))
+            .await
+            .map_err(WorktreeServiceError::Folder)?;
         for run in runs {
             if run.worktree_id == Some(tree.id) {
                 return Ok(Some(run.session_id));
             }
-            let root_key = folder_key(Path::new(run.execution_root.as_str())).await?;
+            let root_key = canonical_folder_path(Path::new(run.execution_root.as_str()))
+                .await
+                .map_err(WorktreeServiceError::Folder)?;
             if is_contained_within(&root_key, &tree_key) {
                 return Ok(Some(run.session_id));
             }
@@ -729,13 +733,6 @@ fn read_unreleased_runs(
             })
         })?
         .collect::<rusqlite::Result<_>>()?)
-}
-
-// The key a folder is compared under.
-async fn folder_key(folder: &Path) -> Result<PathBuf, WorktreeServiceError> {
-    canonical_folder_path(folder)
-        .await
-        .map_err(WorktreeServiceError::Folder)
 }
 
 // Removes `folder` and everything under it, as `rm -rf` does; a folder already gone is removed.

@@ -1,14 +1,18 @@
 //! The background fetch that keeps each branch's ahead and behind figures true while a session on
 //! the project is live.
 //!
-//! - It fetches every remote of the repository, one at a time, since an older git passes
-//!   `--no-write-fetch-head` to none of the fetches `--all` starts, and nothing more: it never
-//!   pulls, never prunes a remote-tracking branch or tag, and leaves `FETCH_HEAD` alone, so the
-//!   person's own next `git pull` reads what they fetched themselves. Every remote but the last
-//!   skips git's automatic maintenance and commit-graph write, as git's own fetch of several
-//!   remotes does, so both run once a fetch.
+//! - It fetches every remote of the repository that `git fetch --all` would, one at a time, since
+//!   an older git passes `--no-write-fetch-head` to none of the fetches `--all` starts, and nothing
+//!   more: it never pulls, never prunes a remote-tracking branch or tag, and leaves `FETCH_HEAD`
+//!   alone, so the person's own next `git pull` reads what they fetched themselves. A remote the
+//!   person set `skipFetchAll` or `skipDefaultUpdate` on is skipped; every remote after the first
+//!   downloads no bundle list again, and every remote but the last skips git's automatic
+//!   maintenance and commit-graph write, as git's own fetch of several remotes does, so each runs
+//!   once a fetch.
 //! - It runs as the person, with their git config, hooks and credentials, and with no terminal,
-//!   credential window or askpass program to prompt through, so a fetch that would need a password
+//!   credential window or askpass program to prompt through: `GIT_ASKPASS` is set empty, which
+//!   keeps git from running `core.askPass` or `SSH_ASKPASS`, the credential manager is told never
+//!   to open a window, and ssh never to run an askpass program. A fetch that would need a password
 //!   fails and the figures keep the instant they were last true, kept on the mount's row.
 //! - The scheduler only says when a repository is due; the fetches run one at a time in a lane of
 //!   their own, so a remote that does not answer holds no other job. Each repository is due at once
@@ -17,7 +21,7 @@
 //! - The stop ends a fetch under way, which then records nothing.
 
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -38,7 +42,8 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::database::stored_column::optional_text_column;
 use crate::database::writer::DatabaseWriter;
 use crate::git::process::{
-    GIT_COMMAND_TIMEOUT, GitCall, GitError, GitRunner, background_read, in_folder,
+    CONFIG_UNSET_EXIT_CODE, GIT_COMMAND_TIMEOUT, GitCall, GitError, GitRunner, background_read,
+    in_folder,
 };
 use crate::workspace::clone::progress::GitProgressReader;
 use crate::workspace::clone::streamed_git::run_streamed_git;
@@ -48,11 +53,16 @@ use crate::workspace::clone::streamed_git::run_streamed_git;
 const BACKGROUND_FETCH_INTERVAL: Duration = Duration::from_secs(180);
 
 // No credential helper window and no askpass program on a timer; the runner already turns off
-// git's own terminal prompt.
-const NO_PROMPT_ENVIRONMENT: [(&str, &str); 2] = [
+// git's own terminal prompt. An empty `GIT_ASKPASS` stops git's fall back to `core.askPass` and
+// `SSH_ASKPASS`.
+const NO_PROMPT_ENVIRONMENT: [(&str, &str); 3] = [
+    ("GIT_ASKPASS", ""),
     ("GCM_INTERACTIVE", "never"),
     ("SSH_ASKPASS_REQUIRE", "never"),
 ];
+
+// The settings that keep a remote out of `git fetch --all`, read as booleans in one listing.
+const SKIPPED_REMOTE_SETTINGS: &str = "^remote\\..*\\.(skipfetchall|skipdefaultupdate)$";
 
 // The figures' instant while the latest fetch failed: the last success, else the attach.
 const COUNTS_AS_OF_SQL: &str = "SELECT CASE WHEN fetch_failed_at IS NULL THEN NULL
@@ -438,20 +448,33 @@ impl FetchShared {
             ) => listed?,
             () = self.stop.cancelled() => return Ok(None),
         };
+        let skipped = tokio::select! {
+            skipped = read_skipped_remotes(git, repository) => skipped?,
+            () = self.stop.cancelled() => return Ok(None),
+        };
         let listed = String::from_utf8_lossy(&listing.stdout).into_owned();
-        let remotes: Vec<&str> = listed.lines().filter(|remote| !remote.is_empty()).collect();
+        let remotes: Vec<&str> = listed
+            .lines()
+            .filter(|remote| !remote.is_empty() && !skipped.contains(*remote))
+            .collect();
         let mut failure = None;
         for (index, remote) in remotes.iter().enumerate() {
             if bound.is_cancelled() || self.stop.is_cancelled() {
                 break;
             }
-            let mut arguments = vec![
+            // git's own fetch of several remotes downloads the bundle list once, at its first.
+            let mut arguments = if index == 0 {
+                Vec::new()
+            } else {
+                vec!["-c", "fetch.bundleURI="]
+            };
+            arguments.extend([
                 "fetch",
                 "--no-prune",
                 "--no-prune-tags",
                 "--no-write-fetch-head",
                 "--quiet",
-            ];
+            ]);
             if index + 1 < remotes.len() {
                 // git's own fetch of several remotes passes its children the same two.
                 arguments.extend(["--no-auto-gc", "--no-write-commit-graph"]);
@@ -511,6 +534,54 @@ impl FetchShared {
             );
         }
     }
+}
+
+// The remotes `git fetch --all` leaves out: those whose last `skipFetchAll` or `skipDefaultUpdate`
+// setting is true. Fails with git's failure but for no setting matching.
+async fn read_skipped_remotes(
+    git: &GitRunner,
+    repository: &FetchedRepository,
+) -> Result<HashSet<String>, GitError> {
+    let read = git
+        .run(
+            repository.place.as_ref(),
+            GitCall::read(background_read(
+                &repository.repository_root,
+                &[
+                    "config",
+                    "--type=bool",
+                    "--get-regexp",
+                    SKIPPED_REMOTE_SETTINGS,
+                ],
+            )),
+        )
+        .await;
+    let listing = match read {
+        Ok(output) => output.stdout,
+        Err(GitError::Exited {
+            code: Some(CONFIG_UNSET_EXIT_CODE),
+            ..
+        }) => return Ok(HashSet::new()),
+        Err(failure) => return Err(failure),
+    };
+    // Each setting both keys share is one flag, the last line for a remote winning.
+    let mut is_skipped: HashMap<String, bool> = HashMap::new();
+    for line in String::from_utf8_lossy(&listing).lines() {
+        let Some((key, value)) = line.split_once(' ') else {
+            continue;
+        };
+        let remote = key.strip_prefix("remote.").and_then(|rest| {
+            rest.strip_suffix(".skipfetchall")
+                .or_else(|| rest.strip_suffix(".skipdefaultupdate"))
+        });
+        if let Some(remote) = remote {
+            is_skipped.insert(remote.to_owned(), value == "true");
+        }
+    }
+    Ok(is_skipped
+        .into_iter()
+        .filter_map(|(remote, is_skipped)| is_skipped.then_some(remote))
+        .collect())
 }
 
 /// When `repo_mount_id`'s ahead and behind figures were last true, given only while its latest

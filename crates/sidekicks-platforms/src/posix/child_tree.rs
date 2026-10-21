@@ -41,13 +41,12 @@ pub(crate) async fn ask_child_tree_to_stop(process: &mut dyn ChildWrapper) -> io
     Ok(())
 }
 
-/// Kills every process in the child's group, in a blocking task, since a macOS kill repeats until
-/// no member is left. Fails as `signal_group` does, or when the task cannot run.
-pub(crate) async fn end_child_tree(process: &mut dyn ChildWrapper) -> io::Result<()> {
-    let Some(id) = process.id() else {
-        return Ok(());
-    };
-    tokio::task::spawn_blocking(move || signal_group(id, Signal::SIGKILL))
+/// Kills every process in the group `group_id`, the child's own, in a blocking task, since a macOS
+/// kill repeats until no member is left. The group keeps its id while any member lives, so a child
+/// already reaped still has its leftovers ended. Fails as `signal_group` does, or when the task
+/// cannot run.
+pub(crate) async fn end_child_tree(group_id: u32) -> io::Result<()> {
+    tokio::task::spawn_blocking(move || signal_group(group_id, Signal::SIGKILL))
         .await
         .map_err(io::Error::other)??;
     Ok(())

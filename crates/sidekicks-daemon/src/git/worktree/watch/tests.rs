@@ -387,24 +387,24 @@ async fn a_raise_reaches_its_folder_alone_and_a_session_without_one_is_followed_
     clippy::unnecessary_wraps,
     reason = "it stands in for the machine's ceiling read, which can fail"
 )]
-fn ceiling_of_three() -> io::Result<Option<u64>> {
-    Ok(Some(3))
+fn ceiling_of_six() -> io::Result<Option<u64>> {
+    Ok(Some(6))
 }
 
 #[expect(
     clippy::unnecessary_wraps,
     reason = "it stands in for the machine's ceiling read, which can fail"
 )]
-fn ceiling_of_two() -> io::Result<Option<u64>> {
-    Ok(Some(2))
+fn ceiling_of_five() -> io::Result<Option<u64>> {
+    Ok(Some(5))
 }
 
-// The tree keeps two folders, its root and `src`, and its git folder takes one watch more: three.
-// Kills the count ignored or compared with `>=`, a first tick that raises, and a reading that
-// leaves the modified time out.
+// The tree keeps two folders, its root and `src`, and its git folder four more, itself, `refs`,
+// `refs/heads` and `refs/tags`: six. Kills the count ignored or compared with `>=`, the ref folders
+// left out of it, a first tick that raises, and a reading that leaves the modified time out.
 #[rstest]
-#[case::fits(ceiling_of_three, WorkingTreeChangeMode::Watch)]
-#[case::over(ceiling_of_two, WorkingTreeChangeMode::SlowTick)]
+#[case::fits(ceiling_of_six, WorkingTreeChangeMode::Watch)]
+#[case::over(ceiling_of_five, WorkingTreeChangeMode::SlowTick)]
 #[tokio::test]
 async fn a_folder_past_the_watch_limit_is_checked_on_the_slow_tick(
     #[case] ceiling: ReadWatchCeiling,
@@ -494,4 +494,77 @@ async fn a_moved_head_writes_the_branch_back_to_each_session_not_on_it() {
             "old".to_owned()
         )]
     );
+}
+
+// Kills the common folder's refs left unwatched or filtered out, which leaves a linked tree's
+// changes pane stale after a branch tip moves without its HEAD or index.
+#[tokio::test]
+async fn a_branch_tip_moved_in_the_common_folder_marks_a_linked_tree_stale() {
+    let fixture = Fixture::new(no_ceiling, Duration::from_secs(180)).await;
+    let repository = fixture.repository("one").await;
+    let tree = fixture.scratch.path().join("linked");
+    fixture
+        .git_in(
+            &repository,
+            &["worktree", "add", "-b", "linked", &tree.to_string_lossy()],
+        )
+        .await;
+    let session_id = fixture.session(Some(&tree), "linked");
+    let (on_change, mut changes) = listener();
+    let _subscription = fixture
+        .watcher
+        .subscribe(&session_id, on_change)
+        .await
+        .expect("subscribed");
+
+    fixture
+        .git_in(&tree, &["update-ref", "refs/heads/linked", "HEAD"])
+        .await;
+    let common_folder = canonical_folder_path(&repository.join(".git"))
+        .await
+        .expect("the common folder resolves");
+    fixture
+        .feeds(&tree)
+        .await
+        .git_folder
+        .expect("the git folders are watched")
+        .handle_event(Ok(written([common_folder
+            .join("refs")
+            .join("heads")
+            .join("linked")])));
+
+    assert_eq!(next_change(&mut changes).await.session_id, session_id);
+}
+
+// Kills the ignored set read with `--directory`, which lists a folder whose files are all ignored
+// whole and so hides a file added to it later.
+#[tokio::test]
+async fn a_file_added_to_a_folder_of_ignored_files_is_seen() {
+    let fixture = Fixture::new(no_ceiling, Duration::from_secs(180)).await;
+    let folder = fixture.repository("one").await;
+    std::fs::write(folder.join(".gitignore"), "build/\n*.log\n").expect("written");
+    std::fs::create_dir_all(folder.join("logs")).expect("the logs folder is made");
+    std::fs::write(folder.join("logs").join("a.log"), "log").expect("written");
+    let session_id = fixture.session(Some(&folder), "main");
+    let (on_change, mut changes) = listener();
+    let _subscription = fixture
+        .watcher
+        .subscribe(&session_id, on_change)
+        .await
+        .expect("subscribed");
+    let root = canonical_folder_path(&folder)
+        .await
+        .expect("the folder resolves");
+    let mut tree = fixture
+        .feeds(&folder)
+        .await
+        .tree
+        .expect("the tree is watched");
+
+    tree.handle_event(Ok(written([root.join("logs").join("a.log")])));
+    assert_quiet(&mut changes).await;
+
+    std::fs::write(folder.join("logs").join("README.md"), "notes").expect("written");
+    tree.handle_event(Ok(written([root.join("logs").join("README.md")])));
+    assert_eq!(next_change(&mut changes).await.session_id, session_id);
 }

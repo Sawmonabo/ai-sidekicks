@@ -35,8 +35,15 @@ const MAKE_TREE_LABEL: &str = "git worktree add";
 /// The label of the warm step: the command it runs.
 const WARM_LABEL: &str = "git status";
 
+// The label of the project's steps' read when it fails.
+const READ_PROJECT_STEPS_LABEL: &str = "Read the project's setup steps";
+
 /// The size of one read of a command's output.
 const OUTPUT_READ_CHUNK: usize = 64 * 1024;
+
+// How long a command's output may stay open after the command exits or is ended, for the last
+// lines to arrive, before what it left running is ended and the tail is taken as read so far.
+const OUTPUT_LINGER: Duration = Duration::from_secs(1);
 
 /// What a failed step says when its failure has no words of its own.
 const UNNAMED_FAILURE: &str = "The step failed";
@@ -45,6 +52,8 @@ const UNNAMED_FAILURE: &str = "The step failed";
 #[derive(Clone, Debug)]
 pub(super) enum StepAction {
     MakeTree,
+    /// The read of the project's steps, which failed; a retry reads them again in its place.
+    ReadProjectSteps,
     Copy {
         path: FilesystemPath,
     },
@@ -95,6 +104,19 @@ impl CardStep {
             WorktreeSetupStepState::Running,
             StepAction::MakeTree,
         )
+    }
+
+    /// The read of the project's steps, failed with `error`, so the card names it and a retry
+    /// reads them again.
+    pub(super) fn project_steps_unread(error: &str) -> Self {
+        let mut unread = Self::of(
+            WorktreeSetupStage::ProjectSteps,
+            READ_PROJECT_STEPS_LABEL,
+            WorktreeSetupStepState::Failed,
+            StepAction::ReadProjectSteps,
+        );
+        unread.step.error = Some(step_error(error));
+        unread
     }
 
     /// The warm step, pending.
@@ -158,6 +180,7 @@ impl CardStep {
             }
             (
                 StepAction::MakeTree
+                | StepAction::ReadProjectSteps
                 | StepAction::Copy { .. }
                 | StepAction::Command { .. }
                 | StepAction::Warm,
@@ -307,6 +330,10 @@ impl RunningCommand {
     /// Asks the command to stop, its step failing with `reason`, and after `grace` ends every
     /// process it started; answers once it has exited. A command already asked keeps the first
     /// ask. Fails with the system's error from the ask or the end.
+    #[cfg_attr(
+        test,
+        expect(dead_code, reason = "worktree removal and the daemon's stop")
+    )]
     pub(super) async fn end(
         &self,
         reason: &'static str,
@@ -357,7 +384,7 @@ enum CommandWait {
 /// Runs `command` in its tree with standard input empty and its standard output and error read
 /// into one tail; it leads a process tree of its own, so its time limit and an end reach every
 /// process it started. Answers how its step ends once the command has exited and its output has
-/// closed, or once it was ended.
+/// closed, what it left holding the output past a second being ended first, or once it was ended.
 pub(super) async fn run_command(
     command: SetupCommand<'_>,
     running: &RunningCommand,
@@ -381,11 +408,7 @@ async fn run_started_command(
         Err(error) => return (StepOutcome::failed(describe_error(&error)), Ok(())),
     };
     let wait = {
-        let exited = async {
-            let status = tree.wait().await;
-            output_closed.cancelled().await;
-            status
-        };
+        let exited = tree.wait();
         let limit = async {
             match time_limit {
                 Some(limit) => tokio::time::sleep(limit).await,
@@ -399,22 +422,36 @@ async fn run_started_command(
         }
     };
     match wait {
-        CommandWait::Exited(Ok(status)) => {
-            let error = (!status.success()).then(|| {
-                let exit = read_child_exit(&status, None);
-                exit.signal_name.map_or_else(
-                    || format!("Exited with code {}", exit.exit_code),
-                    |signal| format!("Ended by {signal}"),
-                )
-            });
+        CommandWait::Exited(exited) => {
+            let mut error = match exited {
+                Ok(status) => (!status.success()).then(|| {
+                    let exit = read_child_exit(&status, None);
+                    exit.signal_name.map_or_else(
+                        || format!("Exited with code {}", exit.exit_code),
+                        |signal| format!("Ended by {signal}"),
+                    )
+                }),
+                Err(error) => Some(describe_error(&error)),
+            };
+            // A process the command left running holds the output open: it is ended, and the
+            // command's own exit stays its result.
+            if !linger_for_output(&output_closed).await {
+                if let Err(end_error) = tree.end_tree().await {
+                    error.get_or_insert_with(|| {
+                        format!(
+                            "Could not end what the command left running: {}",
+                            describe_error(&end_error)
+                        )
+                    });
+                }
+                linger_for_output(&output_closed).await;
+            }
             (take_outcome(error, &output), Ok(()))
-        }
-        CommandWait::Exited(Err(error)) => {
-            (take_outcome(Some(describe_error(&error)), &output), Ok(()))
         }
         CommandWait::TimeLimit => {
             let seconds = time_limit.map_or(0, |limit| limit.as_secs());
             let error = match tree.end_tree().await {
+                Ok(()) if seconds == 1 => "Gave up after 1 second".to_owned(),
                 Ok(()) => format!("Gave up after {seconds} seconds"),
                 Err(error) => {
                     format!(
@@ -423,6 +460,7 @@ async fn run_started_command(
                     )
                 }
             };
+            linger_for_output(&output_closed).await;
             (take_outcome(Some(error), &output), Ok(()))
         }
         CommandWait::EndAsked => {
@@ -430,6 +468,7 @@ async fn run_started_command(
                 .asked_end()
                 .expect("an end is set before it is asked");
             let ended = end_asked(&mut tree, end.grace, &output_closed).await;
+            linger_for_output(&output_closed).await;
             (take_outcome(Some(end.reason.to_owned()), &output), ended)
         }
     }
@@ -466,6 +505,13 @@ async fn start_command(
         output_closed.cancel();
     });
     Ok((tree, command.time_limit))
+}
+
+// Waits at most the linger for the command's output to close; answers whether it closed.
+async fn linger_for_output(output_closed: &CancellationToken) -> bool {
+    tokio::time::timeout(OUTPUT_LINGER, output_closed.cancelled())
+        .await
+        .is_ok()
 }
 
 // Asks `tree` to stop, then ends it once `grace` passes before it has exited and its output has

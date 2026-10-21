@@ -8,6 +8,8 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::WallClockTimer;
 use tempfile::TempDir;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::TcpListener;
 use tokio::time::timeout;
 
 use super::{
@@ -16,7 +18,10 @@ use super::{
 use crate::daemon::scheduler::Scheduler;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::open_log;
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use crate::git::process::{
+    GitCall, GitRunner, find_git_executable, in_folder, test_git_runner,
+    test_git_runner_with_environment,
+};
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -33,10 +38,17 @@ struct Fixture {
 impl Fixture {
     // A mount whose checkout is a repository on `main` with one commit and no remote.
     async fn new() -> Self {
+        Self::with_git(
+            test_git_runner(),
+            tempfile::tempdir().expect("a scratch folder"),
+        )
+        .await
+    }
+
+    // `new`, its git run by `git` and its folders in `scratch`.
+    async fn with_git(git: GitRunner, scratch: TempDir) -> Self {
         let database = TestDatabase::new();
         let log = open_log(&database, None).await;
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let git = test_git_runner();
         let repository = scratch.path().join("repository");
         git_in(
             &git,
@@ -132,8 +144,8 @@ async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) {
         .expect("git runs in the test repository");
 }
 
-// Kills: recording the wrong instant or column, keeping the failure past a success, and writing
-// `FETCH_HEAD`.
+// Kills: recording the wrong instant or column, keeping the failure past a success, writing
+// `FETCH_HEAD`, and fetching a remote the person keeps out of `git fetch --all`.
 #[tokio::test]
 async fn a_fetch_records_its_failure_and_then_its_success_on_the_mount() {
     let fixture = Fixture::new().await;
@@ -155,6 +167,19 @@ async fn a_fetch_records_its_failure_and_then_its_success_on_the_mount() {
         &fixture.git,
         &fixture.repository,
         &["remote", "add", "origin", &missing.to_string_lossy()],
+    )
+    .await;
+    // Unreachable, so fetching it would fail the second fetch.
+    git_in(
+        &fixture.git,
+        &fixture.repository,
+        &["remote", "add", "mirror", &missing.to_string_lossy()],
+    )
+    .await;
+    git_in(
+        &fixture.git,
+        &fixture.repository,
+        &["config", "remote.mirror.skipFetchAll", "true"],
     )
     .await;
 
@@ -217,23 +242,99 @@ async fn a_fetch_the_stop_ends_records_nothing() {
         &["remote", "add", "origin", &remote.to_string_lossy()],
     )
     .await;
-    // The remote's side waits long past the stop before it answers.
+    // The remote's side marks that the transfer began, then waits long past the stop before it
+    // answers.
+    let marker = fixture.scratch.path().join("transfer-began");
+    let upload_pack = format!("touch '{}'; sleep 60; git-upload-pack", marker.display());
     git_in(
         &fixture.git,
         &fixture.repository,
-        &[
-            "config",
-            "remote.origin.uploadpack",
-            "sleep 60; git-upload-pack",
-        ],
+        &["config", "remote.origin.uploadpack", &upload_pack],
     )
     .await;
 
     let _hold = fixture.fetch.keep_fresh(fixture.fetched_repository());
-    fixture.wait_for(|counts| counts.begun == 1).await;
+    timeout(WAIT, async {
+        while !marker.exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the transfer begins in time");
     timeout(WAIT, fixture.fetch.stop())
         .await
         .expect("the stop ends the fetch in time");
 
     assert_eq!(fixture.recorded(), (None, None));
+}
+
+// Kills the empty `GIT_ASKPASS` left out, which lets git run `SSH_ASKPASS` for a remote that asks
+// for a password on every fetch.
+#[tokio::test]
+async fn a_fetch_asked_for_a_password_runs_no_askpass_program_and_records_its_failure() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let trace = scratch.path().join("trace.json");
+    let empty_config = scratch.path().join("empty.gitconfig");
+    std::fs::write(&empty_config, "").expect("an empty config is written");
+    let git_program = find_git_executable(&std::env::vars().collect::<Vec<_>>())
+        .expect("the tests run where git is");
+    let as_text = |path: &Path| path.to_str().expect("a scratch path is text").to_owned();
+    let (trace_text, config_text, askpass_text) = (
+        as_text(&trace),
+        as_text(&empty_config),
+        as_text(&git_program),
+    );
+    // The person's own credential helpers stay out of it; an askpass run shows in git's trace.
+    let git = test_git_runner_with_environment(&[
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_CONFIG_GLOBAL", &config_text),
+        ("SSH_ASKPASS", &askpass_text),
+        ("GIT_TRACE2_EVENT", &trace_text),
+    ]);
+    let fixture = Fixture::with_git(git, scratch).await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a local listener binds");
+    let address = listener.local_addr().expect("the listener's address reads");
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut request = [0_u8; 4096];
+            if stream.read(&mut request).await.is_ok() {
+                let answered = stream
+                    .write_all(
+                        b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"test\"\r\n\
+                          Content-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await;
+                drop(answered);
+            }
+        }
+    });
+    git_in(
+        &fixture.git,
+        &fixture.repository,
+        &[
+            "remote",
+            "add",
+            "origin",
+            &format!("http://{address}/repository.git"),
+        ],
+    )
+    .await;
+
+    let _hold = fixture.fetch.keep_fresh(fixture.fetched_repository());
+    fixture.wait_for(|counts| counts.ended == 1).await;
+
+    let (fetched_at, failed_at) = fixture.recorded();
+    assert_eq!(fetched_at, None);
+    assert!(failed_at.is_some(), "the failure is recorded");
+    let trace = std::fs::read_to_string(&trace).expect("git's trace reads");
+    assert!(
+        !trace
+            .lines()
+            .any(|event| (event.contains(r#""event":"start""#)
+                || event.contains(r#""event":"child_start""#))
+                && event.contains("Username for")),
+        "no askpass program was run"
+    );
 }

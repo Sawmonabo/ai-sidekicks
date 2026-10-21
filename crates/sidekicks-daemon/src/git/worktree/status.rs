@@ -201,7 +201,12 @@ impl WorktreeStatusReader {
             .collect();
         let mut records: Vec<(PathBuf, Option<RecordWithFolder>)> = Vec::new();
         for record in rows.records {
-            records.push((folder_key(&record.folder).await?, Some(record)));
+            records.push((
+                canonical_folder_path(&record.folder)
+                    .await
+                    .map_err(WorktreeStatusReadError::Folder)?,
+                Some(record),
+            ));
         }
         let occupancy = self.deps.occupancy.read(&rows.repo_mount_id).await?;
 
@@ -212,7 +217,9 @@ impl WorktreeStatusReader {
             if tree.is_main_checkout || tree.is_bare || tree.is_prunable {
                 continue;
             }
-            let folder = folder_key(&tree.path).await?;
+            let folder = canonical_folder_path(&tree.path)
+                .await
+                .map_err(WorktreeStatusReadError::Folder)?;
             let record = records
                 .iter_mut()
                 .find(|(key, _)| *key == folder)
@@ -366,11 +373,4 @@ fn branch_name_of(tree: &ListedWorktree) -> Result<GitRefName, WorktreeStatusRea
 fn path_text(folder: &Path) -> Result<FilesystemPath, WorktreeStatusReadError> {
     FilesystemPath::new(folder.to_string_lossy().into_owned())
         .map_err(WorktreeStatusReadError::Text)
-}
-
-// The key a tree's folder is compared under.
-async fn folder_key(folder: &Path) -> Result<PathBuf, WorktreeStatusReadError> {
-    canonical_folder_path(folder)
-        .await
-        .map_err(WorktreeStatusReadError::Folder)
 }

@@ -263,7 +263,9 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
         expect(dead_code, reason = "the live session folders and a worktree's setup")
     )]
     pub(crate) async fn hold(&self, target: &WatchTarget) -> Result<WatchHold, WorkingFolderError> {
-        let key = folder_key_of(target).await?;
+        let key = canonical_folder_path(&target.folder)
+            .await
+            .map_err(WorkingFolderError::Folder)?;
         let (folder, started) = self.acquire(key, target)?;
         let hold = WatchHold {
             shared: Arc::downgrade(&self.shared),
@@ -304,7 +306,9 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
             subscription_id,
         };
         if let Some(target) = target {
-            let key = folder_key_of(&target).await?;
+            let key = canonical_folder_path(&target.folder)
+                .await
+                .map_err(WorkingFolderError::Folder)?;
             self.attach(subscription_id, key, &target).await?;
         }
         Ok(subscription)
@@ -316,7 +320,11 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     pub(crate) async fn follow(&self, session_id: &SessionId) -> Result<(), WorkingFolderError> {
         let target = self.read_target(session_id).await?;
         let key = match &target {
-            Some(target) => Some(folder_key_of(target).await?),
+            Some(target) => Some(
+                canonical_folder_path(&target.folder)
+                    .await
+                    .map_err(WorkingFolderError::Folder)?,
+            ),
             None => None,
         };
         let moving: Vec<u64> = self
@@ -352,7 +360,9 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
         let Some(target) = self.read_target(session_id).await? else {
             return Ok(());
         };
-        let key = folder_key_of(&target).await?;
+        let key = canonical_folder_path(&target.folder)
+            .await
+            .map_err(WorkingFolderError::Folder)?;
         if let Some(entry) = self.shared.lock_state().folders.get(&key) {
             entry.signals.raise.notify_one();
         }
@@ -538,13 +548,6 @@ impl WatcherState {
         self.next_id += 1;
         self.next_id
     }
-}
-
-// The key a folder is watched under.
-async fn folder_key_of(target: &WatchTarget) -> Result<PathBuf, WorkingFolderError> {
-    canonical_folder_path(&target.folder)
-        .await
-        .map_err(WorkingFolderError::Folder)
 }
 
 // Waits for a folder's start to end, answering its failure.

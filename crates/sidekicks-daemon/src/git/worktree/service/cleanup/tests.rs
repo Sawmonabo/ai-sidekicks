@@ -8,6 +8,7 @@ use rusqlite::{Connection, params};
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
+use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -15,8 +16,11 @@ use super::{
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::tests::open_log;
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use crate::events::log_service::tests::{TestLog, open_log};
+use crate::git::process::{
+    GitCall, GitRunner, find_git_executable, in_folder, test_git_runner,
+    test_git_runner_with_environment,
+};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::rows::WorktreeRow;
@@ -140,56 +144,106 @@ fn cleaned_at(connection: &Connection, worktree_id: &WorktreeId) -> Option<Strin
         .expect("the worktree's row is read")
 }
 
-// Kills: a removal while an agent runs in the tree, a folder holding new work deleted rather than
-// kept aside, and a pass that stops at its first failure.
-#[tokio::test]
-async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_failure() {
-    let database = TestDatabase::new();
-    let log = open_log(&database, None).await;
-    let scratch = tempfile::tempdir().expect("a scratch folder");
-    let git = test_git_runner();
-    let repository = scratch.path().join("app");
-    git_in(
-        &git,
-        scratch.path(),
-        &["init", "--quiet", "--initial-branch=main", "app"],
-    )
-    .await;
-    git_in(&git, &repository, &["config", "user.name", "Test"]).await;
-    git_in(
-        &git,
-        &repository,
-        &["config", "user.email", "test@example.invalid"],
-    )
-    .await;
-    git_in(
-        &git,
-        &repository,
-        &[
-            "-c",
-            "commit.gpgSign=false",
-            "commit",
-            "--quiet",
-            "--allow-empty",
-            "-m",
-            "start",
-        ],
-    )
-    .await;
-    // A remote-tracking ref on the one commit, so no tree has unpushed work.
-    git_in(
-        &git,
-        &repository,
-        &["update-ref", "refs/remotes/origin/main", "HEAD"],
-    )
-    .await;
-    let worktrees_folder = scratch.path().join("worktrees");
-    let tree_at = |name: &str| -> PathBuf { worktrees_folder.join("app").join(name) };
-    for name in ["busy", "clean", "kept"] {
-        let folder = tree_at(name);
+// A repository `app` with one commit its remote-tracking branch also holds, so no tree has
+// unpushed work, its mount, and the service over them, cleaning trees under `worktrees`.
+struct CleanupFixture {
+    database: TestDatabase,
+    _log: TestLog,
+    scratch: TempDir,
+    git: GitRunner,
+    repository: PathBuf,
+    worktrees_folder: PathBuf,
+    mount: String,
+    service: WorktreeService,
+}
+
+impl CleanupFixture {
+    async fn new(git: GitRunner) -> Self {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let repository = scratch.path().join("app");
+        git_in(
+            &git,
+            scratch.path(),
+            &["init", "--quiet", "--initial-branch=main", "app"],
+        )
+        .await;
+        git_in(&git, &repository, &["config", "user.name", "Test"]).await;
         git_in(
             &git,
             &repository,
+            &["config", "user.email", "test@example.invalid"],
+        )
+        .await;
+        git_in(
+            &git,
+            &repository,
+            &[
+                "-c",
+                "commit.gpgSign=false",
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "-m",
+                "start",
+            ],
+        )
+        .await;
+        git_in(
+            &git,
+            &repository,
+            &["update-ref", "refs/remotes/origin/main", "HEAD"],
+        )
+        .await;
+        let worktrees_folder = scratch.path().join("worktrees");
+        let mount = new_id();
+        let connection = database.reader();
+        for row in project_and_mount_rows(&mount, None) {
+            connection
+                .execute_batch(&row)
+                .expect("the project and its mount are stored");
+        }
+        connection
+            .execute(
+                "UPDATE repo_mounts SET canonical_root = ?1 WHERE id = ?2",
+                params![repository.to_string_lossy(), mount],
+            )
+            .expect("the mount points at the repository");
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            READ_STATEMENT_CAPACITY,
+        ));
+        let service = WorktreeService::new(WorktreeServiceDeps {
+            git: git.clone(),
+            reads: Arc::clone(&reads),
+            writer: Arc::clone(&log.writer),
+            events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
+            occupancy: MountOccupancyReader::new(reads),
+            worktrees_folder: worktrees_folder.clone(),
+        });
+        Self {
+            database,
+            _log: log,
+            scratch,
+            git,
+            repository,
+            worktrees_folder,
+            mount,
+            service,
+        }
+    }
+
+    fn tree_at(&self, name: &str) -> PathBuf {
+        self.worktrees_folder.join("app").join(name)
+    }
+
+    // A linked tree on a new branch `name`, at its named folder.
+    async fn add_tree(&self, name: &str) -> PathBuf {
+        let folder = self.tree_at(name);
+        git_in(
+            &self.git,
+            &self.repository,
             &[
                 "worktree",
                 "add",
@@ -200,43 +254,39 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
             ],
         )
         .await;
+        folder
+    }
+}
+
+// Kills: a removal while an agent runs in the tree, a folder holding new work deleted rather than
+// kept aside, and a pass that stops at its first failure.
+#[tokio::test]
+async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_failure() {
+    let fixture = CleanupFixture::new(test_git_runner()).await;
+    let (repository, worktrees_folder, mount) = (
+        &fixture.repository,
+        &fixture.worktrees_folder,
+        &fixture.mount,
+    );
+    let tree_at = |name: &str| fixture.tree_at(name);
+    for name in ["busy", "clean", "kept"] {
+        fixture.add_tree(name).await;
     }
     std::fs::write(tree_at("kept").join("new.txt"), "new work\n").expect("the new work is written");
-
-    let mount = new_id();
-    let connection = database.reader();
-    for row in project_and_mount_rows(&mount, None) {
-        connection
-            .execute_batch(&row)
-            .expect("the project and its mount are stored");
-    }
-    connection
-        .execute(
-            "UPDATE repo_mounts SET canonical_root = ?1 WHERE id = ?2",
-            params![repository.to_string_lossy(), mount],
-        )
-        .expect("the mount points at the repository");
-    let busy = store_retired_tree(&connection, &mount, &tree_at("busy"));
-    let clean = store_retired_tree(&connection, &mount, &tree_at("clean"));
-    let kept = store_retired_tree(&connection, &mount, &tree_at("kept"));
+    let connection = fixture.database.reader();
+    let busy = store_retired_tree(&connection, mount, &tree_at("busy"));
+    let clean = store_retired_tree(&connection, mount, &tree_at("clean"));
+    let kept = store_retired_tree(&connection, mount, &tree_at("kept"));
     let outside = [
-        store_retired_tree(&connection, &mount, &scratch.path().join("elsewhere")),
-        store_retired_tree(&connection, &mount, &worktrees_folder.join("app")),
+        store_retired_tree(
+            &connection,
+            mount,
+            &fixture.scratch.path().join("elsewhere"),
+        ),
+        store_retired_tree(&connection, mount, &worktrees_folder.join("app")),
     ];
-    let run_id = store_run_inside(&connection, &mount, &repository, &tree_at("busy"));
-
-    let reads = Arc::new(DatabaseReadPool::new(
-        database.path(),
-        READ_STATEMENT_CAPACITY,
-    ));
-    let service = WorktreeService::new(WorktreeServiceDeps {
-        git: git.clone(),
-        reads: Arc::clone(&reads),
-        writer: Arc::clone(&log.writer),
-        events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
-        occupancy: MountOccupancyReader::new(reads),
-        worktrees_folder: worktrees_folder.clone(),
-    });
+    let run_id = store_run_inside(&connection, mount, repository, &tree_at("busy"));
+    let service = &fixture.service;
     let keeper = RecordingKeeper::default();
 
     let first = service
@@ -306,16 +356,12 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
     assert!(!tree_at("busy").exists());
 }
 
-// Kills a refusal read by its prefix alone, a line that is not the last `fatal:` line read, and
-// any other failure of the stop read as nothing to stop.
+// Kills a refusal read by its prefix alone, a line that is not the last `fatal:` line read, any
+// other failure of the stop read as nothing to stop, and a failed check or a remote repository put
+// back among the refusals, since a daemon started before either can still be running.
 #[rstest]
 #[case::not_running("fatal: fsmonitor--daemon is not running\n", true)]
 #[case::bare("fatal: bare repository '/r' is incompatible with fsmonitor\n", true)]
-#[case::check_failed(
-    "fatal: repository '/r' is incompatible with fsmonitor due to errors\n",
-    true
-)]
-#[case::remote("fatal: remote repository '/r' is incompatible with fsmonitor\n", true)]
 #[case::virtual_repository(
     "fatal: virtual repository '/r' is incompatible with fsmonitor\n",
     true
@@ -325,7 +371,15 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
      support\n",
     true
 )]
-#[case::other_words_after_the_folder("fatal: remote repository '/r' is not reachable\n", false)]
+#[case::check_failed(
+    "fatal: repository '/r' is incompatible with fsmonitor due to errors\n",
+    false
+)]
+#[case::remote(
+    "fatal: remote repository '/r' is incompatible with fsmonitor\n",
+    false
+)]
+#[case::other_words_after_the_folder("fatal: bare repository '/r' is not reachable\n", false)]
 #[case::earlier_line(
     "fatal: fsmonitor--daemon is not running\nfatal: could not send the stop\n",
     false
@@ -336,4 +390,103 @@ fn a_stop_with_no_daemon_to_stop_is_told_from_a_failed_one(
     #[case] is_nothing: bool,
 ) {
     assert_eq!(is_nothing_to_stop(stderr), is_nothing);
+}
+
+// Kills a removal a crash cut short, while git still knows the tree, finished without checking
+// the folder for work added since (`!is_cleanup_started` alone deciding).
+#[tokio::test]
+async fn a_cut_short_removal_git_still_knows_keeps_new_work_aside() {
+    let fixture = CleanupFixture::new(test_git_runner()).await;
+    let folder = fixture.add_tree("resumed").await;
+    std::fs::write(folder.join("new.txt"), "new work\n").expect("the new work is written");
+    let connection = fixture.database.reader();
+    let resumed = store_retired_tree(&connection, &fixture.mount, &folder);
+    connection
+        .execute(
+            "UPDATE worktrees SET cleanup_started_at = ?1 WHERE id = ?2",
+            params![PARENT_ROWS_AT, resumed.to_string()],
+        )
+        .expect("the earlier pass's decision is recorded");
+    let keeper = RecordingKeeper::default();
+
+    let report = fixture
+        .service
+        .cleanup_pass(&keeper, &CancellationToken::new())
+        .await
+        .expect("the pass succeeds");
+
+    assert_eq!(report.kept, [resumed]);
+    assert_eq!(*keeper.kept.lock().expect("the keeper's list"), [resumed]);
+    assert!(folder.join("new.txt").exists(), "new work is never deleted");
+    assert!(
+        fixture.repository.join(".git/worktrees/resumed").exists(),
+        "git's record stays with the folder"
+    );
+}
+
+// Stops the git file-watch daemon a test started in `folder` when dropped, so a failed assertion
+// leaves none running; where the test's own stop ended it, git answers that none runs.
+struct StartedFileWatch {
+    git: PathBuf,
+    folder: PathBuf,
+}
+
+impl Drop for StartedFileWatch {
+    fn drop(&mut self) {
+        let _stop_outcome = std::process::Command::new(&self.git)
+            .arg("-C")
+            .arg(&self.folder)
+            .args(["fsmonitor--daemon", "stop"])
+            .output();
+    }
+}
+
+// Kills the stop gated on the repository's `core.fsmonitor` setting, which a daemon started
+// earlier or by another tool outlives, and the stop issued without letting a remote volume
+// through.
+#[tokio::test]
+async fn the_cleanup_stops_a_running_file_watch_daemon_whatever_the_repository_sets() {
+    let scratch = tempfile::tempdir().expect("a scratch folder for git's trace");
+    let trace = scratch.path().join("trace.json");
+    let git = test_git_runner_with_environment(&[(
+        "GIT_TRACE2_EVENT",
+        trace.to_str().expect("the scratch folder's path is text"),
+    )]);
+    let fixture = CleanupFixture::new(git).await;
+    let folder = fixture.add_tree("watched").await;
+    git_in(
+        &fixture.git,
+        &fixture.repository,
+        &["config", "core.fsmonitor", "false"],
+    )
+    .await;
+    let environment: Vec<(String, String)> = std::env::vars().collect();
+    let _started = StartedFileWatch {
+        git: find_git_executable(&environment).expect("the tests run where git is"),
+        folder: folder.clone(),
+    };
+    git_in(&fixture.git, &folder, &["fsmonitor--daemon", "start"]).await;
+    let status = || {
+        fixture.git.run(
+            None,
+            GitCall::read(in_folder(&folder, &["fsmonitor--daemon", "status"])),
+        )
+    };
+    assert!(status().await.is_ok(), "the daemon runs before the stop");
+
+    fixture
+        .service
+        .stop_file_watch(None, &folder)
+        .await
+        .expect("the stop succeeds");
+
+    assert!(status().await.is_err(), "the stop ended the daemon");
+    let trace = std::fs::read_to_string(&trace).expect("git's trace reads");
+    assert!(
+        trace
+            .lines()
+            .any(|event| event.contains(r#""event":"start""#)
+                && event.contains(r#""fsmonitor.allowRemote=true","fsmonitor--daemon","stop"]"#)),
+        "the stop lets a remote volume through"
+    );
 }

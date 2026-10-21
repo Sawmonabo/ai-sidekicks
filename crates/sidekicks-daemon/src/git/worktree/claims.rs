@@ -5,7 +5,7 @@
 //! repository's branch of the same name is another branch.
 
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::git::worktree::reads::common_folder_of_record;
@@ -52,93 +52,183 @@ struct RestoringClaim {
     branch: Option<String>,
 }
 
-/// What live trees and put-backs under way held when the claims were read, so a kept copy never
-/// removes another tree's record or branch.
+/// What live trees and put-backs under way hold, read from the database each time it is asked, so
+/// a kept copy never removes another tree's record or branch, one claimed since included.
 pub(crate) struct KeptCopyClaims {
-    live_trees: Vec<LiveTreeClaim>,
-    restoring: Vec<RestoringClaim>,
-}
-
-/// Reads the live trees, with the common folder each one's mount records, and the put-backs under
-/// way, once, on `reads`. Fails with the pool's or SQLite's failure.
-#[expect(
-    dead_code,
-    reason = "a kept copy's stale record removal and a put-back's undo read the claims"
-)]
-pub(crate) async fn prepare_kept_copy_claims(
-    reads: &DatabaseReadPool,
-) -> Result<KeptCopyClaims, KeptCopyClaimsReadError> {
-    reads
-        .read(ReadLength::Short, |connection| {
-            let live_trees = connection
-                .prepare_cached(SELECT_LIVE_TREES_SQL.as_str())?
-                .query_map([], |row| {
-                    Ok(LiveTreeClaim {
-                        folder: PathBuf::from(row.get::<_, String>(0)?),
-                        branch: row.get(1)?,
-                        common_folder: row.get::<_, Option<String>>(2)?.map(PathBuf::from),
-                    })
-                })?
-                .collect::<rusqlite::Result<_>>()?;
-            let restoring = connection
-                .prepare_cached(SELECT_RESTORING_RECORDS_SQL)?
-                .query_map([], |row| {
-                    Ok(RestoringClaim {
-                        record: PathBuf::from(row.get::<_, String>(0)?),
-                        branch: row.get(1)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<_>>()?;
-            Ok(KeptCopyClaims {
-                live_trees,
-                restoring,
-            })
-        })
-        .await
+    reads: Arc<DatabaseReadPool>,
 }
 
 impl KeptCopyClaims {
-    /// Whether a live worktree row has its folder at `folder`, compared by components as stored.
-    #[expect(dead_code, reason = "a kept copy's stale record removal")]
-    pub(crate) fn is_live_tree_at(&self, folder: &Path) -> bool {
-        self.live_trees
-            .iter()
-            .any(|tree| components_equal(&tree.folder, folder))
+    /// The claims as `reads` holds them whenever asked.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "a kept copy's stale record removal and a put-back's undo read the claims"
+        )
+    )]
+    pub(crate) fn new(reads: Arc<DatabaseReadPool>) -> Self {
+        Self { reads }
     }
 
-    /// The records the put-backs under way are making, as their marks name them.
+    /// Whether a live worktree row has its folder at `folder`, compared by components as stored.
+    /// Fails with the pool's or SQLite's failure.
     #[expect(dead_code, reason = "a kept copy's stale record removal")]
-    pub(crate) fn restoring_records(&self) -> impl Iterator<Item = &Path> {
-        self.restoring.iter().map(|claim| claim.record.as_path())
+    pub(crate) async fn is_live_tree_at(
+        &self,
+        folder: &Path,
+    ) -> Result<bool, KeptCopyClaimsReadError> {
+        Ok(self
+            .read_live_trees()
+            .await?
+            .iter()
+            .any(|tree| components_equal(&tree.folder, folder)))
+    }
+
+    /// The records the put-backs under way are making, as their marks name them. Fails with the
+    /// pool's or SQLite's failure.
+    #[expect(dead_code, reason = "a kept copy's stale record removal")]
+    pub(crate) async fn restoring_records(&self) -> Result<Vec<PathBuf>, KeptCopyClaimsReadError> {
+        Ok(self
+            .read_restoring()
+            .await?
+            .into_iter()
+            .map(|claim| claim.record)
+            .collect())
     }
 
     /// Whether, in the repository whose git common folder is `common_folder`, a live worktree row
-    /// is on `branch` or a put-back other than the one making `record_folder` is making it. A live
-    /// tree whose mount records no common folder may be in this repository, so it claims.
-    #[expect(
-        dead_code,
-        reason = "a kept copy's stale record removal and a put-back's undo"
+    /// is on `branch` or a put-back other than the one making `record_folder` is making it, read
+    /// when asked. A live tree whose mount records no common folder may be in this repository, so
+    /// it claims. Fails with the pool's or SQLite's failure.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "a kept copy's stale record removal and a put-back's undo"
+        )
     )]
-    pub(crate) fn is_branch_claimed(
+    pub(crate) async fn is_branch_claimed(
         &self,
         branch: &str,
         common_folder: &Path,
         record_folder: &Path,
-    ) -> bool {
+    ) -> Result<bool, KeptCopyClaimsReadError> {
         let is_this_repository = |claim_common_folder: Option<&Path>| {
             claim_common_folder.is_none_or(|claim| components_equal(claim, common_folder))
         };
-        self.live_trees
+        let is_live_tree_on = self
+            .read_live_trees()
+            .await?
             .iter()
             .filter(|tree| tree.branch == branch)
-            .any(|tree| is_this_repository(tree.common_folder.as_deref()))
+            .any(|tree| is_this_repository(tree.common_folder.as_deref()));
+        Ok(is_live_tree_on
             || self
-                .restoring
+                .read_restoring()
+                .await?
                 .iter()
                 .filter(|claim| {
                     claim.branch.as_deref() == Some(branch)
                         && !components_equal(&claim.record, record_folder)
                 })
-                .any(|claim| is_this_repository(common_folder_of_record(&claim.record)))
+                .any(|claim| is_this_repository(common_folder_of_record(&claim.record))))
+    }
+
+    // The live trees, with the common folder each one's mount records.
+    async fn read_live_trees(&self) -> Result<Vec<LiveTreeClaim>, KeptCopyClaimsReadError> {
+        self.reads
+            .read(ReadLength::Short, |connection| {
+                Ok(connection
+                    .prepare_cached(SELECT_LIVE_TREES_SQL.as_str())?
+                    .query_map([], |row| {
+                        Ok(LiveTreeClaim {
+                            folder: PathBuf::from(row.get::<_, String>(0)?),
+                            branch: row.get(1)?,
+                            common_folder: row.get::<_, Option<String>>(2)?.map(PathBuf::from),
+                        })
+                    })?
+                    .collect::<rusqlite::Result<_>>()?)
+            })
+            .await
+    }
+
+    // The put-backs under way.
+    async fn read_restoring(&self) -> Result<Vec<RestoringClaim>, KeptCopyClaimsReadError> {
+        self.reads
+            .read(ReadLength::Short, |connection| {
+                Ok(connection
+                    .prepare_cached(SELECT_RESTORING_RECORDS_SQL)?
+                    .query_map([], |row| {
+                        Ok(RestoringClaim {
+                            record: PathBuf::from(row.get::<_, String>(0)?),
+                            branch: row.get(1)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<_>>()?)
+            })
+            .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use rusqlite::params;
+
+    use super::KeptCopyClaims;
+    use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::writer::test_file::TestDatabase;
+    use crate::events::log_service::tests::open_log;
+    use crate::workspace::test_rows::project_and_mount_rows;
+
+    const READ_STATEMENT_CAPACITY: usize = 4;
+
+    // Kills the claims answered from a read taken when the reader was made, which lets a put-back
+    // delete a branch another put-back marked since.
+    #[tokio::test]
+    async fn a_put_back_s_mark_made_after_the_claims_are_made_is_seen() {
+        let database = TestDatabase::new();
+        // Opening the log makes the database's tables.
+        let _log = open_log(&database, None).await;
+        let connection = database.reader();
+        for row in project_and_mount_rows("mount", None) {
+            connection
+                .execute_batch(&row)
+                .expect("the project and its mount are stored");
+        }
+        let claims = KeptCopyClaims::new(Arc::new(DatabaseReadPool::new(
+            database.path(),
+            READ_STATEMENT_CAPACITY,
+        )));
+        let common_folder = Path::new("/repos/app/.git");
+        let own_record = Path::new("/repos/app/.git/worktrees/own");
+        assert!(
+            !claims
+                .is_branch_claimed("fix", common_folder, own_record)
+                .await
+                .expect("the claims read")
+        );
+
+        connection
+            .execute(
+                "INSERT INTO removed_worktrees (id, mount_id, project_id, created_by_session_id, \
+                 worktree_name, original_path, kept_path, branch, base_ref, restoring_to, \
+                 restoring_record, restoring_branch, restoring_branch_commit) \
+                 VALUES ('other', 'mount', 'mount', 'session', 'fix', '/trees/fix', \
+                 '/kept/fix', 'fix', 'main', '/trees/fix', ?1, 'fix', ?2)",
+                params!["/repos/app/.git/worktrees/other", "0".repeat(40)],
+            )
+            .expect("another put-back marks the branch");
+
+        assert!(
+            claims
+                .is_branch_claimed("fix", common_folder, own_record)
+                .await
+                .expect("the claims read"),
+            "the mark made since is seen"
+        );
     }
 }

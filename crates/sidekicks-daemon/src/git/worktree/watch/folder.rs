@@ -1,6 +1,6 @@
-//! One watched folder's task: it starts the folder's watches, picks the tree's mode (a watch, or the
-//! slow tick where the machine's watch limit has no room), reads every notice, tick and raise one
-//! at a time, sends one change per burst, and writes a changed branch back.
+//! One watched folder's task: it starts the folder's watches, picks the tree's mode (a watch, or
+//! the slow tick where the machine's watch limit has no room), reads every notice, tick and raise
+//! one at a time, sends one change per burst, and writes a changed branch back.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -17,19 +17,16 @@ use tokio::sync::{Notify, watch};
 
 use super::branch_write_back::BranchWriteBack;
 use super::ignored_paths::{
-    IGNORE_FILE_NAME, IgnoredPaths, TreeCoverage, count_kept_folders, git_folder_change,
-    git_folder_filter, is_git_pointer, read_ignored_paths,
+    IGNORE_FILE_NAME, IgnoredPaths, TreeCoverage, count_git_folder_watches, count_kept_folders,
+    git_folder_filter, is_git_head, is_git_pointer, read_ignored_paths,
 };
 use super::slow_tick::{StatusEntry, read_status_digest};
 use super::{FolderKey, FolderSignals, FolderStartError, StartOutcome, WatchTarget, WatcherShared};
 use crate::daemon::scheduler::ScheduledJobHandle;
 use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice};
-use crate::git::process::GitError;
+use crate::git::process::{GitError, read_git_common_folder};
 use crate::git::worktree::reads::read_tree_git_folder;
 use crate::missing_entry::is_missing_entry;
-
-// The watches a tree takes beside one per folder it keeps: its git folder's.
-const GIT_FOLDER_WATCHES: u64 = 1;
 
 /// Runs the folder `folder` of `target` until `signals.close` is canceled: starts its watches,
 /// answers `started` once they run and the branch was first checked, then reads them.
@@ -49,6 +46,7 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
         coverage: None,
         tree_watch: None,
         git_watch: None,
+        git_folders: Vec::new(),
         tick: None,
         mode: WorkingTreeChangeMode::Watch,
         branch: BranchWriteBack::default(),
@@ -86,6 +84,9 @@ struct WatchedFolder<W> {
     coverage: Option<(IgnoredPaths, TreeCoverage)>,
     tree_watch: Option<FileWatch<W>>,
     git_watch: Option<FileWatch<W>>,
+    // The folders the git-folder watch covers: the tree's own git folder, then the repository's
+    // common one where it is another folder.
+    git_folders: Vec<PathBuf>,
     tick: Option<SlowTick>,
     mode: WorkingTreeChangeMode,
     branch: BranchWriteBack,
@@ -122,8 +123,8 @@ enum WatchTake {
 }
 
 impl<W: Watcher + Send + 'static> WatchedFolder<W> {
-    // Reads the git folder and what git ignores, watches the git folder, then the tree or the slow
-    // tick, then checks the branch once, since it may have changed while nothing watched.
+    // Reads the git folders and what git ignores, watches the git folders, then the tree or the
+    // slow tick, then checks the branch once, since it may have changed while nothing watched.
     async fn start(&mut self) -> Result<(), FolderStartError> {
         let git = &self.shared.deps.git;
         let place = self.target.place.as_ref();
@@ -131,6 +132,15 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         let git_folder = read_tree_git_folder(git, place, &key)
             .await
             .map_err(FolderStartError::GitFolder)?;
+        let common_folder = read_git_common_folder(git, place, &key, None)
+            .await
+            .map_err(FolderStartError::GitFolder)?;
+        // The tree's own git folder first, since a changed path is read against the first root
+        // holding it and a linked tree's record sits inside the common folder.
+        let mut git_folders = vec![git_folder];
+        if !git_folders.contains(&common_folder) {
+            git_folders.push(common_folder);
+        }
         let ignored = IgnoredPaths::default();
         ignored.replace(
             read_ignored_paths(git, place, &key)
@@ -148,9 +158,10 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 false
             }
         };
-        let (git_watch, git_feed) = FileWatch::<W>::start(vec![git_folder], git_folder_filter())
+        let (git_watch, git_feed) = FileWatch::<W>::start(git_folders.clone(), git_folder_filter())
             .await
             .map_err(FolderStartError::GitFolderWatch)?;
+        self.git_folders = git_folders;
         #[cfg(test)]
         self.with_entry(|entry| entry.feeds.git_folder = Some(git_feed));
         #[cfg(not(test))]
@@ -193,8 +204,8 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
             Some(FileWatchNotice::Changed(paths)) => self.take_tree_changes(paths).await,
             Some(FileWatchNotice::Incomplete) => {
                 tracing::warn!(
-                    "the machine's watch limit cut a working folder's watch short, so it is checked \
-                     on a slow tick until it is next started"
+                    "the machine's watch limit cut a working folder's watch short, so it is \
+                     checked on a slow tick until it is next started"
                 );
                 self.fall_back_to_slow_tick();
                 self.is_raise_pending = true;
@@ -246,22 +257,17 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         }
     }
 
-    // A HEAD change checks the branch before the change goes out; an index change is a change.
+    // A HEAD change checks the branch before the change goes out; an index or ref change is a
+    // change.
     async fn take_git_folder_notice(&mut self, notice: Option<FileWatchNotice>) {
         match notice {
             Some(FileWatchNotice::Changed(paths)) => {
-                let (mut has_head, mut has_index) = (false, false);
-                for path in &paths {
-                    let (is_head, is_index) = git_folder_change(path);
-                    has_head |= is_head;
-                    has_index |= is_index;
-                }
-                if has_head {
+                if paths.iter().any(|path| is_git_head(path)) {
                     self.branch
                         .check(&self.shared, &self.folder.key, &self.target)
                         .await;
                 }
-                self.is_raise_pending |= has_head || has_index;
+                self.is_raise_pending |= !paths.is_empty();
             }
             Some(FileWatchNotice::Incomplete) => tracing::warn!(
                 "the machine's watch limit refused a working folder's git folder watch; it is \
@@ -357,12 +363,14 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         let read_ceiling = self.shared.deps.read_watch_ceiling;
         let root = self.folder.key.clone();
         let counting = coverage.clone();
+        let git_folders = self.git_folders.clone();
         let counted = tokio::task::spawn_blocking(move || {
             read_ceiling().map(|ceiling| {
                 ceiling.map(|ceiling| {
                     (
                         ceiling,
-                        count_kept_folders(&root, &counting) + GIT_FOLDER_WATCHES,
+                        count_kept_folders(&root, move |path| counting.keeps(path))
+                            + count_git_folder_watches(&git_folders),
                     )
                 })
             })

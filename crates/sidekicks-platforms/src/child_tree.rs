@@ -29,6 +29,10 @@ pub(crate) const OUTPUT_READ_CHUNK: usize = 64 * 1024;
 pub struct ChildTree {
     // Held until the drop, which on macOS and Linux hands it to the end of its tree.
     process: Option<Box<dyn ChildWrapper>>,
+    // The child's process group on macOS and Linux, its own id, kept past the child's reaping so
+    // an end still reaches what it left behind.
+    #[cfg(unix)]
+    group_id: Option<u32>,
     is_reaped: bool,
 }
 
@@ -63,8 +67,11 @@ pub enum ChildTreeOutputError {
 /// and that closing the daemon's handle does not end. Runs on the daemon's spawner thread. Fails
 /// with the spawn's error, or on Windows the job's.
 pub fn start_child_tree(command: Command, daemon_pid: u32) -> io::Result<ChildTree> {
+    let process = spawn_child_tree_process(command, daemon_pid)?;
     Ok(ChildTree {
-        process: Some(spawn_child_tree_process(command, daemon_pid)?),
+        #[cfg(unix)]
+        group_id: process.id(),
+        process: Some(process),
         is_reaped: false,
     })
 }
@@ -159,10 +166,13 @@ impl ChildTree {
     }
 
     /// Ends the child's whole tree, every process it started that is still in its group or job,
-    /// and reaps the child. Fails with the system's error from the end or the wait.
+    /// and reaps the child; after the child's own exit was waited for, it ends what the child left
+    /// behind there. Fails with the system's error from the end or the wait.
     pub async fn end_tree(&mut self) -> io::Result<()> {
         #[cfg(unix)]
-        end_child_tree(self.process()).await?;
+        if let Some(group_id) = self.group_id {
+            end_child_tree(group_id).await?;
+        }
         #[cfg(windows)]
         end_child_tree_now(self.process())?;
         self.process().inner_mut().wait().await?;

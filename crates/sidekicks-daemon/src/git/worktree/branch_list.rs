@@ -8,7 +8,7 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::{Connection, OptionalExtension};
@@ -164,13 +164,24 @@ impl BranchListReader {
 
         let mut app_tree_by_folder = HashMap::new();
         for (worktree_id, folder) in rows.live_worktrees {
-            app_tree_by_folder.insert(folder_key(&folder).await?, worktree_id);
+            app_tree_by_folder.insert(
+                canonical_folder_path(&folder)
+                    .await
+                    .map_err(BranchListError::Folder)?,
+                worktree_id,
+            );
         }
         let mut entries = Vec::new();
         for branch in in_list_order(branches, &default_branch, &rows.recent_bases) {
             let held_by = match &branch.checked_out_at {
                 Some(folder) => Some(BranchHolder {
-                    worktree_id: app_tree_by_folder.get(&folder_key(folder).await?).copied(),
+                    worktree_id: app_tree_by_folder
+                        .get(
+                            &canonical_folder_path(folder)
+                                .await
+                                .map_err(BranchListError::Folder)?,
+                        )
+                        .copied(),
                     name: tree_name_of(folder).map_err(BranchListError::Name)?,
                 }),
                 None => None,
@@ -252,13 +263,6 @@ fn in_list_order(
         }
     }
     lead.into_iter().flatten().chain(rest).collect()
-}
-
-// The key a tree's folder is compared under.
-async fn folder_key(folder: &Path) -> Result<PathBuf, BranchListError> {
-    canonical_folder_path(folder)
-        .await
-        .map_err(BranchListError::Folder)
 }
 
 #[cfg(test)]
