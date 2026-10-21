@@ -269,9 +269,9 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by a piece after its run's turn end or rollback joining the row that event closed, by
-    // that row still listed as taking pieces, by the run's end closing a row whose turn is still
-    // open, by a read that does not join a row's pieces into its body, and by a piece of another
-    // run joining under the same key.
+    // that row still listed as taking pieces, by the run's end closing a row, by a read that does
+    // not join a row's pieces into its body, and by a piece of another run joining under the same
+    // key.
     #[rstest]
     #[case::a_rollback(
         "agent.run.rolledBack",

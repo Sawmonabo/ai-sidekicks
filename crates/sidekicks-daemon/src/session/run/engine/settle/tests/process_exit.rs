@@ -242,6 +242,83 @@ async fn a_process_exit_keeps_a_run_that_is_not_live_and_ends_its_open_turns(#[c
     assert_eq!(interrupt_state(&database, &step_row), "accepted");
 }
 
+// Killed by the exit's subagent read cutting off a subagent that has ended, at the first level
+// (`ended_subagent`) or deeper (`ended_subagent_two_deep`), by its walk stopping at an ended
+// subagent (`ended_subagent_two_deep`), and by an ended run's open turn left without its end, or
+// with its state or version moved (both).
+#[rstest]
+#[case::ended_subagent(false)]
+#[case::ended_subagent_two_deep(true)]
+#[tokio::test]
+async fn a_process_exit_ends_the_open_turns_of_every_provider_subagent_beneath_its_run(
+    #[case] is_two_deep: bool,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let lead = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, lead);
+    let engine = test_engine(&database, log.service, home.path());
+    let new_subagent = |parent: &RunId| {
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        database
+            .reader()
+            .execute(
+                "INSERT INTO runs (run_id, session_id, parent_run_id, reached_by, state,
+                   run_version)
+                 VALUES (?1, ?2, ?3, 'providerSubagent', 'running', 1)",
+                [
+                    run_id.text().as_str(),
+                    session_id.text().as_str(),
+                    parent.text().as_str(),
+                ],
+            )
+            .expect("the test writes the subagent");
+        run_id
+    };
+    let end_run = |run_id: &RunId| {
+        database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = 'interrupted' WHERE run_id = ?1",
+                [run_id.text().as_str()],
+            )
+            .expect("the test ends the subagent");
+    };
+    let child = new_subagent(&lead);
+    let ended_subagent = if is_two_deep {
+        end_run(&child);
+        new_subagent(&child)
+    } else {
+        child
+    };
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, ended_subagent, 1, 1),
+    )
+    .await;
+    end_run(&ended_subagent);
+
+    engine
+        .end_turn_on_process_exit(lead, process_exit())
+        .await
+        .expect("the exit ends the run and its subagents' open turns");
+
+    assert_eq!(
+        stored_events(&database, &ended_subagent),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.turn.failed", Some("processExit"), Some("daemon")),
+        ])
+    );
+    assert_eq!(
+        stored_run_state(&database, &ended_subagent),
+        ("interrupted".to_owned(), 1)
+    );
+}
+
 // Killed by a process exit that returns its first refusal, which leaves the run running with the
 // step limit's row pending, and by one that decides again from its first read, which the guard
 // refuses once more since the person's interrupt that turn 1's end brought is still unread.

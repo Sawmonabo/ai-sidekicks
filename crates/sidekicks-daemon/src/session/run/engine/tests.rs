@@ -41,7 +41,7 @@ use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
+use crate::session::run::start_request::{DriverStep, RunContinueRequest, RunTurnStart};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
@@ -379,12 +379,7 @@ pub(crate) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (Stri
 /// does and whose turn interrupt succeeds at once.
 pub(super) fn turn_start(
     run_id: RunId,
-    start_driver: impl Fn(
-        ExecutionPosture,
-    ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
-    + Send
-    + Sync
-    + 'static,
+    start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
 ) -> RunTurnStart {
     RunTurnStart {
         run_id,
@@ -402,12 +397,7 @@ pub(super) fn turn_start(
 /// [`turn_start`] starts it.
 pub(crate) fn continue_request(
     run_id: RunId,
-    start_driver: impl Fn(
-        ExecutionPosture,
-    ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
-    + Send
-    + Sync
-    + 'static,
+    start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
 ) -> RunContinueRequest {
     let queue_item = serde_json::from_value(json!({
         "state": "admitted",
@@ -426,19 +416,14 @@ pub(crate) fn continue_request(
 }
 
 /// A driver start that starts the turn at once.
-pub(super) fn started_turn(
-    _resolved_posture: ExecutionPosture,
-) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>> {
+pub(super) fn started_turn(_resolved_posture: ExecutionPosture) -> DriverStep {
     async { Ok(()) }.boxed()
 }
 
 /// A driver start that is held once it begins: the start, which reports on the receiver that it
 /// began and then waits until the sender releases it. It starts one turn.
 pub(crate) fn held_driver() -> (
-    impl Fn(ExecutionPosture) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>
-    + Send
-    + Sync
-    + 'static,
+    impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
     oneshot::Receiver<()>,
     oneshot::Sender<()>,
 ) {

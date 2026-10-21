@@ -101,11 +101,11 @@ static SELECT_TURN_END_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The run's newest started turn that holds no end.
 static SELECT_OPEN_TURN_SQL: LazyLock<String> =
-    LazyLock::new(|| open_turns_sql("ORDER BY started.turn_number DESC\n  LIMIT 1"));
+    LazyLock::new(|| open_turns_sql("@run_id", "ORDER BY started.turn_number DESC\n  LIMIT 1"));
 
 // Every started turn of the run that holds no end, oldest first.
 static SELECT_OPEN_TURNS_SQL: LazyLock<String> =
-    LazyLock::new(|| open_turns_sql("ORDER BY started.turn_number"));
+    LazyLock::new(|| open_turns_sql("@run_id", "ORDER BY started.turn_number"));
 
 // Matches the run while it has not ended or a turn of it holds no end yet.
 static RUN_LIVE_OR_TURN_OPEN_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -113,7 +113,7 @@ static RUN_LIVE_OR_TURN_OPEN_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT 1 FROM runs WHERE run_id = @run_id
   AND (state NOT IN ({}) OR EXISTS ({}))",
         *RUN_TERMINAL_STATES_SQL,
-        open_turns_sql("LIMIT 1")
+        open_turns_sql("@run_id", "LIMIT 1")
     )
 });
 
@@ -717,14 +717,15 @@ fn cut_outcome(
     }
 }
 
-// The run's started turns that hold no end, ordered and bounded by `tail`.
-fn open_turns_sql(tail: &str) -> String {
+/// The started turns that hold no end of the run the SQL expression `run_id` names (a parameter
+/// or a column of an outer query), ordered and bounded by `tail`.
+pub(crate) fn open_turns_sql(run_id: &str, tail: &str) -> String {
     let category = EventCategory::RunLifecycle.as_str();
     format!(
         "SELECT started.turn_number FROM session_events AS started
   WHERE started.category = '{category}'
     AND started.type = '{}'
-    AND started.run_id = @run_id
+    AND started.run_id = {run_id}
     AND NOT EXISTS (
       SELECT 1 FROM session_events AS ended
        WHERE ended.category = '{category}'
