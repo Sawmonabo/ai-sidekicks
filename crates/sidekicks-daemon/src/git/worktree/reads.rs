@@ -19,7 +19,10 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use memchr::memmem;
+use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_platforms::path_from_program_output;
 
 use crate::git::process::{
@@ -91,6 +94,23 @@ pub(crate) struct BranchFigures {
     pub(crate) newest_commit_seconds: i64,
     /// The folder of the tree that has it checked out, or `None` when none has.
     pub(crate) checked_out_at: Option<PathBuf>,
+}
+
+/// A count of commits as the wire carries it, which no repository brings near the safe integer's
+/// bound.
+pub(crate) fn commit_count(count: u64) -> SafeInt<0> {
+    SafeInt::new(count).expect("a count of commits is a safe integer")
+}
+
+/// A tree's name as the wire carries it: its folder's last part. Fails when that name is longer
+/// than a path the wire takes.
+pub(crate) fn tree_name_of(folder: &Path) -> Result<FreeFormText<FILE_PATH_MAX_LEN>, TextError> {
+    FreeFormText::new(
+        folder
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    )
 }
 
 /// A ref's commit and, for a branch, the tree git lists with it checked out.

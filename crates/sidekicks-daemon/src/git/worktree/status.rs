@@ -13,7 +13,7 @@ use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension};
-use sidekicks_contracts::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::ProjectId;
@@ -22,7 +22,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::{FreeFormText, TextError};
+use sidekicks_contracts::wire::text::TextError;
 use sidekicks_contracts::worktree::lifecycle::{
     NewWorktreeSuggestion, RepoRootStatus, WorktreeId, WorktreeState, WorktreeStatusReadRequest,
     WorktreeStatusReadResponse,
@@ -37,7 +37,9 @@ use crate::git::worktree::projector::{
     WorktreeRecordRow, WorktreeStatusProjectionError, WorktreeStatusReading, WorktreeStatusRow,
     project_worktree_status_read,
 };
-use crate::git::worktree::reads::{ListedWorktree, read_branch_figures, read_listed_worktrees};
+use crate::git::worktree::reads::{
+    ListedWorktree, commit_count, read_branch_figures, read_listed_worktrees, tree_name_of,
+};
 use crate::git::worktree::risks::{RemovalRiskReadError, read_removal_risks};
 use crate::processor_bound::map_with_processor_bound;
 use crate::settle_all::SettleFailures;
@@ -238,7 +240,7 @@ impl WorktreeStatusReader {
             let (occupying_session_ids, running_session_id) = occupants_of(&occupancy, &folder);
             worktrees.push(WorktreeStatusRow {
                 path: path_text(&tree.path)?,
-                name: name_of(&tree.path)?,
+                name: tree_name_of(&tree.path).map_err(WorktreeStatusReadError::Text)?,
                 branch_name: branch_name_of(tree)?,
                 ahead: distance.and_then(|(ahead, _)| ahead).map(commit_count),
                 behind: distance.and_then(|(_, behind)| behind).map(commit_count),
@@ -256,7 +258,7 @@ impl WorktreeStatusReader {
             let (occupying_session_ids, running_session_id) = occupants_of(&occupancy, &folder);
             worktrees.push(WorktreeStatusRow {
                 path: path_text(&record.folder)?,
-                name: name_of(&record.folder)?,
+                name: tree_name_of(&record.folder).map_err(WorktreeStatusReadError::Text)?,
                 branch_name: record.branch_name,
                 ahead: None,
                 behind: None,
@@ -364,22 +366,6 @@ fn branch_name_of(tree: &ListedWorktree) -> Result<GitRefName, WorktreeStatusRea
 fn path_text(folder: &Path) -> Result<FilesystemPath, WorktreeStatusReadError> {
     FilesystemPath::new(folder.to_string_lossy().into_owned())
         .map_err(WorktreeStatusReadError::Text)
-}
-
-// The folder's last part, the tree's name.
-fn name_of(folder: &Path) -> Result<FreeFormText<FILE_PATH_MAX_LEN>, WorktreeStatusReadError> {
-    FreeFormText::new(
-        folder
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-    )
-    .map_err(WorktreeStatusReadError::Text)
-}
-
-// A count of commits on the wire, which no repository brings near the safe integer's bound.
-fn commit_count(count: u64) -> SafeInt<0> {
-    SafeInt::new(count).expect("a count of commits is a safe integer")
 }
 
 // The key a tree's folder is compared under.

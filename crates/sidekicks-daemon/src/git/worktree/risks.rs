@@ -11,6 +11,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::worktree::lifecycle::WorktreeRemovalRisks;
 
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
+use crate::git::worktree::reads::commit_count;
 
 // The status code porcelain v1 gives an ignored entry.
 const IGNORED_STATUS: &str = "!!";
@@ -196,7 +197,7 @@ async fn read_unpushed_commit_count(
             printed: printed.clone(),
             source,
         })?;
-    Ok(SafeInt::new(count).expect("no repository holds 2^53 commits"))
+    Ok(commit_count(count))
 }
 
 fn risks_of(

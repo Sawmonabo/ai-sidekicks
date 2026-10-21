@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::{Connection, OptionalExtension};
-use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::{
@@ -20,8 +19,7 @@ use sidekicks_contracts::repo::git_reads::{
 };
 use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState};
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::{FreeFormText, TextError};
+use sidekicks_contracts::wire::text::TextError;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -29,7 +27,8 @@ use crate::database::stored_column::{optional_text_column, text_column};
 use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::fetch::read_counts_as_of;
 use crate::git::worktree::reads::{
-    BranchFigures, read_branch_figures, read_current_branch, read_remote_default_branch,
+    BranchFigures, commit_count, read_branch_figures, read_current_branch,
+    read_remote_default_branch, tree_name_of,
 };
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::ipc::domain_error::DomainError;
@@ -172,13 +171,7 @@ impl BranchListReader {
             let held_by = match &branch.checked_out_at {
                 Some(folder) => Some(BranchHolder {
                     worktree_id: app_tree_by_folder.get(&folder_key(folder).await?).copied(),
-                    name: FreeFormText::<FILE_PATH_MAX_LEN>::new(
-                        folder
-                            .file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_default(),
-                    )
-                    .map_err(BranchListError::Name)?,
+                    name: tree_name_of(folder).map_err(BranchListError::Name)?,
                 }),
                 None => None,
             };
@@ -259,11 +252,6 @@ fn in_list_order(
         }
     }
     lead.into_iter().flatten().chain(rest).collect()
-}
-
-// A count of commits on the wire, which no repository brings near the safe integer's bound.
-fn commit_count(count: u64) -> SafeInt<0> {
-    SafeInt::new(count).expect("a count of commits is a safe integer")
 }
 
 // The key a tree's folder is compared under.
