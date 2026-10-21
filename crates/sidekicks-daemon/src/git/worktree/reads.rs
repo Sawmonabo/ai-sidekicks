@@ -102,8 +102,8 @@ pub(crate) fn commit_count(count: u64) -> SafeInt<0> {
     SafeInt::new(count).expect("a count of commits is a safe integer")
 }
 
-/// A tree's name as the wire carries it: its folder's last part. Fails when that name is longer
-/// than a path the wire takes.
+/// A tree's name as the wire carries it: its folder's last part. Fails when that part is no text
+/// the wire carries (absent, blank, or past a path's length).
 pub(crate) fn tree_name_of(folder: &Path) -> Result<FreeFormText<FILE_PATH_MAX_LEN>, TextError> {
     FreeFormText::new(
         folder
