@@ -211,6 +211,12 @@ impl UsageDeltaAccountant {
         self.base_registers_by_thread_id.contains_key(thread_id)
     }
 
+    /// The base registers of `thread_id`, each axis at the cumulative count the daemon has metered
+    /// up to, `None` for a thread with none; a fork bases the conversation it starts on them.
+    pub(crate) fn base_registers(&self, thread_id: &str) -> Option<UsageAxisCounts> {
+        self.base_registers_by_thread_id.get(thread_id).copied()
+    }
+
     /// Drops a thread's registers when its provider session ends.
     pub(crate) fn release_thread(&mut self, thread_id: &str) {
         self.base_registers_by_thread_id.remove(thread_id);

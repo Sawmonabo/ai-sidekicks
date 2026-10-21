@@ -1,6 +1,7 @@
 //! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary, slot,
-//! turn-in-flight, larger-window, port and configuration failures, and how each reaches the daemon
-//! as a driver error; and the readers of Codex's active-writer and restart refusals.
+//! turn-in-flight, larger-window, port, driver-shaped and configuration failures, and how each
+//! reaches the daemon as a driver error; and the readers of Codex's active-writer and restart
+//! refusals.
 
 use std::error::Error;
 use std::time::Duration;
@@ -193,6 +194,10 @@ pub(crate) enum CodexError {
         #[source]
         cause: Box<dyn Error + Send + Sync>,
     },
+    /// A step that fails in the daemon's driver shape already, a catalog read among them, passed
+    /// on as it failed.
+    #[error(transparent)]
+    Driver(DriverError),
     /// The driver's configuration lacks the shape the driver needs: a wiring defect.
     #[error("the Codex driver's {field} configuration is unusable: {detail}")]
     DriverConfig {
@@ -311,10 +316,14 @@ impl From<CodexError> for DriverError {
     /// draining answers refuse `provider.unavailable`; a written request with no answer is
     /// `Unanswered`, `provider.timeout` past its deadline and `provider.unavailable` once the
     /// connection closed; each carries the failure's words bounded as `providerFailureDetail`; a
+    /// failure already in the driver's shape is passed on as it is; a
     /// refused fork boundary answers `provider.capability.unsupported` on the rollback flag with
     /// Codex's refusal bounded as `providerFailureDetail`, and a session closed under a wait
     /// `session.alreadyClosed`; the rest are internal failures.
     fn from(error: CodexError) -> Self {
+        if let CodexError::Driver(error) = error {
+            return error;
+        }
         match &error {
             CodexError::Transport { .. } => Self::Refused(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
@@ -413,6 +422,7 @@ impl From<CodexError> for DriverError {
             CodexError::ProviderRequest { .. }
             | CodexError::SessionAlreadyLive { .. }
             | CodexError::PortFailed { .. }
+            | CodexError::Driver(_)
             | CodexError::DriverConfig { .. } => Self::Internal(Box::new(error)),
         }
     }

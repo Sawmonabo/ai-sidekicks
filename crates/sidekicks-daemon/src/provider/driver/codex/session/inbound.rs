@@ -22,8 +22,11 @@ use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnWait, Codex
 use crate::provider::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
+use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::contract::{
+    DriverError, MoveSessionToForkParams, MoveSessionToForkResult,
+};
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CODEX_SESSION_INBOUND_DEPTH_MARK: usize = 512;
@@ -78,7 +81,8 @@ pub(crate) enum CodexSessionInbound {
 /// session's task let the record go first.
 #[expect(
     dead_code,
-    reason = "the Codex run's steer and the waits of undo, retry and `Allow once` send these calls"
+    reason = "the Codex run's steer, start and retry, the waits of undo and `Allow once`, the \
+              config forks and the rewind send these calls"
 )]
 pub(crate) enum CodexSessionCall {
     /// Registers a steer on the run's live turn before it is written.
@@ -105,6 +109,19 @@ pub(crate) enum CodexSessionCall {
         wait: CodexTurnWait,
         /// Where the wait's own answer channel goes.
         reply: oneshot::Sender<oneshot::Receiver<CodexTurnWaitAnswer>>,
+    },
+    /// Runs the fork onto a changed config the session owes, once the caller claimed its slot.
+    ConfigFork {
+        /// Where `true` goes once the session moved onto the fork, `false` when it owed none or a
+        /// turn was in flight, or the fork's failure.
+        reply: oneshot::Sender<Result<bool, CodexError>>,
+    },
+    /// Moves the session onto a fork after a recorded boundary, once the caller claimed its slot.
+    MoveToFork {
+        /// The boundary and the binding the fork moves.
+        params: MoveSessionToForkParams,
+        /// Where the move's result, or its failure, goes.
+        reply: oneshot::Sender<Result<MoveSessionToForkResult, CodexError>>,
     },
 }
 

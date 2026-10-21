@@ -12,4 +12,4 @@ mod notices;
 mod patches;
 pub(super) mod question_answers;
 mod reviewer;
-mod rows;
+pub(super) mod rows;

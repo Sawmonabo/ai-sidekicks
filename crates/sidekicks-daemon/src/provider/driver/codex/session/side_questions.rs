@@ -18,9 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::app_server_protocol::{
-    AskForApproval, ThreadUnsubscribeParams,
-};
+use crate::provider::driver::codex::app_server_protocol::AskForApproval;
 use crate::provider::driver::codex::attachments::compose_codex_text_input;
 use crate::provider::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
@@ -29,6 +27,7 @@ use crate::provider::driver::codex::permission_level::compose_codex_profile_name
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::slots::let_go_codex_thread;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::thread::settings::{
     CodexTurnStartParams, compose_codex_thread_fork_params,
@@ -36,9 +35,7 @@ use crate::provider::driver::codex::thread::settings::{
 use crate::provider::driver::codex::thread::view::{assert_active_permission_profile, read_thread};
 use crate::provider::driver::codex::token_usage::read_codex_token_usage;
 use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexTeardownStep, CodexTransportDiagnostic,
-};
+use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::session_control::AskSideQuestionParams;
 use crate::provider::usage_delta_accountant::{
@@ -50,8 +47,6 @@ use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
 const THREAD_FORK_METHOD: &str = "thread/fork";
 
 const TURN_START_METHOD: &str = "turn/start";
-
-const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
 
 /// The item type of the copy's reply.
 const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
@@ -200,7 +195,7 @@ impl CodexSideQuestions {
         if let Err(error) = started {
             let question = self.lock().remove(&copy_thread_id);
             if let Some(question) = question {
-                let_go(&question.service, &copy_thread_id).await;
+                let_go_codex_thread(&question.service, &copy_thread_id).await;
             }
             return Err(error);
         }
@@ -281,7 +276,7 @@ impl CodexSideQuestions {
                 .collect()
         };
         for (thread_id, question) in copies {
-            let_go(&question.service, &thread_id).await;
+            let_go_codex_thread(&question.service, &thread_id).await;
         }
     }
 
@@ -366,29 +361,5 @@ async fn finish(
             .report();
         }
     }
-    let_go(&question.service, &thread_id).await;
-}
-
-// Forgets the copy and unsubscribes from it while its service runs; a refused unsubscribe is
-// reported, since the copy is ephemeral and unloads with the service anyway.
-async fn let_go(service: &CodexService, thread_id: &str) {
-    service.release_thread(thread_id);
-    let Ok(connection) = service.connection() else {
-        return;
-    };
-    let unsubscribed = connection
-        .request(
-            THREAD_UNSUBSCRIBE_METHOD,
-            &ThreadUnsubscribeParams {
-                thread_id: thread_id.to_owned(),
-            },
-        )
-        .await;
-    if let Err(error) = unsubscribed {
-        CodexTransportDiagnostic::TeardownStepFailed {
-            step: CodexTeardownStep::ThreadUnsubscribe,
-            error: Box::new(error),
-        }
-        .report();
-    }
+    let_go_codex_thread(&question.service, &thread_id).await;
 }

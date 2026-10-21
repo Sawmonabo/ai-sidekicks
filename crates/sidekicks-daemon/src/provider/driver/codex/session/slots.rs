@@ -17,6 +17,7 @@ use crate::provider::driver::codex::commands::CodexProviderCommandCache;
 use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::provider::driver::codex::hooks::pause::CodexRunPauses;
 use crate::provider::driver::codex::run::routes::CodexRunRoutes;
+use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::background_terminals::end_codex_running_commands;
 use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::provider::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
@@ -283,8 +284,9 @@ impl Drop for CodexSessionClaim<'_> {
 }
 
 /// Lets go of `record`'s conversation on its session's task: its routes, pauses and waits first,
-/// so nothing reaches it after; then, on a running service, its commands end and it unsubscribes,
-/// a failed unsubscribe reported; then its threads, compaction wait and command list are released.
+/// so nothing reaches it after; then, on a running service, its commands end and it is forgotten
+/// and unsubscribed, a failed unsubscribe reported; then its threads, compaction wait and command
+/// list are released.
 #[expect(
     dead_code,
     reason = "the Codex session's close and dispose let go of the record on its task"
@@ -298,29 +300,40 @@ pub(crate) async fn let_go_codex_session(
     deps.pauses.forget_session(&session_id);
     if let Ok(connection) = record.service.connection() {
         end_codex_running_commands(&connection, &record.thread_id, true).await;
-        let unsubscribed = connection
-            .request_within(
-                THREAD_UNSUBSCRIBE_METHOD,
-                &ThreadUnsubscribeParams {
-                    thread_id: record.thread_id.clone(),
-                },
-                CODEX_UNSUBSCRIBE_TIMEOUT,
-            )
-            .await;
-        if let Err(error) = unsubscribed {
-            CodexTransportDiagnostic::TeardownStepFailed {
-                step: CodexTeardownStep::ThreadUnsubscribe,
-                error: Box::new(error),
-            }
-            .report();
-        }
     }
+    let_go_codex_thread(&record.service, &record.thread_id).await;
     // A conversation the session moved off stays routed until the command it runs ends.
     deps.release
         .release_session_threads(&record.service, &session_id, |_| true);
     deps.pending_compactions
         .release_binding(&codex_compaction_wait_key(record, &record.thread_id));
     deps.provider_commands.discard_listing(session_id);
+}
+
+/// Forgets `thread_id` on `service` and unsubscribes from it while the service runs, within a
+/// short bound so a wedged service cannot hold the caller; a refused unsubscribe is reported,
+/// since the conversation unloads with the service anyway.
+pub(crate) async fn let_go_codex_thread(service: &CodexService, thread_id: &str) {
+    service.release_thread(thread_id);
+    let Ok(connection) = service.connection() else {
+        return;
+    };
+    let unsubscribed = connection
+        .request_within(
+            THREAD_UNSUBSCRIBE_METHOD,
+            &ThreadUnsubscribeParams {
+                thread_id: thread_id.to_owned(),
+            },
+            CODEX_UNSUBSCRIBE_TIMEOUT,
+        )
+        .await;
+    if let Err(error) = unsubscribed {
+        CodexTransportDiagnostic::TeardownStepFailed {
+            step: CodexTeardownStep::ThreadUnsubscribe,
+            error: Box::new(error),
+        }
+        .report();
+    }
 }
 
 #[cfg(test)]

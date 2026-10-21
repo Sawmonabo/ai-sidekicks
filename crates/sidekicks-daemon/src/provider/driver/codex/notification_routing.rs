@@ -165,6 +165,46 @@ impl CodexSessionRouting {
         routed
     }
 
+    /// Moves the session's conversation from `pre_fork_thread_id` onto its fork
+    /// `forked_thread_id`, and delivers the frames that waited for the fork. The fork's usage is
+    /// based on what was metered on the conversation it left, the only key that spend exists
+    /// under, and that conversation's base is let go.
+    pub(crate) async fn move_session_thread(
+        &mut self,
+        delivery: &CodexFrameDelivery,
+        record: &mut CodexSessionRecord,
+        forked_thread_id: String,
+        pre_fork_thread_id: &str,
+    ) -> CodexRoutedFrames {
+        let prior_emitted_cumulative = self
+            .accountant
+            .base_registers(pre_fork_thread_id)
+            .unwrap_or_default();
+        let routed = self
+            .bind_session_thread(
+                delivery,
+                record,
+                forked_thread_id,
+                ThreadBaseEstablishment::Resume {
+                    prior_emitted_cumulative,
+                },
+            )
+            .await;
+        self.accountant.release_thread(pre_fork_thread_id);
+        routed
+    }
+
+    /// Whether the session's routing meters `thread_id` already: its conversation's or a
+    /// helper's, so a fork that names it started no new conversation.
+    pub(crate) fn is_metered_thread(&self, thread_id: &str) -> bool {
+        self.accountant.has_thread(thread_id)
+    }
+
+    /// Whether `thread_id` is one of the session's helpers.
+    pub(crate) fn is_helper_thread(&self, thread_id: &str) -> bool {
+        self.router.child_attribution_for(thread_id).is_some()
+    }
+
     /// Routes one notification of the session and delivers what it releases, a helper's
     /// announcement registering the helper before the announcement itself is routed. Never fails:
     /// each delivery reports its own failure.
