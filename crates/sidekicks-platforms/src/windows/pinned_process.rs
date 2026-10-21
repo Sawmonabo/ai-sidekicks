@@ -26,7 +26,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::child_command::ChildEnd;
-use crate::pinned_process::{KILL_WAIT_BOUND, ProcessRecord};
+use crate::pinned_process::{KILL_WAIT_BOUND, ProcessEndWait, ProcessRecord};
 use crate::windows::ctrl_c::CTRL_C_EXIT_CODE;
 use crate::windows::error_codes::win32_code;
 use crate::windows::lasting_child::is_lasting_job_name;
@@ -105,6 +105,15 @@ impl PinnedProcess {
     /// to stop by the program's own means first, and its job's processes end with it.
     pub fn stop_group(&self, grace: Duration) -> io::Result<ChildEnd> {
         self.stop(grace)
+    }
+
+    /// Asks the process to end by itself, which Windows has no signal for, so it fails with
+    /// `Unsupported`: the caller asks it by the program's own means.
+    pub fn hang_up(&self) -> io::Result<ProcessEndWait> {
+        Err(io::Error::new(
+            ErrorKind::Unsupported,
+            "Windows has no signal that asks a process to end by itself",
+        ))
     }
 
     /// Ends every process still in the job of the process's own, through the handle held with it;

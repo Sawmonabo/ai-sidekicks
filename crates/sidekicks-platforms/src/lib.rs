@@ -196,7 +196,7 @@ pub use own_root::run_test_as_own_root;
 pub use path::program_output::path_from_program_output;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
-pub use pinned_process::ProcessRecord;
+pub use pinned_process::{ProcessEndWait, ProcessRecord};
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use posix::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,

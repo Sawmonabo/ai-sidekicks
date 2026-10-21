@@ -1,9 +1,12 @@
 //! What every system shares about a pinned process: the record a later process re-pins it from,
-//! and the bound on a stop's wait once the process is killed.
+//! the bound on a stop's wait once the process is killed, and the wait for the end of a process
+//! asked to end by itself.
 
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use polling::{Events, Poller};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::PinnedProcess;
@@ -76,6 +79,51 @@ impl ProcessRecord {
     /// and on Windows with `InvalidData` for a job name no lasting child is given.
     pub fn end_survivors(&self, environment_entry: &str) -> io::Result<bool> {
         end_recorded_survivors(self, environment_entry)
+    }
+}
+
+/// The wait for the end of a process [`PinnedProcess::hang_up`] asked to end by itself, with no
+/// bound, which another thread may call off.
+pub struct ProcessEndWait {
+    /// What watches the process's end; `None` when it had already ended as the watch began.
+    pub(crate) poller: Option<Poller>,
+    /// Whether the wait was called off.
+    pub(crate) is_called_off: AtomicBool,
+    /// The process, held so the descriptor the poller may watch stays open after it.
+    pub(crate) _process: PinnedProcess,
+}
+
+impl ProcessEndWait {
+    /// Waits for the process's end; `true` once it has ended, `false` once the wait was called
+    /// off. Blocking, so it runs in `spawn_blocking`, and one thread at a time. Fails with the
+    /// system's error from the wait.
+    pub fn wait(&self) -> io::Result<bool> {
+        let Some(poller) = &self.poller else {
+            return Ok(true);
+        };
+        let mut events = Events::new();
+        loop {
+            if self.is_called_off.load(Ordering::Acquire) {
+                return Ok(false);
+            }
+            events.clear();
+            match poller.wait(&mut events, None) {
+                Ok(count) if count > 0 => return Ok(true),
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    /// Calls the wait off: a wait under way answers `false`, and so does any later one. Fails
+    /// with the system's error from waking the wait.
+    pub fn call_off(&self) -> io::Result<()> {
+        self.is_called_off.store(true, Ordering::Release);
+        match &self.poller {
+            Some(poller) => poller.notify(),
+            None => Ok(()),
+        }
     }
 }
 
@@ -300,6 +348,84 @@ mod tests {
         assert_eq!(&ready, b"ready\n");
         assert_eq!(rest, "asked\n");
         assert_eq!(end, crate::ChildEnd::Stop);
+    }
+
+    // A shell running `script` with its output piped, answered once it wrote its first line.
+    #[cfg(unix)]
+    fn start_ready_shell(script: &str) -> (std::process::Child, std::process::ChildStdout) {
+        use std::io::Read as _;
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("the shell starts");
+        let mut output = child.stdout.take().expect("the shell's output is piped");
+        let mut ready = [0; 6];
+        output
+            .read_exact(&mut ready)
+            .expect("the shell's first line reads");
+        assert_eq!(&ready, b"ready\n");
+        (child, output)
+    }
+
+    // Fails when the hang-up sends any signal but `SIGHUP`, here one the shell answers only on a
+    // hang-up, or its wait answers before the process ended or never answers its end.
+    #[cfg(unix)]
+    #[test]
+    fn a_pinned_process_hang_up_waits_for_the_end_it_asked_for() {
+        use std::io::Read as _;
+
+        let (mut child, mut output) = start_ready_shell(
+            "trap 'echo hup; exit 0' HUP; echo ready; while :; do sleep 0.05; done",
+        );
+        let pinned = pin_child_process(child.id()).expect("the shell pins");
+
+        let wait = pinned.hang_up().expect("the hang-up is sent");
+        let is_ended = wait.wait().expect("the wait reads");
+        let mut rest = String::new();
+        output
+            .read_to_string(&mut rest)
+            .expect("the shell's output reads to its end");
+        let status = child.wait().expect("the shell is reaped");
+
+        assert!(is_ended);
+        assert_eq!(rest, "hup\n");
+        assert!(status.success());
+    }
+
+    // Fails when calling a hang-up's wait off leaves the wait blocked on a process that ignores
+    // the hang-up, which would hold a stop on a drain that never ends.
+    #[cfg(unix)]
+    #[test]
+    fn a_pinned_process_hang_up_wait_answers_once_called_off() {
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let (mut child, _output) = start_ready_shell("trap '' HUP; echo ready; read never");
+        let pinned = pin_child_process(child.id()).expect("the shell pins");
+        let wait = Arc::new(pinned.hang_up().expect("the hang-up is sent"));
+        let (answered, answer) = std::sync::mpsc::channel();
+        let waiting = Arc::clone(&wait);
+        std::thread::spawn(move || {
+            let _sent = answered.send(waiting.wait().expect("the wait reads"));
+        });
+
+        let before_the_call_off = answer.recv_timeout(Duration::from_millis(300));
+        wait.call_off().expect("the wait is called off");
+        let after_the_call_off = answer.recv_timeout(Duration::from_secs(5));
+        let is_running = pinned.record().expect("the record reads").is_some();
+        child.kill().expect("the test ends its own child");
+        child.wait().expect("the shell is reaped");
+
+        assert!(
+            before_the_call_off.is_err(),
+            "the wait answered before its call-off"
+        );
+        assert_eq!(after_the_call_off, Ok(false));
+        assert!(is_running);
     }
 
     // A shell that leads a group of its own, in a session of its own when `is_own_session`, and

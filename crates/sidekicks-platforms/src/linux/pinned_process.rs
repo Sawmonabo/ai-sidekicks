@@ -6,6 +6,7 @@
 use std::io::{self, ErrorKind};
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use nix::sys::signal::Signal;
@@ -14,7 +15,7 @@ use polling::{Event, Poller};
 use crate::child_command::ChildEnd;
 use crate::linux::processes::read_process_environment;
 use crate::linux::{read_process_file, read_process_stat_fields};
-use crate::pinned_process::ProcessRecord;
+use crate::pinned_process::{ProcessEndWait, ProcessRecord};
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
 use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
@@ -95,6 +96,22 @@ impl PinnedProcess {
             |signal| self.send_to_group(signal),
             |bound| self.wait_for_exit(bound),
         )
+    }
+
+    /// Asks the process to end by itself: `SIGHUP` through its descriptor, its exit watched first;
+    /// answers the wait for its end, which answers at once for a process already gone. Blocking,
+    /// so it runs in `spawn_blocking`. Fails with the system's error.
+    pub fn hang_up(&self) -> io::Result<ProcessEndWait> {
+        let poller = Poller::new()?;
+        // SAFETY: the descriptor is held by the wait's own copy of `self`, which it drops after
+        // the poller.
+        unsafe { poller.add(&*self.descriptor, Event::readable(EXIT_KEY)) }?;
+        self.send_through_descriptor(Signal::SIGHUP, 0)?;
+        Ok(ProcessEndWait {
+            poller: Some(poller),
+            is_called_off: AtomicBool::new(false),
+            _process: self.clone(),
+        })
     }
 
     // Sends `signal` through the descriptor, `SIGKILL` to the process and then to the whole group
@@ -390,7 +407,7 @@ mod tests {
     use std::sync::mpsc;
 
     use super::{current_boot, pin_recorded, pin_running_process};
-    use crate::pinned_process::ProcessRecord;
+    use crate::pinned_process::{ProcessEndWait, ProcessRecord};
 
     // Fails when a descriptor's open refused for a thread's id reads as a failure, which fails the
     // orphan sweep, and with it every start, while a thread holds a recorded shell's old id.

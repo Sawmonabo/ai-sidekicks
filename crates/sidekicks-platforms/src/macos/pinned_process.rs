@@ -7,6 +7,7 @@
 use std::ffi::CStr;
 use std::io::{self, ErrorKind};
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use nix::errno::Errno;
@@ -19,7 +20,7 @@ use crate::child_command::ChildEnd;
 use crate::macos::processes::{
     list_child_process_ids, list_group_process_ids, read_process_environment,
 };
-use crate::pinned_process::ProcessRecord;
+use crate::pinned_process::{ProcessEndWait, ProcessRecord};
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
 use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
@@ -195,6 +196,20 @@ impl PinnedProcess {
             },
             |bound| exit_watch.wait(bound),
         )
+    }
+
+    /// Asks the process to end by itself: `SIGHUP`, naming it by its id version, its exit watched
+    /// first so it is never missed; answers the wait for its end, which answers at once for a
+    /// process already gone. Blocking, so it runs in `spawn_blocking`. Fails with the system's
+    /// error, and with `Unsupported` on a macOS without the checked read.
+    pub fn hang_up(&self) -> io::Result<ProcessEndWait> {
+        let exit_watch = ExitWatch::attach(self.id)?;
+        self.send_checked_signal(Signal::SIGHUP)?;
+        Ok(ProcessEndWait {
+            poller: exit_watch.poller,
+            is_called_off: AtomicBool::new(false),
+            _process: self.clone(),
+        })
     }
 
     // Sends `signal` to the process; `false` when it has ended. A `SIGKILL` first lists every
