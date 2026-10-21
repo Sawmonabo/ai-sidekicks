@@ -69,16 +69,25 @@ async fn a_reconcile_moves_the_run_to_match_its_open_asks(
     assert_eq!(fixture.run_state(fixture.run_id), expected);
 }
 
-// A reconcile reads the open asks when it holds the run, not when it was spawned: one spawned
-// with no ask open, which runs after an ask opened, holds the run. Killed by a reconcile that
-// decides its move before it takes the run's lock.
+// A reconcile reads the open asks when it holds the run, not when it was spawned: one waiting on
+// the run's lock while an ask opens holds the run once it takes the lock. Killed by a reconcile
+// that decides its move before it takes the run's lock.
 #[tokio::test]
 async fn a_reconcile_reads_the_asks_open_when_it_holds_the_run() {
     let fixture = ApprovalFixture::new().await;
-    let run_hold = fixture.run_holds.run_locks.acquire(fixture.run_id).await;
+    let run_locks = &fixture.run_holds.run_locks;
+    let run_hold = run_locks.acquire(fixture.run_id).await;
+    let held_alone = run_locks.queue_handle_count(fixture.run_id);
     let holds = Arc::clone(&fixture.run_holds);
     let run_id = fixture.run_id;
     let reconcile = tokio::spawn(async move { holds.reconcile(run_id).await });
+    tokio::time::timeout(SETTLE_WAIT, async {
+        while run_locks.queue_handle_count(run_id) == held_alone {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the reconcile waits on the run's lock");
     fixture.open_ask().await;
     drop(run_hold);
     tokio::time::timeout(SETTLE_WAIT, reconcile)

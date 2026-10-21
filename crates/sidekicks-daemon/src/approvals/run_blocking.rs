@@ -143,10 +143,7 @@ impl ApprovalRunHolds {
 
     /// Follows `followers` to reconcile, whenever a run of a session reports `running`, each run
     /// of that session holding an open ask, until the returned handle's stop.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start follows the runs it holds")
-    )]
+    #[expect(dead_code, reason = "the daemon's start follows the runs it holds")]
     pub(crate) fn start(
         self: &Arc<Self>,
         followers: &Arc<SessionEventFollowers>,
@@ -209,10 +206,7 @@ pub(crate) struct RunHoldFollowing {
 impl RunHoldFollowing {
     /// Stops hearing runs and settles once every reconcile under way is done. Fails only when the
     /// task itself ended abnormally.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's stop ends the run holds")
-    )]
+    #[expect(dead_code, reason = "the daemon's stop ends the run holds")]
     pub(crate) async fn stop(self) -> Result<(), JoinError> {
         let Self {
             attachment,
@@ -266,12 +260,9 @@ pub(crate) struct ApprovalRunEnd {
 impl ApprovalRunEnd {
     /// The gate letting go of a run's provider asks in `permission_asks` and canceling its cards
     /// through `service`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the run-end gate with the run engine"
-        )
+    #[expect(
+        dead_code,
+        reason = "the daemon's start registers the run-end gate with the run engine"
     )]
     pub(crate) fn new(service: Arc<ApprovalService>, permission_asks: Arc<PermissionAsks>) -> Self {
         Self {

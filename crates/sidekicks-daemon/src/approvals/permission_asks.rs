@@ -7,13 +7,16 @@
 //!   failed, and the failure goes on to the driver that handed it.
 //! - An ask is held by its run and its provider's request id from its arrival until its run ends or
 //!   its provider takes it back, so a second delivery of an ask still waiting raises nothing, and
-//!   one whose card was answered gets the kept answer again.
-//! - A card's answer is recorded, kept with the held ask, then handed to the provider that holds the
-//!   call, decision first, with the rule it made, which is recorded once the provider kept it. A
-//!   hand that failed before the provider took it is handed again when the client sends the answer
-//!   again; one the provider took, or may have taken, is never handed blind a second time.
+//!   one already answered, by its card or by the daemon, gets the kept answer again. A delivery
+//!   under a held request id that names another action is another ask: the held one's card is
+//!   withdrawn while it waits, and the new one is checked afresh.
+//! - A card's answer is recorded, kept with the held ask, then handed to the provider that holds
+//!   the call, decision first, with the rule it made, which is recorded once the provider kept it.
+//!   A hand that failed before the provider took it is handed again when the client sends the
+//!   answer again; one the provider took, or may have taken, is never handed blind a second time.
 //! - A card the daemon raised itself names no provider ask: its answer goes to whoever raised it,
-//!   and the session rule it made is recorded at once, kept and honored by the daemon alone.
+//!   and the session rule it made is recorded at once, kept and honored by the daemon alone; the
+//!   same answer sent again records a rule whose record failed.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -21,8 +24,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::approval::{
-    ApprovalDecision, ApprovalResolveRequest, ApprovalResolveResponse, RememberedScope,
-    RememberedScopeKind,
+    ApprovalDecision, ApprovalRequestId, ApprovalResolveRequest, ApprovalResolveResponse,
+    RememberedScope, RememberedScopeKind,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -87,6 +90,12 @@ pub(crate) enum PermissionAskError {
         /// The run.
         run_id: RunId,
     },
+    /// The card's answer made a rule, but the card names no action for a rule to cover.
+    #[error("card {approval_request_id} names no action for its rule to cover")]
+    RuleWithoutAction {
+        /// The card.
+        approval_request_id: ApprovalRequestId,
+    },
     /// The check failed, and so did refusing the call at its provider.
     #[error(transparent)]
     Unrefused(Box<CleanupFailures<PermissionAskError>>),
@@ -105,6 +114,7 @@ impl From<PermissionAskError> for HandlerError {
             | PermissionAskError::Read(_)
             | PermissionAskError::Pool(_)
             | PermissionAskError::NoProvider { .. }
+            | PermissionAskError::RuleWithoutAction { .. }
             | PermissionAskError::Unrefused(_)) => Self::Internal(Box::new(fault)),
         }
     }
@@ -114,8 +124,8 @@ impl From<PermissionAskError> for HandlerError {
 enum HeldAskState {
     /// Its check runs or its card waits for the person.
     Waiting,
-    /// Its card was answered: the answer, the rule it made, and whether a hand of it is under way
-    /// or reached the provider, so no second hand goes out blind.
+    /// Its card or the daemon answered it: the answer, the rule it made, and whether a hand of it
+    /// is under way or reached the provider, so no second hand goes out blind.
     Answered {
         answer: ProviderPermissionAnswer,
         made_rule: Option<ProviderAnswerRule>,
@@ -177,9 +187,10 @@ impl PermissionAsks {
     }
 
     /// Answers the ask itself where the check has an answer, else raises its card under an ask id
-    /// the daemon mints; a second delivery of an ask still waiting raises nothing, and one whose
-    /// card was answered gets that answer again. Fails with the check's failure, once the call is
-    /// refused at its provider, and as handing a daemon answer fails.
+    /// the daemon mints; a second delivery of an ask still waiting raises nothing, and one already
+    /// answered gets that answer again. Fails, once the call is refused at its provider, as the
+    /// check fails or as withdrawing the card of another ask held under its request id fails; and
+    /// as handing an answer fails.
     pub(crate) async fn take_ask(
         &self,
         ask: ProviderPermissionAsk,
@@ -188,7 +199,7 @@ impl PermissionAsks {
         let ask_id =
             NonEmptyText::new(mint_uuid_v7().to_string()).expect("a minted UUID is not empty");
         let withdrawal = CancellationToken::new();
-        let redelivered = {
+        let (redelivered, replaced) = {
             let mut held = self.lock_held();
             match held.get_mut(&key) {
                 Some(HeldAsk {
@@ -205,10 +216,10 @@ impl PermissionAsks {
                     ..
                 }) if *action == ask.action => {
                     *is_handed = true;
-                    Some(answer.clone())
+                    (Some(answer.clone()), None)
                 }
                 Some(_) | None => {
-                    held.insert(
+                    let replaced = held.insert(
                         key.clone(),
                         HeldAsk {
                             session_id: ask.session_id,
@@ -218,13 +229,28 @@ impl PermissionAsks {
                             state: HeldAskState::Waiting,
                         },
                     );
-                    None
+                    (None, replaced)
                 }
             }
         };
-        // Its card was answered: the provider asks again for the answer it may have lost.
+        // It was answered: the provider asks again for the answer it may have lost.
         if let Some(answer) = redelivered {
             return self.hand_answer(&key, answer).await;
+        }
+        // One request id names one ask while it is held, so another action under it is another
+        // ask, and an answer kept for the one held never goes to it.
+        if let Some(replaced) = replaced {
+            tracing::warn!(
+                run_id = %ask.run_id,
+                request_id = %ask.request_id,
+                "permission_ask_redelivered_with_another_action"
+            );
+            if matches!(replaced.state, HeldAskState::Waiting)
+                && let Err(failure) = self.cancel_held(ask.run_id, replaced).await
+            {
+                self.let_go(&key, &ask_id);
+                return Err(self.refuse_unchecked(&ask, failure).await);
+            }
         }
         let verdict = match self
             .deps
@@ -259,12 +285,12 @@ impl PermissionAsks {
                 made_rule: None,
             },
         };
-        self.let_go(&key, &ask_id);
+        self.keep_answer(&key, &ask_id, &answer);
         if withdrawal.is_cancelled() {
             return Ok(());
         }
         let is_allowed = matches!(answer, ProviderPermissionAnswer::Allow { .. });
-        self.hand(ask.run_id, ask.request_id, answer).await?;
+        self.hand_answer(&key, answer).await?;
         if is_allowed {
             self.deps
                 .approvals
@@ -293,28 +319,17 @@ impl PermissionAsks {
         let Some((run_id, ask)) = taken_back else {
             return Ok(());
         };
-        ask.withdrawal.cancel();
-        if let Some(stored) = self
-            .deps
-            .approvals
-            .read_ask_request(run_id, ask.ask_id)
-            .await?
-        {
-            self.deps
-                .approvals
-                .withdraw(stored.approval_request_id)
-                .await?;
-        }
-        Ok(())
+        self.cancel_held(run_id, ask).await
     }
 
     /// Records one answer, then hands it to the provider that holds the call, decision first,
     /// then records the rule it made once the provider kept it; a card the daemon raised itself
     /// records its rule at once. The same answer sent again hands it again only where no earlier
-    /// hand reached, or may have reached, the provider. Fails with the approval service's
-    /// refusals; `approval.rule.notKept` when the call was answered but its provider could not
-    /// keep the rule, which is then not recorded; and as reaching the provider or recording the
-    /// rule fails, the answer kept.
+    /// hand reached, or may have reached, the provider, and records a daemon card's rule whose
+    /// record failed. Fails with the approval service's refusals; `approval.rule.notKept` when the
+    /// call was answered but its provider could not keep the rule, which is then not recorded;
+    /// [`PermissionAskError::RuleWithoutAction`] for a daemon card that names no action for its
+    /// rule; and as reaching the provider or recording the rule fails, the answer kept.
     pub(crate) async fn resolve(
         &self,
         request: &ApprovalResolveRequest,
@@ -327,7 +342,14 @@ impl PermissionAsks {
         } = self.deps.approvals.resolve(request, device_id).await?;
         let answer = ResolveAnswer::of(request);
         let Some(ask_id) = stored.ask_id.clone() else {
-            if was_recorded && let Some(scope) = answer.remembered_scope {
+            // The answer sent again records the rule whose record failed the first time.
+            let is_rule_recorded = stored
+                .resolution
+                .as_ref()
+                .is_some_and(|resolution| resolution.remembered_scope.is_some());
+            if let Some(scope) = answer.remembered_scope
+                && (was_recorded || !is_rule_recorded)
+            {
                 self.record_daemon_rule(&stored, scope).await?;
             }
             return Ok(response);
@@ -429,7 +451,9 @@ impl PermissionAsks {
         scope: &RememberedScope,
     ) -> Result<(), PermissionAskError> {
         let Some(action) = &stored.resource_descriptor.action else {
-            return Ok(());
+            return Err(PermissionAskError::RuleWithoutAction {
+                approval_request_id: stored.approval_request_id,
+            });
         };
         let made_rule = ProviderAnswerRule {
             rule: rule_of(scope, ProviderAskActionKind::from(action)),
@@ -508,6 +532,43 @@ impl PermissionAsks {
                 vec![refusal_failure],
                 "refusing a call whose check failed",
             ))),
+        }
+    }
+
+    // Cancels a held ask its provider took back or another ask replaced, and its card while that
+    // waits; an answered card keeps its answer.
+    async fn cancel_held(&self, run_id: RunId, ask: HeldAsk) -> Result<(), PermissionAskError> {
+        ask.withdrawal.cancel();
+        if let Some(stored) = self
+            .deps
+            .approvals
+            .read_ask_request(run_id, ask.ask_id)
+            .await?
+        {
+            self.deps
+                .approvals
+                .withdraw(stored.approval_request_id)
+                .await?;
+        }
+        Ok(())
+    }
+
+    // Keeps the daemon's answer with the delivery `ask_id` held under `key`, its hand claimed, as a
+    // card's answer is kept, so a redelivery gets it again and no second check runs.
+    fn keep_answer(
+        &self,
+        key: &(RunId, String),
+        ask_id: &NonEmptyText,
+        answer: &ProviderPermissionAnswer,
+    ) {
+        if let Some(ask) = self.lock_held().get_mut(key)
+            && ask.ask_id == *ask_id
+        {
+            ask.state = HeldAskState::Answered {
+                answer: answer.clone(),
+                made_rule: None,
+                is_handed: true,
+            };
         }
     }
 
@@ -598,4 +659,4 @@ fn compose_answer(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

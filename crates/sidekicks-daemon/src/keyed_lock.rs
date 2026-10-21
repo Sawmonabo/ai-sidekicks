@@ -52,6 +52,17 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         hold
     }
 
+    /// How many handles on `requested_key`'s queue its holder and its waiters keep, beside the
+    /// map's own; 0 when no one holds or waits on it. A waiter keeps handles of its own, so the
+    /// count rises once a caller waits behind the holder.
+    #[cfg(test)]
+    pub(crate) fn queue_handle_count(&self, requested_key: Key) -> usize {
+        let key = (self.canonical_key)(requested_key);
+        self.lock_queues()
+            .get(&key)
+            .map_or(0, |queue| Arc::strong_count(queue) - 1)
+    }
+
     fn lock_queues(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<tokio::sync::Mutex<()>>>> {
         // The map holds no invariant a panicking holder could break.
         self.queues.lock().unwrap_or_else(PoisonError::into_inner)

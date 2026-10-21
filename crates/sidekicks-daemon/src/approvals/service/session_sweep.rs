@@ -30,10 +30,7 @@ pub(crate) struct ApprovalSweep {
 impl ApprovalSweep {
     /// Stops hearing closes, settles once the cancels under way are done, then settles every wait
     /// on a raised card still open as stopped. Fails only when the task itself ended abnormally.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's stop ends the approval sweep")
-    )]
+    #[expect(dead_code, reason = "the daemon's stop ends the approval sweep")]
     pub(crate) async fn stop(self) -> Result<(), JoinError> {
         let Self {
             attachment,
@@ -53,10 +50,7 @@ impl ApprovalService {
     /// Follows `followers` to cancel the pending asks of every session that closes, and cancels
     /// those of sessions that closed with an ask still pending, both until the returned handle's
     /// stop.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start runs the approval sweep")
-    )]
+    #[expect(dead_code, reason = "the daemon's start runs the approval sweep")]
     pub(crate) fn start(self: &Arc<Self>, followers: &Arc<SessionEventFollowers>) -> ApprovalSweep {
         let service = Arc::clone(self);
         // Runs on the writer's pump, so it only names the session for the task.
@@ -82,18 +76,18 @@ impl ApprovalService {
 
 // No caller waits on a sweep, so a failed one is logged; the next start's sweep cancels the
 // session's asks still pending. A stop lets the batch under way finish.
-#[expect(
-    clippy::redundant_closure_for_method_calls,
-    reason = "the method named alone is not general over the reader's lifetime"
-)]
 async fn cancel_closed_sessions_until_stopped(
     service: Arc<ApprovalService>,
     stop: CancellationToken,
 ) {
-    match service
+    #[expect(
+        clippy::redundant_closure_for_method_calls,
+        reason = "the method named alone is not general over the reader's lifetime"
+    )]
+    let ended = service
         .read(|reader| reader.list_ended_sessions_with_pending())
-        .await
-    {
+        .await;
+    match ended {
         Ok(ended) => {
             for session_id in ended {
                 service.closed_sessions.add(session_id);

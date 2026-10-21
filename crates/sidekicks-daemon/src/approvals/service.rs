@@ -266,11 +266,11 @@ impl ApprovalService {
     }
 
     /// Raises one ask, pending until it is answered or canceled, and answers its id with the wait
-    /// for how it settles, armed before the write. `origin` carries what only the daemon knows: the
-    /// provider ask it was minted for and the tool call it holds. Refuses `approval.requestCanceled`
-    /// with its `reason` when the session has closed or the run has ended, the session's own
-    /// refusal of the write, and `approval.persistenceUnavailable` when the record could not be
-    /// kept.
+    /// for how it settles, armed before the write. `origin` carries what only the daemon knows:
+    /// the provider ask it was minted for and the tool call it holds. Refuses
+    /// `approval.requestCanceled` with its `reason` when the session has closed or the run has
+    /// ended, the session's own refusal of the write, and `approval.persistenceUnavailable` when
+    /// the record could not be kept.
     pub(crate) async fn create(
         &self,
         request: ApprovalRequestCreateRequest,

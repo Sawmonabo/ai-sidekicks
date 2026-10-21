@@ -1,5 +1,5 @@
 //! The permission asks over the check's fixture, the run bound to a stand-in driver that records
-//! every answer it is handed and fails the first hands a test says.
+//! every answer it is handed and fails its first hand where a test says.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -7,9 +7,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::approval::ApprovalResolveRequest;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{CHECK_FAILED_REFUSAL, PermissionAsks, PermissionAsksDeps};
+use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
 use crate::approvals::service::tests::{SETTLE_WAIT, from_json};
 use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::DatabaseReadPool;
@@ -19,20 +21,32 @@ use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
 use crate::provider::port::permission_ask::{
-    ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAskWithdrawal,
+    ProviderAskAction, ProviderAskActionKind, ProviderPermissionAnswer, ProviderPermissionAsk,
+    ProviderPermissionAskWithdrawal,
 };
+use crate::session::run::pause::tests::unanswered;
 
 /// The intake over the check's fixture, and every answer its driver was handed.
-struct AsksFixture {
-    check: CheckFixture,
-    asks: Arc<PermissionAsks>,
+pub(crate) struct AsksFixture {
+    /// The check's fixture, its run bound to the stand-in driver.
+    pub(crate) check: CheckFixture,
+    /// The intake under test.
+    pub(crate) asks: Arc<PermissionAsks>,
     handed: Arc<Mutex<Vec<ProviderPermissionAnswer>>>,
 }
 
 impl AsksFixture {
-    /// The fixture, its driver failing its first `failing_hands` hands before the provider takes
-    /// them.
-    async fn new(failing_hands: usize) -> Self {
+    /// The fixture, its driver taking every hand.
+    pub(crate) async fn new() -> Self {
+        Self::build(None).await
+    }
+
+    /// The fixture, its driver failing its first hand with `failure`.
+    async fn failing_first_hand(failure: fn() -> DriverError) -> Self {
+        Self::build(Some(failure)).await
+    }
+
+    async fn build(first_hand_failure: Option<fn() -> DriverError>) -> Self {
         let check = CheckFixture::new().await;
         bind_run_to_first_provider(&check.approvals.database, check.approvals.run_id);
         let handed = Arc::new(Mutex::new(Vec::new()));
@@ -40,18 +54,18 @@ impl AsksFixture {
         let calls = AtomicUsize::new(0);
         let mut driver = MockProviderDriver::new();
         driver.expect_respond_to_request().returning(move |params| {
-            let outcome = if calls.fetch_add(1, Ordering::SeqCst) < failing_hands {
-                Err(DriverError::Internal(
-                    "the provider's channel is closed".into(),
-                ))
-            } else {
-                if let ProviderRequestAnswer::Permission(answer) = params.response {
-                    recorded
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .push(answer);
+            let is_first = calls.fetch_add(1, Ordering::SeqCst) == 0;
+            let outcome = match first_hand_failure {
+                Some(failure) if is_first => Err(failure()),
+                Some(_) | None => {
+                    if let ProviderRequestAnswer::Permission(answer) = params.response {
+                        recorded
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(answer);
+                    }
+                    Ok(())
                 }
-                Ok(())
             };
             async move { outcome }.boxed()
         });
@@ -72,13 +86,8 @@ impl AsksFixture {
         }
     }
 
-    fn git_push(&self) -> crate::provider::port::permission_ask::ProviderPermissionAsk {
-        self.check.ask(
-            "ask-1",
-            ProviderAskAction::Command {
-                command: "git push".to_owned(),
-            },
-        )
+    fn git_push(&self) -> ProviderPermissionAsk {
+        self.check.ask("ask-1", command("git push"))
     }
 
     fn withdrawal(&self) -> ProviderPermissionAskWithdrawal {
@@ -90,11 +99,22 @@ impl AsksFixture {
 
     /// Every card's state, oldest first.
     fn card_states(&self) -> Vec<String> {
+        self.read_cards("SELECT state FROM approval_requests ORDER BY created_at, id")
+    }
+
+    /// The ids of the cards still pending, oldest first.
+    pub(crate) fn pending_cards(&self) -> Vec<String> {
+        self.read_cards(
+            "SELECT id FROM approval_requests WHERE state = 'pending' ORDER BY created_at, id",
+        )
+    }
+
+    fn read_cards(&self, sql: &str) -> Vec<String> {
         self.check
             .approvals
             .database
             .reader()
-            .prepare("SELECT state FROM approval_requests ORDER BY created_at, id")
+            .prepare(sql)
             .expect("the test's read prepares")
             .query_map([], |row| row.get(0))
             .expect("the test reads the cards")
@@ -110,26 +130,62 @@ impl AsksFixture {
     }
 }
 
+/// The device every answer in these tests comes from.
+pub(crate) fn device() -> DeviceId {
+    from_json(json!("device-1"))
+}
+
+fn command(line: &str) -> ProviderAskAction {
+    ProviderAskAction::Command {
+        command: line.to_owned(),
+    }
+}
+
+fn approval(card: &str) -> ApprovalResolveRequest {
+    from_json(json!({
+        "decision": "approved",
+        "approvalRequestId": card,
+        "clientResolutionId": mint_uuid_v7().to_string(),
+    }))
+}
+
+fn plain_allow() -> ProviderPermissionAnswer {
+    ProviderPermissionAnswer::Allow {
+        correction: None,
+        made_rule: None,
+        answered_by_rule: None,
+    }
+}
+
 // An ask taken back while it is checked raises no card and answers nothing. Killed by checking
 // the withdrawal only after the card is raised.
 #[tokio::test]
 async fn an_ask_taken_back_during_its_check_raises_nothing() {
-    let fixture = AsksFixture::new(0).await;
+    let fixture = AsksFixture::new().await;
     // Every line byte is held, so the ask's check waits at its line's read.
+    let (holding, held) = tokio::sync::oneshot::channel();
     let (release, released) = std::sync::mpsc::channel::<()>();
     let lines = Arc::clone(&fixture.check.shell_lines);
     let holder = tokio::spawn(async move {
         lines
             .read(LINE_LIMIT, move |_reader| {
+                holding.send(()).expect("the test waits for the hold");
                 released.recv().expect("the test releases the line bytes");
             })
             .await
     });
-    tokio::task::yield_now().await;
+    held.await.expect("the holder holds every line byte");
     let asks = Arc::clone(&fixture.asks);
     let ask = fixture.git_push();
+    let key = (ask.run_id, ask.request_id.clone());
     let taken = tokio::spawn(async move { asks.take_ask(ask).await });
-    tokio::task::yield_now().await;
+    tokio::time::timeout(SETTLE_WAIT, async {
+        while !fixture.asks.lock_held().contains_key(&key) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the ask is held");
     fixture
         .asks
         .withdraw_ask(fixture.withdrawal())
@@ -154,7 +210,7 @@ async fn an_ask_taken_back_during_its_check_raises_nothing() {
 // lets go of the ask without canceling its card.
 #[tokio::test]
 async fn a_held_ask_raises_one_card_which_its_withdrawal_cancels() {
-    let fixture = AsksFixture::new(0).await;
+    let fixture = AsksFixture::new().await;
     for _delivery in 0..2 {
         fixture
             .asks
@@ -172,12 +228,39 @@ async fn a_held_ask_raises_one_card_which_its_withdrawal_cancels() {
     assert_eq!(fixture.handed(), []);
 }
 
+// A delivery under a held request id that names another action is another ask: the waiting
+// card is withdrawn and the new one's raised, and an answer kept for the one held never goes to
+// it. Killed by replacing a waiting ask without withdrawing its card, and by answering the new
+// ask from the held one.
+#[tokio::test]
+async fn another_action_under_a_held_request_id_is_another_ask() {
+    let fixture = AsksFixture::new().await;
+    let publish = fixture.check.ask("ask-1", command("npm publish"));
+    for ask in [fixture.git_push(), publish] {
+        fixture.asks.take_ask(ask).await.expect("the ask is taken");
+    }
+    assert_eq!(fixture.card_states(), ["canceled", "pending"]);
+    let [card] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
+    fixture
+        .asks
+        .resolve(&approval(&card), device())
+        .await
+        .expect("the answer is handed");
+    fixture
+        .asks
+        .take_ask(fixture.git_push())
+        .await
+        .expect("the ask is taken");
+    assert_eq!(fixture.card_states(), ["canceled", "approved", "pending"]);
+    assert_eq!(fixture.handed(), [plain_allow()]);
+}
+
 // An ask whose check failed is refused at its provider with the check-failed line, and the
 // failure goes back to the driver. Killed by a failed check that answers nothing, and by one
 // that swallows its failure.
 #[tokio::test]
 async fn an_ask_whose_check_failed_is_refused_and_fails() {
-    let fixture = AsksFixture::new(0).await;
+    let fixture = AsksFixture::new().await;
     fixture
         .check
         .approvals
@@ -193,31 +276,46 @@ async fn an_ask_whose_check_failed_is_refused_and_fails() {
     );
 }
 
+// A corrected ask the daemon allowed, delivered again once its answer was lost, gets the kept
+// answer: it raises no card and asks for no second use of its correction. Killed by letting go
+// of a daemon answer before its hand.
+#[tokio::test]
+async fn a_redelivered_ask_the_daemon_answered_gets_its_answer_again() {
+    let fixture = AsksFixture::new().await;
+    let card = fixture.check.approve_corrected("git push --dry-run").await;
+    let ask = ProviderPermissionAsk {
+        correction_of: Some(card),
+        ..fixture.check.ask("ask-1", command("git push --dry-run"))
+    };
+    for _delivery in 0..2 {
+        fixture
+            .asks
+            .take_ask(ask.clone())
+            .await
+            .expect("the ask is answered");
+    }
+    assert_eq!(fixture.card_states(), ["approved"]);
+    assert_eq!(fixture.handed(), [plain_allow(), plain_allow()]);
+}
+
 // An answer whose hand failed before the provider took it is handed again by the client's
-// resend, once, and a resend after a hand that went through hands nothing. Killed by letting go
-// of the ask before its hand, by skipping the held ask on a resend, and by handing on every
-// resend.
+// resend, once; a resend after a hand that went through hands nothing; and the provider's own
+// redelivery of the ask gets the answer again. Killed by letting go of the ask before its hand,
+// by skipping the held ask on a resend, by handing on every resend, and by a redelivery of an
+// answered ask that hands nothing.
 #[tokio::test]
 async fn a_resend_hands_an_answer_only_where_no_hand_reached_the_provider() {
-    let fixture = AsksFixture::new(1).await;
+    let fixture = AsksFixture::failing_first_hand(|| {
+        DriverError::Internal("the provider's channel is closed".into())
+    })
+    .await;
     fixture
         .asks
         .take_ask(fixture.git_push())
         .await
         .expect("the ask raises its card");
-    let card: String = fixture
-        .check
-        .approvals
-        .database
-        .reader()
-        .query_row("SELECT id FROM approval_requests", [], |row| row.get(0))
-        .expect("the test reads the card");
-    let answer: ApprovalResolveRequest = from_json(json!({
-        "decision": "approved",
-        "approvalRequestId": card,
-        "clientResolutionId": mint_uuid_v7().to_string(),
-    }));
-    let device = || from_json(json!("device-1"));
+    let [card] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
+    let answer = approval(&card);
     assert!(fixture.asks.resolve(&answer, device()).await.is_err());
     assert_eq!(fixture.handed(), []);
     fixture
@@ -230,12 +328,96 @@ async fn a_resend_hands_an_answer_only_where_no_hand_reached_the_provider() {
         .resolve(&answer, device())
         .await
         .expect("a resend after the hand is answered");
-    assert_eq!(
-        fixture.handed(),
-        [ProviderPermissionAnswer::Allow {
-            correction: None,
-            made_rule: None,
-            answered_by_rule: None,
-        }]
-    );
+    assert_eq!(fixture.handed(), [plain_allow()]);
+    fixture
+        .asks
+        .take_ask(fixture.git_push())
+        .await
+        .expect("the redelivery is answered");
+    assert_eq!(fixture.handed(), [plain_allow(), plain_allow()]);
+}
+
+// A hand that got no answer back may have reached the provider: the client's resend hands
+// nothing, and only the provider's own redelivery of the ask gets the kept answer. Killed by
+// letting a resend hand after an unanswered hand.
+#[tokio::test]
+async fn after_an_unanswered_hand_only_the_providers_redelivery_hands_the_answer() {
+    let fixture = AsksFixture::failing_first_hand(unanswered).await;
+    fixture
+        .asks
+        .take_ask(fixture.git_push())
+        .await
+        .expect("the ask raises its card");
+    let [card] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
+    let answer = approval(&card);
+    assert!(fixture.asks.resolve(&answer, device()).await.is_err());
+    fixture
+        .asks
+        .resolve(&answer, device())
+        .await
+        .expect("the resend is answered");
+    assert_eq!(fixture.handed(), []);
+    fixture
+        .asks
+        .take_ask(fixture.git_push())
+        .await
+        .expect("the redelivery is answered");
+    assert_eq!(fixture.handed(), [plain_allow()]);
+}
+
+// The session rule an answer made on a card the daemon raised itself, whose record failed, is
+// recorded when the same answer is sent again. Killed by recording a daemon card's rule only
+// when the answer is first recorded.
+#[tokio::test]
+async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
+    let fixture = AsksFixture::new().await;
+    let approvals = &fixture.check.approvals;
+    let card = approvals
+        .service
+        .create(
+            ApprovalRequestCreateRequest {
+                session_id: approvals.session_id,
+                run_id: approvals.run_id,
+                requested_by: from_json(json!("agent")),
+                category: from_json(json!("toolExecution")),
+                scope: from_json(json!("session_send")),
+                resource_descriptor: from_json(json!({
+                    "subject": "session_send",
+                    "standingAllowOffered": true,
+                    "projectScopeOffered": false,
+                    "editable": false,
+                    "action": { "kind": "tool", "toolName": "session_send" },
+                    "toolName": "session_send",
+                })),
+            },
+            ApprovalRequestOrigin::default(),
+        )
+        .await
+        .expect("the daemon raises its card");
+    let answer: ApprovalResolveRequest = from_json(json!({
+        "decision": "approved",
+        "approvalRequestId": card.approval_request_id,
+        "clientResolutionId": mint_uuid_v7().to_string(),
+        "rememberedScope": { "kind": "session", "pattern": "session_send", "sense": "allow" },
+    }));
+    approvals.refuses_rules.store(true, Ordering::SeqCst);
+    assert!(fixture.asks.resolve(&answer, device()).await.is_err());
+    approvals.refuses_rules.store(false, Ordering::SeqCst);
+    fixture
+        .asks
+        .resolve(&answer, device())
+        .await
+        .expect("the resend records the rule");
+    let rule = fixture
+        .check
+        .rules
+        .find_rule(
+            approvals.session_id,
+            ProviderAskActionKind::Tool,
+            "session_send",
+            true,
+        )
+        .await
+        .expect("the rules read");
+    assert!(rule.is_some());
 }

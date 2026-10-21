@@ -269,12 +269,13 @@ type PermissionCheckResponse =
 //   carries out, on the card's own run, taken once (`approval_correction_uses`); rememberedRule =
 //   a session allow in force on the subject, where a standing allow may stand; pendingApproval =
 //   the card was raised and recorded before the check returned.
-// - toolCall (no Cedar): policyAllow at `sandboxed` and `yolo`; at `readonly`, `ask` and
-//   `reviewed`, rememberedRule = a session allow for the tool in force, which the daemon keeps
+// - toolCall (no Cedar): the read gate (`session_list`, `session_search`, `session_options`,
+//   `session_read`, `session_wait`) is policyAllow at every level, as the providers' own read
+//   tools ask nothing. Any other tool: policyAllow at `sandboxed` and `yolo`; at `readonly`, `ask`
+//   and `reviewed`, rememberedRule = a session allow for the tool in force, which the daemon keeps
 //   itself and hands no provider (made when the person answers a tool's card "for the session");
-//   denied = a session block rule for the tool in force; pendingApproval otherwise, the ordinary
-//   `toolExecution` card the caller waits on, which offers the session allow; denied for a run
-//   with no level to read.
+//   pendingApproval otherwise, the ordinary `toolExecution` card the caller waits on, which offers
+//   the session allow; denied for a run with no level to read.
 // - workflowStart (Cedar, `cedar_policy::Authorizer::is_authorized` over the resident policy set):
 //   policyAllow on a permit, denied on a forbid, an evaluation error, an owner that does not
 //   resolve, or an agent's start whose run has no posture to read; context = `{ posture }` of the

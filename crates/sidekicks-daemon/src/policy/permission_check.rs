@@ -8,8 +8,9 @@
 //!   an allow in force where an allow may stand; else its card is raised. Its command line is read
 //!   once, and that reading serves every step.
 //! - A call of the app's own tools is gated by the session's level: refused when its run is not
-//!   running, allowed at the levels that never ask, answered by the session's rule over the tool
-//!   where one is in force, and else its card is raised, offering that rule.
+//!   running, allowed at the levels that never ask, answered by the session rule over the tool the
+//!   daemon keeps where one is in force, and else its card is raised, offering that rule. A
+//!   provider's ask reads only the rules the providers keep, and a tool call only the daemon's.
 //! - A workflow start is decided by the machine's workflow rules, under the asking run's posture.
 
 use std::io;
@@ -18,6 +19,8 @@ use std::sync::Arc;
 
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope, RememberedRuleSense};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
@@ -28,7 +31,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::approvals::ask_description::{
     AskDescriptionError, ProviderAskDescription, derive_rule_subject, describe_provider_ask,
-    may_allow_stand,
+    may_allow_stand, read_command_line,
 };
 use crate::approvals::request_create::{
     ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
@@ -46,13 +49,20 @@ use crate::policy::workflow_start::{WorkflowStart, check_workflow_start};
 use crate::provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome,
 };
-use crate::provider::driver::callback_tool::CallbackToolInvocation;
+use crate::provider::driver::callback_tool::{
+    CallbackToolInvocation, PROVIDER_TOOL_CALL_ID_MAX_LEN,
+};
 use crate::provider::port::permission_ask::{
     ProviderAskAction, ProviderAskActionKind, ProviderAskRule, ProviderPermissionAsk,
 };
 use crate::session::permission_level::read_session_permission_level;
 use crate::session::run::agent::{RunAgentReadError, RunAgentReader};
 use crate::text_cut::cut_to_code_points;
+
+// A tool's name stands within a card's scope, and a call's id within an event's field, so a tool
+// call's card always reads both.
+const _: () = assert!(PROVIDER_TOOL_NAME_MAX_LEN <= FILE_PATH_MAX_LEN);
+const _: () = assert!(PROVIDER_TOOL_CALL_ID_MAX_LEN <= EVENT_FIELD_MAX_LEN);
 
 /// What the agent reads when a block in force on the session refused its call.
 pub(crate) const BLOCKED_BY_RULE_REFUSAL: &str = "A rule in force on this session blocks this.";
@@ -192,14 +202,9 @@ impl PermissionCheck {
         ask_id: &NonEmptyText,
         withdrawal: &CancellationToken,
     ) -> Result<ProviderAskVerdict, PermissionCheckError> {
-        let line_length = ask.action.command_line().map_or(0, str::len);
         let read_ask = ask.clone();
-        let reading = self
-            .deps
-            .shell_lines
-            .read(line_length, move |reader| {
-                let line = read_ask.action.command_line().map(|line| reader.read(line));
-                let line = line.as_deref();
+        let reading =
+            read_command_line(&self.deps.shell_lines, &ask.action, move |reader, line| {
                 AskReading {
                     command_refusal: line.and_then(|line| refuse_background_work(reader, line)),
                     subject: derive_rule_subject(reader, line, &read_ask.action),
@@ -229,6 +234,7 @@ impl PermissionCheck {
                         ask.session_id,
                         ProviderAskActionKind::from(&ask.action),
                         subject,
+                        false,
                     )
                     .await?
             }
@@ -280,7 +286,8 @@ impl PermissionCheck {
                 },
                 ApprovalRequestOrigin {
                     ask_id: Some(ask_id.clone()),
-                    // Bounded as the tool rows bound it, so the held call's row draws its mark.
+                    // Cut as Codex's tool rows cut their call ids, so the held call's row draws its
+                    // mark; Claude Code draws no row for an id past the bound.
                     tool_call_id: ask.tool_call_id.as_deref().and_then(|id| {
                         FreeFormText::new(cut_to_code_points(id, EVENT_FIELD_MAX_LEN).to_owned())
                             .ok()
@@ -292,9 +299,9 @@ impl PermissionCheck {
     }
 
     /// Decides one call of the app's own tools by the session's level: refused when its run is
-    /// not running, allowed at a level that never asks, answered by the session's rule over the
-    /// tool where one is in force, and else its card is raised, offering that rule. Fails as
-    /// a read fails and as the card's create does.
+    /// not running, allowed at a level that never asks, answered by the session rule over the tool
+    /// the daemon keeps where one is in force, and else its card is raised, offering that rule.
+    /// Fails as a read fails and as the card's create does.
     pub(crate) async fn check_tool_call(
         &self,
         invocation: &CallbackToolInvocation,
@@ -337,7 +344,7 @@ impl PermissionCheck {
         let rule = self
             .deps
             .rules
-            .find_rule(session_id, ProviderAskActionKind::Tool, tool_name)
+            .find_rule(session_id, ProviderAskActionKind::Tool, tool_name, true)
             .await?;
         if let Some(rule) = rule {
             let basis = CallbackToolApprovalBasis::RememberedRule;

@@ -193,3 +193,6 @@ fn deny_by_policy(reason: &str) -> CallbackToolApprovalOutcome {
         reason: reason.to_owned(),
     }
 }
+
+#[cfg(test)]
+mod tests;

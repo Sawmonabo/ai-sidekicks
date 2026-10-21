@@ -83,6 +83,8 @@ pub(crate) struct ApprovalFixture {
     pub(crate) service: Arc<ApprovalService>,
     /// While set, the session refuses an answer's write with `session.rebuilding`.
     pub(crate) refuses_answers: Arc<AtomicBool>,
+    /// While set, the session refuses a rule's record with `session.rebuilding`.
+    pub(crate) refuses_rules: Arc<AtomicBool>,
     /// The session.
     pub(crate) session_id: SessionId,
     /// Its running run.
@@ -109,6 +111,8 @@ impl ApprovalFixture {
         );
         let refuses_answers = Arc::new(AtomicBool::new(false));
         let refusing = Arc::clone(&refuses_answers);
+        let refuses_rules = Arc::new(AtomicBool::new(false));
+        let refusing_rules = Arc::clone(&refuses_rules);
         let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
             writer: Arc::clone(&writer),
             pool: Arc::new(DatabaseReadPool::new(
@@ -120,7 +124,10 @@ impl ApprovalFixture {
             refuse_session_write: Some(Box::new(move |_session_id, event_type| {
                 let is_answer =
                     event_type == "approval.approved" || event_type == "approval.rejected";
-                if is_answer && refusing.load(Ordering::SeqCst) {
+                let is_rule = event_type == "approval.rule.remembered";
+                if (is_answer && refusing.load(Ordering::SeqCst))
+                    || (is_rule && refusing_rules.load(Ordering::SeqCst))
+                {
                     Err(DomainError::new(
                         "rebuilding",
                         RefusalCode::SessionRebuilding,
@@ -213,9 +220,17 @@ impl ApprovalFixture {
             run_holds,
             service,
             refuses_answers,
+            refuses_rules,
             session_id,
             run_id,
         }
+    }
+
+    /// Settles every wait on a raised card still open as stopped, as the daemon's stop does.
+    pub(crate) fn stop_raised_cards(&self) {
+        self.service
+            .raised_cards
+            .settle_where(|_key| true, RaisedRequestSettlement::Stopped);
     }
 
     /// Raises a card on the run about `subject`, a command that may be corrected and remembered.
@@ -345,8 +360,9 @@ enum SecondAnswer {
 
 // One answer settles a card: the same answer sent again is answered with what was saved and
 // records nothing; any other is refused; a canceled card takes no answer; a session refusing the
-// write is answered by its own code. Killed by dropping the pending guard, the replay's compare,
-// and the session refusal's mapping.
+// write is answered by its own code. Killed by dropping the replay's compare and the session
+// refusal's mapping; the read's pending check and the write's pending guard each settle a replay
+// alone.
 #[rstest]
 #[case::replay(SecondAnswer::Replay, None)]
 #[case::another(SecondAnswer::Another, Some(RefusalCode::ApprovalAlreadyResolved))]

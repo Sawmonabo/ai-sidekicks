@@ -524,7 +524,7 @@ impl CallbackToolHost {
                     .map_err(|error| {
                         let detail = format!(
                             "the approval seam failed before adjudicating; refusing rather than \
-                     completing without adjudication ({error})"
+                             completing without adjudication ({error})"
                         );
                         (Refusal::NoSeam, detail)
                     })

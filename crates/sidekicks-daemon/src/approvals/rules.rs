@@ -47,7 +47,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::task::JoinError;
 
-use crate::approvals::ask_description::derive_rule_subject;
+use crate::approvals::ask_description::{derive_rule_subject, read_command_line};
 use crate::approvals::refusals::{approval_rule_already_revoked, approval_rule_not_found};
 use crate::approvals::store::{StoredApprovalRequest, remembered_scope_statement};
 use crate::cleanup_failures::CleanupFailures;
@@ -308,17 +308,20 @@ impl ApprovalRules {
         }
     }
 
-    /// The rule in force on the session over `subject` for an action of kind `action`, or `None`
-    /// when none is; a block over the subject outranks an allow. Fails as the read fails.
+    /// The rule in force on the session over `subject` for an action of kind `action`, among the
+    /// rules the daemon keeps alone when `is_daemon_kept` and else among those its providers keep,
+    /// or `None` when none is; a block over the subject outranks an allow. Fails as the read fails.
     pub(crate) async fn find_rule(
         &self,
         session_id: SessionId,
         action: ProviderAskActionKind,
         subject: &str,
+        is_daemon_kept: bool,
     ) -> Result<Option<ProviderAskRule>, ApprovalRuleError> {
-        let in_force = self
+        let mut in_force = self
             .read_rule_rows(&SELECT_RULES_IN_FORCE_SQL, session_id)
             .await?;
+        in_force.retain(|row| row.is_daemon_kept == is_daemon_kept);
         Ok(rule_over(&in_force, action, subject))
     }
 
@@ -692,15 +695,12 @@ impl SessionRulePort for ApprovalRules {
     ) -> BoxFuture<'_, Result<Option<ProviderAskRule>, Box<dyn Error + Send + Sync>>> {
         Box::pin(async move {
             let kind = ProviderAskActionKind::from(&action);
-            let line_length = action.command_line().map_or(0, str::len);
-            let subject = self
-                .shell_lines
-                .read(line_length, move |reader| {
-                    let reading = action.command_line().map(|line| reader.read(line));
-                    derive_rule_subject(reader, reading.as_deref(), &action)
-                })
-                .await
-                .map_err(ApprovalRuleError::from)?;
+            let read_action = action.clone();
+            let subject = read_command_line(&self.shell_lines, &action, move |reader, reading| {
+                derive_rule_subject(reader, reading, &read_action)
+            })
+            .await
+            .map_err(ApprovalRuleError::from)?;
             let Some(subject) = subject else {
                 return Ok(None);
             };

@@ -22,9 +22,11 @@ use std::borrow::Cow;
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope, RememberedScopeKind};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::wire::text::{NonEmptyText, TextError, is_ecmascript_whitespace};
+use tokio::task::JoinError;
 
 use crate::approvals::request_create::ApprovalResourceDescriptor;
 use crate::policy::destructive_git::{read_git_subcommand, runs_destructive_git};
+use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
 use crate::provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
 use crate::text_cut::cut_to_code_points;
@@ -137,6 +139,23 @@ pub(crate) fn derive_rule_subject(
     }
 }
 
+/// Reads `action`'s command line once, on its own reader under the daemon-wide `shell_lines`
+/// bound, and answers what `work` makes of the reader and that reading, `None` for an action that
+/// runs no command. Fails when `work` panics.
+pub(crate) async fn read_command_line<T: Send + 'static>(
+    shell_lines: &ShellLineReadingBound,
+    action: &ProviderAskAction,
+    work: impl FnOnce(&mut ShellLineReader, Option<&ShellLineReading>) -> T + Send + 'static,
+) -> Result<T, JoinError> {
+    let line = action.command_line().map(str::to_owned);
+    shell_lines
+        .read(line.as_ref().map_or(0, String::len), move |reader| {
+            let reading = line.map(|line| reader.read(&line));
+            work(reader, reading.as_deref())
+        })
+        .await
+}
+
 fn may_allow_stand_on(
     ask: &ProviderPermissionAsk,
     category: ApprovalCategory,
@@ -212,36 +231,6 @@ fn target_text_of(action: &ProviderAskAction) -> Cow<'_, str> {
         ProviderAskAction::FileRead { path } => Cow::Borrowed(path),
         ProviderAskAction::Network { host } => Cow::Borrowed(host),
         ProviderAskAction::Tool { tool_name } => Cow::Borrowed(tool_name),
-    }
-}
-
-impl ProviderAskAction {
-    /// The line a command action runs, which is read before a rule's subject is derived from it;
-    /// `None` for any other action.
-    pub(crate) fn command_line(&self) -> Option<&str> {
-        match self {
-            Self::Command { command } => Some(command),
-            Self::CommandInput { .. }
-            | Self::FileChange { .. }
-            | Self::FileRead { .. }
-            | Self::Network { .. }
-            | Self::Tool { .. } => None,
-        }
-    }
-
-    /// The command or path a person may correct before approving the action, and which an ask
-    /// carrying out a correction must name exactly: a command, a read's path, or a change's one
-    /// path; `None` for any other action, which takes no correction.
-    pub(crate) fn corrected_subject(&self) -> Option<&str> {
-        match self {
-            Self::Command { command } => Some(command),
-            Self::FileRead { path } => Some(path),
-            Self::FileChange { paths } => match paths.as_slice() {
-                [only] => Some(only),
-                [] | [_, _, ..] => None,
-            },
-            Self::CommandInput { .. } | Self::Network { .. } | Self::Tool { .. } => None,
-        }
     }
 }
 
