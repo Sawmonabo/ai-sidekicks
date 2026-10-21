@@ -112,10 +112,20 @@ pub(crate) struct Relay {
     /// The authenticator list, whose text each test sets.
     pub(crate) authenticator_list: FixtureList,
     keys: (String, String),
+    missing_setting: Option<&'static str>,
 }
 
 /// A relay over a fresh account file with fresh keys, reading the wall clock.
 pub(crate) fn start_relay() -> Relay {
+    assemble_relay(None)
+}
+
+/// A relay started as [`start_relay`] does, with the setting `name` left unset.
+pub(crate) fn start_relay_without(name: &'static str) -> Relay {
+    assemble_relay(Some(name))
+}
+
+fn assemble_relay(missing_setting: Option<&'static str>) -> Relay {
     let account = create_account_file();
     let verifier = ScriptedVerifier::default();
     let authenticator_list = FixtureList::default();
@@ -126,6 +136,7 @@ pub(crate) fn start_relay() -> Relay {
         &authenticator_list,
         &keys,
         read_wall_clock,
+        missing_setting,
     );
     Relay {
         router,
@@ -133,6 +144,7 @@ pub(crate) fn start_relay() -> Relay {
         verifier,
         authenticator_list,
         keys,
+        missing_setting,
     }
 }
 
@@ -145,6 +157,7 @@ impl Relay {
             &self.authenticator_list,
             &self.keys,
             clock,
+            self.missing_setting,
         )
     }
 
@@ -197,8 +210,10 @@ fn build_relay_router(
     authenticator_list: &FixtureList,
     (signing, encryption): &(String, String),
     clock: Clock,
+    missing_setting: Option<&'static str>,
 ) -> Router {
     let settings = AccountSettings::read(|name| match name {
+        _ if Some(name) == missing_setting => None,
         "RELYING_PARTY_ID" => Some(RELYING_PARTY_ID.to_owned()),
         "RELYING_PARTY_ORIGINS" => Some(ORIGIN.to_owned()),
         "TOKEN_SIGNING_KEY" => Some(signing.clone()),

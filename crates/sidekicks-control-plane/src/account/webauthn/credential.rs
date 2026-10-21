@@ -130,9 +130,11 @@ pub(crate) async fn revoke_passkey<S, V, L>(
 where
     S: SharedAccountStore,
 {
+    let SignedInUser { user_id } = caller;
     routes
         .store
-        .run_step(|store| revoke_credential(store, request.passkey_id.as_str(), &caller.user_id))
+        .run_step(move |store| revoke_credential(store, request.passkey_id.as_str(), &user_id))
+        .await
         .map_err(|error| {
             let request_id = request_id.map(|Extension(request_id)| request_id);
             ControlPlaneRefusal::refuse_internal_failure(request_id.as_ref(), &error)

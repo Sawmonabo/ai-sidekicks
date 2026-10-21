@@ -1,6 +1,7 @@
 //! The router's own refusals on a real route, as a caller reads them: a path no route serves, a
 //! method a route does not serve, a body that breaks the envelope, is over the size limit or fails
-//! the call's contract, and a store failure answered with the fixed internal message.
+//! the call's contract, and a store failure or a missing setting answered with the fixed internal
+//! message.
 
 use axum::body::Body;
 use axum::http::header::{ALLOW, CONTENT_TYPE};
@@ -9,7 +10,7 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_control_plane::server::router::{RequestId, SourceAddress};
 
-use crate::helpers::{call, post, start_relay};
+use crate::helpers::{call, post, start_relay, start_relay_without};
 
 const ISSUE_PATH: &str = "/webauthn.authenticationOptions.issue";
 
@@ -127,10 +128,18 @@ async fn the_router_refuses_with_its_own_codes(
     }
 }
 
+#[rstest]
+#[case::store_failure(None)]
+#[case::missing_setting(Some("RELYING_PARTY_ORIGINS"))]
 #[tokio::test]
-async fn a_store_failure_answers_only_the_fixed_message() {
-    let relay = start_relay();
-    relay.execute("DROP TABLE webauthn_challenges");
+async fn an_internal_failure_answers_only_the_fixed_message(#[case] missing: Option<&'static str>) {
+    let relay = if let Some(setting) = missing {
+        start_relay_without(setting)
+    } else {
+        let relay = start_relay();
+        relay.execute("DROP TABLE webauthn_challenges");
+        relay
+    };
     let mut request = post(ISSUE_PATH, &json!({}), &[]);
     request
         .extensions_mut()

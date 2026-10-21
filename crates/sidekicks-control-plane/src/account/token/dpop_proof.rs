@@ -10,7 +10,8 @@ use jiff::Timestamp;
 use jwt_simple::prelude::{ECDSAP256PublicKeyLike as _, ES256PublicKey};
 use p256::ecdsa::signature::Verifier as _;
 use p256::ecdsa::{Signature, VerifyingKey};
-use serde::Deserialize;
+use serde::de::IgnoredAny;
+use serde::{Deserialize, Deserializer};
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
@@ -66,6 +67,9 @@ pub(crate) enum ProofFault {
     /// `typ` is not `dpop+jwt` or `alg` not `ES256`.
     #[error("the DPoP proof's type or algorithm is not the one taken")]
     WrongType,
+    /// The header names critical extensions, none of which this check understands.
+    #[error("the DPoP proof's header carries crit")]
+    CriticalExtension,
     /// The `jwk` is not a public P-256 key.
     #[error("the DPoP proof's key is not a public P-256 key")]
     BadKey,
@@ -75,7 +79,7 @@ pub(crate) enum ProofFault {
     /// `htm` or `htu` names another request.
     #[error("the DPoP proof was made for another request")]
     OtherRequest,
-    /// `iat` is outside the window.
+    /// `iat` is not a date an `i64` of seconds holds, or is outside the window.
     #[error("the DPoP proof's iat is outside the window")]
     OutsideWindow,
     /// `ath` is present on a token request, or absent or wrong on a resource request.
@@ -91,6 +95,10 @@ struct ProofHeader {
     typ: String,
     alg: String,
     jwk: serde_json::Map<String, serde_json::Value>,
+    // RFC 7515 §4.1.11: a recipient refuses a critical extension it does not understand, and
+    // this check understands none, so any `crit` member, `null` included, refuses the proof.
+    #[serde(default, rename = "crit", deserialize_with = "read_presence")]
+    has_crit: bool,
 }
 
 #[derive(Deserialize)]
@@ -98,7 +106,8 @@ struct ProofClaims {
     jti: String,
     htm: String,
     htu: String,
-    iat: i64,
+    // A NumericDate (RFC 7519 §2), which may carry a fraction.
+    iat: serde_json::Number,
     #[serde(default)]
     ath: Option<String>,
 }
@@ -130,6 +139,9 @@ pub(crate) fn check_dpop_proof(
     if header.typ != "dpop+jwt" || header.alg != "ES256" {
         return Err(ProofFault::WrongType);
     }
+    if header.has_crit {
+        return Err(ProofFault::CriticalExtension);
+    }
     let (verifying_key, jkt) = read_proof_key(&header.jwk)?;
     let signature = URL_SAFE_NO_PAD
         .decode(signature_part)
@@ -148,7 +160,8 @@ pub(crate) fn check_dpop_proof(
     if claims.htm != method.as_str() || !is_same_target(&claims.htu, target) {
         return Err(ProofFault::OtherRequest);
     }
-    if (claims.iat - now.as_second()).abs() > PROOF_WINDOW_SECONDS {
+    let issued_at = read_numeric_date(&claims.iat).ok_or(ProofFault::OutsideWindow)?;
+    if issued_at.abs_diff(now.as_second()) > PROOF_WINDOW_SECONDS.unsigned_abs() {
         return Err(ProofFault::OutsideWindow);
     }
     let is_ath_right = match form {
@@ -163,7 +176,7 @@ pub(crate) fn check_dpop_proof(
     Ok(CheckedProof {
         jkt,
         jti: claims.jti,
-        issued_at: claims.iat,
+        issued_at,
     })
 }
 
@@ -200,6 +213,31 @@ fn read_proof_key(
     let verifying_key = VerifyingKey::from_sec1_bytes(&key.public_key().to_bytes_uncompressed())
         .map_err(|_error| ProofFault::BadKey)?;
     Ok((verifying_key, key.jwk_thumbprint()))
+}
+
+// Reads a member's presence, whatever its value.
+fn read_presence<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    IgnoredAny::deserialize(deserializer)?;
+    Ok(true)
+}
+
+// A NumericDate as whole seconds, its fraction floored; `None` for one no `i64` holds.
+fn read_numeric_date(date: &serde_json::Number) -> Option<i64> {
+    if let Some(seconds) = date.as_i64() {
+        return Some(seconds);
+    }
+    let seconds = date.as_f64()?.floor();
+    // -2^63 and 2^63 are exact in an f64; a value outside them, or not a number, is refused.
+    let bound = 2_f64.powi(63);
+    if !(-bound..bound).contains(&seconds) {
+        return None;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the value is whole and inside the i64 range, checked just before"
+    )]
+    let whole = seconds as i64;
+    Some(whole)
 }
 
 fn read_part<T: serde::de::DeserializeOwned>(part: &str) -> Result<T, ProofFault> {

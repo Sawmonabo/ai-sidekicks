@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn a_challenge_is_consumed_once_inside_its_life_by_its_own_transaction_and_ceremony() {
+    fn a_challenge_is_consumed_once_inside_its_life_by_its_own_transaction_ceremony_and_user() {
         let folder = tempfile::tempdir().unwrap();
         let store = open_account_file(&folder.path().join("account.sqlite")).unwrap();
         let issue = |ceremony| {
@@ -252,5 +252,33 @@ mod tests {
             !consume(&registration, Ceremony::Authentication, 1_000),
             "a registration challenge on the authentication leg"
         );
+
+        store
+            .run_script(
+                "INSERT INTO users (id, display_name, identity_ref) VALUES \
+                 ('first', 'Sam', 'one'), ('second', 'Kim', 'two')",
+            )
+            .unwrap();
+        let issued = store
+            .write_step(|step| {
+                issue_challenge(step, Ceremony::Registration, Some("first"), None, at(1_000))
+            })
+            .unwrap();
+        let is_consumed_by = |user_id| {
+            store
+                .write_step(|step| {
+                    consume_challenge(
+                        step,
+                        issued.challenge.as_str(),
+                        &issued.transaction_id,
+                        Ceremony::Registration,
+                        Some(user_id),
+                        at(1_000),
+                    )
+                })
+                .unwrap()
+        };
+        assert!(!is_consumed_by("second"), "another user's challenge");
+        assert!(is_consumed_by("first"));
     }
 }

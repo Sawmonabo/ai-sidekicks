@@ -1,7 +1,8 @@
 // The WebAuthn checks of the Worker's passkey verify legs, run by @simplewebauthn/server. Each
 // function takes the library's options as a JSON string and answers its verdict as a JSON string,
 // so only plain strings cross wasm-bindgen. Every throw, which is how the library refuses all but
-// a bad signature, answers `{"verified": false}`, and a refused verdict carries nothing else.
+// a bad signature, answers `{"verified": false}`, and a refused verdict carries nothing else; the
+// thrown message is logged first, so a fault on the Worker's side shows in its logs.
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { verifyAuthenticationResponse, verifyRegistrationResponse } from "@simplewebauthn/server";
 import { cose, decodeCredentialPublicKey, isoBase64URL } from "@simplewebauthn/server/helpers";
@@ -10,6 +11,12 @@ import { cose, decodeCredentialPublicKey, isoBase64URL } from "@simplewebauthn/s
 const RSA_MODULUS_BITS_MAX = 8192;
 
 const REFUSED = JSON.stringify({ verified: false });
+
+// Logs what `leg` threw and answers the refusal.
+function refuseThrown(leg, error) {
+  console.error(`passkey ${leg} check threw: ${error instanceof Error ? error.message : error}`);
+  return REFUSED;
+}
 
 function countBits(bytes) {
   const first = bytes.findIndex((byte) => byte !== 0);
@@ -47,8 +54,8 @@ export async function verifyRegistration(checkJson) {
       aaguid: info.aaguid,
       counter: info.credential.counter,
     });
-  } catch {
-    return REFUSED;
+  } catch (error) {
+    return refuseThrown("registration", error);
   }
 }
 
@@ -59,7 +66,7 @@ export async function verifyAuthentication(checkJson) {
     const result = await verifyAuthenticationResponse(check);
     if (!result.verified) return REFUSED;
     return JSON.stringify({ verified: true, newCounter: result.authenticationInfo.newCounter });
-  } catch {
-    return REFUSED;
+  } catch (error) {
+    return refuseThrown("authentication", error);
   }
 }

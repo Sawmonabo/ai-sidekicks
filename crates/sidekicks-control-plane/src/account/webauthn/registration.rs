@@ -3,6 +3,8 @@
 //! the attestation, then in one step consumes the challenge and writes the passkey, so a refused
 //! attestation still spends its challenge and writes nothing else.
 
+use std::sync::Arc;
+
 use axum::Json;
 use axum::extract::{Extension, State};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
@@ -27,7 +29,7 @@ use crate::account::webauthn::credential::{insert_credential, list_credentials};
 use crate::account::webauthn::verifier::{
     PasskeyVerifier, RegisteredPasskey, RelyingParty, check_registration,
 };
-use crate::account::{AccountRouteError, AccountRoutes, RouteOutcome, settle};
+use crate::account::{AccountRoutes, RouteOutcome, settle};
 use crate::account_store::{AccountStoreError, SharedAccountStore};
 use crate::server::received_json::ReceivedJson;
 use crate::server::router::{AuthenticationFault, ControlPlaneRefusal, RequestId, SignedInUser};
@@ -48,21 +50,21 @@ where
 {
     let request_id = request_id.map(|Extension(request_id)| request_id);
     let settings = routes.read_settings(request_id.as_ref())?;
-    let outcome = compose_registration_options(&routes, settings, &caller);
+    let outcome = compose_registration_options(&routes, settings, caller).await;
     settle(request_id.as_ref(), outcome).map(Json)
 }
 
 // Records the caller's registration challenge and composes the options around it in one step.
-fn compose_registration_options<S, V, L>(
+async fn compose_registration_options<S, V, L>(
     routes: &AccountRoutes<S, V, L>,
-    settings: &AccountSettings,
-    caller: &SignedInUser,
+    settings: Arc<AccountSettings>,
+    caller: SignedInUser,
 ) -> RouteOutcome<WebAuthnRegistrationOptionsIssueResponse>
 where
     S: SharedAccountStore,
 {
     let now = (routes.clock)()?;
-    routes.store.run_step(|store| {
+    let step = move |store: &S::Store| -> RouteOutcome<WebAuthnRegistrationOptionsIssueResponse> {
         // A token of an account that is gone signs no one in.
         let Some(user) = read_user(store, &caller.user_id)? else {
             return Ok(Err(ControlPlaneRefusal::Unauthenticated(
@@ -123,7 +125,8 @@ where
                 hints: Vec::new(),
             },
         }))
-    })
+    };
+    routes.store.run_step(step).await
 }
 
 /// Verifies the signed-in caller's new passkey under its registration challenge and adds it to
@@ -145,7 +148,7 @@ where
         id: settings.relying_party_id.as_str(),
         origins: &settings.relying_party_origins,
     };
-    let outcome = register_passkey(&routes, &caller, &request, relying_party).await;
+    let outcome = register_passkey(&routes, caller, request, relying_party).await;
     let passkey = settle(request_id.as_ref(), outcome)?;
     let provider_name = read_provider_name(
         &routes.authenticator_list,
@@ -163,8 +166,8 @@ where
 
 async fn register_passkey<S, V, L>(
     routes: &AccountRoutes<S, V, L>,
-    caller: &SignedInUser,
-    request: &WebAuthnRegistrationVerifyRequest,
+    caller: SignedInUser,
+    request: WebAuthnRegistrationVerifyRequest,
     relying_party: RelyingParty<'_>,
 ) -> RouteOutcome<RegisteredPasskey>
 where
@@ -172,11 +175,23 @@ where
     V: PasskeyVerifier,
 {
     let now = (routes.clock)()?;
-    let user_id = Some(caller.user_id.as_str());
-    let transaction_id = &request.transaction_id;
-    let challenge = routes.store.run_step(|store| {
-        read_challenge(store, transaction_id, Ceremony::Registration, user_id, now)
-    })?;
+    let user_id = caller.user_id;
+    let transaction_id = request.transaction_id;
+    let challenge = routes
+        .store
+        .run_step({
+            let user_id = user_id.clone();
+            move |store| {
+                read_challenge(
+                    store,
+                    &transaction_id,
+                    Ceremony::Registration,
+                    Some(user_id.as_str()),
+                    now,
+                )
+            }
+        })
+        .await?;
     let Some(challenge) = challenge else {
         return Ok(Err(ControlPlaneRefusal::refuse_passkey_challenge()));
     };
@@ -189,13 +204,16 @@ where
     .await?
     // The attestation must name the credential the response says it made.
     .filter(|passkey| passkey.credential_id == request.response.id);
-    routes.store.run_step(|store| {
+    // Read after the verifier's wait, so a challenge that expired during it is not consumed.
+    let now = (routes.clock)()?;
+    let transports = request.response.response.transports;
+    let step = move |store: &S::Store| -> RouteOutcome<RegisteredPasskey> {
         let is_consumed = consume_challenge(
             store,
             &challenge,
-            transaction_id,
+            &transaction_id,
             Ceremony::Registration,
-            user_id,
+            Some(user_id.as_str()),
             now,
         )?;
         if !is_consumed {
@@ -204,10 +222,10 @@ where
         let Some(passkey) = verdict else {
             return Ok(Err(ControlPlaneRefusal::refuse_passkey_verification()));
         };
-        let transports = request.response.response.transports.as_ref();
-        if !insert_credential(store, &caller.user_id, &passkey, transports, now)? {
+        if !insert_credential(store, &user_id, &passkey, transports.as_ref(), now)? {
             return Ok(Err(ControlPlaneRefusal::refuse_passkey_verification()));
         }
-        Ok::<_, AccountRouteError>(Ok(passkey))
-    })
+        Ok(Ok(passkey))
+    };
+    routes.store.run_step(step).await
 }

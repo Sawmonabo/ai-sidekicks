@@ -229,18 +229,19 @@ mod object {
     use super::{AdmissionCheck, AdmissionError};
     use crate::account_store::{AccountObjectStore, AccountStore};
     use crate::rate_limit::limiter::{
-        RateLimitCheckRequest, RateLimitCheckResponse, RateLimiterError, check,
+        Clock, RateLimitCheckRequest, RateLimitCheckResponse, RateLimiterError, check,
         find_next_cleanup_at, prune, read_wall_clock,
     };
     use crate::server::log_internal_failure;
     use crate::server::router::RequestId;
 
-    /// The account object's admission check: its store, and its storage, whose alarm drops the
-    /// counted requests past their window.
+    /// The account object's admission check: its store, its storage, whose alarm drops the
+    /// counted requests past their window, and the router's clock.
     #[derive(Clone)]
     pub(crate) struct AccountObjectAdmission {
         store: AccountObjectStore,
         storage: Arc<SendWrapper<Storage>>,
+        clock: Clock,
     }
 
     /// Why the cleanup alarm could not be armed or run.
@@ -255,11 +256,13 @@ mod object {
     }
 
     impl AccountObjectAdmission {
-        /// Counts over `store`, arming the alarm of `storage`, both the account object's.
-        pub(crate) fn new(store: AccountObjectStore, storage: Storage) -> Self {
+        /// Counts over `store`, arming the alarm of `storage`, both the account object's, at the
+        /// time `clock` reads.
+        pub(crate) fn new(store: AccountObjectStore, storage: Storage, clock: Clock) -> Self {
             Self {
                 store,
                 storage: Arc::new(SendWrapper::new(storage)),
+                clock,
             }
         }
     }
@@ -272,7 +275,7 @@ mod object {
         ) -> impl Future<Output = Result<RateLimitCheckResponse, AdmissionError>> + Send {
             let admission = self.clone();
             SendFuture::new(async move {
-                let now = read_wall_clock().map_err(RateLimiterError::from)?;
+                let now = (admission.clock)().map_err(RateLimiterError::from)?;
                 let response = admission
                     .store
                     .write_step(|store| check(store, &request, now))?;

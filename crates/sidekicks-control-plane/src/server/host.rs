@@ -1,6 +1,7 @@
 //! The Worker's host: it runs the gates on the Worker's environment, reads the address and the
-//! request id Cloudflare sets, serves the app site association file, and forwards every other
-//! request unchanged to the account object, which serves the account's routes over its store.
+//! request id Cloudflare sets, serves the app site association file, and forwards each request
+//! to an account route unchanged to the account object, which serves the account's routes over its
+//! store. A path or method no route serves is refused here, so it never wakes the object.
 
 use std::cell::OnceCell;
 use std::pin::pin;
@@ -11,12 +12,14 @@ use axum::body::Body;
 use axum::extract::Request;
 use axum::http::{HeaderValue, Response};
 use axum::response::IntoResponse;
+use axum::routing::post;
 use futures_util::future::{Either, select};
 use tower_service::Service;
 use worker::send::{SendFuture, SendWrapper};
 use worker::{Delay, Env, HttpRequest};
 
 use crate::account::aasa::{APPLE_APP_IDENTIFIER, build_app_site_association_router};
+use crate::account::list_account_route_paths;
 use crate::server::gate::{BOOTSTRAP_ENABLED_KEY, ENVIRONMENT_KEY, check_request_gates};
 use crate::server::log_internal_failure;
 use crate::server::router::{ControlPlaneRefusal, RequestId, SourceAddress, add_refusal_fallbacks};
@@ -94,14 +97,18 @@ pub(crate) async fn serve(mut request: HttpRequest, env: Env) -> Response<Body> 
     }
 }
 
-// The app site association file, and every other path forwarded to the account object, whose own
-// router refuses a path or a method none of its routes serves.
+// The app site association file and the account's routes, each forwarded to the account object,
+// with the edge's own 404 and 405 for a path or a method none of them serves.
 fn build_router(env: &Env) -> Router {
     let apple_app_identifier = read_setting(env, APPLE_APP_IDENTIFIER);
-    // The refusal fallbacks give the file's path its 405; the forward then replaces the 404.
     let env = SendWrapper::new(env.clone());
-    add_refusal_fallbacks(build_app_site_association_router(apple_app_identifier))
-        .fallback(move |request: Request| forward_to_account_object(env.clone(), request))
+    let forward = post(move |request: Request| forward_to_account_object(env.clone(), request));
+    let account = list_account_route_paths()
+        .iter()
+        .fold(Router::new(), |router, path| {
+            router.route(path, forward.clone())
+        });
+    add_refusal_fallbacks(account.merge(build_app_site_association_router(apple_app_identifier)))
 }
 
 // The runtime's handle is not `Send`; the Worker runs on one thread, so the wrapper is sound.

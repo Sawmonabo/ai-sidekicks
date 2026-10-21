@@ -2,6 +2,8 @@
 //! and the calls every reader of it makes. On the Workers relay the store is the account object's
 //! SQLite storage; on the Compose relay it is the relay's SQLite file, which only its process opens.
 
+use std::future::Future;
+
 use serde::de::DeserializeOwned;
 
 /// The whole schema, every table the account keeps. Times are Unix seconds, except the sign-in
@@ -193,6 +195,10 @@ pub enum AccountStoreError {
     /// A row did not read as the columns its reader names.
     #[error("a row of the account store did not read as its columns")]
     Row(#[from] serde_json::Error),
+    /// The Compose relay's blocking task that ran the step ended before it answered.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[error("the account step's task ended before it answered")]
+    Task(#[from] tokio::task::JoinError),
 }
 
 /// The account's SQLite database, reached through its one writer, which runs one request's
@@ -225,16 +231,19 @@ pub trait AccountStore {
 }
 
 /// The account store a router's handlers share. A step runs on it as on the store itself, one at
-/// a time; on the Compose relay it waits for the file, which one lock guards.
+/// a time; on the Compose relay it runs on the blocking pool and waits there for the file, which
+/// one lock guards, so no runtime thread waits on SQLite.
 pub trait SharedAccountStore: Clone + Send + Sync + 'static {
     /// The store a step runs on.
     type Store: AccountStore;
 
-    /// Runs `step` as [`AccountStore::write_step`] does.
-    fn run_step<R, E: From<AccountStoreError>>(
-        &self,
-        step: impl FnOnce(&Self::Store) -> Result<R, E>,
-    ) -> Result<R, E>;
+    /// Runs `step` as [`AccountStore::write_step`] does; a step whose task ends before it
+    /// answers fails with [`AccountStoreError`].
+    fn run_step<R, E, F>(&self, step: F) -> impl Future<Output = Result<R, E>> + Send
+    where
+        R: Send + 'static,
+        E: From<AccountStoreError> + Send + 'static,
+        F: FnOnce(&Self::Store) -> Result<R, E> + Send + 'static;
 }
 
 /// Builds the whole schema in one step when the database holds none; a database that holds it is
@@ -264,6 +273,7 @@ pub(crate) fn apply_schema<S: AccountStore>(store: &S) -> Result<(), AccountStor
 mod file {
     //! The Compose relay's account store: one SQLite file its process alone opens.
 
+    use std::future::Future;
     use std::path::Path;
     use std::sync::{Arc, Mutex, PoisonError};
 
@@ -353,13 +363,23 @@ mod file {
     impl SharedAccountStore for Arc<Mutex<Connection>> {
         type Store = Connection;
 
-        fn run_step<R, E: From<AccountStoreError>>(
-            &self,
-            step: impl FnOnce(&Connection) -> Result<R, E>,
-        ) -> Result<R, E> {
-            // A step that panicked rolled its transaction back as it unwound, so the file is whole.
-            let connection = self.lock().unwrap_or_else(PoisonError::into_inner);
-            connection.write_step(step)
+        fn run_step<R, E, F>(&self, step: F) -> impl Future<Output = Result<R, E>> + Send
+        where
+            R: Send + 'static,
+            E: From<AccountStoreError> + Send + 'static,
+            F: FnOnce(&Connection) -> Result<R, E> + Send + 'static,
+        {
+            let file = Arc::clone(self);
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    // A step that panicked rolled its transaction back as it unwound, so the file
+                    // is whole.
+                    let connection = file.lock().unwrap_or_else(PoisonError::into_inner);
+                    connection.write_step(step)
+                })
+                .await
+                .map_err(AccountStoreError::from)?
+            }
         }
     }
 
@@ -386,6 +406,8 @@ mod object {
     //! The Workers relay's account store: the account object's SQLite storage. A step runs in the
     //! storage's `transactionSync`, a savepoint rolled back when the step throws; writes left to
     //! the object's own coalescing would commit on the next turn whatever the step answered.
+
+    use std::future::Future;
 
     use serde::de::DeserializeOwned;
     use worker::send::SendWrapper;
@@ -434,11 +456,14 @@ mod object {
     impl SharedAccountStore for AccountObjectStore {
         type Store = Self;
 
-        fn run_step<R, E: From<AccountStoreError>>(
-            &self,
-            step: impl FnOnce(&Self) -> Result<R, E>,
-        ) -> Result<R, E> {
-            self.write_step(step)
+        fn run_step<R, E, F>(&self, step: F) -> impl Future<Output = Result<R, E>> + Send
+        where
+            R: Send + 'static,
+            E: From<AccountStoreError> + Send + 'static,
+            F: FnOnce(&Self) -> Result<R, E> + Send + 'static,
+        {
+            // The object runs one request's step at a time on its one thread.
+            std::future::ready(self.write_step(step))
         }
     }
 

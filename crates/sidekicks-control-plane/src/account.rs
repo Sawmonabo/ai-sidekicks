@@ -41,7 +41,7 @@ pub struct AccountRoutes<S, V, L> {
     store: S,
     verifier: V,
     authenticator_list: L,
-    settings: Arc<Result<AccountSettings, SettingError>>,
+    settings: Result<Arc<AccountSettings>, Arc<SettingError>>,
     clock: Clock,
 }
 
@@ -59,7 +59,7 @@ impl<S, V, L> AccountRoutes<S, V, L> {
             store,
             verifier,
             authenticator_list,
-            settings: Arc::new(settings),
+            settings: settings.map(Arc::new).map_err(Arc::new),
             clock,
         }
     }
@@ -68,11 +68,10 @@ impl<S, V, L> AccountRoutes<S, V, L> {
     fn read_settings(
         &self,
         request_id: Option<&RequestId>,
-    ) -> Result<&AccountSettings, ControlPlaneRefusal> {
+    ) -> Result<Arc<AccountSettings>, ControlPlaneRefusal> {
         self.settings
-            .as_ref()
-            .as_ref()
-            .map_err(|error| ControlPlaneRefusal::refuse_internal_failure(request_id, error))
+            .clone()
+            .map_err(|error| ControlPlaneRefusal::refuse_internal_failure(request_id, &*error))
     }
 }
 
@@ -118,6 +117,18 @@ fn route_path<M: Method>() -> String {
     format!("/{}", M::DESCRIPTOR.method)
 }
 
+/// The path of each account route, in the order [`build_account_router`] serves them: the
+/// registration options and verify, the sign-in options and verify, and the passkey revoke.
+pub(crate) fn list_account_route_paths() -> [String; 5] {
+    [
+        route_path::<WebAuthnRegistrationOptionsIssue>(),
+        route_path::<WebAuthnRegistrationVerify>(),
+        route_path::<WebAuthnAuthenticationOptionsIssue>(),
+        route_path::<WebAuthnAuthenticationVerify>(),
+        route_path::<WebAuthnCredentialRevoke>(),
+    ]
+}
+
 /// Builds the account's routes over `routes`, the four ceremony routes counted by `admission` in
 /// the sign-in group; the host adds the refusal fallbacks after every route it serves.
 pub fn build_account_router<S, V, L, A>(routes: AccountRoutes<S, V, L>, admission: A) -> Router
@@ -133,25 +144,32 @@ where
         clock: routes.clock,
     };
     let count = || from_fn_with_state(counted.clone(), rate_limit::<A>);
+    let [
+        registration_options,
+        registration_verify,
+        authentication_options,
+        authentication_verify,
+        credential_revoke,
+    ] = list_account_route_paths();
     let router = Router::new()
         .route(
-            &route_path::<WebAuthnRegistrationOptionsIssue>(),
+            &registration_options,
             post(registration::issue_registration_options::<S, V, L>).route_layer(count()),
         )
         .route(
-            &route_path::<WebAuthnRegistrationVerify>(),
+            &registration_verify,
             post(registration::verify_registration::<S, V, L>).route_layer(count()),
         )
         .route(
-            &route_path::<WebAuthnAuthenticationOptionsIssue>(),
+            &authentication_options,
             post(authentication::issue_authentication_options::<S, V, L>).route_layer(count()),
         )
         .route(
-            &route_path::<WebAuthnAuthenticationVerify>(),
+            &authentication_verify,
             post(authentication::verify_authentication::<S, V, L>).route_layer(count()),
         )
         .route(
-            &route_path::<WebAuthnCredentialRevoke>(),
+            &credential_revoke,
             post(credential::revoke_passkey::<S, V, L>),
         );
     router.with_state(routes)

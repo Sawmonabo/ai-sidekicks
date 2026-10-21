@@ -2,22 +2,67 @@
 //! the resource-request `DPoP` proof beside it bound to the same key, the token not revoked and the
 //! proof's single use spent, all before the route reads anything.
 
+use std::future::Future;
+
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
+use jiff::Timestamp;
 use serde::Deserialize;
 
 use crate::account::AccountRoutes;
-use crate::account::token::dpop_proof::{ProofForm, check_dpop_proof, record_proof_jti};
-use crate::account::token::issuer::{TokenRefusal, verify_access_token};
+use crate::account::token::dpop_proof::{
+    CheckedProof, ProofForm, check_dpop_proof, record_proof_jti,
+};
+use crate::account::token::issuer::{AccessClaims, TokenRefusal, verify_access_token};
 use crate::account_store::{AccountStore, AccountStoreError, SharedAccountStore, SqlValue};
 use crate::server::router::{
     AuthenticationFault, ControlPlaneRefusal, RequestId, SignedInCheck, SignedInUser,
 };
 
 impl<S: SharedAccountStore, V, L> SignedInCheck for AccountRoutes<S, V, L> {
-    fn check_signed_in(&self, parts: &Parts) -> Result<SignedInUser, ControlPlaneRefusal> {
-        let request_id = parts.extensions.get::<RequestId>();
+    fn check_signed_in(
+        &self,
+        parts: &Parts,
+    ) -> impl Future<Output = Result<SignedInUser, ControlPlaneRefusal>> + Send {
+        let request_id = parts.extensions.get::<RequestId>().cloned();
+        let checked = self.check_token_and_proof(parts, request_id.as_ref());
+        let store = self.store.clone();
+        async move {
+            let (claims, proof, now) = checked?;
+            let jti = claims.jti.clone();
+            let fault = store
+                .run_step(move |store| {
+                    if is_revoked(store, &jti)? {
+                        return Ok(Some(AuthenticationFault::TokenInvalid));
+                    }
+                    if !record_proof_jti(store, &proof, now)? {
+                        return Ok(Some(AuthenticationFault::ProofInvalid));
+                    }
+                    Ok::<_, AccountStoreError>(None)
+                })
+                .await
+                .map_err(|error| {
+                    ControlPlaneRefusal::refuse_internal_failure(request_id.as_ref(), &error)
+                })?;
+            match fault {
+                Some(fault) => Err(ControlPlaneRefusal::Unauthenticated(fault)),
+                None => Ok(SignedInUser {
+                    user_id: claims.user_id,
+                }),
+            }
+        }
+    }
+}
+
+impl<S, V, L> AccountRoutes<S, V, L> {
+    // The checks that read only the request: the token's signature and claims, and the proof
+    // under the token's key, with the time they were made at.
+    fn check_token_and_proof(
+        &self,
+        parts: &Parts,
+        request_id: Option<&RequestId>,
+    ) -> Result<(AccessClaims, CheckedProof, Timestamp), ControlPlaneRefusal> {
         let refuse = |fault| ControlPlaneRefusal::Unauthenticated(fault);
         let settings = self.read_settings(request_id)?;
         let token = read_dpop_token(&parts.headers).ok_or(refuse(AuthenticationFault::NoToken))?;
@@ -38,24 +83,7 @@ impl<S: SharedAccountStore, V, L> SignedInCheck for AccountRoutes<S, V, L> {
         if proof.jkt != claims.jkt {
             return Err(refuse(AuthenticationFault::KeyMismatch));
         }
-        let fault = self
-            .store
-            .run_step(|store| {
-                if is_revoked(store, &claims.jti)? {
-                    return Ok(Some(AuthenticationFault::TokenInvalid));
-                }
-                if !record_proof_jti(store, &proof, now)? {
-                    return Ok(Some(AuthenticationFault::ProofInvalid));
-                }
-                Ok::<_, AccountStoreError>(None)
-            })
-            .map_err(|error| ControlPlaneRefusal::refuse_internal_failure(request_id, &error))?;
-        match fault {
-            Some(fault) => Err(refuse(fault)),
-            None => Ok(SignedInUser {
-                user_id: claims.user_id,
-            }),
-        }
+        Ok((claims, proof, now))
     }
 }
 

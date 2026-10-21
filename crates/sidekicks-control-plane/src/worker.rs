@@ -21,7 +21,7 @@ use crate::account::webauthn::verifier::WorkerPasskeyVerifier;
 use crate::account::{AccountRoutes, build_account_router};
 use crate::account_store::{AccountObjectStore, AccountStoreError, apply_schema};
 use crate::rate_limit::enforcement_pipeline::{AccountObjectAdmission, CleanupError, clean_up};
-use crate::rate_limit::limiter::read_wall_clock;
+use crate::rate_limit::limiter::{Clock, read_wall_clock};
 use crate::server::host::{self, CLIENT_ADDRESS_HEADER, REQUEST_ID_HEADER, read_setting};
 use crate::server::log_internal_failure;
 use crate::server::router::{ControlPlaneRefusal, RequestId, SourceAddress, add_refusal_fallbacks};
@@ -121,14 +121,16 @@ impl AccountObject {
         }
         let store = self.open_store()?;
         let settings = AccountSettings::read(|name| read_setting(&self.env, name));
+        // The routes and their admission read one clock.
+        let clock: Clock = read_wall_clock;
         let routes = AccountRoutes::new(
             store.clone(),
             WorkerPasskeyVerifier,
             WorkerAuthenticatorList,
             settings,
-            read_wall_clock,
+            clock,
         );
-        let admission = AccountObjectAdmission::new(store, self.state.storage());
+        let admission = AccountObjectAdmission::new(store, self.state.storage(), clock);
         let router = add_refusal_fallbacks(build_account_router(routes, admission));
         Ok(self.router.get_or_init(|| router).clone())
     }

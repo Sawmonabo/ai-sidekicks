@@ -289,7 +289,10 @@ pub struct SignedInUser {
 /// failure with the logged 500.
 pub trait SignedInCheck {
     /// The signed-in caller of the request `parts` holds.
-    fn check_signed_in(&self, parts: &Parts) -> Result<SignedInUser, ControlPlaneRefusal>;
+    fn check_signed_in(
+        &self,
+        parts: &Parts,
+    ) -> impl Future<Output = Result<SignedInUser, ControlPlaneRefusal>> + Send;
 }
 
 impl<S: SignedInCheck + Send + Sync> FromRequestParts<S> for SignedInUser {
@@ -299,6 +302,6 @@ impl<S: SignedInCheck + Send + Sync> FromRequestParts<S> for SignedInUser {
         parts: &mut Parts,
         state: &S,
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
-        std::future::ready(state.check_signed_in(parts))
+        state.check_signed_in(parts)
     }
 }

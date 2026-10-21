@@ -1,11 +1,12 @@
 //! Adding a passkey through the router: an attestation that names another credential or a key
 //! the machines refuse spends its challenge and writes nothing, a credential id already held
-//! keeps its first holder, and the provider's name comes from the authenticator list.
+//! keeps its first holder, a challenge answers only the account it was issued to, the check names
+//! the relying party, and the provider's name comes from the authenticator list.
 
 use axum::http::StatusCode;
 use serde_json::json;
 
-use crate::helpers::{DpopKey, Relay, call, post, sign_in, start_relay};
+use crate::helpers::{DpopKey, ORIGIN, RELYING_PARTY_ID, Relay, call, post, sign_in, start_relay};
 
 const ISSUE_PATH: &str = "/webauthn.registrationOptions.issue";
 const VERIFY_PATH: &str = "/webauthn.registration.verify";
@@ -13,6 +14,7 @@ const USER: &str = "0190a000-0000-7000-8000-000000000001";
 const HANDLE: &str = "dXNlci1vbmU";
 const PASSKEY: &str = "cGFzc2tleS1vbmU";
 const OTHER_USER: &str = "0190a000-0000-7000-8000-000000000002";
+const OTHER_HANDLE: &str = "dXNlci10d28";
 const OTHER_PASSKEY: &str = "cGFzc2tleS10d28";
 const NEW_PASSKEY: &str = "bmV3LXBhc3NrZXk";
 const LISTED_AAGUID: &str = "ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4";
@@ -28,15 +30,33 @@ struct Caller {
 
 async fn sign_in_caller(relay: &Relay) -> Caller {
     relay.add_user_with_passkey(USER, HANDLE, PASSKEY, 0);
-    relay.add_user_with_passkey(OTHER_USER, "dXNlci10d28", OTHER_PASSKEY, 0);
+    relay.add_user_with_passkey(OTHER_USER, OTHER_HANDLE, OTHER_PASSKEY, 0);
+    sign_in_holder(relay, PASSKEY, HANDLE).await
+}
+
+// Signs in the holder of `passkey`, whose user handle is `handle`, under a fresh key.
+async fn sign_in_holder(relay: &Relay, passkey: &str, handle: &str) -> Caller {
     let key = DpopKey::generate();
-    let (status, _, signed_in) = sign_in(relay, &relay.router, &key, PASSKEY, HANDLE, 1).await;
+    let (status, _, signed_in) = sign_in(relay, &relay.router, &key, passkey, handle, 1).await;
     assert_eq!(status, StatusCode::OK, "{signed_in}");
     let access = signed_in["accessToken"]
         .as_str()
         .expect("a token")
         .to_owned();
     Caller { key, access }
+}
+
+// Issues registration options to `caller` and answers them.
+async fn issue_options(relay: &Relay, caller: &Caller) -> serde_json::Value {
+    let authorization = format!("DPoP {}", caller.access);
+    let proof = caller.key.prove(ISSUE_PATH, Some(&caller.access));
+    let headers = [
+        ("Authorization", authorization.as_str()),
+        ("DPoP", proof.as_str()),
+    ];
+    let (status, _, issued) = call(&relay.router, post(ISSUE_PATH, &json!({}), &headers)).await;
+    assert_eq!(status, StatusCode::OK, "{issued}");
+    issued
 }
 
 // Issues registration options and verifies `credential_id` under them, the verifier answering
@@ -47,17 +67,23 @@ async fn register(
     credential_id: &str,
     verdict: serde_json::Value,
 ) -> (serde_json::Value, StatusCode, serde_json::Value) {
-    let authorization = format!("DPoP {}", caller.access);
-    let proof = caller.key.prove(ISSUE_PATH, Some(&caller.access));
-    let headers = [
-        ("Authorization", authorization.as_str()),
-        ("DPoP", proof.as_str()),
-    ];
-    let (status, _, issued) = call(&relay.router, post(ISSUE_PATH, &json!({}), &headers)).await;
-    assert_eq!(status, StatusCode::OK, "{issued}");
+    let issued = issue_options(relay, caller).await;
     relay.verifier.answer(&verdict);
+    let (status, verified) =
+        verify_new_passkey(relay, caller, &issued["transactionId"], credential_id).await;
+    (issued, status, verified)
+}
+
+// Verifies `credential_id` as `caller`'s new passkey under `transaction_id`.
+async fn verify_new_passkey(
+    relay: &Relay,
+    caller: &Caller,
+    transaction_id: &serde_json::Value,
+    credential_id: &str,
+) -> (StatusCode, serde_json::Value) {
+    let authorization = format!("DPoP {}", caller.access);
     let body = json!({
-        "transactionId": issued["transactionId"],
+        "transactionId": transaction_id,
         "response": {
             "id": credential_id,
             "rawId": credential_id,
@@ -76,7 +102,7 @@ async fn register(
         ("DPoP", proof.as_str()),
     ];
     let (status, _, verified) = call(&relay.router, post(VERIFY_PATH, &body, &headers)).await;
-    (issued, status, verified)
+    (status, verified)
 }
 
 fn verified(credential_id: &str, aaguid: &str) -> serde_json::Value {
@@ -133,6 +159,39 @@ async fn a_refused_attestation_writes_nothing_and_spends_its_challenge() {
 }
 
 #[tokio::test]
+async fn a_registration_challenge_answers_only_the_account_it_was_issued_to() {
+    let relay = start_relay();
+    let caller = sign_in_caller(&relay).await;
+    let other = sign_in_holder(&relay, OTHER_PASSKEY, OTHER_HANDLE).await;
+    let issued = issue_options(&relay, &caller).await;
+    relay.verifier.answer(&verified(NEW_PASSKEY, LISTED_AAGUID));
+    let checks = relay.verifier.checks().len();
+
+    let (status, refusal) =
+        verify_new_passkey(&relay, &other, &issued["transactionId"], NEW_PASSKEY).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refusal}");
+    assert_eq!(refusal["code"], "account.passkey.challengeInvalid");
+    assert_eq!(
+        relay.verifier.checks().len(),
+        checks,
+        "the attestation is never checked"
+    );
+    assert_eq!(
+        count_challenges(&relay),
+        1,
+        "the caller's challenge is left"
+    );
+    assert_eq!(
+        relay.query(&format!(
+            "SELECT credential_id FROM webauthn_credentials WHERE credential_id = '{NEW_PASSKEY}'"
+        )),
+        Vec::<serde_json::Value>::new(),
+        "nothing is written"
+    );
+}
+
+#[tokio::test]
 async fn a_new_passkey_is_named_from_the_authenticator_list() {
     let relay = start_relay();
     let caller = sign_in_caller(&relay).await;
@@ -146,6 +205,13 @@ async fn a_new_passkey_is_named_from_the_authenticator_list() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{added}");
+    let checks = relay.verifier.checks();
+    let check = checks.last().expect("the verifier was called");
+    assert_eq!(check["expectedChallenge"], issued["options"]["challenge"]);
+    assert_eq!(check["expectedOrigin"], json!([ORIGIN]));
+    assert_eq!(check["expectedRPID"], RELYING_PARTY_ID);
+    assert_eq!(check["requireUserVerification"], true);
+    assert_eq!(check["supportedAlgorithmIDs"], json!([-8, -7, -257]));
     assert_eq!(
         issued["options"]["excludeCredentials"],
         json!([{ "type": "public-key", "id": PASSKEY, "transports": [] }])

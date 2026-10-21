@@ -8,6 +8,7 @@ use std::future::Future;
 use serde::Deserialize;
 use sidekicks_contracts::trust_statement::PlatformDescription;
 use sidekicks_contracts::webauthn::ceremony::Aaguid;
+use sidekicks_contracts::wire::text::TextError;
 
 /// The AAGUID an authenticator that names none sends.
 const NAMELESS_AAGUID: &str = "00000000-0000-0000-0000-000000000000";
@@ -29,7 +30,8 @@ pub enum AuthenticatorListError {
     TimedOut,
 }
 
-/// Why the fetched list gave no names: it did not read, or it is retired.
+/// Why the fetched list gave no name: it did not read, it is retired, or the name it holds is one
+/// the wire refuses.
 #[derive(Debug, thiserror::Error)]
 enum AuthenticatorListUnread {
     /// The text is not the list's JSON.
@@ -38,6 +40,9 @@ enum AuthenticatorListUnread {
     /// The list is the empty object, the form it takes once it is retired.
     #[error("the authenticator list is retired: it holds no authenticator")]
     Retired,
+    /// The list's name for the AAGUID is one a provider name on the wire cannot carry.
+    #[error("the authenticator list's name for the AAGUID is refused")]
+    NameRefused(#[from] TextError),
 }
 
 #[derive(Deserialize)]
@@ -46,8 +51,8 @@ struct AuthenticatorEntry {
 }
 
 /// The provider name the list gives `aaguid`, or `None` for the all-zero AAGUID, one the list
-/// does not hold, a name the wire refuses, or a list that could not be fetched or read, which is
-/// logged with `request_id`.
+/// does not hold, or a list that could not be fetched or read or whose name the wire refuses,
+/// which is logged with `request_id`.
 pub(crate) async fn read_provider_name<L: AuthenticatorList>(
     list: &L,
     aaguid: &Aaguid,
@@ -64,7 +69,7 @@ pub(crate) async fn read_provider_name<L: AuthenticatorList>(
         }
     };
     match find_name(&text, aaguid) {
-        Ok(name) => name.and_then(|name| PlatformDescription::new(name).ok()),
+        Ok(name) => name,
         Err(error) => {
             crate::server::log_internal_failure(request_id, &error);
             None
@@ -72,12 +77,18 @@ pub(crate) async fn read_provider_name<L: AuthenticatorList>(
     }
 }
 
-fn find_name(text: &str, aaguid: &Aaguid) -> Result<Option<String>, AuthenticatorListUnread> {
+fn find_name(
+    text: &str,
+    aaguid: &Aaguid,
+) -> Result<Option<PlatformDescription>, AuthenticatorListUnread> {
     let mut entries: HashMap<String, AuthenticatorEntry> = serde_json::from_str(text)?;
     if entries.is_empty() {
         return Err(AuthenticatorListUnread::Retired);
     }
-    Ok(entries.remove(aaguid.as_str()).map(|entry| entry.name))
+    match entries.remove(aaguid.as_str()) {
+        Some(entry) => Ok(Some(PlatformDescription::new(entry.name)?)),
+        None => Ok(None),
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

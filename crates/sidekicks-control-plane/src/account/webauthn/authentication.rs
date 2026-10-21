@@ -5,6 +5,8 @@
 //! pair bound to the proof's key. Every failed check of the passkey answers the one opaque
 //! refusal.
 
+use std::sync::Arc;
+
 use axum::Json;
 use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, Method, Uri};
@@ -28,7 +30,7 @@ use crate::account::webauthn::credential::{StoredCredential, advance_counter, re
 use crate::account::webauthn::verifier::{
     PasskeyVerifier, RelyingParty, StoredPasskey, check_authentication,
 };
-use crate::account::{AccountRouteError, AccountRoutes, RouteOutcome, settle};
+use crate::account::{AccountRoutes, RouteOutcome, settle};
 use crate::account_store::SharedAccountStore;
 use crate::server::received_json::ReceivedJson;
 use crate::server::router::{AuthenticationFault, ControlPlaneRefusal, RequestId};
@@ -45,28 +47,32 @@ where
 {
     let request_id = request_id.map(|Extension(request_id)| request_id);
     let settings = routes.read_settings(request_id.as_ref())?;
-    let outcome = compose_authentication_options(&routes, settings, &request);
+    let outcome = compose_authentication_options(&routes, &settings, request).await;
     settle(request_id.as_ref(), outcome).map(Json)
 }
 
-fn compose_authentication_options<S, V, L>(
+async fn compose_authentication_options<S, V, L>(
     routes: &AccountRoutes<S, V, L>,
     settings: &AccountSettings,
-    request: &WebAuthnAuthenticationOptionsIssueRequest,
+    request: WebAuthnAuthenticationOptionsIssueRequest,
 ) -> RouteOutcome<WebAuthnAuthenticationOptionsIssueResponse>
 where
     S: SharedAccountStore,
 {
     let now = (routes.clock)()?;
-    let issued = routes.store.run_step(|store| {
-        issue_challenge(
-            store,
-            Ceremony::Authentication,
-            None,
-            request.statement_hash.as_ref(),
-            now,
-        )
-    })?;
+    let statement_hash = request.statement_hash;
+    let issued = routes
+        .store
+        .run_step(move |store| {
+            issue_challenge(
+                store,
+                Ceremony::Authentication,
+                None,
+                statement_hash.as_ref(),
+                now,
+            )
+        })
+        .await?;
     Ok(Ok(WebAuthnAuthenticationOptionsIssueResponse {
         transaction_id: issued.transaction_id,
         origin: settings.origin_text.clone(),
@@ -101,7 +107,7 @@ where
         uri: &uri,
         headers: &headers,
     };
-    let outcome = sign_in(&routes, settings, proof_request, &request).await;
+    let outcome = sign_in(&routes, settings, proof_request, request).await;
     let (user_id, pair) = settle(request_id.as_ref(), outcome)?;
     Ok(Json(WebAuthnAuthenticationVerifyResponse {
         user_id,
@@ -127,9 +133,9 @@ struct PasskeyHolder {
 
 async fn sign_in<S, V, L>(
     routes: &AccountRoutes<S, V, L>,
-    settings: &AccountSettings,
+    settings: Arc<AccountSettings>,
     proof_request: ProofRequest<'_>,
-    request: &WebAuthnAuthenticationVerifyRequest,
+    request: WebAuthnAuthenticationVerifyRequest,
 ) -> RouteOutcome<(UserId, TokenPair)>
 where
     S: SharedAccountStore,
@@ -148,37 +154,44 @@ where
         return Ok(Err(refuse_proof()));
     };
 
-    let transaction_id = &request.transaction_id;
-    let credential_id = request.response.id.as_str();
+    let transaction_id = request.transaction_id;
+    let credential_id = request.response.id.as_str().to_owned();
+    let jkt = proof.jkt.clone();
     // The proof's single use is spent before the challenge is read, so a replay leaves it.
-    let read = routes.store.run_step(|store| {
-        if !record_proof_jti(store, &proof, now)? {
-            return Ok(Err(refuse_proof()));
+    let read_step = {
+        let credential_id = credential_id.clone();
+        move |store: &S::Store| -> RouteOutcome<(String, Option<PasskeyHolder>)> {
+            if !record_proof_jti(store, &proof, now)? {
+                return Ok(Err(refuse_proof()));
+            }
+            let challenge =
+                read_challenge(store, &transaction_id, Ceremony::Authentication, None, now)?;
+            let Some(challenge) = challenge else {
+                return Ok(Err(ControlPlaneRefusal::refuse_passkey_challenge()));
+            };
+            let holder = match read_credential(store, &credential_id)? {
+                Some(credential) => {
+                    read_user(store, &credential.user_id)?.map(|user| PasskeyHolder {
+                        credential,
+                        user_id: user.id,
+                        identity_ref: user.identity_ref.as_str().to_owned(),
+                    })
+                }
+                None => None,
+            };
+            Ok(Ok((challenge, holder)))
         }
-        let challenge = read_challenge(store, transaction_id, Ceremony::Authentication, None, now)?;
-        let Some(challenge) = challenge else {
-            return Ok(Err(ControlPlaneRefusal::refuse_passkey_challenge()));
-        };
-        let holder = match read_credential(store, credential_id)? {
-            Some(credential) => read_user(store, &credential.user_id)?.map(|user| PasskeyHolder {
-                credential,
-                user_id: user.id,
-                identity_ref: user.identity_ref.as_str().to_owned(),
-            }),
-            None => None,
-        };
-        Ok::<_, AccountRouteError>(Ok((challenge, holder)))
-    })?;
-    let (challenge, holder) = match read {
+    };
+    let (challenge, holder) = match routes.store.run_step(read_step).await? {
         Ok(read) => read,
         Err(refusal) => return Ok(Err(refusal)),
     };
 
     let verdict = match holder {
-        Some(holder) if is_user_handle_of(request, &holder) => {
+        Some(holder) if is_user_handle_of(&request, &holder) => {
             let public_key = URL_SAFE_NO_PAD.encode(&holder.credential.public_key);
             let passkey = StoredPasskey {
-                credential_id,
+                credential_id: &credential_id,
                 public_key: &public_key,
                 counter: u32::try_from(holder.credential.signature_counter)
                     .expect("a stored counter was written from a u32"),
@@ -200,11 +213,13 @@ where
         _ => None,
     };
 
-    routes.store.run_step(|store| {
+    // Read after the verifier's wait, so a challenge that expired during it is not consumed.
+    let now = (routes.clock)()?;
+    let commit_step = move |store: &S::Store| -> RouteOutcome<(UserId, TokenPair)> {
         let is_consumed = consume_challenge(
             store,
             &challenge,
-            transaction_id,
+            &transaction_id,
             Ceremony::Authentication,
             None,
             now,
@@ -218,12 +233,13 @@ where
         let holder_id = &holder.credential.user_id;
         // Matches only while the passkey is still the holder's and its counter is below the
         // presented one, so a revoke or a racing sign-in in between refuses this one.
-        if !advance_counter(store, credential_id, holder_id, assertion.new_counter, now)? {
+        if !advance_counter(store, &credential_id, holder_id, assertion.new_counter, now)? {
             return Ok(Err(ControlPlaneRefusal::refuse_passkey_verification()));
         }
-        let pair = issue_token_pair(store, &settings.token_keys, holder_id, &proof.jkt, now)?;
-        Ok::<_, AccountRouteError>(Ok((holder.user_id, pair)))
-    })
+        let pair = issue_token_pair(store, &settings.token_keys, holder_id, &jkt, now)?;
+        Ok(Ok((holder.user_id, pair)))
+    };
+    routes.store.run_step(commit_step).await
 }
 
 // The assertion names the holder: its user handle is present and is the holder's.

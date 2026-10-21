@@ -127,10 +127,12 @@ type Spoil = fn(&mut Value, &mut Value);
 #[case::ath_present(|claims: &mut Value, _: &mut Value| claims["ath"] = json!("aGFzaA"))]
 #[case::iat_61_seconds_old(|claims: &mut Value, _: &mut Value| claims["iat"] = json!(Timestamp::now().as_second() - 61))]
 #[case::iat_61_seconds_ahead(|claims: &mut Value, _: &mut Value| claims["iat"] = json!(Timestamp::now().as_second() + 61))]
+#[case::iat_at_the_least_integer(|claims: &mut Value, _: &mut Value| claims["iat"] = json!(i64::MIN))]
 #[case::other_method(|claims: &mut Value, _: &mut Value| claims["htm"] = json!("GET"))]
 #[case::other_target(|claims: &mut Value, _: &mut Value| claims["htu"] = json!(format!("https://other.example{VERIFY_PATH}")))]
 #[case::private_key_member(|_: &mut Value, header: &mut Value| header["jwk"]["d"] = json!("c2VjcmV0"))]
 #[case::other_type(|_: &mut Value, header: &mut Value| header["typ"] = json!("jwt"))]
+#[case::critical_extension(|_: &mut Value, header: &mut Value| header["crit"] = json!(["exp"]))]
 #[tokio::test]
 async fn a_spoiled_proof_is_refused_before_the_challenge_is_read(#[case] spoil: Spoil) {
     let relay = start_relay();
@@ -149,9 +151,17 @@ async fn a_bad_signature_or_a_replayed_jti_is_refused_and_a_query_still_matches(
     relay.add_user_with_passkey(USER, HANDLE, PASSKEY, 0);
     let key = DpopKey::generate();
 
-    let mut proof = key.prove(VERIFY_PATH, None);
-    let last = proof.pop().expect("a proof has a signature");
-    proof.push(if last == 'A' { 'B' } else { 'A' });
+    // A character in the middle of the signature holds six whole bits, so the changed signature
+    // still decodes and only its verify refuses it.
+    let proof = key.prove(VERIFY_PATH, None);
+    let signature_start = proof.rfind('.').expect("a proof has a signature") + 1;
+    let middle = signature_start + (proof.len() - signature_start) / 2;
+    let flipped = if &proof[middle..=middle] == "A" {
+        "B"
+    } else {
+        "A"
+    };
+    let proof = format!("{}{flipped}{}", &proof[..middle], &proof[middle + 1..]);
     assert_proof_refused(&relay, &proof).await;
 
     // A target that differs only by its query is the same request's.
