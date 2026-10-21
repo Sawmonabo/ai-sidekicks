@@ -12,6 +12,7 @@ pub mod command_receipts;
 pub mod crash_window;
 pub(crate) mod credential_store;
 pub mod daemon;
+pub(crate) mod data_acts;
 pub mod database;
 pub(crate) mod error_description;
 pub mod events;

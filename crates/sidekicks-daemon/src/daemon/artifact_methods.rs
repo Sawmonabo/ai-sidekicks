@@ -73,8 +73,9 @@ pub(crate) struct ArtifactMethods {
     pub(crate) attachments: ArtifactAttachmentResolver,
     /// Stores the daemon's own payloads, for the plan record and a chat's versions.
     pub(crate) publisher: Arc<ArtifactPublishService>,
+    /// The stored payloads, which the data export copies each session's files from.
+    pub(crate) payloads: Arc<PayloadStore>,
     ingest: Arc<ArtifactIngestService>,
-    payloads: Arc<PayloadStore>,
     reads: Arc<DatabaseReadPool>,
 }
 

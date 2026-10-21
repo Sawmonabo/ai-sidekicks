@@ -183,6 +183,39 @@ static RUN_AFTER_OF_TYPES_HYDRATED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the data export writes every session's rows")
+)]
+// A page of a session's rows, every type and run, each once per stored body it joins as
+// RUN_AFTER_OF_TYPES_HYDRATED_SQL joins them; the page is its first `@limit` rows after
+// `@after_position`.
+static SESSION_PAGE_HYDRATED_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {SELECTED_COLUMNS}, {member_body}
+       FROM session_events AS event
+       LEFT JOIN session_events AS member
+         ON member.session_id = event.session_id
+        AND (member.sequence = event.sequence
+          OR (member.joins_sequence = coalesce(event.joins_sequence, event.sequence)
+              AND member.sequence > event.sequence))
+        AND member.content_payload IS NOT NULL
+        AND {readable_member}
+      WHERE event.session_id = @session_id
+        AND event.sequence IN (
+          SELECT page.sequence FROM session_events AS page
+           WHERE page.session_id = @session_id AND page.sequence > @after_position
+             AND {readable_page} AND {page_row}
+           ORDER BY page.sequence ASC
+           LIMIT @limit)
+      ORDER BY event.sequence ASC, member.sequence ASC",
+        member_body = stored_body_columns_sql("member"),
+        readable_member = readable_event_sql("member"),
+        readable_page = readable_event_sql("page"),
+        page_row = row_condition_sql("page"),
+    )
+});
+
 static EVENT_BY_ID_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {SELECTED_COLUMNS}
@@ -316,6 +349,30 @@ where
         )
     }
 
+    /// Up to `limit` of the session's rows after `after_position`, of every type and run, each
+    /// paired with its body as [`Self::read_after_hydrated`] pairs it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the data export writes every session's rows")
+    )]
+    pub(crate) fn read_page_hydrated(
+        &self,
+        session_id: &SessionId,
+        after_position: i64,
+        limit: i64,
+    ) -> Result<Vec<HydratedSessionEvent>, SessionLogReadError> {
+        let read_bound = self.read_bound(session_id, None);
+        self.read_hydrated_rows(
+            &SESSION_PAGE_HYDRATED_SQL,
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@after_position": after_position,
+                "@limit": limit,
+                "@read_bound": read_bound,
+            },
+        )
+    }
+
     /// The events with a sequence from `from_sequence` to `to_sequence`, both included.
     pub(crate) fn read_window(
         &self,
@@ -382,7 +439,10 @@ where
     /// joined, in the order read.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the provider switch's hand-over brief")
+        expect(
+            dead_code,
+            reason = "the provider switch's hand-over brief and the data export"
+        )
     )]
     fn read_hydrated_rows(
         &self,
