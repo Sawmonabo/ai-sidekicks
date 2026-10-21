@@ -2,6 +2,7 @@
 //! and one of its runs, the writer, the event log's appender and the read pool on it, and folders
 //! for the spool and the stored payloads.
 
+use std::borrow::Cow;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -14,11 +15,12 @@ use sidekicks_platforms::WallClockTimer;
 use tempfile::TempDir;
 
 use crate::artifacts::admission::UploadAdmission;
-use crate::artifacts::payload_store::PayloadStore;
+use crate::artifacts::payload_store::{ContentHash, PayloadStore};
 use crate::artifacts::publish::ArtifactPublishService;
 use crate::artifacts::refusals::ArtifactError;
 use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::DatabaseWriter;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::EventLogService;
@@ -173,4 +175,45 @@ fn seed_owner(connection: &Connection, session_id: &str, run_id: &str) {
 /// The refusal code `failure` carries, or `None` for a fault that is no refusal.
 pub(crate) fn refusal_code_of(failure: &ArtifactError) -> Option<RefusalCode> {
     failure.refusal().map(|refusal| refusal.code)
+}
+
+/// Writes a manifest of `session_id` over `content_hash` and its payload reference.
+pub(crate) async fn write_payload_reference(
+    writer: &DatabaseWriter,
+    session_id: SessionId,
+    content_hash: &ContentHash,
+) {
+    let manifest_id = mint_uuid_v7().to_string();
+    let reference_id = mint_uuid_v7().to_string();
+    writer
+        .write(vec![
+            WriteStatement {
+                sql: Cow::Borrowed(
+                    "INSERT INTO artifact_manifests (id, session_id, artifact_type, \
+                     content_hash, size_bytes, created_at) VALUES (@manifestId, @sessionId, \
+                     'file', @contentHash, 1, '2026-10-19T09:00:00.000Z')",
+                ),
+                bindings: StatementBindings::Named(vec![
+                    text_binding("@manifestId", &manifest_id),
+                    text_binding("@sessionId", session_id.text().as_str()),
+                    text_binding("@contentHash", content_hash.as_str()),
+                ]),
+                expected_row_count: Some(1),
+            },
+            WriteStatement {
+                sql: Cow::Borrowed(
+                    "INSERT INTO artifact_payload_refs (id, manifest_id, storage_path, \
+                     media_type, size_bytes, created_at) VALUES (@referenceId, @manifestId, \
+                     @contentHash, 'text/plain', 1, '2026-10-19T09:00:00.000Z')",
+                ),
+                bindings: StatementBindings::Named(vec![
+                    text_binding("@referenceId", &reference_id),
+                    text_binding("@manifestId", &manifest_id),
+                    text_binding("@contentHash", content_hash.as_str()),
+                ]),
+                expected_row_count: Some(1),
+            },
+        ])
+        .await
+        .expect("the test's manifest is written");
 }

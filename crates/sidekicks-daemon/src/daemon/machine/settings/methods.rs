@@ -51,9 +51,12 @@ impl From<MachineSettingsFileError> for HandlerError {
 /// Registers `machine.settings.read`, `machine.settings.update` and `machine.settings.subscribe`.
 /// An update with a refused environment row or branch-name pattern is refused before anything is
 /// written. Fails the start when a method is already registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the settings methods once the file is open"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start registers the settings methods once the file is open"
+    )
 )]
 pub(crate) fn register_machine_settings_methods(
     registry: &mut MethodRegistryBuilder,
@@ -127,4 +130,108 @@ pub(crate) fn register_machine_settings_methods(
             .boxed()
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use futures::FutureExt as _;
+    use serde_json::json;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::machine::settings::{
+        MachineSettingsReading, MachineSettingsSubscribe, MachineSettingsUpdate,
+    };
+    use sidekicks_contracts::method::Method as _;
+
+    use super::{MachineSettingsMethodsDeps, register_machine_settings_methods};
+    use crate::daemon::machine::settings::file::{MACHINE_SETTINGS_FILE_NAME, MachineSettingsFile};
+    use crate::ipc::call_fixtures::{context, request};
+    use crate::ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
+    use crate::ipc::stream::feed::CreditGate;
+
+    const WAIT: Duration = Duration::from_secs(10);
+
+    // A change one client makes reaches a second client's subscription and the file on disk, and
+    // a credential-shaped environment row is refused with nothing written. Killed by the row's
+    // check moved behind the write, and by an update that reaches no follower.
+    #[tokio::test]
+    async fn an_update_reaches_another_client_and_the_file_and_a_credential_row_writes_nothing() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let file_path = folder.path().join(MACHINE_SETTINGS_FILE_NAME);
+        let mut builder = MethodRegistryBuilder::new();
+        register_machine_settings_methods(
+            &mut builder,
+            MachineSettingsMethodsDeps {
+                settings_file: Arc::new(MachineSettingsFile::new(file_path.clone())),
+                driver_set_names: Vec::new(),
+                find_branch_pattern_refusal: Arc::new(|_pattern| async { Ok(None) }.boxed()),
+            },
+        )
+        .expect("the settings methods register");
+        let registry = builder.freeze();
+        let Ok(Reply::Subscription { mut feed, .. }) = registry
+            .dispatch(
+                request(
+                    MachineSettingsSubscribe::DESCRIPTOR.method,
+                    Some(&json!({})),
+                ),
+                context(2),
+            )
+            .await
+        else {
+            panic!("the subscribe answers a subscription");
+        };
+        let gate = CreditGate::with_credit(4);
+        let mut next_reading = async || -> MachineSettingsReading {
+            let value = tokio::time::timeout(WAIT, feed.next(&gate))
+                .await
+                .expect("an emission comes")
+                .expect("the reading reads")
+                .expect("the stream goes on");
+            serde_json::from_slice(&value.json).expect("the emission reads as its type")
+        };
+        assert!(next_reading().await.settings.updates_automatic);
+        let file_before = std::fs::read(&file_path).ok();
+
+        let refused = registry
+            .dispatch(
+                request(
+                    MachineSettingsUpdate::DESCRIPTOR.method,
+                    Some(&json!({ "change": { "environmentRows": [
+                        { "name": "GITHUB_TOKEN", "value": "planted" }
+                    ] } })),
+                ),
+                context(1),
+            )
+            .await;
+        let Err(DispatchError::Refused(refusal)) = refused else {
+            panic!("a credential-shaped row is refused");
+        };
+        assert_eq!(refusal.code, RefusalCode::ProjectEnvironmentNameRefused);
+        assert_eq!(
+            std::fs::read(&file_path).ok(),
+            file_before,
+            "nothing is written"
+        );
+
+        let updated = registry
+            .dispatch(
+                request(
+                    MachineSettingsUpdate::DESCRIPTOR.method,
+                    Some(&json!({ "change": { "updatesAutomatic": false } })),
+                ),
+                context(1),
+            )
+            .await;
+        assert!(matches!(updated, Ok(Reply::Result(_))));
+        assert!(!next_reading().await.settings.updates_automatic);
+        let on_disk = MachineSettingsFile::new(file_path)
+            .read()
+            .await
+            .expect("the file reads");
+        assert!(!on_disk.settings.updates_automatic);
+        assert!(on_disk.settings.environment_rows.is_empty());
+    }
 }
