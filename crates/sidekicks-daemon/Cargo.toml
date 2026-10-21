@@ -32,7 +32,6 @@ ignored = [
   "ed25519-dalek",
   # An attachment's picture, its first page and its covered copy.
   "fast_image_resize",
-  "image",
   "pdfium-render",
   "webp",
   # The channel to each WSL 2 distribution's WSL server, the daemon the client and the WSL server
@@ -66,8 +65,6 @@ ignored = [
   "opentelemetry-proto",
   # The passkey relying party's and the relay channel's tokens.
   "pasetors",
-  # The transcript's markdown cut, built next.
-  "satteri-pulldown-cmark",
   # The redaction set built from each secret of a run.
   "base64",
   "form_urlencoded",
@@ -85,7 +82,6 @@ ignored = [
   "serde-saphyr",
   "yaml-edit",
   # Fetching and unpacking the tools a workflow code step runs on.
-  "flate2",
   "tar",
   "zip",
   # Editing the providers' and tool servers' TOML settings in place.
@@ -115,12 +111,14 @@ fast_image_resize.workspace = true
 ferriki-textmate.workspace = true
 ferroni.workspace = true
 file-format.workspace = true
+# Unpacks a workflow code step's tools, and writes each PNG chunk's CRC in the picture size tests.
 flate2.workspace = true
 flexi_logger.workspace = true
 form_urlencoded.workspace = true
 futures.workspace = true
 garde.workspace = true
 getrandom.workspace = true
+gif.workspace = true
 h2.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
@@ -129,6 +127,7 @@ hyper-util.workspace = true
 icu_collator.workspace = true
 ignore.workspace = true
 image.workspace = true
+image-webp.workspace = true
 instant-acme.workspace = true
 interprocess.workspace = true
 jiff.workspace = true
@@ -149,9 +148,9 @@ p256.workspace = true
 pasetors.workspace = true
 pdfium-render.workspace = true
 percent-encoding.workspace = true
+png.workspace = true
 process-wrap.workspace = true
 psl.workspace = true
-pulldown-cmark.workspace = true
 quick_cache.workspace = true
 reflink-copy.workspace = true
 regex.workspace = true
@@ -208,6 +207,7 @@ yaml-edit.workspace = true
 zeroize.workspace = true
 zip.workspace = true
 zstd.workspace = true
+zune-jpeg.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

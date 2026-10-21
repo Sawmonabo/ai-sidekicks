@@ -6664,17 +6664,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pulldown-cmark"
-version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
-dependencies = [
- "bitflags 2.13.2",
- "memchr",
- "unicase",
-]
-
-[[package]]
 name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8329,6 +8318,7 @@ dependencies = [
  "futures",
  "garde",
  "getrandom 0.4.3",
+ "gif",
  "h2",
  "hkdf 0.13.0",
  "hmac 0.13.0",
@@ -8337,6 +8327,7 @@ dependencies = [
  "icu_collator",
  "ignore",
  "image",
+ "image-webp",
  "insta",
  "instant-acme",
  "interprocess",
@@ -8358,10 +8349,10 @@ dependencies = [
  "pasetors",
  "pdfium-render",
  "percent-encoding",
+ "png",
  "process-wrap",
  "proptest",
  "psl",
- "pulldown-cmark",
  "quick_cache",
  "reflink-copy",
  "regex",
@@ -8423,6 +8414,7 @@ dependencies = [
  "zeroize",
  "zip",
  "zstd",
+ "zune-jpeg",
 ]
 
 [[package]]
