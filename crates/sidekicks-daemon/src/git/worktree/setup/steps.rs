@@ -1,0 +1,542 @@
+//! The steps of a setup card and how each project step runs: the card's list, matched to a list
+//! read again by what each step does; a file copied from the repository's checkout into the tree,
+//! keeping what the tree has; and a command line run in the tree through the person's shell, its
+//! output's tail kept, given up on at its time limit and ended with every process it started.
+
+use std::error::Error;
+use std::io::{self, Read as _};
+use std::path::{Path, PathBuf};
+use std::process::{ExitStatus, Stdio};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
+
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::project::{PROJECT_SETUP_COMMAND_MAX_LEN, ProjectSetup};
+use sidekicks_contracts::repo::workspace::WORKSPACE_LAST_ERROR_MAX_LEN;
+use sidekicks_contracts::wire::text::{FreeFormText, TextError};
+use sidekicks_contracts::worktree::setup::{
+    WORKTREE_SETUP_OUTPUT_MAX_LEN, WorktreeSetupStage, WorktreeSetupStep, WorktreeSetupStepState,
+};
+use sidekicks_platforms::{
+    ChildTree, Spawner, read_child_exit, shell_line_command, start_child_tree,
+};
+use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
+
+use crate::error_description::describe_error;
+use crate::git::worktree::copy::{TreeCopyPolicy, copy_tree};
+use crate::process_exit::OutputTail;
+use crate::workspace::last_error::normalize_workspace_last_error;
+use crate::workspace::trust_envelope::{components_equal, is_contained_within};
+
+/// The label of the step that makes the tree: the command it runs.
+const MAKE_TREE_LABEL: &str = "git worktree add";
+
+/// The label of the warm step: the command it runs.
+const WARM_LABEL: &str = "git status";
+
+/// The size of one read of a command's output.
+const OUTPUT_READ_CHUNK: usize = 64 * 1024;
+
+/// What a failed step says when its failure has no words of its own.
+const UNNAMED_FAILURE: &str = "The step failed";
+
+/// What one step does: the fixed steps carry nothing, a project step its file or its command.
+#[derive(Clone, Debug)]
+pub(super) enum StepAction {
+    MakeTree,
+    Copy {
+        path: FilesystemPath,
+    },
+    Command {
+        line: FreeFormText<PROJECT_SETUP_COMMAND_MAX_LEN>,
+        time_limit: Option<Duration>,
+    },
+    Warm,
+}
+
+/// One step of a card: what the card shows and what the step does.
+#[derive(Clone, Debug)]
+pub(super) struct CardStep {
+    pub(super) step: WorktreeSetupStep,
+    pub(super) action: StepAction,
+}
+
+/// How a step that ran ended: the failure's words, or none, and the tail of what it printed.
+pub(super) struct StepOutcome {
+    pub(super) error: Option<String>,
+    pub(super) output: Option<FreeFormText<WORKTREE_SETUP_OUTPUT_MAX_LEN>>,
+}
+
+impl StepOutcome {
+    /// A step that succeeded and printed nothing.
+    pub(super) fn succeeded() -> Self {
+        Self {
+            error: None,
+            output: None,
+        }
+    }
+
+    /// A step that failed with `error` and printed nothing.
+    pub(super) fn failed(error: impl Into<String>) -> Self {
+        Self {
+            error: Some(error.into()),
+            output: None,
+        }
+    }
+}
+
+impl CardStep {
+    /// The step that makes the tree, running.
+    pub(super) fn make_tree() -> Self {
+        Self::of(
+            WorktreeSetupStage::MakeTree,
+            MAKE_TREE_LABEL,
+            WorktreeSetupStepState::Running,
+            StepAction::MakeTree,
+        )
+    }
+
+    /// The warm step, pending.
+    pub(super) fn warm() -> Self {
+        Self::of(
+            WorktreeSetupStage::WarmCaches,
+            WARM_LABEL,
+            WorktreeSetupStepState::Pending,
+            StepAction::Warm,
+        )
+    }
+
+    fn of(
+        stage: WorktreeSetupStage,
+        label: &str,
+        state: WorktreeSetupStepState,
+        action: StepAction,
+    ) -> Self {
+        Self {
+            step: WorktreeSetupStep {
+                stage,
+                label: FreeFormText::new(label.to_owned()).expect("a fixed label is short text"),
+                state,
+                elapsed_ms: None,
+                error: None,
+                output: None,
+            },
+            action,
+        }
+    }
+
+    /// The step as it stands before it runs: pending, with nothing of an earlier run.
+    pub(super) fn into_pending(self) -> Self {
+        Self {
+            step: WorktreeSetupStep {
+                state: WorktreeSetupStepState::Pending,
+                elapsed_ms: None,
+                error: None,
+                output: None,
+                ..self.step
+            },
+            ..self
+        }
+    }
+
+    // Whether the two steps do the same work: the same file, or the same command line whatever
+    // its limit, or the same fixed step.
+    fn does_same_work(&self, other: &Self) -> bool {
+        match (&self.action, &other.action) {
+            (StepAction::Copy { path }, StepAction::Copy { path: other_path }) => {
+                path.as_str() == other_path.as_str()
+            }
+            (
+                StepAction::Command { line, .. },
+                StepAction::Command {
+                    line: other_line, ..
+                },
+            ) => line == other_line,
+            (StepAction::MakeTree, StepAction::MakeTree) | (StepAction::Warm, StepAction::Warm) => {
+                true
+            }
+            (
+                StepAction::MakeTree
+                | StepAction::Copy { .. }
+                | StepAction::Command { .. }
+                | StepAction::Warm,
+                _,
+            ) => false,
+        }
+    }
+}
+
+/// The project's own steps, pending: its files to copy, then its commands, each command given up
+/// on after the project's time limit. Fails when a file to copy is named by blank text, which no
+/// card can show.
+pub(super) fn project_steps_of(setup: &ProjectSetup) -> Result<Vec<CardStep>, TextError> {
+    let time_limit = setup
+        .time_limit_seconds
+        .map(|seconds| Duration::from_secs(seconds.get().unsigned_abs()));
+    let copies = setup.files_to_copy.iter().map(|path| {
+        Ok(CardStep::of(
+            WorktreeSetupStage::ProjectSteps,
+            &FreeFormText::<PROJECT_SETUP_COMMAND_MAX_LEN>::new(path.as_str().to_owned())?
+                .into_string(),
+            WorktreeSetupStepState::Pending,
+            StepAction::Copy { path: path.clone() },
+        ))
+    });
+    let commands = setup.commands.iter().map(|line| {
+        Ok(CardStep::of(
+            WorktreeSetupStage::ProjectSteps,
+            line.as_str(),
+            WorktreeSetupStepState::Pending,
+            StepAction::Command {
+                line: line.clone(),
+                time_limit,
+            },
+        ))
+    });
+    copies.chain(commands).collect()
+}
+
+/// The project steps read again, the leading ones that already succeeded on the card kept as they
+/// stood, each earlier success matched once by what it does, and the rest pending from the first
+/// that has not succeeded; with how many were kept.
+pub(super) fn keep_succeeded_steps(
+    current: &[CardStep],
+    read_again: Vec<CardStep>,
+) -> (Vec<CardStep>, usize) {
+    let mut succeeded: Vec<Option<&CardStep>> = current
+        .iter()
+        .filter(|entry| {
+            entry.step.stage == WorktreeSetupStage::ProjectSteps
+                && entry.step.state == WorktreeSetupStepState::Succeeded
+        })
+        .map(Some)
+        .collect();
+    let mut steps = Vec::with_capacity(read_again.len());
+    let mut kept_count = 0;
+    for entry in read_again {
+        let earlier = if steps.len() == kept_count {
+            succeeded
+                .iter_mut()
+                .find(|earlier| earlier.is_some_and(|earlier| earlier.does_same_work(&entry)))
+                .and_then(Option::take)
+        } else {
+            None
+        };
+        match earlier {
+            Some(earlier) => {
+                steps.push(earlier.clone());
+                kept_count += 1;
+            }
+            None => steps.push(entry),
+        }
+    }
+    (steps, kept_count)
+}
+
+/// `error` as a failed step carries it: credentials scrubbed and cut to the wire's cap.
+pub(super) fn step_error(error: &str) -> FreeFormText<WORKSPACE_LAST_ERROR_MAX_LEN> {
+    normalize_workspace_last_error(error).unwrap_or_else(|| {
+        FreeFormText::new(UNNAMED_FAILURE.to_owned()).expect("the fixed failure is short text")
+    })
+}
+
+/// Copies the file or folder `path` names in the repository's checkout `repository_root` to the
+/// same place in the tree `tree`, keeping each entry the tree already has: carried work, a file
+/// its branch tracks or one written since a failed step is never copied over. A path that leads
+/// outside the checkout or the tree is refused, never read or written.
+pub(super) async fn copy_setup_file(
+    repository_root: &Path,
+    tree: &Path,
+    path: &FilesystemPath,
+) -> StepOutcome {
+    let (Some(source), Some(destination)) = (
+        resolve_inside(repository_root, path.as_str()),
+        resolve_inside(tree, path.as_str()),
+    ) else {
+        return StepOutcome::failed("The file to copy is outside the repository");
+    };
+    let copied = tokio::task::spawn_blocking(move || {
+        copy_tree(&source, &destination, TreeCopyPolicy::KeepExisting, None)
+    })
+    .await;
+    match copied {
+        Ok(Ok(())) => StepOutcome::succeeded(),
+        Ok(Err(error)) => StepOutcome::failed(describe_error(&error)),
+        Err(error) => StepOutcome::failed(describe_error(&error)),
+    }
+}
+
+// `path` joined onto `root` by the system's rules, when it lies inside `root` and is not `root`.
+fn resolve_inside(root: &Path, path: &str) -> Option<PathBuf> {
+    let resolved =
+        PathBuf::from(sidekicks_platforms::resolve_path_against(root.to_str()?, path).ok()?);
+    (is_contained_within(&resolved, root) && !components_equal(&resolved, root)).then_some(resolved)
+}
+
+/// A setup command under way, kept on its card so a removal or the daemon's stop can end it.
+pub(super) struct RunningCommand {
+    end: Mutex<Option<CommandEnd>>,
+    is_end_asked: CancellationToken,
+    ended: watch::Sender<Option<Result<(), Arc<io::Error>>>>,
+}
+
+// Why and how a command is ended: its step's failure, and how long it has after it is asked to
+// stop before every process it started is ended.
+#[derive(Clone, Copy)]
+struct CommandEnd {
+    reason: &'static str,
+    grace: Duration,
+}
+
+/// Why a setup command could not be ended.
+#[derive(Debug, thiserror::Error)]
+#[error("a setup command could not be ended")]
+pub(crate) struct SetupCommandEndError(#[source] Arc<io::Error>);
+
+impl RunningCommand {
+    /// A command not yet started, which an end asked before its start keeps from starting.
+    pub(super) fn new() -> Self {
+        Self {
+            end: Mutex::new(None),
+            is_end_asked: CancellationToken::new(),
+            ended: watch::channel(None).0,
+        }
+    }
+
+    /// Asks the command to stop, its step failing with `reason`, and after `grace` ends every
+    /// process it started; answers once it has exited. A command already asked keeps the first
+    /// ask. Fails with the system's error from the ask or the end.
+    pub(super) async fn end(
+        &self,
+        reason: &'static str,
+        grace: Duration,
+    ) -> Result<(), SetupCommandEndError> {
+        self.end
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert(CommandEnd { reason, grace });
+        self.is_end_asked.cancel();
+        let mut ended = self.ended.subscribe();
+        let outcome = ended
+            .wait_for(Option::is_some)
+            .await
+            .expect("the command holds its own sender")
+            .clone();
+        outcome
+            .expect("the wait ends on an outcome")
+            .map_err(SetupCommandEndError)
+    }
+
+    fn asked_end(&self) -> Option<CommandEnd> {
+        *self.end.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn finish(&self, outcome: io::Result<()>) {
+        self.ended.send_replace(Some(outcome.map_err(Arc::new)));
+    }
+}
+
+/// What a setup command runs with.
+pub(super) struct SetupCommand<'a> {
+    pub(super) spawner: &'a Spawner,
+    pub(super) shell: &'a Path,
+    pub(super) line: &'a str,
+    pub(super) tree: &'a Path,
+    pub(super) environment: Vec<(String, String)>,
+    pub(super) time_limit: Option<Duration>,
+}
+
+// How the wait on a running command ended.
+enum CommandWait {
+    Exited(io::Result<ExitStatus>),
+    TimeLimit,
+    EndAsked,
+}
+
+/// Runs `command` in its tree with standard input empty and its standard output and error read
+/// into one tail; it leads a process tree of its own, so its time limit and an end reach every
+/// process it started. Answers how its step ends once the command has exited and its output has
+/// closed, or once it was ended.
+pub(super) async fn run_command(
+    command: SetupCommand<'_>,
+    running: &RunningCommand,
+) -> StepOutcome {
+    let outcome = run_started_command(command, running).await;
+    running.finish(outcome.1);
+    outcome.0
+}
+
+async fn run_started_command(
+    command: SetupCommand<'_>,
+    running: &RunningCommand,
+) -> (StepOutcome, io::Result<()>) {
+    if let Some(end) = running.asked_end() {
+        return (StepOutcome::failed(end.reason), Ok(()));
+    }
+    let output = Arc::new(Mutex::new(CommandOutput::default()));
+    let output_closed = CancellationToken::new();
+    let (mut tree, time_limit) = match start_command(command, &output, &output_closed).await {
+        Ok(started) => started,
+        Err(error) => return (StepOutcome::failed(describe_error(&error)), Ok(())),
+    };
+    let wait = {
+        let exited = async {
+            let status = tree.wait().await;
+            output_closed.cancelled().await;
+            status
+        };
+        let limit = async {
+            match time_limit {
+                Some(limit) => tokio::time::sleep(limit).await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            status = exited => CommandWait::Exited(status),
+            () = limit => CommandWait::TimeLimit,
+            () = running.is_end_asked.cancelled() => CommandWait::EndAsked,
+        }
+    };
+    match wait {
+        CommandWait::Exited(Ok(status)) => {
+            let error = (!status.success()).then(|| {
+                let exit = read_child_exit(&status, None);
+                exit.signal_name.map_or_else(
+                    || format!("Exited with code {}", exit.exit_code),
+                    |signal| format!("Ended by {signal}"),
+                )
+            });
+            (take_outcome(error, &output), Ok(()))
+        }
+        CommandWait::Exited(Err(error)) => {
+            (take_outcome(Some(describe_error(&error)), &output), Ok(()))
+        }
+        CommandWait::TimeLimit => {
+            let seconds = time_limit.map_or(0, |limit| limit.as_secs());
+            let error = match tree.end_tree().await {
+                Ok(()) => format!("Gave up after {seconds} seconds"),
+                Err(error) => {
+                    format!(
+                        "Could not end the command at its time limit: {}",
+                        describe_error(&error)
+                    )
+                }
+            };
+            (take_outcome(Some(error), &output), Ok(()))
+        }
+        CommandWait::EndAsked => {
+            let end = running
+                .asked_end()
+                .expect("an end is set before it is asked");
+            let ended = end_asked(&mut tree, end.grace, &output_closed).await;
+            (take_outcome(Some(end.reason.to_owned()), &output), ended)
+        }
+    }
+}
+
+// Starts the command with one pipe for both its output streams, read on a blocking thread until
+// every process holding it has closed it; answers the started tree and the command's time limit.
+async fn start_command(
+    command: SetupCommand<'_>,
+    output: &Arc<Mutex<CommandOutput>>,
+    output_closed: &CancellationToken,
+) -> io::Result<(ChildTree, Option<Duration>)> {
+    let (reader, writer) = io::pipe()?;
+    let error_writer = writer.try_clone()?;
+    let mut child = shell_line_command(command.shell, command.line);
+    child
+        .current_dir(command.tree)
+        .env_clear()
+        .envs(command.environment)
+        .stdin(Stdio::null())
+        .stdout(writer)
+        .stderr(error_writer);
+    let daemon_pid = std::process::id();
+    // The command, and with it the pipe's writing ends, is dropped once the child has started,
+    // so only the command's own processes hold the pipe open.
+    let tree = command
+        .spawner
+        .run(move || start_child_tree(child, daemon_pid))
+        .await??;
+    let output = Arc::clone(output);
+    let output_closed = output_closed.clone();
+    tokio::task::spawn_blocking(move || {
+        read_output(reader, &output);
+        output_closed.cancel();
+    });
+    Ok((tree, command.time_limit))
+}
+
+// Asks `tree` to stop, then ends it once `grace` passes before it has exited and its output has
+// closed; a tree whose ask fails is ended at once. Fails with the ask's or the end's error.
+async fn end_asked(
+    tree: &mut ChildTree,
+    grace: Duration,
+    output_closed: &CancellationToken,
+) -> io::Result<()> {
+    if let Err(error) = tree.ask_tree_to_stop().await {
+        tree.end_tree().await?;
+        return Err(error);
+    }
+    let settled = tokio::time::timeout(grace, async {
+        tree.wait().await?;
+        output_closed.cancelled().await;
+        Ok::<_, io::Error>(())
+    })
+    .await;
+    match settled {
+        Ok(exited) => exited,
+        Err(_) => tree.end_tree().await,
+    }
+}
+
+// The tail of a command's output and whether it printed anything.
+struct CommandOutput {
+    tail: OutputTail<WORKTREE_SETUP_OUTPUT_MAX_LEN>,
+    has_printed: bool,
+}
+
+// Nothing printed yet.
+impl Default for CommandOutput {
+    fn default() -> Self {
+        Self {
+            tail: OutputTail::new(),
+            has_printed: false,
+        }
+    }
+}
+
+fn read_output(mut reader: io::PipeReader, output: &Mutex<CommandOutput>) {
+    let mut chunk = vec![0_u8; OUTPUT_READ_CHUNK];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => return,
+            Ok(read) => {
+                let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);
+                output.tail.push(&chunk[..read]);
+                output.has_printed = true;
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "A setup command's output could not be read to its end"
+                );
+                return;
+            }
+        }
+    }
+}
+
+// The step's outcome with the output read so far, which a command ended early may add to later.
+fn take_outcome(error: Option<String>, output: &Mutex<CommandOutput>) -> StepOutcome {
+    let printed = std::mem::take(&mut *output.lock().unwrap_or_else(PoisonError::into_inner));
+    StepOutcome {
+        error,
+        output: printed.has_printed.then(|| {
+            FreeFormText::new(printed.tail.into_text())
+                .expect("a tail is never blank, holds no NUL and keeps within its cap")
+        }),
+    }
+}

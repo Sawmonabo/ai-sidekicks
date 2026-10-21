@@ -16,6 +16,7 @@ use sidekicks_platforms::{Spawner, flush_file};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
+use crate::file::clone_or_copy::clone_or_copy;
 use crate::helper_mode::child::{HelperModeChildError, HelperModeEnd, run_helper_mode_child};
 use crate::helper_mode::input_watch::run_until_input_ends;
 use crate::missing_entry::MissingEntry as _;
@@ -114,12 +115,12 @@ pub fn run_database_copy() -> ExitCode {
 }
 
 /// Copies `source` to `destination`, replacing it: a file already at `destination` is removed
-/// first, since a clone refuses an existing target; then the copy is made, as a clone where the
+/// first, since the copy refuses an existing target; then the copy is made, as a clone where the
 /// file system makes one, and flushed to disk. Fails with the removal's, the copy's or the
 /// flush's error.
 pub(crate) fn copy_file_replacing(source: &Path, destination: &Path) -> io::Result<()> {
     fs::remove_file(destination).none_if_missing()?;
-    reflink_copy::reflink_or_copy(source, destination)?;
+    clone_or_copy(source, destination)?;
     flush_file(destination)
 }
 

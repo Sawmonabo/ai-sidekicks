@@ -82,9 +82,11 @@ mod process_containment;
 mod process_identity;
 mod program_install_folders;
 mod program_start;
+mod recreate_link;
 mod run_folder;
 mod running_program;
 mod shell_folder_start;
+mod shell_line_command;
 mod shell_start;
 mod socket;
 mod spawner;
@@ -296,11 +298,13 @@ pub use process_containment::{
 pub use process_identity::process_identity;
 pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
+pub use recreate_link::recreate_link;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
+pub use shell_line_command::{command_shell, shell_line_command};
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_start::SHELL_START_CONFIRMATION;
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
